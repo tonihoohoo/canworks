@@ -492,7 +492,7 @@ The channel SHALL offer `send_frame` to send one CAN frame, or a cyclic job, on 
 - **THEN** the frames over 50 are refused with "rate limit"
 
 ### Requirement: J1939 network status
-For a J1939 network, a status request SHALL return, as of no more than 100 ms before the answer: the claim state, current address and own NAME; the ECUs seen with address, NAME and time since last message; for each `rx` entry its PGN, source filter, sources seen, milliseconds since the last message, timeout state and timeout count; for each `tx` entry its PGN, messages sent and requests answered; the diagnostic messages state: for each source that sent DM1 its lamps, flash, codes (SPN, FMI, OC, CM), codes beyond the stored ones, time since its last DM1 and whether it uses the older SPN format, and, when the network sends its own DM1, its active and previously active codes with counts, the clears carried out and whether DM13 has suspended broadcasts; and the bus state and error counters as for CANopen networks.
+For a J1939 network, a status request SHALL return, as of no more than 100 ms before the answer: the claim state, current address and own NAME; the ECUs seen with address, NAME and time since last message; for each `rx` entry its PGN, source filter, sources seen, milliseconds since the last message, timeout state and timeout count; for each `tx` entry its PGN, messages sent and requests answered; the diagnostic messages state: for each source that sent DM1 its lamps, flash, codes (SPN, FMI, OC, CM), codes beyond the stored ones, time since its last DM1 and whether it uses the older SPN format, and, when the network sends its own DM1, its active and previously active codes with counts, the clears carried out and whether DM13 has suspended broadcasts; the program's J1939 blocks: open receivers with their PGN, queued and dropped messages, and the counts of program sends, aborted transfers and requests; and the bus state and error counters as for CANopen networks.
 
 #### Scenario: Timed-out PGN without a location
 - **WHEN** PGN 65280 has `timeout_ms` 300 and no `status_location`, and it has stopped arriving
@@ -505,6 +505,10 @@ For a J1939 network, a status request SHALL return, as of no more than 100 ms be
 #### Scenario: ECU with a fault
 - **WHEN** ECU 0 sends DM1 with one code and no `diagnostics.rx` entry watches it
 - **THEN** the status answer lists source 0 with its lamps and the code
+
+#### Scenario: Program receiver
+- **WHEN** a `J1939_RECEIVE` for PGN 65300 is enabled and has dropped two messages
+- **THEN** the status answer lists a receiver for PGN 65300 with 2 dropped
 
 ### Requirement: Raw message status
 The status answer SHALL hold, for each network with raw messages or program frame blocks: per receive message its name, identifier, counter, milliseconds since the last match, timed-out state, short-frame count and last data; per send message its name, identifier, sent count, last error and whether it overrides a protocol identifier; the numbers of open program receivers and cyclic jobs, frames dropped by receivers, program frames sent, and whether sends are confirmed by echo or by write. A plain network's status SHALL hold its bus state and counters like any network.

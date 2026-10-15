@@ -551,25 +551,6 @@ The page header SHALL have an "Export DBC" action. It SHALL run the `canopen-dbc
 - **WHEN** the config has a duplicate node ID
 - **THEN** nothing is downloaded and the Problems pane shows the error
 
-### Requirement: New editor project from a standalone config
-In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to enable the CANopen SDO blocks (unchecked by default), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
-
-#### Scenario: Create and switch
-- **WHEN** the user has saved a standalone config in `~/canworks/rtd`, chooses "New editor project", picks `~/workspace` and the name `rtd-monitor`
-- **THEN** `~/workspace/rtd-monitor` is created with the config in its `canworks/` folder and `main` declaring its I/O, and the page shows mode "project rtd-monitor" with every CANopen entry marked as declared
-
-#### Scenario: SDO blocks enabled
-- **WHEN** the user ticks "Enable CANopen SDO blocks" in the dialog
-- **THEN** the project is created as with `--sdo-blocks`, and the page shows how to install the library when the creation output says it is missing
-
-#### Scenario: Unsaved changes
-- **WHEN** the config has unsaved changes
-- **THEN** the page asks the user to save first and creates nothing
-
-#### Scenario: Name taken
-- **WHEN** `~/workspace/rtd-monitor` already exists
-- **THEN** the dialog says the folder exists and stays open, nothing is written and the page stays in standalone mode
-
 ### Requirement: LSS node settings
 For each node the configurator SHALL show an "Assign node ID by serial number (LSS)" checkbox, saved as `lss.assign`, and a "Store node ID in the device" checkbox, saved as `lss.store`, which SHALL be unticked for a new node and disabled while the first is unticked. Unticked boxes SHALL be left out of the saved node, and an `lss` object with nothing in it SHALL be left out. While "Assign" is ticked the node's serial number field SHALL be required, `reset_communication` SHALL not be selectable as off, and the page SHALL say that the master gives the device this node ID at every start. When the node's EDS does not say `LSS_Supported=1` (left out or 0), both checkboxes SHALL be disabled and unticked, with the reason next to them ("This device's EDS has no LSS (LSS_Supported=1 missing)"). A loaded node that still has an `lss` object SHALL show it as a problem with the plugin's message and offer to remove it. Saving SHALL be refused until it is removed or the node gets an EDS with LSS.
 
@@ -2898,3 +2879,22 @@ The header's Export menu SHALL offer "CODESYS", which runs the `codesys-export` 
 #### Scenario: Config with errors
 - **WHEN** the config has errors and the user picks Export > CODESYS
 - **THEN** nothing is downloaded and the Problems panel lists the errors
+
+### Requirement: New editor project in standalone mode
+In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to enable the canworks function blocks (unchecked by default), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
+
+#### Scenario: Create and switch
+- **WHEN** the user has saved a standalone config in `~/canworks/rtd`, chooses "New editor project", picks `~/workspace` and the name `rtd-monitor`
+- **THEN** `~/workspace/rtd-monitor` is created with the config in its `canworks/` folder and `main` declaring its I/O, and the page shows mode "project rtd-monitor" with every CANopen entry marked as declared
+
+#### Scenario: Function blocks enabled
+- **WHEN** the user ticks "Enable the canworks function blocks" in the dialog
+- **THEN** the project is created as with `--blocks`, and the page shows how to install the library when the creation output says it is missing
+
+#### Scenario: Unsaved changes
+- **WHEN** the config has unsaved changes
+- **THEN** the page asks the user to save first and creates nothing
+
+#### Scenario: Name taken
+- **WHEN** `~/workspace/rtd-monitor` already exists
+- **THEN** the dialog says the folder exists and stays open, nothing is written and the page stays in standalone mode

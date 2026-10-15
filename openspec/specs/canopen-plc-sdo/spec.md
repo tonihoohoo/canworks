@@ -164,7 +164,7 @@ The blocks SHALL reach the plugin the runtime has already loaded, by its library
 
 #### Scenario: Library newer than the plugin
 - **WHEN** the library asks for an API version the installed plugin does not offer
-- **THEN** every block ends with `ERROR_ID` 4, and the plugin logs once that the program's CANopen library needs a newer plugin, naming both versions
+- **THEN** every block ends with `ERROR_ID` 4, and the plugin logs once that the program's canworks library needs a newer plugin, naming both versions
 
 #### Scenario: Plugin installed under another prefix
 - **WHEN** the plugin was installed with `install-stock.sh --prefix /usr/local/canworks`
@@ -183,17 +183,6 @@ The plugin SHALL log an aborted or timed-out program transfer with the node, the
 #### Scenario: Repeated abort
 - **WHEN** the program reads a missing object ten times in a row and each read is aborted with 16#06020000
 - **THEN** the log shows that abort once
-
-### Requirement: Library delivery
-The library SHALL be built from its editor library project in this repository into `canworks.stlib`. It SHALL hold the SDO blocks, the `CO_RECV_EMCY` block, the CiA 402 blocks, the CAN frame blocks and helper functions of `can-plc-frames`, and the J1939 trouble code blocks and functions of `j1939-plc-diagnostics`. Each `deploy-v` release SHALL carry that file, `canworks-deploy library --out DIR` SHALL write the copy that matches the installed tools into `DIR`, `canworks-deploy library --install` SHALL install that copy into OpenPLC Editor on the same computer as the editor's Library Manager does, and `canworks-deploy library --project DIR` SHALL enable it in an editor project. The library's version SHALL equal the deploy package version. Installing it once with the editor's Library Manager ("install from file") SHALL make the blocks appear in the editor's library tree for every project that enables it.
-
-#### Scenario: Install in the editor
-- **WHEN** the user runs `canworks-deploy library --out .` and installs the written file in OpenPLC Editor 4.3.2
-- **THEN** the library tree lists `canworks` with the `CO_SDO_*`, `CO_RECV_EMCY`, `CO402_*`, `CAN_*` and `J1939_*` blocks, and a project that enables it and calls `CO_SDO_READ`, `CO_RECV_EMCY`, `CAN_RECEIVE` and `J1939_DM_READ` builds for OpenPLC Runtime v4
-
-#### Scenario: Install from the command line
-- **WHEN** the user runs `canworks-deploy library --install` on a PC where OpenPLC Editor has run, then restarts the editor
-- **THEN** the editor's library list shows `canworks` with the tools' version, and libraries installed before are still listed
 
 ### Requirement: Bounded wait for a booting node
 A transfer waiting for a node's boot SHALL wait at most its `TIMEOUT` plus the time the master allows a node to answer before reporting it absent. A boot that ends with a boot error SHALL end every transfer waiting for that node with `ERROR_ID` 3 at once. Requests the network side never answers SHALL time out, so they free their slot.
@@ -253,4 +242,4 @@ The plugin's C entry point SHALL offer version 2 of its table, which SHALL begin
 
 #### Scenario: New library, older plugin
 - **WHEN** a program built with this library calls `CO_SDO_READ` and `CO_RECV_EMCY` on a runtime whose plugin offers only version 1
-- **THEN** the read ends with `DONE`, `CO_RECV_EMCY` shows `ERROR_ID` 4, and the plugin logs once that the program's CANopen library needs a newer plugin, naming both versions
+- **THEN** the read ends with `DONE`, `CO_RECV_EMCY` shows `ERROR_ID` 4, and the plugin logs once that the program's canworks library needs a newer plugin, naming both versions
