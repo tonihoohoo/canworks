@@ -203,11 +203,13 @@ class J1939Engine : private AddressClaimer::Actions {
   // entry's only frame, or the page the program's switches select).
   bool build_tx(size_t i, const uint64_t* snap, int page = -1);
   // False when the kernel has not taken the address into use yet: try again.
-  bool send_tx(size_t i, uint8_t destination, clock::time_point now, int page = -1);
+  // `record` false: a reply to another destination than the entry's own,
+  // which does not count as its send (on change, min_gap_ms).
+  bool send_tx(size_t i, uint8_t destination, clock::time_point now, int page = -1, bool record = true);
   // Builds and sends what a request or a periodic send of entry `i` sends:
   // its frame, every page ("all") or the next page ("rotate"). False as
   // send_tx.
-  bool send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap);
+  bool send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap, bool record = true);
   void on_request(const J1939Message& m, clock::time_point now);
   // DM requests to a network that sends its own DM1; true when handled.
   bool on_dm_request(const J1939Message& m, uint32_t pgn, bool to_us, clock::time_point now);

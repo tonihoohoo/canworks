@@ -381,10 +381,17 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
   for (size_t i = 0; i < j_.tx.size(); ++i) {
     if (j_.tx[i].pgn != pgn) continue;
     if (!outputs_enabled()) return;  // a transmit message, stopped with the outputs
-    if (!reply_allowed(pgn, m.source, now)) return;
+    // Before the first scan the outputs are not written: no answer (a NACK
+    // would say the PGN is not sent at all).
     const uint64_t* snap = image_.latest_outputs();
+    if (image_.scan_count(snap) == 0) return;
+    if (!reply_allowed(pgn, m.source, now)) return;
+    const J1939Tx& t = j_.tx[i];
+    const uint8_t own = t.has_destination ? static_cast<uint8_t>(t.destination) : kJ1939Global;
     uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
-    send_all(i, dest, now, snap);
+    // A reply to the requester only is not the send to the entry's own
+    // destination: an on-change value still goes there.
+    send_all(i, dest, now, snap, dest == own);
     ++tx_[i].answered;
     return;
   }
@@ -442,7 +449,7 @@ bool J1939Engine::build_tx(size_t i, const uint64_t* snap, int page) {
   return !st.sent_once || st.next != st.data;
 }
 
-bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, int page) {
+bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, int page, bool record) {
   const J1939Tx& t = j_.tx[i];
   TxState& st = tx_[i];
   int r = send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.next.data(), st.next.size());
@@ -451,6 +458,7 @@ bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, 
   // is tried again on the next tick.
   if (r < 0) return true;
   ++st.sent;
+  if (!record) return true;
   if (page >= 0) {
     st.page_data[static_cast<size_t>(page)] = st.next;
     st.page_sent_once[static_cast<size_t>(page)] = 1;
@@ -462,22 +470,23 @@ bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, 
   return true;
 }
 
-bool J1939Engine::send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap) {
+bool J1939Engine::send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap,
+                           bool record) {
   TxState& st = tx_[i];
   if (st.pages.empty()) {
     build_tx(i, snap);
-    return send_tx(i, destination, now);
+    return send_tx(i, destination, now, -1, record);
   }
   if (j_.tx[i].pages == canworks_can::MuxPages::Rotate) {
     int p = static_cast<int>(st.cursor);
     build_tx(i, snap, p);
-    if (!send_tx(i, destination, now, p)) return false;
+    if (!send_tx(i, destination, now, p, record)) return false;
     st.cursor = (st.cursor + 1) % st.pages.size();
     return true;
   }
   for (size_t p = 0; p < st.pages.size(); ++p) {
     build_tx(i, snap, static_cast<int>(p));
-    if (!send_tx(i, destination, now, static_cast<int>(p))) return false;
+    if (!send_tx(i, destination, now, static_cast<int>(p), record)) return false;
   }
   return true;
 }
