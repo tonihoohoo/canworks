@@ -573,22 +573,6 @@ function normCheck(r, version) {
   return r;
 }
 
-function renderNetBar() {
-  const bar = $("#net-bar");
-  if (!bar || !S.model) return;
-  const nets = S.model.networks;
-  put(bar,
-    several() ? el("div", { class: "net-tabs", role: "tablist", "aria-label": "Networks" }, nets.map((n, i) =>
-      el("button", { type: "button", role: "tab", class: "net-tab" + (i === S.net ? " active" : ""),
-        "aria-selected": String(i === S.net), dataset: { net: i }, title: n.adapter && n.adapter.interface ? "Interface " + n.adapter.interface : null,
-        onclick: () => switchNet(i) }, netLabel(n, i), el("span", { class: "count" })))) : null,
-    el("div", { class: "net-actions" },
-      nets.length < MAX_NETWORKS ? el("button", { type: "button", dataset: { netAction: "add" }, onclick: addNetwork,
-        title: "Another network with its own CAN interface: CANopen (a master and its nodes) or J1939 (an ECU)" }, "Add network") : null,
-      several() ? el("button", { type: "button", dataset: { netAction: "rename" }, onclick: renameNetwork }, "Rename") : null,
-      several() ? el("button", { type: "button", dataset: { netAction: "remove" }, onclick: removeNetwork }, "Remove") : null));
-}
-
 // Opens a network's tab. The online and scan views follow it; a node page
 // goes to the new tab's Bus and master.
 function switchNet(i) {
@@ -762,7 +746,7 @@ function runtimeNetworks(r) {
 
 async function loadState() {
   S.state = await api("GET", "/api/state");
-  if (S.workspace === undefined) await loadShellSettings();
+  if (S.workspace === undefined) { await loadShellSettings(); await loadTreeSettings(); }
   if (S.state.mode) {
     setModel(S.state.config);
     await loadOnlineSettings();
@@ -927,7 +911,6 @@ function render() {
   stopTrace();
   const view = $("#view");
   view.replaceChildren();
-  view.classList.toggle("indexed", S.view.startsWith("node:"));
   if (S.view === "bus") {
     (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
     // The project target (bridge.js) leads every bus page: it is the whole project's.
@@ -940,6 +923,7 @@ function render() {
   else if (S.view === "nodes") renderCommNodes(view);
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
+  else if (S.view === "access") renderAccess(view);
   else if (S.view === "bridge") renderBridge(view);
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
@@ -949,34 +933,7 @@ function render() {
 }
 
 function renderSide() {
-  renderNetBar();
-  for (const b of document.querySelectorAll(".nav-item")) b.classList.toggle("active", b.dataset.view === S.view);
-  // The node list: one button per node (name and error count, nothing
-  // else), the open node marked as current.
-  const list = $("#node-list");
-  // Enter or Space on a node rebuilds the list: the focus goes to its new button.
-  const had = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset : null;
-  const item = (active, attrs, ...kids) => el("li", null, el("button", Object.assign({ type: "button",
-    class: "nav-item" + (active ? " active" : ""), "aria-current": active ? "true" : null }, attrs), ...kids));
-  list.replaceChildren(...(S.config.nodes || []).map((n, i) => item(S.view === "node:" + i,
-    { dataset: { node: i }, onclick: () => showView("node:" + i) },
-    el("span", { class: "name" }, `${n.node_id ?? "?"} ${n.name || ""}`), simBadge(n), el("span", { class: "count" }))));
-  if (isSlave(S.config)) {
-    const s = S.config.slave || {};
-    list.append(item(S.view === "bus", { dataset: { slave: "1" }, onclick: () => showView("bus") },
-      el("span", { class: "name" }, `${s.node_id === null ? "LSS" : s.node_id ?? "?"} slave (this PLC)`)));
-  } else if (!(S.config.nodes || []).length && !isJ1939(S.config) && !isPlain(S.config)) list.append(el("li", { class: "muted" }, "No nodes yet"));
-  const again = had && list.querySelector(had.node !== undefined ? `[data-node="${had.node}"]` : had.slave ? "[data-slave]" : null);
-  if (again) again.focus();
-  fillCounts(countProblems());
-  const j1939 = isJ1939(S.config);
-  const plain = isPlain(S.config);
-  $("#eds-input").closest("label").hidden = isSlave(S.config) || j1939 || plain;
-  $("#nodes-caption").hidden = j1939 || plain;
-  $("#nav-bus").textContent = j1939 ? "Bus and ECU" : plain ? "Bus" : "Bus and master";
-  $("#nav-gateway").hidden = !(S.model.top.gateway || (S.model.networks.some(isSlave) && S.model.networks.some((n) => !isSlave(n))));
-  $("#nav-bridge").hidden = !S.model.top.bridge;
-  $("#nav-links").hidden = !linksNetwork(S.config);
+  renderTree();
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
@@ -1268,9 +1225,16 @@ function renderBus(view) {
           el("span", { class: "field-msg", dataset: { for: path } }),
           declNote(path));
       })))]),
-    onlineAccessSettings(),
-    cia309Settings(),
     ...(slave ? [] : [masterAdvanced()]));
+}
+
+// Online access (the plugin's diagnostics channel, with the CiA 309-3
+// gateway part): one setting for the whole config, its own tree entry.
+function renderAccess(view) {
+  view.append(el("h2", null, "Online access"),
+    el("p", { class: "muted" }, "The runtime's encrypted diagnostics channel, for the Commission workspace, Trace and Simulation. One setting for every network of this config."),
+    onlineAccessSettings(),
+    cia309Settings());
 }
 
 // A collapsed section of rarely needed settings. It opens by itself when one
@@ -1386,7 +1350,7 @@ function showTimeCob() {
 document.addEventListener("input", (ev) => {
   const path = ev.target && ev.target.dataset ? ev.target.dataset.path : null;
   if (path === "master.time_period_ms" || path === "master.time_cob_id") showTimeCob();
-  if (path === "adapter.interface" && several()) renderNetBar();  // the tab shows the interface's name
+  if (path === "adapter.interface") renderTree();  // the tree shows the interface's name
 });
 
 // ---------------------------------------------------------------------------
@@ -1870,114 +1834,12 @@ function objectInfo(eds, index, sub) {
 
 function declaredAs(path) { return S.check && S.check.declared ? S.check.declared[`${S.net}|${path}`] : null; }
 
-function renderNode(view, i) {
-  const n = S.config.nodes[i];
-  const base = `nodes[${i}]`;
-  const eds = edsFor(n);
-  const edsSel = el("select", { dataset: { path: base + ".eds" }, "aria-label": "EDS file" },
-    Object.keys(S.state.eds || {}).map((name) => el("option", { value: name }, name)));
-  edsSel.value = n.eds || "";
-  edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value); render(); });
-  const suggestBtn = (direction, key) => el("button", { type: "button", dataset: { suggest: direction },
-    onclick: async () => {
-      const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction });
-      setPath(base + "." + key, r.location);
-      render();
-    } }, "Suggest");
-  const statusBtn = suggestBtn("status", "status_location");
-  const stateBtn = suggestBtn("state", "state_location");
-  const bootErrBtn = suggestBtn("boot_error", "boot_error_location");
-  const nodeInput = (label, direction, key, placeholder, help) =>
-    el("label", null, label, el("span", { class: "row" },
-      field("", base + "." + key, "text", { placeholder }).querySelector("input"), suggestBtn(direction, key)),
-      hint(help),
-      el("span", { class: "field-msg", dataset: { for: base + "." + key } }),
-      declNote(base + "." + key));
-  const exportBtn = el("button", { type: "button", dataset: { exportDcf: i }, title: "This node as a CiA 306 DCF file, checked",
-    onclick: () => busy(exportBtn, "Exporting…", () => exportDcf(n.node_id, tabNetwork())) }, "Export DCF");
-  const notesBtn = n.eds && eds && !eds.error ? el("button", { type: "button", dataset: { exportNotes: i },
-    title: "The notes of every object of this node's EDS, built-in and your own merged, as one file",
-    onclick: () => busy(notesBtn, "Exporting…", () => exportNotes(n.eds)) }, "Export merged notes") : null;
-  const sections = [];  // [id, label, element]: the section index, in page order
-  const section = (id, label, element) => { if (element) { element.id = "sec-" + id; sections.push([element.id, label]); } return element; };
-  const index = el("nav", { class: "section-index", "aria-label": "Sections of this node" });
-  view.append(
-    el("div", { class: "toolbar" }, el("h2", null, `Node ${n.node_id ?? "?"} ${n.name || ""}`),
-      el("div", { class: "spacer" }), notesBtn, exportBtn,
-      el("button", { type: "button", dataset: { removeNode: i }, onclick: () => removeNode(i) }, "Remove node")),
-    index,
-    section("node", "Node", el("fieldset", null, el("legend", null, "Node"),
-      el("div", { class: "grid" },
-        field("Node ID", base + ".node_id", "intstr"),
-        field("Name", base + ".name", "text"),
-        el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
-        simSwitch(i)))),
-    section("supervision", "Supervision", el("fieldset", null, el("legend", null, "Supervision"),
-      el("div", { class: "grid" }, supervisionFields(i),
-        el("label", null, "Status bit", el("span", { class: "row" },
-          field("", base + ".status_location", "text", { placeholder: "%IX…" }).querySelector("input"), statusBtn),
-          hint("Optional. TRUE while the node is configured and running. Empty: no status bit."),
-          el("span", { class: "field-msg", dataset: { for: base + ".status_location" } }),
-          declNote(base + ".status_location")),
-        el("label", null, "State byte", el("span", { class: "row" },
-          field("", base + ".state_location", "text", { placeholder: "%IB…" }).querySelector("input"), stateBtn),
-          hint("Optional. The node's NMT state: 5 operational, 127 pre-operational, 4 stopped, 0 no contact. Kept current by heartbeat or guarding. Empty: no state byte."),
-          el("span", { class: "field-msg", dataset: { for: base + ".state_location" } }),
-          declNote(base + ".state_location")),
-        nodeInput("NMT command", "nmt", "nmt_command_location", "%QB…",
-          "Optional output byte the program uses to command the node: 0 or 1 run (1 also starts a node with boot off), 2 keep STOPPED, 128 keep PRE-OPERATIONAL, a change to 129 resets the node and to 130 its communication (once). Empty: none."),
-        el("label", null, "Boot error byte", el("span", { class: "row" },
-          field("", base + ".boot_error_location", "text", { placeholder: "%IB…" }).querySelector("input"), bootErrBtn),
-          hint("Optional. Why the last boot failed, as a CiA 302 letter code (66 B no answer, 77 M wrong product code, 74 J configuration refused, ...); 0 once the node boots. Empty: none."),
-          el("span", { class: "field-msg", dataset: { for: base + ".boot_error_location" } }),
-          declNote(base + ".boot_error_location"))))),
-    section("emcy", "Emergency", el("fieldset", null, el("legend", null, "Emergency (EMCY)"),
-      el("div", { class: "grid" },
-        nodeInput("EMCY code", "emcy", "emcy_code_location", "%IW…",
-          "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
-        nodeInput("Error register", "errreg", "error_register_location", "%IB…",
-          "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."),
-        emcyCobField(i)))),
-    section("axis", "Axis", axisFields(i, eds)),
-    section("advanced", "Advanced", nodeAdvanced(i, eds)));
-  if (eds && eds.error) view.append(el("p", { class: "field-msg" }, eds.error));
-  for (const [key, dir, title, id] of [["tx_pdos", "input", "Inputs (TPDOs, slave to PLC)", "inputs"],
-    ["rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", "outputs"]]) {
-    view.append(section(id, id === "inputs" ? "Inputs" : "Outputs", renderPdos(i, key, dir, title, eds)));
-  }
-  view.append(section("sdo", "Startup SDO writes", renderSdos(i, eds)), section("vars", "SDO variables", renderSdoVars(i, eds)));
-  // The section index: an entry per section, the one in view marked as the page scrolls.
-  const links = sections.map(([id, label]) => el("a", { href: "#" + id, dataset: { section: id },
-    onclick: (e) => { e.preventDefault(); const t = document.getElementById(id); if (t) { t.scrollIntoView({ block: "start" }); markSection(id); } } }, label));
-  index.append(...links);
-  if (S.sectionObserver) S.sectionObserver.disconnect();
-  if (typeof IntersectionObserver === "function") {
-    const seen = new Map();
-    S.sectionObserver = new IntersectionObserver((entries) => {
-      for (const e of entries) seen.set(e.target.id, e.isIntersecting ? e.boundingClientRect.top : null);
-      let best = null;
-      for (const [id] of sections) if (seen.get(id) !== null && seen.get(id) !== undefined && (best === null || seen.get(id) < seen.get(best))) best = id;
-      if (best) markSection(best);
-    }, { rootMargin: `-${$("#top").offsetHeight + 40}px 0px -55% 0px`, threshold: 0 });
-    for (const [id] of sections) S.sectionObserver.observe(document.getElementById(id));
-  }
-  // A node just added from an EDS gets its name field.
-  if (S.focusName === i) { S.focusName = null; const name = view.querySelector(`input[data-path="${base}.name"]`); if (name) name.focus(); }
-}
-
-function markSection(id) {
-  for (const a of document.querySelectorAll(".section-index a")) a.setAttribute("aria-current", a.dataset.section === id ? "true" : "false");
-}
-
-// A section of the node page that can be empty: collapsed when it is, with
-// its count and its add action in the summary, open when it has entries
-// or a problem; the user's own open or close wins for the open node.
+// A section of the SDOs tab (startup SDO writes, SDO variables), with its
+// count and its add action in the summary. Open, as the tab holds nothing
+// else; the user's own open or close wins for the open node.
 function collapsible(key, i, label, count, body, summaryExtra) {
   const k = `node${i}.${key}`;
-  const path = `nodes[${i}].${key}`;
-  const problem = ((S.check && S.check.items) || []).some((it) =>
-    (it.where || []).some((w) => (w.net === null || w.net === S.net) && typeof w.path === "string" && w.path.startsWith(path)));
-  const open = S.sectionOpen[k] !== undefined ? S.sectionOpen[k] : count > 0 || problem;
+  const open = S.sectionOpen[k] !== undefined ? S.sectionOpen[k] : true;
   const d = el("details", { class: "section", open: open || null, dataset: { section: key } },
     el("summary", null, label, el("span", { class: "muted" }, count ? `${count} ${count === 1 ? "entry" : "entries"}` : "none")),
     body);
@@ -2369,12 +2231,12 @@ function renderPdos(i, key, dir, title, eds) {
           onclick: () => { S.pickerTarget = { dir, number }; S.pickerOpen[dir] = true; render(); focusPicker(dir); } }, "Add entry…") : null,
         el("button", { type: "button", class: "small", dataset: { removePdo: pb }, title: `Remove ${dir === "input" ? "TPDO" : "RPDO"} ${number} and its entries`,
           onclick: () => removePdo(i, key, j) }, "Remove PDO")),
-      el("div", { class: "pdo-grid" },
+      pdoSettings(pb, dir, p, j, eds, el("div", { class: "pdo-grid" },
         pdoField("Number", pb + ".number", String(j + 1)),
         cobIdField(pb, n, dir, p, j),
         transmissionField(pb, dir, p, eds)),
       timingLine(pb, dir, p, eds),
-      dir === "input" ? timeoutLine(i, pb, p, eds) : null,
+      dir === "input" ? timeoutLine(i, pb, p, eds) : null),
       mappingLine(i, key, dir, p, j, eds));
     const rows = (p.entries || []).map((e, k) => {
       const ep = `${pb}.entries[${k}]`;
@@ -2403,6 +2265,44 @@ function renderPdos(i, key, dir, title, eds) {
   });
   fs.append(objectPicker(i, eds, dir));
   return fs;
+}
+
+// A PDO's communication settings under one summary line ("COB-ID 0x185 ·
+// on change · event 100 ms · timeout 500 ms"), closed until opened, or
+// until one of them has a problem; the user's choice stays for the node.
+const PDO_SETTING_KEYS = /^\.(number|cob_id|transmission|inhibit_time_us|event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location)/;
+function pdoSettings(pb, dir, p, j, eds, ...body) {
+  S.pdoOpen = S.pdoOpen || {};
+  const key = `${S.net}|${pb}`;
+  const problem = ((S.check && S.check.items) || []).some((it) => (it.where || []).some((w) =>
+    (w.net === null || w.net === S.net) && typeof w.path === "string" && w.path.startsWith(pb) && PDO_SETTING_KEYS.test(w.path.slice(pb.length))));
+  const d = el("details", { class: "pdo-settings", dataset: { pdoSettings: pb } },
+    el("summary", null, el("span", { class: "pdo-summary", dataset: { pdoSummary: pb } }, pdoSummaryText(pb, dir, p, j, eds)),
+      el("span", { class: "muted settings-word" }, " · Settings")), ...body);
+  d.open = problem || !!S.pdoOpen[key];
+  d.addEventListener("toggle", () => { S.pdoOpen[key] = d.open; });
+  return d;
+}
+
+function pdoSummaryText(pb, dir, p, j, eds) {
+  const n = S.config.nodes[Number(/^nodes\[(\d+)\]/.exec(pb)[1])];
+  const nr = num(p.number) || j + 1;
+  const sub = (s) => (eds ? commSub(eds, dir, nr, s) : null);
+  const hex = (c) => "0x" + Number(c).toString(16).toUpperCase();
+  const parts = [];
+  const cob = p.cob_id;
+  parts.push("COB-ID " + (Number.isInteger(num(cob)) && cob !== "auto" ? hex(num(cob))
+    : cob === "auto" ? (autoCobIds()[pb] !== undefined ? hex(autoCobIds()[pb]) : "auto") : defaultCobId(n, dir, nr)));
+  const t = p.transmission !== undefined ? num(p.transmission) : sub(2) ? sub(2).value : null;
+  if (t !== null && t !== undefined) {
+    const words = dir === "input" ? { 0: "on change, at SYNC", 1: "every SYNC", 254: "event (manufacturer)", 255: "on change" }
+      : { 1: "at SYNC", 254: "event (manufacturer)", 255: "event-driven" };
+    parts.push(words[t] || (t >= 2 && t <= 240 ? `every ${t}th SYNC` : `type ${t}`));
+  }
+  const ev = p.event_timer_ms !== undefined ? num(p.event_timer_ms) : sub(5) ? sub(5).value : null;
+  if (ev) parts.push(`${dir === "input" ? "event" : "deadline"} ${ev} ms`);
+  if (dir === "input" && p.timeout_ms !== undefined) parts.push(p.timeout_ms === "auto" ? "timeout auto" : `timeout ${p.timeout_ms} ms`);
+  return parts.join(" · ");
 }
 
 function focusPicker(dir) {
@@ -3447,7 +3347,7 @@ function onlineAccessSettings() {
     el("button", { type: "button", onclick: enterToken }, "Enter token…"),
     el("button", { type: "button", onclick: newToken }, "New token")),
   remoteLinkSettings(),
-  el("p", { class: "muted" }, "Open the online view from the side bar once the config with online access is saved and uploaded to the runtime."));
+  el("p", { class: "muted" }, "Open the Commission workspace once the config with online access is saved and uploaded to the runtime."));
   return fs;
 }
 
@@ -3681,7 +3581,7 @@ function renderOnline(view) {
   view.append(el("h2", null, "Nodes"));
   if (!diagConfig()) {
     view.append(el("p", { dataset: { online: "access-off" } }, "Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("bus"); } }, "Bus and master"),
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
       ", save, and upload the program to the runtime."));
     return;
   }
@@ -4252,6 +4152,7 @@ function emcyClass(code) {
 function configNode(id) { return (onlineConfig().nodes || []).find((x) => num(x.node_id) === id) || null; }
 
 async function renderOnlineNode() {
+  if (typeof renderTree === "function") renderTree();
   const box = $("#online-node");
   if (!box || S.onlineNode === undefined || S.onlineNode === null) return;
   const id = S.onlineNode;
@@ -6331,16 +6232,8 @@ function countProblems() {
 
 function fillCounts(c) {
   $("#problem-count").textContent = c.checked ? (c.n ? `${c.n} problem${c.n === 1 ? "" : "s"}` : "none") : "";
-  for (const b of document.querySelectorAll("#node-list [data-node]")) {
-    const k = c.counts[b.dataset.node];
-    const span = b.querySelector(".count");
-    if (span) span.textContent = k ? `${k} error${k === 1 ? "" : "s"}` : "";
-  }
-  for (const tab of document.querySelectorAll("#net-bar [data-net]")) {
-    const k = c.netErrors[tab.dataset.net];
-    const span = tab.querySelector(".count");
-    if (span) span.textContent = k ? String(k) : "";
-  }
+  renderTree();
+  if (typeof nodeTabBadges === "function") nodeTabBadges();
 }
 
 // A check message without the parts meant for the command line: the file
@@ -6467,17 +6360,21 @@ function focusPath(w) {
   if (!w || !w.path) return;
   if (w.net !== null && w.net !== S.net && S.model.networks[w.net]) switchNet(w.net);
   const path = w.path;
+  const [entry, tab] = entryOfPath(w);
+  unfoldFor(entry);
   const m = /^nodes\[(\d+)\]/.exec(path);
-  const want = m ? "node:" + m[1] : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
+  if (m && tab) { const have = nodeTabs(Number(m[1])).map(([k]) => k); setNodeTab(have.includes(tab) ? tab : "general"); }
+  const want = m ? "node:" + m[1] : entry === "access" ? "access" : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
     : path.startsWith("links") ? "links"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path === "role" || path === "protocol" ? "bus" : S.view);
+  if (workspace() !== "configure" && !isTool(want)) switchWorkspace("configure");
   // A CAN message's field is in its editor, which opens for it.
   const raw = /^raw\.(rx|tx)\[(\d+)\]/.exec(path);
   if (raw && (S.view !== "raw" || !S.rawOpen || S.rawOpen.kind !== raw[1] || S.rawOpen.index !== Number(raw[2]))) {
     S.rawOpen = { kind: raw[1], index: Number(raw[2]) };
     if (S.view === "raw") render(); else showView("raw");
-  } else if (want !== S.view) showView(want);
+  } else if (want !== S.view || m) showView(want);
   const target = pathTarget(path);
   if (!target) return;
   // A folded section opens for its field.
@@ -6698,7 +6595,7 @@ function wire() {
     e.target.value = "";
     if (f) busy($("#eds-input").closest("label"), "Adding…", () => addNodeFromEds(f));
   });
-  for (const b of document.querySelectorAll("#side .nav-item")) b.onclick = () => showView(b.dataset.view);
+  wireTree();
   $("#banner-close").onclick = () => banner("");
   $("#modal").addEventListener("cancel", () => { const r = modalResolve; modalResolve = null; if (r) r(null); });
   // Enter in a dialog's field picks its primary button (never a danger

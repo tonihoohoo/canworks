@@ -81,18 +81,14 @@
   </section>
 </main>
 <main id="editor" hidden>
-  <nav id="side" aria-label="Pages">
-    <div id="net-bar" data-config="1"></div>
-    <button id="nav-bus" type="button" data-view="bus" class="nav-item" data-config="1">Bus and master</button>
-    <h2 id="nodes-caption" class="side-caption" data-config="1">Nodes</h2>
-    <ul id="node-list" data-config="1"></ul>
-    <label class="file-button" data-config="1">Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
-    <button id="nav-gateway" type="button" data-view="gateway" class="nav-item" hidden>Gateway</button>
-    <button id="nav-bridge" type="button" data-view="bridge" class="nav-item" data-config="1" hidden>Modbus bridge</button>
-    <button id="nav-links" type="button" data-view="links" class="nav-item" data-config="1" hidden>PDO links</button>
-    <button id="nav-raw" type="button" data-view="raw" class="nav-item" data-config="1">CAN messages</button>
-    <div id="unused-eds" data-config="1"></div>
-    <p id="scan-info" class="muted" data-config="1"></p>
+  <nav id="side" aria-label="Network">
+    <button id="tree-toggle" type="button" aria-expanded="false" aria-controls="tree">Network ▾</button>
+    <ul id="tree" role="tree" aria-label="Network"></ul>
+    <label class="file-button" hidden>Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
+    <div id="side-foot" data-config="1">
+      <div id="unused-eds"></div>
+      <p id="scan-info" class="muted"></p>
+    </div>
   </nav>
   <section id="view" aria-label="Page"></section>
 </main>
@@ -114,6 +110,8 @@
 <script src="uplot/uPlot.iife.min.js"></script>
 <script src="app.js"></script>
 <script src="shell.js"></script>
+<script src="tree.js"></script>
+<script src="node.js"></script>
 <script src="connection.js"></script>
 <script src="jobs.js"></script>
 <script src="commission.js"></script>

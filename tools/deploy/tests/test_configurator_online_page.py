@@ -13,7 +13,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
-from .helpers import PINGPONG, REPO, tmpdir
+from .helpers import PINGPONG, REPO, node_tab, tmpdir, tree_view
 from .test_configurator_page import FIXTURE, REQUIRED, load, sync_playwright
 
 
@@ -109,6 +109,7 @@ class OnlinePage(OnlineBase):
     def test_enable_online_access(self):
         pg = self.page
         self.open()
+        tree_view(pg, "access")
         pg.check('input[data-online="enable"]')
         pg.wait_for_selector('input[data-path="master.diagnostics.port"]')
         self.assertIn("This PC has the token", pg.inner_text('[data-online="token-state"]'))
@@ -137,6 +138,7 @@ class OnlinePage(OnlineBase):
         self.write_config({"token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest()})
         self.remember("plc.local")
         self.open()
+        tree_view(pg, "access")
         self.assertIn("former unencrypted token", pg.inner_text('[data-online="token-state"]'))
         pg.click('button[data-online="upgrade"]')
         pg.wait_for_selector('[data-online="token-state"]:has-text("This PC has the token")')
@@ -151,6 +153,7 @@ class OnlinePage(OnlineBase):
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.open()
+        tree_view(pg, "access")
         self.assertIn("no token", pg.inner_text('[data-online="token-state"]'))
         pg.click("text=Enter token…")
         pg.fill("#modal-extra input", "wrong")
@@ -522,6 +525,8 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.locator('[data-online="back-to-scan"]').count(), 0)
             self.assertIn("Back to the online view", pg.inner_text('[data-online="back-to-online"]'))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
+            pg.wait_for_selector('[data-node-heading="1"]')
+            node_tab(pg, "supervision")
             pg.select_option("select[data-supervision]", "heartbeat")
             pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
             pg.wait_for_function("() => document.body.dataset.checking === '0'")

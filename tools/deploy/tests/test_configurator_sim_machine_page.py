@@ -284,7 +284,7 @@ class Offline(Base):
         # Machine is the fourth tab of Simulation, not a sidebar item.
         self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.innerText)"),
                          ["Live values", "Simulation file", "Scenarios", "Machine"])
-        self.assertEqual(pg.locator('#side button[data-view="machine"], #nav-machine').count(), 0)
+        self.assertEqual(pg.locator('#tree [data-view="machine"], #nav-machine').count(), 0)
 
 
 class Live(Base):

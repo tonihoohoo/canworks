@@ -13,6 +13,7 @@ from canworks.link import discovery, pc as linkpc
 
 from . import test_configurator_online_page as base
 from .fake_diag import TOKEN, FakePlugin
+from .helpers import tree_view
 from .test_configurator_page import load
 
 
@@ -57,6 +58,7 @@ class LinkPage(base.OnlineBase):
         self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
         self.remember("plc.local")
         self.open()
+        tree_view(pg, "access")
         box = 'input[data-online="internet"]'
         pg.wait_for_selector(box)
         self.assertEqual(pg.locator('textarea[data-online="relays"]').count(), 0)

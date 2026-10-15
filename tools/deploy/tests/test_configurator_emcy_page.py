@@ -4,6 +4,7 @@ node page's EMCY COB-ID field, in a real browser against a fake plugin
 test_configurator_page.py."""
 
 from .fake_diag import FakePlugin
+from .helpers import tree_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -122,7 +123,7 @@ class EmcyCobField(OnlineBase):
     def node_page(self):
         pg = self.page
         self.open()
-        pg.click('#node-list [data-node="0"]')
+        tree_node(pg, 0, "supervision")
         pg.wait_for_selector('select[data-emcy-cob="mode"]')
 
     def save(self):
@@ -162,7 +163,7 @@ class EmcyCobField(OnlineBase):
         self.assertEqual(self.save()["emcy_cob_id"], 197)
         # Reopened: the number shows.
         pg.reload()  # the project opens again
-        pg.click('#node-list [data-node="0"]')
+        tree_node(pg, 0, "supervision")
         pg.wait_for_selector('select[data-emcy-cob="mode"]')
         self.assertEqual(pg.input_value('select[data-emcy-cob="mode"]'), "number")
         self.assertEqual(pg.input_value('input[data-emcy-cob="number"]'), "197")

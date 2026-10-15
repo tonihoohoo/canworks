@@ -340,7 +340,7 @@ function simAllow() { return !!(SIM.last && SIM.last.allow_changes); }
 
 function simNoChanges() {
   if (SIM.last && SIM.last.target === "runtime") {
-    return "Read-only: the runtime does not allow changes (turn on \"Allow changes\" under Online access on Bus and master, then save and upload). Values are still shown.";
+    return "Read-only: the runtime does not allow changes (turn on \"Allow changes\" under Configure → Online access, then save and upload). Values are still shown.";
   }
   return "Read-only: not connected to the simulated devices.";
 }
@@ -434,7 +434,7 @@ function simConnectBox() {
   if (target === "runtime") {
     if (!diagConfig()) {
       box.append(el("p", null, "Online access is off for this config. Turn it on in Configure → ",
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("bus"); } }, "Bus and master"),
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
         " (simulating a node or the network does this), save, and upload the program to the runtime."));
     } else if (!connIsOn() && !connReady()) {
       box.append(el("p", { dataset: { sim: "not-connected" } }, "The runtime's simulated devices are reached through the connection to the runtime. ",
@@ -1922,7 +1922,7 @@ async function simMachineTab(body) {
     network: simSectionName(), port: diagPort(), file: name, canConnect: can,
     notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator above."
       : diagConfig() ? "To see it live, connect to the runtime (Connect… above)."
-        : "Online access is off for this config: turn it on in Configure → Bus and master to see the machine live.",
+        : "Online access is off for this config: turn it on in Configure → Online access to see the machine live.",
     feWindow: machineFeWindow,
     openNode: (node) => {
       if (several()) S.onlineNet = simSectionName();

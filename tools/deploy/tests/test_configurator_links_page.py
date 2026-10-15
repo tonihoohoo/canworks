@@ -13,7 +13,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir
+from .helpers import REPO, tmpdir, tree_node, tree_view
 from .test_configurator_page import REQUIRED, sync_playwright
 
 EXAMPLE = os.path.join(REPO, "examples", "pdo-link")
@@ -90,7 +90,7 @@ class LinksPage(unittest.TestCase):
         self.write(cfg)
         pg = self.page
         self.open()
-        pg.click("#nav-links")
+        tree_view(pg, "links")
         pg.wait_for_selector("h2:has-text('PDO links')")
         pg.click('button[data-link-new="1"]')
         pg.wait_for_selector('fieldset[data-link="0"]')
@@ -118,7 +118,7 @@ class LinksPage(unittest.TestCase):
         self.write(cfg)
         pg = self.page
         self.open()
-        pg.click("#nav-links")
+        tree_view(pg, "links")
         pg.wait_for_selector('fieldset[data-link="0"]')
         pg.wait_for_selector("#problem-list li.error")
         self.assertTrue(pg.is_visible('.link-pos.bad[data-link-pos="0"]'))
@@ -133,7 +133,7 @@ class LinksPage(unittest.TestCase):
     def test_producer_removed_asks(self):
         pg = self.page
         self.open()
-        pg.click('#node-list [data-node="0"]')
+        tree_node(pg, 0, "pdos")
         pg.click('button[data-remove-pdo="nodes[0].tx_pdos[0]"]')
         pg.wait_for_selector("#modal[open]")
         self.assertIn("feeds link stick_to_valves", pg.inner_text("#modal-text"))
@@ -148,7 +148,7 @@ class LinksPage(unittest.TestCase):
     def test_watch_default_timeout(self):
         pg = self.page
         self.open()
-        pg.click('#node-list [data-node="1"]')
+        tree_node(pg, 1, "supervision")
         pg.wait_for_selector('input[data-path="nodes[1].heartbeat_watch[0].timeout_ms"]')
         self.assertEqual(pg.get_attribute('input[data-path="nodes[1].heartbeat_watch[0].timeout_ms"]', "placeholder"),
                          "default (300 ms)")

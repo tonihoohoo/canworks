@@ -27,7 +27,7 @@ That gives four combinations:
 | real | some (`"simulate": true` on them) | The simulated devices run inside the plugin on the real interface, next to the real devices. Real devices on the wire and the master see them as any other node. |
 | real | all | Every node is simulated, and their frames go out on the real interface. |
 
-A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, and a question before the deploy tool uploads it. Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
+A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, whose network tree marks simulated nodes hollow and absent ones dashed, and a question before the deploy tool uploads it. A simulated node's **Simulation** tab in the configurator edits its part of the [simulation file](#the-simulation-file) (value sources, faults at start, default behaviour). Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
 #### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
 

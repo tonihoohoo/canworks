@@ -11,7 +11,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, tmpdir
+from .helpers import PINGPONG, REPO, add_network, net_action, tmpdir, tree_view
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 GATEWAY = os.path.join(REPO, "config", "gateway")
@@ -101,18 +101,21 @@ class SlavePage(unittest.TestCase):
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), self.folder)
         self.write(load(os.path.join(PINGPONG, "canopen_config.json")))
         self.open()
-        pg.click('#net-bar button[data-net-action="add"]')
+        add_network(pg)
         pg.click('#modal button[data-value="canopen"]')
         pg.fill('#view input[data-path="adapter.interface"]', "vcan1")
-        pg.select_option('#view select[data-path="role"]', "slave")
+        # The role from the network's menu in the tree.
+        net_action(pg, 1, "role")
         pg.wait_for_selector("#view h2:has-text('Bus and slave device')")
+        self.assertEqual(pg.inner_text('#tree [data-key="1"] > .tree-row > .proto'), "CANopen slave")
+        self.assertIn("slave (this PLC)", pg.inner_text('#tree [data-key="1"] [data-slave] > .tree-row'))
+        self.assertEqual(pg.locator('#tree [data-key="1:add"]').count(), 0)
         # The slave's own Network switch: the simulated bus.
         pg.select_option('#view select[data-path="adapter.simulate"]', "true")
         self.assertIn("simulated bus vcan1", pg.inner_text("#sim-banner"))
         pg.select_option('#view select[data-path="adapter.simulate"]', "")
         self.assertEqual(pg.locator("#view legend:has-text('Master')").count(), 0)
-        self.assertTrue(pg.is_hidden("label.file-button:has(#eds-input)"))
-        self.assertTrue(pg.is_visible("#nav-gateway"))
+        self.assertTrue(pg.is_visible("#tree #nav-gateway"))
         # Build: two objects, generate, bind both.
         pg.click("[data-add-desc-object]")
         pg.click("[data-add-desc-object]")
@@ -150,7 +153,7 @@ class SlavePage(unittest.TestCase):
         pg.select_option('#view select[data-path="role"]', "")
         self.answer("master")
         pg.wait_for_selector("#view legend:has-text('Master')")
-        self.assertTrue(pg.is_visible("label.file-button:has(#eds-input)"))
+        pg.wait_for_selector('#tree [data-key="1:add"]')  # Add node… is back
 
     def test_gateway_page(self):
         pg = self.page
@@ -160,7 +163,7 @@ class SlavePage(unittest.TestCase):
         self.open()
         count, text = self.problems(True)
         self.assertEqual(count, "none", text)
-        pg.click("#nav-gateway")
+        tree_view(pg, "gateway")
         pg.wait_for_selector("#view h2:has-text('Gateway')")
         self.assertEqual(pg.locator("tr[data-route]").count(), 2)
         self.assertEqual(pg.input_value('select[data-path="gateway.upper"]'), "upper")

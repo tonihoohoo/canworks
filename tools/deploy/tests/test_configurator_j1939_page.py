@@ -10,7 +10,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import J1939_NETWORK, TOKEN, FakePlugin
-from .helpers import REPO
+from .helpers import REPO, add_network, net_action, tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -31,15 +31,14 @@ class J1939Page(OnlineBase):
         os.remove(self.config_path)
         self.open()
         # A J1939 network next to the empty CANopen one, then the CANopen one goes.
-        pg.click('button[data-net-action="add"]')
+        add_network(pg)
         pg.click('#modal button[data-value="j1939"]')
         pg.wait_for_selector("h2:has-text('Bus and ECU')")
-        self.assertTrue(pg.is_hidden("#nodes-caption"))
+        # No nodes and no Add node… under this network in the tree.
+        self.assertEqual(pg.locator('#tree .open-net [data-node], #tree .open-net [data-action="add-node"]').count(), 0)
         self.assertTrue(pg.is_hidden("#eds-input >> xpath=.."))
-        self.assertTrue(pg.is_hidden("#nav-scan"))
         self.assertEqual(pg.locator('[data-path="master.node_id"]').count(), 0)
-        pg.click('#net-bar button[data-net="0"]')
-        pg.click('button[data-net-action="remove"]')
+        net_action(pg, 0, "remove")
         pg.click('#modal button[data-value="remove"]')
         pg.wait_for_selector("h2:has-text('Bus and ECU')")
         pg.fill('input[data-path="adapter.interface"]', "can1")

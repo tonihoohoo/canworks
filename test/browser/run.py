@@ -157,7 +157,7 @@ class Run:
 
     def view(self, name):
         """A page: the Commission workspace's Nodes page (the online view), a
-        tool tab, or a Configure page from the side bar."""
+        tool tab, or a Configure page from the network tree."""
         pg = self.page
         if name == "online":
             if pg.get_attribute('#ws [data-ws="commission"]', "aria-pressed") != "true":
@@ -170,7 +170,7 @@ class Run:
                 pg.click('#ws [data-ws="configure"]')
             if not pg.is_visible("#side"):
                 pg.click('#tool-tabs button[data-view="network"]')
-            pg.click('#side button[data-view="%s"]' % name)
+            pg.click('#tree .open-net [data-view="%s"] > .tree-row, #tree > [data-view="%s"] > .tree-row' % (name, name))
 
     def online_row(self, node):
         return 'tr[data-online-node="%d"]' % node

@@ -37,16 +37,16 @@ export CANWORKS_TOKEN=virtual-plant-demo        # PowerShell: $env:CANWORKS_TOKE
 canworks-config path/to/virtual-plant
 ```
 
-The page opens on the project with one tab per network: `io`, `motion`, `cell`, `host` ([configurator.md](configurator.md#several-networks)). Look around:
+The page opens on the project with its four networks in the network tree on the left: `io`, `motion`, `cell`, `host` ([configurator.md](configurator.md#network-tree)). A node opens in tabs (General, PDOs, SDOs, Supervision, ...), and the tab you pick stays as you go from node to node. Look around:
 
-- `io` → node `dio`: the PDOs it maps from the config, the startup SDO 0x2000, the SDO variables `operating_hours` and `filter_time`, and under **Advanced settings** the configuration check, store sub-index 1, the NMT command byte and the TIME COB-ID with the consumer bit. Node `new_io` has a serial number and **Assign node ID by serial number**. Node `rtd` is mandatory and its TPDO 1 has a receive timeout of 200 ms with a status bit.
-- `motion` → node `drive`: **CiA 402 axis** with cyclic synchronous modes; the master's SYNC follows the PLC cycle.
+- `io` → node `dio`: on **PDOs** the PDOs it maps from the config, on **SDOs** the startup SDO 0x2000 and the SDO variables `operating_hours` and `filter_time`, and on **Advanced** the configuration check, store sub-index 1, the NMT command byte and the TIME COB-ID with the consumer bit. Node `new_io` has a serial number and **Assign node ID by serial number**. Node `rtd` is mandatory and its TPDO 1 has a receive timeout of 200 ms with a status bit.
+- `motion` → node `drive`: the **CiA 402** tab with cyclic synchronous modes; the master's SYNC follows the PLC cycle.
 - `cell`: the slave network with the objects the program reads and writes; **Gateway** with its two routes, the field status, EMCY forwarding, the SDO bridge and **On upper loss: zero** ([gateway.md](gateway.md)).
 - `host`: node 20 is the cell itself, not simulated: the plugin's own slave answers.
 
 ![The cell's gateway page with its two routes](images/tour-gateway.png)
 
-**A deliberate mistake:** on `io` → `dio`, change the PLC address of TPDO 1's first entry from `%IB110` to `%IB13`. **Problems** at once reports that `%IB13` is already node `rtd`'s state byte, the field turns red and **Save** is disabled. Change it back ([configurator.md](configurator.md#checks-and-saving)). The deploy tool runs the same checks ([deploy.md](deploy.md)).
+**A deliberate mistake:** on `io` → `dio` → **PDOs**, change the PLC address of TPDO 1's first entry from `%IB110` to `%IB13`. **Problems** at once reports that `%IB13` is already node `rtd`'s state byte, the tree and the PDOs tab show an error badge, the field turns red and **Save** is disabled. Change it back ([configurator.md](configurator.md#checks-and-saving)). The deploy tool runs the same checks ([deploy.md](deploy.md)).
 
 ![The deliberate mistake: %IB13 is node rtd's state byte](images/tour-mistake.png)
 

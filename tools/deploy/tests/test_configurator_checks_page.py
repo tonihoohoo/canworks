@@ -15,7 +15,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir
+from .helpers import REPO, add_network, show_path, tmpdir, tree_node, tree_view
 from .test_configurator_page import REQUIRED, load, sync_playwright
 from .test_configurator_sim_page import Base as SimBase, View as SimView, rtd_config
 
@@ -96,21 +96,30 @@ class ChecksPage(unittest.TestCase):
         return self.page.locator("#problem-list li").all_inner_texts()
 
     def field_msg(self, path):
+        if path.startswith("nodes["):
+            self.show(path)
         return self.page.inner_text('.field-msg[data-for="%s"]' % path)
 
     def node(self, i):
-        self.page.click('#node-list [data-node="%d"]' % i)
-        # Every folded section open, so each field can be typed into.
-        self.page.evaluate("() => document.querySelectorAll('#view details').forEach((d) => d.open = true)")
+        tree_node(self.page, i)
+
+    def show(self, path):
+        """Opens the node tab of `path`, and its PDO's settings when they are folded."""
+        pg = self.page
+        show_path(pg, path)
+        box = pg.locator('input[data-path="%s"]' % path)
+        if not box.is_visible():
+            pg.click('details[data-pdo-settings]:has(input[data-path="%s"]) > summary' % path)
+        return box
 
     def type(self, path, text):
-        self.page.fill('input[data-path="%s"]' % path, text)
+        self.show(path).fill(text)
         self.settled()
 
     def test_missing_interface_disables_save(self):
         pg = self.page
         self.open(self.config())
-        pg.click('#net-bar button[data-net-action="add"]')
+        add_network(pg)
         pg.click('#modal button[data-value="canopen"]')
         self.assertEqual(pg.input_value('input[data-path="adapter.interface"]'), "")
         self.assertIn("CAN adapter: the CAN interface is missing", "\n".join(self.problems()))
@@ -148,7 +157,7 @@ class ChecksPage(unittest.TestCase):
         self.assertIn(text, self.field_msg("nodes[1].tx_pdos[0].cob_id"))
         self.assertIn("invalid", pg.get_attribute('input[data-path="nodes[1].tx_pdos[0].cob_id"]', "class"))
         self.node(0)
-        self.assertIn("invalid", pg.get_attribute('input[data-path="nodes[0].tx_pdos[0].cob_id"]', "class"))
+        self.assertIn("invalid", self.show("nodes[0].tx_pdos[0].cob_id").get_attribute("class"))
         # Above 11 bits, in hex or decimal: what the field takes, not "'auto' was expected".
         self.node(1)
         for text in ("0x800", "2048"):
@@ -167,7 +176,7 @@ class ChecksPage(unittest.TestCase):
         self.type("nodes[0].tx_pdos[0].number", "600")
         self.assertEqual(self.field_msg("nodes[0].node_id"), "node ID must be a number (decimal or 0x hex), 1 to 127")
         self.assertEqual(self.field_msg("nodes[0].status_location"), "status bit must be an input bit such as %IX0.0")
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         self.type("master.sync_cycles", "0")
         self.assertEqual(self.field_msg("master.sync_cycles"), "SYNC every N PLC cycles must be 1 to 1000")
         problems = self.problems()

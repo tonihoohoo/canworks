@@ -165,7 +165,8 @@ class Access(Running):
         self.assertEqual(self.request("GET", "/../server.py", token=False, headers={"Cookie": cookie})[0], 404)
 
 
-UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open", "ws_note": "new"}
+UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open", "ws_note": "new",
+               "node_tab": "general", "tree_folded": []}
 
 
 def ui(**changes):
@@ -220,6 +221,23 @@ class Theme(Running):
                          ui(workspace="commission", panel="closed"))
         self.assertEqual(self.request("POST", "/api/ui", {"workspace": "online"})[0], 400)
         self.assertEqual(self.ok("POST", "/api/ui", {"ws_note": "seen"}), ui(workspace="commission", panel="closed", ws_note="seen"))
+
+    def test_node_tab_and_folded_networks_kept(self):
+        """network-tree-and-node-tabs: the open node tab and the folded
+        networks of the tree."""
+        self.assertEqual(self.ok("POST", "/api/ui", {"node_tab": "pdos", "tree_folded": ["io", "#2"]}),
+                         ui(node_tab="pdos", tree_folded=["io", "#2"]))
+        self.assertEqual(self.ok("GET", "/api/ui"), ui(node_tab="pdos", tree_folded=["io", "#2"]))
+        self.assertEqual(self.request("POST", "/api/ui", {"node_tab": "pdo"})[0], 400)
+        for bad in ("io", [1], [""], ["x" * 18], ["n%d" % i for i in range(9)]):
+            self.assertEqual(self.request("POST", "/api/ui", {"tree_folded": bad})[0], 400, bad)
+        self.assertEqual(self.ok("POST", "/api/ui", {"tree_folded": []}), ui(node_tab="pdos"))
+
+    def test_bad_tree_settings_in_the_file_read_as_defaults(self):
+        os.makedirs(os.path.join(self.dir, "cfg"))
+        with open(os.path.join(self.dir, "cfg", "ui.json"), "w") as f:
+            json.dump({"node_tab": "x", "tree_folded": "io"}, f)
+        self.assertEqual(self.ok("GET", "/api/ui"), ui())
 
     def test_nothing_written_to_the_project(self):
         before = sorted(os.listdir(self.project))

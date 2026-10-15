@@ -4,6 +4,7 @@ Frame lab. Needs Playwright, like test_configurator_page.py."""
 
 import json
 
+from .helpers import tree_net
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_trace_page import TraceBase
 
@@ -164,7 +165,7 @@ class FrameLab(TraceBase):
         pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")
         # Another network (picked on the Network page): the frame and its result belonged to io.
         pg.click('#tool-tabs button[data-view="network"]')
-        pg.click('.net-tab[data-net="1"]')
+        tree_net(pg, 1)
         pg.click('button[data-view="framelab"]')
         pg.wait_for_selector("[data-fx=examples] .chip")
         self.assertEqual(pg.input_value("[data-fx=lab-frame]"), "")

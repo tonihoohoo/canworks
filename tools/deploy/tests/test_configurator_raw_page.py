@@ -10,7 +10,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
-from .helpers import REPO
+from .helpers import REPO, add_network, net_action, tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -50,18 +50,17 @@ class RawPage(OnlineBase):
         pg = self.page
         os.remove(self.config_path)
         self.open()
-        pg.click('button[data-net-action="add"]')
+        add_network(pg)
         pg.click('#modal button[data-value="none"]')
         pg.wait_for_selector("h2:has-text('Bus')")
-        self.assertTrue(pg.is_hidden("#nodes-caption"))
-        self.assertTrue(pg.is_hidden("#nav-scan"))
+        # No nodes and no Add node… under this network in the tree.
+        self.assertEqual(pg.locator('#tree .open-net [data-node], #tree .open-net [data-action="add-node"]').count(), 0)
         self.assertEqual(pg.locator('[data-path="master.node_id"]').count(), 0)
-        pg.click('#net-bar button[data-net="0"]')
-        pg.click('button[data-net-action="remove"]')
+        net_action(pg, 0, "remove")
         pg.click('#modal button[data-value="remove"]')
         pg.wait_for_selector("h2:has-text('Bus')")
         pg.fill('input[data-path="adapter.interface"]', "can1")
-        pg.click("#nav-raw")
+        tree_view(pg, "raw")
         pg.wait_for_selector("h2:has-text('CAN messages')")
         pg.click("#raw-import")
         pg.set_input_files('#modal input[type="file"]', os.path.join(EXAMPLE, "cab.dbc"))
@@ -101,7 +100,7 @@ class RawPage(OnlineBase):
             {"name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW301"},
             {"name": "Press", "start_bit": 8, "length": 16, "iec_location": "%IW302"}]}])
         self.open()
-        pg.click("#nav-raw")
+        tree_view(pg, "raw")
         pg.click('tr[data-raw="rx:0"]')
         pg.wait_for_selector('[data-raw-editor="rx:0"]')
         # Before: Temp and Press overlap.
@@ -149,7 +148,7 @@ class RawPage(OnlineBase):
         with open(dbc, "w", encoding="utf-8") as f:
             f.write(MUX_DBC)
         self.open()
-        pg.click("#nav-raw")
+        tree_view(pg, "raw")
         pg.click("#raw-import")
         pg.set_input_files('#modal input[type="file"]', dbc)
         pg.click('#modal button[data-value="next"]')

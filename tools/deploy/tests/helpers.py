@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -239,3 +240,63 @@ with open(os.path.join(root, "pous", "programs", "main.st"), "w") as f:
     f.write("PROGRAM main\\n  VAR\\n  END_VAR\\n\\n\\n\\nEND_PROGRAM")
 print('Created "%%s" at %%s' %% (name, root))
 """ % {"log": os.path.join(dir_, "cli-args.json"), "fail": fail})
+
+
+# -- the configurator page's network tree and node tabs ---------------------
+# Page tests reach a page as a user does: an entry of the network tree, then
+# a tab of the node page.
+
+def tree_entry(page, key):
+    """Clicks the tree entry with data-key `key` ("0", "0:bus", "1:node:2", "access", ...)."""
+    page.click('#tree [data-key="%s"] > .tree-row' % key)
+
+
+def tree_view(page, view):
+    """Opens a page of the open network (bus, raw, links) or of the config
+    (access, gateway, bridge) from the tree."""
+    if view in ("access", "gateway", "bridge"):
+        page.click('#tree > [data-view="%s"] > .tree-row' % view)
+    else:
+        page.click('#tree .open-net [data-view="%s"] > .tree-row' % view)
+
+
+def tree_net(page, k):
+    """Opens network k from its tree entry."""
+    tree_entry(page, str(k))
+
+
+def tree_node(page, i, tab=None):
+    """Opens node i of the open network from the tree, then its tab `tab`."""
+    page.click('#tree .open-net [data-node="%d"] > .tree-row' % i)
+    page.wait_for_selector('[data-node-heading="%d"]' % i)
+    if tab:
+        node_tab(page, tab)
+
+
+def node_tab(page, tab):
+    """Opens a tab of the open node page."""
+    if not page.locator('[data-node-tab-panel="%s"]' % tab).count():
+        page.click('.node-tabs [data-node-tab="%s"]' % tab)
+    page.wait_for_selector('[data-node-tab-panel="%s"]' % tab)
+
+
+def show_path(page, path):
+    """Opens the node tab that holds the field at `path` (nodes[i]....) of the
+    open network, opening the node first when another page is shown."""
+    m = re.match(r"nodes\[(\d+)\]\.?(.*)$", path)
+    if not m:
+        return
+    i = int(m.group(1))
+    if not page.locator('[data-node-heading="%d"]' % i).count():
+        tree_node(page, i)
+    node_tab(page, page.evaluate("(r) => nodeTabOfPath(r)", m.group(2)))
+
+
+def add_network(page):
+    page.click('#tree [data-action="add-network"] > .tree-row')
+
+
+def net_action(page, k, action):
+    """Rename, role or remove of network k from its tree menu."""
+    page.click('#tree [data-net-menu="%d"]' % k)
+    page.click('#modal-buttons [data-value="%s"]' % action)

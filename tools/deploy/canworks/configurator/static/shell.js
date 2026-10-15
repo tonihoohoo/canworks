@@ -84,7 +84,7 @@ function rememberView() {
   S.wsView[workspace()] = S.view;
 }
 
-// The header's workspace switch and the tool tabs; the side bar and the
+// The header's workspace switch and the tool tabs; the network tree and the
 // bottom panel per workspace.
 function renderShell() {
   const ws = workspace();
@@ -97,7 +97,9 @@ function renderShell() {
   }
   document.body.dataset.workspace = ws;
   const tool = isTool(S.view);
-  $("#editor").classList.toggle("tool-view", tool || ws === "commission");
+  // The network tree beside the workspace's own page; a tool, and Commission
+  // a device (its own node list), take the whole width.
+  $("#editor").classList.toggle("tool-view", tool || device);
   const own = ws === "configure" ? ["network", "Network"] : [homeView(ws), "Nodes"];
   const items = [own].concat(toolsOf(ws).map((t) => [t, TOOL_LABELS[t]]));
   const active = tool ? S.view : own[0];
@@ -109,7 +111,7 @@ function renderShell() {
     else { if (!isTool(S.view)) rememberView(); showView(k); }
   }, { class: "tabs tool-tabs", dataset: "view", label: "Pages", panel: "view" }));
   // A tool works on one network of the config: with several, the network
-  // tabs of the side bar are here, since a tool has no side bar.
+  // tree's networks are here, since a tool has no tree.
   if (tool && !device && S.model && several()) {
     host.append(el("div", { class: "segmented tool-net", role: "group", "aria-label": "Network" },
       S.model.networks.map((n, i) => el("button", { type: "button", class: "net-pick", "aria-pressed": String(i === S.net),
