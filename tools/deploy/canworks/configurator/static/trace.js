@@ -90,11 +90,12 @@ function download(r) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-// Recording and the Send panel: the runtime's online access, or in
-// Commission a device the open USB adapter connection.
+// Recording and the Send panel use the connection in the connection bar
+// (connection.js): the runtime with a config, the USB adapter in Commission
+// a device. A runtime that is set up opens when recording starts.
 function onlineReady() {
   if (S.state && S.state.commission) return !!S.adapterOn;
-  return !!(diagConfig() && S.online && S.online.host && S.online.token && S.online.tokenOk);
+  return connIsOn() || (connReady() && !S.runtimeOff);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,9 +235,10 @@ function showTraceHeader(st) {
   if (!rec.running && !onlineReady()) {
     const commission = !!(S.state && S.state.commission);
     parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
-      commission ? "Recording needs the USB adapter connection: Connect on " : "Recording needs online access: set the runtime host and token in ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, commission ? "Bus and master" : "Online"),
-      ". Opening, viewing and exporting trace files works without it."));
+      commission ? "Recording needs the USB adapter connection. " : diagConfig() ? "Recording needs the connection to the runtime. "
+        : "Recording needs online access: turn it on in Configure → Bus and master, save and upload. ",
+      commission || diagConfig() ? el("button", { type: "button", class: "small primary", dataset: { trace: "open-connect" }, onclick: () => openConnect() }, "Connect…") : null,
+      " Opening, viewing and exporting trace files works without it."));
   }
   for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
   const trimmed = rec.trimmed || 0;
@@ -289,6 +291,7 @@ async function traceStart() {
     if (v !== "start") return;
     T.kept = false;
   }
+  if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
       error_frames: T.errorFrames, port: diagPort() });
@@ -996,7 +999,7 @@ function sendBlocked() {
     if (!S.online.allow_changes) return "Sending needs Allow changes on Bus and master";
     return null;
   }
-  if (!onlineReady()) return "Sending needs online access: set the runtime host and token in Online.";
+  if (!onlineReady()) return "Sending needs a connection: Connect… in the connection bar.";
   if (!diagConfig().allow_changes) return "Sending needs Allow changes in Online access";
   return null;
 }

@@ -12,12 +12,13 @@
 </head>
 <body>
 <header id="top">
+  <div class="top-row">
   <h1>canworks configurator</h1>
+  <div id="ws" class="segmented" role="group" aria-label="Workspace" hidden>
+    <button type="button" data-ws="configure" title="Edit the config: networks, nodes, PDOs, exports">Configure</button><button type="button" data-ws="commission" data-view="online" title="Work on the live bus through the runtime">Commission</button>
+  </div>
   <span id="mode" class="badge" hidden></span>
   <div class="spacer"></div>
-  <div id="theme" class="segmented" role="group" aria-label="Theme">
-    <button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button><button type="button" data-theme-choice="auto">Auto</button>
-  </div>
   <div id="actions" hidden>
     <button id="btn-reload" type="button" data-config="1">Reload from disk</button>
     <button id="btn-close" type="button">Close</button>
@@ -41,6 +42,18 @@
     </details>
     <button id="btn-save" type="button" class="primary" data-config="1">Save</button>
   </div>
+  <details id="menu-settings" class="menu">
+    <summary aria-haspopup="true">Settings</summary>
+    <div class="menu-panel" role="group" aria-label="Settings">
+      <div class="menu-row"><span class="muted">Theme</span>
+      <div id="theme" class="segmented" role="group" aria-label="Theme">
+        <button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button><button type="button" data-theme-choice="auto">Auto</button>
+      </div></div>
+    </div>
+  </details>
+  </div>
+  <div id="tool-tabs" hidden></div>
+  <div id="conn-bar" hidden></div>
 </header>
 <div id="sim-banner" role="note" hidden></div>
 <div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
@@ -78,27 +91,31 @@
     <button id="nav-bridge" type="button" data-view="bridge" class="nav-item" data-config="1" hidden>Modbus bridge</button>
     <button id="nav-links" type="button" data-view="links" class="nav-item" data-config="1" hidden>PDO links</button>
     <button id="nav-raw" type="button" data-view="raw" class="nav-item" data-config="1">CAN messages</button>
-    <button type="button" data-view="declarations" class="nav-item" data-config="1">Variable declarations</button>
-    <h2 class="side-caption" data-config="1">Runtime</h2>
-    <button id="nav-online" type="button" data-view="online" class="nav-item">Online</button>
-    <button id="nav-comm-nodes" type="button" data-view="nodes" class="nav-item" data-commission="1">Nodes</button>
-    <button type="button" data-view="trace" class="nav-item">Trace</button>
-    <button id="nav-simulation" type="button" data-view="simulation" class="nav-item" data-config="1">Simulation</button>
-    <button type="button" data-view="framelab" class="nav-item">Frame lab</button>
     <div id="unused-eds" data-config="1"></div>
     <p id="scan-info" class="muted" data-config="1"></p>
   </nav>
   <section id="view" aria-label="Page"></section>
+</main>
+<footer id="bottom" hidden>
   <section id="problems" aria-label="Problems"><details id="problems-box" open>
     <summary><h2 class="side-caption">Problems</h2> <span id="problem-count" class="muted" aria-live="polite"></span></summary>
     <div id="overlap-box" hidden><label class="check" title="Save even if a CANopen location overlaps one the editor project uses"><input id="allow-overlap" type="checkbox"> Allow overlap</label>
       <span class="hint">Save even though these locations overlap the editor project, like the deploy tool's --allow-clash.</span></div>
     <ul id="problem-list"></ul>
   </details></section>
-</main>
+  <section id="log-panel" aria-label="Commissioning log" hidden><details id="log-box">
+    <summary><h2 class="side-caption">Log</h2> <span id="log-count" class="muted" aria-live="polite"></span></summary>
+    <div id="log-body"></div>
+  </details></section>
+  <div id="statusbar"><div id="jobs" aria-live="polite"></div><div class="spacer"></div><div id="bus-info" class="muted"></div></div>
+</footer>
+<dialog id="conn-dialog" aria-labelledby="conn-dialog-title"><h2 id="conn-dialog-title">Connect</h2><div id="conn-dialog-body"></div></dialog>
 <dialog id="modal"><form method="dialog"><p id="modal-text"></p><div id="modal-extra"></div><menu id="modal-buttons"></menu></form></dialog>
 <script src="uplot/uPlot.iife.min.js"></script>
 <script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="connection.js"></script>
+<script src="jobs.js"></script>
 <script src="commission.js"></script>
 <script src="trace.js"></script>
 <script src="explain.js"></script>
@@ -107,5 +124,6 @@
 <script src="rawcan.js"></script>
 <script src="bridge.js"></script>
 <script src="links.js"></script>
+<script src="boot.js"></script>
 </body>
 </html>

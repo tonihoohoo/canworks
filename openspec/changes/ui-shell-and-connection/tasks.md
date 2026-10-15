@@ -1,45 +1,46 @@
 ## 1. Groundwork
 
-- [ ] 1.1 Load the page as ES modules (`<script type="module">`), with no build step; add a small event emitter on `S`; move nothing else yet
-- [ ] 1.2 Page test helpers `openWorkspace(name)`, `openTool(name)`, `connectAdapter(...)`, `connectRuntime(...)`; move the existing page tests from side bar clicks to them, all green before anything new is added
+- [x] 1.1 New page scripts next to the others, loaded as plain scripts with no build step (`shell.js`, `connection.js`, `jobs.js`), and `boot.js` that starts the page once every script is loaded (design decision 9: no ES module split yet)
+- [x] 1.2 Move the existing page tests to the new places: the Commission switch (`#ws`), the tool tabs (`#tool-tabs`), the connect panel (`#conn-dialog`) and the connection bar (`#conn-bar`); all green before new tests
 
 ## 2. Server
 
-- [ ] 2.1 `/api/online/status`: one answer shape for adapter and runtime targets (`kind`, `target`, `connected`, `ended_reason`, `bitrate`, `check`, `path`, `rtt_ms`, `bus`, `frames`, `other_master`, `allow_changes`, `allow_changes_source`, `networks`)
-- [ ] 2.2 `/api/jobs`: running jobs of the session (parameter job, scan, LSS find, trace recording, PDO test and SYNC, send jobs) with label, progress, start time and stop route
-- [ ] 2.3 Stops: LSS find ends between fastscan steps; back up and compare honour the parameter job's stop flag; tests for each
-- [ ] 2.4 Explicit disconnect for a runtime connection (closes the diagnostics client and its trace and send jobs)
-- [ ] 2.5 `ui.json`: `workspace` per folder and `panel_height`; older files load unchanged
+- [x] 2.1 `/api/online/status`: a `conn` summary with one shape for adapter and runtime targets (`kind`, `target`, `bitrate`, `check`, `path`, `rtt_ms`, `bus`, `other_master`, `allow_changes`, `allow_changes_source`, `networks`)
+- [x] 2.2 `/api/online/jobs`: running jobs of the session (parameter job, scan, LSS find, trace recording, PDO test and SYNC, cyclic sends) with label, progress and stop request; bus jobs asked only while one was started and the connection is open
+- [x] 2.3 Stops: the parameter jobs and the scan already stop; LSS find is listed without Cancel (it ends by itself; no plugin change in this UI change)
+- [x] 2.4 Disconnect closes a runtime connection too, with its trace, Send panel and watched jobs
+- [x] 2.5 `ui.json`: `workspace`, `panel` and `ws_note`; older files load unchanged
+- [x] 2.6 The Simulation view's standalone simulator on a connection of its own (`sim_connection`), so it never closes or retargets the runtime connection
 
 ## 3. Shell
 
-- [ ] 3.1 `shell.js`: header (title, workspace switch, folder name and unsaved mark, settings menu with the theme, Reload, Close, Project, Export, Save); Commission a device shows title, settings menu and Close only
-- [ ] 3.2 Workspaces: Configure (config pages) and Commission (online view as Nodes; commissioning Nodes without a config); kept per folder and in the URL hash; one-time note on the switch
-- [ ] 3.3 Tool tabs: Variable declarations, Simulation, Trace, Frame lab per workspace; full width; tab pattern and keyboard; remove the tools from the side bar
+- [x] 3.1 Header: title, workspace switch, folder name with the unsaved mark, Settings menu with the theme, Reload, Close, Project, Export, Save; Commission a device shows title, Settings and Close only
+- [x] 3.2 Workspaces: Configure (config pages) and Commission (online view as Nodes; commissioning Nodes without a config); kept in `ui.json`; links to the other workspace's pages switch to it; one-time note next to the switch
+- [x] 3.3 Tool tabs: Variable declarations, Simulation, Trace, Frame lab per workspace; full width; tab pattern and keyboard; the tools leave the side bar
 
 ## 4. Connection
 
-- [ ] 4.1 `connection.js`: the only poller of `/api/online/status`; events `connected`, `changed`, `ended`; replace `S.online` connection reads, trace `onlineReady()` and the Simulation view's runtime fields
-- [ ] 4.2 Connection bar: states (not connected, connecting with check step and Cancel, adapter, runtime, ended, lost), network picker, fault-only colours, live region and alert
-- [ ] 4.3 Connect panel (dialog): adapter form in Commission a device; runtime list, host, Local simulator runtime and token prompt with a config; refused check keeps the panel open; link to Online access when it is off; opens once on entering Commission while not connected
-- [ ] 4.4 Allow changes: switch with confirmation on an adapter; read-only text with lock and source on a runtime
-- [ ] 4.5 Remove the commissioning Bus and master tab, the online view's Connect box and connection line, and the trace and simulation connection hints; their "needs a connection" notes get a Connect… button
+- [x] 4.1 `connection.js`: the only poller of `/api/online/status`; the online views draw from its answers (`onlineApply`); trace `onlineReady()` and the Simulation view's Runtime target use it
+- [x] 4.2 Connection bar: not connected, connecting with Cancel, adapter, runtime, ended, lost (with Change…), network picker, fault-only colours, status role and alert
+- [x] 4.3 Connect panel (dialog): adapter form in Commission a device (a refused check keeps it open with the reason); runtime list, host, Local simulator runtime and token prompt with a config; note and link when online access is off; opened on entering Commission when the connection cannot open by itself
+- [x] 4.4 Allow changes: switch with confirmation on an adapter; read-only text with lock on a runtime
+- [x] 4.5 Remove the commissioning Bus and master tab, the online view's Connect box and Connection… button, and the trace and simulation connection hints; their "needs a connection" notes get Connect…
 
 ## 5. Status bar and bottom panel
 
-- [ ] 5.1 `jobs.js` and the status bar: job list with progress and Cancel on every page, collapse above two, confirmation for restore and write configuration, frame rate and bus load while connected
-- [ ] 5.2 `panel.js`: bottom panel with Problems (Configure; collapsed in Commission with a config) and Log (Commission a device), counts in tab titles, height kept; remove the right-hand Problems column
-- [ ] 5.3 Narrow layout: side bar as top bar below 1000 px, bottom panel kept, Problems strip removed; layout fit check at 1000, 1280 and 1440 px
+- [x] 5.1 `jobs.js` and the status bar: jobs with progress and Cancel on every page, collapse above two, confirmation for restore and write configuration, frame rate and bus load on an adapter
+- [x] 5.2 Bottom panel: Problems (Configure; closed in Commission with a config) and Log (Commission a device) with counts; the right-hand Problems column removed
+- [x] 5.3 Narrow layout: side bar as top bar below 1100 px, bottom panel kept, Problems strip removed
 
 ## 6. Tests
 
-- [ ] 6.1 Page tests: workspace switch keeps draft, connection and jobs; reload keeps the workspace; tool tabs per workspace and full width
-- [ ] 6.2 Page tests: connect panel on the virtual adapter (wrong rate refused, Disconnect frees the adapter, Allow changes without "another master") and on the fake plugin runtime (token prompt, path and round trip in the bar, network picker)
-- [ ] 6.3 Page tests: Trace records and Simulation's Runtime target work through the bar's connection, with no connect form; both offer Connect… without a connection
-- [ ] 6.4 Page tests: scan and LSS find cancelled from the status bar on another page; restore Cancel asks; bus-off ends the connection and the bar announces it
-- [ ] 6.5 axe-core on the header, connection bar, connect panel, status bar and bottom panel in both themes; one keyboard-only run: connect, switch workspace, open each tool, cancel a job, disconnect
+- [x] 6.1 Page tests: workspace switch keeps draft and connection; reload keeps the workspace; tool tabs per workspace and full width; one-time note
+- [x] 6.2 Page tests: connect panel on the virtual adapter (wrong rate keeps the panel, Disconnect frees the adapter, Allow changes without "another master") and on the fake plugin runtime (Change…, read-only runtime setting, network picker in the bar, lost connection in the bar)
+- [x] 6.3 Page tests: Trace and Simulation's Runtime target work through the bar's connection with no form of their own, and offer Connect… without one
+- [x] 6.4 Page tests: scan cancelled from the status bar on another page; LSS find listed without Cancel; restore Cancel asks
+- [x] 6.5 axe-core on the connection bar, connect panel, status bar and bottom panel in both themes; keyboard: tool tabs with the arrow keys, Disconnect from the bar
 
 ## 7. Docs and release
 
-- [ ] 7.1 `docs/configurator.md` (page layout, workspaces, connection bar, connect panel, jobs, bottom panel; Online becomes Commission), `docs/pc-adapter.md`, `docs/tour.md`, `README.md`
-- [ ] 7.2 PC tools minor version bump and changelog line
+- [x] 7.1 `docs/configurator.md` (page layout, workspaces, connection bar, connect panel, jobs, bottom panel; Online is the Commission workspace), `docs/pc-adapter.md`, `docs/tour.md`, `docs/diagnostics.md`, `docs/simulator.md`, `README.md`
+- [x] 7.2 PC tools minor version bump

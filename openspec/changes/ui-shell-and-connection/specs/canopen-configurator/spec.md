@@ -5,7 +5,7 @@ With a config open, the header SHALL have a **Configure | Commission** switch:
 - **Configure** SHALL show the config pages.
 - **Commission** SHALL show the live view of the runtime as its **Nodes** tab, with the node list and node pages of the online view.
 
-Commission a device SHALL open in Commission and SHALL show no switch. Switching workspace SHALL keep the draft, the connection and every running job. The workspace SHALL be kept on this PC per folder and SHALL come back after a page reload. The first time a config opens with this version, the switch SHALL show a one-time note that the Online view is now the Commission workspace.
+Commission a device SHALL open in Commission and SHALL show no switch. Switching workspace SHALL keep the draft, the connection and every running job. The workspace SHALL be kept on this PC and SHALL come back after a page reload. A link to a page of the other workspace (a problem, "Back to the online view") SHALL switch to that workspace. The first time a config opens with this version, the switch SHALL show a note that the Online view is now the Commission workspace, until the user closes it or switches workspace; it SHALL NOT show again on this PC.
 
 #### Scenario: Switch while editing
 - **WHEN** the user has an unsaved change in Configure and switches to Commission and back
@@ -78,7 +78,7 @@ With a config the panel SHALL offer a runtime only:
 
 When the config's online access is off, the panel SHALL say so and link to Configure → Bus and master.
 
-The last target and bit rate SHALL be kept in the configurator's settings on this PC, never in a project. Entering Commission while not connected SHALL open the panel once.
+The last target and bit rate SHALL be kept in the configurator's settings on this PC, never in a project. Entering Commission while not connected SHALL connect to the runtime at once when this PC has its host and a matching token and the user did not disconnect; otherwise it SHALL open the panel, once per folder or commissioning session. A USB adapter SHALL always need Connect, because of the bit rate check.
 
 #### Scenario: Wrong bit rate refused
 - **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
@@ -124,19 +124,23 @@ A status bar at the bottom of the page SHALL list the running jobs of the sessio
 - PDO test and SYNC;
 - cyclic send jobs.
 
-Each SHALL show a short label, its progress, and **Cancel**, on every page and tool tab. More than two jobs SHALL collapse into a count that opens the list. Cancel of a restore or write configuration SHALL ask first. LSS find, back up and compare SHALL stop within a second of Cancel. While connected, the status bar SHALL also show the frame rate and the estimated bus load.
+Each SHALL show a short label and its progress on every page and tool tab, and every job that can be stopped SHALL have **Cancel**. LSS find, which ends by itself within about 15 seconds, SHALL be listed without Cancel. More than two jobs SHALL collapse into a count that opens the list. Cancel of a restore or write configuration SHALL ask first, with keeping it running as the default. While connected through a connection that counts frames (a USB adapter), the status bar SHALL also show the frame rate and the estimated bus load.
 
 #### Scenario: Cancel a scan from another page
 - **WHEN** a scan is running and the user has opened Frame lab
 - **THEN** the status bar shows the scan's progress, and Cancel there stops the scan within a second with the devices found so far kept
 
-#### Scenario: Stop LSS find
-- **WHEN** LSS find is searching and the user presses Cancel in the status bar
-- **THEN** the search stops within a second and no LSS command is sent afterwards
+#### Scenario: LSS find in the status bar
+- **WHEN** LSS find is searching
+- **THEN** the status bar lists it with the seconds it has run and no Cancel
+
+#### Scenario: Cancel of a restore asks
+- **WHEN** a restore of node 5 is running and the user presses its Cancel in the status bar
+- **THEN** a dialog asks first, with keeping it running as the focused default
 
 ### Requirement: Bottom panel
-The page SHALL have a collapsible panel under the page, with its height kept on this PC. Its contents SHALL depend on the workspace:
-- **Configure:** a **Problems** tab, with Allow overlap. It SHALL open by itself when problems appear after a save or check.
+The page SHALL have a collapsible panel under the page, which stays at the bottom of the window while the page scrolls; whether Problems is open in Configure SHALL be kept on this PC. Its contents SHALL depend on the workspace:
+- **Configure:** a **Problems** tab, with Allow overlap.
 - **Commission a device:** a **Log** tab with the commissioning log and **Save log**.
 - **Commission with a config:** the **Problems** tab, collapsed.
 

@@ -165,9 +165,17 @@ class Access(Running):
         self.assertEqual(self.request("GET", "/../server.py", token=False, headers={"Cookie": cookie})[0], 404)
 
 
+UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open", "ws_note": "new"}
+
+
+def ui(**changes):
+    return dict(UI_DEFAULTS, **changes)
+
+
 class Theme(Running):
     """fix-configurator-layout: the theme is kept in ui.json in the settings
-    folder and put into the page."""
+    folder and put into the page (ui-shell-and-connection: with the workspace,
+    the bottom panel and the workspace note)."""
 
     def page(self):
         _, _, r = self.request("GET", self.server.url.split(str(self.server.server_port), 1)[1], token=False)
@@ -175,14 +183,14 @@ class Theme(Running):
         return self.request("GET", "/", token=False, headers={"Cookie": cookie})[1]
 
     def test_default_auto(self):
-        self.assertEqual(self.ok("GET", "/api/ui"), {"theme": "auto", "dbc_sdo": "none"})
+        self.assertEqual(self.ok("GET", "/api/ui"), ui())
         self.assertIn(b'data-theme="auto"', self.page())
 
     def test_kept_and_in_the_page(self):
         self.ok("POST", "/api/ui", {"theme": "dark"})
         with open(os.path.join(self.dir, "cfg", "ui.json")) as f:
-            self.assertEqual(json.load(f), {"theme": "dark", "dbc_sdo": "none"})
-        self.assertEqual(self.ok("GET", "/api/ui"), {"theme": "dark", "dbc_sdo": "none"})
+            self.assertEqual(json.load(f), ui(theme="dark"))
+        self.assertEqual(self.ok("GET", "/api/ui"), ui(theme="dark"))
         self.assertIn(b'data-theme="dark"', self.page())
 
     def test_bad_value_refused(self):
@@ -190,22 +198,28 @@ class Theme(Running):
         self.assertEqual(status, 400)
         self.assertIn("theme", data["error"])
         self.assertEqual(self.request("POST", "/api/ui", {"theme": "x"}, token="wrong")[0], 403)
-        self.assertEqual(self.ok("GET", "/api/ui"), {"theme": "auto", "dbc_sdo": "none"})
+        self.assertEqual(self.ok("GET", "/api/ui"), ui())
 
     def test_broken_file_reads_as_auto(self):
         os.makedirs(os.path.join(self.dir, "cfg"))
         with open(os.path.join(self.dir, "cfg", "ui.json"), "w") as f:
             f.write("[1, 2")
-        self.assertEqual(self.ok("GET", "/api/ui"), {"theme": "auto", "dbc_sdo": "none"})
+        self.assertEqual(self.ok("GET", "/api/ui"), ui())
 
     def test_dbc_sdo_kept_with_theme(self):
         self.ok("POST", "/api/ui", {"theme": "dark"})
-        self.assertEqual(self.ok("POST", "/api/ui", {"dbc_sdo": "config"}), {"theme": "dark", "dbc_sdo": "config"})
-        self.assertEqual(self.ok("GET", "/api/ui"), {"theme": "dark", "dbc_sdo": "config"})
+        self.assertEqual(self.ok("POST", "/api/ui", {"dbc_sdo": "config"}), ui(theme="dark", dbc_sdo="config"))
+        self.assertEqual(self.ok("GET", "/api/ui"), ui(theme="dark", dbc_sdo="config"))
         status, data, _ = self.request("POST", "/api/ui", {"dbc_sdo": "some"})
         self.assertEqual(status, 400)
         self.assertIn("dbc_sdo", data["error"])
         self.assertEqual(self.request("POST", "/api/ui", {"colour": "red"})[0], 400)
+
+    def test_workspace_and_panel_kept(self):
+        self.assertEqual(self.ok("POST", "/api/ui", {"workspace": "commission", "panel": "closed"}),
+                         ui(workspace="commission", panel="closed"))
+        self.assertEqual(self.request("POST", "/api/ui", {"workspace": "online"})[0], 400)
+        self.assertEqual(self.ok("POST", "/api/ui", {"ws_note": "seen"}), ui(workspace="commission", panel="closed", ws_note="seen"))
 
     def test_nothing_written_to_the_project(self):
         before = sorted(os.listdir(self.project))

@@ -81,7 +81,7 @@ The deploy tool does the same upload from a command line: `canworks-deploy --run
 
 ## 5. Online diagnostics
 
-In the configurator, **Online access** → **Local simulator runtime**, token `virtual-plant-demo`, then **Online** ([configurator.md](configurator.md#online-view)). Pick each network:
+In the configurator, switch to **Commission** at the top and, in the connect panel, pick **Local simulator runtime** with the token `virtual-plant-demo` ([configurator.md](configurator.md#online-view)). The connection bar then shows the runtime; pick each network there:
 
 - `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL, the TPDO 1 timeout line of node 5, the SDO variables of node 6, every 60 s an EMCY 0x5000 from node 5 (the simulation's wire-break timeline) in its **Emergency history**.
 - `cell`: the plugin's own device, node 20: its state, SYNC count, PDOs with the gateway routes, and the gateway row: 2 routes, upper master present.
@@ -116,7 +116,7 @@ The same from a terminal: `canworks-diag --runtime local sim fault 6 heartbeat-s
 
 ## 8. LSS
 
-`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Online** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. The node list then shows node 8 as not configured.
+`new_io` (node 7) got its node ID at start from the master, by its serial number 7007 ([config.md](config.md#lss)). A second module, `spare_io` (serial 7099), is on the bus without a node ID and is not in the config: **Commission** → `io` → **Unconfigured devices (LSS)** → **Find a device without node ID** finds it; **Set node ID…** gives it, say, 8, and the page offers to add it as a node. The node list then shows node 8 as not configured.
 
 ```sh
 canworks-diag --runtime local lss-find --network io
@@ -124,15 +124,15 @@ canworks-diag --runtime local lss-find --network io
 
 ## 9. The drive
 
-Network `motion`: the program powers the axis, homes it and moves it between 0 and 1000 with `CO402_CyclicMoveAbsolute`, a new position every PLC cycle on the SYNC the cycle sends ([cia402.md](cia402.md#cyclic-synchronous-modes)). In **Online** → `motion` → node 4, watch 0x6041 (statusword, **Bits** names each bit), 0x6061 (mode 8, CSP) and 0x6064. In **Simulation** on `motion`, **Drive inputs…** → **blocked**: the axis cannot move, the drive reports a following error, and the program resets it in step 90 and starts again once you clear the input. The host stops the line when it is lost (next chapter), and the drive then stays put after its current move.
+Network `motion`: the program powers the axis, homes it and moves it between 0 and 1000 with `CO402_CyclicMoveAbsolute`, a new position every PLC cycle on the SYNC the cycle sends ([cia402.md](cia402.md#cyclic-synchronous-modes)). In **Commission** → `motion` → node 4, watch 0x6041 (statusword, **Bits** names each bit), 0x6061 (mode 8, CSP) and 0x6064. In **Simulation** on `motion`, **Drive inputs…** → **blocked**: the axis cannot move, the drive reports a following error, and the program resets it in step 90 and starts again once you clear the input. The host stops the line when it is lost (next chapter), and the drive then stays put after its current move.
 
 ## 10. Slave and gateway
 
 The cell (node 20) is the PLC as a slave: the host writes `line_run` and `temp_limit`, the program writes `alarm`, `axis_position` and `cycle_count` ([slave.md](slave.md)). The gateway copies RTD channel 0 up and the host's `analog_out` down to DIO-16 analogue output 1 in the plugin, without the program ([gateway.md](gateway.md)).
 
-- **Online** → `host` → node 20 → **Object dictionary**: 0x5E00 sub 5, 6, 7 are the NMT states of the field nodes on `io`, 0x5E10 sub 1 their operational bits; 0x5E01/0x5E11 those of `motion`.
+- **Commission** → `host` → node 20 → **Object dictionary**: 0x5E00 sub 5, 6, 7 are the NMT states of the field nodes on `io`, 0x5E10 sub 1 their operational bits; 0x5E01/0x5E11 those of `motion`.
 - The SDO bridge: write the network (0), node (5), index 0x1018, sub-index 2, then command 1 to 0x5F00 from node 20's SDO panel on `host`, and read the product code of node 5 back in sub-index 5 ([gateway.md](gateway.md#sdo-bridge)).
-- Upper master lost: **Online** → `host` → node 20 → **NMT** → **Stop**. The cell leaves OPERATIONAL, `cell_line_run` drops (inputs on loss: zero), the drive stops after its move, and the gateway sets DIO-16 analogue output 1 to 0. **Start** brings it back.
+- Upper master lost: **Commission** → `host` → node 20 → **NMT** → **Stop**. The cell leaves OPERATIONAL, `cell_line_run` drops (inputs on loss: zero), the drive stops after its move, and the gateway sets DIO-16 analogue output 1 to 0. **Start** brings it back.
 
 ## 11. Trace with a trigger
 

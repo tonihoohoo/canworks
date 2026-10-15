@@ -118,20 +118,23 @@ class Probes(Layout):
         pg.goto(self.server.url)
         pg.click("#start-commission")
         pg.wait_for_selector("#editor:not([hidden])")
-        pg.wait_for_selector('button[data-view="online"].active')
+        pg.wait_for_selector('#conn-dialog[open]')
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector('#tool-tabs button[data-view="nodes"][aria-selected="true"]')
+        self.assertTrue(pg.is_hidden("#ws"))
         self.assertTrue(pg.is_hidden("#menu-project"))
         self.assertTrue(pg.is_hidden("#menu-export"))
         self.assertTrue(pg.is_hidden("#btn-save"))
         self.assertTrue(pg.is_hidden("#btn-reload"))
         self.assertTrue(pg.is_visible("#btn-close"))
         self.assertTrue(pg.is_hidden("#problems"))
+        self.assertTrue(pg.is_visible("#log-panel"))
         self.assertTrue(pg.is_hidden("#node-list"))
         self.assertTrue(pg.is_hidden('button[data-view="bus"]'))
-        self.assertTrue(pg.is_hidden('button[data-view="declarations"]'))
-        self.assertTrue(pg.is_hidden('button[data-view="simulation"]'))
-        shown = [b.text_content().strip() for b in pg.query_selector_all("#side .nav-item") if b.is_visible()]
-        self.assertEqual(shown, ["Bus and master", "Nodes", "Trace", "Frame lab"])
-        self.assertNotIn("nodes", pg.inner_text("#side"))
+        self.assertEqual(pg.query_selector_all('button[data-view="declarations"], button[data-view="simulation"]'), [])
+        shown = [b.text_content().strip() for b in pg.query_selector_all("#tool-tabs [role=tab]") if b.is_visible()]
+        self.assertEqual(shown, ["Nodes", "Trace", "Frame lab"])
+        self.assertTrue(pg.is_hidden("#side"))
         audit(pg, "commissioning")
         pg.click("#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
@@ -256,13 +259,13 @@ class Probes(Layout):
         with FakePlugin(allow_changes=True) as fp:
             self.online(fp, allow=True)
             pg.wait_for_selector("text=changes allowed")
-            pg.click('button[data-view="bus"]')
+            pg.click('#ws [data-ws="configure"]')
             pg.wait_for_selector("#problem-count:has-text('5 problems')")
             self.assertEqual(pg.get_attribute("#problem-count", "aria-live"), "polite")
             # Tab from Save reaches every node, Enter opens it.
             pg.focus("#btn-save")
             seen = []
-            for _ in range(12):
+            for _ in range(20):
                 pg.keyboard.press("Tab")
                 node = pg.evaluate("() => document.activeElement.dataset.node")
                 if node is not None:

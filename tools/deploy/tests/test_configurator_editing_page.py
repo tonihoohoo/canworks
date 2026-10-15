@@ -206,7 +206,7 @@ class ProjectFiles(Base):
         target = os.path.join(project, "canworks")
         self.assertEqual(load(os.path.join(target, "simulation.json")), load(os.path.join(folder, "simulation.json")))
         self.assertTrue(os.path.isfile(os.path.join(target, "cell_eds.json")))
-        pg.click("#nav-simulation")
+        pg.click('#tool-tabs button[data-view="simulation"]')
         pg.wait_for_selector('[data-sim="file-state"]:has-text("Saved")')
 
     def test_slave_eds_from_its_description(self):
@@ -352,7 +352,7 @@ class Editing(Base):
     def test_declarations_wording(self):
         pg = self.page
         self.open(self.folder)
-        pg.click('.nav-item[data-view="declarations"]')
+        pg.click('#tool-tabs button[data-view="declarations"]')
         pg.wait_for_selector("#view h2:has-text('Variable declarations')")
         text = pg.inner_text("#view")
         self.assertIn("into the VAR block of the program", text)

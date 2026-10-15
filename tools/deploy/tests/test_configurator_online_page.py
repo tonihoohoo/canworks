@@ -223,9 +223,13 @@ class OnlinePage(OnlineBase):
             self.assertTrue(pg.is_disabled('button[data-online="write"]'))
             self.assertTrue(pg.is_disabled('button[data-nmt="stop"]'))
             self.assertIn("not allowed", pg.inner_text('[data-online="no-changes"]'))
-            # Leaving the view closes the connection.
-            pg.click('button[data-view="bus"]')
-            pg.wait_for_function("() => true")
+            # Leaving the workspace keeps the connection, shown in the
+            # connection bar; Disconnect there closes it.
+            pg.click('#ws [data-ws="configure"]')
+            pg.wait_for_selector('#conn-bar [data-conn="disconnect"]')
+            self.assertTrue(self.server.connection.connected)
+            pg.click('#conn-bar [data-conn="disconnect"]')
+            pg.wait_for_selector("#conn-bar", state="hidden")
             for _ in range(50):
                 if not self.server.connection.connected:
                     break
@@ -358,14 +362,15 @@ class OnlinePage(OnlineBase):
             self.assertEqual(pg.locator('[data-online="node-stale"]').count(), 0)
 
     def test_connection_button_for_a_runtime(self):
-        # C1: Connection… on a runtime target brings the connect box back.
+        # C1: Change… in the connection bar brings the connect panel back.
         pg = self.page
         with FakePlugin() as fp:
             self.online(None)
             pg.wait_for_selector("#online-conn:has-text('Not connected (port closed)')")
-            pg.click('button[data-online="change-target"]')
-            pg.fill('input[data-online="host"]', fp.runtime)
-            pg.click('button[data-online="connect"]')
+            pg.wait_for_selector('#conn-bar.fault [data-conn="state"]:has-text("not answering (port closed)")')
+            pg.click('#conn-bar [data-conn="change"]')
+            pg.fill('#conn-dialog input[data-online="host"]', fp.runtime)
+            pg.click('#conn-dialog button[data-online="connect"]')
             pg.wait_for_selector("text=Connected to " + fp.runtime)
 
     def test_rpdo_mapped_write_warns_and_keep_keeps_the_written_value(self):

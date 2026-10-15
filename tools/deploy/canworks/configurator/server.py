@@ -101,7 +101,9 @@ THEMES = ("auto", "light", "dark")
 
 
 # Page settings kept in ui.json, with their choices and defaults.
-UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none")}
+UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
+               "workspace": (("configure", "commission"), "configure"), "panel": (("open", "closed"), "open"),
+               "ws_note": (("new", "seen"), "new")}
 
 
 def load_ui():
@@ -1720,6 +1722,37 @@ def folder_nodes(path):
     return {"nodes": ids}
 
 
+JOB_LABELS = {"read": "Read all", "backup": "Back up", "compare": "Compare", "restore_plan": "Restore plan",
+              "restore": "Restore", "configure": "Write configuration", "configure_plan": "Write configuration plan",
+              "configure_verify": "Verify"}
+
+
+def connection_summary(out, host, local):
+    """What the connection bar shows, the same shape for a USB adapter and a
+    runtime: the target, how the bit rate was confirmed or the path and round
+    trip, the bus, another master and whether changes are allowed."""
+    st = out.get("status") or {}
+    hello = out.get("hello") or {}
+    bus = st.get("bus") or {}
+    if local:
+        other = st.get("other_master_seen")
+        return {"kind": "adapter", "target": st.get("adapter") or "", "bitrate": st.get("bitrate"),
+                "check": st.get("bitrate_check"), "path": None, "rtt_ms": None,
+                "bus": {"state": bus.get("adapter_state") or "active", "frames": bus.get("frames"),
+                        "error_frames": bus.get("error_frames")},
+                "other_master": other, "allow_changes": bool(st.get("allow_changes")),
+                "allow_changes_source": "switch", "networks": []}
+    states = {0: "no bus", 1: "error-active", 2: "error-warning", 3: "error-passive", 4: "bus-off"}
+    return {"kind": "runtime", "target": host or "", "name": hello.get("name") or hello.get("hostname"),
+            "bitrate": bus.get("bitrate"), "check": None, "path": out.get("path"), "rtt_ms": out.get("rtt_ms"),
+            "bus": {"state": states.get(bus.get("state"), bus.get("state")), "interface": bus.get("interface"),
+                    "tx_errors": bus.get("tx_errors"), "rx_errors": bus.get("rx_errors"),
+                    "bus_off_count": bus.get("bus_off_count")},
+            "other_master": None, "allow_changes": bool(hello.get("allow_changes")),
+            "allow_changes_source": "runtime", "networks": [n.get("name") for n in out.get("networks") or []],
+            "network": out.get("network")}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "canworks-config/" + __version__
 
@@ -2144,11 +2177,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.server.sender.close()
             conn.close()
             self.server.adapter_allow = False
+            self.server.watch.update(scan=False, lss_find=False, pdo_test=None, sync=False)
             return view()
         if route == ("POST", "/api/online/use_eds"):
             return self._use_eds(s, settings, canopen_dir, body.get("path"), body.get("eds_lint"))
         if route == ("POST", "/api/online/watch"):
             return self._watch(settings, folder, body)
+
+        if route == ("POST", "/api/online/jobs"):
+            def bus_call(fn):
+                net = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
+                target = self._online_target(proj, config_path, net, body)
+                try:
+                    return conn.call(*target, fn, net)
+                except diag.DiagError as e:
+                    raise ApiError(502, str(e), kind=e.kind)
+            return {"jobs": self._jobs(folder, conn, bus_call)}
 
         # The network the page picked; sent only to a plugin that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
@@ -2202,6 +2246,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
+            watch = self.server.watch
+            if route[1].endswith("/pdo_test_start"):
+                watch["pdo_test"] = node
+            elif route[1].endswith("/pdo_test_stop"):
+                watch["pdo_test"] = None
+            elif route[1].endswith("/sync_start"):
+                watch["sync"] = True
+            elif route[1].endswith("/sync_stop"):
+                watch["sync"] = False
             # force: the page asked about an OPERATIONAL node first.
             client = params.Client(conn, hostname, port, token, network, body.get("force") is True)
             try:
@@ -2226,6 +2279,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if st.get("protocol") == "j1939" and isinstance((st.get("j1939") or {}).get("dm"), dict):
                 # The Faults panel names codes by the SPN attributes of the network's DBC.
                 out["spn_names"] = {str(k): v for k, v in self._spn_names(config_path, canopen_dir, used).items()}
+            out["conn"] = connection_summary(out, host, local)
             return out
         if route == ("POST", "/api/online/emcy"):
             node = node_arg()
@@ -2276,6 +2330,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("POST", "/api/online/lss_find"):
             vendor, product = body.get("vendor_id"), body.get("product_code")
             known = isinstance(vendor, int) and isinstance(product, int)
+            if body.get("start"):
+                self.server.watch["lss_find"] = True
             res = call(lambda c: c.lss_find(bool(body.get("start")), vendor if known else None,
                                             product if known else None))
             dev = res.get("device")
@@ -2306,6 +2362,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return call(lambda c: c.scan_stop())
         if route == ("POST", "/api/online/scan"):
             start = bool(body.get("start"))
+            if start:
+                self.server.watch["scan"] = True
             used, res = call(lambda c: (picked(c), c.request("scan", **forced) if start else c.scan(False)))
             res["networks"], res["network"] = (conn.info or {}).get("networks") or [], used
             if res.get("nodes") is not None:
@@ -2440,6 +2498,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
             port = body["port"]  # the diagnostics port of the config, when the host gives none
         return hostname, port, token
 
+    def _jobs(self, folder, conn, call):
+        """The status bar's job list: what runs for this page, with its
+        progress and the request that stops it. Jobs on the bus are asked for
+        their progress only while the connection is open and one was started."""
+        out = []
+        job = self.server.jobs.get()
+        if job is not None and job.state == "running":
+            out.append({"id": "params-%d" % job.id, "kind": job.kind, "node": job.node,
+                        "label": "%s node %s" % (JOB_LABELS.get(job.kind, job.kind), job.node),
+                        "done": job.done, "total": job.total, "started": job.started,
+                        "stop": {"path": "/api/online/job", "body": {"job": job.id, "cancel": True}}
+                        if not job.cancel else None,
+                        "confirm": "Cancel %s of node %s? What was written stays written." % (
+                            JOB_LABELS.get(job.kind, job.kind).lower(), job.node)
+                        if job.kind in ("restore", "configure") else None})
+        ws = self.server.traces.get(folder)
+        if ws.recording():
+            st = ws.state()
+            out.append({"id": "trace", "kind": "trace", "label": "Trace recording", "done": st["frames"], "total": None,
+                        "unit": "frames", "stop": {"path": "/api/trace/stop", "body": {}}, "confirm": None})
+        with self.server.sender.lock:
+            sends = list(self.server.sender.jobs.values())
+        for j in sends:
+            out.append({"id": "send-%s-%s" % (j["network"], j["job"]), "kind": "send",
+                        "label": "Cyclic send 0x%X every %s ms" % (j["id"], j.get("period_ms")),
+                        "done": j.get("sent"), "total": j.get("count"), "unit": "frames",
+                        "stop": {"path": "/api/online/send_stop", "body": {"job": j["job"], "network": j["network"]}},
+                        "confirm": None})
+        watch = self.server.watch
+        if not conn.connected:
+            watch.update(scan=False, lss_find=False, pdo_test=None, sync=False)
+            return out
+        try:
+            if watch["scan"]:
+                r = call(lambda c: c.scan(False))
+                if r.get("running"):
+                    out.append({"id": "scan", "kind": "scan", "label": "Scan the bus", "done": r.get("done"),
+                                "total": r.get("total"), "unit": "node IDs",
+                                "stop": {"path": "/api/online/scan_stop", "body": {}}, "confirm": None})
+                else:
+                    watch["scan"] = False
+            if watch["lss_find"]:
+                r = call(lambda c: c.lss_find(False))
+                if r.get("running"):
+                    # The search ends by itself, after about 15 seconds at most.
+                    out.append({"id": "lss_find", "kind": "lss_find", "label": "LSS: finding a device without node ID",
+                                "done": round(r.get("seconds") or 0), "total": None, "unit": "s",
+                                "stop": None, "confirm": None})
+                else:
+                    watch["lss_find"] = False
+            if watch["pdo_test"] is not None:
+                node = watch["pdo_test"]
+                r = call(lambda c: c.request("pdo_test_status", node=node))
+                if r.get("running"):
+                    out.append({"id": "pdo_test", "kind": "pdo_test", "label": "PDO test node %d" % node,
+                                "done": None, "total": None, "stop": {"path": "/api/online/pdo_test_stop",
+                                                                      "body": {"node": node}}, "confirm": None})
+                else:
+                    watch["pdo_test"] = None
+                if (r.get("sync") or {}).get("running"):
+                    watch["sync"] = True
+            if watch["sync"]:
+                out.append({"id": "sync", "kind": "sync", "label": "SYNC from this PC", "done": None, "total": None,
+                            "stop": {"path": "/api/online/sync_stop", "body": {}}, "confirm": None})
+        except ApiError:
+            pass  # the status bar shows what it could learn; the views say what failed
+        return out
+
     def _send_frames(self, route, body, where, network):
         """/api/online/send_frame, send_stop and send_jobs: the Trace view's
         Send panel, through the server's Sender."""
@@ -2462,7 +2588,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         project, and requests to the runtime's simulated devices (online
         access settings) or to a standalone simulator (address and token kept
         on this PC), through the online view's kept-open connection."""
-        s, conn = self.server.session, self.server.connection
+        # The runtime's simulated devices go through the shared connection (the
+        # connection bar's); a standalone simulator has a connection of its
+        # own, so the Simulation view never closes or retargets the runtime's.
+        s, conn, simconn = self.server.session, self.server.connection, self.server.sim_connection
         settings = online.Settings(config_dir())
         with s.lock:
             self._need_open(s)
@@ -2476,10 +2605,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except ValueError as e:
                 raise ApiError(422, str(e))
             if any(k in values for k in ("sim_target", "sim_address", "sim_token")):
-                conn.close()
+                simconn.close()
             return simulation.settings_view(settings.update_project(folder, **values))
         if route == ("POST", "/api/sim/close"):
-            conn.close()
+            simconn.close()
             return {"closed": True}
         if route == ("POST", "/api/sim/check"):
             problems = simulation.check(body.get("doc"))
@@ -2525,14 +2654,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def call(fn):
             host, port, token, kind = where()
             try:
-                return conn.call(host, port, token, fn, network), kind
+                return (simconn if kind == "simulator" else conn).call(host, port, token, fn, network), kind
             except diag.DiagError as e:
                 if kind == "simulator" and e.kind == "closed":
                     e = simulation.simclient.closed_error(host, port)
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
 
         def hello(kind):
-            info = dict(conn.info or {})
+            info = dict((simconn if kind == "simulator" else conn).info or {})
             standalone = bool(info.get("simulator"))
             # The standalone simulator takes changes from anyone with its token.
             return {"hello": info, "target": kind, "standalone": standalone,
@@ -2989,10 +3118,14 @@ class Server(http.server.ThreadingHTTPServer):
         self.connection = online.Connection()
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
         self.sender = online.Sender()
+        self.sim_connection = online.Connection()  # the Simulation view's standalone simulator
         self.eds_index = online.EdsIndex()
         self.spn_cache = {}  # Handler._spn_names
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()
+        # Jobs on the bus the page started, for the status bar's job list
+        # (/api/online/jobs): asked for their progress only while one runs.
+        self.watch = {"scan": False, "lss_find": False, "pdo_test": None, "sync": False}
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
@@ -3022,6 +3155,7 @@ class Server(http.server.ThreadingHTTPServer):
             return  # binding the port failed: __init__ stopped before setting up the rest
         self.traces.stop_all()
         self.connection.close()
+        self.sim_connection.close()
         self.sender.close()
         shutil.rmtree(self.session.pending_dir, ignore_errors=True)
 

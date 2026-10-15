@@ -363,6 +363,7 @@ async function renderSimulation(view) {
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
+  if (SIM.settings.target !== "simulator") connEnsure();
   // The Machine tab shows only when the shown network's section names a
   // machine file; another network falls back to Live values.
   const pages = [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]];
@@ -385,9 +386,11 @@ async function renderSimulation(view) {
   }
 }
 
+// The Runtime target uses the connection in the connection bar
+// (connection.js); the standalone simulator has its own address.
 function simCanConnect() {
   if (SIM.settings.target === "simulator") return true;
-  return !!(diagConfig() && S.online && S.online.host && S.online.token && S.online.tokenOk);
+  return connEnsure();
 }
 
 function simSaveBar() {
@@ -430,12 +433,15 @@ function simConnectBox() {
   const box = el("fieldset", { dataset: { sim: "connect" } }, el("legend", null, "Connect to"), el("div", { class: "toolbar" }, seg));
   if (target === "runtime") {
     if (!diagConfig()) {
-      box.append(el("p", null, "Online access is off for this config. Turn it on under ",
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("bus"); } }, "Bus and master"),
+      box.append(el("p", null, "Online access is off for this config. Turn it on in Configure → ",
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("bus"); } }, "Bus and master"),
         " (simulating a node or the network does this), save, and upload the program to the runtime."));
-    } else if (!simCanConnect()) {
-      box.append(el("p", null, "The runtime's simulated devices are reached through online access. Enter the runtime host and the token in the ",
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); showView("online"); } }, "Online"), " view first."));
+    } else if (!connIsOn() && !connReady()) {
+      box.append(el("p", { dataset: { sim: "not-connected" } }, "The runtime's simulated devices are reached through the connection to the runtime. ",
+        el("button", { type: "button", class: "small primary", dataset: { sim: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
+    } else if (!connIsOn()) {
+      box.append(el("p", { dataset: { sim: "not-connected" } }, "Not connected to the runtime. ",
+        el("button", { type: "button", class: "small primary", dataset: { sim: "open-connect" }, onclick: () => openConnect() }, "Connect…")));
     } else {
       box.append(hint(`The simulated devices of the runtime ${S.online.host}, through online access (port ${diagPort()} unless the host gives one).`));
     }
@@ -1915,13 +1921,14 @@ async function simMachineTab(body) {
   MACHINE.view = mod.openMachineView(host, {
     network: simSectionName(), port: diagPort(), file: name, canConnect: can,
     notConnected: SIM.settings.target === "simulator" ? "Connect to the standalone simulator above."
-      : diagConfig() ? "To see it live, enter the runtime host and the token in the Online view."
-        : "Online access is off for this config: turn it on under Bus and master to see the machine live.",
+      : diagConfig() ? "To see it live, connect to the runtime (Connect… above)."
+        : "Online access is off for this config: turn it on in Configure → Bus and master to see the machine live.",
     feWindow: machineFeWindow,
     openNode: (node) => {
       if (several()) S.onlineNet = simSectionName();
       S.onlineNode = node;
-      showView("online");
+      if (workspace() !== "commission") switchWorkspace("commission");
+      else showView("online");
     },
   });
 }

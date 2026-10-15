@@ -157,7 +157,8 @@ class FrameLab(TraceBase):
         pg.fill("[data-fx=lab-frame]", "702#05")
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")
-        # Another network: the frame and its result belonged to io.
+        # Another network (picked on the Network page): the frame and its result belonged to io.
+        pg.click('#tool-tabs button[data-view="network"]')
         pg.click('.net-tab[data-net="1"]')
         pg.click('button[data-view="framelab"]')
         pg.wait_for_selector("[data-fx=examples] .chip")

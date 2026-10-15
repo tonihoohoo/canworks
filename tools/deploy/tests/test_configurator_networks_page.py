@@ -275,8 +275,9 @@ class NetworksPage(unittest.TestCase):
             # Picking io shows io and opens its tab.
             pg.select_option('select[data-online="network"]', "io")
             pg.wait_for_selector('td[data-online="bus"]:has-text("vcan0")')
-            pg.wait_for_selector('#net-bar [data-net="0"].active')
-            # Picking drives on the network bar picks it for the trace too.
+            pg.wait_for_selector('#net-bar [data-net="0"].active', state="attached")
+            # Picking drives on the network bar (in Configure) picks it for the trace too.
+            pg.click('#ws [data-ws="configure"]')
             pg.click('#net-bar [data-net="1"]')
             # The trace records the picked network.
             pg.click('button[data-view="trace"]')

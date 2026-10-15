@@ -31,7 +31,7 @@ This change is the shell of the UI overhaul: where things are and how the connec
 - **Commission** with a config shows today's Online view as the workspace's **Nodes** tab, with the node list and node pages (Overview, Object dictionary, Parameters).
 - **Commission a device** shows today's commissioning Nodes tab.
 
-The workspace is kept per folder in `ui.json` and in the page URL hash, so a reload returns to it. Switching never touches the draft or the connection.
+The workspace is kept in `ui.json` (`workspace`), so a reload returns to it. Switching never touches the draft or the connection. A link to a page of the other workspace switches to it (`followWorkspace`).
 
 *Alternative:* two commands or two pages. Rejected by Toni: one app with two workspaces.
 
@@ -59,9 +59,9 @@ A small module (`connection.js`) owns the connection. Today it lives in pieces: 
   - `allow_changes`, `allow_changes_source` (`switch` or `runtime`).
 - Views subscribe to its events (`connected`, `changed`, `ended`) instead of polling on their own.
 - Trace's `onlineReady()` and Simulation's **Runtime** target read this module.
-- The Online view's own connection line and the commissioning Bus and master tab are removed.
+- The commissioning Bus and master tab and the Online view's Connect box and **Connection…** button are removed. The Online view keeps a session line (plugin version, protocol session, different-config and forced-simulation notes), which says more than the connection.
 
-The server keeps one target per page session, as now, so no protocol changes.
+The server keeps one target per page session, as now, so no protocol changes. The Simulation view's standalone simulator gets a connection of its own on the server (`sim_connection`): before, it shared the one connection with the online view, which only worked because the two views were never open at once; now the bar keeps the runtime connection open on every page, so a standalone simulator must not retarget or close it.
 
 ### 4. Connection bar
 The connection bar is a single line under the header. It shows in Commission always, and in Configure only while connected.
@@ -95,7 +95,7 @@ A refused check keeps the panel open with the reason under the bit rate and the 
 - The token prompt when this PC has no matching token, inside the same dialog.
 - The Online access settings (port, bind, token, internet access) stay in Configure → Bus and master, because they are config data. The panel links there when online access is off.
 
-The last target is kept on this PC as today (`online.json`). Opening the Commission workspace while not connected opens the panel once. Closing it leaves the bar's **Connect…**.
+The last target is kept on this PC as today (`online.json`). Entering Commission connects at once to a runtime whose host and matching token this PC has (unless the user disconnected); otherwise, and always for an adapter (which needs the bit rate check), it opens the panel, once per folder or commissioning session. Closing it leaves the bar's **Connect…**.
 
 ### 6. Allow changes in the bar
 - **Adapter:** a switch, off for every new connection. Switching it on asks first, as today, and applies to the open connection without reconnecting.
@@ -112,14 +112,12 @@ The last target is kept on this PC as today (`online.json`). Opening the Commiss
 
 The status bar shows each job with a short label ("Scan 41/127", "Read all node 5 – 120/310", "Trace – 12,400 frames") and **Cancel**. More than two jobs collapse into "3 jobs ▾".
 
-Missing stops are added:
-- LSS find, by ending the fastscan loop between steps;
-- back up and compare, if they do not already honour the parameter job's stop flag.
+Read all, back up, compare, restore and write configuration already honour the parameter job's stop flag, and the scan has `scan_stop`. LSS find has no stop in the plugin or the local backend; it ends by itself after about 15 seconds, so it is listed without Cancel rather than changing the plugin in this UI change.
 
-Cancel of a job that changes the device (restore, write configuration) asks first, as their own Cancel does today. The status bar also shows, while connected, the bus load estimate and the frame rate.
+Cancel of a job that changes the device (restore, write configuration) asks first, as their own Cancel does today. While connected to a USB adapter (whose status counts frames) the status bar also shows the frame rate and a bus load estimate (125 bits per frame); a runtime's status has no frame count, so it shows neither.
 
 ### 8. Bottom panel
-The bottom panel replaces the right-hand `#problems` column. It is collapsible, with its height kept in `ui.json`.
+The bottom panel replaces the right-hand `#problems` column. It sits with the status bar in a footer that sticks to the bottom of the window, and is collapsible; whether Problems is open in Configure is kept in `ui.json` (`panel`).
 
 | Workspace | Tab | Default |
 |---|---|---|
@@ -130,13 +128,13 @@ The bottom panel replaces the right-hand `#problems` column. It is collapsible, 
 The tab title carries the count in all cases. It gives the page the full width, and the narrow layout no longer needs its own Problems strip: below 1000 px the panel stays and only the side bar becomes the top bar.
 
 ### 9. Code layout
-`app.js` is split into ES modules loaded with `<script type="module">`:
-- `shell.js`: header, workspaces, tool tabs;
-- `connection.js`;
-- `jobs.js`;
-- `panel.js`: the bottom panel.
+The new parts are new files next to the others, loaded as plain scripts like `commission.js` and `trace.js`:
+- `shell.js`: workspaces, tool tabs, bottom panel;
+- `connection.js`: the connection bar, the connect panel and the poller;
+- `jobs.js`: the status bar;
+- `boot.js`: starts the page once every script is loaded (it was the last lines of `app.js`).
 
-The rest of `app.js` stays as one module for now, and later changes split it further. There is still no build step, and every file stays in `static/`. The modules share state through the existing `S` object, with a small event emitter added.
+There is still no build step. Turning the scripts into ES modules was the first plan, but the existing files share their functions as globals (commission.js, trace.js and sim.js call into app.js and back), so a module split is left to the later changes that rewrite those files (`network-tree-and-node-tabs`).
 
 *Alternative:* a framework (React, Svelte). Rejected: it needs a build pipeline and the packaging is Python-only, and the gain is not in usability.
 
@@ -150,7 +148,7 @@ The rest of `app.js` stays as one module for now, and later changes split it fur
 ## Migration Plan
 
 UI only, with nothing stored to migrate:
-- `ui.json` gains `workspace` and `panel_height`, and older files lack them.
+- `ui.json` gains `workspace`, `panel` and `ws_note`, and older files lack them.
 - `online.json` is unchanged.
 - Rollback is the previous tools version.
 

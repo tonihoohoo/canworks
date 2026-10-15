@@ -92,7 +92,7 @@ class LinkPage(base.OnlineBase):
                                    link_info("internet relayed", 350, "This PC is now paired with line3 and can reach "
                                                                      "it from other networks.")):
                 self.online(fp)
-                badge = '#online-conn [data-online="path"]'
+                badge = '#conn-bar [data-online="path"]'
                 pg.wait_for_selector(badge)
                 self.assertEqual(pg.inner_text(badge), "internet relayed, 350 ms")
                 self.assertIn("bad", pg.get_attribute(badge, "class"))
@@ -112,7 +112,7 @@ class LinkPage(base.OnlineBase):
                 mock.patch.object(online.Connection, "link_info", link_info("internet relayed", 120)):
             fp.lss_devices[(0x360, 0, 0, 0x43)] = 255
             self.online(fp, allow=True)
-            pg.wait_for_selector('#online-conn [data-online="path"]')
+            pg.wait_for_selector('#conn-bar [data-online="path"]')
             pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
             pg.click('button[data-online="lss-find"]')
             pg.wait_for_selector('#modal button[data-value="go"]')
@@ -132,7 +132,7 @@ class LinkPage(base.OnlineBase):
         with FakePlugin(allow_changes=True, scan_polls=1) as fp:
             fp.lss_devices[(0x360, 0, 0, 0x43)] = 255
             self.online(fp, allow=True)
-            pg.wait_for_selector('#online-conn [data-online="path"]:has-text("LAN")')
+            pg.wait_for_selector('#conn-bar [data-online="path"]:has-text("LAN")')
             pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
             pg.click('button[data-online="lss-find"]')
             pg.wait_for_selector('tr[data-lss-device="66"]')

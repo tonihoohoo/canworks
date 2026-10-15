@@ -39,7 +39,7 @@ The tools compared all solve these the same way: separate offline and online mod
 - **Allow changes in the bar.**
   - On an adapter it is a switch, as today: off at every connect, asks before switching on, and takes effect without reconnecting.
   - On a runtime it shows the runtime's own setting (`master.diagnostics.allow_changes`), read-only, and says where it is set.
-- **Status bar and jobs.** A bar at the bottom lists running jobs: scan, LSS find, Read all, back up, compare, restore, write configuration, trace recording, PDO test and cyclic sends. Each shows its progress and has **Cancel**, on every page. Jobs that cannot be stopped today get a stop: LSS find, and back up and compare where they lack one.
+- **Status bar and jobs.** A bar at the bottom lists running jobs: scan, LSS find, Read all, back up, compare, restore, write configuration, trace recording, PDO test and cyclic sends. Each shows its progress and, when it can be stopped, **Cancel**, on every page. LSS find ends by itself within about 15 seconds and is listed without Cancel.
 - **Bottom panel.** The right-hand Problems pane becomes a collapsible panel under the page:
   - **Problems** in Configure;
   - **Log** (the commissioning log with **Save log**) in Commission a device;
@@ -69,13 +69,13 @@ None.
 - Configurator page: `tools/deploy/canworks/configurator/static/`
   - `index.html`
   - `style.css`
-  - `app.js`: split into ES modules for the shell, the connection service, jobs and panels
+  - `app.js`, with new files next to it for the shell (`shell.js`), the connection (`connection.js`), the status bar (`jobs.js`) and the page start (`boot.js`)
   - `commission.js`, `trace.js`, `sim.js`
 - Configurator server: `configurator/server.py` and `online.py`:
   - one status route for the connection bar (target, check, bus state, counters, other master, allow changes);
   - a jobs route listing running jobs with progress and their stop route;
-  - an explicit disconnect for a runtime connection;
-  - stop for LSS find.
+  - Disconnect for a runtime connection too;
+  - a connection of its own for the Simulation view's standalone simulator.
 - Tests: configurator page tests (layout, workspaces, connect panel, connection bar, jobs and Cancel across pages, bottom panel, narrow layout, axe-core on the new parts), with the existing browser tests moved to the new places.
 - Docs: `docs/configurator.md`, `docs/pc-adapter.md`, `docs/tour.md`, `README.md`.
 - Version: PC tools minor bump. No plugin change, so no hardware test is needed beyond the page tests.
