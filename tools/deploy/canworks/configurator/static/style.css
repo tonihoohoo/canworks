@@ -2,6 +2,7 @@
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6;
   --accent: #1f5fbf; --accent-text: #ffffff; --hover: #eeeeea; --header-h: 52px;
+  --sel-bg: #e6edf8;  /* a selected table row: a neutral blue wash, not a state colour */
   /* State colours (visual-refresh): only states use them; text stays --text, the icon carries the colour. */
   --st-ok: #256b2a; --st-busy: #0b6b78; --st-warn: #8a5a00; --st-error: #b3261e; --st-off: #6b6b66;
   --st-warn-bg: #fff4dc; --st-error-bg: #fbe9e7;
@@ -18,7 +19,7 @@
   --accent: #6ea0f0; --accent-text: #0b1220;
   --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
   --st-warn-bg: #33270d; --st-error-bg: #3a1714;
-  --hover: #2a2a27;
+  --hover: #2a2a27; --sel-bg: #1f2b40;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,7 +27,7 @@
     --accent: #6ea0f0; --accent-text: #0b1220;
     --st-ok: #81c784; --st-busy: #5cc4d0; --st-warn: #f2c66d; --st-error: #ff8a80; --st-off: #a3a39c;
     --st-warn-bg: #33270d; --st-error-bg: #3a1714;
-    --hover: #2a2a27;
+    --hover: #2a2a27; --sel-bg: #1f2b40;
     color-scheme: dark; }
 }
 * { box-sizing: border-box; }
@@ -465,6 +466,15 @@ table.od-tree td.od-value strong { white-space: normal; }
 table.od-tree tr.od-sub td:first-child { padding-left: 2.2em; }
 table.od-tree tr.od-object td { border-top: 1px solid var(--line); }
 table.od-tree .od-input { width: 100%; box-sizing: border-box; }
+/* The selected row (od-row-highlight): a wash across the whole row and an
+   accent bar on its left edge; the row under the pointer gets a lighter tint. */
+@media (hover: hover) { table.od-tree tbody tr:hover > td { background: var(--hover); } }
+table.od-tree tbody tr.od-selected > td { background: var(--sel-bg); }
+table.od-tree tbody tr.od-selected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+@media (forced-colors: active) {
+  table.od-tree tbody tr.od-selected { outline: 2px solid Highlight; outline-offset: -2px; }
+  table.od-tree tbody tr.od-selected > td:first-child { box-shadow: inset 3px 0 0 Highlight; }
+}
 .od-toggle { min-width: 1.8em; padding: 0 4px; }
 .od-marks { margin-top: 2px; }
 .od-tools { white-space: nowrap; }

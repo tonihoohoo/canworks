@@ -4937,7 +4937,7 @@ const WATCH_HISTORY_MS = 10 * 60 * 1000;
 function odState(id) {
   S.od = S.od || {};
   return S.od[id] || (S.od[id] = { values: {}, watch: [], period: 1000, filter: "", filters: [], formats: {},
-    bitsOpen: {}, openGroups: [], openObjects: [], at: {}, changedAt: {}, mm: {}, hist: [], keep: {} });
+    bitsOpen: {}, openGroups: [], openObjects: [], at: {}, changedAt: {}, mm: {}, hist: [], keep: {}, selected: null });
 }
 
 // Puts an od_read answer's values and failures into a node's tab state.
@@ -5365,6 +5365,25 @@ function odBuild(box, id, n, allow, data) {
   const chips = el("div", { class: "kind-chips od-filters", dataset: { online: "od-filters" } });
   const compareNote = el("div", { dataset: { online: "od-compare" } });
   const groups = [];
+  // The selected row: the one the user clicked or tabbed into, so it is clear
+  // which entry the row's buttons act on. Key "index:sub", or "obj:index" for
+  // a foldable object's row; kept in the tab state across renders.
+  const selRows = {};
+  const selectRow = (key) => {
+    st.selected = key && selRows[key] ? key : null;
+    for (const tr of box.querySelectorAll("tr.od-selected")) { tr.classList.remove("od-selected"); tr.removeAttribute("aria-current"); }
+    const tr = st.selected && selRows[st.selected];
+    if (tr) { tr.classList.add("od-selected"); tr.setAttribute("aria-current", "true"); }
+  };
+  const rowOf = (ev) => { const tr = ev.target.closest && ev.target.closest("tr[data-od-sel]"); return tr && tr.dataset.odSel; };
+  const selectable = (table) => {
+    table.addEventListener("pointerdown", (ev) => { const k = rowOf(ev); if (k && k !== st.selected) selectRow(k); });
+    table.addEventListener("focusin", (ev) => { const k = rowOf(ev); if (k && k !== st.selected) selectRow(k); });
+    table.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && st.selected && !ev.target.closest("input, select, textarea")) selectRow(null);
+    });
+    return table;
+  };
   const entryRow = (e, isSub) => {
     const key = odKey(e.index, e.subindex);
     const value = el("td", { class: "od-value", dataset: { online: "od-value" } });
@@ -5376,11 +5395,14 @@ function odBuild(box, id, n, allow, data) {
       onclick: async () => { try { await readKeys([[e.index, e.subindex]]); } catch (err) { banner(err.message, true); } } }, "Read");
     const edit = el("button", { type: "button", class: "small", disabled: !allow || !e.writable, dataset: { online: "od-edit" },
       title: !allow ? NO_CHANGES : !e.writable ? "Read-only in the EDS (" + e.access + ")" : null,
-      onclick: () => odEdit(id, n, e, cells[key], readKeys, noteOf(e), (wrote) => {
-        cells[key].editing = false;
-        if (wrote) st.keep[key] = wrote;
-        showValue(key);
-      }) }, "Edit");
+      onclick: () => {
+        selectRow(key);
+        odEdit(id, n, e, cells[key], readKeys, noteOf(e), (wrote) => {
+          cells[key].editing = false;
+          if (wrote) st.keep[key] = wrote;
+          showValue(key);
+        });
+      } }, "Edit");
     const noteBox = el("div", { dataset: { online: "od-note" } }, noteLine(noteOf(e)));
     const noteBtn = notesName && notesEditable(notesName) ? el("button", { type: "button", class: "small", dataset: { online: "od-note-edit" },
       title: "Write a note for this entry: text, unit, value meanings, bit names",
@@ -5390,7 +5412,7 @@ function odBuild(box, id, n, allow, data) {
           showValue(key);
         }
       } }, "Note") : null;
-    const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index) } },
+    const tr = el("tr", { class: isSub ? "od-sub" : "od-var", dataset: { odKey: key, odObject: String(e.index), odSel: key } },
       el("td", { class: "mono" }, isSub ? `:${e.subindex}` : `${hex4(e.index)}:${e.subindex}`),
       el("td", { class: "od-name" }, el("div", null, isSub ? e.sub_name || e.name : e.name), noteBox, marks),
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
@@ -5400,6 +5422,7 @@ function odBuild(box, id, n, allow, data) {
           title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
           dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST"), noteBtn),
       el("td", { class: "od-watch" }, watch));
+    selRows[key] = tr;
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name} ${noteOf(e).text || ""}`.toLowerCase() };
     return tr;
   };
@@ -5417,7 +5440,7 @@ function odBuild(box, id, n, allow, data) {
       const objSummary = el("div", { class: "od-marks" });
       const readObj = el("button", { type: "button", class: "small", disabled: !o.entries.some((e) => e.readable), dataset: { online: "od-read-object" },
         onclick: async () => { try { await readObject(o); } catch (err) { banner(err.message, true); } } }, "Read");
-      const tr = el("tr", { class: "od-object", dataset: { odObjectRow: String(o.index) } },
+      const tr = el("tr", { class: "od-object", dataset: { odObjectRow: String(o.index), odSel: "obj:" + o.index } },
         el("td", { class: "mono" }, toggle, " ", hex4(o.index)),
         el("td", { class: "od-name" }, el("div", null, el("strong", null, o.name)), objSummary),
         el("td", { class: "od-type muted" }, `${o.type}, ${o.entries.length} entries`), el("td"),
@@ -5429,13 +5452,14 @@ function odBuild(box, id, n, allow, data) {
         applyFilter();
       });
       objRows[o.index] = { obj: o, tr, subs, toggle, summary: objSummary };
+      selRows["obj:" + o.index] = tr;
       rows.push(tr, ...subs);
     }
     const det = el("details", { dataset: { odGroup: g } }, el("summary", null, `${title} (${list.length} objects)`),
-      el("div", { class: "table-scroll" }, el("table", { class: "od od-tree" },
+      el("div", { class: "table-scroll" }, selectable(el("table", { class: "od od-tree" },
         el("colgroup", null, ["c-entry", "c-name", "c-type", "c-value", "c-actions", "c-watch"].map((c) => el("col", { class: c }))),
         el("thead", null, el("tr", null, thCells(["Entry", "Name", "Type", "Value", "", "Watch"]))),
-        el("tbody", null, rows))));
+        el("tbody", null, rows)))));
     det.open = st.openGroups.includes(g);
     det.addEventListener("toggle", () => {
       if (filtering()) return;
@@ -5602,6 +5626,7 @@ function odBuild(box, id, n, allow, data) {
   for (const key of Object.keys(cells)) showValue(key);
   for (const i of Object.keys(objRows)) updateObject(Number(i));
   applyFilter();
+  selectRow(st.selected);
   const begin = () => {
     st.watch = st.watch.filter((k) => byKey[k] && byKey[k].readable);
     period.value = String(st.period);

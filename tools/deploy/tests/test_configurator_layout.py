@@ -544,7 +544,14 @@ class Layout(OnlineBase):
                 }""")
                 self.assertEqual(outside, [], "at %d" % width)
                 self.assertGreater(pg.locator('tr[data-od-key="%d:1"]' % 0x1018).bounding_box()["height"], 30)  # name wrapped
+                # A selected row (od-row-highlight) goes through the same checks.
+                pg.click('tr[data-od-key="%d:1"] td.od-name' % 0x1018)
                 self.fits("object dictionary at %d" % width)
+            # Forced colours drop the wash: the selected row gets the system highlight outline.
+            pg.emulate_media(forced_colors="active")
+            style = pg.eval_on_selector('tr[data-od-key="%d:1"]' % 0x1018, "tr => getComputedStyle(tr).outlineStyle")
+            pg.emulate_media(forced_colors="none")
+            self.assertEqual(style, "solid")
 
 
 class Examples(OnlineBase):
