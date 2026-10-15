@@ -14,12 +14,13 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG
+from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, fake_editor_cli
 
+TREE_NODE = '#tree [data-key="0:node:%d"]'
 NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device."
 TEXT_NODES = """() => [...document.querySelectorAll('#editor, header, #banner')].flatMap((root) => {
   const out = [];
@@ -56,20 +57,20 @@ class Probes(Layout):
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
         for k in range(3):
-            item = pg.locator('#node-list [data-node="%d"]' % k)
+            item = pg.locator(TREE_NODE % k + " > .tree-row")
             item.hover()
             box = item.bounding_box()
             pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-            pg.wait_for_selector('#view h2:has-text("Node")')
-            self.assertEqual(pg.get_attribute('#node-list [data-node="%d"]' % k, "aria-current"), "true")
+            pg.wait_for_selector('[data-node-heading="%d"]' % k)
+            self.assertEqual(pg.get_attribute(TREE_NODE % k, "aria-selected"), "true")
         pg.wait_for_timeout(500)
         self.assertEqual(downloads, [])
         self.assertEqual(self.problems(), "5 problems")
-        self.assertEqual(pg.locator("#node-list .export-dcf").count(), 0)
+        self.assertEqual(pg.locator("#tree .export-dcf, #tree [data-export-dcf]").count(), 0)
         # The export is on the node page and in the Export menu.
         self.assertTrue(pg.is_visible('button[data-export-dcf="2"]'))
         self.assertFalse(pg.is_disabled("#btn-export-node"))
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         self.assertTrue(pg.is_disabled("#btn-export-node"))
 
     def test_failed_export_keeps_the_count(self):
@@ -101,7 +102,10 @@ class Probes(Layout):
             self.remember(fp.runtime)
             self.open()
             for view in ("bus", "declarations", "online", "trace", "framelab", "simulation"):
-                pg.click('button[data-view="%s"]' % view)
+                if view == "bus":
+                    tree_view(pg, "bus")
+                else:
+                    pg.click('button[data-view="%s"]' % view)
                 pg.wait_for_timeout(600)
                 if view == "online":
                     pg.wait_for_selector("text=changes allowed")
@@ -129,8 +133,8 @@ class Probes(Layout):
         self.assertTrue(pg.is_visible("#btn-close"))
         self.assertTrue(pg.is_hidden("#problems"))
         self.assertTrue(pg.is_visible("#log-panel"))
-        self.assertTrue(pg.is_hidden("#node-list"))
-        self.assertTrue(pg.is_hidden('button[data-view="bus"]'))
+        self.assertTrue(pg.is_hidden("#tree"))
+        self.assertTrue(pg.is_hidden('#tree [data-view="bus"]'))
         self.assertEqual(pg.query_selector_all('button[data-view="declarations"], button[data-view="simulation"]'), [])
         shown = [b.text_content().strip() for b in pg.query_selector_all("#tool-tabs [role=tab]") if b.is_visible()]
         self.assertEqual(shown, ["Nodes", "Trace", "Frame lab"])
@@ -143,7 +147,7 @@ class Probes(Layout):
     def test_remove_node_dialog_defaults_to_keep(self):
         pg = self.page
         self.open()
-        self.node(2)
+        self.node(2, "general")
         pg.click('button[data-remove-node="2"]')
         pg.wait_for_selector("#modal[open]")
         labels = [b.text_content().strip() for b in pg.query_selector_all("#modal-buttons button")]
@@ -152,12 +156,12 @@ class Probes(Layout):
         self.assertIn("danger", pg.get_attribute('#modal-buttons button[data-value="remove"]', "class"))
         pg.keyboard.press("Enter")
         pg.wait_for_selector("#modal[open]", state="hidden")
-        self.assertEqual(pg.locator('#node-list [data-node]').count(), 3)
+        self.assertEqual(pg.locator('#tree [data-node]').count(), 3)
         pg.click('button[data-remove-node="2"]')
         pg.wait_for_selector("#modal[open]")
         pg.keyboard.press("Escape")
         pg.wait_for_selector("#modal[open]", state="hidden")
-        self.assertEqual(pg.locator('#node-list [data-node]').count(), 3)
+        self.assertEqual(pg.locator('#tree [data-node]').count(), 3)
         # Close with unsaved changes: Cancel focused, "Close without saving" last.
         self.fill_path("nodes[2].name", "rtd2")
         pg.click("#btn-close")
@@ -173,7 +177,7 @@ class Probes(Layout):
     def test_undo_restores_a_removed_entry(self):
         pg = self.page
         self.open()
-        self.node(2)
+        self.node(2, "pdos")
         path = "nodes[2].tx_pdos[0].entries[0]"
         self.assertEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW320")
         pg.click('tr[data-path="%s"] button[title="Remove"]' % path)
@@ -189,36 +193,36 @@ class Probes(Layout):
     def test_undo_typing_and_reload(self):
         pg = self.page
         self.open()
-        self.node(2)
+        self.node(2, "general")
         self.assertEqual(pg.input_value('input[data-path="nodes[2].name"]'), "rtd")
         self.fill_path("nodes[2].name", "rtd2")
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("rtd2")')  # the side bar follows the field
-        pg.click('button[data-view="bus"]')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')  # the tree follows the field
+        tree_view(pg, "bus")
         pg.wait_for_selector("#btn-save:has-text('Save')")  # the config's errors keep it disabled
         self.assertIn("errors in Problems", pg.get_attribute("#btn-save", "title"))
         pg.keyboard.press("Control+z")
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("5 rtd")')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd")')
         self.assertEqual(pg.input_value('input[data-path="nodes[2].name"]'), "rtd")
         self.assertEqual(pg.inner_text("#btn-save"), "Saved")
         self.assertTrue(pg.is_disabled("#btn-save"))
         pg.keyboard.press("Control+Shift+z")
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("rtd2")')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')
         self.assertEqual(pg.inner_text("#btn-save"), "Save")
         self.assertEqual(pg.evaluate("() => S.view"), "bus")  # redo returns to where the edit was made
         # A typed value is one step while the field has focus.
         self.node(2)
         pg.focus('input[data-path="nodes[2].name"]')
         pg.keyboard.press("Control+z")
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("5 rtd")')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd")')
         # Reload from disk empties the history.
         pg.keyboard.press("Control+Shift+z")
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("rtd2")')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')
         pg.click("#btn-reload")
         pg.click('#modal-buttons button[data-value="reload"]')
-        pg.wait_for_selector('#node-list [data-node="2"]:has-text("5 rtd")')
+        pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd")')
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_timeout(300)
-        self.assertEqual(pg.inner_text('#node-list [data-node="2"]').split("\n")[0].strip(), "5 rtd")
+        self.assertEqual(pg.inner_text('#tree [data-key="0:node:2"] .name').strip(), "5 rtd")
         self.assertEqual(pg.inner_text("#btn-save"), "Saved")
 
     # -- 2.3 pre-operational asks; 5.3 stale values ---------------------------
@@ -262,17 +266,25 @@ class Probes(Layout):
             pg.click('#ws [data-ws="configure"]')
             pg.wait_for_selector("#problem-count:has-text('5 problems')")
             self.assertEqual(pg.get_attribute("#problem-count", "aria-live"), "polite")
-            # Tab from Save reaches every node, Enter opens it.
+            # Tab from Save reaches the tree (one tab stop), Down walks every
+            # node (by node ID), Enter opens one.
+            self.assertEqual(pg.locator('#tree [role=treeitem][tabindex="0"]').count(), 1)
             pg.focus("#btn-save")
-            seen = []
             for _ in range(20):
                 pg.keyboard.press("Tab")
+                if pg.evaluate("() => document.activeElement.closest('#tree') !== null"):
+                    break
+            self.assertEqual(pg.evaluate("() => document.activeElement.getAttribute('role')"), "treeitem")
+            seen = []
+            for _ in range(20):
+                pg.keyboard.press("ArrowDown")
                 node = pg.evaluate("() => document.activeElement.dataset.node")
                 if node is not None:
                     seen.append(node)
                     if len(seen) == 3:
                         break
-            self.assertEqual(seen, ["0", "1", "2"])
+            self.assertEqual(seen, ["0", "2", "1"])  # 2 pingpong, 5 rtd, 23 valve
+            pg.keyboard.press("ArrowUp")
             pg.keyboard.press("Enter")
             pg.wait_for_selector('#view h2:has-text("Node 5 rtd")')
             # Problems: Enter on the first one focuses its field.
@@ -363,23 +375,24 @@ class Probes(Layout):
         pg.keyboard.press("Enter")
         pg.wait_for_selector("#editor:not([hidden])")
         # Enter and Space on a node keep the focus on it.
-        pg.focus('#node-list [data-node="1"]')
+        pg.focus(TREE_NODE % 1)
         pg.keyboard.press("Enter")
         pg.wait_for_selector('#view h2:has-text("Node 23")')
         self.assertEqual(pg.evaluate("() => document.activeElement.dataset.node"), "1")
-        pg.keyboard.press("Tab")
+        pg.keyboard.press("ArrowUp")  # nodes by node ID: 5 rtd is above 23 valve
         pg.keyboard.press("Space")
         pg.wait_for_selector('#view h2:has-text("Node 5")')
         self.assertEqual(pg.evaluate("() => document.activeElement.dataset.node"), "2")
-        # Tab from the last node reaches "Add node from EDS…"; Enter opens the file picker.
-        pg.keyboard.press("Tab")
-        self.assertEqual(self.active(), "eds-input")
+        # Down from the last node reaches "Add node…"; Space opens the file picker.
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("ArrowDown")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.action"), "add-node")
         with pg.expect_file_chooser() as fc:
             pg.keyboard.press("Space")
         fc.value.set_files(os.path.join(RTD, "rtd8.eds"))
-        pg.wait_for_selector('#node-list [data-node="3"]')
+        pg.wait_for_selector('#tree [data-node="3"]')
         # Startup SDO writes: ↓ and ↑ keep the focus with the moved write; Add focuses its value.
-        self.node(2)
+        self.node(2, "sdos")
         first = pg.inner_text('#view tr[data-path="nodes[2].sdo[0]"] > td >> nth=0')
         pg.focus('tr[data-path="nodes[2].sdo[0]"] button[title="Down"]')
         pg.keyboard.press("Enter")
@@ -441,39 +454,55 @@ class Probes(Layout):
         pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
         self.assertNotIn("DBC finding", pg.inner_text("#problem-list"))
 
-    # -- 4.2 node page sections ----------------------------------------------
+    # -- 4.2 node page sections, now node tabs (network-tree-and-node-tabs) --
     def test_node_page_sections(self):
         pg = self.page
         self.open()
-        pg.click('#node-list [data-node="2"]')
-        pg.wait_for_selector(".section-index")
-        labels = pg.eval_on_selector_all(".section-index a", "as => as.map(a => a.textContent)")
-        self.assertEqual(labels, ["Node", "Supervision", "Emergency", "Axis", "Advanced", "Inputs", "Outputs", "Startup SDO writes", "SDO variables"])
-        # Node 5 has startup SDO writes: that section is open with its count.
+        tree_node(pg, 2)
+        tabs = pg.eval_on_selector_all(".node-tabs [data-node-tab]", "bs => bs.map((b) => b.dataset.nodeTab)")
+        self.assertEqual(tabs, ["general", "pdos", "sdos", "supervision", "notes", "advanced"])  # rtd8: no CiA 402
+        # Its four PDO errors are counted on the PDOs tab.
+        self.assertIn("4 errors", pg.inner_text('.node-tabs [data-node-tab="pdos"] .tree-badge'))
+        self.assertEqual(pg.get_attribute('.node-tabs [data-node-tab="general"]', "aria-selected"), "true")
+        # Each former section is on its tab, one tab at a time.
+        for tab, sel in (("general", 'input[data-path="nodes[2].node_id"]'),
+                         ("supervision", "select[data-supervision]"),
+                         ("pdos", 'button[data-add-entry="nodes[2].tx_pdos[0]"]'),
+                         ("sdos", 'details[data-section="sdo_variables"]'),
+                         ("advanced", '[data-node-tab-panel="advanced"]')):
+            node_tab(pg, tab)
+            self.assertEqual(pg.get_attribute('.node-tabs [data-node-tab="%s"]' % tab, "aria-selected"), "true")
+            self.assertEqual(pg.locator('[data-node-tab-panel]').count(), 1)
+            pg.wait_for_selector(sel)
+        # Node 5 has startup SDO writes: that table is open with its count.
+        node_tab(pg, "sdos")
         self.assertEqual(pg.get_attribute('details[data-section="sdo"]', "open"), "")
         self.assertRegex(pg.inner_text('details[data-section="sdo"] > summary'), r"\d+ entr")
-        pg.click('.section-index a[data-section="sec-vars"]')
-        pg.wait_for_function("() => document.querySelector('.section-index a[data-section=\"sec-vars\"]').getAttribute('aria-current') === 'true'")
-        pg.wait_for_function("() => document.querySelector('#sec-vars').getBoundingClientRect().top < 200")
-        # Node 23 has none: both sections are folded, with "none" and an add action on the summary line.
-        pg.click('#node-list [data-node="1"]')
+        self.assertEqual(pg.locator('#view [data-path="nodes[2].tx_pdos[0].cob_id"]').count(), 0)
+        # Node 23 has none: the SDOs tab stays open, both tables show with "none"
+        # and an add action next to the summary line.
+        tree_node(pg, 1)
         pg.wait_for_selector('#view h2:has-text("Node 23")')
+        pg.wait_for_selector('[data-node-tab-panel="sdos"]')
         for key in ("sdo", "sdo_variables"):
             d = pg.locator('details[data-section="%s"]' % key)
-            self.assertIsNone(d.get_attribute("open"))
+            self.assertTrue(d.is_visible())
             self.assertIn("none", d.locator("summary").inner_text())
             self.assertTrue(pg.is_visible('button[data-section-add="%s"]' % key))
             self.assertEqual(d.locator("summary button").count(), 0)
-        # The summary's Add opens the section on its picker.
+        # The summary's Add opens the table on its picker.
+        pg.click('details[data-section="sdo"] > summary')  # folded by the user
+        self.assertIsNone(pg.get_attribute('details[data-section="sdo"]', "open"))
         pg.click('button[data-section-add="sdo"]')
         pg.wait_for_selector('details[data-section="sdo"][open]')
         self.assertEqual(self.active(), "")  # the filter field, which has no data-path and no id
         self.assertEqual(pg.evaluate("() => document.activeElement.getAttribute('aria-label')"), "Filter SDO objects")
-        # Node 0 (pingpong) has SDO variables: its section opens by itself.
-        pg.click('#node-list [data-node="0"]')
+        # Node 0 (pingpong) has SDO variables: its count is on the summary.
+        tree_node(pg, 0)
         pg.wait_for_selector('details[data-section="sdo_variables"][open]')
         self.assertIn("2 entries", pg.inner_text('details[data-section="sdo_variables"] summary'))
         # "Add entry…" on a PDO adds to that PDO, listing only that direction.
+        node_tab(pg, "pdos")
         pg.click('button[data-add-entry="nodes[0].tx_pdos[0]"]')
         pg.wait_for_selector('details[data-picker="input"][open]')
         self.assertIn("Adding to TPDO 1", pg.inner_text('[data-picker-target="input"]'))
@@ -484,7 +513,7 @@ class Probes(Layout):
         self.assertRegex(pg.input_value('input[data-path="nodes[0].tx_pdos[0].entries[1].iec_location"]'), r"^%I")
         self.assertEqual(pg.locator("text=Map an object").count(), 0)
 
-    # -- 4.3 the side bar and the focus --------------------------------------
+    # -- 4.3 the tree and the focus --------------------------------------
     def test_add_node_focuses_its_name(self):
         pg = self.page
         self.open()
@@ -492,7 +521,7 @@ class Probes(Layout):
         pg.wait_for_selector('#view h2:has-text("Node 3 rtd8")')  # the first free ID after the master's
         self.assertEqual(self.active(), "nodes[3].name")
         pg.keyboard.type("x")
-        pg.wait_for_selector('#node-list [data-node="3"]:has-text("rtd8x")')
+        pg.wait_for_selector('#tree [data-key="0:node:3"] .name:text-is("3 rtd8x")')
 
     # -- 5.1 wording ----------------------------------------------------------
     def test_empty_config_wording(self):
@@ -515,7 +544,7 @@ class Probes(Layout):
         self.cfg["nodes"] = self.cfg["nodes"][:1]
         self.write_config()
         self.open()
-        self.node(0)
+        self.node(0, "general")
         self.fill_path("nodes[0].name", "pong")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.evaluate("""() => {
@@ -570,7 +599,7 @@ class CleanProject(OnlineBase):
             names.append(dl.value.suggested_filename)
             pg.wait_for_function("() => !document.querySelector('#menu-export').open")  # a pick closes the menu
         self.assertEqual(names, ["rtd-monitor_dcf.zip", "rtd-monitor.dbc", "rtd-monitor.html"])
-        pg.click('#node-list [data-node="0"]')
+        tree_node(pg, 0)
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         with pg.expect_download() as dl:
             pg.click("#btn-export-node")

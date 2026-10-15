@@ -44,7 +44,7 @@ class EndToEnd(OnlineBase):
 
     def top(self):
         """Puts the focus on the header's first action, so the next Tabs
-        walk the header, then the side bar, then the page."""
+        walk the header, then the network tree, then the page."""
         self.page.focus("#btn-reload")
 
     def tab_to(self, selector, limit=120):
@@ -79,6 +79,33 @@ class EndToEnd(OnlineBase):
         pg.keyboard.press("Enter")
         pg.wait_for_selector('#ws [data-ws="%s"][aria-pressed="true"]' % ws)
 
+    def tree_to(self, key):
+        """Tabs into the network tree (one tab stop), walks it with the arrow
+        keys to the entry `key` and opens it with Enter."""
+        pg = self.page
+        self.top()
+        self.tab_to('#tree [role=treeitem][tabindex="0"]')
+        pg.keyboard.press("Home")
+        for _ in range(60):
+            if self.active("key") == key:
+                pg.keyboard.press("Enter")
+                return
+            pg.keyboard.press("ArrowDown")
+        self.fail("no tree entry %s" % key)
+
+    def node_tab_key(self, name):
+        """Tabs to the node page's selected tab, then the arrow keys to tab `name`."""
+        pg = self.page
+        self.top()
+        self.tab_to('.node-tabs [role=tab][aria-selected="true"]')
+        pg.keyboard.press("Home")
+        for _ in range(10):
+            if self.active("nodeTab") == name:
+                pg.wait_for_selector('[data-node-tab-panel="%s"]' % name)
+                return
+            pg.keyboard.press("ArrowRight")
+        self.fail("no node tab %s" % name)
+
     def tool_tab(self, name):
         """The header's tabs: Tab reaches the selected one, the arrow keys the others."""
         pg = self.page
@@ -92,7 +119,7 @@ class EndToEnd(OnlineBase):
 
     def view(self, name, where):
         """Opens a view with the keyboard and audits it: the workspace
-        switch, then a tool tab or a side bar page."""
+        switch, then a tool tab or a page from the network tree."""
         pg = self.page
         if name == "online":
             self.workspace("commission")
@@ -101,8 +128,8 @@ class EndToEnd(OnlineBase):
             self.workspace("configure")
             if not pg.is_visible("#side"):
                 self.tool_tab("network")
-            self.top()
-            self.press_on('#side button[data-view="bus"]')
+            self.tree_to(pg.get_attribute('#tree .open-net [data-view="bus"]', "data-key"))
+            pg.wait_for_selector('#tree .open-net [data-view="bus"].selected')
         else:
             self.tool_tab(name)
         if name == "online":
@@ -122,19 +149,21 @@ class EndToEnd(OnlineBase):
         pg = self.page
         for name in VIEWS:
             self.view(name, "%s in %s" % (name, theme))
-        # Every node page, from the side bar.
+        # Every node page and each of its tabs, from the network tree.
         self.workspace("configure")
         if not pg.is_visible("#side"):
             self.tool_tab("network")
-        self.top()
-        nodes = pg.eval_on_selector_all("#node-list [data-node]", "es => es.map(e => e.dataset.node)")
-        self.assertEqual(nodes, ["0", "1", "2"])
-        for k in nodes:
-            self.top()
-            self.press_on('#node-list [data-node="%s"]' % k)
-            pg.wait_for_selector('#view h2:has-text("Node")')
-            self.assertEqual(pg.get_attribute('#node-list [data-node="%s"]' % k, "aria-current"), "true")
-            self.check("node %s in %s" % (k, theme))
+        keys = pg.eval_on_selector_all("#tree .open-net [data-node]", "es => es.map(e => e.dataset.key)")
+        self.assertEqual(sorted(k.rsplit(":", 1)[1] for k in keys), ["0", "1", "2"])
+        for key in keys:
+            k = key.rsplit(":", 1)[1]
+            self.tree_to(key)
+            pg.wait_for_selector('[data-node-heading="%s"]' % k)
+            self.assertEqual(pg.get_attribute('#tree [data-key="%s"]' % key, "aria-selected"), "true")
+            tabs = pg.eval_on_selector_all(".node-tabs [role=tab]", "bs => bs.map((b) => b.dataset.nodeTab)")
+            for tab in tabs:
+                self.node_tab_key(tab)
+                self.check("node %s, tab %s in %s" % (k, tab, theme))
 
     def test_walk_everything(self):
         pg = self.page
@@ -155,9 +184,9 @@ class EndToEnd(OnlineBase):
 
             # -- remove a PDO entry and undo it -------------------------------
             self.workspace("configure")
-            self.top()
-            self.press_on('#node-list [data-node="0"]')
+            self.tree_to(pg.get_attribute('#tree .open-net [data-node="0"]', "data-key"))
             pg.wait_for_selector('#view h2:has-text("Node 5")')
+            self.node_tab_key("pdos")
             path = "nodes[0].tx_pdos[0].entries[0]"
             location = pg.input_value('input[data-path="%s.iec_location"]' % path)
             self.assertTrue(location.startswith("%I"), location)

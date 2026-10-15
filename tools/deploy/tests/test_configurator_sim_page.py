@@ -13,7 +13,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_sim_page import TOKEN, FakeSim
-from .helpers import tmpdir
+from .helpers import tmpdir, tree_node, tree_view
 from .test_configurator_page import FIXTURE, REQUIRED, RTD, load, sync_playwright
 
 BANNER_END = "must not be uploaded to a machine as it is"
@@ -111,7 +111,8 @@ class Base(unittest.TestCase):
         return load(self.config_path)
 
     def badges(self):
-        return self.page.eval_on_selector_all("#node-list [data-node]",
+        """The tree's mark of each node, in node ID order: simulated, absent or ''."""
+        return self.page.eval_on_selector_all("#tree [data-node]",
                                               "els => els.map(e => { const b = e.querySelector('[data-sim-badge]');"
                                               " return b ? b.dataset.simBadge : ''; })")
 
@@ -128,9 +129,9 @@ class Network(Base):
         self.open()
 
     def node_switch(self, i, on):
-        if not self.page.is_visible("#node-list"):
+        if not self.page.is_visible("#tree"):
             self.page.click('#tool-tabs button[data-view="network"]')
-        self.page.click('#node-list [data-node="%d"]' % i)
+        tree_node(self.page, i, "general")
         box = self.page.locator('input[data-sim="node"]')
         if on:
             box.check()
@@ -150,11 +151,12 @@ class Network(Base):
         self.assertIn("nodes 5, 6, 7 simulated", text)
         self.assertIn(BANNER_END, text)
         # The banner is on every page.
-        for view in ('#node-list [data-node="1"]', 'button[data-view="declarations"]', 'button[data-view="trace"]'):
-            pg.click(view)
+        for view in (lambda: tree_node(pg, 1), lambda: pg.click('button[data-view="declarations"]'),
+                     lambda: pg.click('button[data-view="trace"]')):
+            view()
             self.assertIn("The network is simulated", self.banner_text())
         pg.click('#tool-tabs button[data-view="network"]')
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "access")
         self.assertTrue(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
         saved = self.save()
         self.assertEqual(saved["adapter"],
@@ -164,6 +166,7 @@ class Network(Base):
         self.assertTrue(diag.token_matches(settings["token"], saved["master"]["diagnostics"].pop("token_verifier")))
         self.assertEqual(saved["master"]["diagnostics"], {"allow_changes": True})
         # Back to the real network: the adapter settings were kept.
+        tree_view(pg, "bus")
         pg.select_option('select[data-path="adapter.simulate"]', "")
         self.assertEqual(self.banner_text(), "")
         saved = self.save()
@@ -174,7 +177,8 @@ class Network(Base):
         pg.select_option('select[data-path="adapter.simulate"]', "true")
         pg.wait_for_selector("#banner:has-text('Online access is now on')")
         self.node_switch(2, False)
-        self.assertIn("Absent", pg.inner_text('[data-section] ~ fieldset, #view'))
+        self.assertIn("Absent", pg.inner_text('[data-node-tab-panel="general"]'))
+        self.assertIn("(absent)", pg.inner_text('#tree [data-node="2"] .name'))
         self.assertEqual(self.badges(), ["simulated", "simulated", "absent"])
         self.assertIn("nodes 5, 6 simulated and node 7 absent", self.banner_text())
         saved = self.save()
@@ -186,6 +190,7 @@ class Network(Base):
         self.node_switch(0, True)
         pg.wait_for_selector("#banner:has-text('Online access is now on')")
         self.assertEqual(self.badges(), ["simulated", "", ""])
+        self.assertIn("(simulated)", pg.inner_text('#tree [data-node="0"] .name'))
         self.assertIn("Node 5 is simulated on the real network can0.", self.banner_text())
         self.assertIn(BANNER_END, self.banner_text())
         saved = self.save()
@@ -214,9 +219,12 @@ class Network(Base):
         cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
         self.write_config(cfg)
         pg.click("#btn-reload")
+        tree_view(pg, "access")
         pg.wait_for_selector('input[data-online="enable"]:checked')
+        tree_view(pg, "bus")
         pg.click('button[data-sim="all"]')
         self.assertIn("Nodes 5, 6, 7 are simulated", self.banner_text())
+        tree_view(pg, "access")
         self.assertFalse(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
 
 

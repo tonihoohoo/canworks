@@ -13,7 +13,7 @@ import shutil
 from canworks import modbusmap
 from canworks.configurator import server as srv
 
-from .helpers import REPO
+from .helpers import REPO, tree_view
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
@@ -42,20 +42,20 @@ class BridgePage(OnlineBase):
     def to_bridge(self):
         pg = self.page
         self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
-        self.assertTrue(pg.is_hidden("#nav-bridge"))
+        self.assertEqual(pg.locator("#tree #nav-bridge").count(), 0)
         pg.select_option('select[data-target="1"]', "bridge")
         pg.wait_for_selector("#modal[open]")
         self.assertIn("Pack every location for Modbus?", pg.inner_text("#modal-text"))
         pg.click('#modal button[data-value="pack"]')
         pg.wait_for_selector("#banner:has-text('Modbus bridge now')")
-        pg.wait_for_selector("#nav-bridge:not([hidden])")
+        pg.wait_for_selector("#tree #nav-bridge")
         self.checked()
 
     def test_switch_pack_and_export_st(self):
         pg = self.page
         self.open()
         self.to_bridge()
-        pg.click("#nav-bridge")
+        tree_view(pg, "bridge")
         pg.wait_for_selector("h2:has-text('Modbus bridge')")
         # Writers is required: the switch starts it empty (nobody writes) and
         # the hint names how to let every host write.
@@ -109,7 +109,7 @@ class BridgePage(OnlineBase):
                                            "live_lists": [{"network": "field", "location": "%IB24"}]})
 
         # Export ST variables: the file canworks-deploy --export-modbus-map map.st writes.
-        pg.click("#nav-bridge")
+        tree_view(pg, "bridge")
         pg.wait_for_selector('#bridge-map tr[data-bridge-row]')
         with pg.expect_download() as dl:
             pg.click('button[data-bridge-export="st"]')
@@ -152,15 +152,15 @@ class BridgePage(OnlineBase):
         pg.wait_for_selector("#modal[open]")
         pg.click('#modal button[data-value="pack"]')
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
-        pg.wait_for_selector("#nav-bridge[hidden]", state="attached")
+        pg.wait_for_selector("#tree #nav-bridge", state="detached")
         self.checked()
         self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         # The switch and its repack are one step: undo brings the bridge back, redo removes it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")
-        pg.wait_for_selector("#nav-bridge:not([hidden])")
+        pg.wait_for_selector("#tree #nav-bridge")
         pg.keyboard.press("Control+Shift+z")
-        pg.wait_for_selector("#nav-bridge[hidden]", state="attached")
+        pg.wait_for_selector("#tree #nav-bridge", state="detached")
         self.checked()
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")

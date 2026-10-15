@@ -16,6 +16,7 @@ import time
 import unittest
 
 from .fake_diag import status as fake_status
+from .helpers import tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, load
 from .test_parameters import NODE, FakeDevice
@@ -644,7 +645,7 @@ class ParamsPage(OnlineBase):
     def test_time_period_field(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="bus"]')
+        tree_view(pg, "bus")
         pg.click('details[data-advanced="master"] > summary')
         f = 'input[data-path="master.time_period_ms"]'
         pg.wait_for_selector(f)

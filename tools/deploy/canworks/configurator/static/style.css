@@ -156,14 +156,14 @@ dialog#conn-dialog h2 { margin-top: 0; }
 .tree-item.net > .tree-row { font-weight: 600; margin-top: 6px; }
 .tree-item.action > .tree-row { color: var(--accent); }
 .tree-item.muted > .tree-row { color: var(--muted); cursor: default; }
-.tree-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-row .proto { font-size: 11px; font-weight: normal; white-space: nowrap; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tree-item.net > .tree-row > .name { flex: 0 1 auto; }
+.tree-row .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .proto { font-size: 11px; font-weight: normal; white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .twist { width: 12px; color: var(--muted); }
 .tree-mark { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1.5px solid transparent; }
 .tree-mark.sim { border-color: var(--accent); }
 .tree-mark.absent { border: 1.5px dashed var(--muted); }
-.tree-row .net-menu { padding: 0 6px; min-height: 22px; border-color: transparent; background: none; }
+/* The badge stays next to the name; the menu button at the row's end. */
+.tree-row .net-menu { margin-left: auto; padding: 0 6px; min-height: 24px; border-color: transparent; background: none; }
 .tree-row:hover .net-menu, .tree-item:focus-within .net-menu { border-color: var(--line); }
 .tree-badge { display: inline-flex; gap: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .tree-badge .err { color: var(--error); }
