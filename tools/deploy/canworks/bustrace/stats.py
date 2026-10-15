@@ -31,9 +31,25 @@ def frame_bits(f):
     return base + (stuffable - 1) // 4 // 2
 
 
+def id_key(f):
+    """The By identifier view's row of a frame: identifier, format and
+    direction (a frame this PC sent and the same identifier received are two
+    rows); error frames share one row."""
+    return (-1, False, False) if f.err else (f.can_id, f.ext, bool(f.tx))
+
+
+def changed_mask(old, new):
+    """Bit k set when byte k differs (a byte only one of them has counts)."""
+    m = 0
+    for k in range(max(len(old), len(new))):
+        if k >= len(old) or k >= len(new) or old[k] != new[k]:
+            m |= 1 << k
+    return m
+
+
 class IdStats:
     __slots__ = ("can_id", "ext", "count", "first_us", "last_us", "min_us", "max_us", "sum_us", "data", "name",
-                 "kind", "node", "tx")
+                 "kind", "node", "tx", "changed", "changed_at", "ever", "rev", "seq", "prev", "text")
 
     def __init__(self, f):
         self.can_id, self.ext = (-1, False) if f.err else (f.can_id, f.ext)
@@ -41,10 +57,15 @@ class IdStats:
         self.first_us = self.last_us = f.time_us
         self.min_us = self.max_us = None
         self.sum_us = 0
-        self.data = b""
-        self.name = self.kind = ""
+        self.data = self.prev = b""
+        self.name = self.kind = self.text = ""
         self.node = None
-        self.tx = False
+        self.tx = bool(f.tx) and not f.err
+        self.changed = 0  # bytes that differ between the last two frames
+        self.changed_at = [None] * 8  # time each byte last changed
+        self.ever = 0  # bytes that changed at least once in the trace
+        self.rev = 0  # Analysis.rev of the last update
+        self.seq = 0  # the last frame's number in the analysis (frames fed before it)
 
     def add(self, f, d):
         if self.count:
@@ -52,10 +73,16 @@ class IdStats:
             self.min_us = dt if self.min_us is None else min(self.min_us, dt)
             self.max_us = dt if self.max_us is None else max(self.max_us, dt)
             self.sum_us += dt
+            self.changed = changed_mask(self.data, f.data)
+            self.ever |= self.changed
+            for k in range(8):
+                if self.changed >> k & 1:
+                    self.changed_at[k] = f.time_us
         self.count += 1
         self.last_us = f.time_us
-        self.data = f.data
-        self.tx = f.tx
+        self.prev, self.data = self.data, f.data
+        if d is not None:
+            self.text = d.text
         if d is None:
             return
         if d.kind == "tp":
@@ -71,16 +98,41 @@ class IdStats:
         else:
             self.name, self.kind, self.node = d.name, d.kind, d.node
 
-    def as_dict(self):
+    @property
+    def key(self):
+        return (self.can_id, self.ext, self.tx)
+
+    def silent(self, now_us):
+        """Not seen for more than three average cycles, and at least 1 s;
+        never with fewer than three frames (canopen-bus-trace: "Trace
+        statistics")."""
+        if now_us is None or self.count < 3:
+            return False
+        avg = self.sum_us / (self.count - 1)
+        return now_us - self.last_us > max(3 * avg, 1_000_000)
+
+    def as_dict(self, now_us=None, ref=None, ref_us=None):
         avg = self.sum_us / (self.count - 1) if self.count > 1 else None
         id_text = "error" if self.can_id < 0 else ("%08X" if self.ext else "%03X") % self.can_id
-        return {"id": self.can_id, "id_text": id_text, "ext": self.ext,
-                "count": self.count, "name": self.name, "kind": self.kind, "node": self.node,
-                "dir": "Tx" if self.tx else "Rx", "data": " ".join("%02X" % b for b in self.data),
-                "cycle_min_ms": None if self.min_us is None else self.min_us / 1000.0,
-                "cycle_avg_ms": None if avg is None else avg / 1000.0,
-                "cycle_max_ms": None if self.max_us is None else self.max_us / 1000.0,
-                "last_us": self.last_us}
+        out = {"key": "%s%s%s" % (id_text, "x" if self.ext else "", "t" if self.tx else "r"),
+               "id": self.can_id, "id_text": id_text, "ext": self.ext,
+               "count": self.count, "name": self.name, "kind": self.kind, "node": self.node,
+               "dir": "Tx" if self.tx else "Rx", "data": " ".join("%02X" % b for b in self.data),
+               "prev": " ".join("%02X" % b for b in self.prev) if self.count > 1 else None,
+               "text": self.text, "dlc": len(self.data),
+               "cycle_min_ms": None if self.min_us is None else self.min_us / 1000.0,
+               "cycle_avg_ms": None if avg is None else avg / 1000.0,
+               "cycle_max_ms": None if self.max_us is None else self.max_us / 1000.0,
+               "cycle_last_ms": None,
+               "first_us": self.first_us, "last_us": self.last_us, "seq": self.seq,
+               "changed": self.changed, "changed_at": list(self.changed_at[:max(len(self.data), 1)]),
+               "static": ((1 << len(self.data)) - 1) & ~self.ever if self.count > 1 else 0,
+               "silent": self.silent(now_us)}
+        if ref is not None:
+            old = ref.get(self.key)
+            out["ref_new"] = old is None and (ref_us is None or self.first_us > ref_us)
+            out["ref_diff"] = 0 if old is None else changed_mask(old, self.data)
+        return out
 
 
 class Series:
@@ -135,7 +187,13 @@ class Analysis:
         self.bitrate = bitrate or 0
         self.kinds = bytearray()   # per frame: KIND_CODE
         self.nodes = bytearray()   # per frame: node id or 0
-        self.ids = {}              # (can_id, ext) -> IdStats
+        self.ids = {}              # id_key(frame) -> IdStats
+        self.rev = 0               # frames fed; an IdStats carries the rev of its last frame
+        self.last_dt = {}          # id key -> the last cycle time in us
+        self.ref = None            # Set reference: id key -> data
+        self.ref_us = None
+        self.fed = 0               # frames fed, gaps included
+        self.dropped = 0           # frames the trace dropped from its front
         self.buckets = {}          # bucket index -> [frames, bits]
         self.series = {}           # key -> Series
         self.frames = 0
@@ -154,6 +212,7 @@ class Analysis:
 
     def feed(self, f, on_decoded=None):
         d = self.decoder.decode(f)
+        self.fed += 1
         self.kinds.append(KIND_CODE[d.kind])
         self.nodes.append(d.node if isinstance(d.node, int) and 0 <= d.node < 256 else 0)
         if f.gap:
@@ -164,11 +223,16 @@ class Analysis:
         if self.first_us is None:
             self.first_us = f.time_us
         self.last_us = f.time_us
-        key = (-1, False) if f.err else (f.can_id, f.ext)
+        key = id_key(f)
         st = self.ids.get(key)
         if st is None:
             st = self.ids[key] = IdStats(f)
+        elif st.count:
+            self.last_dt[key] = f.time_us - st.last_us
         st.add(f, d)
+        self.rev += 1
+        st.rev = self.rev
+        st.seq = self.fed - 1
         b = self.buckets.setdefault(f.time_us // BUCKET_US, [0, 0])
         b[0] += 1
         b[1] += frame_bits(f)
@@ -188,6 +252,7 @@ class Analysis:
         """The trace dropped its n oldest frames."""
         del self.kinds[:n]
         del self.nodes[:n]
+        self.dropped += n
 
     # -- views --------------------------------------------------------------
     def rate_series(self, start_us=None, end_us=None):
@@ -228,8 +293,31 @@ class Analysis:
                 "rate": rate, "load": load, "bitrate": self.bitrate or None,
                 "first_us": self.first_us, "last_us": self.last_us}
 
-    def id_table(self):
-        return [s.as_dict() for s in sorted(self.ids.values(), key=lambda s: (s.can_id < 0, s.ext, s.can_id))]
+    def id_table(self, since=None, now_us=None):
+        """The per-identifier rows in identifier order; with `since` (a rev)
+        only the rows updated after it."""
+        out = []
+        for s in sorted(self.ids.values(), key=lambda s: (s.can_id < 0, s.ext, s.can_id, s.tx)):
+            if since is not None and s.rev <= since:
+                continue
+            row = s.as_dict(now_us, self.ref, self.ref_us)
+            dt = self.last_dt.get(s.key)
+            row["cycle_last_ms"] = None if dt is None else dt / 1000.0
+            out.append(row)
+        return out
+
+    def set_reference(self, data=None, time_us=None, clear=False):
+        """Set reference: each row's data now, or the given {key: data}
+        (the data at a frame of an opened file); clear removes it. Every row
+        counts as updated so the page redraws the marks."""
+        if clear:
+            self.ref = self.ref_us = None
+        else:
+            self.ref = dict(data) if data is not None else {k: s.data for k, s in self.ids.items()}
+            self.ref_us = time_us if time_us is not None else self.last_us
+        self.rev += 1
+        for s in self.ids.values():
+            s.rev = self.rev
 
     def series_list(self):
         return [{"key": s.key, "label": s.label, "node": s.node, "kind": s.kind, "points": len(s.times)}

@@ -34,6 +34,19 @@ class TraceBase(OnlineBase):
             f.write(written(trace or sample_trace(), formats.format_of(path)))
         return path
 
+    def chronological(self):
+        self.page.click('[data-trace-tab="frames"]')
+        self.page.wait_for_selector("#trace-list")
+
+    def filters(self):
+        """Opens the Filters menu (By identifier and Chronological share it)."""
+        if not self.page.evaluate("document.querySelector('[data-trace=filters]').open"):
+            self.page.click("[data-trace=filters] > summary")
+
+    def save_menu(self):
+        if not self.page.evaluate("document.querySelector('[data-trace=save-menu]').open"):
+            self.page.click("[data-trace=save-menu] > summary")
+
     def rows(self):
         return self.page.eval_on_selector_all("#trace-rows .trace-row", "rs => rs.map(r => r.innerText)")
 
@@ -55,12 +68,18 @@ class Files(TraceBase):
         self.assertIn("Recording needs online access", pg.inner_text("#trace-source"))
         pg.set_input_files('input[data-trace="open-input"]', self.sample_file())
         pg.wait_for_selector("#trace-source:has-text('File sample.log')")
+        # By identifier is the first view; the identifier table.
+        pg.wait_for_selector('[data-ids-key][data-trace-id="182"]')
+        self.assertIn("pingpong_TPDO1", pg.inner_text('[data-ids-key][data-trace-id="182"]'))
+        self.assertIn("10.0", pg.inner_text('[data-ids-key][data-trace-id="182"]'))  # 10 ms cycle
+        self.chronological()
         pg.wait_for_selector("#trace-rows .trace-row")
         rows = self.rows()
         self.assertIn("start node 2 (pingpong)", rows[0])
         self.assertTrue(rows[0].startswith("0.000000"), rows[0])
         self.assertIn("25 frames", pg.inner_text("[data-trace=stats]"))
         # Display filters: node 2 and SDO.
+        self.filters()
         pg.fill('[data-trace-filter="nodes"]', "2")
         pg.press('[data-trace-filter="nodes"]', "Tab")
         pg.check('[data-trace-kind="sdo"]')
@@ -75,14 +94,10 @@ class Files(TraceBase):
         self.wait_rows(1)
         pg.fill('[data-trace-filter="text"]', "")
         pg.press('[data-trace-filter="text"]', "Tab")
+        pg.keyboard.press("Escape")
         pg.click('[data-trace-time="utc"]')
         pg.wait_for_function("() => ((document.querySelector('#trace-rows .trace-row span') || {}).textContent || '').startsWith('06:20:00.000000')")
         pg.click('[data-trace-time="rel"]')
-        # Identifier table.
-        pg.click('[data-trace-tab="ids"]')
-        pg.wait_for_selector('tr[data-trace-id="182"]')
-        self.assertIn("pingpong_TPDO1", pg.inner_text('tr[data-trace-id="182"]'))
-        self.assertIn("10.0", pg.inner_text('tr[data-trace-id="182"]'))  # 10 ms cycle
         # Graph: a series, cursors A and B with deltas, jump to the frame and back.
         pg.click('[data-trace-tab="graph"]')
         pg.check('[data-trace-series="%s"]' % SIGNAL)
@@ -101,6 +116,7 @@ class Files(TraceBase):
         pg.click("[data-trace=back-to-graph]")
         pg.wait_for_selector("#trace-plots .uplot")
         # Export downloads a file; Start says online access is needed.
+        self.save_menu()
         pg.select_option("[data-trace=export-format]", "asc")
         with pg.expect_download() as dl:
             pg.click("[data-trace=export]")
@@ -108,8 +124,8 @@ class Files(TraceBase):
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor-trace.asc")
         with open(path, "rb") as f:
             self.assertEqual(len([x for x in formats.read(f.read(), "x.asc") if not x.gap]), 25)
-        pg.click("[data-trace=start]")
-        pg.click('#modal button[data-value="start"]')
+        pg.click("[data-trace=start-stop]")
+        pg.click('#modal button[data-value="new"]')
         pg.wait_for_selector("#banner.error:has-text('set up online access')")
 
     def test_large_trace_scrolls_and_graphs(self):
@@ -128,6 +144,8 @@ class Files(TraceBase):
         started = time.monotonic()
         pg.set_input_files('input[data-trace="open-input"]', path)
         pg.wait_for_selector("#trace-source:has-text('File big.pcapng')", timeout=120000)
+        pg.wait_for_selector('[data-ids-key][data-trace-id="182"]:has-text("2,000,000")')
+        self.chronological()
         pg.wait_for_selector("#trace-rows .trace-row")
         opened = time.monotonic() - started
         pg.eval_on_selector("#trace-list", "l => { l.scrollTop = l.scrollHeight; }")
@@ -150,11 +168,14 @@ class Pages(TraceBase):
         self.open()
         self.trace_view()
         self.page.set_input_files('input[data-trace="open-input"]', self.sample_file())
+        self.page.wait_for_selector("#trace-source:has-text('File sample.log')")
+        self.chronological()
         self.page.wait_for_selector("#trace-rows .trace-row")
 
     def test_hex_identifier_filter(self):
         pg = self.page
         self.opened()
+        self.filters()
         # A CANopen network offers no J1939 kinds.
         kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
         self.assertEqual(kinds, ["nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other", "raw"])
@@ -217,7 +238,7 @@ class Networks(TraceBase):
         self.open()
         self.trace_view()
         pg.set_input_files('input[data-trace="open-input"]', self.sample_file())
-        pg.wait_for_selector("#trace-rows .trace-row")
+        pg.wait_for_selector("#trace-source:has-text('File sample.log')")
         pg.click('[data-trace-tab="graph"]')
         pg.check('[data-trace-series="%s"]' % SIGNAL)
         pg.wait_for_selector("#trace-plots .uplot")
@@ -242,10 +263,11 @@ class Live(TraceBase):
     def test_record_reload_and_stop(self):
         pg = self.page
         self.live(self.fake)
-        pg.click("[data-trace=start]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(30)
         pg.wait_for_selector("[data-trace=stats]:has-text('30 frames')")
+        self.chronological()
         pg.wait_for_function("() => [...document.querySelectorAll('#trace-rows .trace-row')].some(r => r.innerText.includes('sent_from_slave=29'))")
         # A reload keeps the recording and its frames.
         pg.reload()
@@ -254,14 +276,14 @@ class Live(TraceBase):
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(5, 30)
         pg.wait_for_selector("[data-trace=stats]:has-text('35 frames')")
-        pg.click("[data-trace=stop]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('stopped')")
         self.assertEqual(self.fake.requests[-1]["op"], "trace_stop")
 
     def test_old_plugin(self):
         self.fake.trace_supported = False
         self.live(self.fake)
-        self.page.click("[data-trace=start]")
+        self.page.click("[data-trace=start-stop]")
         self.page.wait_for_selector("#banner.error:has-text('too old for traces')")
 
     def test_triggers(self):
@@ -274,7 +296,7 @@ class Live(TraceBase):
         pg.fill('[data-trace-trig="post_s"]', "0")
         pg.click("[data-trace=apply-trigger]")
         pg.wait_for_selector("[data-trace=trigger-text]:has-text('EMCY from node 2')")
-        pg.click("[data-trace=start]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(5)
         now = int(time.time() * 1e6)
@@ -292,8 +314,8 @@ class Live(TraceBase):
         pg.fill('[data-trace-trig="autosave-folder"]', folder)
         pg.click("[data-trace=apply-trigger]")
         pg.wait_for_selector("[data-trace=trigger-text]:has-text('frame 0x702')")
-        pg.click("[data-trace=start]")
-        pg.click('#modal button[data-value="start"]')
+        pg.click("[data-trace=start-stop]")
+        pg.click('#modal button[data-value="new"]')
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(3, can_id=0x702)
         pg.wait_for_function("() => document.querySelectorAll('[data-trace=saved] li').length === 3")
@@ -307,7 +329,7 @@ class Live(TraceBase):
     def test_layout_fits(self):
         pg = self.page
         self.live(self.fake)
-        pg.click("[data-trace=start]")
+        pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(20)
         now = int(time.time() * 1e6)

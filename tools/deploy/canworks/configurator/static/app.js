@@ -925,7 +925,6 @@ function render() {
   stopSim(S.view === "simulation");
   stopMachine();
   stopTrace();
-  if (S.view !== "trace" && typeof sendLeave === "function") sendLeave();
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("indexed", S.view.startsWith("node:"));

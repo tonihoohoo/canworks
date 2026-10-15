@@ -14,6 +14,8 @@ class Inspector(TraceBase):
         self.open()
         self.trace_view()
         pg.set_input_files('input[data-trace="open-input"]', self.sample_file())
+        pg.wait_for_selector("#ids-body [data-ids-key]")
+        self.chronological()
         pg.wait_for_selector("#trace-rows .trace-row")
 
     def box(self):
@@ -36,7 +38,9 @@ class Inspector(TraceBase):
         # Point at an identifier bit: the function code part.
         pg.hover('#trace-inspector [data-fx=identifier] [data-ref="id.8"]')
         self.assertIn("function code", self.box())
-        # Keyboard: tab into the grid, move with the arrows.
+        # Keyboard: tab into the grid, move with the arrows. The mouse moves
+        # off, so a strip scrolling under it does not point at a bit.
+        pg.mouse.move(0, 0)
         pg.focus('#trace-inspector [data-fx=grid] [data-ref="data.0.7"]')
         self.assertIn("CANopen bit\n7", self.box())
         pg.keyboard.press("ArrowRight")
@@ -78,6 +82,7 @@ class Inspector(TraceBase):
         pg.wait_for_selector("#fx-seq-inspector [data-fx=inspector][data-kind=pdo]")
         # From a frame in the list to its conversation.
         pg.click('[data-trace-tab="frames"]')
+        self.filters()
         pg.fill('[data-trace-filter="text"]', "abort")
         pg.press('[data-trace-filter="text"]', "Tab")
         self.wait_rows(1)

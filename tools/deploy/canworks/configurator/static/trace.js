@@ -12,7 +12,11 @@ const TRACE_KINDS = [["nmt", "NMT"], ["sync", "SYNC"], ["time", "TIME"], ["emcy"
 const TRACE_FORMATS = [["pcapng", "pcapng (Wireshark)"], ["candump", "candump log"], ["asc", "Vector ASC"],
   ["blf", "Vector BLF"], ["trc", "PEAK TRC 2.1"], ["csv", "CSV, decoded"]];
 const TRACE_STATES = { idle: "not recording", connecting: "connecting…", recording: "recording",
-  no_bus: "waiting for the CANopen session", reconnecting: "reconnecting…", stopped: "stopped", error: "stopped" };
+  no_bus: "waiting for the CANopen session", reconnecting: "reconnecting…", stopped: "stopped", error: "stopped",
+  ended: "stopped" };
+const TRACE_TABS = [["ids", "By identifier"], ["frames", "Chronological"], ["graph", "Graph"], ["sequences", "Sequences"],
+  ["trigger", "Trigger"]];
+const SPLIT_WIDE = 1280;  // the inspector sits beside the list from this window width, under it below
 const ROW_H = 22;
 const MAX_SCROLL_PX = 4000000;
 const LANES = 4;
@@ -46,7 +50,7 @@ function traceUnsaved() { return !!(T.st && T.st.frames && T.st.source === "live
 
 // The view's choices; the trace itself is on the server.
 const T = {
-  tab: "frames", filter: {}, timeMode: "rel", follow: true, selected: null, focusSeq: null,
+  tab: "ids", prefs: null, split: 42, inspector: true, filter: {}, timeMode: "rel", follow: true, selected: null, focusSeq: null,
   chosen: [], lane: {}, zoom: null, a: null, b: null, st: null, seq: 0, timer: null,
   range: "all", saveFormat: "pcapng", exportFormat: "candump", capFilters: [], errorFrames: false,
   plots: [], jumpedFrom: null, rowsSeq: 0, lastFrames: -1, lastGeneration: -1, lastGraph: 0, lastIds: 0,
@@ -90,7 +94,7 @@ function download(r) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-// Recording and the Send panel use the connection in the connection bar
+// Recording and the transmit list use the connection in the connection bar
 // (connection.js): the runtime with a config, the USB adapter in Commission
 // a device. A runtime that is set up opens when recording starts.
 function onlineReady() {
@@ -109,8 +113,40 @@ function dropSeries() {
   T.a = T.b = null;
 }
 
+// The view settings kept on this PC (trace.json): view, split, sort, pane.
+async function traceLoadPrefs() {
+  if (T.prefs) return T.prefs;
+  try { T.prefs = await api("GET", "/api/trace/prefs"); } catch (e) { T.prefs = {}; }
+  const p = T.prefs;
+  if (p.view) T.tab = p.view;
+  if (p.split) T.split = p.split;
+  if (typeof p.inspector === "boolean") T.inspector = p.inspector;
+  if (p.sort) { TI.sort = p.sort; TI.desc = !!p.sort_desc; }
+  if (typeof p.pane_open === "boolean") TX.open = p.pane_open;
+  if (p.pane) TX.height = p.pane;
+  return p;
+}
+
+function tracePrefs(changes) {
+  T.prefs = Object.assign(T.prefs || {}, changes);
+  api("POST", "/api/trace/prefs", { prefs: changes }).catch(() => {});
+}
+
+// Commission a device decodes with the Nodes tab's EDS files: {node: path}.
+function commissionEds() {
+  if (!(S.state && S.state.commission)) return null;
+  const out = Object.assign({}, S.onlineEds || {});
+  for (const [id, d] of Object.entries(typeof commNodes === "function" ? commNodes() : {})) if (d && d.eds_path) out[id] = d.eds_path;
+  return out;
+}
+
 function renderTrace(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  if (!T.prefs) {
+    view.append(el("h2", null, "Trace"), el("p", { class: "muted" }, "Loading…"));
+    traceLoadPrefs().then(() => { if (S.view === "trace" && view.isConnected) { view.replaceChildren(); renderTrace(view); } });
+    return;
+  }
   const net = onlineNetwork();
   if (T.net !== undefined && T.net !== net) {
     dropSeries();
@@ -125,41 +161,139 @@ function renderTrace(view) {
     fileInput.value = "";
     if (f) traceOpen(f);
   });
+  const timeMode = el("div", { class: "segmented", role: "group", "aria-label": "Time" },
+    [["rel", "Relative"], ["utc", "UTC"]].map(([v, l]) => el("button", { type: "button", "aria-pressed": String(T.timeMode === v),
+      dataset: { traceTime: v }, onclick: () => {
+        T.timeMode = v;
+        for (const b of timeMode.children) b.setAttribute("aria-pressed", String(b.dataset.traceTime === v));
+        renderTraceTab();
+      } }, l)));
+  const tabList = TRACE_TABS.filter(([k]) => !(k === "sequences" && traceJ1939()));
+  view.append(
+    el("h2", null, "Trace"),
+    el("div", { id: "trace-source", class: "online-conn" }, "Loading…"),
+    el("div", { class: "toolbar trace-toolbar" },
+      el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
+      el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
+      el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open…", fileInput),
+      saveMenu(), captureSettings(), timeMode, netPicker()),
+    el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
+    el("div", { class: "trace-tabrow" },
+      tabs(tabList, T.tab, (v) => traceShowTab(v), { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace views" }),
+      filtersMenu()),
+    el("div", { id: "trace-tab", role: "tabpanel", "aria-labelledby": "trace-tab-tab-" + T.tab }),
+    txPane());
+  T.lastFrames = -1;
+  T.lastGeneration = -1;
+  const seq = T.seq;
+  pollTrace(seq, true);
+}
+
+// The view tabs: By identifier, Chronological, Graph, Sequences, Trigger.
+function traceShowTab(v) {
+  T.tab = v;
+  clearErrorBanner();
+  tracePrefs({ view: v });
+  if (S.view !== "trace") { showView("trace"); return; }
+  renderTraceTab();
+}
+
+function closeOnOutside(menu) {
+  document.addEventListener("click", (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+  menu.addEventListener("keydown", (e) => { if (e.key === "Escape" && menu.open) { menu.open = false; menu.querySelector("summary").focus(); } });
+  return menu;
+}
+
+// Save ▾: to the traces folder on this PC, or a download; each with its format, and the range.
+function saveMenu() {
   const fmtSelect = (key, list, data) => {
     const s = el("select", { dataset: { trace: data }, "aria-label": data === "save-format" ? "Format of the saved file" : "Format of the downloaded file" },
       list.map(([v, l]) => el("option", { value: v, selected: T[key] === v }, l)));
     s.onchange = () => { T[key] = s.value; };
     return s;
   };
-  const range = el("select", { dataset: { trace: "range" }, "aria-label": "What to save or export" },
+  const range = el("select", { dataset: { trace: "range" }, "aria-label": "What to save or download" },
     [["all", "Whole trace"], ["view", "Graph zoom"], ["cursors", "Between cursors A and B"]]
       .map(([v, l]) => el("option", { value: v, selected: T.range === v }, l)));
   range.onchange = () => { T.range = range.value; };
-  view.append(
-    el("h2", null, "Trace"),
-    el("div", { id: "trace-source", class: "online-conn" }, "Loading…"),
-    el("div", { class: "toolbar" }, netPicker(),
-      el("button", { type: "button", class: "primary", dataset: { trace: "start" }, onclick: traceStart }, "Start"),
-      el("button", { type: "button", dataset: { trace: "stop" }, onclick: traceStop }, "Stop"),
-      el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
-      el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open file…", fileInput),
-      el("span", { class: "joined" }, fmtSelect("saveFormat", TRACE_FORMATS, "save-format"),
-        el("button", { type: "button", dataset: { trace: "save" }, onclick: traceSave,
+  return closeOnOutside(el("details", { class: "menu trace-menu", dataset: { trace: "save-menu" } },
+    el("summary", { "aria-haspopup": "true" }, "Save"),
+    el("div", { class: "menu-panel", role: "group", "aria-label": "Save the trace" },
+      el("label", { class: "menu-label" }, "What", range),
+      el("div", { class: "menu-row" }, fmtSelect("saveFormat", TRACE_FORMATS, "save-format"),
+        el("button", { type: "button", class: "item", dataset: { trace: "save" }, onclick: traceSave,
           title: "Save the trace in the traces folder on this PC" }, "Save to traces folder")),
-      el("span", { class: "joined" }, fmtSelect("exportFormat", TRACE_FORMATS.concat([["signals", "Signals CSV"]]), "export-format"),
-        el("button", { type: "button", dataset: { trace: "export" }, onclick: traceExport,
-          title: "Download the trace as a file in the chosen format" }, "Download")),
-      range),
-    captureSettings(),
-    sendPanel(),
-    el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
-    tabs([["frames", "Frames"], ["ids", "Identifiers"], ["graph", "Graph"]].concat(traceJ1939() ? [] : [["sequences", "Sequences"]], [["trigger", "Trigger"]]),
-      T.tab, (v) => { T.tab = v; clearErrorBanner(); renderTraceTab(); }, { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace pages" }),
-    el("div", { id: "trace-tab", role: "tabpanel", "aria-labelledby": "trace-tab-tab-" + T.tab }));
-  T.lastFrames = -1;
-  T.lastGeneration = -1;
-  const seq = T.seq;
-  pollTrace(seq, true);
+      el("div", { class: "menu-row" }, fmtSelect("exportFormat", TRACE_FORMATS.concat([["signals", "Signals CSV"]]), "export-format"),
+        el("button", { type: "button", class: "item", dataset: { trace: "export" }, onclick: traceExport,
+          title: "Download the trace as a file in the chosen format" }, "Download")))));
+}
+
+// Filters ▾: the display filters of By identifier and Chronological.
+function filtersMenu() {
+  const f = T.filter;
+  const offered = traceKinds();
+  if (f.kinds) f.kinds = f.kinds.filter((k) => offered.some(([o]) => o === k));
+  const changed = () => { updateFilterCount(); traceFilterChanged(); };
+  const kinds = el("div", { class: "kind-chips" }, offered.map(([k, label]) => {
+    const cb = el("input", { type: "checkbox", checked: (f.kinds || []).includes(k), dataset: { traceKind: k } });
+    cb.onchange = () => {
+      const set = new Set(f.kinds || []);
+      if (cb.checked) set.add(k); else set.delete(k);
+      f.kinds = [...set];
+      changed();
+    };
+    return el("label", { class: "chip" }, cb, label);
+  }));
+  const input = (key, label, width) => {
+    const i = el("input", { type: "text", spellcheck: "false", "aria-label": label, placeholder: label, dataset: { traceFilter: key } });
+    i.style.width = width;
+    i.value = f[key] != null ? f[key] : "";
+    i.addEventListener("change", () => { f[key] = i.value.trim(); changed(); });
+    return i;
+  };
+  const dir = el("select", { "aria-label": "Direction", dataset: { traceFilter: "dir" } },
+    [["any", "Rx and Tx"], ["rx", "Rx only"], ["tx", "Tx only"]].map(([v, l]) => el("option", { value: v, selected: (f.dir || "any") === v }, l)));
+  dir.onchange = () => { f.dir = dir.value; changed(); };
+  const menu = closeOnOutside(el("details", { class: "menu trace-menu trace-filters-menu", dataset: { trace: "filters" } },
+    el("summary", { "aria-haspopup": "true", id: "trace-filter-summary" }, "Filters"),
+    el("div", { class: "menu-panel trace-filters" },
+      el("div", { class: "row" }, input("nodes", "Nodes: 2, 23", "13ch"), input("id_from", "ID from", "9ch"),
+        input("id_to", "ID to", "9ch"), dir, input("text", "Search text", "16ch")),
+      kinds,
+      el("p", { class: "hint" }, "Display filters never change what is recorded."),
+      el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { trace: "clear-filters" }, onclick: () => {
+        T.filter = {};
+        const fresh = filtersMenu();
+        fresh.open = true;
+        menu.replaceWith(fresh);
+        traceFilterChanged();
+      } }, "Clear filters")))));
+  setTimeout(updateFilterCount);
+  return menu;
+}
+
+function filterCount() {
+  const f = T.filter;
+  return [f.nodes, f.id_from || f.id_to, f.dir && f.dir !== "any", f.text, f.kinds && f.kinds.length].filter(Boolean).length;
+}
+
+function updateFilterCount() {
+  const s = $("#trace-filter-summary");
+  if (!s) return;
+  const n = filterCount();
+  s.textContent = n ? `Filters (${n})` : "Filters";
+  // The fields follow T.filter when a row's Show frames changed it.
+  for (const i of document.querySelectorAll("[data-trace-filter]")) {
+    const k = i.dataset.traceFilter;
+    const v = k === "dir" ? (T.filter.dir || "any") : (T.filter[k] != null ? T.filter[k] : "");
+    if (document.activeElement !== i && i.value !== v) i.value = v;
+  }
+}
+
+function traceFilterChanged() {
+  if (T.tab === "frames") refreshRows(false, true);
+  else if (T.tab === "ids") { idsReset(); idsPoll(++TI.seq, false); }
+  showTraceHeader(T.st);
 }
 
 function captureSettings() {
@@ -178,8 +312,9 @@ function captureSettings() {
   draw();
   const errs = el("input", { type: "checkbox", checked: T.errorFrames, dataset: { trace: "error-frames" } });
   errs.onchange = () => { T.errorFrames = errs.checked; };
-  return el("details", { class: "advanced" }, el("summary", null, "Capture filters"),
-    el("p", { class: "hint" }, "Applied on the runtime from the next Start: only frames whose ID matches one filter (ID and mask, e.g. 0x180 and 0x780 for all TPDO1s) are recorded. No filter records everything. Display filters under Frames never change what is recorded."),
+  return closeOnOutside(el("details", { class: "menu trace-menu", dataset: { trace: "capture" } },
+    el("summary", { "aria-haspopup": "true" }, "Capture"), el("div", { class: "menu-panel trace-capture" },
+    el("p", { class: "hint" }, "Applied from the next Start: only frames whose ID matches one filter (ID and mask, e.g. 0x180 and 0x780 for all TPDO1s) are recorded. No filter records everything. Display filters never change what is recorded."),
     list,
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { trace: "add-filter" }, onclick: () => {
@@ -187,7 +322,7 @@ function captureSettings() {
         T.capFilters.push({ id: "0x180", mask: "0x780" });
         draw();
       } }, "Add filter"),
-      el("label", { class: "check inline" }, errs, " Record error frames (the adapter must report them)")));
+      el("label", { class: "check inline" }, errs, " Record error frames (the adapter must report them)")))));
 }
 
 async function pollTrace(seq, first) {
@@ -207,7 +342,6 @@ async function pollTrace(seq, first) {
     } else if (changed) {
       if (T.tab === "frames" && T.follow) refreshRows(true);
       else if (T.tab === "frames") updateScroll();
-      if (T.tab === "ids" && now - T.lastIds > 1000) loadIds();
       if (T.tab === "graph" && !T.zoom && now - T.lastGraph > 1000) loadGraph();
     }
     if (T.tab === "trigger" && prev && JSON.stringify(prev.recording.hits) !== JSON.stringify(st.recording.hits)) renderTriggerStatus();
@@ -223,9 +357,13 @@ function showTraceHeader(st) {
   let text;
   let cls = "online-conn ok";
   if (st.source === "live") {
-    text = `Live trace from ${S.online.host || "the runtime"}${st.network ? ", network " + st.network : ""}: ${TRACE_STATES[rec.state] || rec.state}`;
-    if (rec.message) text += ` (${rec.message})`;
-    if (rec.state === "error") cls = "online-conn error";
+    const via = st.meta && st.meta.connection === "adapter" ? `the USB adapter${st.meta.interface ? " " + st.meta.interface : ""}` +
+      (st.summary && st.summary.bitrate ? ` at ${st.summary.bitrate / 1000} kbit/s` : "")
+      : (S.online.host || "the runtime");
+    text = `Live trace from ${via}${st.network ? ", network " + st.network : ""}: ${TRACE_STATES[rec.state] || rec.state}`;
+    if (rec.state === "ended") text = `Live trace from ${via}${st.network ? ", network " + st.network : ""}: recording stopped because the ${rec.message || "connection ended"}`;
+    else if (rec.message) text += ` (${rec.message})`;
+    if (rec.state === "error" || rec.state === "ended") cls = "online-conn error";
   } else if (st.source) {
     text = `File ${st.source}` + (st.network ? `, decoded with network ${st.network}` : "");
   } else {
@@ -258,11 +396,15 @@ function showTraceHeader(st) {
     `${sm.error_frames} error frames`,
     sm.lost ? `${sm.lost} lost` : null, sm.kernel_drops ? `${sm.kernel_drops} dropped by the PLC's kernel` : null,
     st.trigger_text ? `trigger: ${st.trigger_text}${rec.hits && rec.hits.length ? ` (${rec.hits.length} hit${rec.hits.length === 1 ? "" : "s"})` : ""}` : null];
+  if (filterCount() && (T.tab === "frames" || T.tab === "ids") && T.total != null && T.tab === "frames") bits.push(`showing ${T.total.toLocaleString()} of ${sm.frames.toLocaleString()}`);
+  else if (filterCount() && T.tab === "ids") bits.push(`showing ${TI.rows.size} identifier${TI.rows.size === 1 ? "" : "s"} (filtered)`);
   $("#trace-stats").textContent = bits.filter(Boolean).join(" · ");
-  const start = document.querySelector("[data-trace=start]");
-  const stop = document.querySelector("[data-trace=stop]");
-  start.disabled = rec.running;
-  stop.disabled = !rec.running;
+  const ss = document.querySelector("[data-trace=start-stop]");
+  if (ss) {
+    ss.textContent = rec.running ? "Stop" : "Start";
+    ss.classList.toggle("primary", !rec.running);
+    ss.dataset.running = String(!!rec.running);
+  }
   for (const k of ["save", "export"]) document.querySelector(`[data-trace=${k}]`).disabled = !st.frames;
 }
 
@@ -274,27 +416,141 @@ function renderTraceTab() {
   box.setAttribute("aria-labelledby", "trace-tab-tab-" + T.tab);
   for (const p of T.plots) p.destroy();
   T.plots = [];
+  idsStop();
   box.replaceChildren();
-  if (T.tab === "frames") renderFrames(box);
-  else if (T.tab === "ids") { box.append(el("div", { id: "trace-ids" })); loadIds(); }
+  box.classList.toggle("trace-split-host", T.tab === "frames" || T.tab === "ids");
+  if (T.tab === "frames") renderFrames(traceSplit(box));
+  else if (T.tab === "ids") renderIds(traceSplit(box));
   else if (T.tab === "graph") renderGraph(box);
   else if (T.tab === "sequences") fxRenderSequences(box);
   else renderTrigger(box);
 }
 
+// The list or table beside (wide) or over (narrow) the inspector, with a
+// split the user drags or moves with the arrow keys (canopen-configurator:
+// "Docked inspector and transmit pane"). Returns the view's half.
+function traceSplit(box) {
+  const view = el("div", { class: "trace-split-view" });
+  const insp = el("div", { id: "trace-inspector", class: "fx-host trace-split-insp", dataset: { trace: "inspector" } },
+    el("p", { class: "muted" }, "Select a frame to see what every bit of it means."));
+  const handle = el("div", { class: "trace-split-handle", role: "separator", tabindex: "0", "aria-label": "Resize the inspector",
+    "aria-orientation": "vertical", "aria-valuemin": "15", "aria-valuemax": "85", "aria-valuenow": String(T.split), dataset: { trace: "split" } });
+  const close = el("button", { type: "button", class: "small trace-insp-toggle", dataset: { trace: "inspector-toggle" },
+    "aria-expanded": String(T.inspector), onclick: () => {
+      T.inspector = !T.inspector;
+      tracePrefs({ inspector: T.inspector });
+      apply();
+    } });
+  const split = el("div", { class: "trace-split", dataset: { trace: "split-box" } }, view, handle, insp);
+  const apply = () => {
+    split.classList.toggle("no-insp", !T.inspector);
+    close.textContent = T.inspector ? "Hide inspector" : "Show inspector";
+    close.setAttribute("aria-expanded", String(T.inspector));
+    split.style.setProperty("--insp", T.split + "%");
+    handle.setAttribute("aria-valuenow", String(Math.round(T.split)));
+    handle.setAttribute("aria-orientation", window.innerWidth >= SPLIT_WIDE ? "vertical" : "horizontal");
+  };
+  const set = (v) => { T.split = Math.max(15, Math.min(85, Math.round(v))); apply(); };
+  let saveTimer = null;
+  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => tracePrefs({ split: T.split }), 300); };
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const r = split.getBoundingClientRect();
+    const move = (ev) => {
+      const wide = window.innerWidth >= SPLIT_WIDE;
+      set(wide ? (r.right - ev.clientX) / r.width * 100 : (r.bottom - ev.clientY) / r.height * 100);
+    };
+    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); save(); };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+  handle.addEventListener("keydown", (e) => {
+    const wide = window.innerWidth >= SPLIT_WIDE;
+    const d = { ArrowLeft: wide ? 5 : 0, ArrowRight: wide ? -5 : 0, ArrowUp: wide ? 0 : 5, ArrowDown: wide ? 0 : -5, Home: 85 - T.split, End: 15 - T.split }[e.key];
+    if (d === undefined || d === 0) return;
+    e.preventDefault();
+    set(T.split + d);
+    save();
+  });
+  apply();
+  box.append(el("div", { class: "trace-split-bar" }, close), split);
+  return view;
+}
+
+// Send…: the frame becomes a row of the transmit list; nothing is sent.
+function traceSendTo(frame) {
+  if (typeof frame === "string") frame = txFromCandump(frame);
+  if (S.view !== "trace") showView("trace");
+  const r = txAdd(frame, false);
+  if (TX.firstSend) {
+    TX.firstSend = false;
+    banner("Added to the transmit list. Press Send there to put it on the bus.");
+  }
+  return r;
+}
+
+function txFromCandump(text) {
+  const [id, rest] = String(text).split("#");
+  const rtr = /^R/i.test(rest || "");
+  const data = rtr ? "" : (rest || "").replace(/(..)/g, "$1 ").trim().toUpperCase();
+  return { id: id.toUpperCase(), ext: id.length > 3, rtr, dlc: rtr ? Number((rest || "").slice(1) || 0) : null, data };
+}
+
+// Explain in Frame lab: the trace's explanation of frame `seq`, with its
+// network, bit rate and SDO context (canopen-configurator: "Explain in Frame lab").
+async function traceExplainInLab(seq) {
+  let m;
+  try { m = await api("POST", "/api/trace/explain", { seq }); } catch (e) { banner(e.message, true); return; }
+  FX.lab.fromTrace = { seq, t_us: m.t_us, model: m, candump: m.frame.candump, edited: false, tab: T.tab };
+  FX.lab.frame = m.frame.candump;
+  FX.lab.built = null;
+  if (m.wire && m.wire.bitrate) FX.lab.bitrate = String(m.wire.bitrate);
+  showView("framelab");
+}
+
+function traceExplainText(text) {
+  FX.lab.fromTrace = null;
+  FX.lab.frame = text;
+  FX.lab.built = null;
+  showView("framelab");
+}
+
+// Back to trace: the view the frame came from, with that frame selected.
+function traceBackFrom(src) {
+  T.tab = src.tab === "ids" ? "ids" : "frames";
+  T.selected = src.seq;
+  T.selectedUs = src.t_us;
+  T.follow = false;
+  showView("trace");
+  if (T.tab === "frames") setTimeout(() => refreshRows(false, false, src.t_us));
+}
+
 // -- control ----------------------------------------------------------------
 
+function traceStartStop() {
+  if (T.st && T.st.recording && T.st.recording.running) traceStop();
+  else traceStart();
+}
+
 async function traceStart() {
+  let cont = false;
   if (T.st && T.st.frames) {
-    const v = await modal(`Start a new trace? The current recording (${T.st.frames.toLocaleString()} frames) is lost unless it was saved to the traces folder or downloaded.`,
-      [["cancel", "Keep the recording"], ["start", "Start a new trace", { danger: true }]]);
-    if (v !== "start") return;
-    T.kept = false;
+    // A recording of the same network can go on after a gap; another network's cannot.
+    const same = T.st.source === "live" && (T.st.network || null) === (onlineNetwork() || null);
+    const lost = `The current recording (${T.st.frames.toLocaleString()} frames) is lost unless it was saved to the traces folder or downloaded.`;
+    const v = same
+      ? await modal(`Continue this trace, or start a new one? Continuing adds the new frames after a gap marker. ${lost.replace("is lost", "is lost with a new trace")}`,
+        [["continue", "Continue this trace", true], ["new", "New trace", { danger: true }], ["cancel", "Cancel"]])
+      : await modal(`Start a new trace? ${lost}`, [["cancel", "Keep the recording"], ["new", "Start a new trace", { danger: true }]]);
+    if (v !== "new" && v !== "continue") return;
+    cont = v === "continue";
+    if (!cont) T.kept = false;
   }
   if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
-      error_frames: T.errorFrames, port: diagPort() });
+      error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined });
     banner("");
     T.follow = true;
     T.zoom = null;
@@ -334,8 +590,9 @@ async function traceOpen(file) {
   try {
     // The file as it is (traces can be hundreds of MB); decoded with the saved canworks.json.
     const net = onlineNetwork();  // the network whose nodes decode it
+    const eds = commissionEds();
     const res = await fetch("/api/trace/open?name=" + encodeURIComponent(file.name) +
-      (net !== null ? "&network=" + encodeURIComponent(net) : ""), {
+      (net !== null ? "&network=" + encodeURIComponent(net) : "") + (eds ? "&eds=" + encodeURIComponent(JSON.stringify(eds)) : ""), {
       method: "POST", headers: { "X-CANopen-Token": TOKEN, "Content-Type": "application/octet-stream" }, body: file });
     if (!res.ok) {
       let msg = res.statusText;
@@ -385,36 +642,9 @@ async function traceExport() {
 // -- frames -----------------------------------------------------------------
 
 function renderFrames(box) {
-  const f = T.filter;
-  const offered = traceKinds();
-  if (f.kinds) f.kinds = f.kinds.filter((k) => offered.some(([o]) => o === k));
-  const kinds = el("div", { class: "kind-chips" }, offered.map(([k, label]) => {
-    const cb = el("input", { type: "checkbox", checked: (f.kinds || []).includes(k), dataset: { traceKind: k } });
-    cb.onchange = () => {
-      const set = new Set(f.kinds || []);
-      if (cb.checked) set.add(k); else set.delete(k);
-      f.kinds = [...set];
-      refreshRows(false, true);
-    };
-    return el("label", { class: "chip" }, cb, label);
-  }));
-  const input = (key, label, width, attrs) => {
-    const i = el("input", Object.assign({ type: "text", spellcheck: "false", "aria-label": label, placeholder: label,
-      dataset: { traceFilter: key } }, attrs || {}));
-    i.style.width = width;
-    i.value = f[key] != null ? f[key] : "";
-    i.addEventListener("change", () => { f[key] = i.value.trim(); refreshRows(false, true); });
-    return i;
-  };
-  const dir = el("select", { "aria-label": "Direction", dataset: { traceFilter: "dir" } },
-    [["any", "Rx and Tx"], ["rx", "Rx only"], ["tx", "Tx only"]].map(([v, l]) => el("option", { value: v, selected: (f.dir || "any") === v }, l)));
-  dir.onchange = () => { f.dir = dir.value; refreshRows(false, true); };
-  const timeMode = el("div", { class: "segmented", role: "group", "aria-label": "Time" },
-    [["rel", "Relative"], ["utc", "UTC"]].map(([v, l]) => el("button", { type: "button", "aria-pressed": String(T.timeMode === v),
-      dataset: { traceTime: v }, onclick: () => { T.timeMode = v; renderTraceTab(); } }, l)));
   const follow = el("input", { type: "checkbox", checked: T.follow, dataset: { trace: "follow" } });
   follow.onchange = () => { T.follow = follow.checked; if (T.follow) refreshRows(true); };
-  const list = el("div", { class: "trace-list", id: "trace-list", tabindex: "0" },
+  const list = el("div", { class: "trace-list", id: "trace-list", tabindex: "0", "aria-label": "Frames" },
     el("div", { class: "trace-rows", id: "trace-rows" }), el("div", { class: "trace-spacer" }));
   list.addEventListener("scroll", () => {
     const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
@@ -422,16 +652,12 @@ function renderFrames(box) {
     requestRows();
   });
   box.append(
-    el("div", { class: "trace-filters" },
-      el("div", { class: "row" }, input("nodes", "Nodes: 2, 23", "13ch"), input("id_from", "ID from", "9ch"),
-        input("id_to", "ID to", "9ch"), dir, input("text", "Search text", "16ch"), timeMode,
-        el("label", { class: "check inline", title: "Keep the newest frames in view while recording" }, follow, "Follow")),
-      kinds),
+    el("div", { class: "toolbar trace-frames-tools" },
+      el("label", { class: "check inline", title: "Keep the newest frames in view while recording" }, follow, "Follow"),
+      el("span", { class: "muted" }, "Up and down arrows, Page Up, Page Down, Home and End move through the list.")),
     el("div", { class: "trace-head trace-row" }, ["Time", "Dir", "ID", "DLC", "Data", "Name", "Decoded"].map((h) => el("span", null, h))),
     list,
-    el("div", { class: "toolbar", id: "trace-row-actions" }),
-    el("div", { id: "trace-inspector", class: "fx-host", dataset: { trace: "inspector" } },
-      el("p", { class: "muted" }, "Select a frame to see what every bit of it means. Up and down arrows, Page Up, Page Down, Home and End move through the list.")));
+    el("div", { class: "toolbar", id: "trace-row-actions" }));
   list.addEventListener("keydown", (e) => {
     const page = Math.max(1, Math.floor(list.clientHeight / ROW_H) - 1);
     const step = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -Infinity, End: Infinity }[e.key];
@@ -441,7 +667,7 @@ function renderFrames(box) {
     follow.checked = false;
     fxMoveSelection(step);
   });
-  refreshRows(T.follow && T.st && T.st.recording.running, true);
+  refreshRows(T.follow && T.st && T.st.recording.running, true, T.follow ? undefined : (T.selectedUs != null ? T.selectedUs : undefined));
 }
 
 function filterBody() {
@@ -565,8 +791,10 @@ function rowActions() {
         renderTraceTab();
       } }, "Show in graph (cursor A)"));
     const x = T.selectedRow;
-    if (x && x.seq === T.selected && !x.gap && !x.err) parts.push(el("button", { type: "button", dataset: { trace: "send-this" },
-      title: "Fill the Send panel with this frame", onclick: () => sendThisFrame(x) }, "Send this frame"));
+    if (x && x.seq === T.selected && !x.gap && !x.err) {
+      parts.push(el("button", { type: "button", dataset: { trace: "explain-lab" }, onclick: () => traceExplainInLab(x.seq) }, "Explain in Frame lab"));
+      parts.push(sendButton({ id: x.id, ext: !!x.ext, rtr: !!x.rtr, dlc: x.dlc || 0, data: x.rtr ? "" : x.data }));
+    }
   }
   bar.replaceChildren(...parts);
 }
@@ -578,25 +806,6 @@ function jumpToFrame(us, from) {
   T.selectedUs = us;
   renderTraceTab();
   refreshRows(false, false, us);
-}
-
-// -- identifiers ------------------------------------------------------------
-
-async function loadIds() {
-  T.lastIds = Date.now();
-  let r;
-  try { r = await api("POST", "/api/trace/ids", {}); } catch (e) { banner(e.message, true); return; }
-  const box = $("#trace-ids");
-  if (!box) return;
-  const ms = (v) => (v == null ? "" : v.toFixed(v < 10 ? 2 : 1));
-  box.replaceChildren(el("table", { class: "trace-ids" },
-    el("thead", null, el("tr", null, thCells(["ID", "Name", "Node", "Dir", "Count", "Cycle min ms", "avg ms", "max ms", "Last data"]))),
-    el("tbody", null, r.ids.length ? r.ids.map((x) => el("tr", { dataset: { traceId: x.id_text } },
-      el("td", { class: "mono" }, x.id_text), el("td", null, x.name), el("td", null, x.node == null ? "" : String(x.node)),
-      el("td", null, x.dir), el("td", null, x.count.toLocaleString()), el("td", null, ms(x.cycle_min_ms)),
-      el("td", null, ms(x.cycle_avg_ms)), el("td", null, ms(x.cycle_max_ms)), el("td", { class: "mono" }, x.data)))
-      : [el("tr", null, el("td", { colspan: 9, class: "muted" }, "No frames."))])),
-  el("p", { class: "hint" }, "Cycle times come from the frames' time stamps; with an slcan adapter (CANable) they jitter by about 1 ms."));
 }
 
 // -- graph ------------------------------------------------------------------
@@ -983,23 +1192,14 @@ async function removeTrigger() {
 }
 
 // -- send -------------------------------------------------------------------
-// The Send panel (add-raw-frames-bitrate-detect): raw frames through online
-// access, once or as cyclic jobs. The jobs run on the local server's own
-// connection to the runtime; leaving the view or closing the page stops them.
-
-const SEND_LOG = 20;
-const SEND = {
-  open: false, id: "", ext: false, rtr: false, dlc: 0, data: "", mode: "single", period: "100", count: "",
-  jobs: [], log: [], timer: null, seq: 0,
-};
-
+// Sending (transmit.js): why it is not possible now, and a frame as text.
 function sendBlocked() {
   if (S.state && S.state.commission) {
-    if (!S.adapterOn) return "Sending needs the USB adapter connection: Connect on Bus and master.";
-    if (!S.online.allow_changes) return "Sending needs Allow changes on Bus and master";
+    if (!S.adapterOn) return "Sending needs the USB adapter connection: Connect… in the connection bar";
+    if (!S.online.allow_changes) return "Sending needs Allow changes in the connection bar";
     return null;
   }
-  if (!onlineReady()) return "Sending needs a connection: Connect… in the connection bar.";
+  if (!onlineReady()) return "Sending needs a connection: Connect… in the connection bar";
   if (!diagConfig().allow_changes) return "Sending needs Allow changes in Online access";
   return null;
 }
@@ -1011,174 +1211,3 @@ function sendFrameText(f) {
   const data = (f.data || "").trim().toUpperCase();
   return `${id} [${data ? data.split(/\s+/).length : 0}] ${data}`.trim();
 }
-
-function sendPanel() {
-  const blocked = sendBlocked();
-  const d = el("details", { class: "advanced", dataset: { trace: "send-panel" }, open: SEND.open },
-    el("summary", null, "Send"));
-  d.addEventListener("toggle", () => { SEND.open = d.open; });
-  const input = (key, label, width, attrs) => {
-    const i = el("input", Object.assign({ type: "text", spellcheck: "false", "aria-label": label, placeholder: label,
-      dataset: { send: key } }, attrs || {}));
-    i.style.width = width;
-    i.value = SEND[key];
-    i.addEventListener("input", () => { SEND[key] = i.value.trim(); });
-    return i;
-  };
-  const check = (key, label) => {
-    const c = el("input", { type: "checkbox", checked: SEND[key], dataset: { send: key } });
-    c.onchange = () => { SEND[key] = c.checked; drawSendPanel(); };
-    return el("label", { class: "check inline" }, c, " " + label);
-  };
-  const mode = el("select", { "aria-label": "Single or cyclic", dataset: { send: "mode" } },
-    [["single", "Single"], ["cyclic", "Cyclic"]].map(([v, l]) => el("option", { value: v, selected: SEND.mode === v }, l)));
-  mode.onchange = () => { SEND.mode = mode.value; drawSendPanel(); };
-  const dlc = el("input", { type: "number", min: 0, max: 8, class: "short", "aria-label": "DLC", dataset: { send: "dlc" } });
-  dlc.value = SEND.dlc;
-  dlc.addEventListener("input", () => { SEND.dlc = Number(dlc.value); });
-  const fields = el("fieldset", { class: "send-fields", disabled: !!blocked },
-    el("div", { class: "row wrap" },
-      el("label", { class: "inline" }, "ID (hex)", input("id", "60A", "11ch")), check("ext", "Extended"), check("rtr", "Remote"),
-      SEND.rtr ? el("label", { class: "inline" }, "DLC", dlc)
-        : el("label", { class: "inline" }, "Data", input("data", "40 18 10 01 00 00 00 00", "26ch"))),
-    el("div", { class: "row wrap" }, mode,
-      SEND.mode === "cyclic" ? [el("label", { class: "inline" }, "every", input("period", "ms", "8ch"), "ms"),
-        el("label", { class: "inline" }, "count", input("count", "no limit", "10ch"))] : null,
-      el("button", { type: "button", class: "primary", dataset: { send: "send" }, onclick: () => sendFrame(false) }, "Send"),
-      el("button", { type: "button", dataset: { send: "stop" }, disabled: !SEND.jobs.length, onclick: () => sendStop(null) }, "Stop")));
-  if (blocked) d.append(el("p", { class: "field-msg warning", dataset: { send: "blocked" } }, blocked));
-  d.append(
-    el("p", { class: "hint" }, "Frames go onto the picked network through the runtime and show in a running trace as Tx. Identifiers the network uses, and any frame while a node is OPERATIONAL, need a confirmation."),
-    fields,
-    sendLists());
-  return d;
-}
-
-function sendLists() {
-  return el("div", { class: "send-lists", dataset: { send: "lists" } },
-    el("div", null, el("h4", null, "Running cyclic jobs"),
-      SEND.jobs.length ? el("ul", { dataset: { send: "jobs" } }, SEND.jobs.map((j) => el("li", { dataset: { sendJob: j.job } },
-        `Job ${j.job}: ${sendFrameText(j)} every ${j.period_ms} ms, ${j.sent} sent${j.count ? " of " + j.count : ""} `,
-        el("button", { type: "button", class: "small", dataset: { send: "stop-job" }, onclick: () => sendStop(j) }, "Stop"))))
-        : el("p", { class: "muted", dataset: { send: "jobs" } }, "None.")),
-    el("div", null, el("h4", null, `Sent (last ${SEND_LOG})`),
-      SEND.log.length ? el("ol", { class: "mono", dataset: { send: "sent" } }, SEND.log.map((x) => el("li", null, x)))
-        : el("p", { class: "muted", dataset: { send: "sent" } }, "Nothing sent yet.")));
-}
-
-function drawSendPanel() {
-  const old = document.querySelector("[data-trace=send-panel]");
-  if (!old) return;
-  SEND.open = old.open;  // its toggle event may not have fired yet
-  old.replaceWith(sendPanel());
-}
-
-// Only the lists, so a refresh does not take the focus from a field.
-function drawSendLists() {
-  const old = document.querySelector("[data-send=lists]");
-  if (old) old.replaceWith(sendLists());
-  const stop = document.querySelector("[data-send=stop]");
-  if (stop) stop.disabled = !SEND.jobs.length;
-}
-
-function sendBody(force) {
-  const body = { id: SEND.id, ext: SEND.ext, rtr: SEND.rtr, port: diagPort() };
-  if (SEND.rtr) body.dlc = SEND.dlc;
-  else body.data = SEND.data;
-  if (SEND.mode === "cyclic") {
-    body.period_ms = Number(SEND.period);
-    if (SEND.count) body.count = Number(SEND.count);
-  }
-  if (force) body.force = true;
-  return body;
-}
-
-async function sendFrame(force) {
-  if (!SEND.id) return banner("Enter the identifier in hex, for example 60A.", true);
-  if (SEND.mode === "cyclic" && !/^\d+$/.test(SEND.period)) return banner("Enter the period in ms (10-60000).", true);
-  if (SEND.mode === "cyclic" && SEND.count && !/^\d+$/.test(SEND.count)) return banner("The count is a number of frames, or empty.", true);
-  const body = sendBody(force);
-  let r;
-  try {
-    r = await api("POST", "/api/online/send_frame", body);
-  } catch (e) {
-    if (e.body && e.body.force && !force) {
-      const v = await modal(`The runtime refused this frame: "${e.message}". Send it anyway?`,
-        [["force", "Send anyway", true], ["cancel", "Cancel"]]);
-      if (v === "force") return sendFrame(true);
-      banner("Nothing was sent.");
-      return;
-    }
-    banner(`Not sent: ${e.message}`, true);
-    return;
-  }
-  const time = new Date().toLocaleTimeString();
-  const text = sendFrameText(body) + (force ? " (forced)" : "");
-  SEND.log.unshift(r.job !== undefined && r.job !== null ? `${time} ${text}, cyclic job ${r.job} every ${r.period_ms} ms` : `${time} ${text}`);
-  SEND.log.length = Math.min(SEND.log.length, SEND_LOG);
-  banner(r.job !== undefined && r.job !== null ? `Cyclic job ${r.job} started.` : "Frame sent.");
-  if (r.job !== undefined && r.job !== null) {
-    SEND.jobs.push({ job: r.job, id: body.id, ext: body.ext, rtr: body.rtr, dlc: body.dlc, data: body.data,
-      period_ms: r.period_ms, count: r.count, sent: 0, network: onlineNetwork() });
-    pollSendJobs(SEND.seq);
-  }
-  drawSendLists();
-}
-
-async function pollSendJobs(seq) {
-  clearTimeout(SEND.timer);
-  SEND.timer = null;
-  if (seq !== SEND.seq || !SEND.jobs.length) return;
-  SEND.timer = setTimeout(async () => {
-    if (seq !== SEND.seq) return;
-    let r;
-    try { r = await api("POST", "/api/online/send_jobs", { port: diagPort() }); } catch (e) { r = null; }
-    if (seq !== SEND.seq) return;
-    if (r) {
-      SEND.jobs = r.jobs;
-      for (const j of r.ended) {
-        if (j.reason !== "stopped") banner(`Cyclic job ${j.job} (${sendFrameText(j)}) ended: ${j.reason}, ${j.sent} sent.`, j.reason !== "count reached");
-      }
-      drawSendLists();
-    }
-    pollSendJobs(seq);
-  }, 1000);
-}
-
-async function sendStop(job) {
-  try {
-    const r = await api("POST", "/api/online/send_stop", job ? { job: job.job, network: job.network, port: diagPort() } : { port: diagPort() });
-    const stopped = r.stopped || [];
-    SEND.jobs = SEND.jobs.filter((j) => job ? j.job !== job.job : false);
-    banner(stopped.length ? stopped.map((s) => `Job ${s.job} stopped, ${s.sent} sent.`).join(" ") : "No job was running.");
-  } catch (e) { banner(e.message, true); }
-  drawSendLists();
-}
-
-// Leaving the Trace view stops the page's cyclic jobs.
-function sendLeave() {
-  SEND.seq++;
-  clearTimeout(SEND.timer);
-  SEND.timer = null;
-  if (!SEND.jobs.length) return;
-  SEND.jobs = [];
-  api("POST", "/api/online/send_stop", { port: diagPort() }).catch(() => {});
-}
-
-// "Send this frame" from a trace row: fills the panel.
-function sendThisFrame(x) {
-  Object.assign(SEND, { open: true, id: x.id, ext: !!x.ext, rtr: !!x.rtr, dlc: x.dlc || 0, data: x.rtr ? "" : x.data, mode: "single" });
-  const old = document.querySelector("[data-trace=send-panel]");
-  if (old) old.open = true;  // drawSendPanel takes the open state from the panel it replaces
-  drawSendPanel();
-  const panel = document.querySelector("[data-trace=send-panel]");
-  if (panel) panel.scrollIntoView({ block: "nearest" });
-}
-
-// Closing or reloading the page stops its jobs too (keepalive outlives the page).
-window.addEventListener("pagehide", () => {
-  if (!SEND.jobs.length) return;
-  SEND.jobs = [];
-  fetch("/api/online/send_stop", { method: "POST", keepalive: true,
-    headers: { "X-CANopen-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ port: diagPort() }) });
-});

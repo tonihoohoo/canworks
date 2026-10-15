@@ -16,11 +16,11 @@ The plugin keeps the newest 65536 frames in memory while a client traces, and th
 
 Capture filters (ID and mask, up to 16) are applied on the runtime and limit what is recorded, for example `0x180/0x780` for all TPDO1s or `0x717/0x7FF` for node 23's heartbeat. Error frames (bus errors, error-passive, bus-off) are recorded on request; with an slcan adapter such as the CANable they need Linux 6.0 or later and adapter firmware that reports them.
 
-When the CAN interface goes away (the adapter is unplugged) the trace keeps going and gets a gap mark where the capture restarted. A trace ends 10 seconds after the PC stops fetching.
+When the CAN interface goes away (the adapter is unplugged) the trace keeps going and gets a gap mark where the capture restarted. A trace ends 10 seconds after the PC stops fetching. In the configurator, a recording that loses its connection (the runtime does not answer for 10 seconds, or the PC's adapter is unplugged or goes bus-off) ends with "connection ended" and its reason; **Continue this trace** on the next Start adds the new frames after a gap marker.
 
 ## Sending frames while recording
 
-With `allow_changes` on, the configurator's **Send** panel and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
+With `allow_changes` on, the configurator's transmit list ([configurator.md](configurator.md#transmit-list)) and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.
 
 ## Time stamps
 

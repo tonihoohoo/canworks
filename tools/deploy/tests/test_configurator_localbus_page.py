@@ -241,10 +241,11 @@ class CommissionPage(AdapterPage):
         pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the USB adapter connection")')
         pg.click('[data-trace="open-connect"]')
         self.connect_adapter()
-        pg.click("[data-trace=start]")
-        pg.wait_for_selector("#trace-rows .trace-row", timeout=20000)
+        pg.click("[data-trace=start-stop]")
+        pg.wait_for_selector("#ids-body [data-ids-key]", timeout=20000)
         self.assertEqual(pg.query_selector_all('[data-trace="online-hint"]'), [])
-        pg.click("[data-trace=stop]")
+        self.assertIn("adapter", pg.inner_text("#trace-source"))
+        pg.click("[data-trace=start-stop]")
 
 
 if __name__ == "__main__":

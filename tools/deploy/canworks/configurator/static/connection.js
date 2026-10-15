@@ -96,7 +96,7 @@ async function connTick() {
 }
 
 // Disconnect: closes the adapter or the runtime connection with every job
-// on it (trace recording, Send panel, scan, PDO test).
+// on it (trace recording, transmit list jobs, scan, PDO test).
 async function connDisconnect() {
   if (connAdapter()) return disconnectAdapter();
   connStop();
