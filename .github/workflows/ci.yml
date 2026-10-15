@@ -130,7 +130,7 @@ jobs:
     #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
     #            LSS 12, bus state 9, RTD module 19, device commissioning 33 = ~120 s
     #   group 2: raw frames 21, standalone device simulator 42,
-    #            J1939 ECU against the simulator 13, parameters 9, fixed PDOs 9 = ~95 s
+    #            J1939 ECU against the simulator 15, parameters 9, fixed PDOs 9 = ~97 s
     #   group 3: bus trace 31, slcan 31, master and its own slave 28,
     #            PLC SDO blocks 5, PC-direct commissioning 30 = ~125 s
     # A new vcan test goes into the group with the least time; update the table.
@@ -155,7 +155,7 @@ jobs:
           # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the plugin job)
           targets: >-
             canworks_plugin canworks-sim canopen_check canopen_host pingpong_slave lss_slave
-            sensor_slave link_check sdo_program plc_sdo_lookup_check
+            sensor_slave link_check sdo_program plc_sdo_lookup_check j1939_long_ids
 
       - uses: actions/setup-python@v5
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
@@ -276,6 +276,7 @@ jobs:
         run: |
           test/j1939/run.sh
           test/j1939/sim_vcan.sh
+          build/test/j1939_long_ids vcan0
 
       - name: Report skipped vcan test
         if: steps.vcan.outcome == 'failure'

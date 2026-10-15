@@ -550,6 +550,59 @@ TEST(j1939_engine_answers_requests) {
   CHECK_MSG(js.find(R"("requests_answered":1)") != std::string::npos, js);
 }
 
+// A Request before the program's first scan gets no answer (the outputs are
+// not written yet), and no NACK either.
+TEST(j1939_engine_no_answer_before_the_first_scan) {
+  Rig r;
+  r.claim();
+  r.request(0xFF01, 0x20, 128, 520);
+  r.request(0xFF02, 0x21, 255, 521);
+  CHECK(r.socket.of(0xFF01).empty() && r.socket.of(0xFF02).empty() && r.socket.of(kPgnAcknowledgement).empty());
+  r.img.int_out[0] = 0x0102;
+  r.image.copy_from_plc(r.rt);
+  r.request(0xFF01, 0x22, 128, 530);
+  CHECK(r.socket.of(0xFF01).size() == 1);
+}
+
+// An on-change PDU1 message to 0x20: answering a Request from 0x30 sends the
+// new value to 0x30 only, so 0x20 still gets it on the next tick.
+TEST(j1939_engine_request_reply_is_not_the_on_change_send) {
+  Config cfg = engine_config();
+  J1939Tx t;
+  t.pgn = 0xD000;
+  t.has_destination = true;
+  t.destination = 0x20;
+  t.min_gap_ms = 50;
+  t.signals.push_back(sig("cmd", 0, 8));
+  t.signals.back().location = loc("%QB6");
+  cfg.j1939.tx.push_back(t);
+  Rig r(cfg);
+  r.claim();
+  r.img.byte_out[6] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(600));
+  auto s = r.socket.of(0xD000);
+  CHECK(s.size() == 1 && s[0].destination == 0x20 && s[0].data[0] == 7);
+  r.img.byte_out[6] = 8;
+  r.image.copy_from_plc(r.rt);
+  r.request(0xD000, 0x30, 128, 700);
+  s = r.socket.of(0xD000);
+  CHECK(s.size() == 2 && s[1].destination == 0x30 && s[1].data[0] == 8);
+  r.engine.tick(r.at(701));
+  s = r.socket.of(0xD000);
+  CHECK(s.size() == 3 && s[2].destination == 0x20 && s[2].data[0] == 8);
+  // Sent to 0x20 now: no change, nothing more.
+  r.engine.tick(r.at(800));
+  CHECK(r.socket.of(0xD000).size() == 3);
+  // A Request from the destination itself is that send.
+  r.img.byte_out[6] = 9;
+  r.image.copy_from_plc(r.rt);
+  r.request(0xD000, 0x20, 128, 900);
+  r.engine.tick(r.at(901));
+  s = r.socket.of(0xD000);
+  CHECK(s.size() == 4 && s[3].destination == 0x20 && s[3].data[0] == 9);
+}
+
 // Requests for the same PGN from the same requester are answered at most
 // every 50 ms; other requesters and other PGNs have their own limit.
 TEST(j1939_engine_rate_limits_requests) {
@@ -1447,6 +1500,39 @@ TEST(j1939_dm_plc_jobs) {
   jobs.close();
   CHECK(api->dm_read_poll(h, &out, &err) == 2 && err == CANWORKS_J1939_ERR_CANCELLED);
   jobs.set_attached(0, false);
+}
+
+// A receiver opened while the bus thread's sync_receivers allocates (between
+// its two locked sections) is taken into use on the bus thread's next call.
+uint32_t g_gap_handle = 0;
+void open_in_gap() {
+  uint16_t e = 0;
+  if (!g_gap_handle) g_gap_handle = J1939PlcMsgs::instance().rx_open(0, 0xFEF2, 255, 0, 4, e);
+}
+
+TEST(j1939_receiver_opened_during_sync) {
+  J1939PlcMsgs& m = J1939PlcMsgs::instance();
+  m.open({true});
+  m.set_attached(0, true);
+  uint16_t e = 0;
+  uint32_t a = m.rx_open(0, 0xFEF1, 255, 0, 4, e);
+  CHECK(a && !e);
+  std::vector<J1939PlcMsgs::Filter> f;
+  g_gap_handle = 0;
+  J1939PlcMsgs::sync_gap_for_test = open_in_gap;
+  CHECK(m.sync_receivers(0, f) && f.size() == 1);
+  J1939PlcMsgs::sync_gap_for_test = nullptr;
+  CHECK(g_gap_handle != 0);
+  CHECK(m.sync_receivers(0, f) && f.size() == 2);
+  const uint8_t d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  m.deliver(0, 0xFEF2, 1, 255, 6, d, 8, 0, 0x80);
+  canworks_j1939_msg msg;
+  CHECK(m.rx_read(g_gap_handle, &msg, nullptr) == 1 && msg.pgn == 0xFEF2);
+  m.rx_close(a);
+  m.rx_close(g_gap_handle);
+  m.sync_receivers(0, f);
+  m.close();
+  m.set_attached(0, false);
 }
 
 }  // namespace

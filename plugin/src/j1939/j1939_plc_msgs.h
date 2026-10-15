@@ -101,6 +101,9 @@ class J1939PlcMsgs {
   // drops closed ones; true when the set of filters changed since the last
   // call, with `out` the open receivers' filters.
   bool sync_receivers(unsigned network, std::vector<Filter>& out);
+  // Tests only: called by sync_receivers between its two locked sections
+  // (where it allocates), to open or close receivers in that gap.
+  static void (*sync_gap_for_test)();
   // Queues a received message for every matching receiver of the network.
   // `own`: the network's address (messages to it count as to us).
   void deliver(unsigned network, uint32_t pgn, uint8_t source, uint8_t destination, uint8_t priority,

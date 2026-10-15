@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <chrono>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "c_blocks.h"
@@ -53,7 +54,6 @@ class FakeSocket : public J1939Socket {
   int filter_sets = 0;
   std::vector<Sent> long_sent;
   int events = 1;  // 1: the kernel reports sessions; -1: it does not
-  std::vector<int> pending;  // 0 done, positive errno: aborted
   int send_result = 0;
   uint8_t last_priority = 0;
   int set_filter(const std::vector<uint32_t>& pgns, bool any) override {
@@ -62,16 +62,28 @@ class FakeSocket : public J1939Socket {
     ++filter_sets;
     return 0;
   }
-  int send_long(uint32_t pgn, uint8_t destination, uint8_t, const uint8_t* data, size_t len) override {
+  // The kernel's numbers of the long sends' sessions, and the sessions that
+  // ended (id, 0 done or a positive errno: aborted) in the order they did.
+  std::vector<uint32_t> long_ids;
+  uint32_t next_id = 0;
+  std::vector<std::pair<uint32_t, int>> ended;
+  int send_long(uint32_t pgn, uint8_t destination, uint8_t, const uint8_t* data, size_t len, uint32_t& id) override {
     long_sent.push_back(Sent{pgn, destination, std::vector<uint8_t>(data, data + len)});
+    id = next_id++;
+    long_ids.push_back(id);
     return 0;
   }
-  int send_event(bool& aborted, int& error) override {
-    if (events < 0) return -1;
-    if (pending.empty()) return 0;
-    error = pending.front();
+  // Ends long send `k` (0 the first) with `error`.
+  void end(size_t k, int error) { ended.emplace_back(long_ids.at(k), error); }
+  // Ends the last long send.
+  void end_last(int error) { end(long_ids.size() - 1, error); }
+  bool long_send_events() const override { return events > 0; }
+  int send_event(uint32_t& id, bool& aborted, int& error) override {
+    if (events < 0 || ended.empty()) return 0;
+    id = ended.front().first;
+    error = ended.front().second;
     aborted = error != 0;
-    pending.erase(pending.begin());
+    ended.erase(ended.begin());
     return 1;
   }
   bool filtered(uint32_t pgn) const {
@@ -350,7 +362,7 @@ TEST(j1939_send_short_and_long) {
   j1939_send_call(&l);
   CHECK(l.BUSY && n.socket.long_sent.size() == 1 && n.socket.long_sent[0].destination == 0 &&
         n.socket.long_sent[0].data.size() == 40 && n.socket.long_sent[0].data[39] == 39);
-  n.socket.pending.push_back(0);
+  n.socket.end_last(0);
   n.serve();
   j1939_send_call(&l);
   CHECK(l.DONE && !l.ERROR);
@@ -360,10 +372,91 @@ TEST(j1939_send_short_and_long) {
   l.EXECUTE = true;
   j1939_send_call(&l);
   n.serve();
-  n.socket.pending.push_back(ECONNABORTED);
+  n.socket.end_last(ECONNABORTED);
   n.serve();
   j1939_send_call(&l);
   CHECK(l.ERROR && l.ERROR_ID == CANWORKS_J1939_ERR_ABORTED);
+}
+
+// A long send that timed out keeps its session: that session's late end goes
+// to no other send, and the next long send ends with its own session's result.
+TEST(j1939_send_long_results_by_session) {
+  Net n;
+  J1939_SEND_INST a;
+  a.PGN = 0xEF00;
+  a.DESTINATION = 0x10;
+  a.LENGTH = 200;
+  a.TIMEOUT = 200LL * 1000000;
+  a.EXECUTE = true;
+  j1939_send_call(&a);
+  n.serve();
+  j1939_send_call(&a);
+  CHECK(a.BUSY && n.socket.long_sent.size() == 1);
+  n.ms += 200;
+  n.serve();
+  j1939_send_call(&a);
+  CHECK(a.ERROR && a.ERROR_ID == CANWORKS_J1939_ERR_TIMEOUT);
+  J1939_SEND_INST b;
+  b.PGN = 0xEF00;
+  b.DESTINATION = 0x20;
+  b.LENGTH = 200;
+  b.EXECUTE = true;
+  j1939_send_call(&b);
+  n.serve();
+  j1939_send_call(&b);
+  CHECK(b.BUSY && n.socket.long_sent.size() == 2 && n.socket.long_sent[1].destination == 0x20);
+  n.socket.end(0, 0);  // the session to 0x10 completes late
+  n.serve();
+  j1939_send_call(&b);
+  CHECK(b.BUSY && !b.DONE && !b.ERROR);
+  n.socket.end(1, ECONNABORTED);
+  n.serve();
+  j1939_send_call(&b);
+  CHECK(b.ERROR && b.ERROR_ID == CANWORKS_J1939_ERR_ABORTED);
+}
+
+// The network moves to another address (a lower NAME claims 128): the long
+// socket is reopened, and a long send in progress ends with 14 at once.
+TEST(j1939_send_long_ends_on_rebind) {
+  Config c = net_config();
+  c.j1939.ecu.name.arbitrary_address_capable = true;
+  c.j1939.ecu.has_range = true;
+  c.j1939.ecu.range_low = 128;
+  c.j1939.ecu.range_high = 140;
+  Net n(c);
+  J1939_SEND_INST l;
+  l.PGN = 0xEF00;
+  l.DESTINATION = 0x10;
+  l.LENGTH = 100;
+  l.EXECUTE = true;
+  j1939_send_call(&l);
+  n.serve();
+  j1939_send_call(&l);
+  CHECK(l.BUSY && n.socket.long_sent.size() == 1);
+  n.message(kPgnAddressClaimed, 128, {1, 0, 0, 0, 0, 0, 0, 0});
+  n.serve();
+  j1939_send_call(&l);
+  CHECK(l.ERROR && l.ERROR_ID == CANWORKS_J1939_ERR_ABORTED);
+  // Its session's end, if one still comes, belongs to no later send.
+  J1939_SEND_INST m;
+  m.PGN = 0xEF00;
+  m.DESTINATION = 0x20;
+  m.LENGTH = 100;
+  m.EXECUTE = true;
+  j1939_send_call(&m);
+  n.ms += 300;  // claimed again
+  n.serve();
+  n.serve();
+  j1939_send_call(&m);
+  CHECK(m.BUSY && n.socket.long_sent.size() == 2);
+  n.socket.end(0, ECONNABORTED);
+  n.serve();
+  j1939_send_call(&m);
+  CHECK(m.BUSY);
+  n.socket.end(1, 0);
+  n.serve();
+  j1939_send_call(&m);
+  CHECK(m.DONE && !m.ERROR);
 }
 
 TEST(j1939_send_long_without_session_reports) {

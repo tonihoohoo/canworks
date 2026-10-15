@@ -13,6 +13,7 @@ namespace canopen_plugin {
 
 constexpr std::chrono::seconds J1939PlcMsgs::kKeepResult;
 constexpr std::chrono::seconds J1939PlcMsgs::kGrace;
+void (*J1939PlcMsgs::sync_gap_for_test)() = nullptr;
 
 namespace {
 
@@ -341,9 +342,13 @@ void J1939PlcMsgs::rx_close(uint32_t handle) {
 bool J1939PlcMsgs::sync_receivers(unsigned network, std::vector<Filter>& out) {
   if (network >= kMaxNetworks) return false;
   std::vector<std::pair<unsigned, uint16_t>> grow;
+  // The generation this call takes in: a receiver opened or closed after the
+  // first section bumps it past this, and the next call sees it.
+  uint32_t gen;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (filter_seen_[network] == filter_gen_[network]) return false;
+    gen = filter_gen_[network];
+    if (filter_seen_[network] == gen) return false;
     for (unsigned i = 0; i < kReceiverSlots; ++i) {
       Receiver& r = receivers_[i];
       if (r.network != network) continue;
@@ -357,6 +362,7 @@ bool J1939PlcMsgs::sync_receivers(unsigned network, std::vector<Filter>& out) {
   // Allocate outside the lock, then swap in.
   std::vector<std::unique_ptr<canworks_j1939_msg[]>> queues;
   for (const auto& g : grow) queues.emplace_back(new canworks_j1939_msg[g.second]);
+  if (sync_gap_for_test) sync_gap_for_test();
   std::lock_guard<std::mutex> lock(mutex_);
   for (size_t k = 0; k < grow.size(); ++k) {
     Receiver& r = receivers_[grow[k].first];
@@ -373,7 +379,7 @@ bool J1939PlcMsgs::sync_receivers(unsigned network, std::vector<Filter>& out) {
     }
     if (r.state == RxState::Open) out.push_back(r.filter);
   }
-  filter_seen_[network] = filter_gen_[network];
+  filter_seen_[network] = gen;
   return true;
 }
 
