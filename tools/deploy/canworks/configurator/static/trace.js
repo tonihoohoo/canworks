@@ -377,10 +377,11 @@ function showTraceHeader(st) {
   if (!rec.running && !onlineReady()) {
     const commission = !!(S.state && S.state.commission);
     parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
-      commission ? "Recording needs the USB adapter connection. " : diagConfig() ? "Recording needs the connection to the runtime. "
+      connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
+        : commission ? "Recording needs the USB adapter connection: connect with Connect… in the connection bar above. "
+        : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
         : "Recording needs online access: turn it on in Configure → Online access, save and upload. ",
-      commission || diagConfig() ? el("button", { type: "button", class: "small primary", dataset: { trace: "open-connect" }, onclick: () => openConnect() }, "Connect…") : null,
-      " Opening, viewing and exporting trace files works without it."));
+      "Opening, viewing and exporting trace files works without it."));
   }
   for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
   const trimmed = rec.trimmed || 0;

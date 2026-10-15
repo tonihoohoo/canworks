@@ -793,8 +793,7 @@ table.online-links tr.bad td:first-child { color: var(--st-error); }
 .tag.lamp-red, .tag.lamp-mil { background: var(--st-error-bg); color: var(--st-error); }
 
 /* Commission: Nodes table home, comparison, locked notes, session log */
-.nodes-connect { max-width: 640px; }
-.nodes-recent { flex-wrap: wrap; margin-bottom: 10px; }
+.conn-recent { flex-wrap: wrap; margin-bottom: 10px; }
 .nodes-summary { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .nodes-summary button[aria-pressed="true"] { background: var(--hover); font-weight: 600; }
 .warn-text { color: var(--st-warn); }

@@ -34,15 +34,19 @@ class TaskBase(AdapterPage):
 
 
     def connect_steps(self, kb):
-        """Commission a device from the start page, connected to the virtual adapter at 250 kbit/s.
-        The Nodes table opens with its connect form as the empty state."""
+        """Commission a device from the start page, connected to the virtual adapter at 250 kbit/s
+        through Connect… in the connection bar, the one place to connect."""
         pg = self.page
-        form = '#view [data-nodes="connect"]'
+        form = "#conn-dialog"
         pg.goto(self.server.url)
         with kb.step("open Commission a device"):
             kb.tab_to("#start-commission")
             kb.press("Enter")
-            pg.wait_for_selector(form + ' input[data-online="adapter"]')
+            pg.wait_for_selector('#view [data-nodes="not-connected"]')
+        with kb.step("open the connect panel"):
+            kb.tab_to('#conn-bar button[data-conn="connect"]')
+            kb.press("Enter")
+            pg.wait_for_selector(form + '[open] input[data-online="adapter"]')
         with kb.step("pick the adapter and the bit rate"):
             kb.tab_to(form + ' input[data-online="adapter"]')
             kb.type("virtual:" + self.ch)

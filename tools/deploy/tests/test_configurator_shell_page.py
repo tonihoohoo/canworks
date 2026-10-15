@@ -88,15 +88,25 @@ class Workspaces(OnlineBase):
         self.open()
         self.assertEqual(pg.query_selector_all("[data-ws-note]"), [])
 
-    def test_trace_without_a_connection_offers_connect(self):
+    def test_trace_without_a_connection_points_to_the_bar(self):
+        # one-connect-place: Trace in Configure shows the bar, whose Connect… is
+        # the one place to connect; the view has no button of its own.
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.open()
         pg.click('#tool-tabs button[data-view="trace"]')
         pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the connection to the runtime")')
-        pg.click('[data-trace="open-connect"]')
+        self.assertIn("Connect… in the connection bar", pg.inner_text('[data-trace="online-hint"]'))
+        self.assertEqual(pg.query_selector_all('#view button:has-text("Connect")'), [])
+        pg.click('#conn-bar [data-conn="connect"]')
         pg.wait_for_selector('#conn-dialog[open] input[data-online="host"]')
         self.assertEqual(pg.query_selector_all('#view input[data-online="host"]'), [])
+
+    def connect_buttons(self):
+        """The visible buttons on the page whose text starts with Connect."""
+        return self.page.evaluate("""() => [...document.querySelectorAll('button')]
+            .filter((b) => b.offsetParent !== null && /^Connect/.test(b.textContent.trim()))
+            .map((b) => b.closest('#conn-bar') ? 'bar' : b.textContent.trim())""")
 
     def test_trace_and_simulation_use_the_bar_connection(self):
         pg = self.page
@@ -107,11 +117,21 @@ class Workspaces(OnlineBase):
             self.assertEqual(pg.query_selector_all('#view input[data-online="host"]'), [])
             pg.click('#tool-tabs button[data-view="trace"]')
             self.assertEqual(pg.query_selector_all('[data-trace="online-hint"]'), [])
-            # Disconnect: the tools offer Connect… instead of a form of their own.
+            # Disconnect: every page has exactly one Connect button, the bar's,
+            # in both workspaces, and says in its own words what needs a connection.
             pg.click('#conn-bar [data-conn="disconnect"]')
-            pg.wait_for_selector('[data-trace="open-connect"]')
+            pg.wait_for_selector('[data-trace="online-hint"]')
+            self.assertEqual(self.connect_buttons(), ["bar"], "Configure, Trace")
             pg.click('#tool-tabs button[data-view="simulation"]')
-            pg.wait_for_selector('[data-sim="open-connect"]')
+            pg.wait_for_selector('[data-sim="not-connected"]')
+            self.assertEqual(self.connect_buttons(), ["bar"], "Configure, Simulation")
+            pg.click('#ws [data-ws="commission"]')
+            pg.wait_for_selector('#view [data-nodes="not-connected"]')
+            self.assertEqual(self.connect_buttons(), ["bar"], "Commission, Nodes")
+            for view, sel in (("simulation", '[data-sim="not-connected"]'), ("trace", '[data-trace="online-hint"]')):
+                pg.click('#tool-tabs button[data-view="%s"]' % view)
+                pg.wait_for_selector(sel)
+                self.assertEqual(self.connect_buttons(), ["bar"], "Commission, " + view)
 
     def test_runtime_bar_and_panel_audit(self):
         pg = self.page

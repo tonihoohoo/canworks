@@ -1,7 +1,7 @@
 "use strict";
 // The Commission workspace's home (commission-workspace): the Nodes table
-// and what hangs on it. Not connected, it holds the connect form and the
-// recent connections; with a config, a scan is compared with the config
+// and what hangs on it. Not connected, it says to connect in the connection
+// bar; with a config, a scan is compared with the config
 // (Match, Missing, Not in config, Identity differs) and a found device goes
 // into the draft from its row. Also the live state on the network tree, the
 // session log's bus events, Unlock… on a locked control, and the simulated
@@ -9,46 +9,10 @@
 // and commission.js and uses their helpers.
 
 // ---------------------------------------------------------------------------
-// Not connected: the connect form in place of the table's rows
+// Not connected: one line in place of the table's rows (one-connect-place)
 
-// Up to three connections this PC made last (online.json `recent`), one click each.
-function recentConnections() {
-  const list = (S.online && S.online.recent) || [];
-  return list.filter((r) => connAdapter() ? r.kind === "adapter" : r.kind === "runtime");
-}
-
-function recentText(r) {
-  if (r.kind === "adapter") return `${r.adapter} at ${r.bitrate_kbit} kbit/s` + (r.check_node ? `, check node ${r.check_node}` : "");
-  return r.name ? `${r.name} (${r.host})` : r.host;
-}
-
-// One click on a recent connection: the form is filled in and its Connect
-// pressed, so the bit rate check (adapter) or the token prompt (runtime)
-// runs as from the form, and Allow changes starts off.
-function connectRecent(r, box) {
-  if (r.kind === "adapter") {
-    box.querySelector("[data-online=adapter]").value = r.adapter;
-    box.querySelector("[data-online=adapter-bitrate]").value = String(r.bitrate_kbit);
-    box.querySelector("[data-online=check-node]").value = r.check_node ? String(r.check_node) : "";
-    const allow = box.querySelector("[data-online=adapter-allow]");
-    if (allow) allow.checked = false;
-  } else {
-    box.querySelector("[data-online=host]").value = r.host;
-  }
-  box.querySelector("[data-online=connect]").click();
-}
-
-function nodesConnectHome() {
-  const form = connAdapter() ? adapterBox() : runtimeBox();
-  const recent = recentConnections();
-  return el("section", { class: "nodes-connect", dataset: { nodes: "connect" }, "aria-label": "Connect" },
-    el("h3", null, "Connect to see the nodes"),
-    recent.length ? el("div", { class: "toolbar nodes-recent", dataset: { nodes: "recent" } },
-      el("span", { class: "muted" }, "Recent:"),
-      recent.map((r, k) => el("button", { type: "button", dataset: { nodesRecent: k },
-        title: r.kind === "adapter" ? "Connects with Allow changes off, after the bit rate check" : "Connects to this runtime",
-        onclick: () => connectRecent(r, form) }, recentText(r)))) : null,
-    form);
+function nodesNotConnected() {
+  return connNeeds(connAdapter() ? "Listing the devices on the bus" : "The Nodes table", { dataset: { conn: "needs", nodes: "not-connected" } });
 }
 
 // ---------------------------------------------------------------------------
