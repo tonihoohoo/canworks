@@ -888,3 +888,9 @@ dialog.folder-dialog h2 { margin-top: 0; font-size: 16px; }
 .warn-mark { color: var(--st-warn); }
 .fx-layout { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .trace-row .tag, .ids-c-name .tag { margin-left: 4px; }
+
+/* name-nodes-and-standard-dictionary: the device's name in the Nodes table, the EDS choices */
+.device-cell { overflow-wrap: anywhere; min-width: 12ch; }
+.eds-cell { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; overflow-wrap: anywhere; }
+.eds-choices { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.device-line { margin: 0 0 8px; overflow-wrap: anywhere; }

@@ -109,6 +109,7 @@ async function connTick() {
     // The log and the tree's marks must never stop the connection itself.
     try {
       if (typeof logEvents === "function") logEvents(r.status);
+      if (typeof identitySeen === "function") identitySeen(r.status);
       if (typeof treeLive === "function" && !onlineViews().includes(S.view)) treeLive(r.status);
       if (typeof pdoAutoRead === "function") pdoAutoRead(r);
     } catch (e) { console.error(e); }
@@ -146,6 +147,7 @@ async function runtimeClose() {
   S.onlineOpen = false;
   S.onlineLast = null;
   S.logPrev = null;
+  S.identity = null;
   if (typeof treeLiveClear === "function") treeLiveClear();
   CONN.error = null;
   S.lssAllow = undefined;

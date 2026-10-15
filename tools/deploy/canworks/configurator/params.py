@@ -15,7 +15,7 @@ import threading
 import time
 
 from .. import commissioning as C
-from .. import contract, dbcexport, diag, notes as notes_mod, pdotest
+from .. import contract, dbcexport, diag, notes as notes_mod, pdotest, standardod
 from .. import parameters as P
 
 KEEP = 10  # finished jobs kept
@@ -215,7 +215,33 @@ def context(session, body, node, library=""):
         ctx.eds_name = os.path.basename(real)
         ctx.notes_eds_path = None if real.startswith(os.path.realpath(pending_dir) + os.sep) else real
         return ctx
+    if body.get("standard") is True:
+        return standard_context(body, node)
     raise Refused(422, "node %d has no EDS: add it to the configuration, or open it from the scan with its EDS" % node)
+
+
+def _count(body, key):
+    v = body.get(key)
+    if v is None:
+        return standardod.DEFAULT_PDOS
+    if not isinstance(v, int) or isinstance(v, bool) or not standardod.DEFAULT_PDOS <= v <= standardod.MAX_PDOS:
+        raise Refused(400, "%s must be %d-%d" % (key, standardod.DEFAULT_PDOS, standardod.MAX_PDOS))
+    return v
+
+
+def standard_context(body, node):
+    """The standard object dictionary of a node without an EDS (standardod):
+    `device_type` its 0x1000 value when read, `rpdos` and `tpdos` the PDOs
+    to list (4 each unless a read-all found more)."""
+    dt = body.get("device_type")
+    if dt is not None and (not isinstance(dt, int) or isinstance(dt, bool) or not 0 <= dt <= 0xFFFFFFFF):
+        raise Refused(400, "device_type must be a 32-bit number")
+    eds, text = standardod.read(dt, _count(body, "rpdos"), _count(body, "tpdos"))
+    ctx = P.NodeContext(node, eds, text, "standard")
+    ctx.standard = True
+    ctx.device_type = dt
+    ctx.notes_eds_path = None
+    return ctx
 
 
 def slave_context(session, cfg, network, node):
@@ -312,6 +338,7 @@ def entries_json(ctx):
     defaults = P.reference_from_eds(ctx.eds, ctx.node_id)
     pdo = pdo_marks(ctx)
     binds = getattr(ctx, "slave", None)
+    standard = getattr(ctx, "standard", False)
     out = []
     for e in P.entries(ctx.eds):
         d = e.to_json(ctx.node_id)
@@ -323,6 +350,8 @@ def entries_json(ctx):
         d["writable"] = e.access in P.WRITABLE or e.access == "wo"
         d["object"] = ctx.eds.names.get(e.index, "")
         d["default_data"] = defaults[e.key].hex(" ").upper() if e.key in defaults else None
+        if standard:
+            d["default"], d["default_data"] = "", None  # a standard has no default every device keeps
         if e.key in boot:
             d["config"] = True
         if e.key in owned:
@@ -335,7 +364,8 @@ def entries_json(ctx):
                                                                     if ctx.eds.find(0x1010, s) is not None],
             "has_restore": ctx.eds.has(0x1011), "restore_subindices": [s for s in range(1, 128)
                                                                         if ctx.eds.find(0x1011, s) is not None],
-            "entries": out, "note": note,
+            "entries": out, "note": note, "standard": standard,
+            "profile": standardod.device_profile(ctx.device_type) if standard else None,
             "notes": notes_mod.Notes.for_eds(ctx.eds, ctx.eds_name, getattr(ctx, "notes_eds_path", None)).to_json()}
 
 
@@ -448,7 +478,16 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
                       % path.replace("_", " "))
     if path == "od_entries":
         return entries_json(ctx)
+    if getattr(ctx, "standard", False) and path not in ("od_read",):
+        raise Refused(422, "%s needs the device's EDS: pick it for node %d" % (path.replace("_", " "), node))
     if path == "od_read":
+        if body.get("all") and getattr(ctx, "standard", False):
+            def read_standard(job):
+                reading, rpdos, tpdos = standardod.read_all(client, node, ctx.eds, job.progress("reading"),
+                                                            lambda: job.cancel)
+                eds, _ = standardod.read(ctx.device_type, rpdos, tpdos)
+                return dict(reading.to_json(P.entries(eds)), rpdos=rpdos, tpdos=tpdos)
+            return {"job": jobs.start("read", node, read_standard).to_json()}
         if body.get("all"):
             return {"job": jobs.start("read", node, lambda job: P.read_all(
                 client, node, ctx.eds, job.progress("reading"), lambda: job.cancel).to_json(P.entries(ctx.eds)))

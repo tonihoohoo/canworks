@@ -167,6 +167,7 @@ async function leaveCommission(what) {
   S.logPrev = null;
   S.commDevice = {};
   S.commNodes = {};
+  S.identity = null;
   S.adapterOn = false;
   S.adapterEnded = null;
   return true;
@@ -335,6 +336,7 @@ async function disconnectAdapter() {
   S.adapterEnded = null;
   S.onlineOpen = false;
   S.onlineLast = null;
+  S.identity = null;
   S.lssAllow = undefined;
   if (typeof pdoAutoReset === "function") pdoAutoReset();
   render();
@@ -351,6 +353,7 @@ function adapterLost(message) {
   if (typeof pdoAutoReset === "function") pdoAutoReset();
   S.onlineOpen = false;
   S.onlineLast = null;
+  S.identity = null;
   S.lssAllow = undefined;
   render();
 }
@@ -476,10 +479,9 @@ function commNodeTable(st) {
     const d = scanned.get(id);
     const a = added[id];
     const em = n && n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
-    const device = d ? [d.device_name, d.vendor_id !== undefined ? `vendor ${hex8(d.vendor_id)}` : "", d.product_code !== undefined ? `product ${hex8(d.product_code)}` : ""]
-      .filter(Boolean).join(", ") : a && a.lss ? `serial number ${hex8(a.serial_number)} (LSS)` : "";
+    const device = deviceCell(id, n) || (a && a.lss ? `serial number ${hex8(a.serial_number)} (LSS)` : "");
     const found = [n && n.state !== null ? "heard" : "", d ? "scanned" : "", a ? (a.lss ? "LSS" : "added") : ""].filter(Boolean).join(", ");
-    const eds = (S.onlineEdsName || {})[id] || (S.onlineEds || {})[id];
+    const eds = (S.onlineEdsName || {})[id] || ((S.onlineEds || {})[id] || "").split(/[\\/]/).pop();
     // A button per row, not a clickable row: the EDS cell has controls of its own.
     return el("tr", { class: S.onlineNode === id ? "active" : null, dataset: { onlineNode: id } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
@@ -489,7 +491,10 @@ function commNodeTable(st) {
       !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
     el("td", null, found),
-    el("td", null, eds ? el("span", { dataset: { nodeEds: id } }, eds) : edsPick(d || { node_id: id })));
+    el("td", null, eds ? el("div", { class: "eds-cell" }, el("span", { dataset: { nodeEds: id } }, eds), " ",
+      el("button", { type: "button", class: "small", dataset: { changeEds: id }, "aria-label": `Change the EDS of node ${id}`,
+        onclick: () => changeEds(id) }, "Change EDS…"))
+      : edsPick(Object.assign({ node_id: id }, identityOf(id) || {}))));
   });
   return el("table", { class: "online-nodes", dataset: { online: "comm-nodes" } },
     el("thead", null, el("tr", null, thCells(["Node", "Device", "State", "Heard", "Last EMCY", "Found by", "EDS"]))),
@@ -539,8 +544,10 @@ async function stopScan() {
 // The device of node `id` as this session knows it, for "Add to a config…".
 function commDeviceOf(id) {
   const d = { node_id: id };
-  const sc = ((S.scanResult && S.scanResult.nodes) || []).find((x) => x.node_id === id);
+  // The scan's answer or the identity read of a heard node; its name becomes the node's.
+  const sc = identityOf(id);
   if (sc) for (const k of LSS_KEYS) if (sc[k] !== undefined) d[k] = sc[k];
+  if (sc && sc.device_name) d.device_name = sc.device_name;
   Object.assign(d, commNodes()[id] || {});
   if (!d.eds_path && (S.onlineEds || {})[id]) { d.eds_path = S.onlineEds[id]; d.eds_name = (S.onlineEdsName || {})[id] || S.onlineEds[id]; }
   return d;

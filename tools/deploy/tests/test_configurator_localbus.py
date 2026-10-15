@@ -169,6 +169,27 @@ class AdapterTarget(Online):
         self.assertEqual(nodes[2]["match"], "configured")
         self.assertEqual(nodes[9]["match"], "not configured")
 
+    def test_identify_and_standard_dictionary(self):
+        # name-nodes-and-standard-dictionary: a heard node's identity without a
+        # scan, and the standard object dictionary of a node without an EDS.
+        self.device(9, identity=(0x111, 0x2, 0x3, 0x4), name="sensor nine", device_type=0x00020192,
+                    od={(0x1017, 0): b"\x32\x00"})
+        self.use_adapter()
+        r = self.ok("POST", "/api/online/identify", {"node": 9})
+        self.assertEqual((r["answered"], r["device_name"], r["vendor_id"], r["device_type"]),
+                         (True, "sensor nine", 0x111, 0x20192))
+        self.assertEqual(r["eds_matches"], [])
+        self.assertFalse(self.ok("POST", "/api/online/identify", {"node": 33})["answered"])
+        e = self.ok("POST", "/api/online/od_entries", {"node": 9, "standard": True, "device_type": 0x20192})
+        self.assertTrue(e["standard"])
+        self.assertIn((0x6040, 0), {(x["index"], x["subindex"]) for x in e["entries"]})
+        r = self.ok("POST", "/api/online/od_read", {"node": 9, "standard": True, "keys": [[0x1017, 0], [0x1013, 0]]})
+        self.assertEqual(r["values"][0]["text"], "50 (0x0032)")
+        self.assertEqual(r["failures"][0]["abort_code"], 0x06020000)
+        status, data, _ = self.request("POST", "/api/online/backup", {"node": 9, "standard": True})
+        self.assertEqual(status, 422)
+        self.assertIn("needs the device's EDS", data["error"])
+
     def test_error_field(self):
         # The device error history (0x1003) on a USB adapter: read, clear
         # refused without changes, then forced on a node heard OPERATIONAL.
