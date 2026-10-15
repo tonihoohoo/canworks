@@ -255,6 +255,8 @@ function rawRemove(kind, i) {
   list.splice(i, 1);
   setPath("raw." + kind, list.length ? list : undefined);
   if (S.rawOpen && S.rawOpen.kind === kind) S.rawOpen = null;
+  // The DBC file names where the messages came from: none left, no file.
+  if (!getPath("raw.rx") && !getPath("raw.tx")) setPath("raw.dbc", undefined);
   if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol")) {
     setPath("raw", undefined);
   }
@@ -274,12 +276,9 @@ function renderCanMessages(view) {
       el("div", { class: "grid" },
         none ? checkbox("Listen only", "adapter.listen_only", false,
           "The PLC only watches the bus: it never acknowledges or sends a frame. Sent messages are not allowed then.") : null,
-        field("DBC file", "raw.dbc", "text", { placeholder: "none",
-          hint: "The DBC file the messages came from, next to canworks.json. The bus trace decodes its messages too." }),
         none ? null : checkbox("Program may send protocol identifiers", "raw.program_override_protocol", false,
           "On: CAN_SEND and CAN_SEND_CYCLIC may use identifiers the protocol owns (ERROR_ID 4 otherwise)."))),
-    el("div", { class: "row" },
-      el("button", { type: "button", id: "raw-import", onclick: rawImportDbc }, "Import DBC…")));
+    rawDbc());
   for (const [kind, title, help] of RAW_KINDS) {
     if (kind === "tx" && listenOnly) {
       view.append(el("h3", null, title), el("p", { class: "muted" }, "None: the network is listen-only."));
@@ -469,50 +468,76 @@ async function rawCopySt(kind, i) {
   } catch (e) { banner(e.message, true); }
 }
 
-async function rawImportDbc() {
-  const input = el("input", { type: "file", accept: ".dbc", "aria-label": "DBC file" });
-  const pick = await modal("Import messages from a DBC file:", [["next", "Next", true], ["cancel", "Cancel"]], input);
-  if (pick !== "next" || !input.files.length) return;
-  const file = input.files[0];
-  const text = await file.text();
-  let list;
-  try { list = (await api("POST", "/api/raw/dbc", { text })).messages; } catch (e) { banner(e.message, true); return; }
-  if (!list.length) { banner("The DBC file has no messages.", true); return; }
+// The network's DBC file: read-only, with Import DBC… and Pick messages….
+function rawDbc() {
+  const dbc = getPath("raw.dbc");
+  const missing = !!dbc && !(S.state.dbc_files || []).includes(dbc);
+  return el("fieldset", { dataset: { section: "dbc" } }, el("legend", null, "DBC file"),
+    el("p", null, dbc ? ["Messages come from ", el("strong", { dataset: { raw: "dbc" } }, dbc), "."]
+      : el("span", { class: "muted", dataset: { raw: "dbc" } }, "No DBC file yet."),
+      missing ? el("span", { class: "field-msg warning", dataset: { raw: "dbc-missing" } },
+        ` ${dbc} is not in the config folder: import it again.`) : null),
+    el("div", { class: "toolbar", id: "raw-import" },
+      dbcFileButton(rawImportDbc, { raw: "dbc-input" }),
+      dbc && !missing ? el("button", { type: "button", dataset: { raw: "pick" }, onclick: () => rawPickFromDbc(dbc) }, "Pick messages…") : null),
+    hint("Import copies the DBC file into the config folder when you save, then lists its messages: mark each to receive or to send. " +
+      "Each signal gets a free PLC location of the right size."));
+}
+
+async function rawImportDbc(file) {
+  const dbc = getPath("raw.dbc");
+  const count = (getPath("raw.rx") || []).length + (getPath("raw.tx") || []).length;
+  if (dbc && dbc !== file.name && count) {
+    const v = await modal(`The network's ${count} message${count === 1 ? "" : "s"} come from ${dbc}. Importing ${file.name} makes it ` +
+      `the network's DBC file; the messages from ${dbc} stay.`,
+    [["cancel", `Keep ${dbc}`], ["replace", `Use ${file.name}`]]);
+    if (v !== "replace") return;
+  }
+  const res = await uploadDbc("/api/raw/dbc", file);
+  if (!res) return;
+  S.state.dbc_files = [...new Set([...(S.state.dbc_files || []), res.name])];
+  return rawPickMessages(res);
+}
+
+async function rawPickFromDbc(name) {
+  try { return rawPickMessages(await api("POST", "/api/raw/dbc", { name })); } catch (e) { banner(e.message, true); }
+}
+
+async function rawPickMessages(res) {
   const listenOnly = getPath("adapter.listen_only") === true;
-  const selects = new Map();
-  const rows = list.map((m) => {
-    const sel = el("select", { "aria-label": "Use " + m.name },
-      el("option", { value: "" }, "skip"), el("option", { value: "receive" }, "receive"),
-      listenOnly ? null : el("option", { value: "send" }, "send"));
-    sel.value = m.senders.includes("PLC") && !listenOnly ? "send" : "";
-    selects.set(m.name, sel);
-    return el("tr", null, el("td", null, m.name), el("td", { class: "mono" }, rawHex(m.id) + (m.extended ? " ext" : "")),
-      el("td", null, String(m.dlc)), el("td", null, m.cycle_ms ? `${m.cycle_ms} ms` : "event"),
-      el("td", null, String(m.signals),
-        (m.switches || []).length ? el("div", { class: "muted", dataset: { rawMux: m.name } },
-          `switch ${m.switches.join(", ")}` + (m.pages ? `, ${m.pages} page${m.pages === 1 ? "" : "s"}` : "")) : null,
-        m.mux_problem ? el("div", { class: "field-msg warning", dataset: { rawMuxProblem: m.name } }, m.mux_problem) : null),
-      el("td", null, sel));
+  const have = {};
+  for (const kind of ["rx", "tx"]) have[kind] = new Set((getPath("raw." + kind) || []).map((e) => `${num(e.id)}:${!!e.extended}`));
+  const rows = res.messages.map((m) => {
+    const key = `${m.id}:${!!m.extended}`;
+    return {
+      name: m.name, send: m.senders.some(senderIsPlc),
+      already: have.rx.has(key) ? "rx" : have.tx.has(key) ? "tx" : null,
+      cells: [
+        el("span", { class: "mono" }, rawHex(m.id) + (m.extended ? " ext" : "")),
+        String(m.dlc), m.cycle_ms ? `${m.cycle_ms} ms` : "event",
+        [String(m.signals),
+          (m.switches || []).length ? el("div", { class: "muted", dataset: { rawMux: m.name } },
+            `switch ${m.switches.join(", ")}` + (m.pages ? `, ${m.pages} page${m.pages === 1 ? "" : "s"}` : "")) : null,
+          m.mux_problem ? el("div", { class: "field-msg warning", dataset: { rawMuxProblem: m.name } }, m.mux_problem) : null],
+      ] };
   });
-  const table = el("div", { class: "raw-import" }, el("table", { class: "od" },
-    el("thead", null, el("tr", null, thCells(["Message", "Identifier", "DLC", "Cycle", "Signals", "Use"]))),
-    el("tbody", null, rows)));
-  const go = await modal(`${file.name}: pick the messages and whether the PLC receives or sends them. Free PLC addresses are suggested.`,
-    [["import", "Import", true], ["cancel", "Cancel"]], table);
-  if (go !== "import") return;
-  const picks = {};
-  for (const [name, sel] of selects) if (sel.value) picks[name] = sel.value;
-  if (!Object.keys(picks).length) return;
+  const picks = await pickDbcMessages({
+    text: `${res.name}: ${res.messages.length} message${res.messages.length === 1 ? "" : "s"}. ` +
+      "Receive takes a message into %I inputs, Send sends it from %Q outputs. Send is preselected for messages the PLC sends.",
+    columns: ["Identifier", "DLC", "Cycle", "Signals"], rows, problems: res.problems, listenOnly });
+  if (!picks || !picks.length) return;
+  const byName = {};
+  for (const p of picks) byName[res.messages[p.index].name] = p.direction === "tx" ? "send" : "receive";
   try {
-    const r = await api("POST", "/api/raw/dbc_import", { config: fileConfig(), network: S.net, text, picks });
+    const r = await api("POST", "/api/raw/dbc_import", { config: fileConfig(), network: S.net, name: res.name, picks: byName });
     for (const kind of ["rx", "tx"]) {
       if (r[kind].length) setPath("raw." + kind, (getPath("raw." + kind) || []).concat(r[kind]));
     }
-    if (!getPath("raw.dbc")) setPath("raw.dbc", file.name);
+    const n = r.rx.length + r.tx.length;
+    if (n) setPath("raw.dbc", res.name);
     S.rawOpen = null;
     changed(true);
-    const n = r.rx.length + r.tx.length;
-    banner(`Imported ${n} message${n === 1 ? "" : "s"}.` + (r.notes.length ? " " + r.notes.join("; ") + "." : ""), r.notes.length > 0);
+    banner(`Imported ${n} message${n === 1 ? "" : "s"} from ${res.name}.` + (r.notes.length ? " " + r.notes.join("; ") + "." : ""), r.notes.length > 0);
   } catch (e) { banner(e.message, true); }
 }
 

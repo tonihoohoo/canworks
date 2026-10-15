@@ -146,7 +146,7 @@ On a CANopen or J1939 network some identifiers belong to the protocol: NMT, SYNC
 
 ### From a DBC file
 
-`canworks-config` imports a DBC file on a network's **CAN messages** page (**Import DBC**): pick the messages, choose received or sent, and **Suggest addresses** fills in free locations. The file is kept as the network's `raw.dbc`, so the trace can decode its other messages too.
+`canworks-config` imports a DBC file on a network's **CAN messages** page (**Import DBC…**): pick the messages, choose received or sent, and each signal gets a free location. The file is copied into the config folder on save and named in the network's `raw.dbc`; the plugin does not read it.
 
 Messages with J1939 attributes belong on a J1939 network; plain 11-bit and 29-bit messages become raw messages. Multiplexed messages keep their switches and pages, simple (`M`, `m1`) and extended (`m1M`, `SG_MUL_VAL_`) alike. The other way round, `canworks-deploy --export-dbc` writes a network's raw messages into its DBC file next to the protocol's frames, with their multiplexing.
 
