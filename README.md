@@ -140,7 +140,7 @@ uv run --no-project --python 3.12 --with jsonschema --with cantools python -m un
 uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
-A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`).
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`). Its notes are `tools/deploy/release-notes.md` plus what each pull request since the previous release changed, and only the newest four releases are kept ([docs/install-pc.md](docs/install-pc.md#releases)).
 
 ## License
 
