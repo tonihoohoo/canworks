@@ -405,7 +405,7 @@ function showTraceHeader(st) {
     ss.classList.toggle("primary", !rec.running);
     ss.dataset.running = String(!!rec.running);
   }
-  for (const k of ["save", "export"]) document.querySelector(`[data-trace=${k}]`).disabled = !st.frames;
+  for (const k of ["save", "export"]) Icons.setDisabled(document.querySelector(`[data-trace=${k}]`), !st.frames && "Nothing recorded yet.");
 }
 
 function renderTraceTab() {

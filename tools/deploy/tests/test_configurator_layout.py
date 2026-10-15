@@ -121,6 +121,20 @@ def pick_theme(page, theme):
     page.click('[data-theme-choice="%s"]' % theme)
 
 
+# Disabled controls say why (visual-refresh): a tooltip or an accessible description.
+DISABLED_REASONS = """() => {
+  const out = [];
+  for (const e of document.querySelectorAll("button:disabled, input:disabled, select:disabled, textarea:disabled, [role=tab][aria-disabled=true], [role=button][aria-disabled=true]")) {
+    if (e.offsetParent === null || e.type === "hidden" || e.closest("[hidden], .uplot")) continue;
+    const box = e.closest("fieldset[disabled]") || e.closest("label, .check");
+    const why = (e.title || e.getAttribute("aria-description") || "").trim()
+      || (e.getAttribute("aria-describedby") || "").split(/\\s+/).some((id) => id && (document.getElementById(id)?.textContent || "").trim())
+      || (box && box !== e && (box.title || "").trim());
+    if (!why) out.push(e.tagName.toLowerCase() + (e.id ? "#" + e.id : "") + " " + (e.dataset.path || e.getAttribute("aria-label") || e.textContent.trim() || e.name || e.className).slice(0, 40));
+  }
+  return out;
+}"""
+
 def audit(page, where, report=None):
     """axe-core on the page as it is: critical and serious findings fail,
     the others are collected in `report` (a list) when given."""
@@ -167,6 +181,7 @@ class Layout(OnlineBase):
         audit(self.page, where, self.axe_report)
         self.assertEqual(self.page.evaluate(CONTRAST), [], where + ": contrast")
         self.assertEqual(self.page.evaluate(TARGETS), [], where + ": target size")
+        self.assertEqual(self.page.evaluate(DISABLED_REASONS), [], where + ": disabled without a reason")
 
     axe_report = []
 

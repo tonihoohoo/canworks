@@ -2073,15 +2073,15 @@ function lssFields(i, eds) {
   });
   const store = el("input", { type: "checkbox", dataset: { path: base + ".lss.store" } });
   store.checked = getPath(base + ".lss.store") === true;
-  store.disabled = !assign.checked && !store.checked;
+  Icons.setDisabled(store, !assign.checked && !store.checked && "Needs \"Assign node ID by serial number\".");
   store.addEventListener("change", () => set("store", store.checked));
   // No LSS on a node whose EDS has none: the boxes stay off (a ticked one can
   // still be unticked), and an lss object left in the file can be removed.
   const dev = eds && eds.device;
   const noLss = !!dev && !dev.lss_supported;
   if (noLss) {
-    assign.disabled = !assign.checked;
-    store.disabled = !store.checked;
+    Icons.setDisabled(assign, !assign.checked && "This device's EDS has no LSS.");
+    Icons.setDisabled(store, !store.checked && "This device's EDS has no LSS.");
   }
   const has = getPath(base + ".lss") !== undefined;
   const warn = noLss
@@ -2117,7 +2117,7 @@ function configCheckField(i, eds) {
   else if (subs.some((o) => !o || !o.writable)) why = "The EDS has no writable 0x1020 sub 1 and sub 2, so the device cannot keep the stamp.";
   const input = el("input", { type: "checkbox", dataset: { path: base + ".config_check" } });
   input.checked = on;
-  input.disabled = !!why && !on;
+  Icons.setDisabled(input, !on && why);
   input.addEventListener("change", () => {
     if (!input.checked) setPath(base + ".store_configuration", undefined);
     setPath(base + ".config_check", input.checked ? true : undefined);
@@ -2147,7 +2147,7 @@ function storeConfigurationField(i, eds) {
   if (!subs.length) why = "The EDS has no writable 0x1010 sub-index (store parameters).";
   else if (getPath(base + ".config_check") !== true) why = "Needs \"Skip download when unchanged\", so the device saves only after a download.";
   if (why && !set) {
-    f.querySelector("select").disabled = true;
+    Icons.disable(f.querySelector("select"), why);
     f.querySelector(".hint").textContent = why;
   }
   return f;
