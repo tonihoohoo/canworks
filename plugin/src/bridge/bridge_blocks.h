@@ -73,6 +73,9 @@ enum ControlResult : uint8_t {
   kCtrlBadNetwork = 2,
   kCtrlBadNode = 3,
   kCtrlNotMaster = 4,
+  // An NMT command while the network's bus is down, or with 16 of its
+  // commands still waiting.
+  kCtrlRefused = 5,
 };
 
 struct ControlRequest {

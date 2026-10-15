@@ -208,10 +208,10 @@ void Network::DiagStatus(const DiagRequest& r) {
       cJSON_AddNullToObject(o, "boot_error");
     }
     cJSON_AddBoolToObject(o, "retry_pending", n.retry_pending);
-    uint8_t hold = n.hold == Hold::Stopped ? 1 : n.hold == Hold::Preop ? 2 : 0;
+    uint8_t hold = n.run->hold == Hold::Stopped ? 1 : n.run->hold == Hold::Preop ? 2 : 0;
     cJSON_AddStringToObject(o, "hold", hold_name(hold));
     if (hold)
-      cJSON_AddStringToObject(o, "hold_by", n.hold_src == HoldSource::Operator ? "operator" : "program");
+      cJSON_AddStringToObject(o, "hold_by", n.run->hold_src == HoldSource::Operator ? "operator" : "program");
     else
       cJSON_AddNullToObject(o, "hold_by");
     cJSON* e = cJSON_AddObjectToObject(o, "emcy");

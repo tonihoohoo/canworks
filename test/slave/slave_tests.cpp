@@ -28,6 +28,7 @@
 #include <lely/co/obj.h>
 #include <lely/co/val.h>
 #include <lely/ev/loop.hpp>
+#include <lely/ev/strand.hpp>
 #include <lely/io2/posix/poll.hpp>
 #include <lely/io2/sys/io.hpp>
 #include <lely/io2/sys/timer.hpp>
@@ -180,6 +181,8 @@ class SlaveSim {
     bool slave = false;
     GeneratedConfig gen;
     ProcessImage image;
+    RunState run;  // a master network's, kept across its sessions
+    std::unique_ptr<ev::Strand> strand;  // a master network's session
     std::unique_ptr<Network> net;
     SlaveImage simage;
     std::shared_ptr<SlaveStore> store;
@@ -228,14 +231,7 @@ class SlaveSim {
         n.wake.reset(new FdWake(poll_, gw_ ? gw_->fd(cfg.network_index) : -1, [&n] { n.dev->ServiceGateway(); }));
       } else {
         n.image.build(cfg);
-        n.net.reset(new Network(exec_, n.timer, n.sup, *n.chan, cfg, n.gen, n.image, nullptr, &n.req, &n.out));
-        // The other controller ("*.m", the upper master) is in this config
-        // only for the test; in a real gateway it is another device, so it
-        // does not feed node states or EMCYs into the gateway (its EMCY
-        // from the gateway would otherwise come back up in a loop).
-        if (cfg.adapter.interface.size() < 2 || cfg.adapter.interface.compare(cfg.adapter.interface.size() - 2, 2, ".m"))
-          n.net->SetGateway(gw_.get());
-        n.wake.reset(new FdWake(poll_, gw_ ? gw_->fd(cfg.network_index) : -1, [&n] { n.net->ServiceGateway(); }));
+        MakeMaster(i);
       }
     }
     canopen_open_plc_requests(set_);  // the master networks, as the plugin does
@@ -285,6 +281,25 @@ class SlaveSim {
       if (n->dev) n->dev->Start();
     for (auto& n : nets_)
       if (n->net) n->net->Start();
+  }
+  // A new bus session of master network `i`, as Bus starts one after an
+  // interface loss: StopMaster() ends the session (the devices keep
+  // running), StartMaster() starts a new Network on the same image and run
+  // state.
+  void StopMaster(size_t i) {
+    Net& n = *nets_[i];
+    n.net->Stop();
+    n.net->MarkAllDown();
+    n.wake.reset();
+    // A stopped Network's timer waits end without being submitted again;
+    // the work it queued and that has not run yet goes with its strand.
+    RunFor(Network::kTick + milliseconds(50));
+    n.net.reset();
+    n.strand.reset();
+  }
+  void StartMaster(size_t i) {
+    MakeMaster(i);
+    nets_[i]->net->Start();
   }
   // The slave network `i` as after a PLC restart: a new device from the EDS
   // and the state file.
@@ -447,6 +462,21 @@ class SlaveSim {
       if (!ec) Scan();
     });
   }
+  // Master network `i`'s Network, on a strand of its own.
+  void MakeMaster(size_t i) {
+    Net& n = *nets_[i];
+    const Config& cfg = set_.networks[i];
+    n.strand.reset(new ev::Strand(exec_));
+    n.net.reset(new Network(*n.strand, n.timer, n.sup, *n.chan, cfg, n.gen, n.image, nullptr, &n.req, &n.out, &n.run));
+    // The other controller ("*.m", the upper master) is in this config
+    // only for the test; in a real gateway it is another device, so it
+    // does not feed node states or EMCYs into the gateway (its EMCY
+    // from the gateway would otherwise come back up in a loop).
+    if (cfg.adapter.interface.size() < 2 || cfg.adapter.interface.compare(cfg.adapter.interface.size() - 2, 2, ".m"))
+      n.net->SetGateway(gw_.get());
+    n.wake.reset(new FdWake(poll_, gw_ ? gw_->fd(cfg.network_index) : -1, [&n] { n.net->ServiceGateway(); }));
+  }
+
   void ReadSniff() {
     sniff_.submit_read(&msg_, nullptr, nullptr, exec_, [this](int result, std::error_code ec) {
       if (ec) return;
@@ -1025,6 +1055,39 @@ TEST(gateway_upper_loss) {
     sim->Replug(1);
     CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 5 && sim->plc().dint_in[40] == 55; }, seconds(8)));
   }
+}
+
+// The upper master is lost with stop_nodes and the field network's bus
+// session restarts: the field node is held again once it is configured,
+// whether the loss came before the restart or while no session ran
+// (canopen-gateway "Upper master loss at network start").
+TEST(gateway_upper_loss_session_restart) {
+  clear_logs();
+  auto sim = start_gateway_sim(gateway_json(R"(, "on_upper_loss": "stop_nodes")",
+                                            R"(, "heartbeat_consumer": true, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150)"));
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->Unplug(1);  // the upper master is gone
+  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 4; }, seconds(2)));
+  clear_logs();
+  sim->StopMaster(0);
+  sim->StartMaster(0);
+  CHECK(sim->RunUntil([&] { return logged("held by the gateway") && sim->plc().byte_in[40] == 4; }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->plc().byte_in[40] == 4, std::to_string(sim->plc().byte_in[40]));
+  sim->Replug(1);
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  // Lost while the field network has no session.
+  sim->StopMaster(0);
+  sim->Unplug(1);
+  CHECK(sim->RunUntil([&] { return !sim->plc().bool_in[300][1]; }, seconds(2)));
+  clear_logs();
+  sim->StartMaster(0);
+  CHECK(sim->RunUntil([&] { return logged("held by the gateway") && sim->plc().byte_in[40] == 4; }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->plc().byte_in[40] == 4, std::to_string(sim->plc().byte_in[40]));
 }
 
 int main(int argc, char** argv) {

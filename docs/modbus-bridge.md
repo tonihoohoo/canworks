@@ -151,10 +151,10 @@ Each block is optional and lives where its location says.
 | 1 | connected clients |
 | 2-3 | a counter that grows every 100 ms (the bridge is alive) |
 | 4-5 | the last control counter handled |
-| 6 | the result of that command: 0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network |
+| 6 | the result of that command: 0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused (the network's bus is down, or 16 of its NMT commands still wait) |
 | 7 | 0 |
 
-**Control block** (6 output bytes): counter (word), command, network index, node, reserved. A command runs once each time the counter changes, so a client that writes the block every cycle sends it once. Commands: 1 run (ends outputs off from idle), 2 idle (outputs off with the `on_client_loss` action, until run), 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for that node of that CANopen master network (node 0: all its nodes). The network index counts the config's networks from 0.
+**Control block** (6 output bytes): counter (word), command, network index, node, reserved. A command runs once each time the counter changes, so a client that writes the block every cycle sends it once. Commands: 1 run (ends outputs off from idle), 2 idle (outputs off with the `on_client_loss` action, until run), 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for that node of that CANopen master network (node 0: all its nodes). The network index counts the config's networks from 0. An NMT command while the network's CAN interface is down is refused with result 5 and is not sent when the bus comes back; write it again then. At most 16 NMT commands wait per network; a further one is refused the same way.
 
 **Live list** (16 input bytes per CANopen master network): bit n (byte n/8, bit n mod 8) is set while node n is OPERATIONAL.
 

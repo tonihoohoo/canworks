@@ -6,7 +6,9 @@
 // It also serves the program's SDO variables, NMT command bytes and the NMT
 // function blocks (network_plc.cpp).
 // It runs entirely on one Lely event loop thread and is transport-agnostic:
-// Bus (bus.h) gives it a SocketCAN channel, the tests a virtual one.
+// Bus (bus.h) gives it a SocketCAN channel, the tests a virtual one. What
+// lasts for the PLC run (the program's network start and stop, node holds)
+// is in a RunState (run_state.h) that outlives the session.
 
 #ifndef CANOPEN_NETWORK_H
 #define CANOPEN_NETWORK_H
@@ -36,6 +38,7 @@
 #include "log.h"
 #include "plc_api.h"
 #include "process_image.h"
+#include "run_state.h"
 
 struct can_msg;
 
@@ -70,11 +73,13 @@ class Network : public lely::canopen::BasicMaster {
   // kRequestPeriod, and the program's SDO function blocks; without it
   // they are polled on each SYNC and supervision tick. `out_timer`, when
   // given and the master produces no SYNC, sends the outputs every
-  // kOutputPeriod instead of on SYNC.
+  // kOutputPeriod instead of on SYNC. `run`, when given, is the network's
+  // state for the PLC run, kept across sessions; without it the Network
+  // keeps its own for this session.
   Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBase& sup_timer,
           lely::io::CanChannelBase& chan, const Config& cfg, const GeneratedConfig& gen,
           ProcessImage& image, std::function<bool()> tick = nullptr, lely::io::TimerBase* req_timer = nullptr,
-          lely::io::TimerBase* out_timer = nullptr);
+          lely::io::TimerBase* out_timer = nullptr, RunState* run = nullptr);
   ~Network();
 
   // Starts the NMT master (boots all slaves) and the supervision timer.
@@ -167,12 +172,9 @@ class Network : public lely::canopen::BasicMaster {
 
   // SDO variable transfer status (status_location).
   enum SdoStatus : uint8_t { kSdoNone = 0, kSdoBusy = 1, kSdoDone = 2, kSdoAborted = 3, kSdoUnavailable = 4 };
-  // NMT state the program (nmt_command_location, CO_NMT, CO_NETWORK_STOP),
-  // an operator (manual NMT command on the diagnostics channel or the Modbus
-  // control block) or the gateway holds a node in. One hold per node: the
-  // command that acted last decides (canopen-plc-nmt "One hold per node").
-  enum class Hold : uint8_t { None, Stopped, Preop };
-  enum class HoldSource : uint8_t { Byte, Block, Operator, Gateway, Network };
+  // The holds a node can be in, and who set them (run_state.h).
+  using Hold = canopen_plugin::Hold;
+  using HoldSource = canopen_plugin::HoldSource;
   // Emergency messages kept per node for the diagnostics channel.
   static constexpr size_t kEmcyHistory = 16;
   // Network scan: node IDs probed at a time, and the timeouts.
@@ -231,15 +233,8 @@ class Network : public lely::canopen::BasicMaster {
     unsigned emcy_unlogged = 0;
     uint16_t emcy_code = 0;
     uint8_t emcy_er = 0;
-    // The program's NMT command byte: the level last acted on, the reset
-    // requests handled, and the state the node is held in.
-    uint8_t nmt_level = 0;
-    uint64_t nmt_resets = 0;
-    Hold hold = Hold::None;
-    // Who set the hold: the command byte, CO_NMT, a diagnostics client (or
-    // the Modbus control block), the gateway's on_upper_loss "stop_nodes", or
-    // CO_NETWORK_STOP's node command (released by CO_NETWORK_START).
-    HoldSource hold_src = HoldSource::Byte;
+    // The program's NMT command byte and the node's hold, for the PLC run.
+    RunState::Node* run = nullptr;
     std::vector<size_t> vars;  // ProcessImage::sdo_vars() of this node
     bool sdo_busy = false;     // an SDO variable or program transfer is in flight
     bool last_prog = false;    // the last transfer started was the program's
@@ -307,7 +302,6 @@ class Network : public lely::canopen::BasicMaster {
     bool boot_read = false;     // read due after the node's boot
     bool written = false;       // an owned write was done in this boot
     uint64_t last_written = 0;  // its value
-    uint64_t trig_seen = 0;     // trigger edges handled
     bool trig_pending = false;  // a triggered transfer waits for its turn
     clock::time_point next_read{};
     uint32_t logged_abort = 0;  // abort code logged since the last success
@@ -368,11 +362,16 @@ class Network : public lely::canopen::BasicMaster {
   unsigned ConsumerMs(unsigned id);
   void ConfigNext(uint8_t id);
   void EnableTpdos(const NodeState& n, bool enable);
+  // Every master TPDO off (at start and after the master's own reset).
+  void MasterTpdosOff();
   void MapTpdos();
   // Master RPDOs that carry a node's cyclic synchronous TPDO, for the late
   // PDO check; with PLC-cycle SYNC they are switched to event-driven so the
   // inputs reach the image as they arrive.
   void MapSyncRpdos();
+  // With PLC-cycle SYNC, those master RPDOs event-driven (at start and after
+  // the master's own reset).
+  void SyncRpdosEventDriven();
   void CountSync();
   void CheckInterpolationPeriods(clock::time_point now);
   // Receive timeouts and short PDOs of node TPDOs (canopen-pdo-io "Input PDO
@@ -449,7 +448,7 @@ class Network : public lely::canopen::BasicMaster {
   uint16_t ProgramStop(const canopen_plc_nmt_request& r);
   // Whether the master may run: start, or CO_NETWORK_START this run, and no
   // CO_NETWORK_STOP since.
-  bool MayRun() const { return (cfg_.master.start || prog_start_) && !prog_stopped_; }
+  bool MayRun() const { return (cfg_.master.start || run_->prog_start) && !run_->prog_stopped; }
   // The NMT state snapshot CO_GET_STATE reads (PlcRequests).
   void Publish(unsigned id);
   void PublishMaster();
@@ -496,6 +495,8 @@ class Network : public lely::canopen::BasicMaster {
   void* send_func_ = nullptr;  // Lely's can_send_func_t*, called by SendTapped()
   void* send_data_ = nullptr;
   static int SendTapped(const can_msg* msg, void* data);
+  std::unique_ptr<RunState> own_run_;  // without a RunState from the caller
+  RunState* run_;
   std::map<unsigned, NodeState> nodes_;
   lely::io::TimerWait tick_wait_;
   lely::io::TimerBase* req_timer_;
@@ -566,18 +567,14 @@ class Network : public lely::canopen::BasicMaster {
   bool nodes_stopped_ = false;  // StopNodes() ran
   bool outputs_on_ = true;  // the outputs gate as last applied (SYNC, master TPDOs)
   bool outputs_fresh_ = false;  // see LatestOutputs()
-  // Scan watchdog: the scan count last seen, when it last moved, and whether
-  // this network holds the gate closed for it.
-  uint64_t scan_seen_ = 0;
-  clock::time_point scan_moved_{};
+  // Scan watchdog (what it saw is in run_): whether this network holds the
+  // gate closed for it.
   bool scan_hung_ = false;
   std::vector<HostNmt> host_nmt_;
-  // NMT blocks: requests taken this tick, CO_NETWORK_START requests waiting
-  // for the master, and the network-level start and stop from the program.
+  // NMT blocks: requests taken this tick, and CO_NETWORK_START requests
+  // waiting for the master (the program's network start and stop are in run_).
   std::vector<PlcRequests::NmtJob> nmt_taken_;
   std::vector<uint32_t> prog_start_waits_;
-  bool prog_start_ = false;    // CO_NETWORK_START ran in this PLC run
-  bool prog_stopped_ = false;  // CO_NETWORK_STOP ran since
   bool master_op_ = false;  // the master itself is OPERATIONAL (PDOs run)
   uint8_t master_state_ = 0;  // as reported: PRE-OPERATIONAL while CO_NETWORK_STOP holds it
   uint8_t lely_state_ = 0;    // Lely's own NMT state of the master
