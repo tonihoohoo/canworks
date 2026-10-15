@@ -111,7 +111,7 @@ class PdoTestPage(Page):
         self.assertEqual(dev.od[(0x6200, 1)], b"\x0f")
         audit(pg, "PDO test")
         # Leaving the tab stops the test and the SYNC.
-        pg.click('button[data-online-tab="overview"]')
+        pg.click('button[data-online-tab="status"]')
         time.sleep(1.0)
         n = dev.syncs
         time.sleep(0.4)

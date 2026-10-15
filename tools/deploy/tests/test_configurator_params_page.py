@@ -425,8 +425,8 @@ class ParamsPage(OnlineBase):
             self.assertEqual(pg.locator(shown).count(), 0)
             pg.click(row + ' button[data-online="od-read"]')
             pg.wait_for_selector(shown)
-            # So does a write from the Overview's SDO panel.
-            pg.click('button[data-online-tab="overview"]')
+            # So does a write from the Status tab's SDO panel.
+            pg.click('button[data-online-tab="status"]')
             pg.fill('input[data-online="index"]', "0x6112")
             pg.fill('input[data-online="subindex"]', "3")
             pg.select_option('select[data-online="type"]', "UNSIGNED8")

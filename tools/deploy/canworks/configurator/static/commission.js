@@ -392,7 +392,7 @@ function renderCommNodes(view) {
   const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
   file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
-  const scan = el("button", { type: "button", class: "primary", disabled: !S.adapterOn, dataset: { online: "scan" }, onclick: () => startScan() }, "Scan the bus");
+  const scan = el("button", { type: "button", class: "primary", hidden: !S.adapterOn, dataset: { online: "scan" }, onclick: () => startScan() }, "Scan the bus");
   const cancel = el("button", { type: "button", hidden: true, dataset: { online: "scan-cancel" }, onclick: stopScan }, "Cancel");
   view.append(
     el("div", { class: "toolbar" }, scan, cancel, progress,
@@ -404,10 +404,7 @@ function renderCommNodes(view) {
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(el("p", { class: "online-note", dataset: { online: "not-connected" } },
-      "Not connected. Connect to the USB adapter to see, scan and read the devices on the bus. ",
-      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")),
-    nodesConnectHome());
+    view.querySelector("#online-live").before(nodesConnectHome());
     view.querySelector("#online-live").hidden = true;
     if (S.onlineNode) renderOnlineNode();
     return;

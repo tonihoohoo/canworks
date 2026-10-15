@@ -122,8 +122,7 @@ class Probes(Layout):
         pg.goto(self.server.url)
         pg.click("#start-commission")
         pg.wait_for_selector("#editor:not([hidden])")
-        pg.wait_for_selector('#conn-dialog[open]')
-        pg.keyboard.press("Escape")
+        pg.wait_for_selector('#view [data-nodes="connect"]')
         pg.wait_for_selector('#tool-tabs button[data-view="nodes"][aria-selected="true"]')
         self.assertTrue(pg.is_hidden("#ws"))
         self.assertTrue(pg.is_hidden("#menu-project"))
@@ -303,7 +302,7 @@ class Probes(Layout):
             pg.keyboard.press("Enter")
             pg.wait_for_selector('button[data-online="write"]')
             # Node tabs: Right moves to the object dictionary.
-            pg.focus('button[data-online-tab="overview"]')
+            pg.focus('button[data-online-tab="status"]')
             pg.keyboard.press("ArrowRight")
             pg.wait_for_selector('details[data-od-group="communication"]')
             self.assertEqual(pg.get_attribute('button[data-online-tab="od"]', "aria-selected"), "true")

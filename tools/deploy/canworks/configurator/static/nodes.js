@@ -303,7 +303,7 @@ function treeLive(st) {
     const old = S.treeWords[key];
     if (old !== undefined && old.split(",")[0] !== word.split(",")[0]) said.push(`${id} ${n.name || ""}`.trim() + ", " + word.split(",")[0]);
     S.treeWords[key] = word;
-    setNodeMark(name, id, "live " + cls, word);
+    setNodeMark(name, id, "live " + cls + (nodeSimulated(n, net) ? " sim" : ""), word + (nodeSimulated(n, net) ? ", simulated" : ""));
   }
   const live = $("#tree-live");
   if (live && said.length) live.textContent = said.join("; ");

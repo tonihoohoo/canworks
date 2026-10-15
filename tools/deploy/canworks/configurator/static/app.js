@@ -3589,9 +3589,7 @@ function renderOnline(view) {
     return;
   }
   if (!connEnsure()) {
-    view.append(el("p", { class: "online-note", dataset: { online: "not-connected" } }, "Not connected to the runtime. ",
-      el("button", { type: "button", class: "small primary", dataset: { online: "open-connect" }, onclick: () => openConnect() }, "Connect…")),
-    nodesConnectHome());
+    view.append(nodesConnectHome());
     return;
   }
   view.append(
@@ -3722,7 +3720,18 @@ function onlineApply(r, err) {
     el("td", null, lastHeardText(n)), el("td", null, cn && cn.eds ? cn.eds : ""),
     compareCell(c), el("td", { class: "actions" }, compareActions(n.node_id, c)));
   }).filter(Boolean);
-  const extra = notInConfigRows(cmp, 12).filter((r) => !S.nodesFilter || S.nodesFilter === "not_in_config");
+  // Nodes of the draft the runtime does not run yet (added here, not uploaded).
+  const running = new Set((st.nodes || []).map((n) => n.node_id));
+  const drafted = (onlineConfig().nodes || []).filter((n) => Number.isInteger(num(n.node_id)) && !running.has(num(n.node_id))).map((n) => {
+    const id = num(n.node_id);
+    const c = cmp[id];
+    if (S.nodesFilter && (!c || c.state !== S.nodesFilter)) return null;
+    return el("tr", { dataset: { onlineNode: id, draftNode: id } },
+      el("td", null, String(id)), el("td", null, n.name || ""),
+      el("td", { class: "muted", colspan: 7 }, S.dirty ? "In this page's changes: save and upload to run it." : "Not run by the runtime yet: upload the saved config to run it."),
+      el("td", null, n.eds || ""), compareCell(c), el("td", { class: "actions" }, compareActions(id, c)));
+  }).filter(Boolean);
+  const extra = drafted.concat(notInConfigRows(cmp, 12).filter((r) => !S.nodesFilter || S.nodesFilter === "not_in_config"));
   patchLive($("#online-live"), [
     el("table", { class: "online-bus" }, el("tbody", null,
       el("tr", null, el("th", null, "Bus"), el("td", { dataset: { online: "bus" } }, `${bus.interface || "?"}: ${BUS_STATES[bus.state] || bus.state || "?"}`),
