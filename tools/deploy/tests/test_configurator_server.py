@@ -942,6 +942,21 @@ class Networks(Running):
         self.ok("POST", "/api/save", {"config": cfg})
         self.assertEqual(self.saved()["schema_version"], 2)
 
+    def test_one_network_with_the_gateway_saves(self):
+        self.open(self.two)
+        cfg = json.loads(json.dumps(self.two))
+        del cfg["networks"][1]
+        del cfg["networks"][0]["name"]
+        cfg["cia309"] = {"port": 7533, "allow_changes": True}
+        self.ok("POST", "/api/save", {"config": cfg})
+        saved = self.saved()
+        self.assertEqual(saved["schema_version"], 1)
+        self.assertNotIn("cia309", saved)
+        self.assertEqual(saved["master"]["cia309"], {"port": 7533, "allow_changes": True})
+        self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
+        data = self.ok("POST", "/api/check", {"config": saved})
+        self.assertEqual(data["errors"], 0, data["items"])
+
     def test_check_names_the_network(self):
         cfg = self.two
         cfg["networks"][1]["nodes"][0]["status_location"] = "%IX10.0"  # io's node uses it

@@ -388,9 +388,10 @@ class Client:
     always; a standalone simulator with a token); without one it is plain,
     for a local simulator without a token."""
 
-    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
+    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None, repair=False):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
         self.network = network
+        self.repair = repair    # pair the remote link again when the runtime's link ID changed (--repair)
         # Sent as force: true with sdo_write, nmt and scan unless a call says
         # otherwise: the plugin refuses them without it while a configured
         # node is OPERATIONAL (canworks-diag --force).
@@ -495,7 +496,7 @@ class Client:
             # the background (nothing happens without iroh and discovery).
             try:
                 from .link import pc as linkpc
-                self.pairing = linkpc.after_login(self.host, self.port, self.token)
+                self.pairing = linkpc.after_login(self.host, self.port, self.token, repair=self.repair)
             except Exception:
                 self.pairing = None
         return self.info
@@ -869,6 +870,9 @@ def parser():
                         "master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
+    p.add_argument("--repair", action="store_true",
+                   help="remote link: when a paired runtime answers with another link ID (reinstalled), take the "
+                        "new ID and pair this PC with it again")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="read the access token from this file")
     p.add_argument("--json", action="store_true", help="print the plugin's answer as JSON")
@@ -2062,7 +2066,8 @@ def _pdo_test(client, args, out):
 
 def _local_client(args):
     """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
-    network of --config, the configured nodes' names from --config."""
+    network of --config, the configured nodes' names and the network's
+    adapter.listen_only from --config."""
     from . import localbus
     from .localbus import configinfo
     try:
@@ -2071,10 +2076,12 @@ def _local_client(args):
         raise DiagError("usage", str(e))
     bitrate = args.bitrate * 1000 if args.bitrate else None
     nodes = {}
+    listen_only = False
     config = getattr(args, "config", None)
     if config:
         try:
             cfg_bitrate, nodes = configinfo.load(config, args.network)
+            listen_only = configinfo.load_listen_only(config, args.network)
         except (OSError, ValueError) as e:
             raise DiagError("usage", "cannot use %s: %s" % (config, e))
         bitrate = bitrate or cfg_bitrate
@@ -2084,7 +2091,8 @@ def _local_client(args):
     if localbus.untested(spec):
         print("canworks-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
     return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
-                             network=args.network, timeout=args.timeout, check_node=args.check_node)
+                             network=args.network, timeout=args.timeout, check_node=args.check_node,
+                             listen_only=listen_only)
 
 
 def _adapters(args, out):
@@ -2340,7 +2348,8 @@ def run(args, out=sys.stdout):
             host, port = parse_runtime(args.runtime)
         except ValueError as e:
             raise DiagError("usage", str(e))
-        client = Client(host, port, _token(args), args.timeout, network=args.network)
+        client = Client(host, port, _token(args), args.timeout, network=args.network,
+                        repair=bool(getattr(args, "repair", False)))
     client.connect()
     client.force = bool(getattr(args, "force", False))
     try:

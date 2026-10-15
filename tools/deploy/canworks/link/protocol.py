@@ -32,14 +32,19 @@ class LinkError(Exception):
         self.kind = kind
 
 
-def is_lan_address(addr):
-    """Whether "ip:port", "[v6]:port" or a bare IP is private or link-local."""
+def address_host(addr):
+    """The host of "ip:port", "[v6]:port" or a bare IP (anything else as it is)."""
     host = (addr or "").strip()
     if host.startswith("["):
         host = host[1:].partition("]")[0]
     elif host.count(":") == 1:
         host = host.split(":")[0]
-    host = host.split("%")[0]
+    return host.split("%")[0]
+
+
+def is_lan_address(addr):
+    """Whether "ip:port", "[v6]:port" or a bare IP is private or link-local."""
+    host = address_host(addr)
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:

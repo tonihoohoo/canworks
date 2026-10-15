@@ -161,7 +161,7 @@ def manager_params(master):
 
 
 def node_params(node, master):
-    out = [_param(DEV_NODE_ID, str(node["node_id"]), "node ID"),
+    out = [_param(DEV_NODE_ID, str(_int(node["node_id"])), "node ID"),
            _param(DEV_OPTIONS, _bool(node.get("mandatory") is not True), "optional device", "FLAG_Optional")]
     if node.get("boot") is False:
         out.append(_param(DEV_OPTIONS, "TRUE", "do not initialize", "FLAG_NotInitialize"))
@@ -216,14 +216,23 @@ def channels(cfg, eds_paths):
         net_i = int(m.group(1)) if m.group(1) is not None else 0
         node_i, key, pdo_i, entry_i = int(m.group(2)), m.group(3), int(m.group(4)), int(m.group(5))
         net_json = cfg["networks"][net_i] if m.group(1) is not None else cfg
-        pdo = net_json["nodes"][node_i][key][pdo_i]
-        entry = pdo["entries"][entry_i]
-        number = pdo.get("number") or pdo_i + 1
-        out.setdefault((net_i, node_i), []).append({
-            "dir": "in" if key == "tx_pdos" else "out",
-            "mapping": (0x1A00 if key == "tx_pdos" else 0x1600) + number - 1,
-            "index": _int(entry["index"]), "sub": _int(entry.get("subindex", 0), 0),
-            "variable": d["name"]})
+        node = net_json["nodes"][node_i]
+        pdo = node[key][pdo_i]
+        number = _int(pdo.get("number")) or pdo_i + 1
+        try:
+            entry = pdo["entries"][entry_i]
+            index = _int(entry["index"])
+            if index is None:
+                raise ValueError("no valid index")
+            out.setdefault((net_i, node_i), []).append({
+                "dir": "in" if key == "tx_pdos" else "out",
+                "mapping": (0x1A00 if key == "tx_pdos" else 0x1600) + number - 1,
+                "index": index, "sub": _int(entry.get("subindex", 0), 0),
+                "variable": d["name"]})
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            raise ExportFailed([("cannot name the I/O channel of node %s %s%d entry %d: %s"
+                                 % (node.get("name") or _int(node.get("node_id")), key[:2].upper() + "PDO",
+                                    number, entry_i + 1, e), [d["path"]])])
     return out
 
 
@@ -253,10 +262,13 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
     if not masters:
         raise ExportFailed([("the config has no CANopen master network with nodes, so nothing to export for "
                              "CODESYS", ["networks"])])
+    # A config the checks refuse can fail here before the DCF export below
+    # names the field, so a failure is reported after that, never swallowed.
+    channels_failed = None
     try:
         chans = channels(cfg, eds_paths) if variables else {}
-    except (KeyError, IndexError, TypeError, ValueError):
-        chans = {}
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        chans, channels_failed = {}, e
     files, problems, notes = {}, [], []
     plan_nets, device_names = [], set()
     for net in nets:
@@ -299,21 +311,22 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
                                   "manager in CODESYS"})
         plan_nodes = []
         for k, node in enumerate(net["nodes"]):
-            base = declare.identifier(node.get("name") or "node%s" % node.get("node_id"))
+            node_id = _int(node["node_id"])
+            base = declare.identifier(node.get("name") or "node%s" % node_id)
             name, n = base, 2
             while name.lower() in device_names:
                 name = "%s_%d" % (base, n)
                 n += 1
             device_names.add(name.lower())
-            where = "%s/%s" % (label, node.get("name") or "node %s" % node.get("node_id"))
+            where = "%s/%s" % (label, node.get("name") or "node %s" % node_id)
             notes += _notes_for(node, NODE_NOTES, where)
             for j, p in enumerate(node.get("tx_pdos") or []):
                 for key in ("timeout_location", "timeout_ms"):
                     if p.get(key) is not None:
                         notes.append({"where": where, "setting": "tx_pdos[%d].%s" % (j, key),
                                       "note": "plugin receive timeout of a TPDO"})
-            plan_nodes.append({"node_id": node["node_id"], "name": name,
-                               "dcf": folder + "/" + dcfexport.dcf_name(node["node_id"]),
+            plan_nodes.append({"node_id": node_id, "name": name,
+                               "dcf": folder + "/" + dcfexport.dcf_name(node_id),
                                "params": node_params(node, master),
                                "channels": chans.get((net["index"] if net["path"] else 0, k), [])})
         plan_nets.append({"name": net["name"], "folder": folder, "net_id": number, "bitrate_kbit": bitrate,
@@ -321,6 +334,9 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
                           "manager": manager_params(master), "nodes": plan_nodes})
     if problems:
         raise ExportFailed(problems)
+    if channels_failed is not None:
+        raise ExportFailed([("cannot name the I/O channels (%s); export with variables off to leave them out"
+                             % channels_failed, ["networks"])])
     for key in ("bridge", "gateway"):
         if isinstance(cfg.get(key), dict):
             notes.append({"where": "config", "setting": key, "note": "stays with canworks"})

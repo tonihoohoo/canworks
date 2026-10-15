@@ -525,17 +525,20 @@ def remove_pc(entry, token, pc_id, timeout=CONNECT_TIMEOUT):
 _after = {}   # (host, port) -> {"thread", "note"}
 
 
-def after_login(host, port, token, wait=False):
+def after_login(host, port, token, wait=False, repair=False):
     """Called after a successful direct login to (host, port) with `token`:
     in the background, find the runtime's link ID by discovery, remember it,
-    and pair this PC when it is not paired yet. Loopback hosts are skipped."""
+    and pair this PC when it is not paired yet. A paired runtime that answers
+    with another link ID keeps the remembered one and the job's note says
+    its identity changed; with `repair` the new ID is taken and this PC
+    pairs again. Loopback hosts are skipped."""
     if not token or host.startswith("link:") or _is_loopback(host) or os.environ.get("CANWORKS_LINK") == "off":
         return None
-    key = (host, port)
+    key = (host, port, bool(repair))
     job = _after.get(key)
     if job is None:
         job = {"note": None}
-        job["thread"] = threading.Thread(target=_after_job, args=(host, port, token, job), daemon=True)
+        job["thread"] = threading.Thread(target=_after_job, args=(host, port, token, job, repair), daemon=True)
         _after[key] = job
         job["thread"].start()
     if wait:
@@ -551,7 +554,7 @@ def _is_loopback(host):
         return host.lower() == "localhost"
 
 
-def _after_job(host, port, token, job):
+def _after_job(host, port, token, job, repair=False):
     from . import discovery
     try:
         entry = find(host)
@@ -561,6 +564,21 @@ def _after_job(host, port, token, job):
         if r is not None:
             ips = [a for a in r["addresses"] if ":" not in a.split("%")[0]] or r["addresses"]
             link_addrs = ["%s:%d" % (a, r.get("link") or DEFAULT_LINK_PORT) for a in ips] if r.get("id") else None
+            known = find(r["name"]) or entry
+            if known and known.get("paired") and known.get("id") and r.get("id") and r["id"] != known["id"]:
+                # A paired runtime with another link ID: reinstalled, or not
+                # the runtime it was. Only --repair takes the new ID, and the
+                # pairing then proves the token to it.
+                if not repair:
+                    remember(known["name"], hosts=[host])
+                    job["changed"] = True
+                    job["note"] = ("%s answers with another link ID than the one this PC paired with: its identity "
+                                   "changed (now %s..., was %s...). If the runtime was reinstalled, pair again with "
+                                   "--repair (canworks-diag --runtime %s --repair status)."
+                                   % (known["name"], r["id"][:10], known["id"][:10], host))
+                    return
+                remember(known["name"], paired=False)
+                r = dict(r, name=known["name"])
             entry = remember(r["name"], hosts=[host], id=r.get("id"), link_addrs=link_addrs,
                              diag_port=r.get("diag") or port, runtime_port=r.get("runtime"))
         else:

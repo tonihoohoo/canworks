@@ -15,6 +15,8 @@ The export is a folder:
 
 The script uses the PLC device already in the project, finds or adds a CANbus with the network's number and a CANopen Manager under it, installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
 
+Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
+
 Get the folder from the configurator (**Export > CODESYS**, a zip) or from the command line:
 
 ```sh

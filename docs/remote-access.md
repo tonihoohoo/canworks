@@ -32,7 +32,9 @@ canworks-diag --runtime line3.local status
 
 The advertisement does not depend on the PLC running: a stopped PLC is listed, and connecting says diagnostics are not listening. Typing a host name or address always works. Discovery needs Avahi on the device (`apt-get install avahi-daemon`; Raspberry Pi OS has it).
 
-Windows drops the answers to a search on a network set to **Public**, so the list stays empty there. Asking one device directly still works, because its answer comes back to the question: `canworks-diag discover line3.local` (or its address). The tools do the same after connecting to a typed address, so the remote link still learns the runtime and pairs this PC.
+Windows drops the answers to a search on a network set to **Public**, so the list stays empty there. Asking one device directly still works, because its answer comes back to the question: `canworks-diag discover line3.local` (or its address). The tools do the same after connecting to a typed address, so the remote link still learns the runtime and pairs this PC. Only an answer from the asked address counts.
+
+A runtime this PC is paired with keeps the link ID it was paired with. When it answers with another one (the device was reinstalled and made a new key, or another device took its address), the tools say "its identity changed" after the command and leave the remembered runtime as it was. If you know the runtime was reinstalled, pair again with the token: `canworks-diag --runtime line3.local --repair status`.
 
 ## Other networks
 
@@ -48,7 +50,7 @@ Discovery does not cross routers. From another subnet, VLAN or site:
 The remote link is a small service on the device (`canworks-link`), built on [iroh](https://iroh.computer), an open-source peer-to-peer library: the PC dials the device by its public key, both ends punch through NAT, and a relay server carries the traffic over HTTPS port 443 when no direct path exists (mobile networks, company networks that block UDP). No account, no router port, no admin rights on the PC.
 
 - **Only paired PCs** get through, and only to the diagnostics port and the runtime's HTTPS port on the device itself. A PC that is not paired can only ask to pair.
-- **Pairing uses the diagnostics token.** The first time a PC logs in to the runtime on the local network, the tools prove the token to the link service as well (the same SCRAM login; the token never crosses the network) and the PC is added. By default pairing works only over a direct path from a private or link-local address, so a token alone does not let anyone pair from the internet. Wrong tokens are slowed down and logged.
+- **Pairing uses the diagnostics token.** The first time a PC logs in to the runtime on the local network, the tools prove the token to the link service as well (the same SCRAM login; the token never crosses the network) and the PC is added. By default pairing works only over a direct path from a private or link-local address, so a token alone does not let anyone pair from the internet. Wrong tokens are slowed down and logged: one try per PC a second and 10 failed pairings a minute in all, where a pairing in progress counts as failed until it succeeds.
 - **Internet access is off** until the config turns it on. Off, the service only accepts paired PCs on the local network and contacts no outside server.
 
 The settings are in the config's diagnostics object (`master.diagnostics` in version 1):
@@ -116,6 +118,7 @@ On the PC (`canworks-diag`):
 | `link unpair NAME` | Removes this PC from the runtime's paired PCs (no token needed) and forgets it. |
 | `link forget NAME` | Forgets a runtime on this PC only. |
 | `--runtime NAME` | A remembered runtime: directly when it answers, else over the link. `link:NAME` uses only the link. |
+| `--repair` | With `--runtime HOST`: a paired runtime that now answers with another link ID (reinstalled, new key) is paired again with its new ID. |
 
 `canworks-deploy --runtime NAME` and `--runtime link:NAME` deploy the same way, with the same certificate checks.
 
@@ -135,5 +138,6 @@ The service logs connections, path changes, pairings and refusals: `journalctl -
 - Never expose 7531 or 8443 to the internet (no port forwarding, no public tunnels): use the remote link or a VPN.
 - The remote link needs both a paired key and the token: pairing makes the runtime reachable, the token still gives access. Revoking a PC is immediate.
 - `pairing: "lan"` keeps a leaked token from pairing a new PC from the internet; `off` allows only pairing on the device.
+- PCs that are not paired get at most 8 connections at a time in all, 2 from one address (a relayed PC counts by its relay) and 2 streams on each; further ones are closed at once. Paired PCs connect whatever unpaired PCs hold. The service runs with a memory limit of 128 MB (`MemoryMax=` in its unit).
 - The device's key is in `/etc/canworks-link/secret.key` (readable by root only); a PC's in the PC tools' settings folder.
 - The remote link is not available on Intel Macs (no iroh package there); direct connections and VPNs work as before.

@@ -3,12 +3,14 @@ _canworks._tcp over mDNS/DNS-SD (an Avahi service file, `avahi_service`), the
 PC tools browse for it with python-zeroconf rather than the operating
 system's .local lookup, which is unreliable on Windows."""
 
+import ipaddress
 import socket
 import struct
 import time
 from xml.sax.saxutils import escape
 
 SERVICE = "_canworks._tcp.local."
+MDNS_PORT = 5353
 NOT_AVAILABLE = "discovery needs the zeroconf package"
 
 
@@ -151,26 +153,44 @@ def parse_answer(data):
     return found if found["name"] else None
 
 
-def query_host(ip, timeout=1.5):
+def _same_ip(a, b):
+    try:
+        return ipaddress.ip_address(a.split("%")[0]) == ipaddress.ip_address(b.split("%")[0])
+    except ValueError:
+        return False
+
+
+def query_host(ip, timeout=1.5, port=MDNS_PORT):
     """Ask one host directly for _canworks._tcp (a legacy unicast mDNS query,
     RFC 6762 6.7): the answer comes back to this socket, so it gets through
     firewalls that drop multicast answers (Windows on a Public network).
-    Returns a runtime like browse() does, or None."""
+    Only an answer from `ip` itself counts: datagrams from other hosts are
+    dropped. Returns a runtime like browse() does, or None."""
     q = b"".join(bytes([len(p)]) + p.encode() for p in SERVICE.split(".") if p) + b"\0"
     msg = struct.pack(">HHHHHH", 0x6377, 0, 1, 0, 0, 0) + q + struct.pack(">HH", 12, 1)
     fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
     s = socket.socket(fam, socket.SOCK_DGRAM)
+    deadline = time.monotonic() + timeout
     try:
-        s.settimeout(timeout)
-        s.sendto(msg, (ip.split("%")[0], 5353))
-        data, _ = s.recvfrom(9000)
-        r = parse_answer(data)
-    except (OSError, ValueError, struct.error, IndexError):
+        s.sendto(msg, (ip.split("%")[0], port))
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None
+            s.settimeout(left)
+            data, src = s.recvfrom(9000)
+            if not _same_ip(src[0], ip):
+                continue
+            try:
+                r = parse_answer(data)
+            except (ValueError, struct.error, IndexError):
+                continue
+            if r:
+                break
+    except OSError:
         return None
     finally:
         s.close()
-    if not r:
-        return None
     txt = r["txt"]
     return {"name": r["name"], "addresses": [ip], "diag": _int(txt.get("diag"), r["port"]),
             "runtime": _int(txt.get("runtime"), None), "id": txt.get("id") or None,

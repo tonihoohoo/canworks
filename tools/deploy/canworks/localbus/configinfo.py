@@ -1,5 +1,6 @@
-"""What a local adapter takes from a canworks.json: the network's bit rate and
-its nodes' names and expected identity (for status and scan)."""
+"""What a local adapter takes from a canworks.json: the network's bit rate,
+whether it is listen-only, and its nodes' names and expected identity (for
+status and scan)."""
 
 import json
 
@@ -30,7 +31,22 @@ def from_config(cfg, config_path, network=None):
     return (int(bitrate) if isinstance(bitrate, int) else None), nodes
 
 
-def load(config_path, network=None):
+def listen_only(cfg, network=None):
+    """True when the network `network` (None: the config's only network) has
+    adapter.listen_only: true: the adapter connects listen-only and sends
+    nothing. Raises ValueError."""
+    adapter = contract.network_config(cfg, network).get("adapter")
+    return isinstance(adapter, dict) and adapter.get("listen_only") is True
+
+
+def _read(config_path):
     with open(config_path, encoding="utf-8") as f:
-        cfg = json.load(f)
-    return from_config(cfg, config_path, network)
+        return json.load(f)
+
+
+def load(config_path, network=None):
+    return from_config(_read(config_path), config_path, network)
+
+
+def load_listen_only(config_path, network=None):
+    return listen_only(_read(config_path), network)
