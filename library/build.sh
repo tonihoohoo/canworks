@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the canworks editor library (specs canopen-plc-sdo and
+# Builds the canworks editor library (specs plc-library and
 # canopen-cia402-axis) into the deploy tool's package, from the sources in
 # library/canworks, with strucpp (the compiler OpenPLC Editor uses).
 #
@@ -40,6 +40,24 @@ mkdir "$work/strucpp" "$work/out"
 # has it).
 node "$work/strucpp/node_modules/strucpp/dist/node/cli.js" --compile-lib "$here/canworks" \
   -o "$work/out" --lib-name canworks --lib-version 0.0.0 -L "$work/strucpp/node_modules/strucpp/libs" >/dev/null
+# strucpp 0.7.0 lists an ST function's VAR locals among its manifest
+# parameters, and the editor then asks every call for them as inputs
+# ("missing required inputs: I, POS, ..."). Keep only the parameters the
+# function's compiled signature (its chunk header) takes.
+python3 - "$work/out/canworks.stlib" <<'PY'
+import json, re, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    lib = json.load(f)
+headers = {c["name"]: c["header"] for c in lib["chunks"] if c.get("kind") == "function"}
+for fn in lib["manifest"]["functions"]:
+    sig = headers[fn["name"]]
+    sig = sig[sig.index("(") + 1:sig.rindex(")")]
+    taken = {re.split(r"[\s&*]+", p.strip())[-1] for p in sig.split(",") if p.strip()}
+    fn["parameters"] = [p for p in fn["parameters"] if p["name"] in taken]
+with open(path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(lib, indent=2, ensure_ascii=False))
+PY
 
 if [ "$check" = 1 ]; then
   if ! cmp -s "$work/out/canworks.stlib" "$out"; then
