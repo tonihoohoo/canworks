@@ -415,6 +415,16 @@ class J1939Decoder(Decoder):
         return src + (" to %s" % self.node_label(s["destination"]) if s["pdu1"] else "")
 
     # -- decoding -------------------------------------------------------------
+    def dbc_decides(self, f):
+        """A trace DBC decodes 11-bit frames and PGNs the network does not know."""
+        if self.dbc is None or f.gap or f.err or not self.dbc.matches(f.can_id, f.ext, f.rtr):
+            return False
+        if not f.ext:
+            return True
+        pgn, sa = split_id(f.can_id)["pgn"], split_id(f.can_id)["source"]
+        return pgn not in DM_DECODED and self.message(pgn, sa) is None and pgn not in (
+            PGN_ADDRESS_CLAIMED, PGN_REQUEST, PGN_ACK, PGN_TP_CM, PGN_TP_DT)
+
     def decode(self, f):
         if f.gap or f.err:
             return super().decode(f)
@@ -422,7 +432,7 @@ class J1939Decoder(Decoder):
         if r is not None:
             return r
         if not f.ext:
-            return Decoded("other", None, "", "11-bit frame on a J1939 network")
+            return self.decode_dbc(f) or Decoded("other", None, "", "11-bit frame on a J1939 network")
         s = split_id(f.can_id)
         pgn, sa, d = s["pgn"], s["source"], f.data
         if f.rtr:
@@ -444,6 +454,10 @@ class J1939Decoder(Decoder):
             return self._tp_cm(s, d)
         if pgn == PGN_TP_DT:
             return self._tp_dt(s, d)
+        if self.dbc_decides(f):
+            dbc = self.decode_dbc(f)  # a DBC added to the trace, for a PGN the network does not know
+            if dbc is not None:
+                return dbc
         return self._data(pgn, sa, s["destination"], d, s["priority"])
 
     def _claim(self, s, d):

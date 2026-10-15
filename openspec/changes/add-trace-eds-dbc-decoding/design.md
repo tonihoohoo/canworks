@@ -56,9 +56,9 @@ Reads stop at the first PDO number whose communication object does not exist (0x
 
 ### 4. Names and types
 
-Signals of an inferred PDO are named and typed from the node's EDS: `eds.object_name(index, sub)` gives "Parent / Name" or "Name", the data type gives the decoding (`signal_value` + type name, as for configured PDOs). Without an EDS the built-in standard dictionary of `name-nodes-and-standard-dictionary` is used (so 0x6041 reads "Statusword" on a CiA 402 drive). An object neither knows is `0x6041:0` with its bit length as UNSIGNEDn. Signal keys are `node<N>.<PDO>.<object name>`, so graphs and triggers can use them and they do not collide with config keys.
+Signals of an inferred PDO are named and typed from the node's EDS: `eds.object_name(index, sub)` gives "Parent / Name" or "Name", the data type gives the decoding (`signal_value` + type name, as for configured PDOs). Without an EDS the built-in CiA 301/401/402 notes (`builtin_notes/`) give the names (so 0x6041 reads "Statusword" on a CiA 402 drive). An object neither knows is `0x6041:0` with its bit length as UNSIGNEDn. Signal keys are `node<N>.<PDO>.<object name>`, so graphs and triggers can use them and they do not collide with config keys.
 
-If `name-nodes-and-standard-dictionary` is not merged first, the fallback is index:subindex names only; the two changes do not otherwise depend on each other.
+This does not wait for `name-nodes-and-standard-dictionary`; the two changes do not otherwise depend on each other.
 
 ### 5. DBC files and precedence
 
@@ -71,7 +71,7 @@ A DBC file is read with `raw.dbc.read_dbc()` (cantools, non-strict) into the Dec
 
 For identifiers of NMT, SYNC, TIME, EMCY, SDO, heartbeat and LSS the CANopen decoding stays and a matching DBC message's decoding is shown next to it, like a forced raw message today, with its signals going to graphs and triggers. Rationale: a CANopen DBC (including our own export) describes heartbeats and NMT as plain bytes; "node 32 OPERATIONAL" is more useful than "State=5".
 
-A DBC message that loses to the configuration is reported once in the Decoding panel ("message `Valve_TPDO1` 0x1A0: the configuration's TPDO1 of node 32 decodes this identifier"). Two DBC files with the same identifier: the file listed first wins, the other is reported the same way. Order in the list can be changed by drag or by the keyboard.
+A DBC message that loses to the configuration is reported once in the Decoding panel ("message `Drive_TPDO1` 0x1A0: the configuration's TPDO1 of node 32 decodes this identifier"). Two DBC files with the same identifier: the file listed first wins, the other is reported the same way. Order in the list can be changed by drag or by the keyboard.
 
 ### 6. Where the DBC choice lives
 
@@ -82,7 +82,7 @@ Per-user configurator state (the same store as UI settings, `config_dir()`), key
 - Toolbar: **Decoding** between Capture… and the time mode, with a short summary ("2 DBC", "3 nodes") and a warning mark when a DBC file is missing or has problems.
 - Panel (a popover anchored to the button, keyboard and screen-reader usable like Capture…):
   - **DBC files**: rows with file name, messages used / total, problems; Add DBC…, remove, reorder.
-  - **Nodes** (CANopen networks only): node, device name, EDS file or "standard objects", layout source and time, actions **Pick EDS…** / **Change EDS…** (opens the Nodes table's menu for that node) and **Read PDOs from device** (disabled with a reason without a connection; asks first beside another master).
+  - **Nodes** (CANopen networks only): node, device name, EDS file or "none, built-in CiA names", layout source and time, actions **Pick EDS…** / **Change EDS…** (opens the Nodes table's menu for that node) and **Read PDOs from device** (disabled with a reason without a connection; asks first beside another master).
 - Inspector, for a PDO frame: a "Layout" line naming the source; for a raw PDO the line says why and offers the same two actions.
 - Rows decoded from EDS defaults: muted "assumed" tag after the name in both views; the tag's tooltip says the device may be mapped differently and how to make it certain.
 

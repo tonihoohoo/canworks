@@ -19,6 +19,7 @@ decode() keeps state for segmented SDO transfers: feed it the frames in
 order (reset() before a new pass).
 """
 
+import bisect
 import os
 import re
 import struct
@@ -59,11 +60,14 @@ CONTROLLER_BITS = ((0x01, "RX overflow"), (0x02, "TX overflow"), (0x04, "RX warn
 
 
 class Decoded:
-    __slots__ = ("kind", "node", "name", "text", "signals")
+    __slots__ = ("kind", "node", "name", "text", "signals", "source")
 
-    def __init__(self, kind, node=None, name="", text="", signals=None):
+    def __init__(self, kind, node=None, name="", text="", signals=None, source=None):
         self.kind, self.node, self.name, self.text = kind, node, name, text
         self.signals = signals or []  # [(series key, value)]
+        # Where a PDO's layout came from when it is not the configuration's:
+        # "eds" (assumed), "device", "bus" or "dbc".
+        self.source = source
 
     def as_dict(self):
         return {"kind": self.kind, "node": self.node, "name": self.name, "text": self.text}
@@ -77,6 +81,9 @@ class PdoLayout:
         self.cob_id, self.name, self.node, self.tx, self.signals = cob_id, name, node, tx, signals
         self.length = length  # bytes, from the mapping
         self.transmission = None  # transmission type, when the config or the EDS gives it
+        # Without a configuration (layouts.py): "eds", "device" or "bus", and
+        # the time the layout was set (None for EDS defaults).
+        self.source, self.since_us = None, None
         # per signal: {"index", "subindex", "type", "location", "variables", "used"} (frame explanation)
         self.info = info or [{} for _ in signals]
 
@@ -230,6 +237,15 @@ class Decoder:
         self.warnings = []
         self.raw = None        # raw.decode.RawDecoder of the network's raw messages
         self.raw_owner = None  # use(id, ext): what the protocol uses an identifier for
+        self.dbc = None        # raw.decode.RawDecoder of the DBC files added to the trace
+        self.dbc_files = []    # [{"name", "total", "used", "problems", "unused": [text]}]
+        # PDO layouts without a configuration (layouts.py): node -> NodeLayouts,
+        # cob id -> [(from_us, node, PdoLayout or None)] in time order.
+        self.inferred = {}
+        self.inferred_pdos = {}  # node -> {cob id: PdoLayout} now
+        self.cob_versions = {}
+        self.dynamic = {}      # series key -> (label, node) of inferred PDO signals
+        self.learn = True      # learn layouts from SDO transfers (the session's own decoder, not clones)
         self.reset()
 
     def attach_raw(self, net):
@@ -344,13 +360,180 @@ class Decoder:
 
     def reset(self):
         self.sdo_state = {}  # node -> segmented transfer in progress
+        self.sdo_pending = {}  # node -> ((index, sub), data) written, until the server confirms it
 
     def clone(self):
-        """The same decoder with its own SDO transfer state."""
+        """The same decoder with its own SDO transfer state; it reads the
+        layouts the session's decoder learns but learns none itself."""
         import copy
         d = copy.copy(self)
+        d.learn = False
         d.reset()
         return d
+
+    # -- PDO layouts without a configuration ----------------------------------
+    def set_node_eds(self, nid, eds):
+        """A node's EDS: its PDO defaults decode the node's PDOs (source
+        "eds", an assumption) until the bus or the device says more."""
+        from .layouts import NodeLayouts, eds_values
+        from ..notes import profile
+        self.eds[nid] = eds
+        nl = self.inferred.get(nid)
+        if nl is None:
+            nl = self.inferred[nid] = NodeLayouts(nid, eds, profile(eds))
+        else:
+            nl.eds, nl.profile = eds, profile(eds) or nl.profile
+        nl.set("eds", eds_values(eds, nid), None)
+        self._refresh(nid, -2)
+
+    def add_device_values(self, nid, values, time_us=-1, device_type=None):
+        """PDO objects read from the device ({(index, sub): value}); they
+        decode the node's PDO frames from time_us on."""
+        nl = self._node_layouts(nid)
+        if isinstance(device_type, int) and nl.profile is None:
+            nl.profile = device_type & 0xFFFF
+        nl.set("device", values, time_us if time_us is not None and time_us >= 0 else None)
+        self._refresh(nid, time_us)
+
+    def _node_layouts(self, nid):
+        from .layouts import NodeLayouts
+        nl = self.inferred.get(nid)
+        if nl is None:
+            nl = self.inferred[nid] = NodeLayouts(nid, self.eds.get(nid))
+        return nl
+
+    def _learn(self, nid, index, sub, data, time_us):
+        """A value written (and confirmed) or read back on the bus."""
+        from .layouts import is_pdo_object
+        if not self.learn or nid in self.configured_nodes():
+            return
+        if index == 0x1000 and sub == 0 and len(data) >= 2:
+            nl = self._node_layouts(nid)
+            nl.profile = nl.profile or int.from_bytes(bytes(data[:2]), "little")
+            return
+        if not is_pdo_object(index):
+            return
+        nl = self._node_layouts(nid)
+        if nl.learn(index, sub, data, time_us):
+            self._refresh(nid, time_us)
+
+    def configured_nodes(self):
+        return {p.node for p in self.pdos.values() if p.node is not None}
+
+    def _refresh(self, nid, time_us):
+        nl = self.inferred[nid]
+        new = nl.pdos(PdoLayout)
+        old = self.inferred_pdos.get(nid, {})
+        for cob in set(old) | set(new):
+            a, b = old.get(cob), new.get(cob)
+            if a is not None and b is not None and (a.signals, a.tx, a.source, a.name) == (b.signals, b.tx, b.source,
+                                                                                        b.name):
+                new[cob] = a
+                continue
+            lst = self.cob_versions.setdefault(cob, [])
+            lst.insert(bisect.bisect_right([e[0] for e in lst], time_us), (time_us, nid, b))
+        self.inferred_pdos[nid] = new
+        for p in new.values():
+            for key, label, *_ in p.signals:
+                self.dynamic.setdefault(key, ("%s %s %s" % (self.node_label(nid), p.name, label), nid))
+
+    def inferred_pdo(self, cob, time_us):
+        """The PdoLayout without a configuration for a frame on `cob` at
+        `time_us`: the newest layout of each node at that time, a node's
+        TPDO before another's RPDO (the sender owns the identifier)."""
+        lst = self.cob_versions.get(cob)
+        if not lst:
+            return None
+        k = bisect.bisect_right([e[0] for e in lst], time_us)
+        seen, found = set(), []
+        for t, nid, p in reversed(lst[:k]):
+            if nid in seen:
+                continue
+            seen.add(nid)
+            if p is not None:
+                found.append(p)
+        if not found:
+            return None
+        return next((p for p in found if p.tx), found[0])
+
+    def pdo_for(self, f):
+        """The PdoLayout that decodes frame `f`: the configuration's, else
+        one without a configuration in force at its time; None otherwise."""
+        if f.ext or f.err or f.gap:
+            return None
+        p = self.pdos.get(f.can_id)
+        if p is not None:
+            return p
+        return self.inferred_pdo(f.can_id, f.time_us)
+
+    # -- DBC files ------------------------------------------------------------
+    def attach_dbc(self, files):
+        """DBC files added to the trace: [(file name, messages of
+        raw.dbc.read_dbc(), problems)]. A message on an identifier the
+        configuration decodes, or that an earlier file has, is not used and
+        is reported in dbc_files."""
+        from ..raw.decode import RawDecoder
+        used, taken = [], {}
+        self.dbc_files = []
+        for name, messages, problems in files:
+            entry = {"name": name, "total": len(messages), "used": 0, "problems": list(problems or []),
+                     "unused": []}
+            for m in messages:
+                key = (bool(m.get("extended")), m["id"])
+                ident = ("0x%08X" if key[0] else "0x%03X") % m["id"]
+                why = None
+                if key in taken:
+                    why = "%s of %s decodes %s" % (taken[key][1], taken[key][0], ident)
+                elif self.raw is not None and self.raw.matches(m["id"], key[0]):
+                    why = "the configuration's raw message %s decodes %s" % (
+                        self.raw.matches(m["id"], key[0])[0][1].get("name") or ident, ident)
+                elif not key[0] and m["id"] in self.pdos:
+                    p = self.pdos[m["id"]]
+                    why = "the configuration's %s%s decodes %s" % (
+                        p.name, " of %s" % self.node_label(p.node) if p.node is not None else "", ident)
+                if why:
+                    entry["unused"].append("%s (%s): %s" % (m.get("name") or ident, ident, why))
+                    continue
+                taken[key] = (name, m.get("name") or ident)
+                used.append(m)
+                entry["used"] += 1
+            self.dbc_files.append(entry)
+        self.dbc = RawDecoder(messages=used) if used else None
+
+    def protocol_id(self, cid):
+        """Whether CANopen itself uses the 11-bit identifier `cid` (NMT, SYNC,
+        TIME, EMCY, heartbeat, SDO, LSS): a DBC message there is shown next
+        to the protocol's decoding."""
+        return (cid == 0 or cid in self.emcy_cobs or cid in (self.sync_cob, self.time_cob, 0x7E4, 0x7E5)
+                or 0x081 <= cid <= 0x0FF or 0x701 <= cid <= 0x77F or 0x581 <= cid <= 0x67F)
+
+    def decode_dbc(self, f):
+        """A Decoded of the DBC messages a frame matches, else None."""
+        if self.dbc is None or f.gap or f.err:
+            return None
+        found = self.dbc.decode(f.can_id, f.ext, f.data, f.rtr)
+        if not found:
+            return None
+        sigs = [("%s.%s" % (name, sname), scaled if scaled is not None else value)
+                for name, values in found for sname, value, scaled, _ in values]
+        return Decoded("raw", None, " / ".join(name for name, _ in found),
+                       self.dbc.text(f.can_id, f.ext, f.data, f.rtr), sigs, source="dbc")
+
+    def dbc_decides(self, f):
+        """Whether the DBC files decode frame `f` on their own (not a
+        protocol identifier, not a configured PDO)."""
+        if self.dbc is None or f.gap or f.err or not self.dbc.matches(f.can_id, f.ext, f.rtr):
+            return False
+        return f.ext or not (self.protocol_id(f.can_id) or f.can_id in self.pdos)
+
+    def raw_matches(self, f):
+        """[(kind, message, RawDecoder)] of the configured raw messages, or
+        else the DBC messages, that decode frame `f` (the frame inspector)."""
+        if self.raw is not None and self.decode_raw(f) is not None:
+            return [(k, m, self.raw) for k, m in self.raw.matches(f.can_id, f.ext, f.rtr)]
+        if self.dbc_decides(f):
+            return [(k, m, self.dbc) for k, m in self.dbc.matches(f.can_id, f.ext, f.rtr)]
+        return []
 
     # -- helpers --------------------------------------------------------------
     def node_label(self, nid):
@@ -390,11 +573,16 @@ class Decoder:
         for p in sorted(self.pdos.values(), key=lambda p: p.cob_id):
             for key, name, *_ in p.signals:
                 out.append((key, "%s %s" % (p.name, name), p.node))
-        for _, m in (self.raw.entries if self.raw is not None else []):
-            mname = m.get("name") or "0x%X" % m["id"]
-            for j, sg in enumerate(m.get("signals") or []):
-                sname = sg.get("name") or "s%d" % j
-                out.append(("%s.%s" % (mname, sname), "%s %s" % (mname, sname), None))
+        for nid in sorted(self.inferred_pdos):
+            for p in sorted(self.inferred_pdos[nid].values(), key=lambda p: p.cob_id):
+                for key, name, *_ in p.signals:
+                    out.append((key, "%s %s %s" % (self.node_label(nid), p.name, name), nid))
+        for src in (self.raw, self.dbc):
+            for _, m in (src.entries if src is not None else []):
+                mname = m.get("name") or "0x%X" % m["id"]
+                for j, sg in enumerate(m.get("signals") or []):
+                    sname = sg.get("name") or "s%d" % j
+                    out.append(("%s.%s" % (mname, sname), "%s %s" % (mname, sname), None))
         return out
 
     # -- decoding -------------------------------------------------------------
@@ -406,8 +594,19 @@ class Decoder:
         r = self.decode_raw(f)
         if r is not None:
             return r
+        dbc = self.decode_dbc(f)
         if f.ext:
-            return Decoded("other")
+            return dbc or Decoded("other")
+        if dbc is not None and self.dbc_decides(f):
+            return dbc
+        out = self._decode_std(f)
+        if dbc is not None:
+            # A protocol identifier: the DBC's decoding next to CANopen's.
+            out.text = "%s; %s" % (out.text, dbc.text) if out.text else dbc.text
+            out.signals = list(out.signals) + dbc.signals
+        return out
+
+    def _decode_std(self, f):
         cid = f.can_id
         d = f.data
         if cid == 0x000:
@@ -442,6 +641,9 @@ class Decoder:
             return self._sdo(f, cid - 0x600, server=False)
         if cid in (0x7E4, 0x7E5):
             return self._lss(f, cid == 0x7E5)
+        p = self.inferred_pdo(cid, f.time_us)
+        if p is not None:
+            return self._pdo(f, p)
         for base, kind, tx in ((0x180, "TPDO", True), (0x200, "RPDO", False)):
             for k in range(4):
                 lo = base + 0x100 * k
@@ -461,7 +663,7 @@ class Decoder:
 
     def _pdo(self, f, p):
         if f.rtr:
-            return Decoded("pdo", p.node, p.name, "remote request")
+            return Decoded("pdo", p.node, p.name, "remote request", source=p.source)
         parts, sigs = [], []
         total_bits = len(f.data) * 8
         for key, name, start, length, signed, float_kind, _t in p.signals:
@@ -471,7 +673,10 @@ class Decoder:
             v = signal_value(f.data, start, length, signed, float_kind)
             parts.append("%s=%s" % (name, _value_text(v)))
             sigs.append((key, v))
-        return Decoded("pdo", p.node, p.name, ", ".join(parts), sigs)
+        text = ", ".join(parts)
+        if p.source is not None and p.node is not None:
+            text = "%s %s" % (self.node_label(p.node), text) if text else self.node_label(p.node)
+        return Decoded("pdo", p.node, p.name, text, sigs, source=p.source)
 
     def _emcy(self, f, nid):
         d = f.data
@@ -504,6 +709,7 @@ class Decoder:
             code = int.from_bytes(d[4:8], "little") if len(d) >= 8 else 0
             self.sdo_state.pop((nid, "x"), None)
             self.sdo_state.pop((nid, "b"), None)
+            self.sdo_pending.pop(nid, None)
             return Decoded("sdo", nid, name, "%s abort %s: 0x%08X %s" % (
                 who, self.object_label(nid, *mux), code, diag.abort_text(code)), [("sdo_abort.%d" % nid, code)])
         if not server:
@@ -512,6 +718,7 @@ class Decoder:
                 if e:
                     size = 4 - ((d[0] >> 2) & 3) if s else 4
                     data = d[4:4 + size]
+                    self.sdo_pending[nid] = (mux, bytes(data))
                     return Decoded("sdo", nid, name, "%s write %s = %s" % (
                         who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
                 size = int.from_bytes(d[4:8], "little") if s else None
@@ -526,6 +733,7 @@ class Decoder:
                     st["data"] += d[1:1 + n]
                     if last:
                         self.sdo_state.pop((nid, "x"), None)
+                        self.sdo_pending[nid] = (st["mux"], bytes(st["data"]))
                         return Decoded("sdo", nid, name, "%s write %s = %s (segmented, done)" % (
                             who, self.object_label(nid, *st["mux"]),
                             self.value_text(nid, st["mux"][0], st["mux"][1], bytes(st["data"]))))
@@ -549,6 +757,10 @@ class Decoder:
             return Decoded("sdo", nid, name, "%s command 0x%02X" % (who, d[0]))
         # server -> client
         if cs == 3:
+            pend = self.sdo_pending.get(nid)
+            if pend is not None and pend[0] == mux:
+                self.sdo_pending.pop(nid, None)
+                self._learn(nid, mux[0], mux[1], pend[1], f.time_us)
             return Decoded("sdo", nid, name, "%s write %s confirmed" % (who, self.object_label(nid, *mux)))
         if cs == 2:  # initiate upload response
             self.sdo_state.pop((nid, "b"), None)  # the server chose a normal upload
@@ -556,6 +768,7 @@ class Decoder:
             if e:
                 size = 4 - ((d[0] >> 2) & 3) if s else 4
                 data = d[4:4 + size]
+                self._learn(nid, mux[0], mux[1], data, f.time_us)
                 return Decoded("sdo", nid, name, "%s read %s = %s" % (
                     who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
             size = int.from_bytes(d[4:8], "little") if s else None
@@ -570,11 +783,16 @@ class Decoder:
                 st["data"] += d[1:1 + n]
                 if last:
                     self.sdo_state.pop((nid, "x"), None)
+                    self._learn(nid, st["mux"][0], st["mux"][1], bytes(st["data"]), f.time_us)
                     return Decoded("sdo", nid, name, "%s read %s = %s (segmented, done)" % (
                         who, self.object_label(nid, *st["mux"]),
                         self.value_text(nid, st["mux"][0], st["mux"][1], bytes(st["data"]))))
             return Decoded("sdo", nid, name, "%s upload segment%s" % (who, ", last" if last else ""))
         if cs == 1:
+            pend = self.sdo_pending.get(nid)
+            if pend is not None and (nid, "x") not in self.sdo_state:
+                self.sdo_pending.pop(nid, None)
+                self._learn(nid, pend[0][0], pend[0][1], pend[1], f.time_us)
             return Decoded("sdo", nid, name, "%s download segment confirmed" % who)
         if cs in (5, 6):
             return Decoded("sdo", nid, name, "%s block %s" % (who, "download" if cs == 5 else "upload"))
@@ -612,10 +830,14 @@ class Decoder:
                 unused = (d[0] >> 2) & 7
                 data = bytes(st["data"][:len(st["data"]) - unused])
                 st["phase"] = "done"
+                self.sdo_pending[nid] = (mux, data)
                 return Decoded("sdo", nid, name, "%s write %s = %s (block, done)" % (
                     who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
             if st["phase"] == "done" and server and d[0] == 0xA1:
                 self.sdo_state.pop((nid, "b"), None)
+                pend = self.sdo_pending.pop(nid, None)
+                if pend is not None:
+                    self._learn(nid, pend[0][0], pend[0][1], pend[1], f.time_us)
                 return Decoded("sdo", nid, name, "%s write %s confirmed (block)" % (who, self.object_label(nid, *mux)))
         else:
             if st["phase"] == "init" and server and cs == 6 and not d[0] & 1:
@@ -630,6 +852,7 @@ class Decoder:
                 unused = (d[0] >> 2) & 7
                 data = bytes(st["data"][:len(st["data"]) - unused])
                 st["phase"] = "done"
+                self._learn(nid, mux[0], mux[1], data, f.time_us)
                 return Decoded("sdo", nid, name, "%s read %s = %s (block, done)" % (
                     who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
             if st["phase"] == "done" and not server and d[0] == 0xA1:
@@ -678,5 +901,5 @@ class PlainDecoder(Decoder):
     def decode(self, f):
         if f.gap or f.err:
             return super().decode(f)
-        r = self.decode_raw(f)
+        r = self.decode_raw(f) or self.decode_dbc(f)
         return r if r is not None else Decoded("other")

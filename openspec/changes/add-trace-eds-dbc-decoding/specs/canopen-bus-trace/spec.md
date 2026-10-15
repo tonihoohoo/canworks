@@ -8,11 +8,11 @@ When a node's PDOs are not in a configuration (Commission a device), the trace S
 
 A layout learned from the bus SHALL apply from the frame that completed it, so PDO frames before it decode with the earlier layout. A PDO whose COB-ID is set invalid or whose mapping count is set to 0 SHALL stop decoding from that point. Where the bus gives only part of a PDO (for example only its mapping), the rest SHALL come from the next source. A layout read from the device SHALL apply to frames recorded after the read, and not to opened trace files.
 
-Signals SHALL be named and typed from the node's EDS, or from the built-in standard dictionary when the node has no EDS; an object neither describes SHALL be shown as its index and subindex with its mapped length as an unsigned value. Decoded signals SHALL be available to graphs, triggers and the decoded CSV export like configured PDO signals.
+Signals SHALL be named and typed from the node's EDS, or from the built-in CiA 301/401/402 object names when the node has no EDS; an object neither describes SHALL be shown as its index and subindex with its mapped length as an unsigned value. Decoded signals SHALL be available to graphs, triggers and the decoded CSV export like configured PDO signals.
 
 #### Scenario: EDS defaults
 - **WHEN** node 32 has an EDS whose TPDO1 maps a UNSIGNED16 Statusword and an INTEGER32 Position actual value at COB-ID 0x180+node ID, and the trace has `0x1A0 37 02 B0 04 00 00`
-- **THEN** the row reads `TPDO1 node 32 Statusword=0x0237, Position actual value=1200` with the "assumed" tag
+- **THEN** the row reads `TPDO1 node 32 Statusword=567, Position actual value=1200` with the "assumed" tag
 
 #### Scenario: Mapping set by another master
 - **WHEN** at 12.3 s the trace has SDO writes to node 32 that disable TPDO1, map 0x6064:0 alone and enable it again
@@ -20,7 +20,7 @@ Signals SHALL be named and typed from the node's EDS, or from the built-in stand
 
 #### Scenario: No EDS
 - **WHEN** node 49 has no EDS, is a CiA 401 device by its 0x1000, and the bus set its TPDO1 to map 0x6000:1 (8 bits)
-- **THEN** the row shows TPDO1 of node 49 with 0x6000:1 under its CiA 401 name from the standard dictionary and its value
+- **THEN** the row shows TPDO1 of node 49 with 0x6000:1 under its built-in CiA 401 name and its value
 
 #### Scenario: Nothing known
 - **WHEN** node 50 has no EDS, nothing on the bus sets its PDOs and its PDOs were not read
@@ -34,8 +34,8 @@ On an identifier, decoding SHALL be chosen in this order: the configuration's ra
 On a J1939 network, the network's own DBC SHALL keep decoding its PGNs; a trace DBC SHALL decode only identifiers that network does not decode.
 
 #### Scenario: Vendor DBC in Commission a device
-- **WHEN** the user adds a DBC whose message `Valve_Status` is 0x1A0 with signal `Position` (bytes 2-5, scale 0.01, unit mm), and the trace has node 32's TPDO1 on 0x1A0
-- **THEN** the rows read `Valve_Status Position=12 mm` instead of the inferred layout, and `Position` can be graphed
+- **WHEN** the user adds a DBC whose message `Drive_Status` is 0x1A0 with signal `Position` (bytes 2-5, scale 0.01, unit mm), and the trace has node 32's TPDO1 on 0x1A0
+- **THEN** the rows read `Drive_Status Position=1200 (12 mm)` instead of the inferred layout, and `Position` can be graphed
 
 #### Scenario: Configuration wins
 - **WHEN** a project configures node 32's TPDO1 on 0x1A0 and the user adds a DBC that also has a message on 0x1A0
@@ -46,7 +46,7 @@ On a J1939 network, the network's own DBC SHALL keep decoding its PGNs; a trace 
 - **THEN** the row still reads `Heartbeat node 32 OPERATIONAL`, the inspector also shows the DBC's decoding, and its signals are offered to graphs
 
 #### Scenario: Trace command with a DBC
-- **WHEN** the user runs `canworks-diag convert in.log -o out.csv --dbc machine.dbc`
+- **WHEN** the user runs `canworks-diag convert in.log out.csv --dbc machine.dbc`
 - **THEN** the CSV's decoded column uses the DBC's messages
 
 ## MODIFIED Requirements

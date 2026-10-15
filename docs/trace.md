@@ -8,6 +8,18 @@ A trace can also be recorded straight from a USB CAN adapter on the PC, with no 
 
 Raw CAN messages ([raw-can.md](raw-can.md)) decode on every network as their message and signals with scale and unit, from the network's `raw` entries and its `raw.dbc` file; a [plain CAN network](raw-can.md#plain-can-networks) decodes those and shows every other frame as plain CAN. The frame inspector colours a raw message's signal bits with their PLC addresses.
 
+DBC files decode their messages in any trace: **Decoding → Add DBC…** in the configurator, or `--dbc FILE` (repeatable) on `trace`, `convert` and `explain`. The config's own PDOs and raw messages come first, then the DBC files in their order; a message that loses is listed with what decodes its identifier instead. NMT, SYNC, TIME, EMCY, SDO, heartbeat and LSS keep their CANopen decoding and get the DBC's decoding after it (`node 2 OPERATIONAL; pingpong_Heartbeat NMT_State=5`), so the DBC's signals still reach graphs and triggers. On a J1939 network the network's own DBC comes first.
+
+### Decoding without a config
+
+Without a config (Commission a CANopen device in the configurator), PDOs decode from the best layout known for their node:
+
+1. **Set on the bus**: SDO writes in the trace to the node's PDO communication (0x1400-0x15FF, 0x1800-0x19FF) and mapping (0x1600-0x17FF, 0x1A00-0x1BFF) objects that the node confirmed, and answers to SDO reads of them. A layout applies from the frame that completed it, so a trace that holds another master's boot decodes the frames before it with the old layout and the ones after with the new. Disabling a PDO (COB-ID bit 31, or mapping count 0) stops its decoding from there.
+2. **Read from the device**: on a live connection the configurator reads each heard node's PDO objects (see [Commission a CANopen device](configurator.md#commission-a-canopen-device)); the layout applies to frames recorded after the read, never to opened files.
+3. **EDS defaults**: the default COB-IDs and mappings of the node's EDS, shown with the **assumed** tag, since a master may have changed them.
+
+Signal names and types come from the node's EDS; without one, from the built-in CiA 301, 401 and 402 object names, else the object's index and subindex as an unsigned value of its mapped length. Rows read `TPDO1 node 5 Statusword=567, Modes of operation display=8`, and the signals can be graphed as `node5.TPDO1.<name>`. A PDO nothing describes stays as its node and bytes.
+
 A trace records one network. With several CAN networks in the config (`schema_version: 2`) pick it in the trace view or with `--network NAME`; the trace command without it exits naming the networks. The frames are decoded with that network's nodes from the config, so node 2 on `io` and node 2 on `drives` each get their own PDO mapping and object names. To watch two networks, record two traces.
 
 ## Recording
@@ -90,6 +102,9 @@ canworks-diag convert run.pcapng run.asc
 # Decode with a config of several networks: the network the pcapng names, or --network
 canworks-diag convert drives.pcapng drives.csv --config canworks/canworks.json
 canworks-diag convert drives.log drives.csv --config canworks/canworks.json --network drives
+# Decode with DBC files as well (repeatable); with a config, its own PDOs come first
+canworks-diag convert bench.log bench.csv --dbc machine.dbc --dbc valves.dbc
+canworks-diag explain --trace bench.log --index 12 --dbc machine.dbc
 ```
 
 `trace` prints how many frames it recorded, the rate, and any lost or dropped frames when it ends. Ctrl-C ends a recording and still writes the file.

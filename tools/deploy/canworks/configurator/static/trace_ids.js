@@ -296,7 +296,7 @@ function idsFill(e, r, index) {
   const cells = [
     el("div", { role: "gridcell", class: "ids-c-dir" }, r.id < 0 ? "" : r.dir),
     el("div", { role: "gridcell", class: "ids-c-id mono" }, r.id_text),
-    el("div", { role: "gridcell", class: "ids-c-name", title: r.name }, r.name + (label ? ` (${label})` : "")),
+    el("div", { role: "gridcell", class: "ids-c-name", title: r.name }, r.name + (label ? ` (${label})` : ""), assumedTag(r.source)),
     el("div", { role: "gridcell", class: "ids-c-dlc num" }, r.id < 0 ? "" : String(r.dlc)),
     data,
     el("div", { role: "gridcell", class: "ids-c-text", title: r.text }, r.text || ""),

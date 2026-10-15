@@ -49,7 +49,7 @@ def changed_mask(old, new):
 
 class IdStats:
     __slots__ = ("can_id", "ext", "count", "first_us", "last_us", "min_us", "max_us", "sum_us", "data", "name",
-                 "kind", "node", "tx", "changed", "changed_at", "ever", "rev", "seq", "prev", "text")
+                 "kind", "node", "tx", "changed", "changed_at", "ever", "rev", "seq", "prev", "text", "source")
 
     def __init__(self, f):
         self.can_id, self.ext = (-1, False) if f.err else (f.can_id, f.ext)
@@ -59,6 +59,7 @@ class IdStats:
         self.sum_us = 0
         self.data = self.prev = b""
         self.name = self.kind = self.text = ""
+        self.source = None  # a PDO layout's source without a configuration, or "dbc"
         self.node = None
         self.tx = bool(f.tx) and not f.err
         self.changed = 0  # bytes that differ between the last two frames
@@ -85,6 +86,7 @@ class IdStats:
             self.text = d.text
         if d is None:
             return
+        self.source = d.source
         if d.kind == "tp":
             # A J1939 transport identifier is named after its message (TP.CM,
             # TP.DT), not after the step its last frame was (RTS, End of message ACK).
@@ -119,7 +121,7 @@ class IdStats:
                "count": self.count, "name": self.name, "kind": self.kind, "node": self.node,
                "dir": "Tx" if self.tx else "Rx", "data": " ".join("%02X" % b for b in self.data),
                "prev": " ".join("%02X" % b for b in self.prev) if self.count > 1 else None,
-               "text": self.text, "dlc": len(self.data),
+               "text": self.text, "source": self.source, "dlc": len(self.data),
                "cycle_min_ms": None if self.min_us is None else self.min_us / 1000.0,
                "cycle_avg_ms": None if avg is None else avg / 1000.0,
                "cycle_max_ms": None if self.max_us is None else self.max_us / 1000.0,
@@ -242,6 +244,10 @@ class Analysis:
                 s = self.ensure_series(skey, "EMCY code node %s" % skey[5:], int(skey[5:]), "event")
             elif s is None and skey.startswith("sdo_abort."):
                 s = self.ensure_series(skey, "SDO abort node %s" % skey[10:], int(skey[10:]), "event")
+            elif s is None and skey in getattr(self.decoder, "dynamic", {}):
+                # A PDO layout learned on the bus (canopen-bus-trace: "PDO decoding without a configuration").
+                label, node = self.decoder.dynamic[skey]
+                s = self.ensure_series(skey, label, node, "signal")
             if s is not None:
                 s.add(f.time_us, value)
         if on_decoded:

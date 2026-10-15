@@ -814,6 +814,12 @@ def _lss_address_args(p):
         p.add_argument(key, type=_u32(key.replace("_", " ")), metavar=key.split("_")[0].upper())
 
 
+def _dbc_arg(p):
+    p.add_argument("--dbc", action="append", metavar="FILE",
+                   help="also decode with this DBC file (repeatable; the config's PDOs and raw messages first, then "
+                        "the files in the order given)")
+
+
 def _network_arg(p, text="the network to talk to (needed when the runtime runs several)"):
     p.add_argument("--network", metavar="NAME", help=text)
 
@@ -969,6 +975,7 @@ def parser():
                     help="only frames whose identifier matches (repeatable), e.g. 0x180/0x780")
     tr.add_argument("--error-frames", action="store_true", help="also record CAN error frames")
     tr.add_argument("--config", metavar="canworks.json", help="decode with this config (CSV names, signal triggers)")
+    _dbc_arg(tr)
     tr.add_argument("--trigger", metavar="CONDITION",
                     help='e.g. "emcy node=23", "frame id=0x197 data=10", "state node=23 state=stopped", '
                          '"signal NAME>3", "bus state=off", "a && b", "a -> b" (see docs/trace.md)')
@@ -984,6 +991,7 @@ def parser():
     cv.add_argument("output", help=".pcapng, .log, .asc, .blf, .trc or .csv")
     cv.add_argument("--format", help="the output format when the extension does not say it")
     cv.add_argument("--config", metavar="canworks.json", help="decode with this config (CSV)")
+    _dbc_arg(cv)
     _network_arg(cv, "decode with this network of --config (default: the one the trace file names)")
     ex = sub.add_parser("explain", help="explain frames bit by bit (no connection)",
                         description="Explains CAN frames layer by layer: what the frame means, the identifier "
@@ -998,6 +1006,7 @@ def parser():
                     help="explain with this configuration's nodes and PDOs, or its J1939 DBC (default with --network: "
                          "%s when present)" % os.path.join("canworks", "canworks.json"))
     _network_arg(ex, "use this network of --config (default: the one the trace file names, else the only one)")
+    _dbc_arg(ex)
     ex.add_argument("--bitrate", type=int, metavar="BIT/S",
                     help="bit rate for the timing (default: --config's or the trace file's, else 500000)")
     ex.add_argument("--format", choices=("text", "json"), default="text", help="output (default %(default)s)")
@@ -2984,10 +2993,29 @@ def _config_arg(args):
     return None
 
 
-def _decoder(config, network=None, default=None):
+def _decoder(config, network=None, default=None, dbc=None):
     """A decoder with the nodes of `network` in the config (a trace records
     one network). `default` is the network for a config with several when
-    `network` is None: the one the trace or the plugin names."""
+    `network` is None: the one the trace or the plugin names. `dbc`: DBC
+    files that decode the identifiers the config does not (canopen-bus-trace:
+    "DBC files in a trace")."""
+    dec = _config_decoder(config, network, default)
+    if dbc:
+        from .raw import dbc as dbc_mod
+        files = []
+        for path in dbc:
+            try:
+                files.append((os.path.basename(path), dbc_mod.read_dbc(path), []))
+            except Exception as e:  # noqa: BLE001 - cantools raises many kinds
+                raise DiagError("usage", "--dbc %s cannot be read: %s" % (path, (str(e).splitlines() or [e])[0]))
+        dec.attach_dbc(files)
+        for f in dec.dbc_files:
+            for u in f["unused"]:
+                print("canworks-diag: %s: not used: %s" % (f["name"], u), file=sys.stderr)
+    return dec
+
+
+def _config_decoder(config, network=None, default=None):
     from . import contract
     from .bustrace.decode import Decoder
     if not config:
@@ -3013,7 +3041,7 @@ def _convert(args, out):
     from .bustrace import formats
     try:
         trace = formats.read_file(args.input)
-        decoder = _decoder(_config_arg(args), args.network, trace.meta.get("network"))
+        decoder = _decoder(_config_arg(args), args.network, trace.meta.get("network"), args.dbc)
         fmt = formats.write_file(trace, args.output, args.format, decoder)
     except (OSError, formats.FormatError) as e:
         raise DiagError("usage", str(e))
@@ -3038,7 +3066,7 @@ def _explain(args, out):
         except (OSError, formats.FormatError) as e:
             raise DiagError("usage", str(e))
     config = _config_arg(args)
-    decoder = _decoder(config, args.network, trace.meta.get("network") if trace is not None else None)
+    decoder = _decoder(config, args.network, trace.meta.get("network") if trace is not None else None, args.dbc)
     bitrate = args.bitrate
     if bitrate is None and config:
         try:
@@ -3136,7 +3164,7 @@ def _record(args, out, fmt, filters, spec, connect, names):
     # The traced network's nodes decode its frames; without --network that is
     # the plugin's only network.
     network = args.network or (names[0] if len(names) == 1 and names[0] else None)
-    decoder = _decoder(_config_arg(args), args.network, network)
+    decoder = _decoder(_config_arg(args), args.network, network, args.dbc)
     if spec:
         try:
             triggers.resolve_signals(spec, decoder.signal_keys())

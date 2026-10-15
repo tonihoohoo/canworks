@@ -5,7 +5,7 @@ The Trace toolbar's **Decoding** button SHALL open a panel that says what the tr
 
 The panel SHALL have:
 - **DBC files**: each file's name, how many of its messages are used out of its total, its problems and the messages not used with what decodes their identifier instead; **Add DBC…** (one or more files), remove, and a way to change the order with the mouse and the keyboard.
-- **Nodes**, on a CANopen network: each node heard on the bus or on the Nodes tab, with its device name, its EDS file or "standard objects", the source of its PDO layout ("set on the bus at …", "read from the device at …", "EDS defaults", "configuration", or "unknown"), and the actions **Pick EDS…** or **Change EDS…** (the Nodes table's menu for that node) and **Read PDOs from device**.
+- **Nodes**, on a CANopen network: each node heard on the bus or on the Nodes tab, with its device name, its EDS file or "none, built-in CiA names", the source of its PDO layout ("set on the bus at …", "read from the device at …", "EDS defaults", "configuration", or "unknown"), and the actions **Pick EDS…** or **Change EDS…** (the Nodes table's menu for that node) and **Read PDOs from device**.
 
 **Read PDOs from device** SHALL be disabled with its reason without a live connection. While the connection bar reports another master, it SHALL ask first, saying that the other master's SDO transfers to the node can be mixed with the read.
 

@@ -706,3 +706,47 @@ def pdo_test(path, body, session, client, node, library):
 ROUTES = tuple(("POST", "/api/online/" + p) for p in
                ("od_entries", "od_read", "backup", "compare", "restore_plan", "restore", "store", "job")
                + COMMISSIONING + PDO_TEST)
+
+
+# -- PDO layouts for the trace (canopen-configurator: "Automatic PDO layout reads in Commission a device") --
+
+NO_OBJECT = 0x06020000
+
+
+def pdo_values(client, node):
+    """({(index, sub): value}, device type or None) of a device's PDO
+    communication (COB-ID, transmission type) and mapping objects, read over
+    SDO: PDO 1-4 always, from 5 on until the first PDO whose communication
+    object the device does not have."""
+    def rd(index, sub):
+        res = client.sdo_read(node, index, sub, P.READ_TIMEOUT_MS)
+        if res.get("success"):
+            return int.from_bytes(bytes.fromhex(res.get("data") or ""), "little"), None
+        return None, res.get("abort_code")
+
+    dtype, code = rd(0x1000, 0)
+    if dtype is None and code in (None, P.TIMEOUT_ABORT):
+        raise diag.DiagError("refused", "node %d does not answer SDO; it may be STOPPED or not on the bus" % node)
+    values = {}
+    for comm, mapping in ((0x1800, 0x1A00), (0x1400, 0x1600)):
+        for n in range(512):
+            cob, code = rd(comm + n, 1)
+            if cob is None:
+                if n >= 4:
+                    break
+                continue
+            values[(comm + n, 1)] = cob
+            if cob & 0x80000000:
+                continue
+            trans, _ = rd(comm + n, 2)
+            if trans is not None:
+                values[(comm + n, 2)] = trans
+            count, _ = rd(mapping + n, 0)
+            if not count:
+                continue
+            values[(mapping + n, 0)] = count
+            for k in range(1, min(count, 64) + 1):
+                v, _ = rd(mapping + n, k)
+                if v is not None:
+                    values[(mapping + n, k)] = v
+    return values, dtype
