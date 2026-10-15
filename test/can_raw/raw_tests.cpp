@@ -759,6 +759,25 @@ TEST(engine_multiplexed_send_program) {
   CHECK(e.tx_status()[0].unknown_page);
 }
 
+// A switch value beyond the switch's length is cut to it before the page is
+// chosen: 17 on a 4-bit switch is page 1, with A packed.
+TEST(engine_multiplexed_send_program_switch_cut_to_length) {
+  Parsed p = parse(R"({ "tx": [ { "name": "M", "id": 256, "period_ms": 10, "fill": 0, "signals": [
+      { "name": "Sw", "start_bit": 0, "length": 4, "multiplexer": true, "iec_location": "%QB0" },
+      { "name": "A", "start_bit": 8, "length": 8, "mux": { "values": [1] }, "iec_location": "%QB1" },
+      { "name": "B", "start_bit": 8, "length": 8, "mux": { "values": [2] }, "iec_location": "%QB2" } ] } ] })");
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[3] = {17, 0xAA, 0xBB};
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  e.due(0, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 1 && frames[0].data[1] == 0xAA);
+  CHECK(!e.tx_status()[0].unknown_page);
+}
+
 TEST(engine_multiplexed_send_all_and_rotate) {
   {
     Parsed p = parse_tx("all", "");

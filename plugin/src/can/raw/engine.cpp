@@ -272,8 +272,13 @@ canworks_can_frame RawEngine::build(size_t i, const uint64_t* values, size_t pag
     active = pg.active.data();
     switches = pg.values.data();
   } else if (m.layout.multiplexed()) {
-    for (size_t k = 0; k < m.signals.size(); ++k)
-      sw_values_[k] = map.signals[k] >= 0 ? values[map.signals[k]] : 0;
+    // Each value is cut to its signal's length first, so the page chosen is
+    // the one the frame's switch field says (as on J1939).
+    for (size_t k = 0; k < m.signals.size(); ++k) {
+      unsigned len = m.signals[k].length;
+      uint64_t mask = len >= 64 ? ~0ull : (1ull << len) - 1;
+      sw_values_[k] = map.signals[k] >= 0 ? values[map.signals[k]] & mask : 0;
+    }
     built_unknown_ = m.layout.activity(sw_values_.data(), sw_active_.data());
     active = sw_active_.data();
   }

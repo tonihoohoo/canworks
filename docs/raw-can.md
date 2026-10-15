@@ -121,7 +121,7 @@ A message may have several switches, also nested (the DBC's `mNM` with `SG_MUL_V
 
 | `pages` | Behaviour |
 |---|---|
-| `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
+| `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch output wider than the switch is cut to the switch's length first (17 on a 4-bit switch is page 1), as on J1939. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
 | `all` | Every page is sent each period, one frame per page, in switch-value order. The plugin sets the switch, so it has no `iec_location`. |
 | `rotate` | One page per period, the next one each time. The plugin sets the switch. |
 
