@@ -435,6 +435,98 @@ class Commands(unittest.TestCase):
         self.assertIn("cannot read", err)
 
 
+    def test_skeleton_all(self):
+        rc, out, err = self.run_cli("skeleton", "--all", self.eds)
+        self.assertEqual((rc, err), (0, ""))
+        objects = json.loads(out)["objects"]
+        self.assertIn("0x1000", objects)
+        self.assertIn("0x1018:1", objects)
+        self.assertEqual(objects["0x2011"], {"name": "Fault handling"})
+        self.assertEqual(objects["0x2200"], {"name": "Pressure"})
+        self.assertEqual(objects["0x2010"], {"name": "Ramp time", "x-type": "UNSIGNED16", "x-access": "rw",
+                                             "x-default": "100", "x-pdo": False})
+        self.assertIs(objects["0x2200:1"]["x-pdo"], True)
+        self.assertEqual(objects["0x1018:1"]["x-default"], "0xAB")
+        self.assertEqual(list(objects).index("0x2011") + 1, list(objects).index("0x2011:0"))
+        self.assertEqual(notes.schema_problems(json.loads(out)), [])
+
+    def test_skeleton_limits_as_written(self):
+        text = VALVE.replace("DefaultValue=100\n", "DefaultValue=100\nLowLimit=0x0A\nHighLimit=$NODEID+0x10\n")
+        text = text.replace("ParameterName=Fault delay\nObjectType=0x7\nDataType=0x0006\nAccessType=rw\n"
+                            "DefaultValue=0\n", "ParameterName=Fault delay\nObjectType=0x7\nDataType=0x0006\n"
+                            "AccessType=rw\n")
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(text)
+        objects = json.loads(self.run_cli("skeleton", "--all", self.eds)[1])["objects"]
+        self.assertEqual((objects["0x2010"]["x-low"], objects["0x2010"]["x-high"]), ("0x0A", "$NODEID+0x10"))
+        self.assertNotIn("x-default", objects["0x2011:1"])
+
+    def test_skeleton_index_range(self):
+        objects = json.loads(self.run_cli("skeleton", "--all", "--index", "0x2011-0x2100", self.eds)[1])["objects"]
+        self.assertEqual(sorted(objects), ["0x2011", "0x2011:0", "0x2011:1", "0x2011:2", "0x2100"])
+        objects = json.loads(self.run_cli("skeleton", "--index", "0x1000-0x2010", self.eds)[1])["objects"]
+        self.assertEqual(list(objects), ["0x2010"])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            cli.main(["notes", "skeleton", "--index", "0x3000-0x2000", self.eds])
+        self.assertIn("not an index range", err.getvalue())
+
+    def test_skeleton_type_names(self):
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE.replace("[2010]\nParameterName=Ramp time\nObjectType=0x7\nDataType=0x0006",
+                                  "[2010]\nParameterName=Ramp time\nObjectType=0x7\nDataType=0x0016"))
+        objects = json.loads(self.run_cli("skeleton", self.eds)[1])["objects"]
+        self.assertEqual(objects["0x2010"]["x-type"], "UNSIGNED24")
+        self.assertEqual(notes.type_text(type("O", (), {"type_name": None, "data_type": 0x14})()), "INTEGER56")
+
+    def test_skeleton_missing_identity(self):
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE.replace("ProductNumber=0x1234\n", ""))
+        rc, out, err = self.run_cli("skeleton", self.eds)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("product_code", json.loads(out)["eds"])
+        self.assertIn("valve.eds gives no product code", err)
+
+    def test_builtin_names_sets(self):
+        self.assertEqual(self.run_cli("builtin", self.eds)[2],
+                         "built-in notes: CiA 301\n")
+        self.assertEqual(self.run_cli("builtin", SERVO)[2], "built-in notes: CiA 301, CiA 402\n")
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE.replace("DefaultValue=0x00000000", "DefaultValue=0x00010196"))
+        rc, out, err = self.run_cli("builtin", self.eds)
+        self.assertEqual(err, "built-in notes: CiA 301; there are no built-in notes for profile 406\n")
+        self.assertFalse([k for k in json.loads(out)["objects"] if k.startswith("0x6")])
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE.replace("DefaultValue=0x00000000\n", ""))
+        self.assertIn("0x1000 has no device type default", self.run_cli("builtin", self.eds)[2])
+
+    def test_eds_errors_name_the_line_or_section(self):
+        lines = VALVE.splitlines()
+        at = lines.index("[2010]") + 2
+        lines[at] = "ObjectType0x7"
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        rc, _, err = self.run_cli("skeleton", self.eds)
+        self.assertEqual(rc, 1)
+        self.assertIn("line %d (in [2010]) is not a key=value line: ObjectType0x7" % (at + 1), err)
+        with open(self.eds, "w", encoding="utf-8") as f:
+            f.write(VALVE.replace("SupportedObjects=5", "SupportedObjects=6"))
+        rc, _, err = self.run_cli("builtin", self.eds)
+        self.assertEqual(rc, 1)
+        self.assertIn("[manufacturerobjects] says SupportedObjects=6 but has no entry 6 (5 numbered entries)", err)
+
+    def test_check_values_on_record_key(self):
+        path = self.write_notes({"0x2011": {"text": "Fault handling", "values": {"0": "hold"}},
+                                 "0x2200": {"bits": {"0": "low"}}})
+        rc, out, _ = self.run_cli("check", self.eds, path)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out.splitlines(), [
+            "valve.eds.notes.json: the values of 0x2011 are not used by its sub-objects; write them on its "
+            "sub-object keys",
+            "valve.eds.notes.json: the bits of 0x2200 are not used by its sub-objects; write them on its "
+            "sub-object keys"])
+
+
 class Skill(unittest.TestCase):
     """The datasheet notes skill names only commands that exist."""
 
@@ -449,6 +541,11 @@ class Skill(unittest.TestCase):
         self.assertEqual(used, {"skeleton", "builtin", "check"})
         choices = cli.notes_parser()._subparsers._group_actions[0].choices
         self.assertLessEqual(used, set(choices))
+        flags = set(re.findall(r"canworks-deploy notes skeleton((?: --\w+(?: \S+)?)+)", text))
+        named = {f for group in flags for f in re.findall(r"--\w+", group)}
+        self.assertEqual(named, {"--all", "--index"})
+        options = {o for a in choices["skeleton"]._actions for o in a.option_strings}
+        self.assertLessEqual(named, options)
 
 
 if __name__ == "__main__":

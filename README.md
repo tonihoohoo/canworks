@@ -123,7 +123,7 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices and plain CAN
 
 ### Device notes from a datasheet with Claude
 
-The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet-notes` ([`.claude/skills/canworks-datasheet-notes`](.claude/skills/canworks-datasheet-notes/SKILL.md)), that writes a device's notes file from its datasheet or manual (PDF, DOCX, ODT, HTML, spreadsheets or text) and its EDS. It asks about every place where the datasheet and the EDS disagree, and checks its result with `canworks-deploy notes check`. The same `notes skeleton`, `builtin` and `check` commands help when you write notes by hand ([docs/configurator.md](docs/configurator.md#notes-from-a-datasheet)). Notes stay on the PC and never reach a device.
+The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet-notes` ([`.claude/skills/canworks-datasheet-notes`](.claude/skills/canworks-datasheet-notes/SKILL.md)), that writes a device's notes file from its datasheet or manual (PDF, DOCX, ODT, HTML, spreadsheets or text) and its EDS. It shows every place where the datasheet and the EDS disagree in one table, each row set to follow the EDS until you change it, and checks its result with `canworks-deploy notes check`. The same `notes skeleton` (with `--all`, every object with its EDS default, limits and PDO mapping), `builtin` and `check` commands help when you write notes by hand ([docs/configurator.md](docs/configurator.md#notes-from-a-datasheet)). Notes stay on the PC and never reach a device.
 
 ## Requirements and limits
 
