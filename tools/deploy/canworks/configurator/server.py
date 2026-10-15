@@ -42,7 +42,7 @@ from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
-from ..userdirs import config_dir
+from ..userdirs import config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing, transmit
 
@@ -161,7 +161,7 @@ def save_ui(changes):
     tmp = os.path.join(config_dir(), "ui.json.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(ui, f, indent=2)
-    os.replace(tmp, os.path.join(config_dir(), "ui.json"))
+    replace_file(tmp, os.path.join(config_dir(), "ui.json"))
     return ui
 
 
@@ -485,7 +485,7 @@ class Session:
             tmp = os.path.join(config_dir(), "recent.json.tmp")
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(items[:RECENT_MAX], f, indent=2)
-            os.replace(tmp, os.path.join(config_dir(), "recent.json"))
+            replace_file(tmp, os.path.join(config_dir(), "recent.json"))
         except OSError:
             pass  # a convenience only
 
@@ -682,7 +682,7 @@ class Session:
             new = notes_mod.update(base, edits, eds)
             with open(npath + ".tmp", "w", encoding="utf-8") as f:
                 f.write(notes_mod.dumps(new))
-            os.replace(npath + ".tmp", npath)
+            replace_file(npath + ".tmp", npath)
             written.append(npath)
         return written
 

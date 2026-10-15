@@ -402,8 +402,8 @@ class Decoder:
             nl = self.inferred[nid] = NodeLayouts(nid, self.eds.get(nid))
         return nl
 
-    def _learn(self, nid, index, sub, data, time_us):
-        """A value written (and confirmed) or read back on the bus."""
+    def _learn(self, nid, index, sub, data, time_us, read=False):
+        """A value written (and confirmed) or read back (`read`) on the bus."""
         from .layouts import is_pdo_object
         if not self.learn or nid in self.configured_nodes():
             return
@@ -414,7 +414,7 @@ class Decoder:
         if not is_pdo_object(index):
             return
         nl = self._node_layouts(nid)
-        if nl.learn(index, sub, data, time_us):
+        if nl.learn(index, sub, data, time_us, "device" if read else "bus"):
             self._refresh(nid, time_us)
 
     def configured_nodes(self):
@@ -768,7 +768,7 @@ class Decoder:
             if e:
                 size = 4 - ((d[0] >> 2) & 3) if s else 4
                 data = d[4:4 + size]
-                self._learn(nid, mux[0], mux[1], data, f.time_us)
+                self._learn(nid, mux[0], mux[1], data, f.time_us, read=True)
                 return Decoded("sdo", nid, name, "%s read %s = %s" % (
                     who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
             size = int.from_bytes(d[4:8], "little") if s else None
@@ -783,7 +783,7 @@ class Decoder:
                 st["data"] += d[1:1 + n]
                 if last:
                     self.sdo_state.pop((nid, "x"), None)
-                    self._learn(nid, st["mux"][0], st["mux"][1], bytes(st["data"]), f.time_us)
+                    self._learn(nid, st["mux"][0], st["mux"][1], bytes(st["data"]), f.time_us, read=True)
                     return Decoded("sdo", nid, name, "%s read %s = %s (segmented, done)" % (
                         who, self.object_label(nid, *st["mux"]),
                         self.value_text(nid, st["mux"][0], st["mux"][1], bytes(st["data"]))))
@@ -852,7 +852,7 @@ class Decoder:
                 unused = (d[0] >> 2) & 7
                 data = bytes(st["data"][:len(st["data"]) - unused])
                 st["phase"] = "done"
-                self._learn(nid, mux[0], mux[1], data, f.time_us)
+                self._learn(nid, mux[0], mux[1], data, f.time_us, read=True)
                 return Decoded("sdo", nid, name, "%s read %s = %s (block, done)" % (
                     who, self.object_label(nid, *mux), self.value_text(nid, mux[0], mux[1], data)))
             if st["phase"] == "done" and not server and d[0] == 0xA1:

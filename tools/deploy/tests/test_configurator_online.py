@@ -148,6 +148,28 @@ class ConcurrentSettings(unittest.TestCase):
                          {"/p%d" % i: "h%d" % i for i in range(4)})
         self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
 
+    def test_save_waits_while_windows_holds_the_file(self):
+        # Windows refuses the rename while another process (a second
+        # configurator reading it) has online.json open; the save tries again.
+        from unittest import mock
+        from canworks import userdirs
+        d = tmpdir(self)
+        online.Settings(d).update_project("/p", host="a")
+        real, calls = os.replace, []
+
+        def busy(src, dst):
+            calls.append(dst)
+            if len(calls) < 3:
+                raise PermissionError(13, "Access is denied")
+            real(src, dst)
+
+        with mock.patch.object(userdirs.os, "replace", busy), mock.patch.object(userdirs.os, "name", "nt"), \
+                mock.patch.object(userdirs.time, "sleep", lambda s: None):
+            online.Settings(d).update_project("/p", host="b")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(online.Settings(d).project("/p"), {"host": "b"})
+        self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
+
 
 class Proxy(Online):
     def test_status_and_fingerprint(self):
@@ -181,6 +203,16 @@ class Proxy(Online):
         staged, _ = bundle.assemble(os.path.join(work, "src"), deployed, {}, work)
         raw = read(os.path.join(staged, "conf", "canworks.json"))
         self.assertIn(hashlib.sha256(raw).hexdigest(), online.fingerprints(path))
+
+    def test_fingerprint_with_a_slave_network(self):
+        # The bundle rewrites the slave's EDS path too (a gateway config):
+        # the deployed file must still read as "same".
+        path = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
+        from canworks import bundle
+        deployed, _ = bundle.rewrite(json.loads(read(path, "r")), path)
+        self.assertTrue(any(n.get("slave") for n in deployed["networks"]))
+        text = json.dumps(deployed, indent=2) + "\n"
+        self.assertIn(hashlib.sha256(text.encode()).hexdigest(), online.fingerprints(path))
 
     def test_connection_errors(self):
         self.ok("POST", "/api/online/settings", {"host": "127.0.0.1:%d" % closed_port()})

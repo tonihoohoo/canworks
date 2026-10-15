@@ -37,6 +37,11 @@ ERR_PROT = 0x008
 ERR_ACK = 0x020
 ERR_BUSOFF = 0x040
 CRTL_PASSIVE = 0x10 | 0x20  # data[1]: RX or TX error passive
+# What a frame on the wire went wrong with (TX timeout, protocol violation,
+# transceiver, no acknowledgement, bus-off, bus error). An error frame with
+# none of these only reports the controller's state, such as its error
+# counters going down after an earlier connection at another bit rate.
+ERR_ON_WIRE = 0x001 | ERR_PROT | 0x010 | ERR_ACK | ERR_BUSOFF | 0x080
 
 NMT_COB = 0x000
 SYNC_COB = 0x080
@@ -176,6 +181,9 @@ class Core:
     def _bus_error(self, msg):
         now = time.monotonic()
         data = bytes(msg.data or b"")
+        ident = msg.arbitration_id
+        if not ident & ERR_ON_WIRE and not (ident & ERR_CRTL and len(data) > 1 and data[1] & CRTL_PASSIVE):
+            return  # a state report (warning level, back to error active): no error on the wire
         with self.lock:
             self.errors.append((now, msg.arbitration_id, data))
             self.error_frames += 1
@@ -183,7 +191,6 @@ class Core:
             valid_since = self.valid_at is not None and now - self.valid_at <= ERROR_WINDOW_S
         if not self.checked:
             return
-        ident = msg.arbitration_id
         if ident & ERR_BUSOFF:
             self.end("the adapter went bus-off: the bit rate may be wrong, or the bus is not terminated")
         elif ident & ERR_CRTL and len(data) > 1 and data[1] & CRTL_PASSIVE:

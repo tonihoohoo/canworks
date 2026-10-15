@@ -668,5 +668,41 @@ class AdapterList(unittest.TestCase):
                 adapter_mod._gs_usb_options(parse("gs_usb:first"), {})
             self.assertEqual(e.exception.kind, "usage")
 
+    def test_gs_usb_drain_throws_away_an_earlier_connections_frames(self):
+        # Frames the adapter still holds from the last connection (a refused
+        # rate's error frames, a backlog) are read and dropped before the
+        # channel starts; the read timeout ends it.
+        from types import SimpleNamespace
+        from canworks.localbus import adapter as adapter_mod
+        left = [b"stale"] * 3
+        reads = []
+
+        def read(endpoint, size, timeout):
+            reads.append((endpoint, timeout))
+            if not left:
+                raise OSError("timeout")
+            return left.pop()
+
+        adapter_mod._gs_usb_drain(SimpleNamespace(gs_usb=SimpleNamespace(read=read)))
+        self.assertEqual(len(reads), 4)
+        self.assertEqual(reads[0][0], 0x81)
+        adapter_mod._gs_usb_drain(SimpleNamespace(gs_usb=None))  # never raises
+
+    def test_libusb_dll_on_the_path_on_windows(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace
+        from canworks.localbus import adapter as adapter_mod
+        pkg = tempfile.mkdtemp()
+        dll_dir = os.path.join(pkg, "_platform", "windows", "x86_64")
+        os.makedirs(dll_dir)
+        open(os.path.join(dll_dir, "libusb-1.0.dll"), "wb").close()
+        spec = SimpleNamespace(submodule_search_locations=[pkg])
+        with mock.patch.object(adapter_mod.sys, "platform", "win32"),                 mock.patch("importlib.util.find_spec", return_value=spec),                 mock.patch("platform.machine", return_value="AMD64"),                 mock.patch.dict(os.environ, {"PATH": "x"}), mock.patch.object(adapter_mod._libusb_path, "done", False):
+            adapter_mod._libusb_path()
+            self.assertEqual(os.environ["PATH"], dll_dir + os.pathsep + "x")
+            adapter_mod._libusb_path()  # once per process
+            self.assertEqual(os.environ["PATH"], dll_dir + os.pathsep + "x")
+
 if __name__ == "__main__":
     unittest.main()

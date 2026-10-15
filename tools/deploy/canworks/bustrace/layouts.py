@@ -3,7 +3,8 @@
 
 A node's PDO communication and mapping objects come from three sources:
 the defaults of its EDS ("eds"), the device read over SDO ("device") and
-SDO transfers seen in the trace ("bus"). NodeLayouts keeps the node's
+SDO writes seen in the trace ("bus"); SDO reads seen in the trace count as
+read from the device. NodeLayouts keeps the node's
 current values with the source of each, and turns them into PdoLayouts
 (decode.PdoLayout) whenever they change; the Decoder keeps every version
 with the time it starts, so a frame decodes with the layout in force at its
@@ -185,13 +186,14 @@ class NodeLayouts:
         return make_pdo(cob_id, name, self.node, tx, sigs, (bit + 7) // 8, info)
 
     # -- SDO transfers seen on the bus --------------------------------------
-    def learn(self, index, sub, data, time_us):
-        """A value the bus wrote (confirmed) or read back."""
+    def learn(self, index, sub, data, time_us, source="bus"):
+        """A value the bus wrote and the device confirmed ("bus"), or one a
+        client read from the device ("device")."""
         if not data:
             return False
         v = int.from_bytes(bytes(data[:4]), "little")
         old = self.values.get((index, sub))
-        if old is not None and old[0] == v and old[1] == "bus":
+        if old is not None and old[0] == v and old[1] == source:
             return False
-        self.values[(index, sub)] = (v, "bus", time_us)
+        self.values[(index, sub)] = (v, source, time_us)
         return True

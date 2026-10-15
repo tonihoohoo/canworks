@@ -67,6 +67,8 @@ class AdapterPage(OnlineBase):
     def connect_adapter(self, allow=False):
         pg = self.page
         self.open_panel()
+        # No recent connection yet and no target choice: nothing in their place.
+        self.assertNotIn("null", pg.inner_text("#conn-dialog"))
         pg.fill('#conn-dialog input[data-online="adapter"]', "virtual:" + self.ch)
         pg.select_option('#conn-dialog select[data-online="adapter-bitrate"]', "250")
         if allow:
@@ -302,6 +304,22 @@ class CommissionPage(AdapterPage):
                 text = f.read()
             self.assertIn("test entry", text)
             self.assertEqual("(bus)" in text, expect, text)
+
+    def test_boot_between_two_answers_is_logged(self):
+        # A reset and boot both between two status answers: the state stays
+        # OPERATIONAL, the plugin's boot count goes up, and the log says Booted.
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        pg.wait_for_selector('tr[data-online-node="7"]')
+        whats = pg.evaluate("""() => {
+            const before = (S.commLog || []).length;
+            const st = (boots) => ({ nodes: [{ node_id: 30, state: 5, boot_error: null, boots }] });
+            logEvents(st(1)); logEvents(st(1)); logEvents(st(2)); logEvents(st(2));
+            return S.commLog.slice(before).filter((e) => e.node === 30).map((e) => e.what);
+        }""")
+        self.assertEqual(whats, ["Booted"])
 
     def test_trace_records_on_the_adapter(self):
         pg = self.page

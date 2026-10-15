@@ -293,6 +293,29 @@ SAMPLE_POINTS = (87.5, 85.0, 80.0, 75.0)
 USB_STALL = ("does not answer (USB stall): unplug it and plug it in again")
 
 
+def _libusb_path():
+    """On Windows, puts the libusb DLL that comes with the PC tools (the
+    libusb package) on this process's PATH, where pyusb looks for it: the
+    gs_usb driver finds the adapter with pyusb. Elsewhere libusb comes from
+    the system (macOS: brew install libusb). Never raises."""
+    if sys.platform != "win32" or getattr(_libusb_path, "done", False):
+        return
+    _libusb_path.done = True
+    try:
+        import importlib.util
+        import platform
+        spec = importlib.util.find_spec("libusb")
+        if spec is None or not spec.submodule_search_locations:
+            return
+        arch = {"amd64": "x86_64", "x86_64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}.get(
+            platform.machine().lower(), "x86")
+        folder = os.path.join(list(spec.submodule_search_locations)[0], "_platform", "windows", arch)
+        if os.path.isfile(os.path.join(folder, "libusb-1.0.dll")):
+            os.environ["PATH"] = folder + os.pathsep + os.environ.get("PATH", "")
+    except Exception:  # no libusb package: pyusb then finds a system-wide libusb, or none
+        pass
+
+
 def _gs_usb_options(spec, kwargs):
     """gs_usb. The gs_usb package resets the USB device and then detaches a
     kernel driver when libusb reports one; on macOS libusb reports one after
@@ -383,6 +406,20 @@ def _gs_usb_reset(dev):
         pass
 
 
+def _gs_usb_drain(dev, budget_s=0.5):
+    """Throws away what the adapter still holds for the host while its
+    channel is stopped: frames and error frames of an earlier connection
+    (a refused bit rate's error frames would otherwise refuse the next one,
+    and a backlog delays the echoes of the frames this one sends). Never
+    raises."""
+    end = time.monotonic() + budget_s
+    try:
+        while time.monotonic() < end:
+            dev.gs_usb.read(0x81, 64, 5)
+    except Exception:  # a read timeout: nothing left (or the adapter went away; open() finds out)
+        pass
+
+
 def _gs_usb_release(bus):
     """Lets go of a closed gs_usb adapter's USB interface, so this process
     can open it again (python-can's gs_usb leaves it claimed)."""
@@ -402,6 +439,7 @@ def _gs_usb_open(spec, bitrate, listen_only, kwargs):
     and the channel started (listen-only when asked and the device has it).
     A USB stall resets the USB device and tries once more."""
     import can
+    _libusb_path()
     from gs_usb.gs_usb import GsUsb
     _gs_usb_options(spec, kwargs)
     for attempt in (1, 2):
@@ -421,6 +459,7 @@ def _gs_usb_open(spec, bitrate, listen_only, kwargs):
                 raise AdapterError("usage", "adapter %s cannot run at %d kbit/s (no bit timing within its limits)"
                                    % (spec, bitrate // 1000))
             dev.set_timing(*timing)
+            _gs_usb_drain(dev)
             flags = GS_HW_TIMESTAMP | GS_BERR_REPORTING | (GS_LISTEN_ONLY if listen_only else 0)
             _gs_usb_mode(dev, flags)
             if hasattr(bus, "_bitrate"):
@@ -628,6 +667,7 @@ def _usb_adapters():
     out = []
     if sys.platform.startswith("linux"):
         return out
+    _libusb_path()
     try:
         import usb.core
         devices = list(usb.core.find(find_all=True))

@@ -332,8 +332,9 @@ function connPanel(message) {
     [["runtime", "Runtime"], ["simulator", "Standalone simulator"]].map(([k, label]) =>
       el("button", { type: "button", "aria-pressed": String(k === CONN.target), dataset: { connTarget: k },
         onclick: () => { CONN.target = k; connPanel(); const b = body.querySelector(`[data-conn-target="${k}"]`); if (b) b.focus(); } }, label)));
-  body.replaceChildren(recentBox(form), choice ? el("div", { class: "toolbar" }, choice) : null, form,
-    el("menu", { class: "toolbar" }, el("button", { type: "button", dataset: { conn: "close-panel" }, onclick: () => $("#conn-dialog").close() }, "Close")));
+  // replaceChildren() writes null as the text "null": leave the empty parts out.
+  body.replaceChildren(...[recentBox(form), choice ? el("div", { class: "toolbar" }, choice) : null, form,
+    el("menu", { class: "toolbar" }, el("button", { type: "button", dataset: { conn: "close-panel" }, onclick: () => $("#conn-dialog").close() }, "Close"))].filter(Boolean));
 }
 
 // Up to three connections this PC made last (online.json `recent`), one click each.

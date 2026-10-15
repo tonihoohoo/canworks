@@ -578,6 +578,7 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
   n.boot_what = es && !configured_running ? what : "";
   if (!es || configured_running) {
     n.booted = true;
+    n.boots++;
     n.retry_pending = false;
     n.backoff = kRetryMin;
     n.lss_backoff = kRetryMin;

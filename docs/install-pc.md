@@ -64,6 +64,8 @@ The PC tools reach the CAN bus in one of two ways. Through a runtime: everything
 - **macOS:** `/dev/tty.usbmodem14101` or similar.
 - **Linux:** `/dev/ttyACM0` or similar; join the `dialout` group once to open serial ports (`sudo usermod -aG dialout $USER`, then log in again). SocketCAN interfaces (`can0`, `vcan0`) work too.
 
+A gs_usb (candleLight) adapter works too: on Windows the tools bring its driver and libusb, so there is nothing to install; on macOS run `brew install libusb` once; on Linux it is a SocketCAN interface.
+
 `canworks-diag adapters` lists the adapters it finds. `canworks-j1939-sim` takes the same `--adapter` values.
 
 To run the plugin on the PC itself, install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).

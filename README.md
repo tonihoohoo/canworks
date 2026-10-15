@@ -86,7 +86,7 @@ Plain CAN messages run on any network, next to CANopen or J1939, or on a plain C
 
 ### PC tools
 
-Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md](docs/install-pc.md)). They reach the bus through the runtime, or straight through a USB adapter on the PC (slcan adapters everywhere, gs_usb/candleLight on Windows and macOS, SocketCAN on Linux), so a single device can be commissioned on the bench or as a guest on another master's bus, read-only until changes are allowed; every connection checks the bit rate first and refuses a wrong one ([docs/pc-adapter.md](docs/pc-adapter.md)).
+Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md](docs/install-pc.md)). They reach the bus through the runtime, or straight through a USB adapter on the PC (slcan adapters everywhere, gs_usb/candleLight on Windows with nothing else to install and on macOS with libusb, SocketCAN on Linux), so a single device can be commissioned on the bench or as a guest on another master's bus, read-only until changes are allowed; every connection checks the bit rate first and refuses a wrong one ([docs/pc-adapter.md](docs/pc-adapter.md)).
 
 | Command | What it does |
 | --- | --- |

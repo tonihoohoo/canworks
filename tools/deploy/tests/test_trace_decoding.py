@@ -112,6 +112,26 @@ class LearnedOnTheBus(unittest.TestCase):
         # 0x6064 is in the CiA 402 notes only: named from them
         self.assertIn("Position actual value", out.text)
 
+    def test_read_back_is_read_from_the_device(self):
+        # A client reading the PDO objects (a PDO test, Read all) shows what
+        # the device has: read from the device, not set on the bus.
+        frames = []
+        for i, (index, sub, value, size) in enumerate([
+                (0x1800, 1, 0x185, 4), (0x1A00, 0, 1, 1), (0x1A00, 1, 0x60640020, 4)]):
+            t = T0 + i * 1000
+            cmd = {1: 0x4F, 2: 0x4B, 4: 0x43}[size]
+            frames.append(Frame(t, 0x605, bytes([0x40]) + struct.pack("<HB", index, sub) + bytes(4), tx=True))
+            frames.append(Frame(t + 100, 0x585, bytes([cmd]) + struct.pack("<HB", index, sub)
+                                + value.to_bytes(size, "little").ljust(4, b"\0")))
+        s = Session(servo_decoder())
+        after = Frame(T0 + 50_000, 0x185, (1200).to_bytes(4, "little"))
+        s.feed(frames + [after])
+        out = s.decoder.clone().decode(after)
+        self.assertEqual(out.source, "device")
+        self.assertEqual([v for _, v in out.signals], [1200])
+        m = explain_mod.explain(after, s.decoder)
+        self.assertEqual(m["layout"]["text"], "Layout read from the device.")
+
     def test_unconfirmed_write_is_not_learned(self):
         d = Decoder()
         for f in remap_tpdo1(49, T0):
