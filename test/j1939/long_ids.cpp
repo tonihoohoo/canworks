@@ -115,6 +115,11 @@ int main(int argc, char** argv) {
     return 1;
   }
   if (!a->long_send_events()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    int again = a->bind(0, 0x80);
+    std::printf("     a bound again after 300 ms (%d), events %d\n", again, a->long_send_events() ? 1 : 0);
+  }
+  if (!a->long_send_events()) {
     std::printf("FAIL the kernel does not report the long socket's sessions\n");
     explain_no_events(iface);
     return 1;
