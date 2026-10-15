@@ -469,7 +469,6 @@ class SharedFixtures(Base):
         doc = load_cases(name)
         eds_dir = os.path.join(FIXTURES, "eds")
         eds = {"canworks/" + n: read(os.path.join(eds_dir, n)) for n in os.listdir(eds_dir) if n.endswith(".eds")}
-        eds.update({"canworks/fw/" + n: read(os.path.join(eds_dir, "fw", n)) for n in os.listdir(os.path.join(eds_dir, "fw"))})
         eds.update({"canworks/lint/" + n: read(os.path.join(eds_dir, "lint", n))
                     for n in os.listdir(os.path.join(eds_dir, "lint")) if n.endswith(".eds")})
         eds.update({"canworks/drives/" + n: read(os.path.join(eds_dir, "drives", n))
