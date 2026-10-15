@@ -1,0 +1,749 @@
+{
+  "format": 1,
+  "tool": "canworks-deploy",
+  "config": "canworks.json",
+  "project": null,
+  "create": null,
+  "plc": null,
+  "variables": true,
+  "networks": [
+    {
+      "name": "io",
+      "folder": "io",
+      "net_id": 0,
+      "bitrate_kbit": 250,
+      "canbus": [
+        {
+          "id": 0,
+          "name": "Baudrate",
+          "value": "250",
+          "what": "bit rate (kbit/s)"
+        }
+      ],
+      "manager": [
+        {
+          "id": 288,
+          "name": "CANopen NodeID",
+          "value": "1",
+          "what": "master node ID"
+        },
+        {
+          "id": 273,
+          "name": "Enable Heartbeat generation",
+          "value": "TRUE",
+          "what": "master heartbeat on or off"
+        },
+        {
+          "id": 272,
+          "name": "Heartbeat in Milliseconds",
+          "value": "100",
+          "what": "master heartbeat period"
+        },
+        {
+          "id": 274,
+          "name": "Heartbeat Node ID",
+          "value": "1",
+          "what": "master heartbeat node ID"
+        },
+        {
+          "id": 257,
+          "name": "Enable Sync generation",
+          "value": "TRUE",
+          "what": "SYNC on or off"
+        },
+        {
+          "id": 256,
+          "name": "Sync CycleTime in Microseconds",
+          "value": "20000",
+          "what": "SYNC period"
+        },
+        {
+          "id": 261,
+          "name": "Autostart",
+          "value": "TRUE",
+          "what": "start the network by itself"
+        },
+        {
+          "id": 262,
+          "name": "Start Slaves",
+          "value": "TRUE",
+          "what": "start the nodes"
+        },
+        {
+          "id": 263,
+          "name": "NMT Start All",
+          "value": "FALSE",
+          "what": "one NMT start for all nodes"
+        },
+        {
+          "id": 290,
+          "name": "TIME COBID",
+          "value": "256",
+          "what": "TIME COB-ID"
+        },
+        {
+          "id": 291,
+          "name": "TIME Producer Interval (ms)",
+          "value": "1000",
+          "what": "TIME period"
+        }
+      ],
+      "nodes": [
+        {
+          "node_id": 5,
+          "name": "rtd",
+          "dcf": "io/node_5.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "5",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 1,
+              "variable": "io_rtd_AI0_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 2,
+              "variable": "io_rtd_AI1_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 3,
+              "variable": "io_rtd_AI2_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 4,
+              "variable": "io_rtd_AI3_Input_PV"
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "dio",
+          "dcf": "io/node_6.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "6",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "TRUE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 1,
+              "variable": "io_dio_Read_input_8_bit_1"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 2,
+              "variable": "io_dio_Read_input_8_bit_2"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 25601,
+              "sub": 1,
+              "variable": "io_dio_Read_analogue_input_1"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 25601,
+              "sub": 2,
+              "variable": "io_dio_Read_analogue_input_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 1,
+              "variable": "io_dio_Write_output_8_bit_1"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 2,
+              "variable": "io_dio_Write_output_8_bit_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25617,
+              "sub": 2,
+              "variable": "io_dio_Write_analogue_output_2"
+            }
+          ]
+        },
+        {
+          "node_id": 7,
+          "name": "new_io",
+          "dcf": "io/node_7.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "7",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "TRUE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 1,
+              "variable": "io_new_io_Read_input_8_bit_1"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 1,
+              "variable": "io_new_io_Write_output_8_bit_1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "motion",
+      "folder": "motion",
+      "net_id": 1,
+      "bitrate_kbit": 500,
+      "canbus": [
+        {
+          "id": 0,
+          "name": "Baudrate",
+          "value": "500",
+          "what": "bit rate (kbit/s)"
+        }
+      ],
+      "manager": [
+        {
+          "id": 288,
+          "name": "CANopen NodeID",
+          "value": "1",
+          "what": "master node ID"
+        },
+        {
+          "id": 273,
+          "name": "Enable Heartbeat generation",
+          "value": "TRUE",
+          "what": "master heartbeat on or off"
+        },
+        {
+          "id": 272,
+          "name": "Heartbeat in Milliseconds",
+          "value": "100",
+          "what": "master heartbeat period"
+        },
+        {
+          "id": 274,
+          "name": "Heartbeat Node ID",
+          "value": "1",
+          "what": "master heartbeat node ID"
+        },
+        {
+          "id": 257,
+          "name": "Enable Sync generation",
+          "value": "FALSE",
+          "what": "SYNC on or off"
+        },
+        {
+          "id": 261,
+          "name": "Autostart",
+          "value": "TRUE",
+          "what": "start the network by itself"
+        },
+        {
+          "id": 262,
+          "name": "Start Slaves",
+          "value": "TRUE",
+          "what": "start the nodes"
+        },
+        {
+          "id": 263,
+          "name": "NMT Start All",
+          "value": "FALSE",
+          "what": "one NMT start for all nodes"
+        }
+      ],
+      "nodes": [
+        {
+          "node_id": 4,
+          "name": "drive",
+          "dcf": "motion/node_4.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "4",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24641,
+              "sub": 0,
+              "variable": "motion_drive_Statusword"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24673,
+              "sub": 0,
+              "variable": "motion_drive_Modes_of_operation_display"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24676,
+              "sub": 0,
+              "variable": "motion_drive_Position_actual_value"
+            },
+            {
+              "dir": "in",
+              "mapping": 6657,
+              "index": 24684,
+              "sub": 0,
+              "variable": "motion_drive_Velocity_actual_value"
+            },
+            {
+              "dir": "in",
+              "mapping": 6657,
+              "index": 24695,
+              "sub": 0,
+              "variable": "motion_drive_Torque_actual_value"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 24640,
+              "sub": 0,
+              "variable": "motion_drive_Controlword"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 24672,
+              "sub": 0,
+              "variable": "motion_drive_Modes_of_operation"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 24698,
+              "sub": 0,
+              "variable": "motion_drive_Target_position"
+            },
+            {
+              "dir": "out",
+              "mapping": 5633,
+              "index": 24831,
+              "sub": 0,
+              "variable": "motion_drive_Target_velocity"
+            },
+            {
+              "dir": "out",
+              "mapping": 5633,
+              "index": 24689,
+              "sub": 0,
+              "variable": "motion_drive_Target_torque"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "host",
+      "folder": "host",
+      "net_id": 2,
+      "bitrate_kbit": 250,
+      "canbus": [
+        {
+          "id": 0,
+          "name": "Baudrate",
+          "value": "250",
+          "what": "bit rate (kbit/s)"
+        }
+      ],
+      "manager": [
+        {
+          "id": 288,
+          "name": "CANopen NodeID",
+          "value": "1",
+          "what": "master node ID"
+        },
+        {
+          "id": 273,
+          "name": "Enable Heartbeat generation",
+          "value": "TRUE",
+          "what": "master heartbeat on or off"
+        },
+        {
+          "id": 272,
+          "name": "Heartbeat in Milliseconds",
+          "value": "100",
+          "what": "master heartbeat period"
+        },
+        {
+          "id": 274,
+          "name": "Heartbeat Node ID",
+          "value": "1",
+          "what": "master heartbeat node ID"
+        },
+        {
+          "id": 257,
+          "name": "Enable Sync generation",
+          "value": "TRUE",
+          "what": "SYNC on or off"
+        },
+        {
+          "id": 256,
+          "name": "Sync CycleTime in Microseconds",
+          "value": "50000",
+          "what": "SYNC period"
+        },
+        {
+          "id": 261,
+          "name": "Autostart",
+          "value": "TRUE",
+          "what": "start the network by itself"
+        },
+        {
+          "id": 262,
+          "name": "Start Slaves",
+          "value": "TRUE",
+          "what": "start the nodes"
+        },
+        {
+          "id": 263,
+          "name": "NMT Start All",
+          "value": "FALSE",
+          "what": "one NMT start for all nodes"
+        }
+      ],
+      "nodes": [
+        {
+          "node_id": 20,
+          "name": "cell",
+          "dcf": "host/node_20.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "20",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "TRUE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 8448,
+              "sub": 1,
+              "variable": "host_cell_alarm"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 8449,
+              "sub": 1,
+              "variable": "host_cell_axis_position"
+            },
+            {
+              "dir": "in",
+              "mapping": 6657,
+              "index": 8450,
+              "sub": 1,
+              "variable": "host_cell_cycle_count"
+            },
+            {
+              "dir": "in",
+              "mapping": 6657,
+              "index": 8451,
+              "sub": 1,
+              "variable": "host_cell_temperature"
+            },
+            {
+              "dir": "in",
+              "mapping": 6658,
+              "index": 24080,
+              "sub": 1,
+              "variable": "host_cell_Nodes_0_31"
+            },
+            {
+              "dir": "in",
+              "mapping": 6660,
+              "index": 24081,
+              "sub": 1,
+              "variable": "host_cell_Nodes_0_31_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 8192,
+              "sub": 1,
+              "variable": "host_cell_line_run"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 8193,
+              "sub": 1,
+              "variable": "host_cell_temp_limit"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 8193,
+              "sub": 2,
+              "variable": "host_cell_analog_out"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "where": "io/master",
+      "setting": "bus_state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "io/master",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "io/master",
+      "setting": "time_period_ms",
+      "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the manager in CODESYS"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "tx_pdos[0].timeout_location",
+      "note": "plugin receive timeout of a TPDO"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "tx_pdos[0].timeout_ms",
+      "note": "plugin receive timeout of a TPDO"
+    },
+    {
+      "where": "io/dio",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/dio",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/dio",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/dio",
+      "setting": "nmt_command_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/dio",
+      "setting": "sdo_variables",
+      "note": "plugin SDO variables; use the CiA 405 SDO blocks in CODESYS"
+    },
+    {
+      "where": "io/dio",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "io/dio",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
+    },
+    {
+      "where": "io/dio",
+      "setting": "store_configuration",
+      "note": "plugin store after the configuration check"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "lss",
+      "note": "LSS node ID assignment: use CODESYS's own LSS settings"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "serial_number",
+      "note": "identity check: tick the device's startup checks in CODESYS"
+    },
+    {
+      "where": "motion/master",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "motion/master",
+      "setting": "sync_source",
+      "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"
+    },
+    {
+      "where": "motion/drive",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "motion/drive",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "motion/drive",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "motion/drive",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "motion/drive",
+      "setting": "axis",
+      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
+    },
+    {
+      "where": "cell",
+      "setting": "network",
+      "note": "not exported: a slave network: use `canworks-deploy slave-eds` for the other master's tool"
+    },
+    {
+      "where": "host/master",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "host/cell",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "host/cell",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "host/cell",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "host/cell",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "config",
+      "setting": "gateway",
+      "note": "stays with canworks"
+    },
+    {
+      "where": "every node",
+      "setting": "identity check",
+      "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); set them on each device in CODESYS if wanted"
+    }
+  ]
+}

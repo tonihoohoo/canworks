@@ -203,6 +203,7 @@ class Network : public lely::canopen::BasicMaster {
     const std::vector<SdoWrite>* sdos = nullptr;
     bool up = false;           // operational and exchanging PDOs
     bool booted = false;       // last boot succeeded
+    unsigned boots = 0;        // successful boots since the plugin started (the page logs each one)
     bool node_op = false;      // the node itself is OPERATIONAL
     bool retry_pending = false;
     clock::time_point next_retry;

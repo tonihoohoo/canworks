@@ -42,7 +42,7 @@ from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
-from ..userdirs import config_dir
+from ..userdirs import config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm
 from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing, transmit
 
@@ -161,7 +161,7 @@ def save_ui(changes):
     tmp = os.path.join(config_dir(), "ui.json.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(ui, f, indent=2)
-    os.replace(tmp, os.path.join(config_dir(), "ui.json"))
+    replace_file(tmp, os.path.join(config_dir(), "ui.json"))
     return ui
 
 
@@ -485,7 +485,7 @@ class Session:
             tmp = os.path.join(config_dir(), "recent.json.tmp")
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(items[:RECENT_MAX], f, indent=2)
-            os.replace(tmp, os.path.join(config_dir(), "recent.json"))
+            replace_file(tmp, os.path.join(config_dir(), "recent.json"))
         except OSError:
             pass  # a convenience only
 
@@ -682,7 +682,7 @@ class Session:
             new = notes_mod.update(base, edits, eds)
             with open(npath + ".tmp", "w", encoding="utf-8") as f:
                 f.write(notes_mod.dumps(new))
-            os.replace(npath + ".tmp", npath)
+            replace_file(npath + ".tmp", npath)
             written.append(npath)
         return written
 
@@ -1075,6 +1075,28 @@ class Session:
             name, data, ctype = folder + "_dcf.zip", buf.getvalue(), "application/zip"
         return {"items": [], "errors": 0, "name": name, "content_type": ctype,
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
+
+    # -- CODESYS export -----------------------------------------------------
+    def export_codesys(self, cfg):
+        """The draft's master networks for CODESYS (codesys-export): node
+        DCFs, canworks-codesys.json and import_canworks.py in
+        `<folder>_codesys.zip`, base64 in `data`. On a problem: the /api/check
+        shape, and no file. Nothing is written to the folder."""
+        from ..codesys import plan as codesys_plan
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        try:
+            files, _ = codesys_plan.export_files(cfg, self.config_path, eds_paths=self.eds_paths(cfg))
+        except codesys_plan.ExportFailed as e:
+            items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
+            return {"items": items, "errors": len(items)}
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in sorted(files):
+                z.writestr(n, files[n].encode("utf-8"))
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        return {"items": [], "errors": 0, "name": folder + "_codesys.zip", "content_type": "application/zip",
+                "files": sorted(files), "data": base64.b64encode(buf.getvalue()).decode("ascii")}
 
     # -- DBC export ---------------------------------------------------------
     def export_dbc(self, cfg, sdo="none", network=None, notes=None):
@@ -2076,6 +2098,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_html"):
                     self._need_open(s)
                     out = s.export_html(body.get("config"), body.get("notes"))
+                elif route == ("POST", "/api/export_codesys"):
+                    self._need_open(s)
+                    out = s.export_codesys(body.get("config"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))

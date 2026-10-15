@@ -1,0 +1,283 @@
+{
+  "format": 1,
+  "tool": "canworks-deploy",
+  "config": "canworks.json",
+  "project": null,
+  "create": null,
+  "plc": null,
+  "variables": true,
+  "networks": [
+    {
+      "name": "field",
+      "folder": "field",
+      "net_id": 0,
+      "bitrate_kbit": 250,
+      "canbus": [
+        {
+          "id": 0,
+          "name": "Baudrate",
+          "value": "250",
+          "what": "bit rate (kbit/s)"
+        }
+      ],
+      "manager": [
+        {
+          "id": 288,
+          "name": "CANopen NodeID",
+          "value": "1",
+          "what": "master node ID"
+        },
+        {
+          "id": 273,
+          "name": "Enable Heartbeat generation",
+          "value": "TRUE",
+          "what": "master heartbeat on or off"
+        },
+        {
+          "id": 272,
+          "name": "Heartbeat in Milliseconds",
+          "value": "100",
+          "what": "master heartbeat period"
+        },
+        {
+          "id": 274,
+          "name": "Heartbeat Node ID",
+          "value": "1",
+          "what": "master heartbeat node ID"
+        },
+        {
+          "id": 257,
+          "name": "Enable Sync generation",
+          "value": "TRUE",
+          "what": "SYNC on or off"
+        },
+        {
+          "id": 256,
+          "name": "Sync CycleTime in Microseconds",
+          "value": "20000",
+          "what": "SYNC period"
+        },
+        {
+          "id": 261,
+          "name": "Autostart",
+          "value": "TRUE",
+          "what": "start the network by itself"
+        },
+        {
+          "id": 262,
+          "name": "Start Slaves",
+          "value": "TRUE",
+          "what": "start the nodes"
+        },
+        {
+          "id": 263,
+          "name": "NMT Start All",
+          "value": "FALSE",
+          "what": "one NMT start for all nodes"
+        }
+      ],
+      "nodes": [
+        {
+          "node_id": 5,
+          "name": "rtd",
+          "dcf": "field/node_5.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "5",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "TRUE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 1,
+              "variable": "rtd_AI0_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 2,
+              "variable": "rtd_AI1_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 3,
+              "variable": "rtd_AI2_Input_PV"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 28976,
+              "sub": 4,
+              "variable": "rtd_AI3_Input_PV"
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "dio",
+          "dcf": "field/node_6.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "6",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "TRUE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 1,
+              "variable": "dio_Read_input_8_bit_1"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 2,
+              "variable": "dio_Read_input_8_bit_2"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 25601,
+              "sub": 1,
+              "variable": "dio_Read_analogue_input_1"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 25601,
+              "sub": 2,
+              "variable": "dio_Read_analogue_input_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 1,
+              "variable": "dio_Write_output_8_bit_1"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 2,
+              "variable": "dio_Write_output_8_bit_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25617,
+              "sub": 1,
+              "variable": "dio_Write_analogue_output_1"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25617,
+              "sub": 2,
+              "variable": "dio_Write_analogue_output_2"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "where": "field/master",
+      "setting": "bus_state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "field/master",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "tx_pdos[0].timeout_location",
+      "note": "plugin receive timeout of a TPDO"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "tx_pdos[0].timeout_ms",
+      "note": "plugin receive timeout of a TPDO"
+    },
+    {
+      "where": "field/dio",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/dio",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/dio",
+      "setting": "emcy_code_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "field/dio",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "config",
+      "setting": "bridge",
+      "note": "stays with canworks"
+    },
+    {
+      "where": "every node",
+      "setting": "identity check",
+      "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); set them on each device in CODESYS if wanted"
+    }
+  ]
+}

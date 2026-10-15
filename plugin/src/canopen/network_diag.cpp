@@ -192,6 +192,7 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddNumberToObject(o, "state", image_.node_state(id));
     cJSON_AddBoolToObject(o, "status", n.up);
     cJSON_AddBoolToObject(o, "booted", n.booted);
+    cJSON_AddNumberToObject(o, "boots", n.boots);
     const bool conflict = sim_conflicts_.count(id) > 0;
     cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
     cJSON_AddBoolToObject(o, "sim_conflict", conflict);

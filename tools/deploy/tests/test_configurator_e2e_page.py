@@ -203,7 +203,8 @@ class EndToEnd(OnlineBase):
             # -- every export from the Export menu ----------------------------
             downloads = []
             for item, expect in (("btn-export-node", "node_5.dcf"), ("btn-export-all", "_dcf.zip"),
-                                 ("btn-export-dbc", ".dbc"), ("btn-export-html", ".html")):
+                                 ("btn-export-dbc", ".dbc"), ("btn-export-html", ".html"),
+                                 ("btn-export-codesys", "_codesys.zip")):
                 self.top()
                 self.press_on("#menu-export > summary")
                 pg.wait_for_selector("#menu-export[open]")
@@ -222,7 +223,7 @@ class EndToEnd(OnlineBase):
                 self.assertTrue(name.endswith(expect) or name == expect, name)
                 downloads.append(name)
                 pg.wait_for_selector("#banner:has-text('Exported')")
-            self.assertEqual(len(downloads), 4)
+            self.assertEqual(len(downloads), 5)
             self.assertEqual(pg.inner_text("#problem-count").strip(), "none")
 
             # -- the runtime goes away and comes back -------------------------

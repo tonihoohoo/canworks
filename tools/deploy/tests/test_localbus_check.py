@@ -92,6 +92,16 @@ class Check(Case):
         opened = adapter_mod.open(parse("virtual:" + self.ch), 250000)
         opened.close()
 
+    def test_controller_state_reports_are_not_bus_errors(self):
+        # An adapter whose error counters are still up from a connection at
+        # another rate reports them going down (warning, then error active):
+        # no error on the wire, so the right rate is confirmed.
+        self.device(5, heartbeat_s=0.05)
+        warning = error_frame(0x004, bytes([0, 0x4C, 0, 0, 0, 0, 0, 0x7E]))
+        self.noisy(self.peer(), frame=warning)
+        c = self.client()
+        self.assertEqual(c.info["bitrate_check"]["how"], "traffic")
+
     def test_silent_bus_probe(self):
         p = self.peer()
         c = self.client()

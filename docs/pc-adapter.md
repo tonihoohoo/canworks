@@ -10,7 +10,7 @@ The PC is a guest on the bus, not its master. It sends nothing until you act, an
 |---|---|---|---|---|
 | slcan adapters (CANable and CANable 2.0 with stock firmware, and other USB serial adapters that speak slcan) | `slcan:PORT` | `COM5`; the built-in USB serial driver, nothing to install | `/dev/tty.usbmodem14101`; nothing to install | `/dev/ttyACM0`; join the `dialout` group once (`sudo usermod -aG dialout $USER`, then log in again) |
 | SocketCAN interfaces (CAN HATs, candleLight firmware, PEAK USB on Linux, `vcan0`) | `socketcan:can0` | - | - | built into the kernel |
-| gs_usb adapters (candleLight firmware and compatible adapters, USB ID 1D50:606F) | `gs_usb:0` (the first) | untested | `brew install libusb` once; the tools bring the Python driver | use `socketcan:can0`: the kernel driver makes them a SocketCAN interface |
+| gs_usb adapters (candleLight firmware and compatible adapters, USB ID 1D50:606F) | `gs_usb:0` (the first) | nothing to install: the tools bring the driver and libusb | `brew install libusb` once; the tools bring the Python driver | use `socketcan:can0`: the kernel driver makes them a SocketCAN interface |
 
 Other interfaces python-can knows (`pcan`, `kvaser`, `ixxat`, `vector`, ...) are passed through untested: `--adapter pcan:PCAN_USBBUS1` works when python-can and the vendor's driver do, and the tools say the type is untested. Their options go in `--adapter-option KEY=VALUE` (repeatable).
 
@@ -26,7 +26,7 @@ There is no default and no automatic detection: you give the bus's bit rate, and
 
 Every connection checks the bit rate before anything else is sent:
 
-1. The adapter listens for 1 s in listen-only mode (slcan silent mode, gs_usb listen-only; SocketCAN and the virtual bus listen normally). Valid frames with at most 1 % error frames confirm the rate ("frames on the bus"). Error frames refuse it: "the bus does not run at 250 kbit/s".
+1. The adapter listens for 1 s in listen-only mode (slcan silent mode, gs_usb listen-only; SocketCAN and the virtual bus listen normally). Valid frames with at most 1 % error frames confirm the rate ("frames on the bus"). Error frames refuse it: "the bus does not run at 250 kbit/s". Reports of the adapter's own error counters going down (error warning, back to error active, still up from a connection at another rate) are not errors on the wire and do not count. A gs_usb adapter drops what it still held from the last connection before it listens, so a refused rate never refuses the next one.
 2. A silent bus gets one probe in one-shot mode: an LSS "inquire node ID" (0x7E5, `5E 00 …`), which every device acknowledges at its own bit rate, whatever its LSS support. A gs_usb adapter reports whether the frame got out; SocketCAN and the virtual bus confirm it by the absence of error frames. An acknowledged probe confirms the rate ("a device acknowledged the probe"). Missing acknowledgement or bit errors refuse it: "no device acknowledged at 250 kbit/s: the bit rate is wrong, the device is off or the bus is not terminated".
 3. slcan cannot tell whether a frame got out. On a silent bus it needs `--check-node N` (in the configurator, **Node ID for the check**): node N must answer an SDO read of 0x1000. Without it the connection is refused and the message says so.
 
