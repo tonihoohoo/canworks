@@ -592,7 +592,7 @@ class Session:
             return empty_config(), [], None
         try:
             with open(self.config_path, encoding="utf-8") as f:
-                cfg = json.load(f)
+                cfg = contract.load(f)
         except OSError as e:
             return empty_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
         except ValueError as e:
@@ -1644,7 +1644,7 @@ class Session:
         if os.path.lexists(os.path.join(target, "canworks")) and not replace:
             raise ApiError(409, "%s already has a canworks/ folder" % target, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
-            cfg = json.load(f)
+            cfg = contract.load(f)
         result = contract.check_config(cfg, self.config_path)
         if not result.ok:
             raise ApiError(422, "\n".join(result.errors))
@@ -1695,7 +1695,7 @@ class Session:
         if os.path.lexists(target):
             raise ApiError(409, "%s already exists; pick a new name" % target, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
-            cfg = json.load(f)
+            cfg = contract.load(f)
         result = contract.check_config(cfg, self.config_path)
         if not result.ok:
             raise ApiError(422, "\n".join(result.errors))

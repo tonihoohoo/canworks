@@ -116,7 +116,7 @@ def _load(snapshot_zip):
             raise Rejected("%s is not a regular file" % where)
         budget = [MAX_TOTAL_BYTES]
         try:
-            cfg = json.loads(_read(z, info, budget).decode("utf-8"))
+            cfg = contract.loads(_read(z, info, budget).decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as e:
             raise Rejected("%s is not valid JSON: %s" % (where, e))
         if not isinstance(cfg, dict):

@@ -135,10 +135,13 @@ struct J1939DmRx {
   bool has_dtcs_location = false;
   IecLocation dtcs_location;  // %ID, `dtcs` consecutive double words
   unsigned dtcs = 0;
+  // A bridge config counts locations in bytes, so its double words lie 4
+  // apart; a PLC runtime's image counts double words.
+  bool byte_addressed = false;
   // The double word of code slot `k`.
   IecLocation dtc_location(unsigned k) const {
     IecLocation l = dtcs_location;
-    l.index += k;
+    l.index += byte_addressed ? 4 * k : k;
     return l;
   }
 };

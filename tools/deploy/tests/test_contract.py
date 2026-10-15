@@ -163,6 +163,41 @@ class SdoValues(unittest.TestCase):
                                           ("1", "REAL32", "must be a number")]:
             self.assertEqual(contract.sdo_value(value, type_name), (None, problem), (value, type_name))
 
+    def test_leading_zero_refused(self):
+        # Never octal: the plugin used to read "010" as 8 (canopen-config-contract).
+        self.assertEqual(contract.sdo_value("010", "UNSIGNED8"),
+                         (None, "is not a valid integer (leading zero: write 10 or 0x0A)"))
+        self.assertEqual(contract.sdo_value("-010", "INTEGER8"),
+                         (None, "is not a valid integer (leading zero: write -10 or -0x0A)"))
+        self.assertEqual(contract.sdo_value("0", "UNSIGNED8"), (b"\x00", None))
+        self.assertEqual(contract.sdo_value("-0x10", "INTEGER8"), (b"\xf0", None))
+
+
+class NumberStrings(unittest.TestCase):
+    def test_decimal_or_hex_only(self):
+        for text, value in [("0", 0), ("12", 12), ("0x0C", 12), ("0X1f", 31), ("012", None), ("00", None),
+                            ("0x", None), ("+1", None), (" 1", None), ("1e3", None)]:
+            self.assertEqual(contract._uint(text), value, text)
+
+    def test_leading_zero_message(self):
+        self.assertEqual(contract.leading_zero_message("012"), "leading zero: write 12 or 0x0C")
+        self.assertEqual(contract.leading_zero_message("0200"), "leading zero: write 200 or 0xC8")
+        for text in ("0", "12", "0x012", "abc", 12):
+            self.assertIsNone(contract.leading_zero_message(text), text)
+
+
+class RepeatedKeys(unittest.TestCase):
+    def test_refused_with_key_and_path(self):
+        with self.assertRaises(ValueError) as e:
+            contract.loads('{"nodes": [{"node_id": 5, "name": "a", "node_id": 6}], "a": 1, "a": 2}')
+        self.assertEqual(str(e.exception), "the top level: key 'a' is given more than once; "
+                                           "nodes[0]: key 'node_id' is given more than once")
+
+    def test_plain_dicts(self):
+        doc = contract.loads('{"a": {"b": [1, {"c": 2}]}}')
+        self.assertEqual(doc, {"a": {"b": [1, {"c": 2}]}})
+        self.assertIs(type(doc["a"]["b"][1]), dict)
+
 
 
 class SdoOverrides(unittest.TestCase):

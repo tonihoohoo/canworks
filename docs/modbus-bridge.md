@@ -105,7 +105,8 @@ In a bridge config every location is a byte address: `%IB8` is input byte 8, `%I
 
 - word, double and long word locations start at an even byte: `%IW3` is refused with `%IW3 must start at an even byte: word locations are whole Modbus registers`;
 - two locations may not share a byte: `%ID4` and `%IW6` are refused with `... (%ID4) and ... (%IW6) overlap in input bytes 6 and 7`;
-- bits of one byte share it when their bit numbers differ (`%IX16.0` and `%IX16.1`).
+- bits of one byte share it when their bit numbers differ (`%IX16.0` and `%IX16.1`);
+- a list of consecutive double words, such as a J1939 trouble code list (`dtcs_location` with `dtcs`), steps 4 bytes per entry: `%ID560` with `dtcs` 3 holds the codes at `%ID560`, `%ID564` and `%ID568`.
 
 The configurator's **Pack for Modbus** (on the Modbus bridge page) and `canworks-deploy --export-modbus-map` work with these rules: packing places data from byte 0 in config order, then the status locations, then the bridge's own blocks, word values word-aligned and bits sharing bytes.
 
