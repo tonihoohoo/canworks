@@ -15,7 +15,7 @@ import unittest
 from canworks import docexport
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir
+from .helpers import REPO, node_tab, show_path, tmpdir
 
 try:
     from playwright.sync_api import sync_playwright
@@ -185,9 +185,11 @@ class Configurator(Browser):
         pg.click("#browser-open")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.set_input_files("#eds-input", os.path.join(RTD, "rtd8.eds"))
-        pg.wait_for_selector("details[data-picker]")
+        pg.wait_for_selector('[data-node-heading="0"]')
+        node_tab(pg, "general")
         pg.fill('input[data-path="nodes[0].node_id"]', "5")
         pg.fill('input[data-path="nodes[0].name"]', "rtd")
+        show_path(pg, "nodes[0].heartbeat_ms")
         pg.select_option("select[data-supervision]", "heartbeat")  # the EDS has none: refused without
         pg.fill('input[data-path="nodes[0].heartbeat_ms"]', "100")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
@@ -201,6 +203,7 @@ class Configurator(Browser):
         self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "canworks.json")))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor.html')")
         # A problem: nothing downloads, the Problems pane says why.
+        show_path(pg, "nodes[0].node_id")
         pg.fill('input[data-path="nodes[0].node_id"]', "1")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         downloads = []

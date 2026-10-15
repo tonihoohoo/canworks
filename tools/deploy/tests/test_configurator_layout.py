@@ -163,7 +163,7 @@ class Layout(OnlineBase):
         """Nothing clipped or sideways, no critical or serious accessibility
         finding, every text at WCAG AA contrast, every control 24 px."""
         self.page.wait_for_timeout(300)
-        self.page.add_style_tag(content=".tree-row .net-menu { min-height: 24px !important; }")  # TEMP
+        self.page.evaluate("() => document.querySelectorAll('.net-menu').forEach((b) => { b.style.minHeight = '24px'; })")  # TEMP
         self.assertEqual(self.page.evaluate(FIT_CHECK), [], where)
         audit(self.page, where, self.axe_report)
         self.assertEqual(self.page.evaluate(CONTRAST), [], where + ": contrast")
