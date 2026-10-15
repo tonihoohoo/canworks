@@ -242,7 +242,8 @@ function adapterBox(message) {
   const on = !!S.adapterOn;
   const list = el("select", { "aria-label": "Found adapters", disabled: on, dataset: { online: "adapter-list" } },
     el("option", { value: "" }, "Looking for adapters…"));
-  const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0, slcan:COM5, slcan:/dev/tty.usbmodem14101, socketcan:can0",
+  const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0 or slcan:COM5",
+    title: "For example gs_usb:0, slcan:COM5, slcan:/dev/tty.usbmodem14101 or socketcan:can0",
     "aria-label": "Adapter", dataset: { online: "adapter" } });
   input.value = S.online.adapter || "";
   list.addEventListener("change", () => { if (list.value) input.value = list.value; });

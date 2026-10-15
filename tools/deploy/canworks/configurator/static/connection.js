@@ -203,7 +203,11 @@ function connBar() {
     const focused = document.activeElement && bar.contains(document.activeElement) ? document.activeElement.dataset.conn : null;
     bar.dataset.html = sig;
     bar.replaceChildren(...line.childNodes);
-    if (focused) { const again = bar.querySelector(`[data-conn="${focused}"]`); if (again) again.focus(); }
+    if (focused) {
+      // The same control again, or the bar's main action when it is gone (Disconnect becomes Connect…).
+      const again = bar.querySelector(`[data-conn="${focused}"]`) || bar.querySelector('[data-conn="connect"], [data-conn="disconnect"], button');
+      if (again) again.focus();
+    }
   }
   bar.classList.toggle("fault", fault);
   bar.setAttribute("role", fault && (!on || CONN.error) ? "alert" : "status");
@@ -245,7 +249,17 @@ function openConnect(message) {
     el("menu", { class: "toolbar" }, el("button", { type: "button", dataset: { conn: "close-panel" }, onclick: () => dlg.close() }, "Close")));
   if (!dlg.dataset.wired) {
     dlg.dataset.wired = "1";
-    dlg.addEventListener("close", () => { connBar(); });
+    dlg.addEventListener("close", () => {
+      connBar();
+      // The control that opened the panel may be gone (the bar is redrawn, or the
+      // panel opened by itself): focus goes to the bar, never to the page body.
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (a && a !== document.body && a.isConnected) return;
+        const to = document.querySelector('#conn-bar [data-conn="disconnect"], #conn-bar [data-conn="connect"], #conn-bar button');
+        if (to) to.focus();
+      }, 0);
+    });
   }
   if (!dlg.open) dlg.showModal();
   const first = body.querySelector("[data-online=adapter-list], [data-online=runtime-list], [data-online=host], input, select, button");
