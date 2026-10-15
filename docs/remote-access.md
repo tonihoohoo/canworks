@@ -32,7 +32,9 @@ canworks-diag --runtime line3.local status
 
 The advertisement does not depend on the PLC running: a stopped PLC is listed, and connecting says diagnostics are not listening. Typing a host name or address always works. Discovery needs Avahi on the device (`apt-get install avahi-daemon`; Raspberry Pi OS has it).
 
-Windows drops the answers to a search on a network set to **Public**, so the list stays empty there. Asking one device directly still works, because its answer comes back to the question: `canworks-diag discover line3.local` (or its address). The tools do the same after connecting to a typed address, so the remote link still learns the runtime and pairs this PC.
+Windows drops the answers to a search on a network set to **Public**, so the list stays empty there. Asking one device directly still works, because its answer comes back to the question: `canworks-diag discover line3.local` (or its address). The tools do the same after connecting to a typed address, so the remote link still learns the runtime and pairs this PC. Only an answer from the asked address counts.
+
+A runtime this PC is paired with keeps the link ID it was paired with. When it answers with another one (the device was reinstalled and made a new key, or another device took its address), the tools say "its identity changed" after the command and leave the remembered runtime as it was. If you know the runtime was reinstalled, pair again with the token: `canworks-diag --runtime line3.local --repair status`.
 
 ## Other networks
 
@@ -116,6 +118,7 @@ On the PC (`canworks-diag`):
 | `link unpair NAME` | Removes this PC from the runtime's paired PCs (no token needed) and forgets it. |
 | `link forget NAME` | Forgets a runtime on this PC only. |
 | `--runtime NAME` | A remembered runtime: directly when it answers, else over the link. `link:NAME` uses only the link. |
+| `--repair` | With `--runtime HOST`: a paired runtime that now answers with another link ID (reinstalled, new key) is paired again with its new ID. |
 
 `canworks-deploy --runtime NAME` and `--runtime link:NAME` deploy the same way, with the same certificate checks.
 

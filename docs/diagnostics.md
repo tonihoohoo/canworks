@@ -110,7 +110,7 @@ canworks-diag --adapter slcan:COM5 backup 5 --config canworks/canworks.json --ne
 | Option | |
 |---|---|
 | `--adapter TYPE:CHANNEL` | `slcan:PORT`, `gs_usb:N` (Windows, macOS, Linux) or `socketcan:IFACE` (Linux); other python-can types are passed through untested. Not together with `--runtime`. |
-| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. Every command checks it before sending anything and exits 1 with the reason when the bus does not run at it ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). |
+| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. Every command checks it before sending anything and exits 1 with the reason when the bus does not run at it ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). A `--config` network with `adapter.listen_only: true` connects listen-only and sends nothing. |
 | `--check-node N` | the node that answers the bit rate check (an SDO read of 0x1000) on a silent bus, for an adapter that cannot confirm its own frames (slcan). |
 | `--adapter-option KEY=VALUE` | passed to python-can when opening the adapter, repeatable. |
 | `--allow-changes` | allows SDO writes, NMT, restore and LSS for this command; without it the adapter only reads. `store` still asks. |
