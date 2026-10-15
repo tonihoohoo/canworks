@@ -112,8 +112,7 @@ function renderIds(box) {
       el("div", { role: "rowgroup", class: "ids-body", id: "ids-body" }), el("div", { class: "ids-spacer" })));
   grid.addEventListener("keydown", idsKey);
   grid.addEventListener("scroll", () => idsDraw());
-  const pause = el("button", { type: "button", dataset: { ids: "pause" }, "aria-pressed": String(TI.paused),
-    title: "Stop updating the table; recording continues", onclick: () => idsPause(!TI.paused) }, "Pause view");
+  const pause = idsPauseLabel(el("button", { type: "button", dataset: { ids: "pause" }, onclick: () => idsPause(!TI.paused) }));
   box.append(
     el("div", { class: "toolbar ids-tools" },
       el("button", { type: "button", dataset: { ids: "set-ref" }, onclick: () => idsReference(idsLive() ? "now" : TI.selectedSeq()),
@@ -150,10 +149,17 @@ async function idsSetSort(key) {
   if (box) idsDraw();
 }
 
+// The button says what pressing it does, so it has no pressed state.
+function idsPauseLabel(b) {
+  b.textContent = TI.paused ? "Resume view" : "Pause view";
+  b.title = TI.paused ? "Show the waiting updates and keep updating the table" : "Stop updating the table; recording continues";
+  return b;
+}
+
 function idsPause(on) {
   TI.paused = on;
   const b = document.querySelector("[data-ids=pause]");
-  if (b) b.setAttribute("aria-pressed", String(on));
+  if (b) idsPauseLabel(b);
   if (!on && TI.pending.size) {
     for (const [k, r] of TI.pending) TI.rows.set(k, r);
     TI.pending = new Map();

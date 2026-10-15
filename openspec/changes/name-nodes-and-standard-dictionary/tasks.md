@@ -21,7 +21,7 @@
 ## 3. Docs and release
 
 - [x] 3.1 `docs/configurator.md` and README: Nodes table device names, standard object dictionary, Change EDS…
-- [x] 3.2 Tools version 0.61.x -> 0.62.0
+- [x] 3.2 Tools version 0.62.x -> 0.63.0
 - [x] 3.3 Light and dark, 1100 px and phone width: long device names wrap in the Device column and heading
 - [x] 3.4 CI time: new page tests join the existing configurator page shards; no new job
 

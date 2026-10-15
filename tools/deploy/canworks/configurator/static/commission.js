@@ -390,16 +390,54 @@ function localLive(r, conn) {
 
 // -- Nodes: heard, scanned and added devices ------------------------------------------
 
+// What the EDS library holds, from the settings reply's bounded count.
+function edsLibraryCount(o) {
+  if (!o.eds_library) return "";
+  if (o.eds_count_capped) return `Large folder: ${o.eds_count} EDS files found so far, scans may be slow.`;
+  if (!o.eds_count) return "No EDS files in this folder or its subfolders.";
+  return o.eds_count === 1 ? "1 EDS file (with subfolders)." : `${o.eds_count} EDS files (with subfolders).`;
+}
+
+// The EDS library folder (browse-eds-library-folder): the chosen folder as
+// text, Choose folder… and Clear. A change re-matches the scanned devices.
+function edsLibraryRow() {
+  const row = el("div", { class: "eds-library-wrap", dataset: { online: "library-row" } });
+  const set = async (path) => {
+    try { S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { eds_library: path })); banner(""); }
+    catch (e) { banner(e.message, true); return; }
+    draw();
+    if (S.scanResult && S.adapterOn) runScan(false);  // the shown devices, matched against the new folder
+  };
+  const choose = el("button", { type: "button", dataset: { online: "library-choose" }, onclick: async () => {
+    const path = await chooseFolder({ title: "Choose the EDS library folder", start: S.online.eds_library || "",
+      note: "Scanned devices are matched against the EDS files in this folder and its subfolders." });
+    if (path !== null) await set(path);
+    choose.focus();
+  } }, "Choose folder…");
+  const clear = el("button", { type: "button", dataset: { online: "library-clear" }, onclick: async () => {
+    await set("");
+    choose.focus();
+  } }, "Clear");
+  const pathText = el("span", { class: "lib-path", dataset: { online: "library" } });
+  const count = el("span", { class: "muted", dataset: { online: "library-count" }, "aria-live": "polite" });
+  function draw() {
+    const p = S.online.eds_library || "";
+    pathText.textContent = p || "None chosen";
+    pathText.title = p;
+    pathText.classList.toggle("muted", !p);
+    clear.hidden = !p;
+    count.textContent = edsLibraryCount(S.online);
+  }
+  draw();
+  row.append(el("div", { class: "eds-library", role: "group", "aria-labelledby": "eds-library-label" },
+    el("strong", { id: "eds-library-label" }, "EDS library"), pathText, choose, clear, count),
+  hint("Optional. Scanned devices are matched against the EDS files in this folder and its subfolders. Kept on this PC."));
+  return row;
+}
+
 function renderCommNodes(view) {
   view.append(el("h2", null, "Nodes"));
-  const lib = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "a folder of vendor EDS files",
-    "aria-label": "EDS library folder", dataset: { online: "library" } });
-  lib.value = S.online.eds_library || "";
-  lib.addEventListener("change", async () => {
-    try { S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { eds_library: lib.value.trim() })); banner(""); }
-    catch (e) { banner(e.message, true); return; }
-    if (S.scanResult && S.adapterOn) runScan(false);  // the shown devices, matched against the new folder
-  });
+  const lib = edsLibraryRow();
   const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
   file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
@@ -408,8 +446,7 @@ function renderCommNodes(view) {
   view.append(
     el("div", { class: "toolbar" }, scan, cancel, progress,
       el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
-    el("div", { class: "grid" }, el("label", null, "EDS library folder", lib,
-      hint("Optional. Scanned devices are matched against the EDS files here (and its subfolders). Kept on this PC."))),
+    lib,
     el("div", { id: "online-conn", class: "online-conn", hidden: true }),
     el("div", { id: "online-live" }, commNodeTable(null)),
     el("div", { id: "online-lss" }),
@@ -517,14 +554,27 @@ function commDeviceOf(id) {
 // folder with the device added as an unsaved node, after asking to save the log.
 async function addToConfig(id) {
   const d = commDeviceOf(id);
-  const path = el("input", { type: "text", class: "wide", spellcheck: "false", "aria-label": "Config folder", dataset: { online: "add-folder" } });
+  const path = el("input", { type: "text", class: "wide", spellcheck: "false", id: "add-folder-path", dataset: { online: "add-folder" } });
+  // Browse…: the folder dialog over this one; an editor project sets the kind.
+  const browseBtn = el("button", { type: "button", dataset: { online: "add-folder-browse" }, onclick: async () => {
+    const p = await chooseFolder({ title: "Choose the config folder", start: path.value.trim(),
+      note: "A standalone config folder (with canworks.json) or an OpenPLC Editor project folder." });
+    if (p === null) return;
+    path.value = p;
+    try {
+      const r = await api("GET", "/api/folders?path=" + encodeURIComponent(p));
+      if (r.project) mode.value = "project";
+      else if (r.config) mode.value = "standalone";
+    } catch (e) { /* checked again when the folder opens */ }
+  } }, "Browse…");
   const mode = el("select", { "aria-label": "Folder kind", dataset: { online: "add-mode" } },
     el("option", { value: "standalone" }, "standalone config folder"), el("option", { value: "project" }, "editor project"));
   const file = d.eds_path ? null : el("input", { type: "file", accept: ".eds,.EDS", "aria-label": "EDS file", dataset: { online: "add-eds" } });
   const v = await modal(`Add node ${d.node_id} to a config. The folder opens with the device added as an unsaved node` +
     (d.lss ? " with its serial number and LSS assignment ticked." : "."),
   [["add", "Open and add", true], ["cancel", "Cancel"]],
-  el("div", null, el("label", null, "Folder ", path), el("label", { class: "inline" }, " ", mode),
+  el("div", null, el("label", { for: "add-folder-path" }, "Folder"),
+    el("div", { class: "folder-field" }, path, browseBtn), el("label", { class: "inline" }, " ", mode),
     file ? el("div", null, el("label", null, "The device's EDS file ", file)) : el("p", { class: "muted" }, `EDS: ${d.eds_name || d.eds_path}`)));
   if (v !== "add") return;
   const folder = path.value.trim();

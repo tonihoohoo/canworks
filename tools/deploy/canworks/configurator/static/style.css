@@ -834,6 +834,17 @@ table.raw-grid td, table.raw-grid th, table.fx-bytes td, table.fx-bytes th { hei
 td:has(> input, > select, > button, > .row), td:has(> label.check) { height: 32px; }
 :is(.objects, .table-scroll, .fx-list) thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: inset 0 -1px 0 var(--line); }
 .ids-c-id, .ids-c-data, .ids-c-dlc { font-family: var(--mono); }
+/* The folder dialog (chooseFolder) and the EDS library row (browse-eds-library-folder). */
+dialog.folder-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; }
+dialog.folder-dialog h2 { margin-top: 0; font-size: 16px; }
+.folder-field { display: flex; gap: 6px; }
+.folder-field input { flex: 1; min-width: 0; }
+.folder-picker .row { display: flex; gap: 6px; }
+.folder-picker .row input { flex: 1; min-width: 0; }
+.folder-picker ul.folders { max-height: min(360px, 50vh); }
+.folder-picker p { margin: 8px 0 0; }
+.eds-library { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.eds-library .lib-path { font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
 
 /* name-nodes-and-standard-dictionary: the device's name in the Nodes table, the EDS choices */
 .device-cell { overflow-wrap: anywhere; min-width: 12ch; }
