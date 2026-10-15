@@ -169,12 +169,12 @@ An invalid description or gateway section stops it with the reason (the object a
 ## Device notes
 
 ```sh
-canworks-deploy notes skeleton canworks/valve.eds [-o FILE]
+canworks-deploy notes skeleton [--all] [--index LOW-HIGH] canworks/valve.eds [-o FILE]
 canworks-deploy notes builtin canworks/valve.eds [-o FILE]
 canworks-deploy notes check canworks/valve.eds canworks/valve.eds.notes.json
 ```
 
-work with the [device notes](configurator.md#device-notes) of an EDS without the configurator. `skeleton` prints a `canworks-notes.v1` document with the EDS identity and an entry for each manufacturer object and sub-object (0x2000-0x5FFF): its EDS name, data type (`x-type`) and access (`x-access`), to fill in. `builtin` prints the built-in notes that apply to the EDS (CiA 301, and CiA 401 or 402 by its device type). `check` prints the warnings the configurator shows for a notes file, one per line, and exits with status 1 when there is any and 0 when there is none. An EDS or notes file that cannot be read stops with the reason and exit status 1. The [datasheet notes skill](configurator.md#notes-from-a-datasheet) uses all three.
+work with the [device notes](configurator.md#device-notes) of an EDS without the configurator. `skeleton` prints a `canworks-notes.v1` document with the EDS identity and an entry for each manufacturer object and sub-object (0x2000-0x5FFF): its EDS name, data type (`x-type`) and access (`x-access`), to fill in. With `--all` it has every object of the EDS, standard ones included, an entry with the name of each ARRAY and RECORD object, and on each sub-object also the EDS default (`x-default`), limits (`x-low`, `x-high`) as the EDS writes them and PDO mapping (`x-pdo`); `--index 0x3000-0x30FF` keeps only the objects of that range. When the EDS lacks the vendor ID, product code or revision, the identity leaves it out and stderr says so. `builtin` prints the built-in notes that apply to the EDS (CiA 301, and CiA 401 or 402 by its device type); stderr names the sets used and says when the device's profile has none. `check` prints the warnings the configurator shows for a notes file, one per line, and exits with status 1 when there is any and 0 when there is none. An EDS or notes file that cannot be read stops with the reason and exit status 1; for an EDS the reason names the line (a line that is not `key=value`) or the section (a missing entry or section). The [datasheet notes skill](configurator.md#notes-from-a-datasheet) uses all three.
 
 ## Export documentation of the network
 

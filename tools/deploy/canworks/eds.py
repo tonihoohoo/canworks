@@ -88,6 +88,17 @@ class SubObject:
         return ACCESS[self.access][2]
 
 
+def _syntax_error(e):
+    """The reason of an INI syntax error, naming the line and its text."""
+    if isinstance(e, configparser.MissingSectionHeaderError):
+        return "line %d has no section header before it: %s" % (e.lineno, e.line.strip())
+    if isinstance(e, configparser.ParsingError) and e.errors:
+        lineno, line = e.errors[0]
+        more = " (and %d more lines)" % (len(e.errors) - 1) if len(e.errors) > 1 else ""
+        return "line %d is not a key=value line: %s%s" % (lineno, str(line).strip().strip("'").rstrip("\\n"), more)
+    return str(e).splitlines()[0]
+
+
 def _int(text, what):
     try:
         return int(str(text).strip(), 0)
@@ -151,7 +162,7 @@ class Eds:
                     text = data.decode("latin-1")
             parser.read_string(text, path)
         except configparser.Error as e:
-            raise EdsError(str(e).splitlines()[0])
+            raise EdsError(_syntax_error(e))
         sections = {name.lower(): parser[name] for name in parser.sections()}
 
         def sub_from(section, where, name=None):

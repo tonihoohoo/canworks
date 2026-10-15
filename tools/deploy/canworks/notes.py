@@ -120,6 +120,22 @@ def profile(eds):
     return v & 0xFFFF if isinstance(v, int) else None
 
 
+def builtin_sets(eds):
+    """(the built-in note sets that apply to this EDS, e.g. ["CiA 301",
+    "CiA 402"], and a note naming a device profile without built-in notes,
+    or None)."""
+    sets = ["CiA 301"]
+    p = profile(eds)
+    if p in PROFILES:
+        sets.append("CiA %d" % p)
+        return sets, None
+    if p is None:
+        return sets, "0x1000 has no device type default, so no profile notes apply"
+    if p == 0:
+        return sets, None
+    return sets, "there are no built-in notes for profile %d" % p
+
+
 def _template(index):
     for lo, hi in TEMPLATES:
         if lo <= index <= hi:
@@ -252,18 +268,39 @@ def type_text(o):
     return o.type_name or OTHER_TYPES.get(o.data_type, "0x%04X" % o.data_type)
 
 
-def skeleton(eds, eds_name, eds_text=None, eds_path=None, describe=False):
+IDENTITY_FIELDS = (("vendor_id", "vendor ID"), ("product_code", "product code"), ("revision", "revision"))
+
+
+def missing_identity(identity_):
+    """The names of the identity fields (vendor ID, product code, revision) an
+    EDS identity lacks."""
+    return [text for k, text in IDENTITY_FIELDS if k not in identity_]
+
+
+def skeleton(eds, eds_name, eds_text=None, eds_path=None, describe=False, all_objects=False, indices=None):
     """A new notes document: the EDS identity and an entry with only `name`
     for every manufacturer object and sub-object. With `describe`, each
     entry also has the EDS data type (`x-type`) and access (`x-access`),
-    for `canworks-deploy notes skeleton`."""
+    for `canworks-deploy notes skeleton`. With `all_objects` it has every
+    object of the EDS, an entry with the name of each ARRAY and RECORD
+    object itself, and the EDS default, limits and PDO mapping
+    (`x-default`, `x-low`, `x-high`, `x-pdo`) as the EDS writes them.
+    `indices` (low, high) keeps only the objects in that range."""
+    lo, hi = indices or ((0, 0xFFFF) if all_objects else MANUFACTURER)
     objects = {}
     for index, sub, o in eds.items():
-        if not MANUFACTURER[0] <= index <= MANUFACTURER[1]:
+        if not lo <= index <= hi or not (all_objects or MANUFACTURER[0] <= index <= MANUFACTURER[1]):
             continue
+        if all_objects and not _is_var(eds, index) and sub == min(eds.objects[index]):
+            objects[key(index)] = {"name": eds.names.get(index, "")}
         entry = {"name": o.name}
         if describe:
             entry.update({"x-type": type_text(o), "x-access": o.access})
+        if all_objects:
+            for field, value in (("x-default", o.default), ("x-low", o.low_limit), ("x-high", o.high_limit)):
+                if value:
+                    entry[field] = value
+            entry["x-pdo"] = bool(o.pdo_mapping)
         objects[key(index) if _is_var(eds, index) else key(index, sub)] = entry
     return {"format": FORMAT, "eds": identity(eds_name, eds_path, eds_text), "objects": objects}
 
@@ -391,7 +428,9 @@ def dumps(doc):
 
 # Data types the IEC type table leaves out, for messages.
 OTHER_TYPES = {0x0009: "VISIBLE_STRING", 0x000A: "OCTET_STRING", 0x000B: "UNICODE_STRING",
-               0x000C: "TIME_OF_DAY", 0x000D: "TIME_DIFFERENCE", 0x000F: "DOMAIN"}
+               0x000C: "TIME_OF_DAY", 0x000D: "TIME_DIFFERENCE", 0x000F: "DOMAIN",
+               0x0010: "INTEGER24", 0x0012: "INTEGER40", 0x0013: "INTEGER48", 0x0014: "INTEGER56",
+               0x0016: "UNSIGNED24", 0x0018: "UNSIGNED40", 0x0019: "UNSIGNED48", 0x001A: "UNSIGNED56"}
 
 
 def _bits_of(type_name):
@@ -412,8 +451,13 @@ def check(eds, doc, notes_name, eds_name):
             continue
         subs = [eds.objects[ix][sub]] if sub is not None else (
             [eds.objects[ix][0]] if _is_var(eds, ix) else [])
+        if sub is None and not _is_var(eds, ix):
+            for field in ("values", "bits"):
+                if field in v:
+                    out.append("%s: the %s of %s are not used by its sub-objects; write them on its sub-object keys"
+                               % (notes_name, field, k))
         for o in subs:
-            bits = _bits_of(o.type_name)
+            bits = _bits_of(type_text(o))
             for field in ("values", "bits"):
                 if field in v and bits is None and not (field == "values" and o.type_name == "BOOLEAN"):
                     out.append("%s: %s has %s, but its type %s is not an integer type"
@@ -421,7 +465,7 @@ def check(eds, doc, notes_name, eds_name):
             if bits is not None and isinstance(v.get("bits"), dict):
                 over = sorted(int(b) for b in v["bits"] if str(b).isdigit() and int(b) >= bits)
                 if over:
-                    out.append("%s: %s names bit %d, but %s has only %d bits" % (notes_name, k, over[0], o.type_name, bits))
+                    out.append("%s: %s names bit %d, but %s has only %d bits" % (notes_name, k, over[0], type_text(o), bits))
         if v.get("scale") == 0:
             out.append("%s: %s has a scale of 0" % (notes_name, k))
     return out

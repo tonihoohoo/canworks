@@ -57,13 +57,14 @@ writes the EDS of OpenPLC as a CANopen slave from a description of its
 objects (docs/slave.md), checked with the plugin's EDS lint; with --gateway
 it adds the gateway's route, status and SDO bridge objects (docs/gateway.md).
 
-  canworks-deploy notes skeleton|builtin valve.eds [-o FILE]
+  canworks-deploy notes skeleton [--all] [--index LOW-HIGH] valve.eds [-o FILE]
+  canworks-deploy notes builtin valve.eds [-o FILE]
   canworks-deploy notes check valve.eds valve.eds.notes.json
 
 prints the device notes skeleton of an EDS (manufacturer objects with their
-names, types and access), the built-in notes that apply to it, or the
-findings the configurator shows for a notes file (docs/configurator.md,
-Device notes).
+names, types and access; with --all every object with its default, limits
+and PDO mapping), the built-in notes that apply to it, or the findings the
+configurator shows for a notes file (docs/configurator.md, Device notes).
 """
 
 import argparse
@@ -730,10 +731,18 @@ def notes_parser():
     sub = p.add_subparsers(dest="command", required=True, metavar="skeleton|builtin|check")
     for name, text in (("skeleton", "a notes document with an entry per manufacturer object (0x2000-0x5FFF) and its "
                                     "EDS name, data type (x-type) and access (x-access)"),
-                       ("builtin", "the built-in CiA 301, 401 and 402 notes that apply to the EDS")):
+                       ("builtin", "the built-in CiA 301, 401 and 402 notes that apply to the EDS; stderr names "
+                                   "the sets used")):
         c = sub.add_parser(name, help=text, description=text)
         c.add_argument("eds", help="the EDS file")
         c.add_argument("-o", "--output", metavar="FILE", help="write the document to FILE instead of printing it")
+        if name == "skeleton":
+            c.add_argument("--all", action="store_true", dest="all_objects",
+                           help="every object of the EDS, standard ones included, with an entry for each ARRAY "
+                                "and RECORD object and the EDS default (x-default), limits (x-low, x-high) and "
+                                "PDO mapping (x-pdo)")
+            c.add_argument("--index", metavar="LOW-HIGH", type=_index_range,
+                           help="only the objects in this index range, for example 0x3000-0x30FF")
     c = sub.add_parser("check", help="the findings the configurator shows for a notes file; exit status 1 when "
                                      "there is any",
                        description="Print the findings the configurator shows for a notes file, one per line. Exit "
@@ -743,7 +752,20 @@ def notes_parser():
     return p
 
 
-def run_notes(args, out=print):
+def _index_range(text):
+    """(low, high) of an index range "0x3000-0x30FF" (or one index)."""
+    parts = text.split("-")
+    try:
+        lo, hi = (int(parts[0], 16), int(parts[-1], 16)) if len(parts) <= 2 else (None, None)
+    except ValueError:
+        lo = hi = None
+    if lo is None or not 0 <= lo <= hi <= 0xFFFF:
+        raise argparse.ArgumentTypeError("%r is not an index range such as 0x3000-0x30FF" % text)
+    return lo, hi
+
+
+def run_notes(args, out=print, err=None):
+    err = err or (lambda text: print(text, file=sys.stderr))
     from .eds import Eds, EdsError
     name = os.path.basename(args.eds)
     try:
@@ -759,9 +781,16 @@ def run_notes(args, out=print):
             out(f)
         return 1 if findings else 0
     if args.command == "skeleton":
-        doc = notes.skeleton(eds, name, eds_path=args.eds, describe=True)
+        doc = notes.skeleton(eds, name, eds_path=args.eds, describe=True, all_objects=args.all_objects,
+                             indices=args.index)
+        missing = notes.missing_identity(doc["eds"])
+        if missing:
+            err("%s gives no %s; the notes file's identity leaves %s out"
+                % (name, " or ".join(missing), "it" if len(missing) == 1 else "them"))
     else:
         doc = {"format": notes.FORMAT, "eds": notes.identity(name, args.eds), "objects": notes.builtin(eds)}
+        sets, missing = notes.builtin_sets(eds)
+        err("built-in notes: %s%s" % (", ".join(sets), "; " + missing if missing else ""))
     text = notes.dumps(doc)
     if args.output:
         try:
