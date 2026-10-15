@@ -140,7 +140,8 @@ class Layers(Base):
         pg.locator('#fx-lab-inspector details[data-fx-layer="wire"] > summary').press("Enter")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=wire]", state="hidden", timeout=3000)
         self.assertRegex(pg.inner_text('#fx-lab-inspector details[data-fx-layer="wire"] > summary'), r"\d+ bits, \d+ stuff bits")
-        # After a reload.
+        # After a reload (once the setting is saved).
+        pg.wait_for_function("async () => (await api('GET', '/api/trace/prefs')).fx_fold.includes('wire')")
         pg.reload()
         pg.wait_for_selector("#editor:not([hidden])")
         self.lab()
