@@ -25,6 +25,13 @@
 #include <utility>
 #include <vector>
 
+#include <linux/can.h>
+#include <linux/can/j1939.h>
+#include <linux/net_tstamp.h>
+#include <net/if.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include "j1939_socket.h"
 
 using namespace canopen_plugin;
@@ -52,6 +59,31 @@ std::map<uint32_t, bool> ends_until(J1939Socket& s, uint32_t want, double second
   return seen;
 }
 
+// Which step of the long socket's setup the kernel refuses, for the log.
+void explain_no_events(const std::string& iface) {
+  int fd = socket(PF_CAN, SOCK_DGRAM | SOCK_NONBLOCK, CAN_J1939);
+  if (fd < 0) {
+    std::printf("     socket: %s\n", std::strerror(errno));
+    return;
+  }
+  sockaddr_can a;
+  std::memset(&a, 0, sizeof(a));
+  a.can_family = AF_CAN;
+  a.can_ifindex = static_cast<int>(if_nametoindex(iface.c_str()));
+  a.can_addr.j1939.name = J1939_NO_NAME;
+  a.can_addr.j1939.addr = 0x80;
+  a.can_addr.j1939.pgn = J1939_NO_PGN;
+  int one = 1;
+  unsigned flags = SOF_TIMESTAMPING_OPT_ID | SOF_TIMESTAMPING_TX_ACK | SOF_TIMESTAMPING_TX_SCHED |
+                   SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG | SOF_TIMESTAMPING_OPT_TSONLY;
+  auto step = [](const char* what, int r) { std::printf("     %s: %s\n", what, r < 0 ? std::strerror(errno) : "ok"); };
+  step("SO_BROADCAST", setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)));
+  step("bind at 0x80", bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)));
+  step("SO_J1939_ERRQUEUE", setsockopt(fd, SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)));
+  step("SO_TIMESTAMPING", setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)));
+  ::close(fd);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -71,6 +103,7 @@ int main(int argc, char** argv) {
   }
   if (!a->long_send_events()) {
     std::printf("FAIL the kernel does not report the long socket's sessions\n");
+    explain_no_events(iface);
     return 1;
   }
   std::vector<uint8_t> data(200);
