@@ -136,15 +136,15 @@ The cell (node 20) is the PLC as a slave: the host writes `line_run` and `temp_l
 
 ## 11. Trace with a trigger
 
-**Trace**, network `io` ([trace.md](trace.md)): **Start**, and the frames scroll decoded with the config's names; **Identifiers** shows each COB-ID's cycle time (SYNC every 20 ms, TIME every second). **Graph**: add node 5's channel 0 and node 6's analogue input 1 in one lane and see the second follow the first through the gateway and the host. **Trigger**: EMCY from node 5, single mode, 2 s before and after; the wire-break timeline fires it within a minute, and the hit is listed and marked in the graph. **Export** the window as pcapng for Wireshark, or candump or CSV.
+**Trace**, network `io` ([trace.md](trace.md)): **Start**: **By identifier** shows one row per COB-ID with its cycle time (SYNC every 20 ms, TIME every second) and tints the bytes that change, and **Chronological** scrolls the frames decoded with the config's names. **Graph**: add node 5's channel 0 and node 6's analogue input 1 in one lane and see the second follow the first through the gateway and the host. **Trigger**: EMCY from node 5, single mode, 2 s before and after; the wire-break timeline fires it within a minute, and the hit is listed and marked in the graph. **Save** ▾ → **Download** the window as pcapng for Wireshark, or candump or CSV.
 
 ## 12. Frame inspector
 
-Select any frame of the trace: the inspector below the list explains it layer by layer, from the decoded meaning down to every bit on the wire. The **Sequences** tab shows node 6's boot as a story after the NMT reset of chapter 5, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus.
+Select any frame of the trace: the inspector beside the list explains it layer by layer, from the decoded meaning down to every bit on the wire. The **Sequences** tab shows node 6's boot as a story after the NMT reset of chapter 5, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus.
 
 ## 13. Sending raw frames
 
-**Trace** → **Send** (needs **Allow changes**, which the example has): send `0x000` with data `81 06` (NMT reset node 6). The runtime asks for force, because 0x000 is an identifier the network uses; confirm, and node 6 boots again in the trace. A cyclic frame on a free identifier, say `0x6FF` every 100 ms, shows as Tx in the trace until you stop it ([diagnostics.md](diagnostics.md#sending-frames-by-hand)).
+**Trace** → **Transmit list** (needs **Allow changes**, which the example has): **Add frame**, identifier `000`, data `81 06` (NMT reset node 6), **Send**. The runtime asks for force, because 0x000 is an identifier the network uses; confirm, and node 6 boots again in the trace. A row with a period, say `6FF` every 100 ms, is a cyclic job that shows as Tx in the trace until you stop it; the list is still there next time ([diagnostics.md](diagnostics.md#sending-frames-by-hand)).
 
 ## 14. Scenario tests
 

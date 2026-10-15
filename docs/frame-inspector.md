@@ -4,7 +4,7 @@ The frame inspector takes one CAN frame and explains it layer by layer: what it 
 
 It is in three places:
 
-- the configurator's **Trace** view: select a frame in a recorded or opened trace and the inspector opens under the list; the **Sequences** tab shows SDO conversations, boot stories and SYNC cycles made of many frames;
+- the configurator's **Trace** view: select a frame or a By identifier row in a recorded or opened trace and the inspector opens beside or under the list; **Explain in Frame lab** takes the frame there; the **Sequences** tab shows SDO conversations, boot stories and SYNC cycles made of many frames;
 - the configurator's **Frame lab** view: type, paste or build frames without a runtime, a trace or an adapter, and see two frames compete for the bus;
 - the command line: `canworks-diag explain`.
 

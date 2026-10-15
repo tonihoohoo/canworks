@@ -13,8 +13,10 @@ extends them as frames arrive.
 
 import base64
 import io
+import json
 import os
 import threading
+import time
 from array import array
 
 from .. import contract, dbcexport, diag
@@ -22,7 +24,7 @@ from ..bustrace import explain as explain_mod
 from ..bustrace import formats, sequences, triggers
 from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, network_entry
 from ..bustrace.recorder import Recorder, Session
-from ..bustrace.stats import KIND_CODE
+from ..bustrace.stats import KIND_CODE, id_key
 
 MAX_ROWS = 1000
 LOOKBACK = 4000  # frames searched back for SDO transfers when decoding a window
@@ -160,6 +162,11 @@ class FilterView:
         self.upto = end
 
 
+def _plain(key):
+    """A filter key as it comes back from the page (JSON lists)."""
+    return json.loads(json.dumps(list(key)))
+
+
 def _bisect(seq, value, key=None):
     lo, hi = 0, len(seq)
     while lo < hi:
@@ -194,16 +201,33 @@ class Workspace:
         self.generation += 1
 
     # -- recording ----------------------------------------------------------
-    def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix, network=None):
+    def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix, network=None,
+              continue_=False, ended=None, connection=None):
+        """continue_: append to the recording that stopped (on its network
+        only), after a gap marker, keeping the trigger's hits. ended: see
+        Recorder. connection: "adapter" or "runtime", kept in the metadata."""
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "a trace is already recording")
+            old = self.recorder
+            if continue_:
+                if self.source != "live" or not len(self.session.trace):
+                    raise Refused(409, "there is no recording to continue; start a new trace")
+                if self.network != network:
+                    raise Refused(409, "the recording to continue is of network %s; start a new trace for %s"
+                                  % (self.network, network))
             self.filters, self.error_frames, self.network = filters, error_frames, network
             if trigger is not None:
                 self.trigger = trigger or None
-            self._replace(Session(decoder, limit=self.limit), "live", decoder.warnings)
+            if not continue_:
+                self._replace(Session(decoder, limit=self.limit), "live", decoder.warnings)
+            if connection:
+                self.session.trace.meta["connection"] = connection
             self.recorder = Recorder(connect, self.session, filters, error_frames, self.trigger,
-                                     autosave_dir=autosave_dir, name_prefix=name_prefix)
+                                     autosave_dir=autosave_dir, name_prefix=name_prefix, ended=ended,
+                                     offset_us=old.offset_us if continue_ and old else None)
+            if continue_ and old and old.engine and self.recorder.engine:
+                self.recorder.engine.hits = list(old.engine.hits)
             self.recorder.start()
 
     def stop(self):
@@ -321,9 +345,73 @@ class Workspace:
             return {"generation": generation, "total": total, "offset": offset, "focus": focus, "rows": rows,
                     "start_us": t.start_us}
 
-    def ids(self):
-        with self.session.lock:
-            return {"ids": self.session.analysis.id_table()}
+    def _now_us(self):
+        """'Now' on the trace's time axis: the PC clock moved by the
+        recording's clock offset while recording, else the last frame."""
+        rec = self.recorder
+        a = self.session.analysis
+        if rec and rec.running and rec.offset_us is not None:
+            return max(int(time.time() * 1e6) - rec.offset_us, a.last_us or 0)
+        return a.last_us
+
+    def ids(self, since=None, flt=None):
+        """The By identifier rows (canopen-configurator: "By identifier
+        view"). since: {"generation", "rev", "filter"} the page holds; the
+        answer then has only the rows updated after it, or `reset` when the
+        trace or the filter changed. A display filter keeps the rows of
+        identifiers with a matching frame."""
+        flt = flt or DisplayFilter({})
+        with self.lock:
+            s, generation = self.session, self.generation
+        with s.lock:
+            a, t = s.analysis, s.trace
+            rev, reset = None, True
+            if isinstance(since, dict) and since.get("generation") == generation and \
+                    since.get("filter") == _plain(flt.key) and isinstance(since.get("rev"), int) and \
+                    since["rev"] <= a.rev:
+                rev, reset = since["rev"], False
+            keys = None
+            if not flt.empty:
+                view = self._view(flt)
+                keys = set()
+                base = t.dropped
+                for q in view.seqs:
+                    f = t.frame(q - base)
+                    if not f.gap:
+                        keys.add(id_key(f))
+            now = self._now_us()
+            rows = a.id_table(rev, now)
+            shift = t.dropped - a.dropped
+            for r in rows:
+                r["seq"] += shift
+            if keys is not None:
+                rows = [r for r in rows if (r["id"], r["ext"], r["dir"] == "Tx") in keys]
+            return {"ids": rows, "generation": generation, "rev": a.rev, "reset": reset, "now_us": now,
+                    "start_us": t.start_us, "reference": a.ref is not None, "reference_us": a.ref_us,
+                    "filter": _plain(flt.key)}
+
+    def set_reference(self, at):
+        """at: "now", an absolute frame number (the data each identifier had
+        at that frame) or None to clear."""
+        with self.lock:
+            s = self.session
+        with s.lock:
+            a, t = s.analysis, s.trace
+            if at is None:
+                a.set_reference(clear=True)
+            elif at == "now":
+                a.set_reference()
+            else:
+                i = at - t.dropped
+                if not 0 <= i < len(t):
+                    raise Refused(400, "frame %s is not in the trace" % at)
+                data = {}
+                for j in range(i + 1):
+                    f = t.frame(j)
+                    if not f.gap:
+                        data[id_key(f)] = f.data
+                a.set_reference(data, t.times[i])
+            return {"reference": a.ref is not None, "reference_us": a.ref_us}
 
     def series(self, keys, start_us=None, end_us=None, points=None):
         out = {}
@@ -486,6 +574,31 @@ def decoder_for(cfg, config_path, eds_paths, names, network=None):
     if contract.version_of(cfg) == 1:
         network = None
     return Decoder.from_config(cfg, config_path, eds_paths=eds_paths, names=names, network=network)
+
+
+def commission_decoder(nodes, resolve):
+    """Commission a device has no config: the trace decodes with the CANopen
+    predefined set, and SDO and EMCY with the EDS files of the Nodes tab
+    (canopen-configurator: "Frame lab view"). PDOs stay raw: the device's
+    mapping is not known without reading it. nodes: {node id: EDS path or
+    name}; resolve(name) gives the file."""
+    from ..eds import Eds, EdsError
+    d = Decoder()
+    if not isinstance(nodes, dict):
+        return d
+    for key, value in nodes.items():
+        try:
+            nid = int(key)
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= nid <= 127 or not isinstance(value, str) or not value.lower().endswith(".eds"):
+            continue
+        try:
+            d.eds[nid] = Eds.read(resolve(value))
+            d.node_names[nid] = ""  # known, without a config name: "node 12"
+        except (OSError, EdsError, ValueError) as e:
+            d.warnings.append("node %d's EDS %s is not used for decoding: %s" % (nid, os.path.basename(value), e))
+    return d
 
 
 def check_trigger(spec):

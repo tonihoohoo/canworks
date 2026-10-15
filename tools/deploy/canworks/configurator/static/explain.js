@@ -422,6 +422,11 @@ async function fxInspectSeq(seq, target, opts) {
     if (m.kind === "pdo" || m.kind === "sync") go("sync", "Show its SYNC cycle");
     if (m.kind === "sdo" || m.kind === "nmt" || (m.kind === "heartbeat" && m.frame.data === "00")) go("boot", "Show the boot story");
   }
+  // The same frame in the Frame lab, or into the transmit list (canopen-configurator: "Explain in Frame lab").
+  if (!m.frame.err && !(opts && opts.noLab)) {
+    actions.push(el("button", { type: "button", dataset: { fx: "to-lab" }, onclick: () => traceExplainInLab(seq) }, "Explain in Frame lab"));
+    actions.push(sendButton(txFromCandump(m.frame.candump)));
+  }
   fxFill(box, fxInspector(m, { actions, time: typeof secText === "function" ? secText(m.t_us) : null }));
 }
 
@@ -700,6 +705,8 @@ function transmissionName(t) {
 
 function fxLabBody(extra) {
   const body = Object.assign({}, extra);
+  const eds = typeof commissionEds === "function" ? commissionEds() : null;
+  if (eds) body.eds = eds;
   if (S.model) {
     body.config = fileConfig();
     const net = several() ? netName(S.config) : "";
@@ -727,8 +734,13 @@ function renderFrameLab(view) {
   const rate = el("select", { "aria-label": "Bit rate", dataset: { fx: "lab-bitrate" } },
     el("option", { value: "" }, "Bit rate of the configuration"), FX_BITRATES.map((r) => el("option", { value: String(r), selected: String(r) === L.bitrate }, fxRate(r))));
   rate.onchange = () => { L.bitrate = rate.value; if (L.frame) fxLabExplain(L.frame); };
+  const src = L.fromTrace;
   view.append(el("h2", null, "Frame lab"),
-    el("p", { class: "fx-note", dataset: { fx: "nothing-sent" } }, "Nothing here is sent: the Frame lab explains frames on this PC only. It needs no runtime, no adapter and no trace."),
+    el("p", { class: "fx-note", dataset: { fx: "nothing-sent" } }, "Nothing here is sent: the Frame lab explains frames on this PC and needs no runtime, no adapter and no trace. Send… only adds a frame to the Trace tab's transmit list."),
+    src ? el("div", { class: "toolbar fx-from-trace", dataset: { fx: "from-trace" } },
+      el("span", { dataset: { fx: "source" } }, (src.edited ? "Edited from trace frame " : "From trace, frame ") +
+        `${(src.seq + 1).toLocaleString()}` + (typeof secText === "function" && src.t_us != null ? ` (${secText(src.t_us)})` : "")),
+      el("button", { type: "button", dataset: { fx: "back-to-trace" }, onclick: () => traceBackFrom(src) }, "Back to trace")) : "",
     el("section", { class: "fx-lab-section" },
       el("h3", null, "Explain a frame"),
       el("p", { class: "muted" }, j1939
@@ -781,6 +793,11 @@ function fxLabFrames(frames, label) {
   const L = FX.lab;
   L.built = { label, frames: frames.map((f) => ({ label: f.label, frame: f.frame })) };
   L.frame = frames[0].frame;
+  if (L.fromTrace) {  // a built or example frame is not the trace's any more
+    L.fromTrace = null;
+    const line = document.querySelector("[data-fx=from-trace]");
+    if (line) line.remove();
+  }
   const input = document.querySelector("[data-fx=lab-frame]");
   if (input) input.value = L.frame;
   fxLabExplain(L.frame);
@@ -792,6 +809,18 @@ async function fxLabExplain(text) {
   const box = $("#fx-lab-inspector");
   if (!box) return;
   const my = (box._fxSeq = (box._fxSeq || 0) + 1);
+  const src = L.fromTrace;
+  if (src && !src.edited && text !== src.candump) {
+    // Edited: the trace's SDO context no longer applies.
+    src.edited = true;
+    const line = document.querySelector("[data-fx=source]");
+    if (line) line.textContent = `Edited from trace frame ${(src.seq + 1).toLocaleString()}` + (typeof secText === "function" && src.t_us != null ? ` (${secText(src.t_us)})` : "");
+  }
+  if (src && !src.edited && text === src.candump) {
+    if (err) err.textContent = "";
+    fxFill(box, fxInspector(src.model, { actions: fxLabActions(src.candump) }));
+    return;
+  }
   let r;
   try {
     r = await api("POST", "/api/explain", fxLabBody({ frame: text }));
@@ -811,8 +840,14 @@ async function fxLabExplain(text) {
         onclick: () => { L.frame = f.frame; const i = document.querySelector("[data-fx=lab-frame]"); if (i) i.value = f.frame; fxLabExplain(f.frame); } },
       f.label))));
   }
-  parts.push(fxInspector(r.explanation));
+  parts.push(fxInspector(r.explanation, { actions: fxLabActions(r.explanation.candump) }));
   fxFill(box, ...parts);
+}
+
+// Send… from the Frame lab: into the transmit list, not onto the bus.
+function fxLabActions(candump) {
+  if (typeof sendButton !== "function" || /^error/i.test(candump || "")) return [];
+  return [sendButton(txFromCandump(candump))];
 }
 
 function fxBuilder() {

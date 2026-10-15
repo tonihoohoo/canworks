@@ -43,7 +43,7 @@ from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm
-from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing
+from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing, transmit
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -1865,6 +1865,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         raise ApiError(413, "the file is larger than %d MiB" % (MAX_TRACE_FILE >> 20))
                     body = {"raw": self.rfile.read(length), "name": query.get("name", ["trace"])[0],
                             "network": query.get("network", [None])[0]}
+                    try:  # Commission a device: the Nodes tab's EDS files, for decoding
+                        body["eds"] = json.loads(query.get("eds", ["{}"])[0])
+                    except ValueError:
+                        pass
                 else:
                     body = self._body() if method == "POST" else {}
                 try:
@@ -2781,7 +2785,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             network = nets[0]
         warnings = []
         try:
-            dec = tracing.decoder_for(cfg, config_path, eds_paths, names, network) if cfg else explain_mod.Decoder()
+            if s.commission:  # no config: the Nodes tab's EDS files
+                with s.lock:
+                    dec = tracing.commission_decoder(body.get("eds"), s.eds_path)
+            else:
+                dec = tracing.decoder_for(cfg, config_path, eds_paths, names, network) if cfg else explain_mod.Decoder()
             warnings += dec.warnings
         except Exception as e:  # noqa: BLE001 - an unfinished configuration still explains frames
             dec = explain_mod.Decoder()
@@ -2861,6 +2869,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
         def decoder():
+            if s.commission:
+                with s.lock:
+                    return tracing.commission_decoder(body.get("eds"), s.eds_path)
             cfg = body.get("config")
             with s.lock:
                 if not isinstance(cfg, dict):
@@ -2876,13 +2887,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route == ("GET", "/api/trace/state"):
             return state()
+        if route[1].startswith(("/api/trace/transmit", "/api/trace/prefs")):
+            return self._transmit(route, body, folder, network)
+        if route == ("POST", "/api/trace/ids/reference"):
+            at = body.get("at")
+            if at not in (None, "now"):
+                at = tracing._int(at, "at", 0)
+            ws.set_reference(at)
+            return ws.ids(None, tracing.DisplayFilter(body.get("filter")))
         if route == ("POST", "/api/trace/frames"):
             flt = tracing.DisplayFilter(body.get("filter"))
             at = tracing._opt_time(body.get("at_us"), "at_us")
             return ws.rows(tracing._int(body.get("offset", 0), "offset", 0),
                            tracing._int(body.get("count", 200), "count", 1), flt, at)
         if route == ("POST", "/api/trace/ids"):
-            return ws.ids()
+            since = body.get("since") if isinstance(body.get("since"), dict) else None
+            return ws.ids(since, tracing.DisplayFilter(body.get("filter")))
         if route == ("POST", "/api/trace/series"):
             keys = [k for k in body.get("keys") or [] if isinstance(k, str)]
             start, end = time_range()
@@ -2921,6 +2941,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     "record a trace; opening trace files works without it", need="online")
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
+            adapter = hasattr(hostname, "client")
             try:  # a wrong host, token or an old plugin is said at once instead of retried
                 c = connect()
                 try:
@@ -2937,7 +2958,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     triggers_mod.resolve_signals(spec or ws.trigger, dec.signal_keys())
                 except triggers_mod.TriggerError as e:
                     raise ApiError(422, str(e))
-            ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name, network)
+            ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name, network,
+                     continue_=bool(body.get("continue")), ended=self._trace_ended(adapter),
+                     connection="adapter" if adapter else "runtime")
             return state()
         if route == ("POST", "/api/trace/open"):
             path, name = body.get("path"), body.get("name") or "trace"
@@ -3001,6 +3024,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except OSError as e:
                 raise ApiError(422, "cannot save to %s: %s" % (target, e.strerror or e))
             return {"path": path, "frames": len(part)}
+        raise ApiError(404, "no such API: %s %s" % route)
+
+    def _trace_ended(self, adapter):
+        """The recording's check for the page's connection: an adapter
+        connection closed by Disconnect (or after the bus ended it) ends the
+        recording; a runtime connection is the recorder's own and ends when
+        the runtime stops answering."""
+        if not adapter:
+            return None
+        conn = self.server.connection
+        return lambda: None if conn.connected else "disconnected"
+
+    def _transmit(self, route, body, folder, network):
+        """/api/trace/transmit*, /api/trace/prefs: the transmit list of this
+        folder and network, list files and the trace view's settings, kept on
+        this PC (canopen-configurator: "Transmit list storage and files")."""
+        store = transmit.Store(config_dir())
+        try:
+            if route == ("GET", "/api/trace/prefs"):
+                return store.prefs()
+            if route == ("POST", "/api/trace/prefs"):
+                return store.set_prefs(body.get("prefs") if isinstance(body.get("prefs"), dict) else body)
+            if route == ("POST", "/api/trace/transmit"):
+                if "frames" in body:
+                    return {"network": network, "frames": store.set_rows(folder, network, body["frames"])}
+                return {"network": network, "frames": store.rows(folder, network)}
+            if route == ("POST", "/api/trace/transmit/check"):
+                return transmit.check_row(body.get("frame"))
+            if route == ("POST", "/api/trace/transmit/dump"):
+                name = "%s.transmit.json" % (network or os.path.basename(folder.rstrip(os.sep)) or "canworks")
+                return {"name": name, "text": transmit.dump_file(network, body.get("frames") or [])}
+            if route == ("POST", "/api/trace/transmit/load"):
+                net, rows = transmit.load_file(body.get("text") or "")
+                return {"network": net, "frames": rows, "other_network": bool(net and network and net != network)}
+        except transmit.Invalid as e:
+            raise ApiError(422, str(e))
         raise ApiError(404, "no such API: %s %s" % route)
 
     def _match_scan(self, s, settings, canopen_dir, res, cfg, network=None):
