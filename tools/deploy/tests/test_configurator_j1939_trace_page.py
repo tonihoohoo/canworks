@@ -111,7 +111,7 @@ class J1939Inspector(TraceBase):
         pg.wait_for_selector("[data-fx=examples] .chip")
         chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
         self.assertEqual(chips, ["Request for Address Claimed", "Command", "Pressures", "Setpoints"])
-        self.assertEqual(pg.locator("summary:has-text('Build a frame')").count(), 0)
+        self.assertEqual(pg.locator("[data-fx-mode=build]").count(), 0)
         pg.fill("[data-fx=lab-frame]", "185#01")
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=meaning]")

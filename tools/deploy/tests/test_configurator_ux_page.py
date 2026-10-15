@@ -580,7 +580,7 @@ class Probes(Layout):
         self.assertEqual(pg.get_attribute("[data-trace=save-format]", "aria-label"), "Format of the saved file")
         self.assertEqual(pg.get_attribute("[data-trace=export-format]", "aria-label"), "Format of the downloaded file")
         pg.click('button[data-view="framelab"]')
-        pg.evaluate("() => document.querySelectorAll('details.fx-lab-section').forEach((d) => { d.open = true; })")
+        pg.click("[data-fx-mode=arbitration]")
         pg.wait_for_selector("[data-fx-arb=go]")
         self.assertEqual(pg.inner_text("[data-fx-arb=go]"), "Run both")
         self.assertEqual(pg.locator("text=Send both").count(), 0)

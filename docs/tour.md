@@ -143,7 +143,7 @@ The **Trace** tab under the header, network `io` in its picker ([trace.md](trace
 
 ## 12. Frame inspector
 
-Select any frame of the trace: the inspector beside the list explains it layer by layer, from the decoded meaning down to every bit on the wire. With the trace still recording, reset node 6 again: **Commission** → `io` → node 6 → **Status** → **NMT** → **Reset node** (the recording goes on while you are in the other workspace). Back on **Trace**, **Sequences** shows node 6's boot as a story, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus.
+Select any frame of the trace: the inspector beside the list explains it layer by layer, from the decoded meaning down to every bit on the wire. With the trace still recording, reset node 6 again: **Commission** → `io` → node 6 → **Status** → **NMT** → **Reset node** (the recording goes on while you are in the other workspace). Back on **Trace**, **Sequences** shows node 6's boot as a story, and the SDO conversations of the SDO variables ([frame-inspector.md](frame-inspector.md)). **Frame lab** builds frames by hand without a bus: pick an example, build one or run two against each other, and the result shows beside the tools. The **✕** of the Trace inspector closes it when you want the whole width for the list; clicking a frame opens it again.
 
 ## 13. Sending raw frames
 

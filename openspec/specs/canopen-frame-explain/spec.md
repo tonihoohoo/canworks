@@ -27,6 +27,10 @@ The identifier layer SHALL show every identifier bit with its value and weight. 
 - **WHEN** node 5's TPDO2 is configured with COB-ID 0x1A0
 - **THEN** a frame with identifier 0x1A0 is explained as TPDO2 of node 5, with a note that this is a configured, not a default, identifier
 
+#### Scenario: Function code without a node ID
+- **WHEN** frame `080#` (SYNC) or `000#0105` (NMT) is explained
+- **THEN** the low 7 identifier bits are captioned as part of the identifier with no node ID, and nothing reads "null" or names a node
+
 ### Requirement: Every data bit is explained
 The data layer SHALL assign every data bit of the frame to exactly one named field, with unused, reserved and padding bits as fields of their own. Each field SHALL have its bit range in CANopen numbering (bit 0 is the least significant bit of byte 0), its value, the working that leads to the value for multi-byte numbers (the bytes in frame order, reversed because CANopen is little-endian, the resulting hex and the value in the data type), and a plain-language explanation. Fields made of single flags SHALL name each bit. Values SHALL be shown in the object's EDS data type, signed and floating point included.
 

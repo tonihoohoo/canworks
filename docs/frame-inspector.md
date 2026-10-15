@@ -18,11 +18,13 @@ Nothing in the inspector or the Frame lab sends anything to the bus.
 
 **Identifier.** The 11 identifier bits, split into the 4-bit function code (what kind of message) and the 7-bit node ID (which device), with the sum that builds it (`0x185 = 3 × 0x80 + 5`). A PDO or TIME identifier set in the configuration is shown as configured, without the split. The identifier is also the priority on the bus: the lowest one wins. On a [J1939 network](j1939.md#diagnostics-and-trace) a 29-bit identifier splits instead into priority, reserved and data page bits, PDU format, PDU specific (the destination address, or a group extension from PDU format 240 up) and source address, with the PGN worked out from them.
 
-**Data bits.** One row per byte, the most significant bit on the left as in the hex value, each bit coloured by the field it belongs to and numbered with its CANopen bit number (bit 0 of byte 0 is bit 0). The field list below gives each field's value and how it is worked out, for example `bytes 0-1 = 25 00, low byte first, so read backwards: 0x0025`. CANopen numbers are little-endian. Every bit belongs to a field; unused bits say so.
+**Data bits.** One row per byte, the most significant bit on the left as in the hex value, each bit coloured by the field it belongs to. The row heading gives the byte's CANopen bit numbers (bit 0 of byte 0 is bit 0), and each bit names its own when you point at it. A field of whole bytes with nothing to read bit by bit, such as an EMCY's empty manufacturer data or reserved SDO bytes, shows as one row with its bytes in hex, which opens to its bits. The field list below gives each field's value and how it is worked out, for example `bytes 0-1 = 25 00, low byte first, so read backwards: 0x0025`. CANopen numbers are little-endian. Every bit belongs to a field; unused bits say so.
 
 **On the wire.** The frame rebuilt bit by bit as a CAN controller sends it: start of frame, identifier, control bits, data, CRC-15, acknowledge and end of frame, with the stuff bits marked and the bus level drawn (a 0 is dominant, a 1 recessive). The figures give the frame's length in bits, the stuff bits, the CRC, the time on the bus at the network's bit rate and the share of data bits.
 
-Pointing at or tabbing to any bit or field shows its explanation in a box that stays in view, and lights the same bits in every layer: a data bit in the grid and on the wire, an identifier bit in the identifier and on the wire. Arrow keys move between bits; the wire strip is one tab stop that the left and right arrows walk through.
+The identifier, data and wire layers fold from their headings (mouse, or Enter on the focused heading). A folded layer keeps one line: the identifier arithmetic, the data bytes, or the frame's length, stuff bits and time on the bus. The layers you fold stay folded for every frame, in the Trace view and the Frame lab, and are kept on this PC.
+
+Pointing at or tabbing to any bit or field shows its explanation in a box that stays in view (beside the layers, or at the bottom of a narrow inspector), and lights the same bits in every layer: a data bit in the grid and on the wire, an identifier bit in the identifier and on the wire. Arrow keys move between bits; the wire strip is one tab stop that the left and right arrows walk through.
 
 ### What the wire layer is not
 
@@ -48,12 +50,12 @@ From a frame in the list, the inspector offers its SDO conversation, SYNC cycle 
 
 ![The Frame lab with the arbitration demo](images/frame-lab.png)
 
-The **Frame lab** view works with the configuration on the page, saved or not:
+The **Frame lab** view works with the configuration on the page, saved or not. The frame box sits at the top, the tabs **Examples**, **Build** and **Arbitration** under it, and the result beside them on a window 1280 pixels wide or more (under the frame box on a narrower one). Every new result comes into view by itself; **Clear**, or Esc in the frame box, removes it.
 
-- **Explain a frame** typed or pasted in candump syntax: `185#2500EA00`, `705#7F`, `701#R` for a remote request, 8 identifier digits for an extended frame. The bit rate is the network's, or one picked from the list.
-- **Example frames** made from the configuration: NMT start, SYNC, and per node its boot-up, heartbeat, an SDO read of 1018h:01, an EMCY and every PDO. On a J1939 network: a request for Address Claimed and one frame of each message of the DBC or the config.
-- **Build a frame** (CANopen networks): an SDO read or write (expedited or segmented, with every answer), a PDO from values per signal (checked against each signal's range), an NMT command, a heartbeat or an EMCY. Index, error code and error register are hex, with or without `0x`.
-- **Arbitration**: two frames sent at the same moment, bit by bit, with each sender's bit and the bus level, up to the bit where one sender sends a recessive 1, reads a dominant 0 and stops. With `185#…` and `183#…`, both are equal up to identifier bit 2, where node 3's frame wins.
+- **The frame box** explains a frame typed or pasted in candump syntax: `185#2500EA00`, `705#7F`, `701#R` for a remote request, 8 identifier digits for an extended frame. The bit rate is the network's, or one picked from the list.
+- **Examples**: frames made from the configuration: NMT start, SYNC, and per node its boot-up, heartbeat, an SDO read of 1018h:01, an EMCY and every PDO. On a J1939 network: a request for Address Claimed and one frame of each message of the DBC or the config.
+- **Build** (CANopen networks): an SDO read or write (expedited or segmented, with every answer), a PDO from values per signal (checked against each signal's range), an NMT command, a heartbeat or an EMCY. Index, error code and error register are hex, with or without `0x`.
+- **Arbitration**: two frames sent at the same moment, bit by bit, with each sender's bit and the bus level, up to the bit where one sender sends a recessive 1, reads a dominant 0 and stops. With `185#…` and `183#…`, both are equal up to identifier bit 2, where node 3's frame wins. From there only the winner drives the bus.
 
 ## Command line
 
