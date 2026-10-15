@@ -47,7 +47,7 @@ class J1939Page(OnlineBase):
         self.assertEqual(pg.inner_text("output[data-j1939=name]"), "0x000082000000004D")
         # Import: Setpoints comes from address 128 (this ECU), so Send is preselected.
         pg.set_input_files("input[data-j1939=dbc-input]", os.path.join(EXAMPLE, "machine.dbc"))
-        pg.wait_for_selector("#modal .j1939-picker")
+        pg.wait_for_selector("#modal .dbc-picker")
         picks = pg.eval_on_selector_all("#modal select[data-pick]", "ss => ss.map(s => [s.dataset.pick, s.value])")
         self.assertEqual(picks, [["Pressures", "rx"], ["Setpoints", "tx"], ["ComponentInfo", "rx"], ["Command", "tx"]])
         pg.select_option('#modal select[data-pick="Command"]', "")

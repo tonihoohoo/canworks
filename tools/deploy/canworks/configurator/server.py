@@ -753,7 +753,7 @@ class Session:
             "folder": self.folder, "name": os.path.basename(self.folder.rstrip(os.sep)) or self.folder,
             "canopen_dir": self.canopen_dir, "config_path": self.config_path,
             "config_exists": os.path.isfile(self.config_path), "config": cfg, "notices": notices,
-            "load_error": error, "eds": self.eds_info(names),
+            "load_error": error, "eds": self.eds_info(names), "dbc_files": self.dbc_files(),
             "unused_eds": [n for n in names if n not in referenced and n not in self.pending],
             "slave_descriptions": self.slave_descriptions(names),
             "project_uses": [u.as_dict() for u in self.uses], "scan_problems": self.scan_problems,
@@ -816,13 +816,35 @@ class Session:
             return os.path.join(self.pending_dir, name)
         return os.path.join(self.canopen_dir, name)
 
-    def import_dbc(self, name, data=None, on_conflict=None):
-        """A DBC file for a J1939 network's message picker: with `data` a
-        new file, kept for the draft and written to the config folder on
-        save (a different file of that name: 409 unless `on_conflict` is
+    @staticmethod
+    def dbc_names(cfg):
+        """The DBC files the config names: each J1939 network's `j1939.dbc`
+        and each network's `raw.dbc`."""
+        names = set()
+        for n in contract.networks(cfg):
+            raw = n["json"].get("raw") if isinstance(n.get("json"), dict) else None
+            for name in (n["j1939"].get("dbc") if n["role"] == "j1939" else None,
+                         raw.get("dbc") if isinstance(raw, dict) else None):
+                if isinstance(name, str) and name:
+                    names.add(name)
+        return names
+
+    def dbc_files(self):
+        """The DBC files the draft can use: in the config folder or imported."""
+        names = set(self.pending_dbc)
+        if os.path.isdir(self.canopen_dir):
+            names.update(f for f in os.listdir(self.canopen_dir) if f.lower().endswith(".dbc"))
+        return sorted(names)
+
+    def import_dbc(self, name, data=None, on_conflict=None, kind="j1939"):
+        """A DBC file for a message picker, of a J1939 network (`kind`
+        "j1939") or of the CAN messages page ("raw"): with `data` a new
+        file, kept for the draft and written to the config folder on save
+        (a different file of that name: 409 unless `on_conflict` is
         "replace" or "keep_both"); without it the file the network already
-        names. Returns {name, messages, problems}: dbc.load()'s messages
-        without their frame IDs' parts the page does not use."""
+        names. Returns {name, messages, problems}: for J1939 dbc.load()'s
+        messages without their frame IDs' parts the page does not use, for
+        raw rawpage.dbc_messages()."""
         name = os.path.basename(name or "").strip()
         if not name or name in (".", "..") or name == CONFIG or not name.lower().endswith(".dbc"):
             raise ApiError(422, "invalid DBC file name %r (it must end in .dbc)" % name)
@@ -849,6 +871,18 @@ class Session:
                 elif on_conflict != "replace":
                     raise ApiError(409, "a different DBC file named %s is already in %s" % (name, self.canopen_dir),
                                    conflict=name)
+        if kind == "raw":
+            try:
+                messages = rawpage.dbc_messages(data.decode("utf-8", "replace"))["messages"]
+            except rawpage.RawPageError as e:
+                raise ApiError(422, "%s: %s" % (name, e))
+            if not messages:
+                raise ApiError(422, "%s has no messages to import" % name)
+            if new:
+                self.pending_dbc[name] = data
+                with open(os.path.join(self.pending_dir, name), "wb") as f:
+                    f.write(data)
+            return {"name": name, "messages": messages, "problems": []}
         try:
             imported = j1939_dbc.load(text=data.decode("utf-8", "replace"))
         except j1939_dbc.ImportFailed as e:
@@ -898,7 +932,7 @@ class Session:
     def raw_page(self, op, body):
         """The CAN messages page's requests (rawpage.py)."""
         cfg = body.get("config")
-        if op != "dbc" and not isinstance(cfg, dict):
+        if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         try:
             if op == "suggest":
@@ -906,17 +940,18 @@ class Session:
                                        body.get("start"))
             if op == "st":
                 return rawpage.st_call(cfg, body.get("network", 0), body.get("kind"), body.get("index"))
-            text = body.get("text")
-            if not isinstance(text, str):
-                raise ApiError(400, "text must be the DBC file's text")
-            if op == "dbc":
-                return rawpage.dbc_messages(text)
+            path = self.dbc_path(os.path.basename(body.get("name") or ""))
+            try:
+                with open(path, "rb") as f:
+                    text = f.read().decode("utf-8", "replace")
+            except OSError:
+                raise ApiError(404, "DBC file %s not found" % path)
             picks = body.get("picks")
             if not isinstance(picks, dict):
                 raise ApiError(400, "picks must map message names to receive or send")
             return rawpage.dbc_import(cfg, body.get("network", 0), text, picks, self.uses, body.get("start"))
         except rawpage.RawPageError as e:
-            raise ApiError(422 if op in ("dbc", "dbc_import") else 400, str(e))
+            raise ApiError(422 if op == "dbc_import" else 400, str(e))
 
     # -- checks -------------------------------------------------------------
     def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
@@ -1432,7 +1467,7 @@ class Session:
                     f.write("\n")
                 os.replace(target + ".tmp", target)
                 written.append(target)
-        dbc_names = {n["j1939"].get("dbc") for n in contract.networks(cfg) if n["role"] == "j1939"}
+        dbc_names = self.dbc_names(cfg)
         for name, data in sorted(self.pending_dbc.items()):
             if name in dbc_names:
                 target = os.path.join(self.canopen_dir, name)
@@ -1982,8 +2017,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.dbc_entries(body.get("config"), body.get("network", 0), body.get("name"),
                                         body.get("picks"))
-                elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc"),
-                               ("POST", "/api/raw/dbc_import")):
+                elif route == ("POST", "/api/raw/dbc"):
+                    self._need_open(s)
+                    data = None
+                    if body.get("data") is not None:
+                        try:
+                            data = base64.b64decode(body.get("data") or "", validate=True)
+                        except ValueError:
+                            raise ApiError(400, "data must be base64")
+                    out = s.import_dbc(body.get("name"), data, body.get("on_conflict"), kind="raw")
+                elif route in (("POST", "/api/raw/suggest"), ("POST", "/api/raw/st"), ("POST", "/api/raw/dbc_import")):
                     self._need_open(s)
                     out = s.raw_page(route[1].rsplit("/", 1)[1], body)
                 elif route == ("POST", "/api/check"):

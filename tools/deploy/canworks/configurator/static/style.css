@@ -739,9 +739,9 @@ table.j1939-signals td .row input[type=text] { min-width: 6em; }
 table.j1939-signals tr[data-path] > td { border-bottom: 0; }
 .j1939-locs { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .j1939-locs > div { display: flex; flex-direction: column; gap: 3px; }
-dialog:has(.j1939-picker) { max-width: min(960px, 92vw); }
-.j1939-picker { max-height: 60vh; overflow: auto; }
-.j1939-picker td select { min-width: 8em; }
+dialog:has(.dbc-picker) { max-width: min(960px, 92vw); }
+.dbc-picker { max-height: 60vh; overflow: auto; }
+.dbc-picker td select { min-width: 8em; }
 .j1939-claim-1 { color: var(--st-ok); }
 .j1939-claim-0 { color: var(--st-warn); }
 .j1939-claim-2, .j1939-claim-3 { color: var(--st-error); }
