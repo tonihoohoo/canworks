@@ -21,12 +21,11 @@
 - [ ] 3.5 Simulation tab: the node's sources, faults at start and default behaviour from the Simulation tool's editors and draft, per network section
 - [ ] 3.6 Notes tab: objects with notes, search, Note editor, Export merged notes (moved from the toolbar), read-only with the reason
 
-## 4. Badges and state
+## 4. Badges and marks
 
 - [ ] 4.1 Problem badges on entries and node tabs (errors and warnings, shape and text, accessible names); sum on a collapsed network
 - [ ] 4.2 Problem navigation: select entry, expand network, open tab and closed part, focus the field
 - [ ] 4.3 Simulated (hollow) and absent (dashed) marks in both workspaces
-- [ ] 4.4 State marks from the connection service: NMT state shapes, boot error, EMCY "!" (error colour, grey after reset, cleared on open), grey when the connection ends, bus state on the network entry
 
 ## 5. Commission with a config
 
@@ -43,10 +42,10 @@
 - [ ] 7.1 Page tests: two networks in the tree, Add node… under the second network, network menu rename/role/remove, expanded state after reload
 - [ ] 7.2 Page tests: node tabs (tab kept across nodes, reload, CiA 402 shown and hidden, new node focus), PDO summary and Settings opening on a problem, SDOs tab empty, Notes search, Simulation tab saving to `simulation.json`
 - [ ] 7.3 Page tests: badges per entry, tab and collapsed network; problem click to the field on another node's tab; badges clear after a fix
-- [ ] 7.4 Page tests on the fake plugin runtime: state marks for operational, pre-operational, stopped and no contact; EMCY mark; grey on outage; Commission tree with two networks and the picker in step
+- [ ] 7.4 Page tests on the fake plugin runtime: Commission tree with two networks, no configuration-only entries, the picker in step, selection kept per workspace
 - [ ] 7.5 axe-core on the tree and the node tabs in both themes; keyboard-only run: open a node by typing its ID, change a tab, follow a problem, rename a network from its menu
 
 ## 8. Docs and release
 
-- [ ] 8.1 `docs/configurator.md` (tree, node tabs, badges, state marks, Online access entry, table of where each former section went), `docs/tour.md`, `docs/simulator.md` (marks and the node's Simulation tab), `README.md`
+- [ ] 8.1 `docs/configurator.md` (tree, node tabs, badges, simulated marks, Online access entry, table of where each former section went), `docs/tour.md`, `docs/simulator.md` (marks and the node's Simulation tab), `README.md`
 - [ ] 8.2 PC tools minor version bump and changelog line

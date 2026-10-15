@@ -9,7 +9,7 @@ After `ui-shell-and-connection` the page has a header with the **Configure | Com
 
 A Configure node page (`renderNode` in `app.js`) is one scroll with a sticky section index: Node, Supervision, Emergency, Axis, Advanced, Inputs, Outputs, Startup SDO writes, SDO variables. In Commission with a config, the online view has its own node list, and a node opens the tabs Overview, Object dictionary and Parameters.
 
-This change replaces that left column with a network tree, turns the Configure node page into tabs, and moves problem counts and live state onto the tree. It changes no file format, protocol or CLI.
+This change replaces that left column with a network tree, turns the Configure node page into tabs, and moves problem counts onto the tree. Live state on the tree comes with `commission-workspace`, which builds on this tree. It changes no file format, protocol or CLI.
 
 ## Goals / Non-Goals
 
@@ -17,10 +17,10 @@ This change replaces that left column with a network tree, turns the Configure n
 - One navigation for everything on the bus, the same in Configure and in Commission with a config, with every network visible at once.
 - A node is edited one subject at a time, with no page-long scroll.
 - The user sees where a problem is before opening anything: which network, which node, which tab.
-- In Commission the tree shows which nodes are running, waiting, stopped or in error.
+- The tree leaves room on each node entry for the live state mark that `commission-workspace` adds.
 
 **Non-Goals:**
-- Commission a device's device list, the Nodes table home, scan comparison and node Status and Log tabs (`commission-workspace`).
+- Commission a device's device list, the Nodes table home, scan comparison, node Status and Log tabs and live NMT state and EMCY flags on the tree (`commission-workspace`).
 - New state colours, icon set and density (`visual-refresh`).
 - Splitting the Bus and master page into tabs. With Online access moved out it is short enough.
 - A link matrix for PDO links (research 4.3). The Links page stays as it is.
@@ -131,25 +131,13 @@ Problems already carry the config path of their field (`nodes[2].tx_pdos[1].entr
 - A collapsed network shows the sum of its entries; an expanded one shows only its own (network-level) problems.
 - Clicking a problem in the bottom panel selects its entry, expands its network, opens its tab, opens a closed PDO settings part when needed, and focuses the field, as clicking a problem does today.
 
-### 9. State on the tree
-`tree.js` subscribes to the connection service of `ui-shell-and-connection` (`connected`, `changed`, `ended`). While a runtime is connected, in Commission and in Configure, each node entry of the connected network shows its NMT state from the online status:
-
-| State | Mark | Name |
-|---|---|---|
-| OPERATIONAL (5) | filled circle | operational |
-| PRE-OPERATIONAL (127) | triangle | pre-operational |
-| STOPPED (4) | square | stopped |
-| no contact (0) or a boot error | cross | no contact / boot error with its letter code |
-| unknown, not connected | none | |
-
-A node whose last EMCY has a non-zero error code gets a "!" mark after its state; it turns grey once the device sends its error reset, and goes away when the user opens the node. Colours are today's state colours; shape and the accessible name carry the meaning without colour. When the connection ends, the marks turn grey with the bar ("last data N s ago" is in the bar), so stale state is never shown as live. The network entry shows the bus state of that network when it is not error active.
-
-Marks use the same online status the Commission node table reads, so no new polling.
+### 9. A slot for live state
+Each node entry is laid out as: mark, node ID, name, problem badge. The mark slot holds the simulated or absent mark from this change; `commission-workspace` puts the live NMT state shape and the EMCY flag there while connected. The tree exposes a `setNodeMark(network, nodeId, mark)` call for it, so that change does not redraw the tree.
 
 ### 10. Commission with a config
 The Commission workspace tab uses the same tree, built from the config:
 - a network entry opens that network's node table (today's online view of the network);
-- a node entry opens the node's live tabs (Overview, Object dictionary, Parameters, as today);
+- a node entry opens the node's live tabs (Overview, Object dictionary, Parameters today; `commission-workspace` replaces them with Status, Object dictionary, Parameters, Notes and Log);
 - Bus and master opens the bus and master part of the online view;
 - configuration-only entries (Add node…, PDO links, CAN messages, Online access, Gateway, Modbus bridge, Add network…) are not shown, and the network menu is not shown.
 
@@ -164,7 +152,7 @@ Online access (`master.diagnostics`, with the CiA 309-3 gateway part) is one set
 Below 1000 px the tree folds into a "Network ▾" button at the top of the workspace tab that opens the tree as a panel over the page; picking an entry closes it. The button shows the selected entry's name and the config's total error count, so problems stay in view with the bottom panel's count.
 
 ### 13. Code layout
-- `tree.js`: tree rendering, keyboard, network menu, badges, state marks.
+- `tree.js`: tree rendering, keyboard, network menu, badges, the mark slot.
 - `node.js`: node toolbar and tabs; each tab's content keeps today's render functions (`renderPdos`, `renderSdos`, `renderSdoVars`, `axisFields`, `nodeAdvanced`, `supervisionFields`), moved with it.
 - `problems.js` (or in `panel.js` from the last change): the path-to-entry-and-tab map, shared by the badges and problem navigation.
 
@@ -176,7 +164,6 @@ There is still no build step.
 - **[A field moves to a tab the user does not expect]** → Problem navigation always opens the right tab, the tab badges show where the problems are, and docs/configurator.md has a table of where each former section went.
 - **[A problem path that the map does not know]** → It falls back to the node's General tab, or the network entry, and a test walks every check message in the parity corpus (`test/fixtures/config/bad`) to assert each lands on an entry.
 - **[PDOs side by side are cramped at exactly 1400 px]** → The layout fit check runs at 1280, 1440 and 1600 px, and the breakpoint moves up if a mapping table does not fit.
-- **[State marks on a slow or relayed path lag]** → They read the same status as the bar, so they are as fresh as it is, and grey with it.
 
 ## Migration Plan
 

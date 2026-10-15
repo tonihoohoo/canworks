@@ -5,10 +5,9 @@ This is the second of five changes in the configurator's UI overhaul, after `ui-
 - **Navigation is split.** Networks are tabs in a bar above the side bar, each network's nodes are a list under it, and the gateway, Modbus bridge, PDO links and CAN messages are loose buttons below. A config with two networks shows only one network's nodes at a time.
 - **A node page is one long scroll.** Node, Supervision, Emergency, Axis, Advanced, Inputs, Outputs, Startup SDO writes and SDO variables are one page of 4,000 to 5,000 px. The section index helps to jump, but the page still holds everything at once.
 - **Problems are only a list.** The node list shows an error count, but nothing shows which part of the node holds it, and a network that is not open shows nothing at all.
-- **Live state is not on the navigation.** In Commission the node list does not show which node is stopped or in error; the node table has to be open.
 - **Config-wide settings sit under one network.** Online access is set for the whole config, but it is a section of the first network's Bus and master page.
 
-The tools compared in the research all use the same pattern: a network tree as the only navigation, state and problems shown on the tree, and a device edited in tabs (General, PDO, SDO, status).
+The tools compared in the research all use the same pattern: a network tree as the only navigation, problems and state shown on the tree, and a device edited in tabs (General, PDO, SDO, status).
 
 ## What Changes
 
@@ -30,7 +29,7 @@ The tools compared in the research all use the same pattern: a network tree as t
 
   The section index is removed. The open tab is kept when moving to another node and comes back after a reload.
 - **Problems as badges.** Every tree entry and every node tab shows its count of errors and warnings, with shape and text as well as colour. A collapsed network shows the sum of its entries. Clicking a problem selects its tree entry and tab and focuses the field.
-- **State on the tree.** In Commission, and in Configure while a runtime is connected, each node's entry shows its NMT state and a mark for an unacknowledged EMCY, read from the connection bar's connection. Simulated nodes have a hollow mark and absent nodes a dashed one, in both workspaces.
+- **Simulated and absent marks.** Simulated nodes have a hollow mark and absent nodes a dashed one in the tree, in both workspaces.
 - **Commission with a config.** The same tree is the navigation. A network entry opens its node table, a node entry the node's live tabs (Overview, Object dictionary, Parameters). Picking a node on another network moves the connection bar's network picker, and the picker selects that network in the tree.
 - **Online access** becomes its own tree entry, out of Bus and master, because it is one setting for the whole config. The connection bar's read-only lock points there.
 - **BREAKING (UI only):**
@@ -42,7 +41,8 @@ The tools compared in the research all use the same pattern: a network tree as t
 
 Out of scope:
 - Commission a device keeps its own Nodes tab; its device list joins the tree in `commission-workspace`, together with the Nodes table, scan comparison and node Status and Log tabs.
-- The final state colours and icon set (`visual-refresh`). This change uses today's state colours, with shapes.
+- Live NMT state and EMCY flags on the tree (`commission-workspace`, which builds on this tree).
+- The final state colours and icon set (`visual-refresh`).
 
 ## Capabilities
 
@@ -50,17 +50,17 @@ Out of scope:
 None.
 
 ### Modified Capabilities
-- `canopen-configurator`: network tree, node tabs, PDOs, SDOs, Notes and Simulation tabs, problem badges, node state on the tree; the workspaces, tool tabs, keyboard, narrow layout, simulated marks, problem messages, DCF export, network role, online access, Allow changes and network picker requirements follow; the network bar and node page sections are removed.
+- `canopen-configurator`: network tree, node tabs, PDOs, SDOs, Notes and Simulation tabs, problem badges, the tree in Commission with a config; the workspaces, tool tabs, keyboard, narrow layout, simulated marks, problem messages, DCF export, network role, online access, Allow changes and network picker requirements follow; the network bar and node page sections are removed.
 
 ## Impact
 
 - Configurator page: `tools/deploy/canworks/configurator/static/`
   - `index.html`, `style.css`;
-  - `app.js`: the side bar, network bar and node page move out into the new modules `tree.js` (tree, badges, state marks) and `node.js` (node tabs);
+  - `app.js`: the side bar, network bar and node page move out into the new modules `tree.js` (tree, badges, marks) and `node.js` (node tabs);
   - `links.js`, `rawcan.js`, `bridge.js`, `j1939.js`, `sim.js`: opened from the tree instead of the side bar;
   - the Commission workspace's online view in `app.js`.
 - Configurator server: `ui.json` keeps the expanded networks and the open node tab per folder. No other server change.
-- Tests: page tests moved from side bar clicks to tree helpers; new tests for the tree (keyboard, badges, state marks), node tabs, problem navigation and the layout fit at 1000, 1280 and 1440 px; axe-core on the tree and the tabs.
+- Tests: page tests moved from side bar clicks to tree helpers; new tests for the tree (keyboard, badges, simulated marks), node tabs, problem navigation and the layout fit at 1000, 1280 and 1440 px; axe-core on the tree and the tabs.
 - Docs: `docs/configurator.md`, `docs/tour.md`, `docs/simulator.md`, `README.md`.
 - Version: PC tools minor bump. No plugin change, so no hardware test.
 - Order: builds on `ui-shell-and-connection` and modifies four of its requirements (Workspaces, Tool tabs, Allow changes in the connection bar, Network picker), so it is applied and archived after that change.

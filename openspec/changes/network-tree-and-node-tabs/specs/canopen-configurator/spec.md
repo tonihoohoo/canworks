@@ -113,21 +113,6 @@ Each tree entry and each node tab SHALL show its number of errors and of warning
 - **WHEN** the user corrects the only error of node 5
 - **THEN** node 5's entry, its tab and its network show no error count
 
-### Requirement: Node state on the tree
-While a runtime is connected, in Commission and in Configure, each node entry of the network shown in the connection bar SHALL show the node's NMT state from the online status: a filled circle for operational, a triangle for pre-operational, a square for stopped and a cross for no contact or a boot error, with the state (and the boot error code) in its accessible name and tooltip. A node whose last EMCY has a non-zero error code SHALL show a "!" mark, grey after the device's error reset, and removed when the user opens the node. When the connection ends or stops answering, the marks SHALL turn grey. A network entry SHALL show its bus state when it is not error active. Without a connection no state marks SHALL be shown.
-
-#### Scenario: A stopped node on the tree
-- **WHEN** the page is connected to a runtime and node 7 is STOPPED
-- **THEN** node 7's entry shows a square with the accessible name "stopped", in Commission and in Configure
-
-#### Scenario: EMCY flag
-- **WHEN** node 5 sends EMCY 0x5000 and later its error reset
-- **THEN** node 5's entry shows "!" in the error colour, then a grey "!", and opening node 5 removes it
-
-#### Scenario: Connection lost
-- **WHEN** the runtime stops answering
-- **THEN** every state mark turns grey within about two seconds
-
 ### Requirement: Tree in Commission with a config
 In Commission with a config, the tree SHALL show the config's networks, their Bus and master entry and their nodes, without the configuration-only entries (Add node…, PDO links, CAN messages, Online access, Gateway, Modbus bridge, Add network…) and without the network menu. A network entry SHALL open that network's node table, Bus and master its bus and master state, and a node entry the node's live tabs. Picking an entry on another network SHALL move the connection bar's network picker to that network, and changing the picker SHALL select that network's entry. Each workspace SHALL keep its own selected entry.
 
