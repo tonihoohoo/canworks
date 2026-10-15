@@ -24,6 +24,23 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 Bench: `forget-node-id` on an in-plugin simulated device whose EDS has no LSS is refused with the message; on one whose EDS has `LSS_Supported=1` the device is found by `canworks-diag lss-find` and by the gateway's `_lss_fastscan 0 0 0 0 0 0 0 0`, gets a node ID with `lss_set_node`, and a power cycle gives it its configured node ID back
-- [ ] 3.2 Bench: `canworks-diag sim fault <node> emcy 0x0000` puts one EMCY 0000 on the bus (candump), and the master logs the error reset
-- [ ] 3.3 Bench: the gateway's `lss_switch_sel` plus `lss_set_node` on the LSS address of a configured node whose EDS has no LSS (its serial number in the config) is refused with that node's message, and nothing is sent
+- [x] 3.1 Bench: `forget-node-id` on an in-plugin simulated device whose EDS has no LSS is refused with the message; on one whose EDS has `LSS_Supported=1` the device is found by `canworks-diag lss-find` and by the gateway's `_lss_fastscan 0 0 0 0 0 0 0 0`, gets a node ID with `lss_set_node`, and a power cycle gives it its configured node ID back
+- [x] 3.2 Bench: `canworks-diag sim fault <node> emcy 0x0000` puts one EMCY 0000 on the bus (candump), and the master logs the error reset
+- [x] 3.3 Bench: the gateway's `lss_switch_sel` plus `lss_set_node` on the LSS address of a configured node whose EDS has no LSS (its serial number in the config) is refused with that node's message, and nothing is sent
+
+Run on 2026-10-11 on the Pi bench (main at bf99a31, tools 0.56.1) with canworks-bridge on can0, the bench's real
+node 23 and two in-process simulated devices on the same real bus: node 40 (EDS without LSS) and node 41
+(`LSS_Supported=1`). The bridge runs the plugin's CANopen engine; the OpenPLC plugin was not used.
+- 3.1: `sim fault 40 forget-node-id` answered "node 40: its EDS has no LSS (LSS_Supported=0), so it could never get a
+  node ID back". Node 41 after `forget-node-id`: found by `canworks-diag lss-find` (13.2 s) and by the gateway's
+  `_lss_fastscan 0 0 0 0 0 0 0 0` (13.2 s); `lss_set_node 42` answered OK and the device answered SDO as node 42;
+  `sim fault 42 power cycle` (control by the current node ID) brought it back as node 41.
+- 3.2: `sim fault 41 emcy 0x0000 --register 0` put one `0A9 [8] 00 00 00 00 00 00 00 00` on can0 and the master logged
+  "EMCY error reset (error register 0x00)"; `--period-ms` with code 0 was refused.
+- 3.3: `lss_switch_sel 0 0 0 0` (node 40's EDS identity and its configured serial 0) then `lss_set_node 77` answered
+  `ERROR: 102`, the log named node 40 and its missing LSS, and candump saw no LSS frame.
+- Seen on the way, not part of this change: `sim fault sim41 ...` (an in-process device by its config name) answered
+  "device sim41 is not simulated", while the status lists the name and the standalone simulator accepts names.
+- The first attempt this morning failed because node 23 was off: with no other physical node on the bench nothing
+  acknowledged the Pi's frames (can0 error-passive), so no LSS or EMCY frame got out. All of the above is from the
+  run after it was back.
