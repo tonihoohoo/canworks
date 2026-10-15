@@ -136,7 +136,8 @@ class Link(unittest.TestCase):
             json.dump({"config": self.cfg, "port": 0, "runtime_port": self.https_port()}, f)
         self.svc = device.Service(self.devdir, bind="127.0.0.1:0", name="testdev")
         self.loop = asyncio.new_event_loop()
-        threading.Thread(target=self.loop.run_forever, daemon=True).start()
+        self.loop_thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+        self.loop_thread.start()
         self.running = running = asyncio.run_coroutine_threadsafe(self.svc.run(), self.loop)
         deadline = time.monotonic() + 10
         while self.svc.endpoint is None and time.monotonic() < deadline and not running.done():
@@ -149,11 +150,33 @@ class Link(unittest.TestCase):
                                  link_addrs=self.svc.endpoint.addr().direct_addresses())
 
     def _stop(self):
+        # Stop the service, then end every task still on its loop (streams,
+        # pumps) and close the loop. A loop left running tasks and closed
+        # later by the garbage collector makes iroh's callbacks fail ("Event
+        # loop is closed"), and on a runner with few cores the endpoints of
+        # the next tests then never bind.
+        async def shutdown():
+            await self.svc.stop()
+            tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         try:
-            asyncio.run_coroutine_threadsafe(self.svc.stop(), self.loop).result(5)
+            asyncio.run_coroutine_threadsafe(shutdown(), self.loop).result(10)
         except Exception:
             pass  # already stopped
         self.loop.call_soon_threadsafe(self.loop.stop)
+        self.loop_thread.join(5)
+        if not self.loop.is_running():
+            self.loop.close()
+        # This test's PC side: its connections and endpoint (a new key per
+        # test, so the endpoint is not reused).
+        try:
+            self.pc.LOOP.run(self.pc._close_all(), 5)
+        except Exception:
+            pass
+        self.pc._conns.clear()
+        self.pc._endpoints.clear()
 
     def https_port(self):
         """A plain TCP echo server standing in for the runtime's HTTPS port."""
