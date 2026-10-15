@@ -2661,8 +2661,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         proj = settings.project(folder)
 
         def where():
+            # A simulated node's Status tab in Commission: always the runtime,
+            # whichever target the Simulation tool has.
+            target = dict(proj, sim_target="runtime") if body.get("target") == "runtime" else proj
             try:
-                return simulation.target(proj, body.get("port"))
+                return simulation.target(target, body.get("port"))
             except LookupError as e:
                 need = str(e).strip("'")
                 raise ApiError(409, "enter the runtime host for online access" if need == "host"
@@ -2731,7 +2734,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             op = body.get("op")
             if op not in simulation.OPS:
                 raise ApiError(400, "op must be one of " + ", ".join(simulation.OPS))
-            fields = {k: v for k, v in body.items() if k not in ("op", "port", "network")}
+            fields = {k: v for k, v in body.items() if k not in ("op", "port", "network", "target")}
             res, kind = call(lambda c: c.request(op, **fields))
             return {"result": res, "target": kind}
         raise ApiError(404, "no such API: %s %s" % route)

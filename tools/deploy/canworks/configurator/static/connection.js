@@ -34,14 +34,10 @@ function connEnsure() {
   return true;
 }
 
-// Entering Commission: the connection opens, or the connect panel opens
-// once when it cannot open by itself.
+// Entering Commission: the connection opens when it can by itself; else
+// the Nodes table shows the connect form (commission-workspace).
 function connEnter() {
-  if (connEnsure()) return;
-  if (CONN.entered) return;
-  CONN.entered = true;
-  if (!connAdapter() && !diagConfig()) return;  // the page says how to turn online access on
-  openConnect();
+  connEnsure();
 }
 
 // Another folder, or another commissioning session: a fresh start, with
@@ -83,10 +79,13 @@ async function connTick() {
     r = await api("POST", "/api/online/status", { port: diagPort() });
   } catch (e) { err = e; }
   if (seq !== CONN.seq || !connIsOn()) return;
+  if (err && !CONN.error && !connAdapter() && typeof commEvent === "function" && commLogOn()) commEvent(null, onlineNetwork(), "Connection to the runtime lost", err.message);
   CONN.error = err;
   if (r) {
     S.onlineLast = r;
     S.onlineLastAt = Date.now();
+    if (typeof logEvents === "function") logEvents(r.status);
+    if (typeof treeLive === "function" && !onlineViews().includes(S.view)) treeLive(r.status);
   }
   if (err && connAdapter()) { adapterLost(err.message); return; }
   connBar();
@@ -105,6 +104,8 @@ async function connDisconnect() {
   S.runtimeOff = true;
   S.onlineOpen = false;
   S.onlineLast = null;
+  S.logPrev = null;
+  if (typeof treeLiveClear === "function") treeLiveClear();
   CONN.error = null;
   S.lssAllow = undefined;
   render();

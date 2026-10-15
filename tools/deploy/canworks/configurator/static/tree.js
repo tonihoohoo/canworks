@@ -278,6 +278,7 @@ function openEntry(e) {
     S.onlineNet = null;
     S.onlineNode = null;
     S.scanResult = null;
+    S.lssFound = null;
     S.lssDevice = null;
     S.supervision = {};
   }

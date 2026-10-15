@@ -84,6 +84,7 @@
   <nav id="side" aria-label="Network">
     <button id="tree-toggle" type="button" aria-expanded="false" aria-controls="tree">Network ▾</button>
     <ul id="tree" role="tree" aria-label="Network"></ul>
+    <div id="tree-live" class="visually-hidden" aria-live="polite"></div>
     <label class="file-button" hidden>Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
     <div id="side-foot" data-config="1">
       <div id="unused-eds"></div>
@@ -99,7 +100,7 @@
       <span class="hint">Save even though these locations overlap the editor project, like the deploy tool's --allow-clash.</span></div>
     <ul id="problem-list"></ul>
   </details></section>
-  <section id="log-panel" aria-label="Commissioning log" hidden><details id="log-box">
+  <section id="log-panel" aria-label="Log" hidden><details id="log-box">
     <summary><h2 class="side-caption">Log</h2> <span id="log-count" class="muted" aria-live="polite"></span></summary>
     <div id="log-body"></div>
   </details></section>
@@ -115,6 +116,7 @@
 <script src="connection.js"></script>
 <script src="jobs.js"></script>
 <script src="commission.js"></script>
+<script src="nodes.js"></script>
 <script src="trace.js"></script>
 <script src="trace_ids.js"></script>
 <script src="transmit.js"></script>
