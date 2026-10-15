@@ -32,7 +32,12 @@ class Base(TraceBase):
     def record(self):
         self.live(self.fake)
         self.page.click("[data-trace=start-stop]")
-        self.page.wait_for_selector("#trace-source:has-text('recording')")
+        # The recorder logs in to the fake runtime over TLS first: a busy CI
+        # runner has taken longer than the default 10 s (main, 2026-10-15).
+        try:
+            self.page.wait_for_selector("#trace-source:has-text('recording')", timeout=30000)
+        except Exception:
+            raise AssertionError("not recording: %s" % self.page.inner_text("#trace-source"))
 
     def count(self, ident):
         return self.page.inner_text(ROW % ident + " .ids-c-count")
