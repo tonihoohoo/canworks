@@ -4,7 +4,7 @@ The README has kept up with every change, but by adding to sentences rather than
 
 ## What Changes
 
-The full proposed README is [`readme-draft.md`](readme-draft.md) in this change; on apply it replaces `README.md`. Everything above **PC tools** and from **Development** down stays word for word, logo included.
+The README is rewritten as below. Everything above **PC tools** and from **Development** down stays word for word, logo included.
 
 - **PC tools:** the adapters become a three-line list (slcan everywhere; gs_usb on Windows with nothing to install, on macOS with libusb; SocketCAN on Linux). Each command's table cell is one or two sentences that say what it is for and link its doc.
 - **New section Configurator:** what used to be the `canworks-config` cell, as one bullet per area in the order a user meets them: Configure, Connect…, Commission, Commission a CANopen device, Trace, Exports, Device notes, keyboard and icons. Every label is the one the page shows. No feature is dropped.
