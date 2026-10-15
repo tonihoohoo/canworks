@@ -39,4 +39,4 @@
 
 ## 7. Integration
 
-- [ ] 7.1 Run the full configurator browser suite and `openspec validate frame-lab-usability --strict`. Bump the tools version and add release notes, and verify CI is green on the PR
+- [x] 7.1 Run the full configurator browser suite and `openspec validate frame-lab-usability --strict`. Bump the tools version and add release notes, and verify CI is green on the PR
