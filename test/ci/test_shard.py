@@ -113,7 +113,8 @@ class Run(unittest.TestCase):
         hits = []
         for k in (1, 2):
             rc, log = self.run_shard("--shard", f"{k}/2", "--exclude", "test_bad$", "--contains", r"\.test_two\.B\.test_c$")
-            self.assertNotIn("ok", log)
+            # No test ran (the temporary package's name can hold "ok").
+            self.assertNotRegex(log, r"(?m)\.\.\. ok$|^OK\b|^Ran [1-9]")
             if rc == 0:
                 hits.append(k)
         self.assertEqual(len(hits), 1)

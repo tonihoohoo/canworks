@@ -265,7 +265,10 @@ class Claim(Base):
         (_, claim), = self.frames()
         self.assertEqual(claim.arbitration_id, 0x18EEFF80)
         (_, first), = self.frames(1, pf_is(0xFF))
-        self.assertGreaterEqual(first.timestamp - claim.timestamp, 0.24)  # 250 ms before sending from 128..247
+        # 250 ms before sending from 128..247, timed on time.monotonic: on
+        # Windows it moves in 15.6 ms ticks, so the wait can end up to one
+        # tick early by the frames' timestamps.
+        self.assertGreaterEqual(first.timestamp - claim.timestamp, 0.24 - time.get_clock_info("monotonic").resolution)
         self.assertTrue(s.claimed)
         self.assertEqual(s.events[0][:2], ("claimed", "Claimed address 128 with NAME 0x0000000000010080"))
 
