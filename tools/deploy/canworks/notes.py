@@ -456,7 +456,7 @@ def write(eds, eds_name, eds_text, eds_path, changes=None, restore=False, text=N
     (an earlier file; None removes the file). Returns the file's text before."""
     path = notes_path(eds_path)
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", newline="") as f:
             before = f.read()
     except FileNotFoundError:
         before = None
@@ -477,7 +477,7 @@ def write(eds, eds_name, eds_text, eds_path, changes=None, restore=False, text=N
         else:
             doc = skeleton(eds, eds_name, eds_text=eds_text)
         new_text = dumps(update(doc, changes, eds))
-    with open(path + ".tmp", "w", encoding="utf-8") as f:
+    with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
         f.write(new_text)
     replace_file(path + ".tmp", path)
     return before
