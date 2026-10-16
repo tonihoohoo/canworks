@@ -345,7 +345,7 @@ main#editor.wide-view ~ footer #problems { display: none; }
   height: 22px; line-height: 22px; font-size: 12.5px; padding: 0 6px; white-space: nowrap; }
 .trace-row span { overflow: hidden; text-overflow: ellipsis; }
 .trace-head { color: var(--muted); border-bottom: 1px solid var(--line); background: var(--panel); border-radius: 6px 6px 0 0; }
-.trace-list { position: relative; height: max(260px, calc(100vh - var(--header-h) - 330px)); overflow: auto;
+.trace-list { position: relative; height: var(--trace-list-h, max(260px, calc(100vh - var(--header-h) - 330px))); overflow: auto;
   border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; background: var(--panel); }
 .trace-spacer { width: 1px; }
 .trace-rows { position: sticky; top: 0; height: 100%; overflow: hidden; }
@@ -378,6 +378,7 @@ label.inline input.short { width: 80px !important; }
 /* Trace tab layout (trace-workspace): toolbar menus, the split with the inspector, the transmit pane. */
 .trace-toolbar { flex-wrap: wrap; }
 .trace-toolbar [data-trace=start-stop] { min-width: 6em; }
+.trace-toolbar .trace-win-open { margin-left: auto; }
 .trace-menu > .menu-panel { right: auto; left: 0; min-width: 300px; padding: 8px; gap: 6px; }
 .trace-menu .menu-label { display: flex; gap: 6px; align-items: center; }
 .trace-menu .menu-label select { flex: 1; }
@@ -396,6 +397,17 @@ label.inline input.short { width: 80px !important; }
 .trace-insp-body .fx { margin-top: 0; }
 .trace-split-handle { align-self: stretch; cursor: col-resize; background: var(--line); border-radius: 4px; min-height: 120px; }
 .trace-split-handle:hover, .trace-split-handle:focus-visible { background: var(--accent); }
+/* The trace's own window (tracewin.js): the Trace view under a one-line bar. */
+.trace-win-bar { display: none; }
+body.trace-window .trace-win-bar { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; padding: 6px 16px; font-size: 13px; color: var(--muted); }
+body.trace-window .trace-win-bar strong { color: var(--text); font-size: 15px; }
+body.trace-window #top .top-row, body.trace-window #tool-tabs, body.trace-window #conn-bar, body.trace-window #side,
+body.trace-window #bottom, body.trace-window #start { display: none !important; }
+body.trace-window main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "view"; min-height: calc(100vh - var(--header-h)); }
+body.trace-window #view > h2:first-child { display: none; }
+/* The bars under the lists and the graph that change their height. */
+.trace-size-bar { height: 8px; margin: 4px 0; cursor: row-resize; background: var(--line); border-radius: 4px; touch-action: none; }
+.trace-size-bar:hover, .trace-size-bar:focus-visible { background: var(--accent); }
 .trace-insp-rail { display: none; }
 .trace-split.no-insp { grid-template-columns: minmax(0, 1fr) 32px; }
 .trace-split.no-insp .trace-split-handle, .trace-split.no-insp .trace-split-insp { display: none; }
@@ -417,11 +429,12 @@ label.inline input.short { width: 80px !important; }
   .trace-split.shared-height .trace-split-view { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .trace-split.shared-height .trace-list, .trace-split.shared-height .ids-grid { flex: 1 1 auto; height: auto; min-height: 72px; }
   .trace-split.shared-height .trace-split-insp { min-height: 0; overflow: hidden; }
+  .trace-split.shared-height .trace-size-bar { display: none; }
 }
 .trace-frames-tools { margin: 0 0 4px; }
 /* By identifier: a grid with a fixed header and rows patched in place. */
 .ids-grid { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12.5px;
-  height: max(244px, calc(100vh - var(--header-h) - 396px)); overflow: auto; }
+  height: var(--trace-list-h, max(244px, calc(100vh - var(--header-h) - 396px))); overflow: auto; }
 .ids-headgroup { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .ids-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ids-row { display: grid; grid-template-columns: 5ch 9ch minmax(10ch, 1.2fr) 4ch 25ch minmax(8ch, 1.6fr) 8ch 8ch 7ch 7ch 7ch 9ch;

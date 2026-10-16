@@ -21,6 +21,10 @@ const SPLIT_PHONE = 640;  // below this the list and the inspector stack on the 
 const ROW_H = 22;
 const MAX_SCROLL_PX = 4000000;
 const LANES = 4;
+const ZOOM_MIN_US = 100;     // the narrowest graph window
+const WHEEL_NOTCH = 1.25;    // graph zoom per wheel notch (about 100 px of scrolling)
+const LIST_H = [120, 3000];  // the lists' height the user can drag to
+const LANE_H = [80, 1000];   // the height of each graph lane
 const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"], ["heartbeat_lost", "Heartbeat lost"],
   ["boot_error", "Boot error"], ["sdo_abort", "SDO abort"], ["signal", "Signal value"], ["bus", "Bus state"],
   ["error_frame", "Error frame"]];
@@ -125,6 +129,9 @@ async function traceLoadPrefs() {
   if (p.sort) { TI.sort = p.sort; TI.desc = !!p.sort_desc; }
   if (typeof p.pane_open === "boolean") TX.open = p.pane_open;
   if (p.pane) TX.height = p.pane;
+  T.listH = typeof p.list_h === "number" ? p.list_h : null;
+  T.laneH = typeof p.lane_h === "number" ? p.lane_h : null;
+  traceListHeight();
   return p;
 }
 
@@ -143,6 +150,7 @@ function commissionEds() {
 
 function renderTrace(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  if (traceWinElsewhere()) { renderTraceElsewhere(view); return; }
   if (!T.prefs) {
     view.append(el("h2", null, "Trace"), el("p", { class: "muted" }, "Loading…"));
     traceLoadPrefs().then(() => { if (S.view === "trace" && view.isConnected) { view.replaceChildren(); renderTrace(view); } });
@@ -181,7 +189,7 @@ function renderTrace(view) {
       el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
       el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open…", fileInput),
-      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker()),
+      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker(), traceWinButton()),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "trace-tabrow" },
       tabs(tabList, T.tab, (v) => traceShowTab(v), { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace views" }),
@@ -558,10 +566,12 @@ function txFromCandump(text) {
 
 // Explain in Frame lab: the trace's explanation of frame `seq`, with its
 // network, bit rate and SDO context (canopen-configurator: "Explain in Frame lab").
-async function traceExplainInLab(seq) {
+// From the trace's own window, `tab` is the view there the frame came from.
+async function traceExplainInLab(seq, tab) {
+  if (TRACE_WINDOW) { traceWinGoto({ type: "goto", kind: "explain", seq, tab: T.tab }); return; }
   let m;
   try { m = await api("POST", "/api/trace/explain", { seq }); } catch (e) { banner(e.message, true); return; }
-  FX.lab.fromTrace = { seq, t_us: m.t_us, model: m, candump: m.frame.candump, edited: false, tab: T.tab };
+  FX.lab.fromTrace = { seq, t_us: m.t_us, model: m, candump: m.frame.candump, edited: false, tab: tab || T.tab };
   FX.lab.frame = m.frame.candump;
   FX.lab.built = null;
   if (m.wire && m.wire.bitrate) FX.lab.bitrate = String(m.wire.bitrate);
@@ -569,6 +579,7 @@ async function traceExplainInLab(seq) {
 }
 
 function traceExplainText(text) {
+  if (TRACE_WINDOW) { traceWinGoto({ type: "goto", kind: "text", text }); return; }
   FX.lab.fromTrace = null;
   FX.lab.frame = text;
   FX.lab.built = null;
@@ -577,6 +588,12 @@ function traceExplainText(text) {
 
 // Back to trace: the view the frame came from, with that frame selected.
 function traceBackFrom(src) {
+  if (traceWinElsewhere()) {
+    traceWinPost({ type: "select", src });
+    const w = window.open("", TRACE_WINDOW_NAME);
+    if (w) w.focus();
+    return;
+  }
   T.tab = src.tab === "ids" ? "ids" : "frames";
   T.selected = src.seq;
   T.selectedUs = src.t_us;
@@ -606,7 +623,8 @@ async function traceStart() {
     cont = v === "continue";
     if (!cont) T.kept = false;
   }
-  if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
+  if (TRACE_WINDOW) traceWinEnsure();  // the main window opens it and tells this one
+  else if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
       error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined });
@@ -715,7 +733,7 @@ function renderFrames(box) {
       el("label", { class: "check inline", title: "Keep the newest frames in view while recording" }, follow, "Follow"),
       el("span", { class: "muted" }, "Up and down arrows, Page Up, Page Down, Home and End move through the list.")),
     el("div", { class: "trace-head trace-row" }, ["Time", "Dir", "ID", "DLC", "Data", "Name", "Decoded"].map((h) => el("span", null, h))),
-    list,
+    list, listSizeBar(),
     el("div", { class: "toolbar", id: "trace-row-actions" }));
   list.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && T.selectedRow && T.selectedRow.seq === T.selected) { e.preventDefault(); selectRow(T.selectedRow, true); return; }
@@ -932,15 +950,39 @@ function renderGraph(box) {
         el("button", { type: "button", title: "Pan right", "aria-label": "Pan right", onclick: () => pan(0.5) }, "▶"),
         el("button", { type: "button", dataset: { trace: "zoom-out" }, onclick: () => zoomBy(2) }, "Zoom out"),
         el("button", { type: "button", onclick: () => { T.a = T.b = null; redrawPlots(); } }, "Clear cursors"),
-        el("span", { class: "hint" }, "Drag to zoom, click to set cursor A, Shift+click for B, double-click for the whole trace.")),
-      el("div", { id: "trace-plots" }), readout)));
+        el("span", { class: "hint" }, "Scroll to zoom at the pointer, Shift+scroll to pan, drag to zoom to a range, click to set cursor A, Shift+click for B, double-click for the whole trace.")),
+      el("div", { id: "trace-plots" }), graphSizeBar(), readout)));
   loadGraph();
 }
 
-function viewRange() {
-  if (T.zoom) return T.zoom;
+// The whole trace's time range (µs), or null without frames.
+function traceSpan() {
   const sm = T.st && T.st.summary;
   return sm && sm.first_us != null ? [sm.first_us, Math.max(sm.last_us, sm.first_us + 1000)] : null;
+}
+
+function viewRange() { return T.zoom || traceSpan(); }
+
+// Sets the graph's range: the whole trace (T.zoom null) when it covers the
+// trace, else a window of at least ZOOM_MIN_US kept inside the trace.
+function setZoom(a, b) {
+  const span = traceSpan();
+  if (!span) return;
+  let w = Math.max(ZOOM_MIN_US, b - a);
+  if (w >= span[1] - span[0]) { T.zoom = null; return; }
+  if (b - a < ZOOM_MIN_US) a -= (w - (b - a)) / 2;
+  a = Math.min(Math.max(a, span[0]), span[1] - w);
+  T.zoom = [a, a + w];
+}
+
+// Zooms the graph by the factor f (above 1 out, below 1 in) keeping the
+// trace time `at` (µs) where it is on the axis.
+function zoomAround(at, f) {
+  const r = viewRange();
+  if (!r) return;
+  const k = (at - r[0]) / (r[1] - r[0]);
+  const w = Math.max(ZOOM_MIN_US, (r[1] - r[0]) * f);
+  setZoom(at - k * w, at - k * w + w);
 }
 
 function pan(frac) {
@@ -954,16 +996,41 @@ function pan(frac) {
 function zoomBy(f) {
   const r = viewRange();
   if (!r) return;
-  const mid = (r[0] + r[1]) / 2;
-  const w = (r[1] - r[0]) * f / 2;
-  const sm = T.st.summary;
-  if (sm.first_us != null && mid - w <= sm.first_us && mid + w >= sm.last_us) { T.zoom = null; }
-  else T.zoom = [mid - w, mid + w];
+  zoomAround((r[0] + r[1]) / 2, f);
   loadGraph();
+}
+
+// The mouse wheel over a plot (canopen-bus-trace "Graphs"): the wheel, and
+// Ctrl+wheel (a trackpad pinch), zooms at the pointer; Shift+wheel and a
+// sideways swipe pan. Every lane is redrawn at once from the points it has;
+// the points of the new range are asked for when the wheel stops.
+function graphWheel(e, u) {
+  if (!T.chosen.length || !traceSpan()) return;
+  e.preventDefault();
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? u.over.clientHeight : 1;
+  const dx = e.deltaX * unit;
+  const dy = e.deltaY * unit;
+  const r = viewRange();
+  const w = r[1] - r[0];
+  if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) {
+    const d = (e.shiftKey && !dx ? dy : dx) / Math.max(1, u.over.clientWidth) * w;
+    setZoom(r[0] + d, r[1] + d);
+  } else {
+    const box = u.over.getBoundingClientRect();
+    const at = traceT0() + u.posToVal(e.clientX - box.left, "x") * 1e6;
+    // About WHEEL_NOTCH per 100 px, at most two notches per event.
+    const step = Math.max(-200, Math.min(200, dy));
+    zoomAround(at, Math.pow(WHEEL_NOTCH, step / 100));
+  }
+  for (const p of T.plots) p.setScale("x", { min: 0, max: 1 });  // the range function gives the view
+  clearTimeout(T.wheelTimer);
+  T.wheelTimer = setTimeout(loadGraph, 150);
 }
 
 async function loadGraph() {
   T.lastGraph = Date.now();
+  clearTimeout(T.wheelTimer);
+  const ask = T.graphSeq = (T.graphSeq || 0) + 1;
   const plotsBox = $("#trace-plots");
   if (!plotsBox) return;
   if (!T.chosen.length) {
@@ -979,10 +1046,99 @@ async function loadGraph() {
   try {
     r = await api("POST", "/api/trace/series", { keys: T.chosen, points: width * 2,
       start_us: range ? Math.floor(range[0]) : null, end_us: range ? Math.ceil(range[1]) : null });
-  } catch (e) { banner(e.message, true); return; }
-  if (!$("#trace-plots") || T.tab !== "graph") return;
+  } catch (e) { if (ask === T.graphSeq) banner(e.message, true); return; }
+  // An answer for a range asked before the last one is of no use.
+  if (ask !== T.graphSeq || !$("#trace-plots") || T.tab !== "graph") return;
   T.data = r.series;
   drawPlots(width);
+}
+
+// The lanes' height: the one the user dragged, else 200 px (150 px with more than two lanes).
+function laneHeight(lanes) { return T.laneH || (lanes > 2 ? 150 : 200); }
+
+function laneCount() { return Math.max(1, T.plots.length); }
+
+// A bar under a list or the graph that makes it taller or shorter: drag it,
+// or Up and Down by 40 px when it has the focus; double-click for the default.
+// get() is the height now, set(h, done) sets one, reset() the default;
+// range() is the [lowest, highest] height.
+function traceSizeBar(label, key, get, set, reset, range) {
+  const bar = el("div", { class: "trace-size-bar", role: "separator", tabindex: "0", "aria-orientation": "horizontal",
+    "aria-label": label, title: label + ": drag, or double-click for the default height", dataset: { trace: key } });
+  const show = () => {
+    const [lo, hi] = range();
+    bar.setAttribute("aria-valuemin", String(lo));
+    bar.setAttribute("aria-valuemax", String(hi));
+    bar.setAttribute("aria-valuenow", String(Math.round(Math.max(lo, Math.min(hi, get() || 0)))));
+  };
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = get();
+    const move = (ev) => { set(h0 + ev.clientY - y0, false); show(); };
+    const up = () => {
+      for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.removeEventListener(n, f);
+      set(get(), true);
+      show();
+    };
+    for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.addEventListener(n, f);
+  });
+  bar.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: -40, ArrowDown: 40 }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    set(get() + d, true);
+    show();
+  });
+  bar.addEventListener("dblclick", () => { reset(); show(); });
+  requestAnimationFrame(show);
+  return bar;
+}
+
+const clampTo = (v, [lo, hi]) => Math.round(Math.max(lo, Math.min(hi, v)));
+
+// One height for the Chronological and By identifier lists (a CSS variable).
+function traceListHeight() {
+  const root = document.documentElement.style;
+  if (T.listH) root.setProperty("--trace-list-h", T.listH + "px");
+  else root.removeProperty("--trace-list-h");
+}
+
+function listSizeBar() {
+  const list = () => $("#trace-list") || $("#ids-grid");
+  return traceSizeBar("Resize the list", "list-size", () => (list() ? list().getBoundingClientRect().height : 0),
+    (h, done) => {
+      T.listH = clampTo(h, LIST_H);
+      traceListHeight();
+      // The lists draw only the rows they show: draw the ones the new height shows.
+      if ($("#trace-list")) requestRows();
+      if ($("#ids-grid")) idsDraw();
+      if (done) tracePrefs({ list_h: T.listH });
+    },
+    () => {
+      T.listH = null;
+      traceListHeight();
+      tracePrefs({ list_h: null });
+      if ($("#trace-list")) requestRows();
+      if ($("#ids-grid")) idsDraw();
+    }, () => LIST_H);
+}
+
+function graphSizeBar() {
+  const fit = () => {
+    const h = laneHeight(laneCount());
+    for (const p of T.plots) p.setSize({ width: p.width, height: h });
+  };
+  return traceSizeBar("Resize the graph", "graph-size", () => laneHeight(laneCount()) * laneCount(),
+    (h, done) => {
+      T.laneH = clampTo(h / laneCount(), LANE_H);
+      fit();
+      if (done) tracePrefs({ lane_h: T.laneH });
+    },
+    () => { T.laneH = null; fit(); tracePrefs({ lane_h: null }); },
+    () => LANE_H.map((h) => h * laneCount()));
 }
 
 function themeColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; }
@@ -998,12 +1154,10 @@ function drawPlots(width) {
   for (const k of T.chosen) (lanes[T.lane[k] || 1] = lanes[T.lane[k] || 1] || []).push(k);
   const laneKeys = Object.keys(lanes).map(Number).sort((a, b) => a - b);
   const r = viewRange();
-  const xmin = r ? (r[0] - t0) / 1e6 : null;
-  const xmax = r ? (r[1] - t0) / 1e6 : null;
   const text = themeColor("--text");
   const line = themeColor("--line");
   const muted = themeColor("--muted");
-  const height = laneKeys.length > 2 ? 150 : 200;
+  const height = laneHeight(laneKeys.length);
   laneKeys.forEach((lane, li) => {
     const keys = lanes[lane];
     // One x array per lane: the union of the series' times, null where a series has no point.
@@ -1028,7 +1182,11 @@ function drawPlots(width) {
     }));
     const opts = {
       width, height, series, legend: { show: true, live: true },
-      scales: { x: { time: false, auto: !r, range: r ? () => [xmin, xmax] : undefined } },
+      // The view range at each redraw, so the wheel can set it on every lane at once.
+      scales: { x: { time: false, auto: !r, range: r ? (_u, lo, hi) => {
+        const v = viewRange();
+        return v ? [(v[0] - t0) / 1e6, (v[1] - t0) / 1e6] : [lo, hi];
+      } : undefined } },
       axes: [{ stroke: muted, grid: { stroke: line, width: 1 }, ticks: { stroke: line }, label: li === laneKeys.length - 1 ? "seconds" : undefined, labelSize: 18 },
         { stroke: muted, grid: { stroke: line, width: 1 }, ticks: { stroke: line }, size: 60 }],
       cursor: { sync: { key: "trace", setSeries: false }, drag: { x: true, y: false, setScale: false } },
@@ -1059,6 +1217,7 @@ function drawPlots(width) {
       redrawPlots();
     });
     plot.over.addEventListener("dblclick", () => { T.zoom = null; loadGraph(); });
+    plot.over.addEventListener("wheel", (e) => graphWheel(e, plot), { passive: false });
     T.plots.push(plot);
   });
   box.dataset.points = String(Object.values(T.data).reduce((n, s) => n + s[0].length, 0));

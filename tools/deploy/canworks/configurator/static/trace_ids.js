@@ -120,7 +120,7 @@ function renderIds(box) {
       el("button", { type: "button", dataset: { ids: "clear-ref" }, onclick: () => idsReference(null), disabled: "No reference is set." }, "Clear reference"),
       pause,
       el("span", { class: "muted", id: "ids-status", role: "status", dataset: { ids: "status" } })),
-    grid,
+    grid, listSizeBar(),
     el("p", { class: "ids-change muted", id: "ids-change", "aria-live": "polite", dataset: { ids: "change" } }),
     el("div", { class: "toolbar", id: "ids-actions", dataset: { ids: "actions" } }));
   idsActions();
