@@ -22,12 +22,14 @@
 
 - [ ] 4.1 Device note line under each object name in the SDO variables picker
 - [ ] 4.2 Note line of the object under each added SDO variable's header
+- [ ] 4.3 `noteLine` shows unit, scale, named values and bits (cut after six, rest on hover) and a note without text; Notes tab uses it
+- [ ] 4.4 PDO, Startup SDO writes and SDO variables picker filters match note text
 
 ## 5. Tests
 
 - [ ] 5.1 Page tests: click and Tab select a row in a picker, the Startup SDO list, a commission table and the CAN messages page; Escape clears; selection survives a field edit re-render and a filter that hides and shows the row
 - [ ] 5.2 Page test: dragging and arrow keys on the SDO picker's bar change its height; the height comes back after a reload and on another node; double-click resets
-- [ ] 5.3 Page test: the SDO variables picker and an added variable show the note line
+- [ ] 5.3 Page test: the SDO variables picker and an added variable show the note line; a note with only a unit and named values shows on all three pickers; filtering by note text finds the object
 - [ ] 5.4 Layout, contrast and axe checks in Light, Dark and forced colours with a selected row in a trace list and a picker
 
 ## 6. Docs and release

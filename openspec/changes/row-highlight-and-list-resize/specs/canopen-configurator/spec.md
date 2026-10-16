@@ -55,6 +55,17 @@ Each object row of the SDO variables picker SHALL show the object's device note 
 - **WHEN** the user adds 0x2001:0 as an SDO variable
 - **THEN** the variable's block shows the object's note line under its header
 
+### Requirement: Whole notes on pickers and lists
+Under an object's name on the PDO, Startup SDO writes and SDO variables pickers, the Startup SDO writes list, PDO entries and SDO variables, the configurator SHALL show the object's merged note whenever it has text, a unit, a scale, named values or bit meanings: the text, then a line with the unit, scale and named values or bits. The picker filters SHALL also match note text.
+
+#### Scenario: Note with named values only
+- **WHEN** object 0x2002:0 has a note with named values 0 = off and 1 = on and no text
+- **THEN** the PDO, Startup SDO writes and SDO variables pickers show "0 = off, 1 = on" under its name
+
+#### Scenario: Filter by note text
+- **WHEN** an object's note text says "pump pressure" and the user types "pressure" in the Startup SDO writes picker's filter
+- **THEN** that object is listed
+
 ## MODIFIED Requirements
 
 ### Requirement: Selected rows keep their controls readable
