@@ -136,6 +136,26 @@ class PdoTestPage(Page):
         pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="builtin"]')
 
 
+class FrameLabPage(Page):
+    def test_examples_after_coming_back(self):
+        """Commission a device: the Frame lab's Examples tab shows the node's
+        examples after the Nodes tab and back, and after Build and back
+        (fix-frame-lab-examples-text)."""
+        pg = self.page
+        self.open_node(5, "params", "rtd8.eds")
+        for leave in ('button[data-view="nodes"]', "[data-fx-mode=build]"):
+            pg.click('button[data-view="framelab"]')
+            pg.wait_for_selector("[data-fx=examples] .chip")
+            pg.click(leave)
+            if leave.startswith("[data-fx"):
+                pg.click("[data-fx-mode=examples]")
+            else:
+                pg.click('button[data-view="framelab"]')
+            pg.wait_for_selector("[data-fx=examples] .chip")
+            self.assertNotIn("[object ", pg.inner_text("#fx-lab-panel"))
+            self.assertIn("Boot-up", pg.inner_text("#fx-lab-panel"))
+
+
 class LogPage(Page):
     def test_log_and_add_to_a_config(self):
         pg = self.page
