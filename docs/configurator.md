@@ -313,7 +313,7 @@ To watch the bus on a PC with a CAN adapter, open the file in SavvyCAN or Wiresh
 
 ## Export for CODESYS
 
-**CODESYS** in the Export menu downloads `<folder>_codesys.zip`: every CANopen master network's node DCFs, the plan `canworks-codesys.json` and the script `import_canworks.py`. Unzip it, open your project in CODESYS and run the script with **Tools > Scripting > Execute Script File...**: it adds the CANbus, CANopen Manager and nodes to the project's PLC and names each mapped I/O channel. It exports the config as the page shows it, saved or not, and writes nothing into the project. If the config has an error or a DCF fails a check, nothing is downloaded and **Problems** says why. Network numbers, re-runs and what carries over: [codesys.md](codesys.md) (`canworks-deploy --export-codesys` writes the same files, and `--codesys-import` runs CODESYS on a project for you).
+**CODESYS** in the Export menu downloads `<folder>_codesys.zip`: every CANopen master network's node DCFs, the plan `canworks-codesys.json` and the script `import_canworks.py`. Unzip it, open your project in CODESYS and run the script with **Tools > Scripting > Execute Script File...**: it adds the CANbus, CANopen Manager and nodes to the project's active device (the one whose application is active) and names each mapped I/O channel. It exports the config as the page shows it, saved or not, and writes nothing into the project. If the config has an error or a DCF fails a check, nothing is downloaded and **Problems** says why. Network numbers, re-runs and what carries over: [codesys.md](codesys.md) (`canworks-deploy --export-codesys` writes the same files, and `--codesys-import` runs CODESYS on a project for you).
 
 ## Variable declarations
 

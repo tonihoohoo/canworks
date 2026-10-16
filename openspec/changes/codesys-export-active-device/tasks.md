@@ -4,15 +4,15 @@
 
 ## 1. Script
 
-- [ ] 1.1 `import_canworks.py`: find the active application's device by walking `parent`; `choose_plc` order named > active > only device > stop with the device list and how to set one
-- [ ] 1.2 Report line with the reason; warning when a named device is not the active application's device
-- [ ] 1.3 Bus placement: CAN interface candidates, `interface` from the plan, CANbus-then-manager add, error listing what was tried
-- [ ] 1.4 Warning when another top-level device has a CANopen Manager on the same network number
+- [x] 1.1 `import_canworks.py`: find the active application's device by walking `parent`; `choose_plc` order named > active > only device > stop with the device list and how to set one
+- [x] 1.2 Report line with the reason; warning when a named device is not the active application's device
+- [x] 1.3 Bus placement: CAN interface candidates, `interface` from the plan, CANbus-then-manager add, error listing what was tried
+- [x] 1.4 Warning when another top-level device has a CANopen Manager on the same network number
 
 ## 2. Stand-in API and tests
 
-- [ ] 2.1 `tests/fake_codesys.py`: `parent` on objects, settable active application per project (on any device, or none), objects that refuse some child types
-- [ ] 2.2 Tests: second device active; named differs from active; several and none active; nested active device; re-run after switching; single device without application; CAN under Communication; manager directly under the interface; two interfaces; `--codesys-can`; nothing accepts
+- [x] 2.1 `tests/fake_codesys.py`: `parent` on objects, settable active application per project (on any device, or none), objects that refuse some child types
+- [x] 2.2 Tests: second device active; named differs from active; several and none active; nested active device; re-run after switching; single device without application; CAN under Communication; manager directly under the interface; two interfaces; `--codesys-can`; nothing accepts
 
 ## 3. Check in CODESYS
 
@@ -21,6 +21,6 @@
 
 ## 4. Docs and release
 
-- [ ] 4.0 `--codesys-can NETWORK=OBJECT` in the CLI and plan (`networks[].interface`)
-- [ ] 4.1 `docs/codesys.md` (choosing the device), `docs/deploy.md`, CLI help of `--codesys-plc`, export README.txt and the configurator's export banner
-- [ ] 4.2 README.md, PC tools version bump
+- [x] 4.0 `--codesys-can NETWORK=OBJECT` in the CLI and plan (`networks[].interface`)
+- [x] 4.1 `docs/codesys.md` (choosing the device), `docs/deploy.md`, CLI help of `--codesys-plc`, export README.txt and the configurator's export banner
+- [x] 4.2 README.md, PC tools version bump

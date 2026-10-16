@@ -169,7 +169,11 @@ def parser():
                         "(default: the number its interface ends in, can1 -> 1); repeat per network")
     p.add_argument("--codesys-plc", metavar="NAME",
                    help="with --export-codesys or --codesys-import: the device in the CODESYS project that gets "
-                        "the CANbus, when the project has several")
+                        "the CANbus (default: the device of the project's active application, or its only device)")
+    p.add_argument("--codesys-can", metavar="NETWORK=OBJECT", action="append",
+                   help="with --export-codesys or --codesys-import: the CAN interface object in the CODESYS device "
+                        "that gets network NETWORK's bus (default: the device's only CAN interface, or the one "
+                        "whose name ends in the network number); repeat per network")
     p.add_argument("--codesys-no-variables", action="store_true",
                    help="with --export-codesys or --codesys-import: do not name the I/O channels")
     p.add_argument("--codesys-dir", metavar="DIR",
@@ -375,6 +379,7 @@ def _codesys(args, cfg, network, out, runner=None):
     create = None
     try:
         overrides = codesys_run.parse_net(getattr(args, "codesys_net", None))
+        interfaces = codesys_run.parse_can(getattr(args, "codesys_can", None))
         if project and getattr(args, "codesys_new", None):
             create = {"path": os.path.abspath(project), "device": codesys_run.parse_device(args.codesys_new)}
     except ValueError as e:
@@ -394,7 +399,7 @@ def _codesys(args, cfg, network, out, runner=None):
             raise Failure("no CODESYS profile found next to %s: give --codesys-profile NAME" % exe)
     try:
         files, _ = codesys_plan.export_files(
-            cfg, args.config, overrides=overrides, plc=getattr(args, "codesys_plc", None),
+            cfg, args.config, overrides=overrides, interfaces=interfaces, plc=getattr(args, "codesys_plc", None),
             variables=not getattr(args, "codesys_no_variables", False), network=network,
             project=os.path.abspath(project) if project and not create else None, create=create)
     except codesys_plan.ExportFailed as e:
@@ -459,6 +464,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     codesys_project = getattr(args, "codesys_import", None)
     codesys = codesys_dir or codesys_project
     for opt, key in (("--codesys-net", "codesys_net"), ("--codesys-plc", "codesys_plc"),
+                     ("--codesys-can", "codesys_can"),
                      ("--codesys-no-variables", "codesys_no_variables")):
         if getattr(args, key, None) and not codesys:
             raise Failure("%s needs --export-codesys or --codesys-import" % opt)
