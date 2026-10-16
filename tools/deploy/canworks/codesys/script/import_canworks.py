@@ -361,6 +361,18 @@ def warn_other_devices(proj, plc, net, report):
                        "it was left as it is" % (net["name"] or net["folder"], top.get_name(), net["net_id"]))
 
 
+def _interface_number(bus, net, report, where):
+    """A CAN interface that is the bus itself: set its network number when
+    it has CODESYS's parameter for it, else say it keeps its own."""
+    p = _param(bus, CANBUS_NET_ID)
+    if p is None:
+        report.add("not set", "%s: network number: CAN interface %s has no network number parameter, so it keeps "
+                   "its own" % (where, bus.get_name()))
+        return
+    p.value = str(net["net_id"])
+    report.add("set", "%s: CAN interface %s network number = %d" % (where, bus.get_name(), net["net_id"]))
+
+
 def build_network(plc, net, base, repo, guid, report):
     where = "network %s" % (net["name"] or net["folder"])
     bus, buses = find_canbus(plc, net["net_id"])
@@ -372,6 +384,13 @@ def build_network(plc, net, base, repo, guid, report):
         if like is None:
             raise Stop("%s: no CANbus device is installed in this CODESYS (CANopen support missing?)" % where)
         host = can_interface(plc, net, where)
+        if not _same(host, plc) and any(_type(c) == MANAGER_TYPE for c in _children(host)):
+            # A CAN interface that is a bus itself and already holds the
+            # manager from an earlier run.
+            bus = host
+            report.add("reused", "%s: CAN interface %s as the bus" % (where, _path(plc, host)))
+            _interface_number(bus, net, report, where)
+    if bus is None:
         try:
             bus = _add(host, _unique_name(host, "CANbus"), like.type, like.id, like.version)
         except Exception as e:
@@ -391,6 +410,7 @@ def build_network(plc, net, base, repo, guid, report):
             bus = host
             report.add("created", "%s: CANopen Manager %s %s directly under the CAN interface %s"
                        % (where, mgr.get_name(), mlike.version, _path(plc, host)))
+            _interface_number(bus, net, report, where)
         else:
             p = _param(bus, CANBUS_NET_ID)
             if p is None:

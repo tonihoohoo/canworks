@@ -516,6 +516,22 @@ class Script(unittest.TestCase):
         self.assertIn("directly under the CAN interface PLC/Communication/CAN", report)
         mgr = can.find("CANopen_Manager")[0]
         self.assertEqual(len(mgr.get_children()), 2)
+        self.assertIn("CAN interface CAN has no network number parameter", report)
+        report = w.run(folder, primary=proj)  # re-run reuses the interface and its manager
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("reused   network field: CAN interface PLC/Communication/CAN as the bus", report)
+        self.assertEqual([c.get_name() for c in can.get_children()], ["CANopen_Manager"])
+        self.assertEqual(len(mgr.get_children()), 2)
+
+    def test_network_number_on_a_can_interface_bus(self):
+        folder, _ = export(self, GANTRY)  # network number 1
+        w = fake_codesys.World()
+        proj, dev, (can,) = self.display(w, accepts_canbus=False)
+        can.connectors = [fake_codesys.Connector([]), fake_codesys.Connector(
+            [fake_codesys.Param(0, "Baudrate", "250"), fake_codesys.Param(2, "NetID", "0")])]
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual((fake_codesys.param(can, 2).value, fake_codesys.param(can, 0).value), ("1", "500"))
 
     def test_several_can_interfaces(self):
         folder, _ = export(self, GANTRY)  # network number 1

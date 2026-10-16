@@ -167,13 +167,19 @@ function sizeBar(label, data, get, set, reset, range, cls) {
 // node's picker of that kind opens at the height last chosen.
 const BOX_RANGE = [120, 3000];
 S.boxHeights = S.boxHeights || {};
+let boxSaves = Promise.resolve();
 function boxBar(box) {
   const kind = box.dataset.box;
   box.dataset.boxReady = "1";
   const h = S.boxHeights[kind];
   box.style.maxHeight = h ? h + "px" : "";
   const clamp = (v) => Math.round(Math.max(BOX_RANGE[0], Math.min(BOX_RANGE[1], v)));
-  const save = () => api("POST", "/api/ui", { box_heights: S.boxHeights }).catch(() => {});
+  // One save at a time and in order, so the last height chosen is the one kept.
+  const save = () => {
+    const heights = { ...S.boxHeights };
+    boxSaves = boxSaves.then(() => api("POST", "/api/ui", { box_heights: heights })).catch(() => {});
+    return boxSaves;
+  };
   const all = () => document.querySelectorAll(`[data-box="${kind}"]`);
   box.after(sizeBar("Resize " + (box.dataset.boxLabel || "the list"), { boxBar: kind }, () => box.getBoundingClientRect().height,
     (v, done) => {

@@ -1256,10 +1256,17 @@ class Page(unittest.TestCase):
         self.assertAlmostEqual(h1, h0 - 80, delta=2)
         self.assertEqual(pg.get_attribute(bar, "role"), "separator")
         self.assertEqual(pg.get_attribute(bar, "aria-valuenow"), str(round(h1)))
-        pg.wait_for_function("(h) => fetch('/api/ui').then(r => r.json()).then(u => (u.box_heights || {}).sdo_picker === h)",
-                             arg=round(h1))
-        ui = load(os.path.join(self.dir, "cfg", "ui.json"))
-        self.assertEqual(ui["box_heights"], {"sdo_picker": round(h1)})
+        # Polled here: a wait_for_function predicate that returns a promise
+        # ends when the promise settles, true or not.
+        ui_file = os.path.join(self.dir, "cfg", "ui.json")
+        def box_heights(want):
+            end = time.time() + 5
+            while True:
+                got = load(ui_file).get("box_heights") if os.path.exists(ui_file) else None
+                if got == want or time.time() > end:
+                    return got
+                time.sleep(0.05)
+        self.assertEqual(box_heights({"sdo_picker": round(h1)}), {"sdo_picker": round(h1)})
         self.save()
         pg.reload()
         pg.wait_for_selector("#editor:not([hidden])")
@@ -1269,7 +1276,7 @@ class Page(unittest.TestCase):
                              arg=round(h1))
         pg.dblclick(bar)
         self.assertEqual(pg.evaluate("() => document.querySelector('[data-box=\"sdo_picker\"]').style.maxHeight"), "")
-        pg.wait_for_function("() => fetch('/api/ui').then(r => r.json()).then(u => !(u.box_heights || {}).sdo_picker)")
+        self.assertEqual(box_heights({}), {})
 
     def test_supervision_method_switch(self):
         pg = self.page
