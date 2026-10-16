@@ -13,6 +13,7 @@
 - [x] 2.4 LSS: the "EDS has no LSS" reason becomes grey hint text; amber only while the node still has an `lss` object (with the existing Remove link)
 - [x] 2.5 Check that the Configuration check and store reasons use the same grey hint and the leftover rule
 - [x] 2.6 Browser tests: node without 0x1014 (fields disabled, grey reason, no EMCY saved), node without 0x1016 (choice disabled), leftover settings (amber + Remove), LSS reason colour matches the Configuration check hint in light and dark
+- [x] 2.7 Heartbeat watch list: offers no node when the EDS has no writable 0x1016, with the same reason; a leftover `heartbeat_watch` gets the warning and "Remove the heartbeat watch" (found in the hardware check)
 
 ## 3. Docs and release
 
@@ -22,4 +23,4 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 On the bench: the real node's page shows EMCY and heartbeat consumer as its EDS allows; deploy and clean PLC start, node reaches OPERATIONAL
+- [x] 4.1 On the bench: the real node's page shows EMCY and heartbeat consumer as its EDS allows; deploy and clean PLC start, node reaches OPERATIONAL

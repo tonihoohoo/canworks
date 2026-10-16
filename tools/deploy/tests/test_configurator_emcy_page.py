@@ -245,6 +245,16 @@ class EdsLimits(OnlineBase):
         self.assertIn("warning", pg.get_attribute("[data-heartbeat-limit]", "class"))
         pg.click("[data-heartbeat-remove]")
         self.assertFalse(pg.evaluate("() => 'heartbeat_consumer' in S.config.nodes[0]"))
+        # Nor can it watch other nodes' heartbeats.
+        pg.evaluate("() => { S.config.nodes.push({node_id: 5, eds: 'cpp-slave.eds', heartbeat_ms: 100}); render(); }")
+        tree_node(pg, 0, "supervision")
+        pg.wait_for_selector("[data-watch-limit]")
+        self.assertEqual(pg.get_attribute("[data-watch-limit]", "class"), "hint")
+        self.assertEqual(pg.locator('select[aria-label="Watch another node\'s heartbeat"]').count(), 0)
+        pg.evaluate("() => { S.config.nodes[0].heartbeat_watch = [{node: 5}]; render(); }")
+        pg.wait_for_selector("[data-watch-remove]")
+        pg.click("[data-watch-remove]")
+        self.assertFalse(pg.evaluate("() => 'heartbeat_watch' in S.config.nodes[0]"))
 
     def test_heartbeat_consumer_with_0x1016(self):
         pg = self.page

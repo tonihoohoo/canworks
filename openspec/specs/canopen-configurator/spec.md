@@ -3164,11 +3164,15 @@ When the node's EDS has no object 0x1014, the Emergency (EMCY) section SHALL sta
 - **THEN** the section shows the problem in warning colour with "Remove the EMCY settings", and Save is refused until the user presses it
 
 ### Requirement: Heartbeat consumer choice follows the EDS
-When the node's EDS has no object 0x1016 with a writable sub-index, "Watches the master heartbeat" SHALL show "EDS default", be disabled, and say in hint text that the EDS has no consumer heartbeat time (0x1016), so the device cannot watch the master's heartbeat. A loaded node that still has `heartbeat_consumer` SHALL show it as a problem with the plugin's message and offer to remove it; saving SHALL be refused until it is removed.
+When the node's EDS has no object 0x1016 with a writable sub-index, "Watches the master heartbeat" SHALL show "EDS default", be disabled, and say in hint text that the EDS has no consumer heartbeat time (0x1016), so the device cannot watch the master's heartbeat. The node's Heartbeat watch list SHALL offer no node to watch, with the same reason. A loaded node that still has `heartbeat_consumer` or `heartbeat_watch` SHALL show the plugin's message and offer to remove it; saving SHALL be refused until it is removed.
 
 #### Scenario: Device without 0x1016
 - **WHEN** the user opens Advanced node settings of a node whose EDS has no 0x1016
 - **THEN** the choice is disabled on "EDS default" with the reason, and the saved node has no `heartbeat_consumer`
+
+#### Scenario: No heartbeat watch without 0x1016
+- **WHEN** node 23's EDS has no 0x1016 and the network has node 5
+- **THEN** node 23's Heartbeat watch list offers no node and gives the reason
 
 ### Requirement: One look for EDS limits
 The reason why a node setting is disabled because the node's EDS lacks what it needs (LSS, 0x1020, 0x1010, 0x1014, 0x1016) SHALL be shown as hint text, in the same colour and size as the other hints of the page. Warning colour SHALL be used only when the config still has a setting the EDS cannot back, together with a way to remove it.
