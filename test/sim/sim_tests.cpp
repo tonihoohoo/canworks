@@ -6068,10 +6068,27 @@ void read_state(Sim* sim, unsigned node) {
 
 // The master with nodes 2 and 3 running (and an unlisted node 40), and the
 // blocks in the program.
-Sim* nmt_sim(const std::string& json, bool node40 = false) {
+// The test slave with an NMT startup value (0x1F80) whose bit 2 is set: it
+// waits in PRE-OPERATIONAL for the master's START, as most real devices do,
+// instead of starting itself.
+std::string waiting_slave_eds() {
+  std::string eds = slave_eds();
+  auto replace = [&eds](const std::string& from, const std::string& to) {
+    size_t at = eds.find(from);
+    CHECK(at != std::string::npos);
+    if (at != std::string::npos) eds.replace(at, from.size(), to);
+  };
+  replace("SupportedObjects=7\n", "SupportedObjects=8\n");
+  replace("7=0x1A00\n", "7=0x1A00\n8=0x1F80\n");
+  eds += "\n[1F80]\nParameterName=NMT startup\nObjectType=0x07\nDataType=0x0007\nAccessType=ro\n"
+         "DefaultValue=0x00000004\nPDOMapping=0\n";
+  return eds;
+}
+
+Sim* nmt_sim(const std::string& json, bool node40 = false, bool waits = false) {
   clear_logs();
   nmt_byte = 0;
-  std::string dir = make_dir(json, {{"cpp-slave.eds", slave_eds()}});
+  std::string dir = make_dir(json, {{"cpp-slave.eds", waits ? waiting_slave_eds() : slave_eds()}});
   Sim* sim = new Sim(dir);
   CHECK(sim->ok());
   if (!sim->ok()) return sim;
@@ -6492,6 +6509,160 @@ TEST(sim_plc_nmt_network_start_restart) {
   CHECK_MSG(sim->RunUntil([] { return all_running(sim); }, seconds(5)), std::to_string(sim->ib(21)));
   read_state(sim, 0);
   CHECK(nmt_blk->gs.STARTED);
+  nmt_end(sim);
+}
+
+// ---------------------------------------------------------------------------
+// canopen-plc-nmt "No start for a held node": a held node gets no NMT START
+// from the master when its boot ends or when the master starts all nodes; the
+// frames on the bus are checked, not only the log.
+
+namespace {
+int starts_to(Sim* sim, uint8_t id) { return sim->nmt(id, 1) + sim->nmt(0, 1); }
+}  // namespace
+
+// CO_NETWORK_STOP with NODE_COMMAND 2, then node 3 power-cycles and the bus
+// session restarts: no START to node 3 (or to all nodes) and its state byte
+// never reads 5; CO_NETWORK_START starts it again.
+TEST(sim_plc_nmt_held_boot_no_start) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json(""), false, true);
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  b.stop.NODE_COMMAND = 2;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4; }, seconds(2)));
+  int starts2 = starts_to(sim, 2), starts3 = starts_to(sim, 3);
+  static bool seen_op;
+  seen_op = false;
+  sim->KillSlave(3);
+  CHECK(sim->RunUntil([] { return sim->ib(22) == 0; }, seconds(2)));
+  clear_logs();
+  sim->StartSlave(3, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK(sim->RunUntil([] {
+    seen_op |= sim->ib(22) == 5;
+    return logged("node 3 (second): NMT STOP (held by the program (CO_NETWORK_STOP))");
+  }, seconds(10)));
+  sim->RunUntil([] {
+    seen_op |= sim->ib(22) == 5;
+    return false;
+  }, milliseconds(500));
+  CHECK_MSG(starts_to(sim, 3) == starts3, std::to_string(starts_to(sim, 3) - starts3));
+  CHECK(!seen_op);
+  CHECK(sim->ib(22) == 4);
+  // A new session: neither node is started while the network is held.
+  clear_logs();
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] {
+    seen_op |= sim->ib(20) == 5 || sim->ib(22) == 5;
+    return logged("node 2 (pingpong): NMT STOP (held by the program (CO_NETWORK_STOP))") &&
+           logged("node 3 (second): NMT STOP (held by the program (CO_NETWORK_STOP))");
+  }, seconds(5)));
+  sim->RunUntil([] {
+    seen_op |= sim->ib(20) == 5 || sim->ib(22) == 5;
+    return false;
+  }, milliseconds(500));
+  CHECK_MSG(starts_to(sim, 2) == starts2, std::to_string(starts_to(sim, 2) - starts2));
+  CHECK_MSG(starts_to(sim, 3) == starts3, std::to_string(starts_to(sim, 3) - starts3));
+  CHECK(!seen_op);
+  CHECK(run_block(sim, b.start));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  CHECK(starts_to(sim, 3) > starts3);
+  // Released: a later boot is started by the master as usual.
+  int again = starts_to(sim, 3);
+  sim->KillSlave(3);
+  CHECK(sim->RunUntil([] { return sim->ib(22) == 0; }, seconds(2)));
+  sim->StartSlave(3, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK(sim->RunUntil([] { return sim->ib(22) == 5; }, seconds(10)));
+  CHECK(starts_to(sim, 3) > again);
+  nmt_end(sim);
+}
+
+// CO_NMT holds (STOP and ENTER PRE-OPERATIONAL) and the command byte at 2:
+// a boot of the held node sends no START to it; CO_NMT START releases it.
+TEST(sim_plc_nmt_hold_boot_no_start) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("", "\"nmt_command_location\": \"%QB30\", "), false, true);
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  static bool seen_op;
+  for (uint8_t cmd : {uint8_t(2), uint8_t(128)}) {
+    CHECK(run_nmt(sim, b.nmt, 3, cmd));
+    uint8_t held = cmd == 2 ? 4 : 127;
+    CHECK(sim->RunUntil([held] { return sim->ib(22) == held; }, seconds(2)));
+    int starts = starts_to(sim, 3);
+    seen_op = false;
+    sim->KillSlave(3);
+    CHECK(sim->RunUntil([] { return sim->ib(22) == 0; }, seconds(2)));
+    sim->StartSlave(3, sim->cfg().config_dir + "/cpp-slave.eds");
+    CHECK(sim->RunUntil([held] {
+      seen_op |= sim->ib(22) == 5;
+      return sim->ib(22) == held;
+    }, seconds(10)));
+    sim->RunUntil([] {
+      seen_op |= sim->ib(22) == 5;
+      return false;
+    }, milliseconds(500));
+    CHECK_MSG(starts_to(sim, 3) == starts, std::to_string(cmd) + ": " + std::to_string(starts_to(sim, 3) - starts));
+    CHECK(!seen_op);
+    CHECK_MSG(sim->ib(22) == held, std::to_string(sim->ib(22)));
+    CHECK(run_nmt(sim, b.nmt, 3, 1));
+    CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  }
+  // The command byte at 2 holds node 2 the same way across a new session.
+  nmt_byte = 2;
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)));
+  int starts = starts_to(sim, 2);
+  seen_op = false;
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] {
+    seen_op |= sim->ib(20) == 5;
+    return sim->ib(21) == 5 && sim->ib(22) == 5 && sim->ib(20) == 4;
+  }, seconds(5)));
+  sim->RunUntil([] {
+    seen_op |= sim->ib(20) == 5;
+    return false;
+  }, milliseconds(500));
+  CHECK_MSG(starts_to(sim, 2) == starts, std::to_string(starts_to(sim, 2) - starts));
+  CHECK(!seen_op);
+  nmt_byte = 0;
+  nmt_end(sim);
+}
+
+// master.start_all_nodes with node 3 held PRE-OPERATIONAL: after a new
+// session the master's start of all nodes starts node 2 and not node 3.
+TEST(sim_plc_nmt_start_all_skips_held) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"start_all_nodes\": true, "), false, true);
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  CHECK(run_nmt(sim, b.nmt, 3, 128));
+  CHECK(sim->RunUntil([] { return logged("node 3 (second): NMT ENTER PRE-OPERATIONAL (held by the program (CO_NMT))"); },
+                      seconds(2)));
+  int all = sim->nmt(0, 1), to3 = sim->nmt(3, 1), to2 = sim->nmt(2, 1);
+  static bool seen_op;
+  seen_op = false;
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] {
+    seen_op |= sim->ib(22) == 5;
+    return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 127;
+  }, seconds(5)));
+  sim->RunUntil([] {
+    seen_op |= sim->ib(22) == 5;
+    return false;
+  }, milliseconds(500));
+  CHECK_MSG(sim->nmt(0, 1) == all, std::to_string(sim->nmt(0, 1) - all));
+  CHECK_MSG(sim->nmt(3, 1) == to3, std::to_string(sim->nmt(3, 1) - to3));
+  CHECK(sim->nmt(2, 1) > to2);
+  CHECK(!seen_op);
+  CHECK(run_nmt(sim, b.nmt, 3, 1));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
   nmt_end(sim);
 }
 
