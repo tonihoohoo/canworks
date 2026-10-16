@@ -261,28 +261,36 @@ function connBar() {
   bar.setAttribute("aria-label", "Connection");
 }
 
-// Allow changes: a switch on an adapter connection, the runtime's own
-// setting (read-only) on a runtime.
+// Allow changes: on an adapter connection, the lock's state with one button
+// (Unlock… asks, Lock does not); on a runtime, the runtime's own setting as text.
+// No checkbox: its label would name the state, not what ticking it does.
 function allowControl(c) {
   if (c.allow_changes_source !== "switch") {
     return el("span", { class: "muted", dataset: { conn: "allow" },
       title: "Set in Configure → Online access, then upload" },
     c.allow_changes ? "🔓 Changes allowed (runtime setting)" : "🔒 Read-only (runtime setting)");
   }
-  const box = el("input", { type: "checkbox", checked: !!c.allow_changes, dataset: { conn: "allow" } });
-  box.addEventListener("change", async () => {
-    if (box.checked) {
+  const on = !!c.allow_changes;
+  const btn = el("button", { type: "button", class: "small", dataset: { conn: "allow" },
+    title: "Changes are off for every new connection. Switching keeps the connection open." },
+  on ? "Lock" : "Unlock…");
+  btn.addEventListener("click", async () => {
+    if (!on) {
       const v = await modal("Allow changes on this adapter connection? SDO writes, NMT commands, LSS and restore then go to the bus. Saving to a device's non-volatile memory still asks each time.",
         [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
-      if (v !== "allow") { box.checked = false; return; }
+      if (v !== "allow") { if (btn.isConnected) btn.focus(); return; }
     }
-    if (!(await saveOnline({ allow_changes: box.checked }))) { box.checked = !box.checked; return; }
-    if (S.onlineLast && S.onlineLast.conn) S.onlineLast.conn.allow_changes = box.checked;
-    if (S.onlineLast && S.onlineLast.status) S.onlineLast.status.allow_changes = box.checked;
+    if (!(await saveOnline({ allow_changes: !on }))) return;
+    if (S.onlineLast && S.onlineLast.conn) S.onlineLast.conn.allow_changes = !on;
+    if (S.onlineLast && S.onlineLast.status) S.onlineLast.status.allow_changes = !on;
+    if (S.onlineLast && S.onlineLast.hello) S.onlineLast.hello.allow_changes = !on;
     render();
+    connBar();
+    const again = document.querySelector('#conn-bar [data-conn="allow"]');
+    if (again) again.focus();
   });
-  return el("label", { class: "check", title: "Off for every new connection. Switching it keeps the connection open." },
-    box, c.allow_changes ? " Changes allowed" : " Read-only");
+  return el("span", { dataset: { conn: "lock" } },
+    el("span", { dataset: { conn: "lock-state" } }, on ? "🔓 Changes allowed" : "🔒 Read-only"), btn);
 }
 
 // ---------------------------------------------------------------------------

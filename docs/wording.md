@@ -14,7 +14,7 @@ Only text a person reads is checked: string literals with a space and a word in 
 | EDS, DCF, DBC | eds file, Eds | |
 | runtime | PLC runtime, OpenPLC (for the connection target) | The thing a config connects to. |
 | USB adapter | dongle, interface (in the UI) | "Adapter" alone once the context is clear. |
-| **Allow changes** | write access, read-write mode | The lock in the connection bar. |
+| **Allow changes** | write access, read-write mode | The lock in the connection bar: "Read-only" with **Unlock…**, or "Changes allowed" with **Lock**. |
 | **Read all**, **Back up**, **Compare**, **Restore** | | Parameters actions, as buttons. |
 | **Configure**, **Commission** | Online (as a place) | The two workspaces. |
 | simulated | virtual, fake (for a node) | "Virtual" is kept for the virtual adapter and the virtual example. |

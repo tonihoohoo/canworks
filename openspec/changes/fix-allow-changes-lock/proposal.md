@@ -15,7 +15,7 @@ Cause: `allowControl()` (`tools/deploy/canworks/configurator/static/connection.j
 - The connect panel's **Allow changes (SDO writes, NMT, LSS, restore)** checkbox stays as it is: its label is fixed and means what ticking does.
 - Browser tests: the bar on a read-only adapter shows "Read-only" and Unlock…; Unlock… opens the Allow changes question, Cancel leaves it read-only, Allow changes shows "Changes allowed" and Lock; Lock goes back to read-only with no question; focus stays on the bar's button. The existing tests that tick `#conn-bar input[data-conn="allow"]` move to the button.
 - `docs/configurator.md`, `docs/pc-adapter.md` and `docs/wording.md` describe Unlock…/Lock instead of ticking.
-- PC tools 0.75.1 (patch).
+- PC tools 0.75.2 (patch).
 
 No file format, server protocol or CLI changes.
 

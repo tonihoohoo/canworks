@@ -3317,7 +3317,7 @@ function stNetworkStartCall(net = stEditNetwork()) {
 }
 const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
 const RUNTIME_NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
-const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (tick \"Allow changes\" in the connection banner).";
+const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (press Unlock… in the connection bar).";
 let NO_CHANGES = RUNTIME_NO_CHANGES;
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
