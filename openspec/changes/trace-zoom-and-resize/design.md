@@ -6,6 +6,8 @@ The Trace graph (`static/trace.js`) draws one uPlot chart per lane with a shared
 
 **Goals:** wheel zoom at the pointer that feels immediate on a 2 million frame trace; pan with Shift+wheel and sideways trackpad scroll; no surprise page scroll or browser zoom over the plot; the page still scrollable with the wheel elsewhere.
 
+**Also:** the user can make the lists and the graph taller or shorter, and the choice is kept.
+
 **Non-Goals:** keyboard zoom, zooming the value (y) axis, the watch graph, touch pinch on phones.
 
 ## Decisions
@@ -18,8 +20,13 @@ The Trace graph (`static/trace.js`) draws one uPlot chart per lane with a shared
 6. **Immediate redraw, delayed fetch.** Each event calls `setScale("x", …)` on every lane plot (the data already loaded is drawn at the new scale, coarse when zoomed far in), so all lanes move together. `loadGraph()` runs 150 ms after the last wheel event. `loadGraph()` gets a request counter; an answer for an older request is ignored, so a slow answer cannot put back an old range. Wheel zoom on a graph with no series does nothing.
 7. **Hint text**: "Scroll to zoom at the pointer, Shift+scroll to pan, drag to zoom to a range, click to set cursor A, Shift+click for B, double-click for the whole trace."
 
+8. **Resize bars, not CSS `resize`.** A full-width 8 px bar (`role="separator"`, `aria-orientation="horizontal"`, row-resize cursor, focusable) under each area, the same look as the inspector's split handle in its stacked layout. CSS `resize: vertical` only gives a small corner grip and no keyboard or reset. Drag uses pointer capture like the split handle; Up/Down change 40 px, double-click resets, `aria-valuenow` is the height in px.
+9. **One list height, per-lane graph height.** `list_h` (px, or none for the default viewport formula) sets a CSS variable used by `.trace-list` and `.ids-grid`, so switching between the two lists keeps the height. `lane_h` (px, or none for the 200/150 default) is used by `drawPlots()`; dragging the graph bar changes the total height and divides it by the lane count, so adding a lane later does not squash the others. The plots get `setSize()` while dragging (no refetch); cursors and the zoom stay. Saved 300 ms after the last change with `tracePrefs()`, like the split.
+10. **Shared-height layout untouched.** Between `SPLIT_PHONE` and `SPLIT_WIDE` the list and inspector already share the window height; a list height there would fight it, so the list bar is hidden in that layout and the saved height applies again when the window is wider or narrower.
+
 ## Risks / Trade-offs
 
 - [Users who scroll the page with the pointer over a plot are stopped there] → plot areas are small, the rest of the graph block scrolls the page, and the hint says what the wheel does.
 - [Coarse points while zoomed in before the fetch] → 150 ms later the detail arrives; same as today's drag zoom, which shows nothing new until the fetch returns.
+- [A tall list or graph pushes the toolbar off screen] → the toolbar is above and the page scrolls; double-click on the bar returns to the default.
 - [Many fetches while scrolling slowly] → one fetch per pause, older answers dropped.
