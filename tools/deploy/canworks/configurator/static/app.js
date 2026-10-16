@@ -53,6 +53,153 @@ function el(tag, attrs, ...children) {
   return e;
 }
 
+// -- selected rows (row-highlight-and-list-resize) --------------------------
+// Every table whose rows are items gets one selected row, shown the same way
+// everywhere (.row-selected: a wash and an accent bar, aria-current). A click
+// anywhere on a row, or the focus moving into it, selects it; Escape clears.
+// The selection lives here, not in the page, so the page's re-renders keep
+// it: a list is named by where its table sits, a row by data-sel, else its
+// first cell's text, else its place. Not saved.
+// Tables that are not item lists, or that keep their own selection.
+const LIST_SKIP = "table.online-bus, table.fx-bytes, table.raw-grid, table.fx-table, table.raw-table, table.od-tree, table[data-no-select]";
+const LIST_SEL = new Map();
+function listIdOf(table) {
+  if (table.dataset.selList) return table.dataset.selList;
+  const ctx = table.closest("[data-path], [data-picker], [data-node-tab-panel], dialog, section[id], [id]");
+  const sig = [ctx ? (ctx.dataset.path || ctx.dataset.picker || ctx.dataset.nodeTabPanel || ctx.id || ctx.tagName) : "",
+    table.className, JSON.stringify(Object.assign({}, table.dataset))].join("|");
+  const peers = [...(ctx || document).querySelectorAll("table")].filter((t) => t.className === table.className
+    && JSON.stringify(Object.assign({}, t.dataset)) === JSON.stringify(Object.assign({}, table.dataset)));
+  return sig + "|" + Math.max(0, peers.indexOf(table));
+}
+function listRowKey(tr) {
+  if (tr.dataset.sel) return tr.dataset.sel;
+  const c = tr.cells[0];
+  const t = c && !c.querySelector("input, select, textarea") ? c.textContent.trim() : "";
+  return t ? "t:" + t : "i:" + [...tr.parentElement.children].indexOf(tr);
+}
+function listRowAt(target) {
+  const tr = target && target.closest && target.closest("tbody tr");
+  if (!tr) return null;
+  const table = tr.closest("table");
+  return table && !table.matches(LIST_SKIP) && tr.parentElement.parentElement === table ? tr : null;
+}
+function markListRow(table) {
+  const key = LIST_SEL.get(listIdOf(table));
+  for (const tr of table.tBodies.length ? [...table.tBodies].flatMap((b) => [...b.rows]) : []) {
+    const on = key !== undefined && listRowKey(tr) === key;
+    if (on === tr.classList.contains("row-selected")) continue;
+    tr.classList.toggle("row-selected", on);
+    if (on) tr.setAttribute("aria-current", "true"); else tr.removeAttribute("aria-current");
+  }
+}
+function pickListRow(tr) {
+  const table = tr.closest("table");
+  const list = listIdOf(table), key = listRowKey(tr);
+  if (LIST_SEL.get(list) === key && tr.classList.contains("row-selected")) return;
+  LIST_SEL.set(list, key);
+  markListRow(table);
+}
+let listScan = 0;
+function scanListRows() {
+  if (listScan) return;
+  listScan = requestAnimationFrame(() => {
+    listScan = 0;
+    if (!LIST_SEL.size) return;
+    for (const t of document.querySelectorAll("table")) if (!t.matches(LIST_SKIP) && t.querySelector("tbody tr")) markListRow(t);
+  });
+}
+document.addEventListener("pointerdown", (ev) => { const tr = listRowAt(ev.target); if (tr) pickListRow(tr); }, true);
+document.addEventListener("focusin", (ev) => { const tr = listRowAt(ev.target); if (tr) pickListRow(tr); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || ev.target.closest("input, select, textarea")) return;
+  const tr = listRowAt(ev.target);
+  if (!tr || !tr.classList.contains("row-selected")) return;
+  const table = tr.closest("table");
+  LIST_SEL.delete(listIdOf(table));
+  markListRow(table);
+});
+new MutationObserver(scanListRows).observe(document.documentElement, { childList: true, subtree: true });
+
+// -- resize bars --------------------------------------------------------------
+// A bar under a list or graph that makes it taller or shorter: drag it, or
+// Up and Down by 40 px when it has the focus; double-click for the default.
+// get() is the height now, set(h, done) sets one, reset() the default;
+// range() is the [lowest, highest] height.
+function sizeBar(label, data, get, set, reset, range, cls) {
+  const bar = el("div", { class: cls || "size-bar", role: "separator", tabindex: "0", "aria-orientation": "horizontal",
+    "aria-label": label, title: label + ": drag, or double-click for the default height", dataset: data });
+  const show = () => {
+    const [lo, hi] = range();
+    bar.setAttribute("aria-valuemin", String(lo));
+    bar.setAttribute("aria-valuemax", String(hi));
+    bar.setAttribute("aria-valuenow", String(Math.round(Math.max(lo, Math.min(hi, get() || 0)))));
+  };
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = get();
+    const move = (ev) => { set(h0 + ev.clientY - y0, false); show(); };
+    const up = () => {
+      for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.removeEventListener(n, f);
+      set(get(), true);
+      show();
+    };
+    for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.addEventListener(n, f);
+  });
+  bar.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: -40, ArrowDown: 40 }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    set(get() + d, true);
+    show();
+  });
+  bar.addEventListener("dblclick", () => { reset(); show(); });
+  requestAnimationFrame(show);
+  return bar;
+}
+
+// A list box the user can make taller or shorter: any element with
+// data-box="<kind>" (and data-box-label) gets a resize bar right after it.
+// One height per kind of box on this PC (ui.json box_heights), so every
+// node's picker of that kind opens at the height last chosen.
+const BOX_RANGE = [120, 3000];
+S.boxHeights = S.boxHeights || {};
+function boxBar(box) {
+  const kind = box.dataset.box;
+  box.dataset.boxReady = "1";
+  const h = S.boxHeights[kind];
+  box.style.maxHeight = h ? h + "px" : "";
+  const clamp = (v) => Math.round(Math.max(BOX_RANGE[0], Math.min(BOX_RANGE[1], v)));
+  const save = () => api("POST", "/api/ui", { box_heights: S.boxHeights }).catch(() => {});
+  const all = () => document.querySelectorAll(`[data-box="${kind}"]`);
+  box.after(sizeBar("Resize " + (box.dataset.boxLabel || "the list"), { boxBar: kind }, () => box.getBoundingClientRect().height,
+    (v, done) => {
+      S.boxHeights[kind] = clamp(v);
+      for (const b of all()) b.style.maxHeight = S.boxHeights[kind] + "px";
+      if (done) save();
+    },
+    () => { delete S.boxHeights[kind]; for (const b of all()) b.style.maxHeight = ""; save(); },
+    () => BOX_RANGE));
+}
+function applyBoxHeights() {
+  for (const b of document.querySelectorAll("[data-box]")) {
+    const h = S.boxHeights[b.dataset.box];
+    b.style.maxHeight = h ? h + "px" : "";
+  }
+}
+let boxScan = 0;
+new MutationObserver(() => {
+  if (boxScan) return;
+  boxScan = requestAnimationFrame(() => {
+    boxScan = 0;
+    for (const b of document.querySelectorAll("[data-box]:not([data-box-ready])")) boxBar(b);
+  });
+}).observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener("DOMContentLoaded", () => { for (const b of document.querySelectorAll("[data-box]:not([data-box-ready])")) boxBar(b); });
+
 const JOB_ROUTES = /^\/api\/(online\/(scan|scan_stop|lss_find|backup|compare|restore|restore_plan|configure\w*|od_read|job|pdo_test_start|pdo_test_stop|sync_start|sync_stop|send_frame|send_stop)|trace\/(start|stop))$/;
 async function api(method, path, body) {
   // Requests to the runtime name the picked network; the server passes it
@@ -1735,7 +1882,7 @@ function slaveObjects(eds) {
     el("option", { value: k }, `${o.index}:${o.subindex} ${o.name} (${o.type}, ${o.access})`)));
   fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
-    el("div", { class: "objects" }, el("table", { class: "slave-objects" },
+    el("div", { class: "objects", dataset: { box: "slave_objects", boxLabel: "the bound objects" } }, el("table", { class: "slave-objects" },
       el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects yet. Bind an object of the slave's dictionary to a PLC location below, so the master can read or write it."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
@@ -1801,7 +1948,7 @@ function slaveBuilder() {
       el("label", { class: "span2" }, "Layout", layoutSel,
         hint(cia401 ? "Device type 401: digital I/O as UNSIGNED8 (0x6000/0x6200), analog as INTEGER16 (0x6401/0x6411)."
           : "From the master in 0x2000 and up, to the master in 0x2100 and up, one ARRAY per type."))),
-    el("div", { class: "objects" }, el("table", { class: "slave-builder" },
+    el("div", { class: "objects", dataset: { box: "slave_builder", boxLabel: "the object list" } }, el("table", { class: "slave-builder" },
       el("thead", null, el("tr", null, thCells(["Name", "Type", "Direction", "Default", "Low", "High", ""]))),
       el("tbody", null, rows))),
     el("div", { class: "toolbar" },
@@ -2027,7 +2174,7 @@ function gatewayRoutes(g, masters, upperEds) {
       "or a slave object the upper master writes (rww) down to a field RPDO entry, of the same type. An RPDO entry a route writes " +
       "needs no PLC location: one writer per object."),
     upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
-    el("div", { class: "objects" }, el("table", { class: "routes" },
+    el("div", { class: "objects", dataset: { box: "routes", boxLabel: "the routes" } }, el("table", { class: "routes" },
       el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet. A route passes a slave object to a node's PDO entry on a field network; add one with Add route."))))),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { addRoute: "1" },
@@ -2861,13 +3008,13 @@ function objectPicker(i, eds, dir) {
   const d = el("details", { class: "picker", open: S.pickerOpen[dir] || null, dataset: { picker: dir } },
     el("summary", null, "Add entry…"));
   d.addEventListener("toggle", () => { S.pickerOpen[dir] = d.open; if (!d.open) S.pickerTarget = null; });
-  const filter = el("input", { type: "text", placeholder: "Filter by index or name", "aria-label": `Filter ${dir} objects` });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": `Filter ${dir} objects` });
   filter.value = S.objectFilter;
   const body = el("tbody");
   const fill = () => {
     const f = S.objectFilter.toLowerCase();
     body.replaceChildren(...objects
-      .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
+      .filter((o) => objectMatches(o, f, noteOfObj(o)))
       .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type, noteOfObj(o).unit ? el("span", { class: "muted" }, " " + noteOfObj(o).unit) : null),
         el("td", null, o.access),
@@ -2887,7 +3034,7 @@ function objectPicker(i, eds, dir) {
       el("span", { class: "muted", dataset: { pickerTarget: dir } }, target !== null
         ? `Adding to ${label} ${target}. ` : `${objects.length} ${dir}-direction object${objects.length === 1 ? "" : "s"} the EDS lets a ${label} carry. `),
       target !== null ? el("button", { type: "button", class: "small", onclick: () => { S.pickerTarget = null; render(); } }, "Any PDO") : null),
-    el("div", { class: "objects" }, el("table", null,
+    el("div", { class: "objects", dataset: { box: "pdo_picker", boxLabel: "the object picker" } }, el("table", null,
       el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", ""]))), body))));
   return d;
 }
@@ -3015,7 +3162,7 @@ function renderSdos(i, eds) {
     el("tbody", null, rows)));
   // Picker: settings from the EDS (or every writable object), or an index
   // typed by hand.
-  const filter = el("input", { type: "text", placeholder: "Filter writable objects", "aria-label": "Filter SDO objects" });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": "Filter SDO objects" });
   filter.value = S.sdoFilter;
   const body = el("tbody");
   const hidden = el("span", { class: "muted" });
@@ -3037,7 +3184,7 @@ function renderSdos(i, eds) {
     if (why.listed) parts.push(`${why.listed} already in the list`);
     hidden.textContent = parts.length ? "Hidden: " + parts.join(", ") + "." : "";
     body.replaceChildren(...shown
-      .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
+      .filter((o) => objectMatches(o, f, noteOfObj(o)))
       .slice(0, 400)
       .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type || "?"), el("td", null, o.access), el("td", null, withMeaning(noteOfObj(o), o.default)),
@@ -3051,7 +3198,7 @@ function renderSdos(i, eds) {
   fs.append(el("div", { class: "toolbar" }, filter, el("label", { class: "check" }, all, " Show all writable objects"),
     byHand(idx, sub, el("button", { type: "button", onclick: () => addSdo(i, idx.value.trim(), sub.value.trim() || "0") }, "Add write"))),
   hidden,
-  el("div", { class: "objects" }, el("table", null,
+  el("div", { class: "objects", dataset: { box: "sdo_picker", boxLabel: "the Startup SDO writes picker" } }, el("table", null,
     el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", "Default", ""]))), body)));
   return collapsible("sdo", i, "Startup SDO writes", list.length, fs, summaryAdd("sdo", filter));
 }
@@ -3077,6 +3224,8 @@ function byHand(idx, sub, button) {
 function renderSdoVars(i, eds) {
   const n = S.config.nodes[i];
   const list = n.sdo_variables || [];
+  const nb = notesOf(n.eds);
+  const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
   const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo_variables` } }, el("legend", null, "SDO variables"),
     el("p", { class: "muted" }, "Objects read into or written from the program over SDO while the network runs. A read lands after each boot, every period and on each trigger edge. A write without a trigger is owned by the program: sent after each boot and whenever the value changes. With a trigger it is sent only on each rising edge. The status byte reads 0 idle, 1 busy, 2 done, 3 aborted (see the abort code), 4 node not available."));
   // One block per variable that wraps to the view's width: object, name,
@@ -3118,6 +3267,7 @@ function renderSdoVars(i, eds) {
             changed(true);
             removedBanner(`the SDO variable ${v.name || `${v.index}:${v.subindex ?? 0}`}`);
           } }, "✕")),
+      info ? noteLine(noteOfObj(info)) : null,
       el("div", { class: "sdo-var-fields" },
         loc(vp, "Value", "iec_location", read ? "sdo_read" : "sdo_write", v.type, read ? "%I…" : "%Q…"),
         read ? numField(vp, "Period (ms)", "period_ms", "none") : el("label", { class: "num" }, "Period", el("span", { class: "muted" }, "on change")),
@@ -3133,7 +3283,7 @@ function renderSdoVars(i, eds) {
     el("option", { value: "read" }, "Read (node to PLC)"), el("option", { value: "write" }, "Write (PLC to node)"));
   dirSel.value = S.varDirection;
   dirSel.addEventListener("change", () => { S.varDirection = dirSel.value; fill(); });
-  const filter = el("input", { type: "text", placeholder: "Filter objects", "aria-label": "Filter SDO variable objects" });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": "Filter SDO variable objects" });
   filter.value = S.varFilter;
   const body = el("tbody");
   const fill = () => {
@@ -3141,9 +3291,9 @@ function renderSdoVars(i, eds) {
     const write = S.varDirection === "write";
     body.replaceChildren(...((eds && eds.objects) || [])
       .filter((o) => o.type && (write ? o.writable : o.readable))
-      .filter((o) => !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f))
+      .filter((o) => objectMatches(o, f, noteOfObj(o)))
       .slice(0, 400)
-      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name),
+      .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type), el("td", null, o.access),
         el("td", null, write && pluginObject(o.index) ? el("span", { class: "field-msg warning" }, "set by the plugin") : null),
         el("td", null, el("button", { type: "button", dataset: { sdoVar: `${o.index}:${o.subindex}` },
@@ -3156,7 +3306,7 @@ function renderSdoVars(i, eds) {
   fs.append(el("div", { class: "toolbar" }, dirSel, filter, byHand(idx, sub,
     el("button", { type: "button", onclick: () => addSdoVar(i, idx.value.trim(), sub.value.trim() || "0", S.varDirection) },
       "Add variable"))),
-  el("div", { class: "objects" }, el("table", null,
+  el("div", { class: "objects", dataset: { box: "sdo_var_picker", boxLabel: "the SDO variables picker" } }, el("table", null,
     el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Access", "Note", ""]))), body)));
   return collapsible("sdo_variables", i, "SDO variables", list.length, fs, summaryAdd("sdo_variables", filter));
 }
@@ -4969,11 +5119,39 @@ function valuePicker(note, input, set) {
   return sel;
 }
 
-// The note's text under an object's name; details and manual on hover.
+// What a note says about values, as one line: "unit bar; ×0.01; 0 = off,
+// 1 = on" or "bit 0 = ready, ...". Long lists stop after six; `full` has all.
+// null when the note gives no unit, scale, named values or bits.
+const NOTE_LIST_MAX = 6;
+function noteSummary(note) {
+  if (!note) return null;
+  const list = (m, pre) => Object.entries(m || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([k, v]) => `${pre}${k} = ${v}`);
+  const head = [];
+  if (note.unit) head.push("unit " + note.unit);
+  if (typeof note.scale === "number" && note.scale !== 1 && note.scale !== 0) head.push("×" + noteNumber(note.scale));
+  const lists = [list(note.values, ""), list(note.bits, "bit ")].filter((l) => l.length);
+  if (!head.length && !lists.length) return null;
+  const full = head.concat(lists.map((l) => l.join(", "))).join("; ");
+  const short = head.concat(lists.map((l) => l.length > NOTE_LIST_MAX ? l.slice(0, NOTE_LIST_MAX).join(", ") + ", …" : l.join(", "))).join("; ");
+  return { short, full };
+}
+
+// The note under an object's name: its text, then what it says about values
+// (noteSummary); details, manual and a cut value list in full on hover.
 function noteLine(note) {
-  if (!note || (!note.text && !note.details && !note.manual)) return null;
-  const title = [note.details, note.manual ? "Manual: " + note.manual : ""].filter(Boolean).join("\n");
-  return el("div", { class: "muted note-text", title: title || null, dataset: { note: "text" } }, note.text || "More in the note");
+  if (!note) return null;
+  const sum = noteSummary(note);
+  if (!note.text && !note.details && !note.manual && !sum) return null;
+  const title = [note.details, note.manual ? "Manual: " + note.manual : "", sum && sum.short !== sum.full ? sum.full : ""].filter(Boolean).join("\n");
+  return el("div", { class: "muted note-text", title: title || null, dataset: { note: "text" } },
+    note.text || (sum ? null : "More in the note"),
+    sum ? el("div", { class: "note-meaning", dataset: { note: "meaning" } }, sum.short) : null);
+}
+
+// A picker row matches the filter text by index, name or note text.
+function objectMatches(o, f, note) {
+  return !f || o.index.toLowerCase().includes(f) || (o.name || "").toLowerCase().includes(f)
+    || !!(note && note.text && note.text.toLowerCase().includes(f));
 }
 
 function noteLines(map) { return Object.entries(map || {}).map(([k, v]) => `${k} = ${v}`).join("\n"); }
@@ -5662,7 +5840,7 @@ function odBuild(box, id, n, allow, data) {
       rows.push(tr, ...subs);
     }
     const det = el("details", { dataset: { odGroup: g } }, el("summary", null, `${title} (${list.length} objects)`),
-      el("div", { class: "table-scroll" }, selectable(el("table", { class: "od od-tree" },
+      el("div", { class: "table-scroll", dataset: { box: "od_table", boxLabel: "the object dictionary" } }, selectable(el("table", { class: "od od-tree" },
         el("colgroup", null, ["c-entry", "c-name", "c-type", "c-value", "c-actions", "c-watch"].map((c) => el("col", { class: c }))),
         el("thead", null, el("tr", null, thCells(["Entry", "Name", "Type", "Value", "", "Watch"]))),
         el("tbody", null, rows)))));

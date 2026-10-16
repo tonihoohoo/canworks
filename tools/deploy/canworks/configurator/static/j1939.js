@@ -353,7 +353,7 @@ function j1939Message(dir, m, i) {
       field("PGN", base + ".pgn", "int", { parse: intValue, hint: "Decimal or 0x hex. A PDU1 PGN (below 0xF000) has its low byte 0." }),
       field("Name", base + ".name", "text", { placeholder: "none" }),
       ...grid),
-    el("div", { class: "table-scroll" }, el("table", { class: "j1939-signals" },
+    el("div", { class: "table-scroll", dataset: { box: "j1939_signals", boxLabel: "the signals" } }, el("table", { class: "j1939-signals" },
       el("thead", null, el("tr", null, thCells(["Signal", "Start bit", "Bits", "Byte order", "Signed", "Scale", "Offset", "Unit", ""]))),
       el("tbody", null, rows.length ? rows.flat() : el("tr", null, el("td", { colspan: 9, class: "muted" }, "No signals yet. A signal names some bits of this PGN and scales them; add one with Add signal."))))),
     el("button", { type: "button", class: "small", dataset: { j1939AddSignal: `${dir}:${i}` }, onclick: () => addSignal(dir, i) }, "Add signal"));

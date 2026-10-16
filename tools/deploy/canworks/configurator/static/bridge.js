@@ -306,7 +306,7 @@ function bridgeFillMap() {
   host.replaceChildren(
     el("p", { class: "muted", dataset: { bridge: "sizes" } }, `Inputs ${regs(r.input_bytes)}, outputs ${regs(r.output_bytes)}.`),
     el("div", { class: "toolbar" }, filter, count),
-    el("div", { class: "objects bridge-map", tabindex: "0", role: "region", "aria-label": "Register map" }, el("table", { class: "od" },
+    el("div", { class: "objects bridge-map", dataset: { box: "bridge_map", boxLabel: "the register map" }, tabindex: "0", role: "region", "aria-label": "Register map" }, el("table", { class: "od" },
       el("thead", null, el("tr", null, thCells(["Table", "Address", "Size", "Type", "Name", "Source", "Location"]))), body)),
     el("h3", null, "Suggested client channels"),
     el("p", { class: "muted" }, "Requests that cover every used register within the Modbus limits (125 registers per read, 123 per write). Bits are read in the registers they live in."),

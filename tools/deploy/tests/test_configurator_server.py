@@ -167,7 +167,7 @@ class Access(Running):
 
 
 UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open", "ws_note": "new",
-               "node_tab": "general", "tree_folded": []}
+               "node_tab": "general", "tree_folded": [], "box_heights": {}}
 
 
 def ui(**changes):
@@ -234,10 +234,20 @@ class Theme(Running):
             self.assertEqual(self.request("POST", "/api/ui", {"tree_folded": bad})[0], 400, bad)
         self.assertEqual(self.ok("POST", "/api/ui", {"tree_folded": []}), ui(node_tab="pdos"))
 
+    def test_box_heights_kept(self):
+        """row-highlight-and-list-resize: one height per kind of list box."""
+        self.assertEqual(self.ok("POST", "/api/ui", {"box_heights": {"sdo_picker": 600, "od_table": 120}}),
+                         ui(box_heights={"sdo_picker": 600, "od_table": 120}))
+        self.assertEqual(self.ok("GET", "/api/ui"), ui(box_heights={"sdo_picker": 600, "od_table": 120}))
+        for bad in ([600], {"sdo_picker": 119}, {"sdo_picker": 3001}, {"sdo_picker": True}, {"sdo_picker": "600"},
+                    {"Bad kind": 600}, {"k%d" % i: 200 for i in range(33)}):
+            self.assertEqual(self.request("POST", "/api/ui", {"box_heights": bad})[0], 400, bad)
+        self.assertEqual(self.ok("POST", "/api/ui", {"box_heights": {}}), ui())
+
     def test_bad_tree_settings_in_the_file_read_as_defaults(self):
         os.makedirs(os.path.join(self.dir, "cfg"))
         with open(os.path.join(self.dir, "cfg", "ui.json"), "w") as f:
-            json.dump({"node_tab": "x", "tree_folded": "io"}, f)
+            json.dump({"node_tab": "x", "tree_folded": "io", "box_heights": {"sdo_picker": 5}}, f)
         self.assertEqual(self.ok("GET", "/api/ui"), ui())
 
     def test_nothing_written_to_the_project(self):

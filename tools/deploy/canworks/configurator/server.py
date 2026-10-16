@@ -110,11 +110,27 @@ UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "no
 # The network tree's folded networks: a list of network names (or "#<index>").
 TREE_FOLDED_MAX = 8
 
+# The heights of the resizable list boxes, per kind of box: {"sdo_picker": 600}.
+BOX_KIND = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+BOX_HEIGHTS_MAX = 32
+BOX_RANGE = (120, 3000)
+
 
 def _tree_folded(value):
     if not isinstance(value, list) or len(value) > TREE_FOLDED_MAX or \
             not all(isinstance(v, str) and 0 < len(v) <= 17 for v in value):
         return None
+    return value
+
+
+def _box_heights(value):
+    """The stored box heights, or None when `value` is not a valid table."""
+    if not isinstance(value, dict) or len(value) > BOX_HEIGHTS_MAX:
+        return None
+    for k, v in value.items():
+        if not isinstance(k, str) or not BOX_KIND.match(k) or isinstance(v, bool) or not isinstance(v, int) \
+                or not BOX_RANGE[0] <= v <= BOX_RANGE[1]:
+            return None
     return value
 
 
@@ -133,6 +149,7 @@ def load_ui():
     out = {k: stored.get(k) if stored.get(k) in choices else default
            for k, (choices, default) in UI_SETTINGS.items()}
     out["tree_folded"] = _tree_folded(stored.get("tree_folded")) or []
+    out["box_heights"] = _box_heights(stored.get("box_heights")) or {}
     return out
 
 
@@ -143,12 +160,18 @@ def load_theme():
 def save_ui(changes):
     """Stores the settings in `changes` (any of UI_SETTINGS), keeping the rest."""
     if not isinstance(changes, dict) or not changes:
-        raise ApiError(400, "give at least one of: " + ", ".join(list(UI_SETTINGS) + ["tree_folded"]))
+        raise ApiError(400, "give at least one of: " + ", ".join(list(UI_SETTINGS) + ["tree_folded", "box_heights"]))
     ui = load_ui()
     for key, value in changes.items():
         if key == "tree_folded":
             if _tree_folded(value) is None:
                 raise ApiError(400, "tree_folded must be a list of at most %d network names" % TREE_FOLDED_MAX)
+            ui[key] = value
+            continue
+        if key == "box_heights":
+            if _box_heights(value) is None:
+                raise ApiError(400, "box_heights must map at most %d box kinds to heights of %d to %d px"
+                               % ((BOX_HEIGHTS_MAX,) + BOX_RANGE))
             ui[key] = value
             continue
         if key not in UI_SETTINGS:

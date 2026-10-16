@@ -1058,43 +1058,9 @@ function laneHeight(lanes) { return T.laneH || (lanes > 2 ? 150 : 200); }
 
 function laneCount() { return Math.max(1, T.plots.length); }
 
-// A bar under a list or the graph that makes it taller or shorter: drag it,
-// or Up and Down by 40 px when it has the focus; double-click for the default.
-// get() is the height now, set(h, done) sets one, reset() the default;
-// range() is the [lowest, highest] height.
+// A resize bar under a trace list or the graph (sizeBar in app.js).
 function traceSizeBar(label, key, get, set, reset, range) {
-  const bar = el("div", { class: "trace-size-bar", role: "separator", tabindex: "0", "aria-orientation": "horizontal",
-    "aria-label": label, title: label + ": drag, or double-click for the default height", dataset: { trace: key } });
-  const show = () => {
-    const [lo, hi] = range();
-    bar.setAttribute("aria-valuemin", String(lo));
-    bar.setAttribute("aria-valuemax", String(hi));
-    bar.setAttribute("aria-valuenow", String(Math.round(Math.max(lo, Math.min(hi, get() || 0)))));
-  };
-  bar.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    bar.setPointerCapture(e.pointerId);
-    const y0 = e.clientY;
-    const h0 = get();
-    const move = (ev) => { set(h0 + ev.clientY - y0, false); show(); };
-    const up = () => {
-      for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.removeEventListener(n, f);
-      set(get(), true);
-      show();
-    };
-    for (const [n, f] of [["pointermove", move], ["pointerup", up], ["pointercancel", up]]) bar.addEventListener(n, f);
-  });
-  bar.addEventListener("keydown", (e) => {
-    const d = { ArrowUp: -40, ArrowDown: 40 }[e.key];
-    if (!d) return;
-    e.preventDefault();
-    set(get() + d, true);
-    show();
-  });
-  bar.addEventListener("dblclick", () => { reset(); show(); });
-  requestAnimationFrame(show);
-  return bar;
+  return sizeBar(label, { trace: key }, get, set, reset, range, "trace-size-bar");
 }
 
 const clampTo = (v, [lo, hi]) => Math.round(Math.max(lo, Math.min(hi, v)));

@@ -229,13 +229,14 @@ function nodeNotesTab(n, eds, readBlock, live) {
       const idx = `${o.index}:${o.subindex}`;
       if (q && !idx.toLowerCase().replace(/0x/g, "").includes(q) && !(o.name || "").toLowerCase().includes(q)
         && !(note.text || "").toLowerCase().includes(q)) continue;
-      const meaning = [note.unit ? "unit " + note.unit : "", note.values ? Object.entries(note.values).map(([k, v]) => `${k} = ${v}`).join(", ") : ""].filter(Boolean).join("; ");
+      const sum = noteSummary(note);
+      const meaning = sum ? sum.short : "";
       // The row opens its note on a click, as the Add note picker's rows do;
       // the Note button is the keyboard's. A click that selects text does not.
       out.push(el("tr", { class: editable ? "row-open" : null, dataset: { noteRow: idx, noteSource: source || "none" },
         onclick: editable ? (e) => { if (!e.target.closest("button, a, input") && !textSelected()) openNote(o, idx); } : null },
         el("td", { class: "mono" }, idx), el("td", null, o.name || ""),
-        el("td", null, note.text || "", meaning ? el("div", { class: "muted" }, meaning) : null),
+        el("td", null, note.text || "", meaning ? el("div", { class: "muted", title: sum.short !== sum.full ? sum.full : null }, meaning) : null),
         el("td", { class: "muted note-source" }, NOTE_SOURCE[source] || ""),
         el("td", { class: "actions" }, editable ? el("button", { type: "button", class: "small", dataset: { noteEdit: idx },
           "aria-label": `Note for ${idx} ${o.name || ""}`.trim(), onclick: () => openNote(o, idx) }, "Note") : null)));
