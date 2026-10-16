@@ -199,10 +199,11 @@ class FrameLab(TraceBase):
         tree_net(pg, 1)
         pg.click('button[data-view="framelab"]')
         pg.click("[data-fx-mode=examples]")
-        pg.wait_for_selector("[data-fx=examples] .chip")
+        # The examples are drawn again for the line network; wait for that,
+        # not just for the chips io's examples already had.
+        pg.wait_for_selector("[data-fx=examples]:has-text(\"node 3 (other)\")")
         self.assertEqual(pg.input_value("[data-fx=lab-frame]"), "")
         self.assertEqual(pg.locator("#fx-lab-inspector [data-fx=inspector]").count(), 0)
-        self.assertIn("node 3 (other)", pg.inner_text("[data-fx=examples]"))
 
     def test_examples_follow_the_unsaved_config(self):
         pg = self.page
