@@ -199,13 +199,19 @@ function heartbeatWatchFields(i) {
       el("span", { class: "field-msg", dataset: { for: hp } }), el("span", { class: "field-msg", dataset: { for: hp + ".node" } }),
       el("span", { class: "field-msg", dataset: { for: hp + ".timeout_ms" } }));
   });
-  const free = others.filter((x) => !watches(n, x.node_id));
+  // A node whose EDS has no writable 0x1016 cannot watch anyone
+  // (canopen-configurator "Heartbeat consumer choice follows the EDS").
+  const why = edsHasHeartbeatConsumer(edsFor(n)) ? null
+    : "The EDS has no consumer heartbeat time (0x1016), so the device cannot watch other nodes' heartbeats.";
+  const free = why ? [] : others.filter((x) => !watches(n, x.node_id));
   const add = el("select", { "aria-label": "Watch another node's heartbeat" }, el("option", { value: "" }, "Watch a node…"),
     free.map((x) => el("option", { value: String(x.node_id) }, nodeText(x))));
   add.addEventListener("change", () => { if (add.value) { setWatch(n, add.value, true); changed(true); } });
   return el("div", { class: "wide heartbeat-watch", dataset: { path: base } },
     el("span", { class: "row-head" }, "Heartbeat watch"),
     hint("Nodes whose heartbeat this node watches itself (its 0x1016): it reacts per its error behaviour (0x1029), usually with EMCY 0x8130, without the master. Empty timeout: the watched node's heartbeat timeout."),
+    why ? edsLimit(why, rows.length > 0, { label: "Remove the heartbeat watch", dataset: { watchRemove: "" },
+      run: () => setPath(base, undefined) }, { watchLimit: "" }) : null,
     el("ul", { class: "plain" }, rows), free.length ? add : null,
     el("span", { class: "field-msg", dataset: { for: base } }));
 }

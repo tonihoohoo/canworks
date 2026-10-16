@@ -228,6 +228,7 @@ class EmcyCobIds(unittest.TestCase):
 
     def config(self, emcy=None, sdo=None, second_emcy=None):
         cfg = load_cases()["base"]
+        cfg["nodes"][0]["eds"] = "emcy-slave.eds"  # EMCY fields need 0x1014 in the EDS
         second = copy.deepcopy(cfg["nodes"][0])
         second.update(node_id=3, name="second", status_location="%IX10.1")
         second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"
@@ -245,7 +246,7 @@ class EmcyCobIds(unittest.TestCase):
         return contract.check_config(cfg, "canworks.json", eds_dir=os.path.join(FIXTURES, "eds"))
 
     def emcy_errors(self, cfg):
-        # The fixture EDS has no 0x1014, so a startup SDO to it fails the EDS check.
+        # Kept from when the fixture EDS had no 0x1014 (a startup SDO to it failed the EDS check).
         return [e for e in self.check(cfg).errors if "index 0x1014, subindex 0: object is not defined" not in e]
 
     def error(self, cfg):

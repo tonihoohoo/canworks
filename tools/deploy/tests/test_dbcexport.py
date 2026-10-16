@@ -270,6 +270,7 @@ class FixedFrames(unittest.TestCase):
     def test_configured_emcy_cob_id(self):
         # A number in emcy_cob_id moves the EMCY message; "eds" does not (add-emcy-history).
         cfg = base_config()
+        cfg["nodes"][0]["eds"] = "emcy-slave.eds"  # a node with EMCY fields needs 0x1014
         cfg["nodes"][0]["emcy_cob_id"] = "0xC2"
         self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0xC2)
         cfg["nodes"][0]["emcy_cob_id"] = "eds"
