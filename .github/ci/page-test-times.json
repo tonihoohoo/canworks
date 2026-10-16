@@ -32,6 +32,7 @@
  "tests.test_configurator_localbus_page.CommissionPage": 20.0,
  "tests.test_configurator_localbus_page.ConfigModePage": 2.0,
  "tests.test_configurator_networks_page.NetworksPage": 8.5,
+ "tests.test_configurator_notices_page.MessageBars": 23.0,
  "tests.test_configurator_online_page.OnlinePage": 41.1,
  "tests.test_configurator_online_page.SlaveOnlinePage": 5.5,
  "tests.test_configurator_page.Page": 52.9,

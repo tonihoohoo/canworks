@@ -351,25 +351,111 @@ function thCells(headers) {
   return headers.map((h) => el("th", null, h === "" ? el("span", { class: "visually-hidden" }, "Actions") : h));
 }
 
-// The message bar. text: a string, or an element (the EDS import report).
-// A string closes by itself after BANNER_MS; errors and reports stay until
-// closed, replaced, or the user switches view. An element with
-// data-timed closes like a string. Information is a status, an error an
-// alert, so assistive technology reads both.
+// Message bars (consistent-message-bars): every message about a page, view,
+// section or dialog is a bar of one of four kinds, with the same tint, left
+// accent and state icon everywhere. A message sits at the top of what it is
+// about: the page's message bar under the header, a section's slot under its
+// heading, a dialog's slot at the top of its body. Field text (hints, a
+// field's error) stays at its field and is not a bar.
+const NOTICE_KINDS = ["error", "warning", "info", "done"];  // the order in a slot
+const NOTICE_ICON = { error: "error", warning: "warning", info: "info", done: "operational" };
+
+// A message bar. kind: "info", "done", "warning" or "error"; content: text,
+// a node or a list of them. opts: actions (buttons after the text), close
+// (true, or a function run after closing), key (setNotice replaces a bar of
+// the same key), live (false: drawn with its view, so not announced), id,
+// dataset, textId.
+function notice(kind, content, opts) {
+  opts = opts || {};
+  if (!NOTICE_ICON[kind]) kind = "info";
+  const live = opts.live !== false;
+  const bar = el("div", {
+    id: opts.id || null, class: `notice notice-${kind}` + (opts.class ? " " + opts.class : ""),
+    role: live ? (kind === "error" ? "alert" : "status") : null,
+    dataset: Object.assign({ notice: kind }, opts.key ? { noticeKey: opts.key } : {}, opts.dataset || {}),
+  });
+  bar.append(Icons.stateIcon(NOTICE_ICON[kind], { label: false }),
+    el("div", { class: "notice-text", id: opts.textId || null }, content));
+  const actions = (opts.actions || []).filter((a) => a);
+  if (actions.length) bar.append(el("div", { class: "notice-actions" }, actions));
+  if (opts.close) {
+    bar.append(el("button", { type: "button", class: "notice-close", title: "Close", "aria-label": "Close message",
+      onclick: () => { bar.remove(); if (typeof opts.close === "function") opts.close(); } }, "✕"));
+  }
+  return bar;
+}
+
+// A dialog's error bar, hidden while empty: bar.say(text) shows or clears it.
+function msgBar(data, text) {
+  const bar = notice("error", "", { dataset: data || null });
+  const t = bar.querySelector(".notice-text");
+  bar.say = (s) => { t.textContent = s || ""; bar.hidden = !s; };
+  bar.say(text);
+  return bar;
+}
+
+// The place for the messages of a view, section or dialog: put it directly
+// under the heading, before the first control.
+function noticeSlot(attrs) { return el("div", Object.assign({ class: "notice-slot" }, attrs || {})); }
+
+// A view's connection line (Nodes, Simulation, Trace, Machine view): the
+// state as a bar of `kind` and its notes as bars, most severe first, in the
+// view's slot. The slot is a polite live region, rewritten only when the
+// bars change, so a screen reader hears each change once.
+function stateBars(slot, kind, line, notes) {
+  if (!slot) return;
+  const bars = byKind([notice(kind, line, { live: false }), ...(notes || [])]);
+  const sig = bars.map((b) => b.outerHTML).join("");
+  if (slot.dataset.html === sig) return;
+  slot.dataset.html = sig;
+  slot.replaceChildren(...bars);
+}
+
+// A note under a view's connection line, as a bar without its own live role.
+function noteBar(kind, text, data) { return notice(kind, text, { live: false, dataset: data || null }); }
+
+// Sorts bars most severe first: error, warning, information, done.
+function byKind(bars) {
+  const rank = (b) => (b && b.dataset && b.dataset.notice ? NOTICE_KINDS.indexOf(b.dataset.notice) : NOTICE_KINDS.length);
+  return bars.filter((b) => b).map((b, i) => [b, i]).sort((x, y) => rank(x[0]) - rank(y[0]) || x[1] - y[1]).map((x) => x[0]);
+}
+
+// Puts a bar into a slot, replacing the one with the same key, in kind order.
+// kind null (or no content) removes the bar of that key.
+function setNotice(slot, key, kind, content, opts) {
+  if (!slot) return null;
+  const old = [...slot.children].find((c) => c.dataset.noticeKey === key);
+  if (!kind || content === null || content === undefined || content === "") { if (old) old.remove(); return null; }
+  const bar = notice(kind, content, Object.assign({}, opts || {}, { key }));
+  if (old) old.replaceWith(bar); else slot.append(bar);
+  slot.replaceChildren(...byKind([...slot.children]));
+  return bar;
+}
+
+// The page's message bar, under the header and the simulation banner, for
+// the results of the user's actions and the errors of a request. text: a
+// string, or an element (the EDS import report). kind: "done" (default),
+// "info", "warning" or "error"; true is "error". Information and done close
+// by themselves after BANNER_MS; warnings, errors and elements stay until
+// closed, replaced, or the user switches view. An element with data-timed
+// closes like a string.
 const BANNER_MS = 6000;
-function banner(text, isError) {
+function banner(text, kind) {
+  if (kind === true) kind = "error";
+  if (!kind) kind = "done";
   const b = $("#banner");
   clearTimeout(S.bannerTimer);
   b.hidden = !text;
   if (text instanceof Node) $("#banner-text").replaceChildren(text);
   else $("#banner-text").textContent = text || "";
-  b.className = isError ? "error" : "";
-  b.setAttribute("role", isError ? "alert" : "status");
+  b.className = `notice notice-${kind}` + (kind === "error" ? " error" : "");
+  b.dataset.notice = kind;
+  b.setAttribute("role", kind === "error" ? "alert" : "status");
   const icon = b.querySelector(":scope > svg.st");
   if (icon) icon.remove();
-  if (isError && text) b.prepend(Icons.stateIcon("error", { label: false }));
+  if (text) b.prepend(Icons.stateIcon(NOTICE_ICON[kind], { label: false }));
   const timed = typeof text === "string" ? !!text : !!(text && text.dataset && text.dataset.timed);
-  if (timed && !isError) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
+  if (timed && (kind === "done" || kind === "info")) S.bannerTimer = setTimeout(() => banner(""), BANNER_MS);
 }
 
 // "Removed 0x6150:1 from TPDO 2." with an Undo action, shown for BANNER_MS.
@@ -583,12 +669,15 @@ function hint(text) { return text ? el("span", { class: "hint" }, text) : null; 
 // Why a node setting is off because of the node's EDS (canopen-configurator
 // "One look for EDS limits"): hint text while the config has nothing the EDS
 // cannot back; warning text, with the remove action when given, while it
-// still has such a setting.
-function edsLimit(text, leftover, remove, data) {
+// still has such a setting. `section`: the reason is about a whole section
+// (EMCY), so a leftover setting is a warning bar at its top
+// (consistent-message-bars); otherwise it is the field's own text.
+function edsLimit(text, leftover, remove, data, section) {
   if (!leftover) return el("span", { class: "hint", dataset: Object.assign({ edsLimit: "" }, data) }, text);
-  return el("p", { class: "field-msg warning", dataset: Object.assign({ edsLimit: "leftover" }, data) }, text + " ",
-    remove ? el("button", { type: "button", class: "link", dataset: remove.dataset, onclick: () => { remove.run(); render(); } },
-      remove.label) : null);
+  const btn = remove ? el("button", { type: "button", class: section ? "small" : "link", dataset: remove.dataset, onclick: () => { remove.run(); render(); } },
+    remove.label) : null;
+  if (section) return notice("warning", text, { live: false, actions: [btn], dataset: Object.assign({ edsLimit: "leftover" }, data) });
+  return el("p", { class: "field-msg warning", dataset: Object.assign({ edsLimit: "leftover" }, data) }, text + " ", btn);
 }
 
 // Whether the node's EDS has the EMCY COB-ID (0x1014) and a writable 0x1016
@@ -974,7 +1063,7 @@ async function loadState() {
     if (S.view.startsWith("node:") && !(S.config.nodes || [])[Number(S.view.slice(5))]) S.view = "bus";
     if (typeof simLoad === "function") simLoad();
     if (S.state.load_error) banner(S.state.load_error, true);
-    else if (S.state.notices && S.state.notices.length) banner(S.state.notices.join(" "));
+    else if (S.state.notices && S.state.notices.length) banner(S.state.notices.join(" "), "info");
     else banner("");
   } else if (S.state.open_error) banner(S.state.open_error, true);
   render();
@@ -1061,7 +1150,7 @@ async function chooseFolder({ title, start, note }) {
   const go = el("button", { type: "button", dataset: { folder: "go" } }, "Go");
   const here = el("p", { class: "muted", dataset: { folder: "here" }, "aria-live": "polite" });
   const list = el("ul", { class: "folders", "aria-label": "Subfolders", dataset: { folder: "list" } });
-  const err = el("p", { class: "field-msg", dataset: { folder: "error" }, role: "alert", hidden: true });
+  const err = msgBar({ folder: "error" });
   let shown = null;  // the listing on screen
   const edsTag = (n) => (n ? el("span", { class: "tag" }, n + " EDS") : null);
   async function open(where, drives) {
@@ -1070,11 +1159,10 @@ async function chooseFolder({ title, start, note }) {
     try {
       r = await api("GET", "/api/folders?" + (drives ? "drives=1" : "path=" + encodeURIComponent(where)));
     } catch (e) {
-      err.textContent = e.message;
-      err.hidden = false;
+      err.say(e.message);
       return false;
     }
-    err.hidden = true;
+    err.say("");
     shown = r;
     path.value = r.path;
     up.disabled = !r.parent && !r.drive;
@@ -1114,7 +1202,7 @@ async function chooseFolder({ title, start, note }) {
   const cancel = el("button", { type: "button", dataset: { value: "cancel" } }, "Cancel");
   const dlg = el("dialog", { class: "folder-dialog", "aria-labelledby": "folder-dialog-title", dataset: { folder: "dialog" } },
     el("h2", { id: "folder-dialog-title" }, title),
-    el("div", { class: "folder-picker" }, el("div", { class: "row" }, up, path, go), here, err, list, note ? hint(note) : null),
+    el("div", { class: "folder-picker" }, err, el("div", { class: "row" }, up, path, go), here, list, note ? hint(note) : null),
     el("menu", null, cancel, use));
   // The nearest folder that exists: the start, else its parents, else home.
   let ok = false;
@@ -1125,7 +1213,7 @@ async function chooseFolder({ title, start, note }) {
     p = /^[A-Za-z]:$/.test(parent) ? parent + "\\" : parent;
   }
   if (!ok) await open(S.state && S.state.home ? S.state.home : "~");
-  err.hidden = true;
+  err.say("");
   const opener = document.activeElement;
   document.body.append(dlg);
   const answer = await new Promise((resolve) => {
@@ -1381,7 +1469,8 @@ function updateSimBanner() {
   wasOpen ? "Hide details" : "Details");
   const line = `Simulated: ${simShort()}. Do not upload it to a machine as it is.`;
   b.setAttribute("aria-label", line);
-  b.replaceChildren(el("div", { class: "sim-line" }, el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle), full);
+  b.replaceChildren(Icons.stateIcon("warning", { label: false }), el("div", { class: "sim-body notice-text" },
+    el("div", { class: "sim-line" }, el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle), full));
 }
 
 // Simulating anything needs online access with Allow changes for the
@@ -1395,7 +1484,7 @@ async function simulationNeedsOnline() {
     }
     S.model.diagnostics = { token_verifier: await verifierForToken(), allow_changes: true };
     await checkToken();
-    banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.");
+    banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.", "info");
   } catch (e) { banner(e.message, true); }
 }
 
@@ -2016,7 +2105,7 @@ async function useSlaveEdsFile(file) {
     S.state.eds[res.name] = res.summary;
     S.config.slave.eds = res.name;
     S.unsavedFiles = true;
-    banner(importReport(res));
+    banner(importReport(res), "info");
     changed(true);
   } catch (e) {
     banner(e.message, true);
@@ -2170,10 +2259,10 @@ function gatewayRoutes(g, masters, upperEds) {
         el("span", { class: "field-msg", dataset: { for: path } })));
   });
   return el("fieldset", null, el("legend", null, "Routes"),
+    upperEds ? null : notice("warning", "Build or pick the upper network's EDS to pick slave objects.", { live: false }),
     el("p", { class: "muted" }, "Each route copies one value: a field TPDO entry up to a slave object the upper master reads (ro), " +
       "or a slave object the upper master writes (rww) down to a field RPDO entry, of the same type. An RPDO entry a route writes " +
       "needs no PLC location: one writer per object."),
-    upperEds ? null : el("p", { class: "field-msg" }, "Build or pick the upper network's EDS to pick slave objects."),
     el("div", { class: "objects", dataset: { box: "routes", boxLabel: "the routes" } }, el("table", { class: "routes" },
       el("thead", null, el("tr", null, thCells(["Name", "Slave object", "Field network, node and PDO entry", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 4, class: "muted" }, "No routes yet. A route passes a slave object to a node's PDO entry on a field network; add one with Add route."))))),
@@ -2220,7 +2309,9 @@ function axisFields(i, eds) {
   const box = el("input", { type: "checkbox", disabled: !!why, title: why, dataset: { path: base + ".axis" } });
   box.checked = on;
   box.addEventListener("change", () => { setPath(base + ".axis", box.checked ? {} : undefined); render(); });
-  const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"),
+  // The section's messages (profile, status bit, the mapping's result) under its legend.
+  const slot = noticeSlot({ dataset: { axisNotices: "" } });
+  const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"), slot,
     el("div", { class: "check-field" },
       el("label", { class: "check" + (why ? " muted" : "") }, box, " Use as a CiA 402 axis"),
       why ? el("p", { class: "muted", dataset: { axisNoDrive: "" } }, why) : null,
@@ -2230,11 +2321,11 @@ function axisFields(i, eds) {
   const dt = objectInfo(eds, "0x1000", 0);
   const value = dt ? num(dt.default) : NaN;
   if (eds && !eds.error && !(Number.isFinite(value) && (value & 0xFFFF) === 402))
-    fs.append(el("p", { class: "field-msg warning", dataset: { axisProfile: "" } },
-      "The EDS device type (0x1000) does not say device profile 402. Check that this device is a CiA 402 drive."));
+    slot.append(notice("warning", "The EDS device type (0x1000) does not say device profile 402. Check that this device is a CiA 402 drive.",
+      { live: false, dataset: { axisProfile: "" } }));
   if (!n.status_location)
-    fs.append(el("p", { class: "field-msg", dataset: { axisStatus: "" } },
-      "An axis needs the status bit (under Supervision): the axis goes into error stop when the drive is lost."));
+    slot.append(notice("error", "An axis needs the status bit (under Supervision): the axis goes into error stop when the drive is lost.",
+      { live: false, dataset: { axisStatus: "" } }));
   fs.append(el("div", { class: "grid" },
     field("Scale numerator", base + ".axis.scale_numerator", "int", { placeholder: "1",
       hint: "Drive increments for 'denominator' units of the program (10: a move of 25 units is 250 increments). Empty: 1." }),
@@ -2243,7 +2334,6 @@ function axisFields(i, eds) {
     field("Scale factor", base + ".axis.scale_factor", "text", { placeholder: "1.0",
       parse: (t) => (/^-?[0-9]*\.?[0-9]+(e-?[0-9]+)?$/i.test(t) ? Number(t) : t), hint: "The motion library's extra scale factor on that ratio. Empty: 1.0." })));
   fs.append(cyclicFields(base, n));
-  const result = el("div", { dataset: { axisResult: "" } });
   fs.append(el("div", { class: "toolbar" },
     el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
       const r = await api("POST", "/api/map_cia402", { config: fileConfig(), network: S.net, node: i });
@@ -2253,20 +2343,20 @@ function axisFields(i, eds) {
     } }, "Map CiA 402 objects"),
     hint(n.axis.cyclic === true
       ? "Puts the drive's objects that are not mapped yet into its PDOs for cyclic use: controlword, modes and target position in one RPDO, the other set-points in the next, statusword, modes display and actual position in one TPDO, with transmission type 1 (every SYNC)."
-      : "Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")),
-    result);
+      : "Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")));
+  // Map CiA 402 objects' result: a bar at the top of the section.
   const last = S.axisResult && S.axisResult.node === i ? S.axisResult : null;
   if (last) {
     const lines = [];
-    lines.push(el("p", { class: "muted" }, last.mapped.length
+    lines.push(el("p", null, last.mapped.length
       ? "Mapped: " + last.mapped.map((m) => m.index ? `${m.index} ${m.name} (${m.pdo}, ${m.location})` : `${m.name} ${m.location}`).join("; ") + "."
       : "Nothing new to map."));
     if (last.changes && last.changes.length)
-      lines.push(el("p", { class: "muted", dataset: { axisChanges: "" } }, "Transmission type 1 (every SYNC) for the cyclic axis: " +
+      lines.push(el("p", { dataset: { axisChanges: "" } }, "Transmission type 1 (every SYNC) for the cyclic axis: " +
         last.changes.map((c) => `${c.pdo} (was ${c.was === null || c.was === undefined ? "not set" : c.was})`).join(", ") + "."));
-    if (last.missing.length)
-      lines.push(el("ul", { class: "field-msg warning" }, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
-    result.append(...lines);
+    if (last.missing.length) lines.push(el("ul", null, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
+    slot.append(notice(last.missing.length ? "warning" : last.mapped.length ? "done" : "info", lines, { dataset: { axisResult: "" } }));
+    slot.replaceChildren(...byKind([...slot.children]));
   }
   return fs;
 }
@@ -3613,12 +3703,13 @@ async function copyToken() {
   catch (e) { await modal("The access token:", [["ok", "Close", true]], el("code", null, S.online.token)); }
 }
 
-async function saveHost(host) {
+// say: where a dialog shows the error instead of the page bar.
+async function saveHost(host, say) {
   try {
     S.online = Object.assign(S.online, await api("POST", "/api/online/settings", { host }));
-    banner("");
+    if (!say) banner("");
     return true;
-  } catch (e) { banner(e.message, true); return false; }
+  } catch (e) { if (say) say(e.message); else banner(e.message, true); return false; }
 }
 
 // withList: the connect box, which also lists the runtimes found on the
@@ -3883,7 +3974,7 @@ function pairedPcsBox() {
   const out = el("div", { dataset: { online: "paired-list" }, "aria-live": "polite" });
   const show = (data) => {
     S.pairedPcs = { host: S.online.host, data };
-    if (data.error) { put(out, el("p", { class: "field-msg warning" }, data.error)); return; }
+    if (data.error) { put(out, notice("warning", data.error)); return; }
     const when = (t) => (Number.isFinite(t) && t > 0 ? new Date(t * 1000).toLocaleString() : "never");
     put(out, el("table", { class: "scan" },
       el("thead", null, el("tr", null, thCells(["PC", "Link ID", "Paired", "Last seen", "Paired over", ""]))),
@@ -3952,17 +4043,18 @@ async function saveOnline(values) {
 function renderOnline(view) {
   view.append(el("h2", null, "Nodes"));
   if (!diagConfig()) {
-    view.append(el("p", { dataset: { online: "access-off" } }, "Online access is off for this config. Turn it on in Configure → ",
+    view.append(notice("info", ["Online access is off for this config. Turn it on in Configure → ",
       el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
-      ", save, and upload the program to the runtime."));
+      ", save, and upload the program to the runtime."], { live: false, dataset: { online: "access-off" } }));
     return;
   }
   if (!connEnsure()) {
     view.append(nodesNotConnected());
     return;
   }
-  view.append(
-    el("div", { id: "online-conn", class: "online-conn" }, "Connecting to " + S.online.host + "…"),
+  const conn = noticeSlot({ id: "online-conn", "aria-live": "polite" });
+  stateBars(conn, "info", "Connecting to " + S.online.host + "…");
+  view.append(conn,
     onlineIsSlave() ? null : nodesToolbar(),
     el("div", { id: "online-live" }),
     el("div", { id: "online-raw" }),
@@ -3991,28 +4083,26 @@ function onlineApply(r, err) {
   if (err) {
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
-    conn.className = "online-conn error";
     // Values from before the failure stay, greyed, with their age.
     const age = S.onlineLastAt ? Math.max(0, Math.round((Date.now() - S.onlineLastAt) / 1000)) : null;
     const text = `Not connected (${why}): ${err.message}. Retrying…`;
-    delete conn.dataset.html;  // the next good poll rewrites the line
-    put(conn, text, age !== null && live.childElementCount ? el("div", { class: "online-note", dataset: { online: "stale-age" } }, `Last data ${age} s ago; the values below are not live.`) : null);
+    stateBars(conn, "error", text, [age !== null && live.childElementCount ? noteBar("warning", `Last data ${age} s ago; the values below are not live.`, { online: "stale-age" }) : null]);
     live.classList.toggle("stale", !!live.childElementCount);
     // The open node's panel too: greyed, with the age of its values.
     const node = $("#online-node");
     const nodeAge = (a) => `Connection lost: the values on this page are from ${a} s ago.`;
     if (node && node.childElementCount) {
       node.classList.add("stale");
-      const note = node.querySelector("[data-online=node-stale]");
+      const note = node.querySelector("[data-online=node-stale] .notice-text");
       if (note) note.textContent = nodeAge(age ?? 0);
-      else node.prepend(el("div", { class: "online-note error", dataset: { online: "node-stale" } }, nodeAge(age ?? 0)));
+      else (node.querySelector(":scope > .notice-slot") || node).prepend(noteBar("error", nodeAge(age ?? 0), { online: "node-stale" }));
     }
     clearTimeout(S.onlineAgeTimer);
     if (age !== null) S.onlineAgeTimer = setTimeout(() => {
       if (seq !== CONN.seq || !onlineViews().includes(S.view)) return;
-      const a = document.querySelector("[data-online=stale-age]");
+      const a = document.querySelector("[data-online=stale-age] .notice-text");
       if (a) a.textContent = `Last data ${age + 1} s ago; the values below are not live.`;
-      const b = document.querySelector("[data-online=node-stale]");
+      const b = document.querySelector("[data-online=node-stale] .notice-text");
       if (b) b.textContent = nodeAge(age + 1);
     }, 1000);
     return;
@@ -4035,20 +4125,18 @@ function onlineApply(r, err) {
   const notes = [];
   const bus = st.bus || {};
   const protocol = st.protocol === "j1939" ? "J1939" : st.protocol === "none" ? "plain CAN" : "CANopen";
-  if (!st.session && st.protocol !== "none") notes.push(el("div", { class: "online-note error" }, `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
-  if (r.config === "different") notes.push(el("div", { class: "online-note warning", dataset: { online: "fingerprint" } },
+  if (!st.session && st.protocol !== "none") notes.push(noteBar("error", `No ${protocol} session: the CAN interface ${bus.interface || "of this network"} is missing or down on the runtime.`));
+  if (r.config === "different") notes.push(noteBar("warning",
     "The runtime runs a different configuration than the saved canworks.json (saved changes not uploaded yet, or another project). " +
-    "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook."));
-  if (S.dirty) notes.push(el("div", { class: "online-note" }, "This page has unsaved changes; the runtime runs what was uploaded."));
-  if (st.simulation_forced) notes.push(el("div", { class: "online-note warning", dataset: { online: "forced" } },
-    `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local simulator runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`));
-  conn.className = "online-conn ok";
+    "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook.", { online: "fingerprint" }));
+  if (S.dirty) notes.push(noteBar("info", "This page has unsaved changes; the runtime runs what was uploaded."));
+  if (st.simulation_forced) notes.push(noteBar("warning",
+    `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local simulator runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`, { online: "forced" }));
   // The connection line is a live region: it is rewritten only when it changes.
-  const line = el("div", null, `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
-    (r.hello.allow_changes ? "changes allowed." : "read-only."), ...notes);
+  stateBars(conn, "done", `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
+    (r.hello.allow_changes ? "changes allowed." : "read-only."), notes);
   // This PC was just paired in the background and can reach the runtime from other networks: said once.
-  if (r.pairing_note) banner(r.pairing_note);
-  if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  if (r.pairing_note) banner(r.pairing_note, "info");
   rawLive(st);
   if (st.protocol === "none") {
     plainLive(st);
@@ -4342,23 +4430,32 @@ function renderLss(allow) {
   const box = $("#online-lss");
   if (!box) return;
   S.lssAllow = allow;
+  // The search's progress beside its button; what it found, or why not, at the section's top.
   const status = el("span", { class: "muted", dataset: { online: "lss-status" } });
+  const slot = noticeSlot({ dataset: { online: "lss-notices" } });
+  if (!allow) slot.append(lockedNote("lss-no-changes", '[data-online="lss-find"]'));
   const result = el("div", { dataset: { online: "lss-result" } });
   const find = el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES,
     dataset: { online: "lss-find" }, onclick: () => runLssFind(true) }, "Find a device without node ID");
-  box.replaceChildren(el("fieldset", { dataset: { online: "lss" } }, el("legend", null, "Unconfigured devices (LSS)"),
+  box.replaceChildren(el("fieldset", { dataset: { online: "lss" } }, el("legend", null, "Unconfigured devices (LSS)"), slot,
     el("p", { class: "muted" }, "Devices without DIP switches get their node ID and bit rate over the bus (LSS, CiA 305). " +
       "Find one device that has no node ID yet, then set its node ID or bit rate." + (S.state.commission ? "" : " PDOs of the configured nodes keep running.")),
-    allow ? null : lockedNote("lss-no-changes", '[data-online="lss-find"]'),
     el("div", { class: "toolbar" }, find, status), result));
   if (allow && S.lssDevice) showLssDevice(S.lssDevice);
+}
+
+// The LSS search's message: a bar at the top of its section; kind null clears it.
+function lssSay(kind, text) {
+  const slot = document.querySelector("[data-online=lss-notices]");
+  if (slot) setNotice(slot, "find", kind, text, { dataset: { online: "lss-msg" } });
 }
 
 async function runLssFind(start) {
   const seq = S.onlineSeq;
   const status = document.querySelector("[data-online=lss-status]");
+  lssSay(null);
   if (start && !(await askSlowPath("The LSS fast scan"))) {
-    if (status) status.textContent = "Not started.";
+    lssSay("info", "Not started.");
     return;
   }
   let r;
@@ -4366,7 +4463,7 @@ async function runLssFind(start) {
     r = start ? await apiForce("/api/online/lss_find", { start, port: diagPort() })
       : await api("POST", "/api/online/lss_find", { start, port: diagPort() });
   } catch (e) {
-    if (seq === S.onlineSeq && status) status.textContent = e.message;
+    if (seq === S.onlineSeq && status) { status.textContent = ""; lssSay("error", e.message); }
     return;
   }
   if (seq !== S.onlineSeq || !onlineViews().includes(S.view)) return;
@@ -4377,14 +4474,15 @@ async function runLssFind(start) {
     setTimeout(() => runLssFind(false), 300);
     return;
   }
-  if (r.error) { st.textContent = "The search failed: " + r.error; return; }
+  st.textContent = "";
+  if (r.error) { lssSay("error", "The search failed: " + r.error); return; }
   if (!r.found || !r.device) {
     S.lssDevice = null;
-    st.textContent = `No device without a node ID answered (${(r.seconds || 0).toFixed(1)} s).`;
+    lssSay("info", `No device without a node ID answered (${(r.seconds || 0).toFixed(1)} s).`);
     document.querySelector("[data-online=lss-result]").replaceChildren();
     return;
   }
-  st.textContent = `Found in ${(r.seconds || 0).toFixed(1)} s.`;
+  lssSay("done", `Found in ${(r.seconds || 0).toFixed(1)} s.`);
   S.lssDevice = r.device;
   showLssDevice(r.device);
 }
@@ -4578,20 +4676,22 @@ async function renderOnlineNode() {
   const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
     el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: () => addToConfig(id) }, "Add to a config…")) : head;
   const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
+  // The node page's messages (values no longer live) under its heading.
+  const top = [title, noticeSlot({ dataset: { online: "node-notices" } }), tabList];
   // The object dictionary tab takes the problems pane's room, as the trace does.
   $("#editor").classList.toggle("wide-view", tab === "od");
-  if (tab === "od") { put(box, title, tabList, panel(odPanel(id, n, allow))); return; }
-  if (tab === "params") { put(box, title, tabList, panel(paramsPanel(id, n, allow))); return; }
-  if (tab === "pdo") { put(box, title, tabList, panel(pdoTestPanel(id, n, allow))); return; }
-  if (tab === "notes") { put(box, title, tabList, panel(commNotesTab(id, n))); return; }
-  if (tab === "log") { put(box, title, tabList, panel(nodeLogTab(id))); return; }
-  if (slave) { put(box, title, tabList, panel(sdoPanel(id, n, allow))); return; }
+  if (tab === "od") { put(box, top, panel(odPanel(id, n, allow))); return; }
+  if (tab === "params") { put(box, top, panel(paramsPanel(id, n, allow))); return; }
+  if (tab === "pdo") { put(box, top, panel(pdoTestPanel(id, n, allow))); return; }
+  if (tab === "notes") { put(box, top, panel(commNotesTab(id, n))); return; }
+  if (tab === "log") { put(box, top, panel(nodeLogTab(id))); return; }
+  if (slave) { put(box, top, panel(sdoPanel(id, n, allow))); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
   const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
   const timeouts = last && (last.pdo_timeouts || []).length
     ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
     : null;
-  put(box, title, tabList, panel(
+  put(box, top, panel(
     deviceLine(id),
     nodeStatusHead(id, last, n),
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
@@ -4609,7 +4709,7 @@ async function renderOnlineNode() {
         el("td", null, hex4(e.code)), el("td", null, e.class), el("td", null, "0x" + e.error_register.toString(16).toUpperCase().padStart(2, "0")),
         el("td", null, e.manufacturer))))) : el("p", { class: "muted" }, "No EMCY from this node since the CANopen session started."));
   } catch (e) {
-    emcy.replaceChildren(el("p", { class: "field-msg" }, e.message));
+    emcy.replaceChildren(notice("error", e.message));
   }
 }
 
@@ -4618,25 +4718,30 @@ async function renderOnlineNode() {
 // manual SDO read; Clear writes 0 to sub-index 0 with the manual write, so it
 // needs changes allowed and, on an OPERATIONAL node, force (asked first).
 function errorFieldPanel(id, allow) {
+  // The section's messages (locked, read failed) are at its top, under the legend.
+  const slot = noticeSlot();
+  if (!allow) slot.append(lockedNote("error-field-no-changes", '[data-online="error-field-clear"]', "Clear:"));
   const box = el("div", { dataset: { online: "error-field" } }, el("span", { class: "muted" }, "Loading…"));
+  const say = (kind, text, data) => setNotice(slot, "read", kind, text, data ? { dataset: data } : null);
   let last = null;
   const show = (r) => {
     last = r;
-    if (!r.history) { box.replaceChildren(el("p", { class: "muted" }, `Node ${id} has no error history (0x1003).`)); return; }
-    const failed = r.failed ? el("p", { class: "field-msg", dataset: { online: "error-field-failed" } },
-      r.count === null ? `Sub-index 0: ${r.failed.reason}.` : `Sub-index ${r.failed.subindex}: ${r.failed.reason}; the list ends here.`) : null;
-    if (r.count === null) { box.replaceChildren(failed); return; }
+    say(null);
+    if (!r.history) { box.replaceChildren(); say("info", `Node ${id} has no error history (0x1003).`); return; }
+    if (r.failed) say("error", r.count === null ? `Sub-index 0: ${r.failed.reason}.` : `Sub-index ${r.failed.subindex}: ${r.failed.reason}; the list ends here.`,
+      { online: "error-field-failed" });
+    if (r.count === null) { box.replaceChildren(); return; }
     put(box, el("p", { dataset: { online: "error-field-count" } }, `Count ${r.count}` + (r.entries.length ? " (newest first)" : "")),
       r.entries.length ? el("table", null,
         el("thead", null, el("tr", null, thCells(["Sub-index", "Code", "Class", "Manufacturer information"]))),
         el("tbody", null, r.entries.map((e) => el("tr", { dataset: { errorFieldRow: e.subindex } }, el("td", null, String(e.subindex)),
-          el("td", null, hex4(e.code)), el("td", null, e.class), el("td", null, hex4(e.info)))))) : null,
-      failed);
+          el("td", null, hex4(e.code)), el("td", null, e.class), el("td", null, hex4(e.info)))))) : null);
   };
   const read = async () => {
     try { show(await api("POST", "/api/online/error_field", { node: id, port: diagPort() })); } catch (e) {
       last = null;
-      box.replaceChildren(el("p", { class: "field-msg" }, e.message));
+      box.replaceChildren();
+      say("error", e.message);
     }
   };
   const clear = async () => {
@@ -4672,13 +4777,12 @@ function errorFieldPanel(id, allow) {
   const st = S.onlineLast && S.onlineLast.status;
   const sn = st ? (st.nodes || []).find((x) => x.node_id === id) : null;
   if (!st || (sn && sn.booted !== false && (sn.state === 5 || sn.state === 127))) read();
-  else box.replaceChildren(el("p", { class: "muted" }, `Node ${id} has not booted; Refresh reads its error history.`));
-  return el("fieldset", null, el("legend", null, "Error history (0x1003)"), box,
+  else { box.replaceChildren(); say("info", `Node ${id} has not booted; Refresh reads its error history.`); }
+  return el("fieldset", null, el("legend", null, "Error history (0x1003)"), slot, box,
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { online: "error-field-refresh" }, onclick: () => read() }, "Refresh"),
       el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "error-field-clear" },
-        onclick: () => clear() }, "Clear")),
-    allow ? null : lockedNote("error-field-no-changes", '[data-online="error-field-clear"]', "Clear:"));
+        onclick: () => clear() }, "Clear")));
 }
 
 // The monitored TPDOs of a node in the status answer: timeout, timed out
@@ -4758,7 +4862,7 @@ function nmtButtons(id, allow) {
     await copyText(stNmtCall(id, v));
     banner(`Copied the CO_NMT call (${NMT_CODES[v][1]} to node ${id}). Enable the canworks library in the editor project to use it.`);
   };
-  return el("div", null, el("div", { class: "toolbar" },
+  return el("div", null, allow ? null : lockedNote("no-changes", "[data-nmt=start]"), el("div", { class: "toolbar" },
     btn("start", "Start"),
     btn("stop", "Stop", `Stop node ${id}? Its PDOs stop and it stays STOPPED, also after a reboot, until you start it or the program changes its NMT command byte.`),
     btn("preop", "Pre-operational", `Set node ${id} pre-operational? Its PDOs stop until it is started again, by you or by the program's NMT command byte.`),
@@ -4766,8 +4870,7 @@ function nmtButtons(id, allow) {
     btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`),
     pick, el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
       "Copy as ST call")),
-  allow ? hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command.")
-    : lockedNote("no-changes", "[data-nmt=start]"));
+  hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command."));
 }
 
 function sdoPanel(id, n, allow) {
@@ -4895,8 +4998,8 @@ function nodeSource(id) {
 }
 
 function noEds(id) {
-  return el("p", { class: "muted", dataset: { online: "no-eds" } },
-    `Node ${id} has no EDS here: add it to the configuration, or open it from a scan row with a matching EDS.`);
+  return notice("info", `Node ${id} has no EDS here: add it to the configuration, or open it from a scan row with a matching EDS.`,
+    { live: false, dataset: { online: "no-eds" } });
 }
 
 async function odEntries(id) {
@@ -4949,9 +5052,19 @@ function sameValue(a, b, type) {
   return A.join(",") === B.join(",");
 }
 
+// A job's own message (failed, cancelled): a bar in the section's slot when
+// the status has one (status.noticeSlot), else in the status itself, which then
+// sits at the top of its section (consistent-message-bars).
+function jobSay(status, kind, text, data) {
+  const slot = status.noticeSlot;
+  if (slot) { setNotice(slot, "job", kind, text, data ? { dataset: data } : null); return; }
+  if (kind) status.append(notice(kind, text, data ? { dataset: data } : null));
+}
+
 // Follows a job until it ends, with progress and Cancel in `status`.
 // onDone(job, resumed) gets the finished job (also a cancelled one).
 async function followJob(j, status, onDone, resumed) {
+  jobSay(status, null);
   const text = el("span", { class: "muted", dataset: { online: "job-progress" }, "aria-live": "polite" });
   const bar = el("progress", { max: 1, value: 0, "aria-label": JOB_NAMES[j.kind] || j.kind });
   const cancel = el("button", { type: "button", dataset: { online: "job-cancel" }, onclick: async () => {
@@ -4968,7 +5081,8 @@ async function followJob(j, status, onDone, resumed) {
     try {
       j = (await api("POST", "/api/online/job", { id: j.id, port: diagPort() })).job;
     } catch (e) {
-      put(status, el("span", { class: "field-msg" }, e.message));
+      put(status);
+      jobSay(status, "error", e.message);
       return null;
     }
   }
@@ -4977,10 +5091,10 @@ async function followJob(j, status, onDone, resumed) {
   S.seenJobs[j.id] = true;
   put(status);
   if (j.state === "failed") {
-    status.append(el("span", { class: "field-msg", dataset: { online: "job-error" } }, j.error));
+    jobSay(status, "error", j.error, { online: "job-error" });
     return j;
   }
-  if (j.state === "cancelled") status.append(el("span", { class: "muted" }, "Cancelled."));
+  if (j.state === "cancelled") jobSay(status, "info", "Cancelled.");
   if (j.result) onDone(j, !!resumed);
   return j;
 }
@@ -4988,7 +5102,8 @@ async function followJob(j, status, onDone, resumed) {
 async function startJob(path, body, status, onDone) {
   let r;
   try { r = await api("POST", path, body); } catch (e) {
-    put(status, el("span", { class: "field-msg" }, e.message));
+    put(status);
+    jobSay(status, "error", e.message);
     return null;
   }
   return followJob(r.job, status, onDone, false);
@@ -5211,13 +5326,14 @@ async function editNote(name, block, index, sub, isVar, label, commit) {
     scale: input("scale", { class: "short", placeholder: "1" }), values: area("values", noteLines(cur.values), 4),
     bits: area("bits", noteLines(cur.bits), 4), manual: input("manual"),
   };
-  const msg = el("p", { class: "field-msg" });
-  const form = el("div", { class: "note-editor", dataset: { noteEditor: key } },
+  // Why the note was not taken: a bar at the top of the dialog's form.
+  const msg = noticeSlot();
+  const form = el("div", { class: "note-editor", dataset: { noteEditor: key } }, msg,
     withRestore("text", "Text (one line)", f.text), withRestore("details", "Details", f.details),
     el("div", { class: "row" }, withRestore("unit", "Unit", f.unit), withRestore("scale", "Scale (shown = raw × scale)", f.scale)),
     withRestore("values", "Value meanings, one per line: 3 = profile velocity", f.values),
     withRestore("bits", "Bit names, one per line: 0 = ready", f.bits),
-    withRestore("manual", "Manual reference", f.manual), msg,
+    withRestore("manual", "Manual reference", f.manual),
     Object.keys(base).length
       ? el("p", { class: "muted" }, "Starts from canworks' built-in note; only what you change is kept in " + (block.file || name + ".notes.json") + ". Empty a field to hide its built-in value.") : null);
   for (const r of Object.values(restore)) r.sync();
@@ -5243,7 +5359,7 @@ async function editNote(name, block, index, sub, isVar, label, commit) {
           if (JSON.stringify(x) === JSON.stringify(base[k])) continue;
           entry[k] = x;
         }
-      } catch (e) { msg.textContent = e.message; continue; }
+      } catch (e) { setNotice(msg, "save", "error", e.message); continue; }
     }
     if (commit) return commit({ [key]: entry }, label);
     S.model.notes = S.model.notes || {};
@@ -5449,7 +5565,7 @@ function odPanel(id, n, allow) {
   if (!odSource(id)) { put(box, noEds(id)); return box; }
   put(box, el("p", { class: "muted" }, "Loading the object dictionary…"));
   odEntries(id).then((data) => odBuild(box, id, n, allow, data))
-    .catch((e) => put(box, el("p", { class: "field-msg" }, e.message)));
+    .catch((e) => put(box, notice("error", e.message)));
   return box;
 }
 
@@ -5482,7 +5598,10 @@ function odBuild(box, id, n, allow, data) {
   const sig = limitSig();
   const cells = {};  // key: {tr, value, marks, edit, editing}
   const objRows = {};  // index: {tr, sub rows, summary}
+  // The tab's messages (standard dictionary, locked, the EDS's note, Read all's end) at its top.
+  const slot = noticeSlot({ dataset: { online: "od-notices" } });
   const status = el("div", { class: "job-status", dataset: { online: "od-status" } });
+  status.noticeSlot = slot;
   const summary = el("div", { class: "muted", dataset: { online: "od-summary" } });
   // Notes: the config node's EDS (with unsaved edits; written on the Notes tab), else the EDS the view was opened with.
   const notesCfg = odSource(id).config && !onlineSlaveCfg() ? configNode(id) : null;
@@ -5630,7 +5749,9 @@ function odBuild(box, id, n, allow, data) {
 
   // -- watch list: kept on this PC per project and node; values, age, min/max and a graph.
   const watchBox = el("div", { dataset: { online: "watch" } });
-  const watchInfo = el("div", { class: "muted", dataset: { online: "watch-info" } });
+  // The watch list's warnings at its top; the time a round of reads takes is a figure under its toolbar.
+  const watchInfo = noticeSlot({ dataset: { online: "watch-info" } });
+  const watchStat = el("div", { class: "muted", dataset: { online: "watch-stat" } });
   const graphBox = el("div", { class: "watch-graph", dataset: { online: "watch-graph" } });
   const period = el("select", { "aria-label": "Watch period", dataset: { online: "watch-period" } },
     WATCH_PERIODS.map((p) => el("option", { value: p }, p < 1000 ? `${p} ms` : `${p / 1000} s`)));
@@ -5651,6 +5772,7 @@ function odBuild(box, id, n, allow, data) {
     if (!st.watch.length) {
       put(watchBox, el("p", { class: "muted" }, `Tick Watch on up to ${WATCH_MAX} entries to read them again and again.`));
       put(watchInfo);
+      put(watchStat);
       put(graphBox);
       if (st.plot) { st.plot.destroy(); st.plot = null; }
       return;
@@ -5671,11 +5793,13 @@ function odBuild(box, id, n, allow, data) {
           el("td", null, el("button", { type: "button", class: "small", "aria-label": "Stop watching", title: "Stop watching",
             onclick: () => setWatched(key, false) }, "×")));
       }))));
-    put(watchInfo,
-      st.lastRound !== undefined ? el("span", { dataset: { online: "watch-round" }, class: st.lastRound > st.period ? "field-msg warning" : null },
-        `A round of reads takes ${st.lastRound} ms` + (st.lastRound > st.period ? `, longer than the chosen ${st.period >= 1000 ? st.period / 1000 + " s" : st.period + " ms"}.` : ".")) : null,
-      sdoVarsNote() ? el("div", { class: "field-msg warning", dataset: { online: "watch-sdo-vars" } },
-        "This node has SDO variables the program reads periodically; watch reads go before them on the bus and may delay them.") : null);
+    const slow = st.lastRound !== undefined && st.lastRound > st.period;
+    put(watchStat, st.lastRound !== undefined && !slow ? el("span", { dataset: { online: "watch-round" } }, `A round of reads takes ${st.lastRound} ms.`) : null);
+    put(watchInfo, byKind([
+      slow ? noteBar("warning", `A round of reads takes ${st.lastRound} ms, longer than the chosen ${st.period >= 1000 ? st.period / 1000 + " s" : st.period + " ms"}.`,
+        { online: "watch-round" }) : null,
+      sdoVarsNote() ? noteBar("warning",
+        "This node has SDO variables the program reads periodically; watch reads go before them on the bus and may delay them.", { online: "watch-sdo-vars" }) : null]));
     drawGraph();
   };
   const drawGraph = () => {
@@ -5999,16 +6123,16 @@ function odBuild(box, id, n, allow, data) {
     renderWatch();
   };
   if (st.allSummary) summary.textContent = st.allSummary;
-  put(box,
-    data.standard ? standardNote(id, data) : null,
+  slot.append(...byKind([data.standard ? standardNote(id, data) : null,
     allow ? null : lockedNote("od-read-only", null, "Read-only:"),
-    data.note ? el("p", { class: "field-msg warning" }, data.note) : null,
+    data.note ? notice("warning", data.note, { live: false }) : null]));
+  put(box, slot,
     el("div", { class: "toolbar" }, filter, readAll,
       el("button", { type: "button", dataset: { online: "od-copy" }, onclick: copyRows }, "Copy"),
       el("button", { type: "button", dataset: { online: "od-csv" }, onclick: saveCsv }, "Save CSV"), status),
     chips, summary, compareNote,
-    el("fieldset", null, el("legend", null, "Watch list"),
-      el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Every ", period), graphButton, resetButton), watchInfo, watchBox, graphBox),
+    el("fieldset", null, el("legend", null, "Watch list"), watchInfo,
+      el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Every ", period), graphButton, resetButton), watchStat, watchBox, graphBox),
     el("details", { class: "od-any", dataset: { online: "od-any" } }, el("summary", null, "Read or write any entry"),
       el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Index ", anyIx), el("label", { class: "inline" }, "Sub ", anySub),
         el("label", { class: "inline" }, "Type ", anyType),
@@ -6100,11 +6224,11 @@ function paramsPanel(id, n, allow) {
     const r = j.result;
     if (!r) return;
     if (!resumed) downloadBase64(r.data, r.name);
-    put(out, el("p", { dataset: { online: "backup-done" } }, `${r.name}: ${r.read} entries read, ${r.failed} not read. `,
-      el("button", { type: "button", class: "small", onclick: () => downloadBase64(r.data, r.name) }, resumed ? "Download" : "Download again")),
-    r.stopped ? el("p", { class: "field-msg" }, "Stopped: " + r.stopped) : null,
-    r.boot_state ? el("p", { class: "field-msg warning" }, `Read while the node was ${r.boot_state}.`) : null,
-    ...(r.lint || []).map((m) => el("p", { class: "field-msg warning" }, m)));
+    put(out, byKind([notice("done", `${r.name}: ${r.read} entries read, ${r.failed} not read.`, { dataset: { online: "backup-done" },
+      actions: [el("button", { type: "button", class: "small", onclick: () => downloadBase64(r.data, r.name) }, resumed ? "Download" : "Download again")] }),
+    r.stopped ? notice("error", "Stopped: " + r.stopped) : null,
+    r.boot_state ? notice("warning", `Read while the node was ${r.boot_state}.`) : null,
+    ...(r.lint || []).map((m) => notice("warning", m))]));
   };
   const backup = async () => {
     const live = nodeLive(id);
@@ -6133,9 +6257,9 @@ function paramsPanel(id, n, allow) {
     const s = r.summary;
     const rows = r.rows.filter((x) => showEqual.checked || x.result !== "equal");
     const noteAt = nodeNotes(id);
-    put(out, el("p", { dataset: { online: "compare-summary" } },
-      `${s.different} different, ${s["not readable"]} not readable, ${s.equal} equal, ${s["no reference"]} without a reference.`),
-    r.stopped ? el("p", { class: "field-msg" }, "Stopped: " + r.stopped) : null,
+    put(out, r.stopped ? notice("error", "Stopped: " + r.stopped) : null,
+    notice(s.different ? "warning" : "done", `${s.different} different, ${s["not readable"]} not readable, ${s.equal} equal, ${s["no reference"]} without a reference.`,
+      { dataset: { online: "compare-summary" } }),
     rows.length ? el("table", { class: "od compare-rows" },
       el("thead", null, el("tr", null, thCells(["Entry", "Name", "Result", r.reference === "file" ? "Backup" : r.reference === "config" ? "Configuration" : "EDS default", "Device"]))),
       el("tbody", null, rows.map((x) => el("tr", { class: x.result === "different" ? "bad" : x.result === "equal" ? "muted" : null },
@@ -6197,10 +6321,12 @@ function paramsPanel(id, n, allow) {
       el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "store" }, onclick: () => storeDialog(id, Number(sub.value), names[Number(sub.value)]) }, "Store on device…")),
     hint("Writes \"save\" to 0x1010 so the device keeps its current values over a power cycle. Never done by restore. Each store wears the device's flash memory."),
     defaults, defaultsHint);
-  }).catch((e) => put(storeBox, el("p", { class: "field-msg" }, e.message)));
+  }).catch((e) => put(storeBox, notice("error", e.message)));
 
+  // A job's progress, its messages and its result at the top of the tab, under the lock.
   put(box,
     allow ? null : lockedNote("params-read-only", null, "Restore and store are off:"),
+    status, out,
     el("fieldset", null, el("legend", null, "Back up"),
       el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "backup" }, onclick: backup }, "Back up")),
       hint("Reads every readable entry of the node's EDS and downloads a DCF with the values (ParameterValue), which other CANopen tools can open too.")),
@@ -6214,8 +6340,7 @@ function paramsPanel(id, n, allow) {
         el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "restore" }, onclick: restore }, "Restore…")),
       hint("Shows what would be written first. Writes only differing manufacturer and profile entries; PDO objects, store/restore commands and what the configuration writes at boot are left out. Restored values are not stored on the device.")),
     onlineIsSlave() ? null : configureBox(id, n, allow, status, out),
-    el("fieldset", null, el("legend", null, "Store on device"), storeBox),
-    status, out);
+    el("fieldset", null, el("legend", null, "Store on device"), storeBox));
   resumeJob(id, ["backup", "compare", "restore_plan", "restore", "configure", "configure_verify"], status, (j, resumed) => {
     if (j.kind === "backup") showBackup(j, resumed);
     else if (j.kind === "compare") compareDone(j);
@@ -6238,19 +6363,22 @@ async function restoreDialog(id, j, status, out) {
     el("thead", null, el("tr", null, thCells(["Entry", "Name", "Backup", "Device now"]))),
     el("tbody", null, p.writes.map((w) => el("tr", null, el("td", { class: "mono" }, `${hex4(w.index)}:${w.subindex}`), el("td", null, w.name, noteLine(noteAt(w.index, w.subindex))),
       el("td", null, withMeaning(noteAt(w.index, w.subindex), w.backup)),
-      el("td", null, w.device !== null && w.device !== undefined ? withMeaning(noteAt(w.index, w.subindex), w.device) : "not readable"))))) : el("p", { class: "muted" }, "Nothing to write: the device already has the backup's values.");
+      el("td", null, w.device !== null && w.device !== undefined ? withMeaning(noteAt(w.index, w.subindex), w.device) : "not readable"))))) : null;
   const skipped = p.skipped.length ? el("details", null, el("summary", null, `${p.skipped.length} entries left out`),
     el("table", { class: "od" }, el("tbody", null, p.skipped.map((s) => el("tr", null, el("td", { class: "mono" }, `${hex4(s.index)}:${s.subindex}`),
       el("td", null, s.name), el("td", { class: "muted" }, s.reason)))))) : null;
+  // The dialog's messages at the top of its body: identity, the plan's note, locked, nothing to write.
   const extra = el("div", { class: "restore-preview", dataset: { online: "restore-preview" } },
-    ids.map((i) => el("p", { class: i.level === "refuse" ? "field-msg" : i.level === "warning" ? "field-msg warning" : "muted" }, i.text)),
-    p.note ? el("p", { class: "field-msg warning" }, p.note) : null,
-    p.configured ? null : el("p", { class: "muted" }, "The node is not in the configuration, so nothing is left out as written by the configuration."),
+    el("div", { class: "notice-slot" }, byKind([
+      ...ids.map((i) => notice(i.level === "refuse" ? "error" : i.level === "warning" ? "warning" : "info", i.text, { live: false })),
+      p.note ? notice("warning", p.note, { live: false }) : null,
+      p.allow_changes ? null : notice("warning", NO_CHANGES, { live: false, dataset: { online: "restore-locked" } }),
+      p.writes.length ? null : notice("info", "Nothing to write: the device already has the backup's values.", { live: false, dataset: { online: "restore-nothing" } }),
+      p.configured ? null : notice("info", "The node is not in the configuration, so nothing is left out as written by the configuration.", { live: false })])),
     writes, skipped,
     el("p", { class: "muted" }, `${p.unchanged.length} entries already equal.`),
     p.writes.length ? el("label", { class: "check" }, hold, " Hold the node in PRE-OPERATIONAL while writing (needed when the device refuses writes with abort 0x08000022)") : null,
-    refuse.length ? el("label", { class: "check" }, other, " Restore to a different product anyway") : null,
-    p.allow_changes ? null : el("p", { class: "field-msg warning" }, NO_CHANGES));
+    refuse.length ? el("label", { class: "check" }, other, " Restore to a different product anyway") : null);
   const can = p.writes.length && p.allow_changes;
   const running = nodeRunning(id);
   const go = modal(`${runningNote(id, running)}Restore ${p.writes.length} value${p.writes.length === 1 ? "" : "s"} to node ${id}?`,
@@ -6269,11 +6397,10 @@ async function restoreDialog(id, j, status, out) {
 function showRestore(r, out, id) {
   if (!r) return;
   odTake(id, null, r.written.concat(r.failed).map((w) => odKey(w.index, w.subindex)));
-  put(out, el("p", { dataset: { online: "restore-done" } },
-    `${r.written.length} written, ${r.failed.length} failed${r.cancelled ? ", cancelled" : ""}.`),
-  ...r.failed.map((f) => el("p", { class: "field-msg" }, `${hex4(f.index)}:${f.subindex} ${f.name}: ${f.error}`)),
-  r.released === false ? el("p", { class: "field-msg" }, `The node is still held in PRE-OPERATIONAL (${r.release_error}); release it with Start.`) : null,
-  el("p", { class: "field-msg warning", dataset: { online: "restore-note" } }, r.note.charAt(0).toUpperCase() + r.note.slice(1) + "."));
+  put(out, byKind([notice(r.failed.length ? "error" : "done", [el("p", null, `${r.written.length} written, ${r.failed.length} failed${r.cancelled ? ", cancelled" : ""}.`),
+    ...r.failed.map((f) => el("p", null, `${hex4(f.index)}:${f.subindex} ${f.name}: ${f.error}`))], { dataset: { online: "restore-done" } }),
+  r.released === false ? notice("error", `The node is still held in PRE-OPERATIONAL (${r.release_error}); release it with Start.`) : null,
+  notice("warning", r.note.charAt(0).toUpperCase() + r.note.slice(1) + ".", { dataset: { online: "restore-note" } })]));
 }
 
 async function storeDialog(id, sub, what) {
@@ -6456,7 +6583,7 @@ async function addNodeFromEds(file) {
   S.config.nodes.push({ node_id: id, name: stem, eds: res.name });
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
-  banner(importReport(res));
+  banner(importReport(res), "info");
   changed(true);
 }
 
@@ -6549,7 +6676,7 @@ async function addSdo(i, index, subindex) {
   const value = info && info.default && /^(0x[0-9a-f]+|-?[0-9]+)$/i.test(info.default) ? info.default : 0;
   const listed = n.sdo.some((o) => sameObject(o.index, o.subindex, ix, sx));
   n.sdo.push({ index: hex4(ix), subindex: sx, type, value });
-  banner(listed ? `${hex4(ix)}:${sx} is already written at startup; added again, and the last write wins.` : "", listed);
+  banner(listed ? `${hex4(ix)}:${sx} is already written at startup; added again, and the last write wins.` : "", "warning");
   changed(true);
   const field = document.querySelector(`#view input[data-path="nodes[${i}].sdo[${n.sdo.length - 1}].value"]`);
   if (field) field.focus();

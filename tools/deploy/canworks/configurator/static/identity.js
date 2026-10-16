@@ -230,18 +230,18 @@ function standardNote(id, data) {
   const p = data.profile;
   const known = !p || p === 301 || STANDARD_PROFILES.includes(p);
   const what = p && STANDARD_PROFILES.includes(p) ? `the CiA 301 objects and the CiA ${p} objects` : "the CiA 301 objects";
-  return el("div", { class: "online-note", dataset: { online: "od-standard" } },
+  return notice("info", [
     el("p", null, `Node ${id} has no EDS here, so this shows ${what} the standards define. The device may lack some of them; ` +
       "Read all hides those it lacks. Its own manufacturer objects need its EDS." +
       (known ? "" : ` Its ${profileName(p)} objects are not built in.`)),
-    edsChoices(id, "od"));
+    edsChoices(id, "od")], { live: false, dataset: { online: "od-standard" } });
 }
 
 // The Parameters tab of a node without an EDS.
 function paramsNeedEds(id) {
-  return el("div", { dataset: { online: "no-eds" } },
-    el("p", { class: "muted" }, `Back up, compare and restore need the device's EDS: node ${id} has none here.`),
-    onlineIsSlave() || connAdapter() || !configNode(id) ? edsChoices(id, "params") : null);
+  return notice("info", [
+    el("p", null, `Back up, compare and restore need the device's EDS: node ${id} has none here.`),
+    onlineIsSlave() || connAdapter() || !configNode(id) ? edsChoices(id, "params") : null], { live: false, dataset: { online: "no-eds" } });
 }
 
 // -- Change EDS… for an EDS picked, matched or added on this page

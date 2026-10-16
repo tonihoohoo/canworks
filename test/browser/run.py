@@ -260,7 +260,7 @@ class Run:
         pg.wait_for_selector('#modal input[aria-label="Access token"]')
         pg.fill('#modal input[aria-label="Access token"]', TOKEN)
         pg.click('#modal button[data-value="set"]')
-        pg.wait_for_selector("#online-conn.ok", timeout=STEP_TIMEOUT_MS)
+        pg.wait_for_selector("#online-conn .notice-done", timeout=STEP_TIMEOUT_MS)
         pg.wait_for_selector('#conn-bar [data-conn="allow"]:has-text("Changes allowed")')
 
     def nodes(self):

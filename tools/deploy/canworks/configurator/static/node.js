@@ -50,15 +50,15 @@ function renderNode(view, i) {
       Object.keys(S.state.eds || {}).map((name) => el("option", { value: name }, name)));
     edsSel.value = n.eds || "";
     edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value); render(); });
+    if (eds && eds.error) panel.append(notice("error", eds.error, { live: false, dataset: { nodeMsg: "eds-error" } }));
     panel.append(el("fieldset", null, el("legend", null, "Node"),
       el("div", { class: "grid" },
         field("Node ID", base + ".node_id", "intstr"),
         field("Name", base + ".name", "text"),
         el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
         simSwitch(i))));
-    if (eds && eds.error) panel.append(el("p", { class: "field-msg" }, eds.error));
   } else if (tab === "pdos") {
-    if (eds && eds.error) panel.append(el("p", { class: "field-msg" }, eds.error));
+    if (eds && eds.error) panel.append(notice("error", eds.error, { live: false, dataset: { nodeMsg: "eds-error" } }));
     panel.append(el("div", { class: "pdo-columns" },
       renderPdos(i, "tx_pdos", "input", "Inputs (TPDOs, slave to PLC)", eds),
       renderPdos(i, "rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", eds)));
@@ -129,7 +129,7 @@ function emcyFieldset(supported, leftover, remove, grid) {
   const why = "The EDS has no EMCY COB-ID (0x1014), so this device sends no emergency messages.";
   if (!leftover) grid.querySelectorAll("input, select, button").forEach((c) => Icons.disable(c, why));
   box.append(edsLimit(why, leftover, { label: "Remove the EMCY settings", dataset: { emcyRemove: "" }, run: remove },
-    { emcyLimit: "" }), grid);
+    { emcyLimit: "" }, true), grid);
   return box;
 }
 
@@ -139,12 +139,12 @@ function nodeSimTab(n) {
   if (!SIM.file) simLoad(); else simBind();
   const id = num(n.node_id);
   const box = el("div", { dataset: { nodeSim: String(id) } },
+    Number.isInteger(id) ? null : notice("info", "Give the node an ID first: the simulation file names devices by node ID.", { live: false }),
     el("div", { class: "toolbar" }, el("p", { class: "muted" },
       "What this simulated device does from the start, saved in simulation.json. Live values and faults on a running device are in the Simulation tab."),
       el("div", { class: "spacer" }), simSaveBar()),
     el("div", { dataset: { simProblems: "" } }));
-  if (!Number.isInteger(id)) box.append(el("p", { class: "field-msg" }, "Give the node an ID first: the simulation file names devices by node ID."));
-  else box.append(simDeviceFile(id, `Node ${id} ${n.name || ""}`, null));
+  if (Number.isInteger(id)) box.append(simDeviceFile(id, `Node ${id} ${n.name || ""}`, null));
   return box;
 }
 
@@ -362,7 +362,8 @@ async function importNotes(name, live) {
   const group = (key, title) => p[key].length ? el("details", { dataset: { importGroup: key } },
     el("summary", null, `${title}: ${p[key].length}`), el("ul", null, p[key].map((k) => el("li", null, label(k))))) : null;
   const box = el("div", { class: "note-import", dataset: { importPreview: "1" } },
-    r.warnings.map((w) => el("p", { class: "field-msg warning", dataset: { importWarning: "1" } }, w + ".")),
+    r.warnings.length ? el("div", { class: "notice-slot" },
+      r.warnings.map((w) => notice("warning", w + ".", { live: false, dataset: { importWarning: "1" } }))) : null,
     el("p", null, `New notes: ${p.new.length}. Changed notes: ${p.changed.length}. Already the same: ${p.same.length}. `
       + `Skipped (not in ${name}): ${p.skipped.length}.`),
     group("new", "New notes"), group("changed", "Changed notes"), group("same", "Already the same"), group("skipped", "Skipped"));

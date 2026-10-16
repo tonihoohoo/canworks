@@ -431,11 +431,11 @@ Each PDO SHALL show its settings (number, COB-ID, transmission type and, where s
 - **THEN** the Number, COB-ID and Transmission type labels are on one line at the same height, each field shows its default in full ("EDS default (1: every SYNC)"), and the timing inputs show "EDS default" unclipped
 
 ### Requirement: Message bar
-Messages about the user's actions (saved, sent, copied, added, and errors) SHALL be shown in a bar under the header that stays in view while the page scrolls and has a close button. Information messages SHALL close by themselves after about 6 seconds; error messages SHALL stay until the user closes them or a new message replaces them. Switching to another view (bus and master, a node, declarations, online, scan) SHALL clear the bar. The bar SHALL be a polite live region for information messages and an alert for errors, so assistive technology reads them. A message about a removal SHALL carry an Undo action for as long as it is shown.
+Messages about the user's actions that are not tied to one section (saved, sent, copied, added, and errors of a request) SHALL be shown in a message bar under the header and the simulation banner that stays in view while the page scrolls and has a close button. Information and done messages SHALL close by themselves after about 6 seconds; warnings and errors SHALL stay until closed or replaced. Switching view SHALL clear the bar. A removal message SHALL carry Undo.
 
 #### Scenario: NMT command sent
 - **WHEN** the user sends Start to node 2 in the online view
-- **THEN** "Node 2: Start sent." is shown and disappears after about 6 seconds without a page reload
+- **THEN** "Node 2: Start sent." is shown as a done bar and disappears after about 6 seconds without a page reload
 
 #### Scenario: Leaving the view clears the message
 - **WHEN** a message from the online view is shown and the user opens "Bus and master"
@@ -1736,7 +1736,7 @@ The connection bar SHALL be the one place on the page to connect and disconnect.
 - whether changes are allowed;
 - **Connect…** while not connected, and **Disconnect** while connected.
 
-While connecting it SHALL show the step of the bit rate check and **Cancel**. When a connection ends or stops answering it SHALL show the reason or the age of the last data. Colour SHALL be used only for a fault: an ended or lost connection, error passive or bus-off, a round trip above 100 ms, or another master. State changes SHALL be announced politely, and an ended connection as an alert.
+While connecting it SHALL show the step of the bit rate check and **Cancel**. When a connection ends or stops answering it SHALL show the reason or the age of the last data. The bar SHALL be neutral while all is well and take the tint of its most severe state, as the message bars do: error for an ended or lost connection, bus-off, another master or a round trip above 300 ms; warning for error passive or a round trip above 100 ms. State changes SHALL be announced politely, and an ended connection as an alert.
 
 #### Scenario: Visible on every page
 - **WHEN** the user is connected to an adapter at 500 kbit/s and opens Frame lab
@@ -1744,7 +1744,11 @@ While connecting it SHALL show the step of the bit rate check and **Cancel**. Wh
 
 #### Scenario: Ended connection
 - **WHEN** the adapter goes bus-off while the user is on a node's Object dictionary tab
-- **THEN** the bar turns to the fault colour, says the connection ended on bus-off, offers Connect…, and a screen reader announces it
+- **THEN** the bar turns to the error tint, says the connection ended on bus-off, offers Connect…, and a screen reader announces it
+
+#### Scenario: Slow path is a warning
+- **WHEN** the round trip to the runtime is 150 ms
+- **THEN** the bar has the warning tint and icon, not the error tint
 
 #### Scenario: Neutral when well
 - **WHEN** the connection is up with no errors and no other master
@@ -3048,11 +3052,15 @@ The focus SHALL stay on the control the user used. On a result from Explain in F
 - **THEN** the Frame lab shows the frame's meaning and Back to trace inside the window
 
 ### Requirement: Simulation banner on one line
-The simulation banner SHALL show one line per page: what is simulated, network by network, and that the configuration must not be uploaded to a machine as it is. Each network's part SHALL be short, for example "io (nodes 5, 6, 7)". A **Details** control SHALL open the full text of each network's simulation. On a phone-width window it SHALL take at most two lines.
+The simulation banner SHALL be a warning bar under the header, above the message bar, and SHALL stay in view while the page scrolls. It SHALL show one line per page: what is simulated, network by network, and that the configuration must not be uploaded to a machine as it is. Each network's part SHALL be short, for example "io (nodes 5, 6, 7)". A **Details** control SHALL open the full text. On a phone-width window it SHALL take at most two lines.
 
 #### Scenario: Four simulated networks
 - **WHEN** the virtual plant example is open at 1440 px
 - **THEN** the banner is one line naming io (nodes 5, 6, 7), motion (node 4), cell and host and saying not to upload it, and Details opens the full text
+
+#### Scenario: Stays in view
+- **WHEN** the virtual plant example is open and the user scrolls a long node page down
+- **THEN** the simulation banner stays under the header with the warning tint and icon
 
 ### Requirement: Add note picker
 **Add note…** SHALL open a picker of every object and sub-object of the node's EDS with a search by index or name; each row shows the object, its name and where its note comes from. A click anywhere on a row SHALL pick that object and open its Note editor. The picker SHALL fit its dialog without sideways scrolling at 1000 px; long names SHALL wrap. Rows SHALL show a hover tint and the focused row the selected tint of the Object dictionary tab.
@@ -3250,3 +3258,61 @@ The reason why a node setting is disabled because the node's EDS lacks what it n
 #### Scenario: Same colour for LSS and configuration check
 - **WHEN** a node's EDS has no LSS and no 0x1020, and its config has neither `lss` nor `config_check`
 - **THEN** the LSS reason and the Configuration check reason have the same text colour, in light and dark theme
+
+### Requirement: One look for messages
+Every message about a page, view, section or dialog SHALL be a message bar of one of four kinds: information, done, warning or error. Each kind SHALL have one tint, one left accent bar in its state colour and one state icon, the same on every page, tool tab and dialog, in light and dark theme. Information and done SHALL use the neutral tint; warning the warning tint; error the error tint.
+
+#### Scenario: Same warning everywhere
+- **WHEN** the user sees a warning in the message bar, in a node's Parameters tab and in the Machine view
+- **THEN** the three have the same tint, accent bar and warning icon
+
+#### Scenario: Dark theme
+- **WHEN** the theme is Dark
+- **THEN** each kind uses the dark values of its tokens and its text keeps the normal text colour
+
+### Requirement: Message actions
+A message bar MAY carry actions after its text, such as Undo, Unlock…, Remove, Details or Retry, as buttons in the same row. The text SHALL say what happened and what to do, with no "Error:" or "Warning:" prefix, as the word list says.
+
+#### Scenario: Locked with Unlock
+- **WHEN** the user is connected read-only and opens node 5's Error history
+- **THEN** a warning bar says "Locked. Changes are not allowed on this connection." with Unlock… in the same bar
+
+### Requirement: Messages at the top
+A message SHALL sit at the top of what it is about. A view's or section's message SHALL sit directly under its heading, before its first control. No message SHALL sit below a section's buttons or at the bottom of a view or panel. Several messages in one place SHALL be ordered error, warning, information, done.
+
+#### Scenario: Parameters job result
+- **WHEN** Read all on node 5's Parameters tab ends
+- **THEN** its result is a bar under the Parameters heading, above the buttons, and nothing is added at the bottom of the tab
+
+#### Scenario: Connection line in Nodes
+- **WHEN** the user opens Commission → Nodes without a connection
+- **THEN** the line saying what the view needs a connection for is under the heading, above the scan toolbar
+
+#### Scenario: NMT locked note
+- **WHEN** the user is connected read-only and opens node 5's Status tab
+- **THEN** the NMT box's locked note is at the top of the box, above Start, Stop and the other NMT buttons
+
+### Requirement: Field text stays at the field
+A hint, a field's own error, a table row's own error and a value read into a row SHALL stay next to the field or in the row, and SHALL NOT be message bars. The Problems panel and the status bar SHALL stay at the bottom of the page, and Problems rows SHALL use the warning and error tints and icons of the message bars.
+
+#### Scenario: Send row error
+- **WHEN** a row of the Send panel has an identifier out of range
+- **THEN** the error is in that row, next to the identifier field
+
+### Requirement: Messages in dialogs
+A message about a dialog's work SHALL be a message bar at the top of the dialog body, under its title or question, while the dialog is open. A dialog SHALL NOT report in the page's message bar behind it or refer to it.
+
+#### Scenario: Connect fails
+- **WHEN** the user presses Connect in the connect panel and the runtime does not answer
+- **THEN** an error bar at the top of the panel says why, the panel stays open, and the page's message bar is unchanged
+
+#### Scenario: Nothing to restore
+- **WHEN** the restore preview finds no differences
+- **THEN** an information bar at the top of the dialog says so
+
+### Requirement: Announced once
+An error bar SHALL have the alert role and a warning, information or done bar the status role when it appears or changes. A bar that is drawn with its view SHALL NOT be announced again when the view opens.
+
+#### Scenario: Opening a locked tab
+- **WHEN** the user opens the Object dictionary tab while connected read-only
+- **THEN** the locked bar is shown and a screen reader does not read it unless the user moves to it

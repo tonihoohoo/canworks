@@ -160,6 +160,8 @@ function wireShell() {
   });
   // The header wraps (tool tabs, connection bar): the sticky parts under it follow its height.
   new ResizeObserver(() => document.documentElement.style.setProperty("--header-h", $("#top").offsetHeight + "px")).observe($("#top"));
+  // The simulation banner and the message bar stay under it (consistent-message-bars).
+  new ResizeObserver(() => document.documentElement.style.setProperty("--bars-h", $("#page-bars").offsetHeight + "px")).observe($("#page-bars"));
   // The bottom panel and status bar cover the end of the window: scrolling keeps fields out from under them.
   new ResizeObserver(() => document.documentElement.style.setProperty("--footer-h", $("#bottom").offsetHeight + "px")).observe($("#bottom"));
 }
@@ -175,8 +177,9 @@ async function loadShellSettings() {
   } catch (e) { S.workspace = "configure"; }
 }
 
-// Said once on this PC, next to the switch, the first time a config opens
-// with the workspaces; switching or closing the note marks it seen.
+// Said once on this PC, as an information bar under the header, the first
+// time a config opens with the workspaces; switching or closing the note
+// marks it seen.
 function shellNote() {
   const old = document.querySelector("[data-ws-note]");
   if (old) old.remove();
@@ -187,8 +190,7 @@ function shellNote() {
     if (n) n.remove();
     api("POST", "/api/ui", { ws_note: "seen" }).catch(() => {});
   };
-  $("#ws").after(el("span", { class: "ws-note", role: "note", dataset: { wsNote: "1" } },
-    "Online moved to Commission. ",
-    el("button", { type: "button", class: "small", "aria-label": "Close the note", onclick: done }, "✕")));
+  $("#page-bars").append(notice("info", "Work on the live bus is under Commission, next to Configure (it was the Online view).",
+    { live: false, dataset: { wsNote: "1" }, close: done }));
   S.wsNoteDone = done;
 }

@@ -203,7 +203,7 @@ class J1939DmPage(OnlineBase):
             # A read of a silent ECU says so.
             pg.fill('[data-j1939="dm-address"]', "7")
             pg.click('[data-j1939="dm-read"]')
-            pg.wait_for_selector('[data-j1939="dm2"].bad')
+            pg.wait_for_selector('[data-j1939="dm2"].notice-error')
             self.assertIn("no answer from 7 within 1000 ms", pg.inner_text('[data-j1939="dm2"]'))
             # A clear asks first, naming the ECU and what goes; Cancel sends nothing.
             pg.fill('[data-j1939="dm-address"]', "0")

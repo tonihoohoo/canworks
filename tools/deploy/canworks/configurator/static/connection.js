@@ -34,13 +34,14 @@ function simAddress() {
   return (typeof SIM !== "undefined" && SIM.settings && SIM.settings.address) || "127.0.0.1:7532";
 }
 
-// What a page says in place of what needs a connection: one line, no
-// button; Connect… in the connection bar is the one place to connect.
+// What a page says in place of what needs a connection: an information bar
+// at the top of the view, no button; Connect… in the connection bar is the
+// one place to connect.
 function connNeeds(what, attrs) {
   const text = connSimOn()
     ? `${what} needs a connection to the runtime; the connection bar is connected to a standalone simulator.`
     : `${what} needs a connection. Connect with Connect… in the connection bar above.`;
-  return el("p", Object.assign({ class: "muted", dataset: { conn: "needs" } }, attrs || {}), text);
+  return notice("info", text, { live: false, dataset: Object.assign({ conn: "needs" }, (attrs || {}).dataset || {}) });
 }
 
 // A view that needs the runtime opens the connection when it is set up
@@ -180,12 +181,14 @@ function connBar() {
   bar.hidden = !show;
   if (!show) return;
   const parts = [];
-  let fault = false;
+  // The bar's tint is its most severe state, as the message bars have it: 2 error, 1 warning.
+  let level = 0;
+  const raise = (l) => { level = Math.max(level, l); };
   const on = connIsOn() || connSimOn();
   const c = on && S.onlineLast && S.onlineLast.conn;
   const simErr = connSimOn() && typeof SIM !== "undefined" ? SIM.connErr : null;
   if (connSimOn()) {
-    fault = !!simErr;
+    if (simErr) raise(2);
     parts.push(simErr ? Icons.stateIcon("error", { label: false }) : Icons.stateIcon("operational", { label: "Connected" }));
     parts.push(el("strong", { dataset: { conn: "target" } }, `Standalone simulator ${simAddress()}`));
     if (simErr) parts.push(el("span", { dataset: { conn: "state" } }, `not answering (${simErr}), retrying`));
@@ -193,11 +196,11 @@ function connBar() {
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "disconnect" }, onclick: connDisconnect }, "Disconnect"));
   } else if (!on) {
     const ended = connAdapter() ? S.adapterEnded : null;
-    if (ended) { fault = true; parts.push(Icons.stateIcon("ended", { label: false }), el("span", { dataset: { conn: "ended" } }, upperFirst(ended) + ".")); }
+    if (ended) { raise(2); parts.push(Icons.stateIcon("ended", { label: false }), el("span", { dataset: { conn: "ended" } }, upperFirst(ended) + ".")); }
     else parts.push(Icons.stateIcon("unknown", { label: false }), el("span", { class: "muted", dataset: { conn: "state" } }, "Not connected"));
     parts.push(el("button", { type: "button", class: "small primary", dataset: { conn: "connect" }, onclick: () => openConnect() }, "Connect…"));
   } else if (CONN.error && !connAdapter()) {
-    fault = true;
+    raise(2);
     const age = lastAge();
     const why = { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
       protocol: "not a CANopen diagnostics port", refused: "refused" }[CONN.error.body && CONN.error.body.kind] || "error";
@@ -220,25 +223,26 @@ function connBar() {
       const kbit = Math.round((c.bitrate || 0) / 1000);
       parts.push(el("span", { dataset: { conn: "rate" } }, `${kbit} kbit/s` + (c.check ? `, confirmed by ${CHECK_TEXT[c.check.how] || c.check.how}` : "")));
       const bad = ADAPTER_STATES_BAD.includes(String(bus.state || "").toLowerCase());
-      fault = fault || bad;
+      if (bad) raise(busIcon(bus.state) === "error" ? 2 : 1);
       if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
       parts.push(el("span", { class: bad ? "bad" : null, dataset: { conn: "bus" } }, `bus ${bus.state || "active"}`));
       parts.push(el("span", { class: "muted", dataset: { conn: "frames" } }, `${bus.frames ?? 0} frames, ${bus.error_frames ?? 0} error frames`));
     } else {
       const badge = pathBadge(c);
       if (badge) parts.push(badge);
-      if (c.rtt_ms > SLOW_RTT_MS) fault = true;
+      if (c.rtt_ms > VERY_SLOW_RTT_MS) raise(2);
+      else if (c.rtt_ms > SLOW_RTT_MS) raise(1);
       if (c.networks && c.networks.length > 1) parts.push(netPicker());
       const bad = BUS_STATES_BAD.includes(String(bus.state || ""));
-      fault = fault || bad;
+      if (bad) raise(busIcon(bus.state) === "error" ? 2 : 1);
       if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
       parts.push(el("span", { class: bad ? "bad" : null, dataset: { conn: "bus" } },
         `${bus.interface || "bus"} ${bus.state || "?"}` + (bus.tx_errors !== undefined && bus.tx_errors !== null ? `, TX/RX errors ${bus.tx_errors}/${bus.rx_errors}` : "")));
     }
     if (c.other_master) {
-      fault = true;
+      raise(2);  // two masters on one bus is a fault
       const o = c.other_master;
-      parts.push(Icons.stateIcon("warning", { label: false }));
+      parts.push(Icons.stateIcon("error", { label: false }));
       parts.push(el("span", { class: "bad", dataset: { conn: "other" } },
         `Another master on the bus (${o.what}, since ${String(o.first_at || "").replace("T", " ").replace(/\.\d+Z$/, " UTC")})`));
     }
@@ -259,8 +263,10 @@ function connBar() {
       if (again) again.focus();
     }
   }
-  bar.classList.toggle("fault", fault);
-  bar.setAttribute("role", fault && (!on || CONN.error || simErr) ? "alert" : "status");
+  bar.classList.toggle("fault", level === 2);
+  bar.classList.toggle("warn", level === 1);
+  bar.dataset.notice = ["", "warning", "error"][level];
+  bar.setAttribute("role", level === 2 && (!on || CONN.error || simErr) ? "alert" : "status");
   bar.setAttribute("aria-label", "Connection");
 }
 
@@ -394,11 +400,11 @@ function simulatorBox(message) {
   const address = el("input", { type: "text", spellcheck: "false", placeholder: "127.0.0.1:7532", "aria-label": "Simulator address", dataset: { sim: "address" } });
   address.value = st.address || "";
   const token = el("input", { type: "password", autocomplete: "off", placeholder: st.token_set ? "kept on this PC" : "none", "aria-label": "Simulator token", dataset: { sim: "token" } });
-  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } }, message || "");
+  const msg = msgBar({ online: "connect-msg" }, message || "");
   const connect = el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
     const body = { target: "simulator", address: address.value.trim() };
     if (token.value.trim()) body.token = token.value.trim();
-    try { SIM.settings = await api("POST", "/api/sim/settings", body); } catch (e) { msg.textContent = e.message; address.focus(); return; }
+    try { SIM.settings = await api("POST", "/api/sim/settings", body); } catch (e) { msg.say(e.message); address.focus(); return; }
     // One connection at a time: the simulator takes the runtime's place.
     if (S.runtimeOn) await runtimeClose();
     S.runtimeOff = true;
@@ -409,13 +415,13 @@ function simulatorBox(message) {
     render();
   } }, "Connect");
   return el("div", { dataset: { conn: "simulator-box" } },
+    msg,
     el("div", { class: "grid" },
       el("label", null, "Simulator address", address, hint("HOST[:PORT] of a running canworks-sim, port 7532 when not given. Kept on this PC, not in the project.")),
       el("label", null, "Token", token, hint("Only when the simulator was started with a token."))),
-    msg,
     el("div", { class: "toolbar" },
       st.token_set ? el("button", { type: "button", dataset: { sim: "forget-token" }, onclick: async () => {
-        try { SIM.settings = await api("POST", "/api/sim/settings", { token: "" }); } catch (e) { msg.textContent = e.message; return; }
+        try { SIM.settings = await api("POST", "/api/sim/settings", { token: "" }); } catch (e) { msg.say(e.message); return; }
         connPanel();
       } }, "Forget token") : null,
       connect));
@@ -430,26 +436,26 @@ function closeConnect() {
 // runtime, and the token when this PC has none that matches the config.
 function runtimeBox(message) {
   if (!diagConfig()) {
-    return el("div", { dataset: { conn: "no-access" } }, el("p", null, "Online access is off for this config. Turn it on in Configure → ",
+    return el("div", { dataset: { conn: "no-access" } }, notice("info", ["Online access is off for this config. Turn it on in Configure → ",
       el("a", { href: "#", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
-      ", save, and upload the program to the runtime."));
+      ", save, and upload the program to the runtime."], { live: false }));
   }
   const host = hostField(true);
-  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } },
+  const msg = msgBar({ online: "connect-msg" },
     message || (S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : ""));
   const connect = el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
     const value = host.querySelector("input").value.trim();
     if (!value) {
-      msg.textContent = "Enter the runtime's host name or address first, for example plc.local.";
+      msg.say("Enter the runtime's host name or address first, for example plc.local.");
       host.querySelector("input").focus();
       return;
     }
-    if (!(await saveHost(value))) { msg.textContent = "The host was not saved; see the message at the top."; return; }
-    msg.textContent = "";
+    if (!(await saveHost(value, (m) => msg.say(`The host was not saved: ${m}`)))) return;
+    msg.say("");
     if (!S.online.tokenOk && !(await enterToken())) {
-      msg.textContent = S.online.token
+      msg.say(S.online.token
         ? "The token on this PC does not match the config. Enter the token of this project to connect."
-        : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).";
+        : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).");
       return;
     }
     S.simOn = false;
@@ -466,7 +472,8 @@ function runtimeBox(message) {
     connKick();
   } }, "Connect");
   return el("div", { dataset: { conn: "runtime-box" } },
-    el("div", { class: "grid" }, host), msg,
+    msg,
+    el("div", { class: "grid" }, host),
     el("div", { class: "toolbar" },
       !S.online.tokenOk ? el("button", { type: "button", onclick: async () => { await enterToken(); openConnect(); } }, "Enter token…") : null,
       connect));

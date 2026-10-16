@@ -372,10 +372,10 @@ async function renderSimulation(view) {
   const tabList = tabs(pages, SIM.tab,
     (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; clearErrorBanner(); render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
-    el("div", { class: "toolbar" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
-    // Only what is particular to simulation; the connection bar says what is connected.
-    el("div", { id: "sim-conn", class: "online-conn", hidden: true, "aria-live": "polite" }),
-    el("p", { id: "sim-readonly", class: "field-msg warning", hidden: true, dataset: { sim: "readonly" } }),
+    el("div", { class: "toolbar view-head" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
+    // Only what is particular to simulation, as bars under the title; the connection bar says what is connected.
+    noticeSlot({ id: "sim-conn", hidden: true, "aria-live": "polite" }),
+    notice("warning", "", { id: "sim-readonly", live: false, dataset: { sim: "readonly" } }),
     tabList,
     el("div", { id: "sim-body", role: "tabpanel", "aria-labelledby": "sim-body-tab-" + SIM.tab }));
   simRenderTab();
@@ -437,11 +437,10 @@ async function simPoll(seq) {
     // A standalone simulator's connection problem shows in the connection bar.
     SIM.connErr = S.simOn && why !== "nothing simulated" ? why : null;
     if (S.simOn) connBar();
-    conn.className = "online-conn error";
     conn.hidden = !!SIM.connErr;
-    conn.textContent = why === "nothing simulated"
+    stateBars(conn, why === "nothing simulated" ? "warning" : "error", why === "nothing simulated"
       ? "Connected, but nothing is simulated there: the configuration the runtime runs has no simulated network or node (save and upload this one). Retrying…"
-      : `The simulated devices do not answer (${why}): ${msg}. Retrying…`;
+      : `The simulated devices do not answer (${why}): ${msg}. Retrying…`);
     simReadonly();
     SIM.timer = setTimeout(() => simPoll(seq), 2000);
     return;
@@ -453,9 +452,8 @@ async function simPoll(seq) {
   const devices = st.devices || [];
   if (SIM.node === null || !devices.some((d) => String(simRef(d)) === String(SIM.node))) SIM.node = devices.length ? simRef(devices[0]) : null;
   if (SIM.connErr) { SIM.connErr = null; connBar(); }
-  conn.className = "online-conn ok";
   conn.hidden = false;
-  conn.replaceChildren(upperFirst(st.simulated_network ? "simulated network" : `real network ${st.interface || ""}`.trim()) +
+  stateBars(conn, "done", upperFirst(st.simulated_network ? "simulated network" : `real network ${st.interface || ""}`.trim()) +
     `, ${devices.length} simulated device${devices.length === 1 ? "" : "s"}, ` + (r.allow_changes ? "changes allowed." : "read-only."));
   simReadonly();
   // The live tab is drawn once connected; the others keep what is being typed.
@@ -469,7 +467,7 @@ function simReadonly() {
   if (!p) return;
   const show = SIM.connected && !simAllow();
   p.hidden = !show;
-  p.textContent = show ? simNoChanges() : "";
+  p.querySelector(".notice-text").textContent = show ? simNoChanges() : "";
 }
 
 // Objects read besides the PDO ones: those with a source or an override,
@@ -529,14 +527,15 @@ function simUpdate() {
 
 function simLiveTab() {
   if (!SIM.connected) {
-    if (simCanConnect()) return el("p", { class: "muted" }, "The live values show once the simulated devices answer. The simulation file and the scenarios can be edited meanwhile.");
+    if (simCanConnect()) return notice("info", "The live values show once the simulated devices answer. The simulation file and the scenarios can be edited meanwhile.", { live: false });
     if (!diagConfig()) {
-      return el("p", { class: "muted", dataset: { sim: "access-off" } }, "Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
+      return notice("info", ["Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
         el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
-        " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile.");
+        " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile."],
+      { live: false, dataset: { sim: "access-off" } });
     }
-    return el("p", { class: "muted", dataset: { conn: "needs", sim: "not-connected" } },
-      "Live values need a connection. Connect with Connect… in the connection bar above. The simulation file and the scenarios can be edited meanwhile.");
+    return notice("info", "Live values need a connection. Connect with Connect… in the connection bar above. The simulation file and the scenarios can be edited meanwhile.",
+      { live: false, dataset: { conn: "needs", sim: "not-connected" } });
   }
   return el("div", null,
     el("table", { class: "online-nodes", dataset: { sim: "devices" } },
@@ -1132,7 +1131,10 @@ function simShowProblems() {
   for (const box of document.querySelectorAll("[data-sim-problems]")) {
     const prefix = box.dataset.simProblems;
     const list = problems.filter((p) => !p.other || !prefix).filter((p) => !prefix || p.path === prefix || p.path.startsWith(prefix + ".") || p.path.startsWith(prefix + "["));
-    put(box, list.length ? el("ul", { class: "sim-problems" }, list.map((p) => el("li", { class: "field-msg" }, (p.path ? p.path + ": " : "") + p.message))) : null);
+    // One bar per kind, errors first, at the top of the tab or the scenario editor.
+    const bar = (kind, items) => (items.length ? notice(kind, el("ul", { class: "sim-problems" },
+      items.map((p) => el("li", null, (p.path ? p.path + ": " : "") + p.message))), { live: false }) : null);
+    put(box, bar("error", list.filter((p) => p.level !== "warning")), bar("warning", list.filter((p) => p.level === "warning")));
   }
 }
 
@@ -1180,10 +1182,10 @@ function simFileTab() {
     simChanged();
   });
   return el("div", null,
+    el("div", { class: "notice-slot", dataset: { simProblems: "" } }),
     el("p", { class: "muted" }, "What the simulated devices do from the start, saved in simulation.json next to canworks.json. Sources given on the Live values tab land here too. Nothing here needs a connection."),
     simVersion() >= 2 ? el("p", { class: "muted", dataset: { sim: "file-section" } },
       `Network ${simSectionName()}: this is its section of the file (version 2, one section per network). The tick is shared by all networks.`) : null,
-    el("div", { dataset: { simProblems: "" } }),
     el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Tick (ms) ", tick), hint("How often sources and models run, 1-60000 ms (default 10).")),
     refs.map(([id, n]) => simDeviceFile(id, `Node ${id} ${n.name || ""}`, nodeSimulated(n) ? null : "not simulated in this configuration: the entry is kept and does nothing")),
     extra.map((d) => simDeviceFile(d.node ? d.node : d.name, `Extra device ${d.node ? d.node : "without node ID"} ${d.name || ""}`, null)),
@@ -1539,12 +1541,12 @@ function simScenarioEditor(name) {
   };
   const [dl] = simInput("Description", sc.description, "description", { onInput: (v) => { if (v.trim()) sc.description = v; else delete sc.description; simChanged(); } });
   const box = el("fieldset", { dataset: { simEditor: name } }, el("legend", null, `Scenario ${name}`),
+    el("div", { class: "notice-slot", dataset: { simProblems: `scenarios.${name}` } }),
     el("div", { class: "grid" }, dl,
       flag("autostart", "Start with the simulation", "Runs when the simulated devices start."),
       flag("test", "Test", "Run by canworks-sim test by default.")),
     el("h3", null, "Steps"),
     stepsEditor(sc.steps, () => simChanged()),
-    el("div", { dataset: { simProblems: `scenarios.${name}` } }),
     el("div", { class: "toolbar" }, el("button", { type: "button", onclick: () => { SIM.scenario = null; simRenderTab(); } }, "Close editor"),
       hint("Start runs the scenario as edited here; Save to simulation file keeps it.")));
   setTimeout(simShowProblems, 0);
@@ -1872,7 +1874,7 @@ async function simMachineTab(body) {
   body.replaceChildren(host);
   let mod;
   try { mod = await import("./machine_view.js"); } catch (e) {
-    if (seq === MACHINE.seq) host.replaceChildren(el("p", { class: "field-msg" }, `The machine view did not load: ${e.message}`));
+    if (seq === MACHINE.seq) host.replaceChildren(notice("error", `The machine view did not load: ${e.message}`));
     return;
   }
   if (seq !== MACHINE.seq || S.view !== "simulation" || SIM.tab !== "machine") return;

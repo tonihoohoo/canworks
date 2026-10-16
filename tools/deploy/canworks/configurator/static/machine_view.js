@@ -147,16 +147,15 @@ export class MachineView {
       res = await api("GET", "/api/sim/machine?network=" + encodeURIComponent(this.ctx.network || ""));
     } catch (e) {
       if (seq !== this.seq || this.stopped) return;
-      this.host.replaceChildren(el("p", { class: "field-msg", dataset: { machine: "error" } }, `The machine file could not be read: ${e.message}`));
+      this.host.replaceChildren(notice("error", `The machine file could not be read: ${e.message}`, { dataset: { machine: "error" } }));
       return;
     }
     if (seq !== this.seq || this.stopped) return;
     this.offline = res;
     if (!res.machine) {
       const probs = (res.problems || []).map(problemText);
-      this.host.replaceChildren(el("div", { dataset: { machine: "error" } },
-        el("p", { class: "field-msg" }, `The machine file ${res.file || this.ctx.file || ""} cannot be drawn${probs.length ? ":" : "."}`),
-        probs.length ? el("ul", null, probs.map((p) => el("li", null, p))) : null));
+      this.host.replaceChildren(notice("error", [el("p", null, `The machine file ${res.file || this.ctx.file || ""} cannot be drawn${probs.length ? ":" : "."}`),
+        probs.length ? el("ul", null, probs.map((p) => el("li", null, p))) : null], { dataset: { machine: "error" } }));
       return;
     }
     this.file = res.machine;
@@ -298,9 +297,12 @@ export class MachineView {
     this.camBar = seg("Camera", [["overview", "Overview"], ["top", "Top"], ["tool", "Follow tool"]], prefs.camera, (k) => this.camera(k), "machineCam");
     this.qualityBar = seg("Quality", [["high", "High"], ["low", "Low"]], this.quality, (k) => this.setQuality(k, false), "machineQuality");
     this.stage = el("div", { class: "machine-stage", dataset: { machine: "stage" } },
-      this.noticeEl = el("p", { class: "machine-notice", role: "status", dataset: { machine: "notice" }, hidden: true }),
-      this.noDataEl = el("p", { class: "machine-nodata", dataset: { machine: "nodata" }, hidden: true }, "No data"),
+      el("div", { class: "notice-slot machine-bars" },
+        this.noDataEl = notice("error", "No data", { dataset: { machine: "nodata" } }),
+        this.noticeEl = notice("info", "", { dataset: { machine: "notice" } })),
       this.fpsEl = el("span", { class: "machine-fps", "aria-hidden": "true" }));
+    this.noDataEl.hidden = true;
+    this.noticeEl.hidden = true;
     this.panel = el("aside", { class: "machine-panel", "aria-label": "Machine values" });
     this.buildPanel();
     const problems = (this.offline.problems || []).map(problemText);
@@ -309,9 +311,9 @@ export class MachineView {
         el("span", { class: "muted" }, `${this.spec.name || "Machine"} · ${this.offline.file || this.ctx.file || ""}`),
         el("div", { class: "spacer" }),
         this.camBar, this.qualityBar, toggle("labels", "Labels", "labels"), toggle("path", "Tool path", "path")),
-      this.connEl = el("div", { class: "online-conn", dataset: { machine: "conn" } }),
-      problems.length ? el("div", { class: "field-msg warning", dataset: { machine: "problems" } },
-        `The machine file has problems; the drawing may not match the simulated machine: ${problems.join("; ")}`) : null,
+      this.connEl = noticeSlot({ dataset: { machine: "conn" } }),
+      problems.length ? notice("warning", `The machine file has problems; the drawing may not match the simulated machine: ${problems.join("; ")}`,
+        { live: false, dataset: { machine: "problems" } }) : null,
       el("div", { class: "machine-main" }, this.stage, this.panel)].filter(Boolean));
   }
 
@@ -320,9 +322,9 @@ export class MachineView {
     this.qualityBar.hidden = true;
     for (const b of this.host.querySelectorAll("[data-machine-show]")) b.hidden = true;
     this.stage.classList.add("no-webgl");
-    this.stage.prepend(el("p", { class: "machine-nowebgl", dataset: { machine: "nowebgl" } },
-      why || "The 3D view needs WebGL, which this browser has turned off or does not have.",
-      " The panel shows the machine's values."));
+    this.stage.querySelector(".machine-bars").append(notice("info",
+      [why || "The 3D view needs WebGL, which this browser has turned off or does not have.", " The panel shows the machine's values."],
+      { live: false, dataset: { machine: "nowebgl" } }));
   }
 
   buildPanel() {
@@ -394,22 +396,21 @@ export class MachineView {
     const state = !this.live ? "offline" : nodata ? "nodata" : "live";
     this.host.dataset.machineState = state;
     if (this.noDataEl) this.noDataEl.hidden = state !== "nodata";
-    let text, cls = "online-conn";
+    let text, kind = "info";
     if (state === "live") {
       const h = this.hello || {};
       text = `Live: the machine on network ${this.ctx.network || ""} from ${h.target === "simulator" ? "the standalone simulator" : "the runtime"}` +
         `, ${h.allow_changes ? "changes allowed" : "read-only"}.`;
-      cls += " ok";
+      kind = "done";
     } else if (state === "nodata") {
       const s = ((performance.now() - this.lastAnswer) / 1000).toFixed(1);
       text = `No data: no answer for ${s} s${this.error ? ` (${this.error.message})` : ""}. The view holds the last pose.`;
-      cls += " error";
+      kind = "error";
     } else {
       const why = !this.ctx.canConnect ? this.ctx.notConnected : this.error ? errorText(this.error) : "connecting…";
       text = `Offline preview: the machine at its home positions from ${this.offline.file || this.ctx.file || "the machine file"}. ${why}`;
     }
-    if (this.connEl.textContent !== text) this.connEl.textContent = text;
-    this.connEl.className = cls;
+    stateBars(this.connEl, kind, text);
     this.stateEl.textContent = state === "live" ? "The machine is running." : state === "nodata" ? "No data from the machine." : "The machine is offline.";
     this.stateEl.className = "machine-state " + state;
     const allow = this.allowChanges();
@@ -574,7 +575,7 @@ export class MachineView {
     storeQuality(q);
     for (const b of this.qualityBar.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.machineQuality === q));
     this.noticeEl.hidden = !auto;
-    this.noticeEl.textContent = auto ? "Switched to Low: the view ran under 28 frames per second for 3 s on High. Pick High to try again." : "";
+    this.noticeEl.querySelector(".notice-text").textContent = auto ? "Switched to Low: the view ran under 28 frames per second for 3 s on High. Pick High to try again." : "";
     this.watch.reset();
     if (this.fpsEl) this.fpsEl.textContent = `… fps · ${q === "high" ? "High" : "Low"}`;
     if (this.gl) { this.buildComposer(); this.resize(); }

@@ -184,7 +184,7 @@ function renderTrace(view) {
   const tabList = TRACE_TABS.filter(([k]) => !(k === "sequences" && traceJ1939()));
   view.append(
     el("h2", null, "Trace"),
-    el("div", { id: "trace-source", class: "online-conn" }, "Loading…"),
+    traceSourceSlot(),
     el("div", { class: "toolbar trace-toolbar" },
       el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
@@ -364,43 +364,51 @@ async function pollTrace(seq, first) {
   T.timer = setTimeout(() => pollTrace(seq, false), st && st.recording.running ? 500 : 1500);
 }
 
+// The place for the trace's source and its notes, under the title.
+function traceSourceSlot() {
+  const slot = noticeSlot({ id: "trace-source" });
+  stateBars(slot, "info", "Loading…");
+  return slot;
+}
+
 function showTraceHeader(st) {
   const src = $("#trace-source");
   const rec = st.recording;
   let text;
-  let cls = "online-conn ok";
+  let kind = "info";
   if (st.source === "live") {
+    kind = "done";
     const via = st.meta && st.meta.connection === "adapter" ? `the USB adapter${st.meta.interface ? " " + st.meta.interface : ""}` +
       (st.summary && st.summary.bitrate ? ` at ${st.summary.bitrate / 1000} kbit/s` : "")
       : (S.online.host || "the runtime");
     text = `Live trace from ${via}${st.network ? ", network " + st.network : ""}: ${TRACE_STATES[rec.state] || rec.state}`;
     if (rec.state === "ended") text = `Live trace from ${via}${st.network ? ", network " + st.network : ""}: recording stopped because the ${rec.message || "connection ended"}`;
     else if (rec.message) text += ` (${rec.message})`;
-    if (rec.state === "error" || rec.state === "ended") cls = "online-conn error";
+    if (rec.state === "error" || rec.state === "ended") kind = "error";
   } else if (st.source) {
     text = `File ${st.source}` + (st.network ? `, decoded with network ${st.network}` : "");
   } else {
     text = "No trace yet. Press Start, or open a trace file.";
   }
-  const parts = [text];
+  // The trace's source as a bar under the title, its notes as bars with it (consistent-message-bars).
+  const notes = [];
   if (!rec.running && !onlineReady()) {
     const commission = !!(S.state && S.state.commission);
-    parts.push(el("div", { class: "online-note", dataset: { trace: "online-hint" } },
-      connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
+    notes.push(noteBar("info",
+      (connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
         : commission ? "Recording needs the USB adapter connection: connect with Connect… in the connection bar above. "
         : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
-        : "Recording needs online access: turn it on in Configure → Online access, save and upload. ",
-      "Opening, viewing and exporting trace files works without it."));
+        : "Recording needs online access: turn it on in Configure → Online access, save and upload. ") +
+      "Opening, viewing and exporting trace files works without it.", { trace: "online-hint" }));
   }
-  for (const w of st.warnings || []) parts.push(el("div", { class: "online-note warning", dataset: { trace: "warning" } }, humanise(w)));
+  for (const w of st.warnings || []) notes.push(noteBar("warning", humanise(w), { trace: "warning" }));
   const trimmed = rec.trimmed || 0;
-  if (trimmed) parts.push(el("div", { class: "online-note", dataset: { trace: "trimmed" } },
-    `Single trigger: the trace holds the pre/post window around the hit; ${trimmed.toLocaleString()} frames outside it were removed.`));
-  if (st.dropped) parts.push(el("div", { class: "online-note warning", dataset: { trace: "dropped" } },
+  if (trimmed) notes.push(noteBar("info",
+    `Single trigger: the trace holds the pre/post window around the hit; ${trimmed.toLocaleString()} frames outside it were removed.`, { trace: "trimmed" }));
+  if (st.dropped) notes.push(noteBar("warning",
     `The trace holds the newest ${Number(st.frames || 0).toLocaleString()} frames (at most ${Number(st.limit || 0).toLocaleString()}; ` +
-    `past that the oldest tenth goes at once); ${Number(st.dropped).toLocaleString()} older frames were dropped.`));
-  src.className = cls;
-  src.replaceChildren(...parts);
+    `past that the oldest tenth goes at once); ${Number(st.dropped).toLocaleString()} older frames were dropped.`, { trace: "dropped" }));
+  stateBars(src, kind, text, notes);
   const sm = st.summary;
   const dur = sm.first_us != null ? (sm.last_us - sm.first_us) / 1e6 : 0;
   const bits = [`${sm.frames.toLocaleString()} frames`, `${dur.toFixed(1)} s`,
@@ -536,10 +544,10 @@ function traceRevealSplit() {
   }
   if (window.innerWidth >= SPLIT_WIDE) return;
   const top = split.getBoundingClientRect().top;
-  // Under the sticky header, and under the message banner while it shows.
+  // Under the sticky header, and under the simulation banner and the message bar while they show.
   let head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 0;
-  const b = $("#banner");
-  if (b && !b.hidden && b.offsetParent !== null) head += b.offsetHeight;
+  const b = $("#page-bars");
+  if (b && b.offsetParent !== null) head += b.offsetHeight;
   if (top > head + 4 || top < head - 4) window.scrollBy(0, top - head);
 }
 
@@ -663,7 +671,7 @@ function restartPoll() {
 }
 
 async function traceOpen(file) {
-  banner(`Opening ${file.name}…`);
+  banner(`Opening ${file.name}…`, "info");
   try {
     // The file as it is (traces can be hundreds of MB); decoded with the saved canworks.json.
     const net = onlineNetwork();  // the network whose nodes decode it
@@ -1616,7 +1624,7 @@ async function readPdoLayout(node, asked) {
 // The message after Read PDOs from device: the PDOs that now decode, and each
 // other one with its reason (canopen-configurator: "Result of a PDO layout read").
 function readBanner(node, pdos) {
-  if (!pdos.length) { banner(`Node ${node} has no valid PDO.`); return; }
+  if (!pdos.length) { banner(`Node ${node} has no valid PDO.`, "warning"); return; }
   const usable = pdos.filter((p) => p.usable).map((p) => p.name);
   const why = pdos.filter((p) => !p.usable).map((p) => `${p.name} not usable: ${p.reason}`).join("; ");
   if (!usable.length) banner(`Node ${node}: no PDO decodes after the read. ${why}.`, true);

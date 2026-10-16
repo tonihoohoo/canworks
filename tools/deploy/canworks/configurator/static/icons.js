@@ -14,6 +14,7 @@
     warning: ["st-i-triangle", "st-warning", "Warning", "Something needs a look, but nothing is broken."],
     error: ["st-i-cross", "st-error", "Error", "Missing, bus-off, an ended connection or an error problem."],
     unknown: ["st-i-hollow", "st-unknown", "Unknown", "No information: not connected, not heard or absent."],
+    info: ["st-i-info", "st-info", "Information", "A message to know about: nothing is wrong."],
   };
   // Aliases used by the views: NMT state codes and words.
   const ALIAS = {
@@ -33,6 +34,7 @@
 <symbol id="st-i-square" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="currentColor"/></symbol>
 <symbol id="st-i-triangle" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v4" stroke="var(--panel, #fff)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="0.9" fill="var(--panel, #fff)"/></symbol>
 <symbol id="st-i-cross" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="currentColor"/><path d="m5.5 5.5 5 5m0-5-5 5" stroke="var(--panel, #fff)" stroke-width="1.7" stroke-linecap="round"/></symbol>
+<symbol id="st-i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="currentColor"/><path d="M8 7.2v4" stroke="var(--panel, #fff)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="4.8" r="0.95" fill="var(--panel, #fff)"/></symbol>
 <symbol id="st-i-hollow" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 <symbol id="st-i-sim" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.6" fill="none" stroke="currentColor" stroke-width="0.9" stroke-dasharray="2 1.6"/></symbol>
 <symbol id="st-i-flag" viewBox="0 0 10 12"><path d="M1.5 1v10" stroke="currentColor" stroke-width="1.4"/><path d="M2 1.5h6.5L7 4l1.5 2.5H2z" fill="currentColor"/></symbol>`;
