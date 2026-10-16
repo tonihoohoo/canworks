@@ -4,6 +4,7 @@ python-can's virtual bus, and a config's online access without one."""
 
 import itertools
 import os
+import shutil
 import threading
 import time
 import unittest
@@ -12,7 +13,7 @@ from unittest import mock
 from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
-from .helpers import PINGPONG
+from .helpers import PINGPONG, REPO
 from .test_configurator_online import Online
 from .test_configurator_server import Running
 from .test_localbus_check import error_frame
@@ -262,6 +263,69 @@ class Commission(Running):
         self.assertNotIn(st["folder"], [r["path"] for r in self.ok("GET", "/api/state")["recent"]])
 
 
+FIXED_IO = os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds")
+
+
+class CarryEds(Running):
+    """"Add to a config…" carries the node's EDS from Commission a device into
+    the config it opens (carry-commission-eds-into-config)."""
+
+    def setUp(self):
+        super().setUp()
+        self.bench = os.path.join(self.dir, "bench")
+        os.makedirs(self.bench)
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), self.bench)
+        shutil.copy(os.path.join(PINGPONG, "canopen_config.json"), os.path.join(self.bench, "canworks.json"))
+        self.ok("POST", "/api/commission", {})
+
+    def carry(self, value):
+        self.ok("POST", "/api/folder_nodes", {"path": self.bench, "carry_eds": value})
+        st = self.ok("POST", "/api/open", {"path": self.bench, "mode": "standalone", "carry_eds": value})
+        self.assertFalse(st["commission"])
+        return st
+
+    def test_unsaved_import(self):
+        name = self.eds(FIXED_IO)[1]["name"]
+        st = self.carry(name)
+        self.assertEqual(st["carried_eds"]["name"], "fixed-io.eds")
+        self.assertIn("fixed-io.eds", st["eds"])
+        self.assertIn("fixed-io.eds", st["sim_eds"])  # an unsaved import of the config
+        # The config's own unsaved import is usable as it is.
+        self.assertEqual(self.ok("POST", "/api/online/use_eds", {"path": "fixed-io.eds"})["name"], "fixed-io.eds")
+
+    def test_library_file(self):
+        lib = os.path.join(self.dir, "lib")
+        os.makedirs(lib)
+        shutil.copy(FIXED_IO, lib)
+        self.ok("POST", "/api/online/settings", {"eds_library": lib})
+        self.assertEqual(self.carry(os.path.join(lib, "fixed-io.eds"))["carried_eds"]["name"], "fixed-io.eds")
+
+    def test_commission_folder_file(self):
+        canopen = self.ok("GET", "/api/state")["canopen_dir"]
+        shutil.copy(FIXED_IO, canopen)
+        self.assertEqual(self.carry(os.path.join(canopen, "fixed-io.eds"))["carried_eds"]["name"], "fixed-io.eds")
+
+    def test_same_and_different_file_in_the_config(self):
+        shutil.copy(FIXED_IO, self.bench)
+        self.eds(FIXED_IO)
+        self.assertEqual(self.carry("fixed-io.eds")["carried_eds"]["name"], "fixed-io.eds")
+        self.assertFalse(os.path.exists(os.path.join(self.bench, "fixed-io-2.eds")))
+        # A different file with that name: kept both.
+        self.ok("POST", "/api/commission", {})
+        self.eds(os.path.join(PINGPONG, "cpp-slave.eds"), name="fixed-io.eds")
+        self.assertEqual(self.carry("fixed-io.eds")["carried_eds"]["name"], "fixed-io-2.eds")
+
+    def test_refused_before_leaving_commission(self):
+        outside = os.path.join(self.dir, "outside.eds")
+        shutil.copy(FIXED_IO, outside)
+        for route in ("/api/folder_nodes", "/api/open"):
+            status, data, _ = self.request("POST", route, {"path": self.bench, "mode": "standalone",
+                                                           "carry_eds": outside})
+            self.assertEqual(status, 403, route)
+            self.assertIn("outside.eds cannot be carried", data["error"])
+        self.assertTrue(self.ok("GET", "/api/state")["commission"])
+
+
 class ConfigMode(Online):
     def test_runtime_only(self):
         self.assertEqual(self.ok("GET", "/api/online/settings")["target"], "runtime")
@@ -275,8 +339,6 @@ class ConfigMode(Online):
             status, _, _ = self.request("POST", path, {"start": True})
             self.assertIn(status, (404, 409), path)
 
-
-del PINGPONG
 
 if __name__ == "__main__":
     unittest.main()

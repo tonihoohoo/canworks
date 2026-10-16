@@ -204,9 +204,9 @@ def context(session, body, node, library=""):
             if not os.path.isabs(path):
                 path = session.eds_path(path)
         real = os.path.realpath(path)
-        # pending_dir: EDS files picked in this page and not saved yet
-        roots = [os.path.realpath(r) for r in (canopen_dir, pending_dir, library) if r]
-        if not any(real.startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
+        # pending_dir: EDS files picked in this page and not saved yet; case ignored on Windows
+        roots = [os.path.normcase(os.path.realpath(r)) for r in (canopen_dir, pending_dir, library) if r]
+        if not any(os.path.normcase(real).startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
             raise Refused(403, "only EDS files in the project's canopen folder or the EDS library can be used")
         try:
             ctx = P.node_context(node, eds_path=real)

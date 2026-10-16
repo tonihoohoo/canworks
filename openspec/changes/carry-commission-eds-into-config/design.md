@@ -17,4 +17,4 @@ Rejected: the client fetching the EDS bytes and re-posting them to `/api/eds` af
 ## Risks
 
 - An EDS with the same name and different content already in the target config: `keep_both` gives it a new name, and the banner already reports the import (`importReport`).
-- EDS lint: the carried EDS is linted with the page's current lint mode before the folder opens, so a lint refusal also leaves the page in Commission.
+- EDS lint: the page calls `/api/folder_nodes` before it leaves Commission; with `carry_eds` it also checks the EDS under the target config's lint mode, so a lint refusal leaves the page in Commission. The import after the open uses the opened config's own mode, as any import would.

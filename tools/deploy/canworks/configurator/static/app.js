@@ -6153,10 +6153,13 @@ function readBase64(file) {
 }
 
 // `stay`: added from the Commission workspace's comparison; the page stays there.
-async function addScannedNode(d, match, file, identity, lss, stay) {
-  let res;
+// `imported`: the EDS already imported (carried from Commission a device).
+async function addScannedNode(d, match, file, identity, lss, stay, imported) {
+  let res = imported;
   try {
-    if (match) {
+    if (res) {
+      // already in the draft
+    } else if (match) {
       res = await api("POST", "/api/online/use_eds", { path: match.path, eds_lint: edsLint() });
     } else {
       const data = await readBase64(file);

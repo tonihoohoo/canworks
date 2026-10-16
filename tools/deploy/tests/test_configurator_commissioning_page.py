@@ -224,6 +224,30 @@ class LogPage(Page):
         self.assertFalse(self.server.connection.connected)
         self.assertEqual(pg.evaluate("() => S.commLog.length"), 0)
 
+    def test_add_to_a_config_carries_the_eds(self):
+        """A node added from an EDS in Commission keeps that EDS in the config
+        it is added to (carry-commission-eds-into-config)."""
+        pg = self.page
+        self.device(23, od=fixed_io_od(23), heartbeat_s=0.1)
+        folder = os.path.join(self.dir, "bench")
+        os.makedirs(folder)
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
+        with open(os.path.join(folder, "canworks.json"), "w") as f:
+            json.dump(load(os.path.join(PINGPONG, "canopen_config.json")), f)
+        self.open_node(23, "status", "fixed-io.eds")
+        pg.click('button[data-online="add-to-config"]')
+        pg.fill('input[data-online="add-folder"]', folder)
+        # The EDS is known: the dialog names it and asks for no file.
+        self.assertEqual(pg.locator('input[data-online="add-eds"]').count(), 0)
+        self.assertIn("EDS: fixed-io.eds", pg.inner_text("#modal"))
+        pg.click('#modal button[data-value="add"]')
+        pg.wait_for_function("() => (S.config.nodes || []).some((n) => Number(n.node_id) === 23)")
+        node = pg.evaluate("() => S.config.nodes.find((n) => Number(n.node_id) === 23)")
+        self.assertEqual(node["eds"], "fixed-io.eds")
+        self.assertIn("Added node 23 (fixed-io.eds)", pg.inner_text("#banner"))
+        self.assertNotIn("only EDS files", pg.inner_text("#banner"))
+        self.assertFalse(pg.evaluate("() => S.state.commission"))
+
     def test_close_asks_to_save_the_log(self):
         pg = self.page
         self.commission()
