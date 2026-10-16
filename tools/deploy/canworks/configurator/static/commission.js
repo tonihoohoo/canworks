@@ -584,19 +584,22 @@ async function addToConfig(id) {
   if (!folder) { banner("Type the config folder.", true); return; }
   const f = file ? file.files[0] : null;
   if (file && !f) { banner("Pick the device's EDS file.", true); return; }
-  // Checked before the folder opens, so this page and its log stay.
+  // Checked before the folder opens, so this page and its log stay; the
+  // node's EDS too, which the open carries into the config.
+  const carry = d.eds_path ? { carry_eds: d.eds_path } : {};
   try {
-    if ((await api("POST", "/api/folder_nodes", { path: folder })).nodes.includes(d.node_id)) {
+    if ((await api("POST", "/api/folder_nodes", Object.assign({ path: folder }, carry))).nodes.includes(d.node_id)) {
       banner(`The config in ${folder} already has node ${d.node_id}: give the device another node ID (Set node ID), or pick another config.`, true);
       return;
     }
   } catch (e) { banner(e.message, true); return; }
-  const carried = commOwnNotes(id);
+  const ownNotes = commOwnNotes(id);
   if (!(await leaveCommission("opening the config"))) return;
+  let opened;
   try {
     banner("");
     stopOnline(false);
-    await api("POST", "/api/open", { path: folder, mode: mode.value });
+    opened = await api("POST", "/api/open", Object.assign({ path: folder, mode: mode.value }, carry));
     S.view = "bus";
     S.scanResult = null;
     S.onlineNode = null;
@@ -605,13 +608,15 @@ async function addToConfig(id) {
   } catch (e) { banner(e.message, true); return; }
   if (configNode(d.node_id)) { banner(`The config already has node ${d.node_id}.`, true); return; }
   const before = (S.config.nodes || []).length;
-  await addScannedNode(d, d.eds_path ? { path: d.eds_path, name: d.eds_name } : null, f, false, !!d.lss);
+  const carried = opened && opened.carried_eds;
+  if (carried && carried.error) { banner(`Node ${d.node_id} was not added: ${carried.error}`, true); return; }
+  await addScannedNode(d, null, f, false, !!d.lss, false, carried);
   const node = (S.config.nodes || [])[before];
   if (node && d.serial_number !== undefined && d.serial_number !== null && node.serial_number === undefined) {
     node.serial_number = d.serial_number;
     changed(true);
   }
-  if (node) carryNotes(node.eds, carried);
+  if (node) carryNotes(node.eds, ownNotes);
 }
 
 // The user's own notes of a Commission node (the device file's filled

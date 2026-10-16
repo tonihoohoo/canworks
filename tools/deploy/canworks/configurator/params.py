@@ -224,10 +224,11 @@ def eds_file(session, path, library=""):
         if not os.path.isabs(path):
             path = session.eds_path(path)
     real = os.path.realpath(path)
-    roots = [os.path.realpath(r) for r in (canopen_dir, pending_dir, library) if r]
-    if not any(real.startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
+    # pending_dir: EDS files picked in this page and not saved yet; case ignored on Windows
+    roots = [os.path.normcase(os.path.realpath(r)) for r in (canopen_dir, pending_dir, library) if r]
+    if not any(os.path.normcase(real).startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
         raise Refused(403, "only EDS files in the project's canopen folder or the EDS library can be used")
-    if real.startswith(os.path.realpath(pending_dir) + os.sep):
+    if os.path.normcase(real).startswith(os.path.normcase(os.path.realpath(pending_dir)) + os.sep):
         with session.lock:
             return real, session.notes_eds_path(os.path.basename(real)) if session.commission else None
     return real, real

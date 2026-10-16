@@ -2978,7 +2978,7 @@ The Trace inspector SHALL have a close button (✕) in its own title bar, and Es
 - **THEN** the inspector stays closed and the selection moves
 
 ### Requirement: Frame lab layout
-The Frame lab SHALL put the frame box (frame, Explain, bit rate) at the top, with tabs **Examples**, **Build** and **Arbitration** under it. Only the chosen tab's panel SHALL show, and the choice SHALL be kept for the page session. At 1280 px and wider, the result SHALL show in a column beside the input and SHALL stay in view while the page scrolls. In narrower windows the result SHALL show under the frame box, before the tabs. The Examples tab SHALL group the frames by network and node.
+The Frame lab SHALL put the frame box (frame, Explain, bit rate) at the top, with tabs **Examples**, **Build** and **Arbitration** under it. Only the chosen tab's panel SHALL show, and the choice SHALL be kept for the page session. At 1280 px and wider, the result SHALL show in a column beside the input and SHALL stay in view while the page scrolls. In narrower windows the result SHALL show under the frame box, before the tabs. The Examples tab SHALL group the frames by network and node, and SHALL show the example frames every time it is shown, including after switching from another tab and after coming back to the Frame lab.
 
 #### Scenario: Wide result beside the input
 - **WHEN** the window is 1440 by 900 px and the user picks node 5's EMCY example
@@ -2991,6 +2991,14 @@ The Frame lab SHALL put the frame box (frame, Explain, bit rate) at the top, wit
 #### Scenario: Arbitration result in the result column
 - **WHEN** the user runs the arbitration demo at 1440 px
 - **THEN** the demo's diagram and text show in the result column
+
+#### Scenario: Examples after switching tabs
+- **WHEN** the examples have loaded and the user picks Build, then Examples again
+- **THEN** the Examples tab shows the example frames grouped by network and node, and no text such as `[object HTMLDivElement]`
+
+#### Scenario: Examples in Commission a device after coming back
+- **WHEN** in Commission a device the user opens the Frame lab, goes to the Nodes tab and back to the Frame lab
+- **THEN** the Examples tab shows the example frames
 
 ### Requirement: Clear the Frame lab result
 A Frame lab result SHALL have a **Clear** button that removes the result and empties the frame box, and leaves the chosen tab, the builder's values and the bit rate as they were. Esc in the frame box SHALL do the same. A frame from the trace SHALL keep **Back to trace** until Clear, an edit or another frame replaces it.
@@ -3037,3 +3045,25 @@ Each row of the Add note picker SHALL hold one button named after the object (fo
 #### Scenario: Pick by keyboard
 - **WHEN** the user types `1010` in the search, presses Down twice and Enter
 - **THEN** the Note editor of 0x1010:1 opens
+
+### Requirement: Device EDS carried into a config
+**Add to a config…** in Commission a device SHALL carry the node's EDS into the opened config when the node has one in Commission: from Add node from EDS…, picked on the node's page or in Trace, or the scan match. The EDS SHALL be added to the config as an unsaved EDS import, and the dialog SHALL NOT ask for the EDS file.
+
+#### Scenario: Node added from an EDS
+- **WHEN** the user adds node 23 with Add node from EDS… in Commission a device, presses Add to a config… on node 23's page and picks a standalone config folder without that EDS
+- **THEN** the config opens with node 23 added as an unsaved node using that EDS, and no "only EDS files" error is shown
+
+#### Scenario: Same EDS already in the config
+- **WHEN** the config folder already holds the identical EDS file
+- **THEN** node 23 uses that file and no second copy is added
+
+#### Scenario: Different EDS with the same name
+- **WHEN** the config folder holds a different file with the same name
+- **THEN** the carried EDS is kept under a new name and node 23 uses it
+
+### Requirement: EDS carry failure keeps Commission
+When the node's EDS cannot be carried into the config, the config folder SHALL NOT open. The page SHALL stay in Commission a device with its connection and log, and the banner SHALL name the EDS and the reason.
+
+#### Scenario: EDS cannot be read
+- **WHEN** the node's EDS file was removed from the EDS library before Add to a config…
+- **THEN** the page stays in Commission a device with the log and connection kept, and the banner names the EDS that could not be carried

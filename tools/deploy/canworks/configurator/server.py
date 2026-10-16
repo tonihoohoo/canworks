@@ -462,6 +462,26 @@ class Session:
             return os.path.join(self.pending_dir, value)
         return value if os.path.isabs(value) else os.path.join(self.canopen_dir, value)
 
+    def carry_source(self, value, library):
+        """(name, bytes) of the EDS a node uses in Commission a device, for
+        "Add to a config…": an EDS imported in this session and not saved yet,
+        a file in this folder or a file in the EDS library. Read before the
+        config opens, which drops this session's unsaved imports."""
+        if not isinstance(value, str) or not value.lower().endswith(".eds"):
+            raise ApiError(400, "carry_eds must be an EDS file")
+        if value in self.pending:
+            return value, self.pending[value]
+        path = self.eds_path(value)
+        if not under(path, (self.canopen_dir, library)) or not os.path.isfile(path):
+            raise ApiError(403, "%s cannot be carried into the config: only EDS files of this session or the "
+                                "EDS library can be" % os.path.basename(value))
+        try:
+            with open(path, "rb") as f:
+                return os.path.basename(path), f.read()
+        except OSError as e:
+            raise ApiError(404, "%s cannot be carried into the config: %s" % (os.path.basename(value),
+                                                                               e.strerror or e))
+
     # -- recent folders -----------------------------------------------------
     def recent(self):
         try:
@@ -881,18 +901,8 @@ class Session:
         if not name or name in (".", "..") or name == CONFIG:
             raise ApiError(422, "invalid EDS file name %r" % name)
         mode = eds_lint if eds_lint in edslint.MODES else edslint.effective_mode(self.read_config()[0].get("master"))
-        text, corrections, lint = edslint.check(data)
+        corrections, lint = check_eds(name, data, mode)
         data, converted = utf8_eds(data)
-        try:
-            eds = Eds.read(name, text)
-        except EdsError as e:
-            raise ApiError(422, "%s is not an EDS the configurator can use: %s" % (name, e))
-        if lint.read_error:
-            raise ApiError(422, "%s cannot be used: %s" % (name, lint.read_error))
-        failing = lint.failing(mode)
-        if failing:
-            raise ApiError(422, edslint.error_text(None, name, failing, mode),
-                           findings=[f.to_json() for f in failing])
         existing = None
         if name in self.pending:
             existing = self.pending[name]
@@ -1931,6 +1941,41 @@ def list_folders(path, drives=False):
             "config": os.path.isfile(os.path.join(path, CONFIG))}
 
 
+def under(path, roots):
+    """Whether `path` is inside one of the folders `roots` (None skipped),
+    links resolved and, on Windows, case ignored."""
+    real = os.path.normcase(os.path.realpath(path))
+    return any(real.startswith(os.path.normcase(os.path.realpath(r)) + os.sep) for r in roots if r)
+
+
+def check_eds(name, data, mode):
+    """The checks the PLC runs before dcfgen on an EDS (edslint under `mode`):
+    (corrections, lint), or ApiError 422 naming what is wrong."""
+    text, corrections, lint = edslint.check(data)
+    try:
+        Eds.read(name, text)
+    except EdsError as e:
+        raise ApiError(422, "%s is not an EDS the configurator can use: %s" % (name, e))
+    if lint.read_error:
+        raise ApiError(422, "%s cannot be used: %s" % (name, lint.read_error))
+    failing = lint.failing(mode)
+    if failing:
+        raise ApiError(422, edslint.error_text(None, name, failing, mode),
+                       findings=[f.to_json() for f in failing])
+    return corrections, lint
+
+
+def folder_lint_mode(path):
+    """The eds_lint mode of the config in a project or standalone config
+    folder; the default when it has none."""
+    try:
+        with open(params.config_file(path.strip()), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (params.Refused, OSError, ValueError, TypeError, AttributeError):
+        cfg = {}
+    return edslint.effective_mode(cfg.get("master") if isinstance(cfg, dict) else None)
+
+
 def folder_nodes(path):
     """{"nodes": [node IDs]} of the first network of the config in a project
     or standalone config folder, for "Add to a config…" before it opens the
@@ -2121,10 +2166,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = list_folders(query.get("path", [None])[0], query.get("drives", [""])[0] == "1")
                 elif route == ("POST", "/api/folder_nodes"):
                     out = folder_nodes(body.get("path"))
+                    if body.get("carry_eds") is not None:
+                        # "Add to a config…": an EDS the config could not take is refused before leaving Commission.
+                        name, data = s.carry_source(body.get("carry_eds"), online.Settings(config_dir()).eds_library)
+                        check_eds(name, data, folder_lint_mode(body.get("path")))
                 elif route == ("POST", "/api/open"):
+                    carry = None
+                    if body.get("carry_eds") is not None:
+                        carry = s.carry_source(body.get("carry_eds"), online.Settings(config_dir()).eds_library)
                     self._leave_commission(s)
                     s.open(body.get("path"), body.get("mode", "auto"), body.get("new"))
+                    carried = None
+                    if carry is not None:
+                        try:
+                            carried = s.import_eds(carry[0], carry[1], "keep_both")
+                        except ApiError as e:
+                            carried = {"error": str(e)}
                     out = s.state()
+                    if carried is not None:
+                        out["carried_eds"] = carried
                 elif route == ("POST", "/api/recent/forget"):
                     s.forget(body.get("path"))
                     out = {"recent": s.recent()}
@@ -3469,12 +3529,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         name)."""
         if not isinstance(path, str) or not path.lower().endswith(".eds"):
             raise ApiError(400, "path must be an EDS file")
+        with s.lock:
+            if path in s.pending:  # imported in this session and not saved yet: already in the draft
+                return {"name": path, "summary": s.eds_info([path])[path], "converted": False}
         real = os.path.realpath(path)
-        roots = [os.path.realpath(r) for r in (canopen_dir, settings.eds_library) if r]
-        if not any(real.startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
+        if not under(real, (canopen_dir, settings.eds_library)) or not os.path.isfile(real):
             raise ApiError(403, "only EDS files in the project's canopen folder or the EDS library can be used")
         with s.lock:
-            if os.path.dirname(real) == os.path.realpath(canopen_dir):
+            if os.path.normcase(os.path.dirname(real)) == os.path.normcase(os.path.realpath(canopen_dir)):
                 name = os.path.basename(real)
                 return {"name": name, "summary": s.eds_info([name])[name], "converted": False}
             with open(real, "rb") as f:
