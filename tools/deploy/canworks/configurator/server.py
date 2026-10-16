@@ -157,8 +157,19 @@ def load_theme():
     return load_ui()["theme"]
 
 
+# The server answers requests on several threads, and the page can post two
+# settings at once (a resize bar saves on every key press): one write at a
+# time, so a later write never starts from a file another is still writing.
+_UI_LOCK = threading.Lock()
+
+
 def save_ui(changes):
     """Stores the settings in `changes` (any of UI_SETTINGS), keeping the rest."""
+    with _UI_LOCK:
+        return _save_ui(changes)
+
+
+def _save_ui(changes):
     if not isinstance(changes, dict) or not changes:
         raise ApiError(400, "give at least one of: " + ", ".join(list(UI_SETTINGS) + ["tree_folded", "box_heights"]))
     ui = load_ui()
