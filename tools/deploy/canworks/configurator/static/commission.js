@@ -274,15 +274,15 @@ function adapterBox(message) {
     if (!(await saveOnline({ allow_changes: allow.checked }))) { allow.checked = !allow.checked; return; }
     if (on) render();
   });
-  const msg = el("p", { class: "field-msg", dataset: { online: "connect-msg" } }, message ? upperFirst(message) + "." : "");
+  const msg = msgBar({ online: "connect-msg" }, message ? upperFirst(message) + "." : "");
   const connect = el("button", { type: "button", class: "primary", hidden: on, dataset: { online: "connect" }, onclick: () => busy(connect, "Checking the bit rate…", async () => {
-    if (!input.value.trim()) { msg.textContent = "Pick or type the adapter first."; input.focus(); return; }
-    if (!rate.value) { msg.textContent = "Pick the bus's bit rate first."; rate.focus(); return; }
+    if (!input.value.trim()) { msg.say("Pick or type the adapter first."); input.focus(); return; }
+    if (!rate.value) { msg.say("Pick the bus's bit rate first."); rate.focus(); return; }
     const node = checkNode.value.trim() ? Number(checkNode.value) : null;
-    if (node !== null && !(Number.isInteger(node) && node >= 1 && node <= 127)) { msg.textContent = "The node ID for the check must be 1-127."; checkNode.focus(); return; }
+    if (node !== null && !(Number.isInteger(node) && node >= 1 && node <= 127)) { msg.say("The node ID for the check must be 1-127."); checkNode.focus(); return; }
     if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value), check_node: node }))) return;
     if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
-    msg.textContent = "";
+    msg.say("");
     S.adapterOn = true;
     S.adapterEnded = null;
     S.onlineLast = null;
@@ -299,7 +299,7 @@ function adapterBox(message) {
     } catch (e) {
       S.adapterOn = false;
       S.adapterEnded = e.message;
-      msg.textContent = upperFirst(e.message) + ".";
+      msg.say(upperFirst(e.message) + ".");
       connBar();
       return;
     }
@@ -314,6 +314,7 @@ function adapterBox(message) {
   }) }, "Connect");
   const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
   return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),
+    msg,
     el("p", { class: "muted" }, "The PC talks to the bus itself through the adapter: no runtime is needed. Connect checks the bit rate first and refuses a wrong one; after that the PC sends nothing until you act, never SYNC, heartbeat or NMT to all nodes, and warns when another master runs on the bus."),
     el("div", { class: "grid" },
       el("label", null, "Adapter", el("div", { class: "row" }, list, refresh), input,
@@ -324,7 +325,7 @@ function adapterBox(message) {
         hint("Only for an adapter that cannot tell whether its frame got out (slcan): on a silent bus, this node answers an SDO read of 0x1000 when the bit rate is right.")),
       el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
         hint("Off by default and for every new connection: read-only. Turning it on or off keeps the connection open."))),
-    msg, el("div", { class: "toolbar" }, connect, disconnect));
+    el("div", { class: "toolbar" }, connect, disconnect));
 }
 
 async function disconnectAdapter() {
@@ -371,14 +372,12 @@ function localLive(r, conn) {
   const kbit = Math.round((st.bitrate || 0) / 1000);
   const allow = !!st.allow_changes;
   const other = st.other_master_seen;
-  conn.className = "online-conn ok";
-  const line = el("div", null, `Connected to USB adapter ${st.adapter} at ${kbit} kbit/s, ${checkText(st.bitrate_check) || "bit rate checked"}, ` +
-    (allow ? "changes allowed." : "read-only."),
-  other ? el("div", { class: "online-note warning", dataset: { online: "other-master" } },
-    `Another master is active on this bus (${other.what}, since ${other.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
-    "Keep to reading; LSS asks before it runs.") : null,
-  st.untested_adapter ? el("div", { class: "online-note" }, "This adapter type is passed to python-can untested.") : null);
-  if (conn.dataset.html !== line.innerHTML) { conn.dataset.html = line.innerHTML; conn.replaceChildren(...line.childNodes); }
+  stateBars(conn, "done", `Connected to USB adapter ${st.adapter} at ${kbit} kbit/s, ${checkText(st.bitrate_check) || "bit rate checked"}, ` +
+    (allow ? "changes allowed." : "read-only."), [
+    other ? noteBar("error",
+      `Another master is active on this bus (${other.what}, since ${other.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
+      "Keep to reading; LSS asks before it runs.", { online: "other-master" }) : null,
+    st.untested_adapter ? noteBar("info", "This adapter type is passed to python-can untested.") : null]);
   const box = document.querySelector("[data-online=adapter-allow]");
   if (box && document.activeElement !== box) box.checked = allow;
   const live = $("#online-live");
@@ -446,16 +445,18 @@ function renderCommNodes(view) {
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
   const scan = el("button", { type: "button", class: "primary", hidden: !S.adapterOn, dataset: { online: "scan" }, onclick: () => startScan() }, "Scan the bus");
   const cancel = el("button", { type: "button", hidden: true, dataset: { online: "scan-cancel" }, onclick: stopScan }, "Cancel");
-  view.append(
+  // The view's messages under its heading: what it needs a connection for.
+  const slot = noticeSlot();
+  view.append(slot,
+    el("div", { id: "online-conn", hidden: true }),
     el("div", { class: "toolbar" }, scan, cancel, progress,
       el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
     lib,
-    el("div", { id: "online-conn", class: "online-conn", hidden: true }),
     el("div", { id: "online-live" }, commNodeTable(null)),
     el("div", { id: "online-lss" }),
     el("div", { id: "online-node" }));
   if (!S.adapterOn) {
-    view.querySelector("#online-live").before(nodesNotConnected());
+    slot.append(nodesNotConnected());
     view.querySelector("#online-live").hidden = true;
     if (S.onlineNode) renderOnlineNode();
     return;
@@ -752,21 +753,23 @@ async function configureDialog(id, j, body, status, out) {
   const skipped = p.skipped.length ? el("details", null, el("summary", null, `${p.skipped.length} entries left out`),
     el("table", { class: "od" }, el("tbody", null, p.skipped.map((s) => el("tr", null, el("td", { class: "mono" }, `${hex4(s.index)}:${s.subindex}`),
       el("td", null, s.name || ""), el("td", { class: "muted" }, s.reason)))))) : null;
+  // The dialog's messages at the top of its body: identity, refusal, warnings, locked, nothing to write.
   const extra = el("div", { class: "restore-preview", dataset: { online: "configure-preview" } },
+    el("div", { class: "notice-slot" }, byKind([
+      ...(p.identity || []).map((i) => notice(i.level === "refuse" ? "error" : i.level === "warning" ? "warning" : "info", upperFirst(i.text) + ".", { live: false })),
+      p.refused && !refuse.length ? notice("error", upperFirst(p.refused) + ".", { live: false, dataset: { online: "configure-refused" } }) : null,
+      ...(p.warnings || []).map((w) => notice("warning", upperFirst(w) + ".", { live: false })),
+      p.allow_changes ? null : notice("warning", NO_CHANGES, { live: false, dataset: { online: "configure-locked" } }),
+      rows.length ? null : notice("info", "The source has nothing to write.", { live: false, dataset: { online: "configure-nothing" } })])),
     el("p", { class: "muted" }, `Source: ${p.source.name}.`),
-    (p.identity || []).map((i) => el("p", { class: i.level === "refuse" ? "field-msg" : i.level === "warning" ? "field-msg warning" : "muted" }, upperFirst(i.text) + ".")),
-    p.refused && !refuse.length ? el("p", { class: "field-msg", dataset: { online: "configure-refused" } }, upperFirst(p.refused) + ".") : null,
-    (p.warnings || []).map((w) => el("p", { class: "field-msg warning" }, upperFirst(w) + ".")),
     rows.length ? el("table", { class: "od", dataset: { online: "configure-plan" } },
-      el("thead", null, el("tr", null, thCells(["Entry", "Name", "", "Source", "Device now", "Action"]))), el("tbody", null, rows))
-      : el("p", { class: "muted" }, "The source has nothing to write."),
+      el("thead", null, el("tr", null, thCells(["Entry", "Name", "", "Source", "Device now", "Action"]))), el("tbody", null, rows)) : null,
     skipped,
     el("p", { class: "muted", dataset: { online: "configure-counts" } }, `${p.writes} to write, ${p.same} already the same.`),
     el("label", { class: "check" }, hold, " Hold the node in PRE-OPERATIONAL while writing"),
     p.has_restore ? el("label", { class: "check" }, restore, " Restore defaults first (0x1011 sub 1, then reset the node)") : null,
     p.has_store ? el("label", { class: "check" }, store, " Store on device afterwards (0x1010), only when everything was written and read back", storeSub ? " " : null, storeSub) : null,
-    refuse.length ? el("label", { class: "check" }, other, " Write to a different product anyway") : null,
-    p.allow_changes ? null : el("p", { class: "field-msg warning" }, NO_CHANGES));
+    refuse.length ? el("label", { class: "check" }, other, " Write to a different product anyway") : null);
   const blocked = !!p.refused && !refuse.length;
   const can = p.allow_changes && !blocked && (p.writes > 0 || p.has_restore);
   // A node that is OPERATIONAL is held or written only with force, after this question says so.
@@ -792,17 +795,18 @@ function stepLine(s) { return `${hex4(s.index)}:${s.subindex} ${s.name}`; }
 function showConfigure(r, out, id) {
   if (!r) return;
   odTake(id, null, r.written.concat(r.failed).map((w) => odKey(w.index, w.subindex)));
-  put(out, el("p", { dataset: { online: "configure-done" } },
-    `${r.written.length} written, ${r.failed.length} failed, ${r.same} already the same${r.cancelled ? ", cancelled" : ""}. `,
-    r.cancelled ? null : el("strong", { class: r.verified ? "ok-text" : "bad" }, r.verified ? "Read-back verified." : "The read-back differs.")),
-  r.restored ? el("p", { class: "muted" }, "Defaults were restored and the node reset before writing.") : null,
-  ...r.failed.map((f) => el("p", { class: "field-msg" }, `${stepLine(f)}: ${f.error}`)),
-  ...r.skipped.filter((s) => /stays switched off/.test(s.reason)).map((s) => el("p", { class: "field-msg warning" }, `${stepLine(s)}: ${s.reason}`)),
-  r.readback.length ? diffTable(r.readback) : null,
-  ...r.notes.map((t) => el("p", { class: "muted" }, upperFirst(t) + ".")),
-  r.store ? el("p", { class: r.store.stored ? "ok-text" : "field-msg", dataset: { online: "configure-store" } },
-    r.store.stored ? `Stored on the device (0x1010 sub ${r.store.subindex}).` : `Not stored: ${r.store.error}.`)
-    : el("p", { class: "field-msg warning" }, "Not stored on the device: the values are lost at power off until Store on device is used."));
+  const bad = r.failed.length || (!r.cancelled && !r.verified);
+  put(out, byKind([notice(bad ? "error" : r.cancelled ? "info" : "done", [
+    el("p", null, `${r.written.length} written, ${r.failed.length} failed, ${r.same} already the same${r.cancelled ? ", cancelled" : ""}. `,
+      r.cancelled ? null : el("strong", null, r.verified ? "Read-back verified." : "The read-back differs.")),
+    ...r.failed.map((f) => el("p", null, `${stepLine(f)}: ${f.error}`))], { dataset: { online: "configure-done" } }),
+  r.restored ? notice("info", "Defaults were restored and the node reset before writing.") : null,
+  ...r.skipped.filter((s) => /stays switched off/.test(s.reason)).map((s) => notice("warning", `${stepLine(s)}: ${s.reason}`)),
+  ...r.notes.map((t) => notice("info", upperFirst(t) + ".")),
+  r.store ? notice(r.store.stored ? "done" : "error", r.store.stored ? `Stored on the device (0x1010 sub ${r.store.subindex}).` : `Not stored: ${r.store.error}.`,
+    { dataset: { online: "configure-store" } })
+    : notice("warning", "Not stored on the device: the values are lost at power off until Store on device is used.")]),
+  r.readback.length ? diffTable(r.readback) : null);
 }
 
 function diffTable(rows) {
@@ -814,9 +818,10 @@ function diffTable(rows) {
 
 function showVerify(r, out) {
   if (!r) return;
-  put(out, el("p", { dataset: { online: "verify-done" } }, `${r.checked} entries checked: `,
-    el("strong", { class: r.differences.length ? "bad" : "ok-text" }, r.differences.length ? `${r.differences.length} differ from ${r.source.name}.` : `no difference from ${r.source.name}.`)),
-  r.stopped ? el("p", { class: "field-msg" }, "Stopped: " + r.stopped) : null,
+  put(out, r.stopped ? notice("error", "Stopped: " + r.stopped) : null,
+    notice(r.differences.length ? "warning" : "done", [`${r.checked} entries checked: `,
+      el("strong", null, r.differences.length ? `${r.differences.length} differ from ${r.source.name}.` : `no difference from ${r.source.name}.`)],
+    { dataset: { online: "verify-done" } }),
   r.differences.length ? diffTable(r.differences) : null);
 }
 
@@ -878,14 +883,16 @@ function pdoTestPanel(id, n, allow) {
   const start = el("input", { type: "checkbox", dataset: { online: "pdo-nmt-start" } });
   const sync = el("select", { "aria-label": "SYNC period", disabled: !allow, dataset: { online: "pdo-sync" } },
     el("option", { value: "0" }, "SYNC off"), SYNC_PERIODS.map((p) => el("option", { value: p }, `SYNC every ${p} ms`)));
-  const msg = el("p", { class: "muted", dataset: { online: "pdo-msg" }, "aria-live": "polite" });
+  // The tab's messages at its top: the lock, then what the test did last.
+  const slot = noticeSlot();
+  const say = (kind, text) => setNotice(slot, "pdo", kind, text, { dataset: { online: "pdo-msg" } });
   const live = el("div", { dataset: { online: "pdo-live" } });
   const run = { on: false, rpdo: {} };
   const startBtn = el("button", { type: "button", class: "primary", disabled: !allow, title: why, dataset: { online: "pdo-start" } }, "Start PDO test");
   const stopBtn = el("button", { type: "button", disabled: true, dataset: { online: "pdo-stop" } }, "Stop");
   const nmtBtn = el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "pdo-nmt" }, onclick: async () => {
-    try { await api("POST", "/api/online/nmt", { node: id, command: "start", port: diagPort() }); msg.textContent = `NMT Start sent to node ${id}.`; }
-    catch (e) { msg.textContent = e.message; }
+    try { await api("POST", "/api/online/nmt", { node: id, command: "start", port: diagPort() }); say("done", `NMT Start sent to node ${id}.`); }
+    catch (e) { say("error", e.message); }
   } }, "NMT Start");
 
   // asked: the slow path question was answered at Start already.
@@ -899,7 +906,7 @@ function pdoTestPanel(id, n, allow) {
       if (Number(sync.value)) await apiAsk("/api/online/sync_start", { node: id, period_ms: Number(sync.value), port: diagPort(), force: run.forced || undefined },
         "SYNC from this PC would fight it. Send SYNC anyway?");
       else await api("POST", "/api/online/sync_stop", { node: id, port: diagPort() });
-    } catch (e) { msg.textContent = e.message; sync.value = "0"; }
+    } catch (e) { say("error", e.message); sync.value = "0"; }
   };
   sync.addEventListener("change", () => setSync(false));
 
@@ -912,7 +919,7 @@ function pdoTestPanel(id, n, allow) {
       await api("POST", "/api/online/sync_stop", { node: id, port: diagPort() });
     } catch (e) { /* the connection may be gone */ }
     if (!quiet && box.isConnected) {
-      msg.textContent = "Stopped.";
+      say("info", "Stopped.");
       startBtn.disabled = !allow;
       stopBtn.disabled = true;
       sync.value = "0";
@@ -931,12 +938,12 @@ function pdoTestPanel(id, n, allow) {
       const send = el("button", { type: "button", disabled: !allow, title: why, dataset: { pdoSend: p.number }, onclick: async () => {
         const values = {};
         for (const [k, inp] of Object.entries(inputs)) if (inp.value.trim() !== "") values[k] = inp.value.trim();
-        if (!Object.keys(values).length) { msg.textContent = `Type a value for ${p.name} first.`; return; }
+        if (!Object.keys(values).length) { say("warning", `Type a value for ${p.name} first.`); return; }
         try {
           const r = await api("POST", "/api/online/pdo_test_set", Object.assign({ node: id, rpdo: p.number, values, port: diagPort() },
             p.event ? { repeat_ms: Number(repeat.value) } : {}));
-          msg.textContent = `${p.name} set${r.event ? "" : "; it goes out after each SYNC this PC sends"}.`;
-        } catch (e) { msg.textContent = e.message; }
+          say("done", `${p.name} set${r.event ? "" : "; it goes out after each SYNC this PC sends"}.`);
+        } catch (e) { say("error", e.message); }
       } }, "Send");
       run.rpdo[p.number] = { sent };
       return p.values.map((v, k) => {
@@ -966,7 +973,7 @@ function pdoTestPanel(id, n, allow) {
       const st = await api("POST", "/api/online/pdo_test_status", { node: id, port: diagPort() });
       if (!run.on) return;
       if (!st.running) {
-        msg.textContent = `The PDO test ended: ${st.ended || "stopped"}.`;
+        say("info", `The PDO test ended: ${st.ended || "stopped"}.`);
         run.on = false;
         startBtn.disabled = !allow;
         stopBtn.disabled = true;
@@ -974,7 +981,7 @@ function pdoTestPanel(id, n, allow) {
       }
       put(tpdoBox, tpdoTable(st.tpdos));
       for (const p of st.rpdos) if (run.rpdo[p.number]) run.rpdo[p.number].sent.textContent = `${p.sent} sent`;
-    } catch (e) { msg.textContent = e.message; }
+    } catch (e) { say("error", e.message); }
     run.timer = setTimeout(poll, 500);
   };
 
@@ -982,20 +989,20 @@ function pdoTestPanel(id, n, allow) {
     startBtn.disabled = true;
     // With a SYNC period on a slow path: nothing is sent until the user confirms.
     if (Number(sync.value) && !(await askSlowPath("The PDO test with SYNC every " + sync.value + " ms"))) {
-      msg.textContent = "Not started.";
+      say("info", "Not started.");
       startBtn.disabled = !allow;
       return;
     }
-    msg.textContent = "Reading the PDO layout…";
+    say("info", "Reading the PDO layout…");
     let r;
     try {
       r = await apiAsk("/api/online/pdo_test_start", Object.assign(nodeSource(id), { start: start.checked }),
         "A PDO test from this PC would fight it. Run it anyway?");
-    } catch (e) { msg.textContent = e.message; startBtn.disabled = !allow; return; }
+    } catch (e) { say("error", e.message); startBtn.disabled = !allow; return; }
     run.on = true;
     run.forced = !!r.forced;
     stopBtn.disabled = false;
-    msg.textContent = `PDO test of node ${id}, layout ${r.source === "configuration" ? "from the configuration" : "read from the device"}.`;
+    say("info", `PDO test of node ${id}, layout ${r.source === "configuration" ? "from the configuration" : "read from the device"}.`);
     put(live, el("h3", null, "TPDOs (from the device)"), tpdoBox, el("h3", null, "RPDOs (to the device)"),
       r.rpdos.length ? rpdoTable(r.rpdos) : el("p", { class: "muted" }, "The node has no valid RPDO."));
     put(tpdoBox, tpdoTable(r.tpdos));
@@ -1003,11 +1010,11 @@ function pdoTestPanel(id, n, allow) {
     poll();
   });
 
-  put(box,
-    allow ? null : lockedNote("pdo-no-changes", null, "The PDO test sends on the bus:"),
+  if (!allow) slot.append(lockedNote("pdo-no-changes", null, "The PDO test sends on the bus:"));
+  put(box, slot,
     el("p", { class: "muted" }, "Shows the node's TPDOs and sends its RPDOs from this PC, for a device on the bench without a PLC. The layout comes from the configuration when the node is in it, otherwise from the device. SYNC is sent only when you pick a period; leaving this tab stops the test and the SYNC."),
     el("div", { class: "toolbar" }, startBtn, stopBtn, el("label", { class: "inline" }, start, " NMT Start the node first"), sync, nmtBtn),
-    msg, live);
+    live);
   return box;
 }
 

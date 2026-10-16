@@ -473,7 +473,7 @@ function dmPgnNote(dir, pgn) {
   const text = name !== "DM1" ? `PGN ${num(pgn)} is ${name} (${dmTexts().titles[name] || "a diagnostic message"}), which the Diagnostics section below handles.`
     : dir === "rx" ? "PGN 65226 is DM1, the active trouble codes: watch the ECU in the Diagnostics section below instead, which takes every code (not only the first), the lamps and a timeout."
       : "PGN 65226 is DM1, the active trouble codes: add the PLC's own codes in the Diagnostics section below instead, which sends DM1 every second and answers DM2, DM3 and DM11.";
-  return el("div", { class: "field-msg warning", dataset: { j1939DmPgn: `${dir}:${num(pgn)}` } }, text);
+  return notice("warning", text, { live: false, dataset: { j1939DmPgn: `${dir}:${num(pgn)}` } });
 }
 
 // Removes entry i of diagnostics.rx or .dtcs; an empty list and an empty
@@ -801,7 +801,7 @@ function dmAddress(global) {
   const v = /^[0-9]+$/.test(t) ? Number(t) : NaN;
   if ((v >= 0 && v <= 253) || (global && v === 255)) { input.classList.remove("invalid"); return v; }
   input.classList.add("invalid");
-  banner(global ? "Enter the ECU's address, 0 to 253, or 255 for every ECU." : "Enter the ECU's address, 0 to 253.", true);
+  faultSay("error", global ? "Enter the ECU's address, 0 to 253, or 255 for every ECU." : "Enter the ECU's address, 0 to 253.");
   return null;
 }
 
@@ -812,12 +812,11 @@ async function dmRead() {
     const r = await api("POST", "/api/online/j1939_dm_read", { address: a });
     const names = (S.onlineLast && S.onlineLast.spn_names) || {};
     const codes = (r.dtcs || []).map((c) => dtcLine(c, names));
-    FAULTS.result.replaceChildren(el("div", { dataset: { j1939: "dm2" } },
-      el("strong", null, `${ecuLabel(a)}, previously active codes (DM2): `),
+    faultSay(codes.length ? "info" : "done", [el("strong", null, `${ecuLabel(a)}, previously active codes (DM2): `),
       codes.length ? codes : el("span", null, "none."),
-      r.count > codes.length ? el("div", { class: "muted" }, `${r.count - codes.length} more not shown`) : null));
+      r.count > codes.length ? el("div", { class: "muted" }, `${r.count - codes.length} more not shown`) : null], { j1939: "dm2" });
   } catch (e) {
-    FAULTS.result.replaceChildren(el("div", { class: "bad", dataset: { j1939: "dm2" } }, `DM2 of ECU ${a}: ${e.message}`));
+    faultSay("error", `DM2 of ECU ${a}: ${e.message}`, { j1939: "dm2" });
   }
 }
 
@@ -835,11 +834,16 @@ async function dmClear(previous) {
   if (v !== "clear") return;
   try {
     const r = await api("POST", "/api/online/j1939_dm_clear", { address: a, previous, force: true });
-    FAULTS.result.replaceChildren(el("div", { dataset: { j1939: "dm-cleared" } },
-      r.result === "ack" ? `${ecuLabel(a)} acknowledged the clear (${dm}).` : `${dm} sent to every ECU (no acknowledgement for a global clear).`));
+    faultSay("done", r.result === "ack" ? `${ecuLabel(a)} acknowledged the clear (${dm}).` : `${dm} sent to every ECU (no acknowledgement for a global clear).`,
+      { j1939: "dm-cleared" });
   } catch (e) {
-    FAULTS.result.replaceChildren(el("div", { class: "bad", dataset: { j1939: "dm-cleared" } }, `${dm} to ${whom}: ${e.message}`));
+    faultSay("error", `${dm} to ${whom}: ${e.message}`, { j1939: "dm-cleared" });
   }
+}
+
+// The Faults panel's read or clear result: one bar at the panel's top.
+function faultSay(kind, content, data) {
+  if (FAULTS.result) setNotice(FAULTS.result, "dm", kind, content, data ? { dataset: data } : null);
 }
 
 function faultsBox() {
@@ -848,16 +852,15 @@ function faultsBox() {
   FAULTS.net = net;
   FAULTS.list = el("div", { dataset: { j1939: "faults-list" } });
   FAULTS.address = el("input", { type: "text", spellcheck: "false", placeholder: "0", "aria-label": "ECU address", dataset: { j1939: "dm-address" } });
-  FAULTS.result = el("div", { class: "j1939-dm-result", role: "status", dataset: { j1939: "dm-result" } });
+  FAULTS.result = noticeSlot({ dataset: { j1939: "dm-result" } });
   const read = el("button", { type: "button", dataset: { j1939: "dm-read" }, onclick: () => busy(read, "Reading…", dmRead) }, "Read previously active (DM2)");
   const clear = el("button", { type: "button", dataset: { j1939: "dm-clear" }, onclick: () => busy(clear, "Clearing…", () => dmClear(false)) }, "Clear codes (DM11)…");
   const clearPrev = el("button", { type: "button", dataset: { j1939: "dm-clear-previous" }, onclick: () => busy(clearPrev, "Clearing…", () => dmClear(true)) },
     "Clear previously active (DM3)…");
   FAULTS.box = el("div", { class: "j1939-faults", dataset: { j1939: "faults" } },
-    el("h3", null, "Faults"), FAULTS.list,
+    el("h3", null, "Faults"), FAULTS.result, FAULTS.list,
     el("div", { class: "toolbar" }, el("label", null, "ECU address ", FAULTS.address), read, clear, clearPrev),
-    hint("Reads and clears go out from the PLC's address. A clear asks first: it acts on that ECU. 255 clears every ECU."),
-    FAULTS.result);
+    hint("Reads and clears go out from the PLC's address. A clear asks first: it acts on that ECU. 255 clears every ECU."));
   return FAULTS.box;
 }
 

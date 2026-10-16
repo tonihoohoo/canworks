@@ -81,7 +81,7 @@ function traceWinOpen() {
 // The main window's Trace tab while the trace has its own window.
 function renderTraceElsewhere(view) {
   view.append(el("h2", null, "Trace"),
-    el("p", { class: "online-note", dataset: { trace: "elsewhere" } }, "Trace is open in its own window."),
+    notice("info", "Trace is open in its own window.", { live: false, dataset: { trace: "elsewhere" } }),
     el("div", { class: "toolbar" },
       el("button", { type: "button", class: "primary", dataset: { trace: "show-window" }, onclick: traceWinOpen }, "Show trace window"),
       el("button", { type: "button", dataset: { trace: "bring-back" }, onclick: () => {

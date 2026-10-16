@@ -33,7 +33,7 @@ class ErrorHistory(OnlineBase):
         self.online(fp, allow=allow)
         pg.wait_for_selector("text=changes allowed" if allow else "text=read-only")
         pg.click('tr[data-online-node="2"]')
-        pg.wait_for_selector('[data-online="error-field"]')
+        pg.wait_for_selector('[data-online="error-field"]', state="attached")  # empty without a history
         pg.wait_for_function("() => !document.querySelector('[data-online=\"error-field\"]').textContent.includes('Loading')")
 
     def test_read(self):
@@ -57,7 +57,9 @@ class ErrorHistory(OnlineBase):
         pg = self.page
         with FakePlugin() as fp:
             self.node(fp)
-            self.assertEqual(pg.inner_text('[data-online="error-field"]'), "Node 2 has no error history (0x1003).")
+            # A message bar at the top of the section, not text in the list's place.
+            pg.wait_for_selector('fieldset:has([data-online="error-field"]) > .notice-slot .notice-info:has-text("Node 2 has no error history (0x1003).")')
+            self.assertEqual(pg.inner_text('[data-online="error-field"]'), "")
 
     def test_clear_refused_read_only(self):
         pg = self.page
@@ -216,7 +218,9 @@ class EdsLimits(OnlineBase):
         self.open()
         tree_node(pg, 0, "supervision")
         pg.wait_for_selector("[data-emcy-remove]")
-        self.assertIn("field-msg warning", pg.get_attribute("[data-emcy-limit]", "class"))
+        # A warning bar at the top of the section, under its legend (consistent-message-bars).
+        self.assertIn("notice-warning", pg.get_attribute("[data-emcy-limit]", "class"))
+        self.assertTrue(pg.evaluate("() => document.querySelector('[data-emcy-limit]').previousElementSibling.tagName === 'LEGEND'"))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertIn("'emcy_code_location' needs an EDS with the EMCY COB-ID (0x1014)", pg.inner_text("#problem-list"))
         self.assertTrue(pg.is_disabled("#btn-save"))

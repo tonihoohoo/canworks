@@ -48,7 +48,7 @@ Alternative considered: everything in the page bar. Rejected: with several secti
 **8. Roles.** Error: `role="alert"`. Warning, info, done: `role="status"`. A notice that is drawn with its view (not a change) gets no live role, so opening a page does not read all its notes.
 
 **9. Test.** A Playwright walk opens every view, tool tab, node tab and dialog of the virtual-plant and pingpong configs in Light and Dark, in Configure and Commission, and asserts:
-- no element with a retired class (`online-note`, `fx-note`, `fx-error` as a section message, `machine-notice`, `machine-nodata`, `job-status`, `j1939-dm-result`, `field-msg warning` outside a field);
+- no element with a retired class (`online-note`, `fx-note`, `fx-error` as a section message, `machine-notice`, `machine-nodata`, `job-status` as a result line (it keeps only the progress), `j1939-dm-result`, `field-msg warning` outside a field);
 - every `.notice` is the first child after its section's heading or in the dialog's top slot;
 - each kind's computed background and accent colour equals the kind's tokens.
 

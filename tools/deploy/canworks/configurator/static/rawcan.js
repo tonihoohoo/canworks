@@ -446,9 +446,10 @@ function rawBitGrid(m, key) {
   }
   return el("div", { class: "raw-grid-wrap" },
     el("h4", null, "Bit layout"),
+    clash.size ? notice("error", pages.length ? "Signals of this page overlap in the red bits." : "Signals overlap in the red bits.",
+      { live: false, dataset: { raw: "clash" } }) : null,
     picker,
-    el("table", { class: "raw-grid", "aria-label": "Bit layout" }, el("tbody", null, rows)),
-    clash.size ? el("p", { class: "field-msg error" }, pages.length ? "Signals of this page overlap in the red bits." : "Signals overlap in the red bits.") : null);
+    el("table", { class: "raw-grid", "aria-label": "Bit layout" }, el("tbody", null, rows)));
 }
 
 async function rawSuggest(kind, i) {
@@ -473,10 +474,10 @@ function rawDbc() {
   const dbc = getPath("raw.dbc");
   const missing = !!dbc && !(S.state.dbc_files || []).includes(dbc);
   return el("fieldset", { dataset: { section: "dbc" } }, el("legend", null, "DBC file"),
+    missing ? notice("warning", `${dbc} is not in the config folder: import it again.`,
+      { live: false, dataset: { raw: "dbc-missing" } }) : null,
     el("p", null, dbc ? ["Messages come from ", el("strong", { dataset: { raw: "dbc" } }, dbc), "."]
-      : el("span", { class: "muted", dataset: { raw: "dbc" } }, "No DBC file yet."),
-      missing ? el("span", { class: "field-msg warning", dataset: { raw: "dbc-missing" } },
-        ` ${dbc} is not in the config folder: import it again.`) : null),
+      : el("span", { class: "muted", dataset: { raw: "dbc" } }, "No DBC file yet.")),
     el("div", { class: "toolbar", id: "raw-import" },
       dbcFileButton(rawImportDbc, { raw: "dbc-input" }),
       dbc && !missing ? el("button", { type: "button", dataset: { raw: "pick" }, onclick: () => rawPickFromDbc(dbc) }, "Pick messages…") : null),
@@ -537,7 +538,7 @@ async function rawPickMessages(res) {
     if (n) setPath("raw.dbc", res.name);
     S.rawOpen = null;
     changed(true);
-    banner(`Imported ${n} message${n === 1 ? "" : "s"} from ${res.name}.` + (r.notes.length ? " " + r.notes.join("; ") + "." : ""), r.notes.length > 0);
+    banner(`Imported ${n} message${n === 1 ? "" : "s"} from ${res.name}.` + (r.notes.length ? " " + r.notes.join("; ") + "." : ""), r.notes.length ? "warning" : "done");
   } catch (e) { banner(e.message, true); }
 }
 

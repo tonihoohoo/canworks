@@ -130,13 +130,14 @@ function txDraw() {
     if (f) txOpenFile(f);
   });
   body.replaceChildren(...[
+    // Why nothing can be sent: a bar at the top of the pane, before its buttons.
+    blocked ? notice("warning", blocked + ". The list can still be edited and saved.", { live: false, dataset: { tx: "blocked" } }) : null,
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { tx: "add" }, onclick: () => txAdd({ id: "", data: "" }, true) }, "Add frame"),
       el("button", { type: "button", dataset: { tx: "stop-all" }, disabled: !TX.jobs.length && "Nothing is being sent.", onclick: () => txStop(null) }, "Stop all"),
       el("button", { type: "button", dataset: { tx: "save" }, disabled: !TX.rows.length && "The list is empty.", onclick: txSaveFile }, "Save list…"),
       el("label", { class: "file-button", title: "Open a transmit list file (.transmit.json)" }, "Open list…", fileInput),
       el("button", { type: "button", dataset: { tx: "clear" }, disabled: !TX.rows.length && "The list is empty.", onclick: txClear }, "Clear list")),
-    blocked ? el("p", { class: "field-msg warning", dataset: { tx: "blocked" } }, blocked + ". The list can still be edited and saved.") : null,
     TX.rows.length ? el("div", { class: "tx-table", role: "table", "aria-label": "Transmit list" },
       el("div", { class: "tx-row tx-head", role: "row" }, ["Name", "ID (hex)", "Ext", "RTR", "Data / DLC", "Period ms", "Count", "Decoded", "State", "Actions"]
         .map((h) => el("div", { role: "columnheader" }, h))),

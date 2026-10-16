@@ -57,8 +57,10 @@
   <div id="tool-tabs" hidden></div>
   <div id="conn-bar" hidden></div>
 </header>
-<div id="sim-banner" role="note" hidden></div>
-<div id="banner" role="status" hidden><span id="banner-text"></span><button id="banner-close" type="button" title="Close" aria-label="Close message">✕</button></div>
+<div id="page-bars">
+<div id="sim-banner" class="notice notice-warning" data-notice="warning" role="note" hidden></div>
+<div id="banner" class="notice notice-done" data-notice="done" role="status" hidden><div id="banner-text" class="notice-text"></div><button id="banner-close" class="notice-close" type="button" title="Close" aria-label="Close message">✕</button></div>
+</div>
 <main id="start" hidden>
   <p id="start-intro" class="start-intro">Configure CANopen and J1939 networks for OpenPLC Runtime v4, or commission a CANopen device from this PC.</p>
   <section class="start-choices">

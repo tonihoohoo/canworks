@@ -124,7 +124,7 @@ class LinkPage(base.OnlineBase):
             self.assertIn("internet relayed", text)
             self.assertIn("results and stop commands arrive late", text)
             pg.click('#modal button[data-value="cancel"]')
-            pg.wait_for_selector('[data-online="lss-status"]:has-text("Not started")')
+            pg.wait_for_selector('[data-online="lss-msg"]:has-text("Not started")')
             self.assertFalse([r for r in fp.requests if r["op"].startswith("lss")])  # nothing sent
             pg.click('button[data-online="lss-find"]')
             pg.click('#modal button[data-value="go"]')

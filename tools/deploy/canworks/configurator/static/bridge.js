@@ -285,8 +285,8 @@ function bridgeFillMap() {
   const old = host.querySelector('[data-bridge="filter"]');
   const typing = old && document.activeElement === old ? old.selectionStart : null;
   if (r.problem) {
-    host.replaceChildren(el("p", { class: "field-msg", dataset: { bridge: "map-problem" } },
-      `No register map: ${r.problem}. Pack for Modbus or move the locations (see Problems).`));
+    host.replaceChildren(notice("warning", `No register map: ${r.problem}. Pack for Modbus or move the locations (see Problems).`,
+      { live: false, dataset: { bridge: "map-problem" } }));
     return;
   }
   const filter = el("input", { type: "search", dataset: { bridge: "filter" }, placeholder: "Filter: name, network, table, address…",

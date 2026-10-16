@@ -349,11 +349,11 @@ function commEvent(node, net, what, result) {
 
 const LOCKED_TEXT = "Locked. Changes are not allowed on this connection.";
 
-// The line under a locked control: the reason and Unlock…. `focus` is a
-// selector of the control to focus once it is enabled.
+// The warning bar at the top of a section with locked controls: the reason
+// and Unlock…. `focus` is a selector of the control to focus once it is enabled.
 function lockedNote(dataKey, focus, prefix) {
   const btn = el("button", { type: "button", class: "small", dataset: { unlock: dataKey }, onclick: () => unlock(focus || null, btn) }, "Unlock…");
-  return el("p", { class: "field-msg warning locked", dataset: { online: dataKey } }, (prefix ? prefix + " " : "") + LOCKED_TEXT + " " + NO_CHANGES + " ", btn);
+  return notice("warning", (prefix ? prefix + " " : "") + LOCKED_TEXT + " " + NO_CHANGES, { class: "locked", live: false, actions: [btn], dataset: { online: dataKey } });
 }
 
 async function unlock(focus, btn) {
@@ -398,7 +398,7 @@ function simulatedNode(id) {
 
 function simPanel(id) {
   const box = el("fieldset", { dataset: { simPanel: id } }, el("legend", null, "Simulated device"),
-    el("p", { class: "muted", dataset: { simPanelState: id } }, "Reading the simulated device…"),
+    el("div", { class: "muted", dataset: { simPanelState: id } }, "Reading the simulated device…"),
     el("div", { class: "toolbar sim-fault-buttons", dataset: { simPanelFaults: id } }),
     el("div", { dataset: { simPanelActive: id } }),
     el("div", { class: "table-scroll", dataset: { box: "sim_values", boxLabel: "the values" } }, el("table", { class: "od sim-values" },
@@ -416,7 +416,9 @@ async function simPanelPoll(id, seq) {
   catch (e) {
     const p = document.querySelector(`[data-sim-panel-state="${id}"]`);
     if (!p || seq !== S.simPanelSeq) return;
-    p.textContent = /nothing simulated/.test(e.message) ? "The runtime simulates nothing: upload this config to it." : e.message;
+    // Why it cannot be read: a bar at the top of the section, in the state line's place.
+    p.replaceChildren(/nothing simulated/.test(e.message) ? notice("warning", "The runtime simulates nothing: upload this config to it.", { live: false })
+      : notice("error", e.message, { live: false }));
     setTimeout(() => simPanelPoll(id, seq), 2000);
     return;
   }
@@ -424,7 +426,7 @@ async function simPanelPoll(id, seq) {
   if (!state || seq !== S.simPanelSeq) return;
   const allow = !!r.allow_changes;
   const d = ((r.status || {}).devices || []).find((x) => String(x.node) === String(id)) || {};
-  state.textContent = `NMT ${d.nmt || "?"}, power ${d.power || "?"}` + (d.conflict ? ", node ID conflict" : "") + ".";
+  state.replaceChildren(`NMT ${d.nmt || "?"}, power ${d.power || "?"}` + (d.conflict ? ", node ID conflict" : "") + ".");
   const off = { disabled: !allow, title: allow ? null : "Changes are not allowed on this connection" };
   const req = async (op, fields, done) => {
     try { await api("POST", "/api/sim/request", Object.assign({ op, port: diagPort(), target: "runtime" }, fields)); banner(done); }

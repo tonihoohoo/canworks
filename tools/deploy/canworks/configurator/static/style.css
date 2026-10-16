@@ -31,7 +31,7 @@
     color-scheme: dark; }
 }
 * { box-sizing: border-box; }
-html { scroll-padding-top: calc(var(--header-h) + 56px);  /* the header, and a node page's section index under it */
+html { scroll-padding-top: calc(var(--header-h) + var(--bars-h, 0px) + 56px);  /* the header, and a node page's section index under it */
    scroll-padding-bottom: calc(var(--footer-h, 0px) + 8px); }
 summary { min-height: 24px; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
@@ -42,13 +42,14 @@ header .top-row { display: flex; align-items: center; gap: 12px; padding: 10px 1
 #tool-tabs { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #tool-tabs .tool-tabs { border-bottom: 0; margin: 0; display: flex; flex-wrap: wrap; }
 #tool-tabs .tool-net button { padding: 2px 8px; font-size: 13px; }
-/* The connection bar (connection.js): neutral while all is well, coloured only for a fault. */
+/* The connection bar (connection.js): neutral while all is well. */
 #conn-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 16px; border-top: 1px solid var(--line); font-size: 13px; }
 #conn-bar .conn-line, #conn-bar { min-height: 30px; }
 #conn-bar > * { display: inline-flex; align-items: center; gap: 4px; }
-#conn-bar.fault { background: var(--st-error-bg); }
+/* Tinted as the message bars are: the warning tint for a warning (error passive, a slow path), the error tint for a fault. */
+#conn-bar.warn { background: var(--st-warn-bg); box-shadow: inset 3px 0 0 var(--st-warn); }
+#conn-bar.fault { background: var(--st-error-bg); box-shadow: inset 3px 0 0 var(--st-error); }
 #conn-bar .bad { font-weight: 600; }
-.ws-note { font-size: 12px; color: var(--muted); }
 .unsaved-mark { color: var(--st-warn); font-weight: 600; }
 #ws button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 h1 { font-size: 16px; margin: 0; }
@@ -89,10 +90,30 @@ input.invalid, select.invalid { border-color: var(--st-error); background: var(-
 input.warned { border-color: var(--st-warn); }
 .field-msg { color: var(--st-error); font-size: 12px; }
 .field-msg.warning { color: var(--st-warn); }
-#banner { padding: 6px 16px; background: var(--hover); color: var(--text); border-bottom: 1px solid var(--line);
-  position: sticky; top: var(--header-h); z-index: 2; display: flex; gap: 12px; align-items: center; }
-#banner-text { flex: 1; }
-#banner-close { padding: 0 8px; border: 0; background: none; }
+/* Message bars (consistent-message-bars, app.js notice()): one look per kind on every page, view,
+   section and dialog. Information and done are neutral, the left accent and the icon say which;
+   warning and error take their state tint. */
+.notice { display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; border-left: 3px solid var(--muted);
+  border-radius: 4px; background: var(--hover); color: var(--text); font-size: 13px; font-weight: normal; text-align: left; }
+.notice > .st { margin-top: 2px; }
+.notice-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notice-text > p, .notice-text > div { margin: 0; }
+.notice-text > * + * { margin-top: 4px; }
+.notice-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.notice-close { padding: 0 8px; min-height: 24px; min-width: 24px; border: 0; background: none; }
+.notice-done { border-left-color: var(--st-ok); }
+.notice-warning { background: var(--st-warn-bg); border-left-color: var(--st-warn); }
+.notice-error { background: var(--st-error-bg); border-left-color: var(--st-error); }
+.notice-slot { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; max-width: 110ch; }
+.notice-slot:empty { display: none; }
+.notice + .notice { margin-top: 6px; }
+.notice-slot > .notice + .notice { margin-top: 0; }
+/* The page's bars: the simulation banner, then the message bar, under the header and in view while the page scrolls. */
+#page-bars { position: sticky; top: var(--header-h); z-index: 2; }
+#page-bars > .notice { border-radius: 0; padding: 6px 16px 6px 13px; border-bottom: 1px solid var(--line); }
+#page-bars > .notice:not([hidden]) { display: flex; }
+#banner { align-items: center; }
+#banner > .st { margin-top: 0; }
 .segmented { display: inline-flex; }
 .segmented button { border-radius: 0; margin-left: -1px; }
 .segmented button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
@@ -101,7 +122,6 @@ input.warned { border-color: var(--st-warn); }
 .joined { display: inline-flex; }
 .joined select { width: auto; border-radius: 6px 0 0 6px; }
 .joined button { border-radius: 0 6px 6px 0; margin-left: -1px; }
-#banner.error { background: var(--st-error-bg); }
 main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid; gap: 20px; }
 .start-intro { margin: 0 0 12px; color: var(--muted); }
 .start-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -204,8 +224,9 @@ details.pdo-settings[open] > summary { margin-bottom: 6px; }
 #problem-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
 #problem-list li { border-radius: 5px; margin-bottom: 4px; }
 #problem-list li > button { display: block; width: 100%; text-align: left; padding: 6px; border: 0; border-radius: 5px; background: none; white-space: normal; font-size: 13px; cursor: pointer; }
-#problem-list li.error { background: var(--st-error-bg); }
-#problem-list li.warning { background: var(--st-warn-bg); }
+#problem-list li { border-left: 3px solid transparent; }
+#problem-list li.error { background: var(--st-error-bg); border-left-color: var(--st-error); }
+#problem-list li.warning { background: var(--st-warn-bg); border-left-color: var(--st-warn); }
 #problem-list li.ok { padding: 6px; }
 #problem-list .st { margin-right: 6px; }
 /* Commissioning: no config, so no Problems and nothing that edits a config. */
@@ -317,12 +338,6 @@ details.advanced { border: 1px solid var(--line); border-radius: 8px; margin: 0 
 details.advanced > summary { cursor: pointer; font-weight: 600; }
 .ok-text { color: var(--st-ok); }
 td.bad, tr.bad td, .bad { color: var(--st-error); }
-.online-conn { padding: 6px 10px; border-radius: 6px; margin-bottom: 10px; background: var(--hover); }
-.online-conn.ok { background: var(--panel); border: 1px solid var(--line); }
-.online-conn.error { background: var(--st-error-bg); }
-.online-note { margin-top: 6px; }
-.online-note.warning { color: var(--st-warn); }
-.online-note.error { color: var(--st-error); }
 table.online-bus { margin-bottom: 12px; }
 table.online-nodes tr.clickable { cursor: pointer; }
 table.online-nodes tr.clickable:hover, table.online-nodes tr.active { background: var(--hover); }
@@ -528,9 +543,9 @@ details.od-any { margin: 0 0 12px; }
 details.od-any > summary { cursor: pointer; }
 
 /* Simulation: the banner on every page, and the Simulation view. */
-/* Simulated is a mark, not a state: neutral, with a dashed edge like the simulated icon ring. */
-#sim-banner { padding: 6px 16px; background: var(--hover); color: var(--text); border-bottom: 1px dashed var(--muted); font-weight: 600; }
-#sim-banner { padding: 4px 16px; }
+/* The banner is a warning bar (consistent-message-bars): the configuration must not go to a machine as it is. */
+#sim-banner { padding-top: 4px; padding-bottom: 4px; font-weight: 600; }
+#sim-banner > .sim-body { flex: 1; min-width: 0; }
 .sim-line { display: flex; align-items: center; gap: 12px; }
 .sim-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #sim-banner [data-sim=details] { margin: 4px 0 2px; font-weight: 400; max-width: 120ch; }
@@ -700,7 +715,6 @@ table.fx-table tr.r-aborted td, table.fx-table tr.w-refused td, table.fx-table t
 .fx-mark.late rect { fill: var(--st-error); }
 .fx-mark.picked rect, .fx-mark:hover rect { stroke: var(--fx-sel); stroke-width: 2; }
 /* Frame lab */
-.fx-note { padding: 6px 10px; border-left: 3px solid var(--st-ok); background: var(--hover); border-radius: 4px; max-width: 80ch; }
 /* Frame lab: frame box, result, tools; the result beside them from 1280 px. */
 .fx-lab { display: grid; gap: 12px 20px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "box" "result" "tools"; margin-top: 10px; }
 .fx-lab-box { grid-area: box; min-width: 0; }
@@ -769,7 +783,6 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 .machine-stage { isolation: isolate; position: relative; width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0b0e11; }
 .machine-stage.no-webgl { aspect-ratio: auto; min-height: 120px; background: var(--panel); display: grid; place-items: center; padding: 16px; }
 .machine-stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-.machine-nowebgl { margin: 0; max-width: 60ch; text-align: center; }
 .machine-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .machine-tag { font: 11px/1.3 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: #e6eaee; background: rgba(13, 17, 20, .8); border: 1px solid #3a444d;
   border-left: 2px solid #f2a93b; padding: 3px 6px; border-radius: 3px; white-space: nowrap; transform: translateY(-14px); }
@@ -777,9 +790,9 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 .machine-tag.bad { border-left-color: #ff5a4f; }
 .machine-tag.bad b { color: #ff7a70; }
 .machine-tag.clickable { pointer-events: auto; cursor: pointer; }
-.machine-notice, .machine-nodata { position: absolute; left: 50%; transform: translateX(-50%); margin: 0; padding: 6px 10px; border-radius: 6px; max-width: calc(100% - 24px); }
-.machine-notice { top: 10px; background: var(--st-warn-bg); color: var(--text); border: 1px solid var(--st-warn); }
-.machine-nodata { bottom: 12px; background: var(--st-error-bg); color: var(--text); border: 1px solid var(--st-error); font-weight: 600; }
+/* The stage's message bars sit over its top edge, most severe first. */
+.machine-bars { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1; margin: 0; }
+.machine-stage.no-webgl .machine-bars { position: static; }
 .machine-fps { position: absolute; right: 10px; bottom: 8px; font: 11px ui-monospace, Menlo, Consolas, monospace; color: #9aa4ad; pointer-events: none; }
 .machine-panel { display: grid; gap: 4px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px 10px; }
 .machine-panel h3 { margin: 10px 0 4px; }
@@ -869,7 +882,6 @@ table.online-links tr.bad td:first-child { color: var(--st-error); }
 .j1939-lamps label.check > input { width: auto; margin: 0; }
 .j1939-faults .toolbar label { display: inline-flex; align-items: center; gap: 6px; }
 .j1939-faults .toolbar input[type=text] { width: 5em; }
-.j1939-dm-result { margin-top: 6px; }
 .tag.lamp { display: inline-block; margin: 1px 4px 1px 0; }
 .tag.lamp-amber { background: var(--st-warn-bg); color: var(--st-warn); }
 .tag.lamp-red, .tag.lamp-mil { background: var(--st-error-bg); color: var(--st-error); }
@@ -894,6 +906,7 @@ fieldset[data-sim-panel] { border: 1px dashed var(--accent); border-radius: 8px;
 .st-stopped, .st-warning { color: var(--st-warn); }
 .st-error { color: var(--st-error); }
 .st-unknown { color: var(--st-off); }
+.st-info { color: var(--muted); }
 .st .st-sim { display: none; }
 .st.simulated .st-sim { display: inline; }
 .st-flag { display: inline-block; width: 10px; height: 12px; margin-left: 2px; vertical-align: -1px; color: var(--st-error); }

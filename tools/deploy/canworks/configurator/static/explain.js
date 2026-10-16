@@ -901,7 +901,8 @@ function renderFrameLab(view) {
   const modeTabs = tabs(modes, L.mode, (k) => { L.mode = k; selectTab(modeTabs, k, "fxMode"); panel.setAttribute("aria-labelledby", "fx-lab-panel-tab-" + k); fxLabPanel(); },
     { label: "Frame lab tools", panel: "fx-lab-panel", dataset: "fxMode" });
   view.append(el("h2", null, "Frame lab"),
-    el("p", { class: "fx-note", dataset: { fx: "nothing-sent" } }, "Nothing here is sent: the Frame lab explains frames on this PC and needs no runtime, no adapter and no trace. Send… only adds a frame to the Trace tab's transmit list."),
+    notice("info", "Nothing here is sent: the Frame lab explains frames on this PC and needs no runtime, no adapter and no trace. Send… only adds a frame to the Trace tab's transmit list.",
+      { live: false, dataset: { fx: "nothing-sent" } }),
     el("div", { class: "fx-lab" },
       el("section", { class: "fx-lab-box", "aria-label": "Explain a frame" },
         el("h3", null, "Explain a frame"),
@@ -909,7 +910,7 @@ function renderFrameLab(view) {
           ? "Type or paste a frame as ID#DATA in hex, as candump writes it: 18FF0000#D204F664, 18EAFF80#00EE00; J1939 identifiers have 8 digits."
           : "Type or paste a frame as ID#DATA in hex, as candump writes it: 185#2500EA00, 705#7F, 701#R for a remote request, 8 digits for an extended identifier."),
         el("div", { class: "toolbar" }, input, el("button", { type: "button", class: "primary", dataset: { fx: "lab-explain" }, onclick: go }, "Explain"), rate),
-        el("div", { id: "fx-lab-error", class: "fx-error", role: "status" })),
+        el("div", { id: "fx-lab-error", class: "fx-error", role: "alert" })),
       el("section", { class: "fx-lab-result", id: "fx-lab-result", "aria-label": "Result", dataset: { fx: "lab-result" } },
         src ? el("div", { class: "toolbar fx-from-trace", dataset: { fx: "from-trace" } },
           el("span", { dataset: { fx: "source" } }, (src.edited ? "Edited from trace frame " : "From trace, frame ") +
@@ -965,7 +966,8 @@ function fxLabReveal(focus) {
   const box = $("#fx-lab-result");
   if (!box) return;
   const r = box.getBoundingClientRect();
-  const head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 0;
+  const css = getComputedStyle(document.documentElement);
+  const head = (parseFloat(css.getPropertyValue("--header-h")) || 0) + (parseFloat(css.getPropertyValue("--bars-h")) || 0);
   if (r.top < head || r.top > window.innerHeight - 160) window.scrollBy(0, r.top - head - 8);
   if (focus) {
     const t = box.querySelector("[data-fx=result-title]");
@@ -982,7 +984,7 @@ async function fxLabLoad() {
       api("POST", "/api/explain/build", fxLabBody({ what: "pdos" }))]);
   } catch (e) {
     const b = $("#fx-lab-examples");
-    if (b) fxFill(b, el("p", { class: "fx-error" }, e.message));
+    if (b) fxFill(b, notice("error", e.message));
     return;
   }
   if (my !== L.seq || !$("#fx-lab-panel")) return;
@@ -1142,7 +1144,7 @@ function fxBuilder() {
   const shown = $("#fx-build-error");
   fxFill(box, el("div", { class: "fx-form" }, el("label", { class: "fx-form-field" }, "Frame", what), fields,
     el("button", { type: "button", class: "primary", dataset: { fxBuild: "go" }, onclick: fxBuild }, "Build and explain")),
-  el("div", { id: "fx-build-error", class: "fx-error", role: "status" }, shown ? shown.textContent : ""));
+  el("div", { id: "fx-build-error", class: "fx-error", role: "alert" }, shown ? shown.textContent : ""));
 }
 
 async function fxBuild() {
@@ -1180,7 +1182,7 @@ function fxArbitrationForm() {
     el("p", { class: "muted" }, "When two nodes start sending at the same moment, both send their identifiers bit by bit and read the bus back. A dominant 0 overwrites a recessive 1, so the sender of a 1 that reads a 0 knows it has lost, stops and tries again after the other frame. Write two frames (ID# is enough) and see which wins."),
     el("div", { class: "fx-form" }, inp("arbA", "Frame A"), inp("arbB", "Frame B"),
       el("button", { type: "button", class: "primary", dataset: { fxArb: "go" }, onclick: fxArbitrate }, "Run both")),
-    el("div", { id: "fx-arb-error", class: "fx-error", role: "status" }));
+    el("div", { id: "fx-arb-error", class: "fx-error", role: "alert" }));
 }
 
 // The demo's result goes in the result column, in place of an explained frame.
