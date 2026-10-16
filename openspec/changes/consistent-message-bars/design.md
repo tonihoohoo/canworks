@@ -2,7 +2,7 @@
 
 Today the configurator has one real message bar (`#banner`, `banner()` in `app.js`), sticky under the header, with an info look (grey) and an error look (red tint and icon). Every other message is built by hand in its view: `.online-conn`, `.online-note`, `.field-msg`, `.field-msg.warning`, `.fx-note`, `.fx-error`, `.machine-notice`, `.machine-nodata`, `.job-status`, `.j1939-dm-result`, `.ok-text`, `lockedNote()` and plain `p.muted`. Each picks its own colours, role and position. The inventory (2026-10-16) found these placements at the bottom: the Parameters job status, the Error history and NMT locked notes, the J1939 DM result, the restore/configure preview's "no changes" line, the connect panel's error, and the Machine view's "no data". The Commission Nodes view has its connection line after the toolbar while the other views have it at the top.
 
-Screenshots of today: [page bars](images/before-page-bars.png), [Frame lab note](images/before-frame-lab-note.png).
+Screenshots of today: [page bars](images/before-page-bars.png), [Frame lab note](images/before-frame-lab-note.png). After: [page bars](images/after-page-bars.png), [Frame lab note](images/after-frame-lab-note.png), [connect panel error, Dark](images/after-connect-dialog-dark.png).
 
 The state colours and icons (`--st-ok/warn/error/busy`, `Icons.stateIcon`) already exist and are the base for this change.
 

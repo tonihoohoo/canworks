@@ -106,8 +106,8 @@ input.warned { border-color: var(--st-warn); }
 .notice-error { background: var(--st-error-bg); border-left-color: var(--st-error); }
 .notice-slot { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; max-width: 110ch; }
 .notice-slot:empty { display: none; }
-.notice + .notice { margin-top: 6px; }
-.notice-slot > .notice + .notice { margin-top: 0; }
+.notice { margin: 0 0 10px; }
+.notice-slot > .notice, #page-bars > .notice, .notice:last-child { margin: 0; }
 /* The page's bars: the simulation banner, then the message bar, under the header and in view while the page scrolls. */
 #page-bars { position: sticky; top: var(--header-h); z-index: 2; }
 #page-bars > .notice { border-radius: 0; padding: 6px 16px 6px 13px; border-bottom: 1px solid var(--line); }
@@ -164,7 +164,6 @@ footer#bottom { position: sticky; bottom: 0; z-index: 3; background: var(--panel
 .jobs-more .jobs-list { position: absolute; bottom: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .15); white-space: nowrap; }
 dialog#conn-dialog { max-width: 720px; width: min(720px, calc(100vw - 32px)); }
 dialog#conn-dialog h2 { margin-top: 0; }
-#problems-box > summary::-webkit-details-marker { display: none; }
 #problems-box > summary h3 { margin: 0; }
 #overlap-box { padding: 6px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 5px; display: flex; flex-direction: column; gap: 2px; }
 #side { border-right: 1px solid var(--line); padding: 10px; background: var(--panel); }
