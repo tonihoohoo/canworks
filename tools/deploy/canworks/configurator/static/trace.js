@@ -150,6 +150,7 @@ function commissionEds() {
 
 function renderTrace(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  if (traceWinElsewhere()) { renderTraceElsewhere(view); return; }
   if (!T.prefs) {
     view.append(el("h2", null, "Trace"), el("p", { class: "muted" }, "Loading…"));
     traceLoadPrefs().then(() => { if (S.view === "trace" && view.isConnected) { view.replaceChildren(); renderTrace(view); } });
@@ -188,7 +189,7 @@ function renderTrace(view) {
       el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
       el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open…", fileInput),
-      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker()),
+      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker(), traceWinButton()),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "trace-tabrow" },
       tabs(tabList, T.tab, (v) => traceShowTab(v), { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace views" }),
@@ -565,10 +566,12 @@ function txFromCandump(text) {
 
 // Explain in Frame lab: the trace's explanation of frame `seq`, with its
 // network, bit rate and SDO context (canopen-configurator: "Explain in Frame lab").
-async function traceExplainInLab(seq) {
+// From the trace's own window, `tab` is the view there the frame came from.
+async function traceExplainInLab(seq, tab) {
+  if (TRACE_WINDOW) { traceWinGoto({ type: "goto", kind: "explain", seq, tab: T.tab }); return; }
   let m;
   try { m = await api("POST", "/api/trace/explain", { seq }); } catch (e) { banner(e.message, true); return; }
-  FX.lab.fromTrace = { seq, t_us: m.t_us, model: m, candump: m.frame.candump, edited: false, tab: T.tab };
+  FX.lab.fromTrace = { seq, t_us: m.t_us, model: m, candump: m.frame.candump, edited: false, tab: tab || T.tab };
   FX.lab.frame = m.frame.candump;
   FX.lab.built = null;
   if (m.wire && m.wire.bitrate) FX.lab.bitrate = String(m.wire.bitrate);
@@ -576,6 +579,7 @@ async function traceExplainInLab(seq) {
 }
 
 function traceExplainText(text) {
+  if (TRACE_WINDOW) { traceWinGoto({ type: "goto", kind: "text", text }); return; }
   FX.lab.fromTrace = null;
   FX.lab.frame = text;
   FX.lab.built = null;
@@ -584,6 +588,12 @@ function traceExplainText(text) {
 
 // Back to trace: the view the frame came from, with that frame selected.
 function traceBackFrom(src) {
+  if (traceWinElsewhere()) {
+    traceWinPost({ type: "select", src });
+    const w = window.open("", TRACE_WINDOW_NAME);
+    if (w) w.focus();
+    return;
+  }
   T.tab = src.tab === "ids" ? "ids" : "frames";
   T.selected = src.seq;
   T.selectedUs = src.t_us;
@@ -613,7 +623,8 @@ async function traceStart() {
     cont = v === "continue";
     if (!cont) T.kept = false;
   }
-  if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
+  if (TRACE_WINDOW) traceWinEnsure();  // the main window opens it and tells this one
+  else if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
       error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined });
@@ -1049,11 +1060,17 @@ function laneCount() { return Math.max(1, T.plots.length); }
 
 // A bar under a list or the graph that makes it taller or shorter: drag it,
 // or Up and Down by 40 px when it has the focus; double-click for the default.
-// get() is the height now, set(h, done) sets one, reset() the default.
-function traceSizeBar(label, key, get, set, reset) {
+// get() is the height now, set(h, done) sets one, reset() the default;
+// range() is the [lowest, highest] height.
+function traceSizeBar(label, key, get, set, reset, range) {
   const bar = el("div", { class: "trace-size-bar", role: "separator", tabindex: "0", "aria-orientation": "horizontal",
     "aria-label": label, title: label + ": drag, or double-click for the default height", dataset: { trace: key } });
-  const show = () => bar.setAttribute("aria-valuenow", String(Math.round(get() || 0)));
+  const show = () => {
+    const [lo, hi] = range();
+    bar.setAttribute("aria-valuemin", String(lo));
+    bar.setAttribute("aria-valuemax", String(hi));
+    bar.setAttribute("aria-valuenow", String(Math.round(Math.max(lo, Math.min(hi, get() || 0)))));
+  };
   bar.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -1106,7 +1123,7 @@ function listSizeBar() {
       tracePrefs({ list_h: null });
       if ($("#trace-list")) requestRows();
       if ($("#ids-grid")) idsDraw();
-    });
+    }, () => LIST_H);
 }
 
 function graphSizeBar() {
@@ -1120,7 +1137,8 @@ function graphSizeBar() {
       fit();
       if (done) tracePrefs({ lane_h: T.laneH });
     },
-    () => { T.laneH = null; fit(); tracePrefs({ lane_h: null }); });
+    () => { T.laneH = null; fit(); tracePrefs({ lane_h: null }); },
+    () => LANE_H.map((h) => h * laneCount()));
 }
 
 function themeColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; }

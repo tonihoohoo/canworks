@@ -233,6 +233,7 @@ function removedBanner(what) {
 
 // Switches view on the user's request; a message about the last view goes.
 function showView(view) {
+  if (TRACE_WINDOW && view !== "trace") return;
   if (view !== S.view) banner("");
   followWorkspace(view);
   S.view = view;
@@ -765,6 +766,7 @@ function pickNetwork(name) {
     S.supervision = {};
   }
   S.onlineNet = name;
+  traceWinNet(name);
   S.onlineNode = null;
   S.scanResult = null;
   S.lssFound = null;
@@ -816,7 +818,7 @@ async function loadState() {
     shellNote();
     connSession();
     if (workspace() === "commission") connEnter();
-    if (typeof jobsStart === "function") jobsStart();
+    if (typeof jobsStart === "function" && !TRACE_WINDOW) jobsStart();
   }
 }
 
@@ -1018,6 +1020,11 @@ function startOpen() {
 // Editor
 
 function render() {
+  if (TRACE_WINDOW) {
+    // The trace's own window shows the Trace view and nothing else (tracewin.js).
+    if (!S.state || !S.state.mode) return renderTraceWindowEmpty();
+    S.view = "trace";
+  }
   if (!S.state || !S.state.mode) return renderStart();
   $("#start").hidden = true;
   $("#editor").hidden = false;
@@ -1082,6 +1089,8 @@ function render() {
   else if (S.view === "links") renderLinks(view);
   else renderNode(view, Number(S.view.slice(5)));
   applyCheck();
+  if (TRACE_WINDOW) traceWinBar();
+  else traceWinSendConn();
 }
 
 function renderSide() {
@@ -6893,7 +6902,8 @@ async function save(overwrite) {
 // Whether anything on the page would be lost: draft edits, the simulation
 // file, or a recording that was neither saved nor downloaded.
 function unsavedWork() {
-  return S.dirty || (typeof simDirty === "function" && simDirty()) || (typeof traceUnsaved === "function" && traceUnsaved());
+  if (TRACE_WINDOW) return traceWinUnsaved();  // the config is the main window's
+  return S.dirty || (typeof simDirty === "function" && simDirty()) || (typeof traceWinUnsaved === "function" && traceWinUnsaved());
 }
 
 async function reload(force) {

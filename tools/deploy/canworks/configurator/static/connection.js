@@ -91,6 +91,8 @@ function connKick() {
 // bar, and to the online views when one is shown.
 async function connTick() {
   CONN.timer = null;
+  // The trace's own window takes the connection from the main window, which polls it.
+  if (TRACE_WINDOW) return;
   const seq = CONN.seq;
   if (!S.state || !S.state.mode || !connIsOn()) { connBar(); return; }
   let r = null;
@@ -169,6 +171,7 @@ function busIcon(state) {
 }
 
 function connBar() {
+  traceWinSendConn();
   const bar = $("#conn-bar");
   if (!bar) return;
   // Wherever a connection is used: Commission, and Trace and Simulation in Configure.

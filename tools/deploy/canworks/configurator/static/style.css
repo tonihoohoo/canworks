@@ -378,6 +378,7 @@ label.inline input.short { width: 80px !important; }
 /* Trace tab layout (trace-workspace): toolbar menus, the split with the inspector, the transmit pane. */
 .trace-toolbar { flex-wrap: wrap; }
 .trace-toolbar [data-trace=start-stop] { min-width: 6em; }
+.trace-toolbar .trace-win-open { margin-left: auto; }
 .trace-menu > .menu-panel { right: auto; left: 0; min-width: 300px; padding: 8px; gap: 6px; }
 .trace-menu .menu-label { display: flex; gap: 6px; align-items: center; }
 .trace-menu .menu-label select { flex: 1; }
@@ -396,6 +397,14 @@ label.inline input.short { width: 80px !important; }
 .trace-insp-body .fx { margin-top: 0; }
 .trace-split-handle { align-self: stretch; cursor: col-resize; background: var(--line); border-radius: 4px; min-height: 120px; }
 .trace-split-handle:hover, .trace-split-handle:focus-visible { background: var(--accent); }
+/* The trace's own window (tracewin.js): the Trace view under a one-line bar. */
+.trace-win-bar { display: none; }
+body.trace-window .trace-win-bar { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; padding: 6px 16px; font-size: 13px; color: var(--muted); }
+body.trace-window .trace-win-bar strong { color: var(--text); font-size: 15px; }
+body.trace-window #top .top-row, body.trace-window #tool-tabs, body.trace-window #conn-bar, body.trace-window #side,
+body.trace-window #bottom, body.trace-window #start { display: none !important; }
+body.trace-window main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "view"; min-height: calc(100vh - var(--header-h)); }
+body.trace-window #view > h2:first-child { display: none; }
 /* The bars under the lists and the graph that change their height. */
 .trace-size-bar { height: 8px; margin: 4px 0; cursor: row-resize; background: var(--line); border-radius: 4px; touch-action: none; }
 .trace-size-bar:hover, .trace-size-bar:focus-visible { background: var(--accent); }

@@ -2,6 +2,7 @@
 (trace-window-zoom-resize). Needs Playwright, like test_configurator_page.py."""
 
 import os
+import time
 
 from canworks.bustrace import formats
 from canworks.bustrace.model import Frame, Trace
@@ -202,3 +203,104 @@ class Resize(GraphBase):
         self.assertEqual(pg.evaluate("T.plots.map(p => p.height)"), [300, 300])
         pg.dblclick("[data-trace=graph-size]")
         self.assertEqual(pg.evaluate("T.plots.map(p => p.height)"), [200, 200])
+
+
+class OwnWindow(TraceBase):
+    """The trace in its own window, recording from the fake plugin while the
+    main window shows other views."""
+
+    def setUp(self):
+        super().setUp()
+        from .fake_diag import FakePlugin
+        self.fake = FakePlugin()
+        self.fake.__enter__()
+        self.addCleanup(self.fake.__exit__)
+
+    def push(self, n, start=0):
+        now = int(time.time() * 1e6)
+        self.fake.push([Frame(now + i * 1000, 0x182, bytes([(start + i) & 0xFF, 0, 0, 0])) for i in range(n)])
+
+    def wait_closed(self, page, other):
+        """Waits for `page` to close, letting Playwright take events through `other`."""
+        end = time.monotonic() + 10
+        while not page.is_closed():
+            self.assertLess(time.monotonic(), end, "the window did not close")
+            other.wait_for_timeout(50)
+
+    def open_window(self):
+        with self.context.expect_page() as info:
+            self.page.click("[data-trace=open-window]")
+        tw = info.value
+        tw.set_default_timeout(10000)
+        tw.on("pageerror", lambda e: self.errors.append("trace window: %s" % e))
+        tw.wait_for_selector("#trace-source:not(:has-text('Loading'))")
+        self.page.wait_for_selector("[data-trace=elsewhere]")
+        return tw
+
+    def test_watch_the_trace_while_the_main_window_works(self):
+        pg = self.page
+        self.live(self.fake)
+        tw = self.open_window()
+        self.assertIn("window=trace", tw.url)
+        self.assertTrue(tw.title().startswith("Trace – "), tw.title())
+        # Only the Trace view: no workspace tabs, connection bar or Problems panel.
+        for sel in ("#ws", "#conn-bar", "#bottom", "#side", "[data-trace=open-window]"):
+            self.assertFalse(tw.is_visible(sel), sel)
+        self.assertTrue(tw.is_visible("[data-trace=window-bar]"))
+        self.assertTrue(tw.is_visible("[data-tx=pane]") or tw.locator(".tx-body, [data-tx]").count() > 0)
+        # The main window's Trace tab only points at the window, and draws nothing.
+        self.assertEqual(pg.locator("#trace-source").count(), 0)
+        # Start in the trace window opens the main window's runtime connection.
+        tw.click("[data-trace=start-stop]")
+        tw.wait_for_selector("#trace-source:has-text('recording')")
+        self.push(30)
+        tw.wait_for_selector("[data-trace=stats]:has-text('30 frames')")
+        # The main window goes on with other work; the trace window keeps showing the bus.
+        pg.click('button[data-view="online"]')
+        pg.wait_for_selector("#online-live, [data-online]")
+        self.push(5, 30)
+        tw.wait_for_selector("[data-trace=stats]:has-text('35 frames')")
+        tw.wait_for_selector("[data-trace=window-conn]:has-text('runtime')")
+        # Explain in Frame lab from the trace window happens in the main window.
+        tw.click('[data-trace-tab="frames"]')
+        tw.wait_for_selector("#trace-rows .trace-row")
+        tw.locator("#trace-rows .trace-row").first.click()
+        tw.click("#trace-inspector [data-fx=to-lab]")
+        pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")
+        self.assertFalse(tw.is_closed())
+        # Back to trace in the main window selects the frame in the trace window.
+        pg.click("[data-fx=back-to-trace]")
+        tw.wait_for_selector("#trace-rows .trace-row.selected")
+        # Bring the trace back: the window closes and the main window shows the same recording.
+        pg.click('button[data-view="trace"]')
+        pg.wait_for_selector("[data-trace=elsewhere]")
+        pg.click("[data-trace=bring-back]")
+        self.wait_closed(tw, pg)
+        pg.wait_for_selector("#trace-source:has-text('recording')")
+        pg.wait_for_selector("[data-trace=stats]:has-text('35 frames')")
+
+    def test_main_window_closed_and_trace_window_closed(self):
+        pg = self.page
+        self.live(self.fake)
+        pg.click("[data-trace=start-stop]")
+        pg.wait_for_selector("#trace-source:has-text('recording')")
+        self.push(10)
+        pg.wait_for_selector("[data-trace=stats]:has-text('10 frames')")
+        tw = self.open_window()
+        # Closing the trace window shows the trace in the main window again.
+        tw.close()
+        pg.wait_for_selector("#trace-source:has-text('recording')")
+        self.assertEqual(pg.locator("[data-trace=elsewhere]").count(), 0)
+        tw = self.open_window()
+        # The main window closes without asking about the recording; the trace window goes on.
+        asked = []
+        pg.on("dialog", lambda d: (asked.append(d.type), d.dismiss()))
+        pg.close(run_before_unload=True)
+        self.wait_closed(pg, tw)
+        self.assertEqual(asked, [])
+        self.push(5, 10)
+        tw.wait_for_selector("[data-trace=stats]:has-text('15 frames')")
+        self.assertIn("recording", tw.inner_text("#trace-source"))
+        # Now the trace window is the last one showing the recording: closing it asks.
+        tw.evaluate("TW.mainSeen = 0")
+        self.assertTrue(tw.evaluate("unsavedWork()"))
