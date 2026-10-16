@@ -984,3 +984,4 @@ tr.row-open { cursor: pointer; }
 table tbody tr.row-open:focus-within > td { background: var(--sel-bg); }
 table tbody tr.row-open:focus-within > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 @media (forced-colors: active) { table tbody tr.row-open:focus-within { outline: 2px solid Highlight; outline-offset: -2px; } }
+fieldset > [data-eds-limit] { display: block; margin: 0 0 8px; }

@@ -1,12 +1,24 @@
 """The device error history panel (0x1003) of the online node page and the
 node page's EMCY COB-ID field, in a real browser against a fake plugin
-(add-emcy-history tasks 5.3 and 5.4). Needs Playwright, like
+(add-emcy-history tasks 5.3 and 5.4), and the node settings a device's EDS
+cannot back (eds-gated-node-settings). Needs Playwright, like
 test_configurator_page.py."""
 
+import os
+import shutil
+
 from .fake_diag import FakePlugin
-from .helpers import tree_node
+from .helpers import PINGPONG, REPO, tree_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
+
+EMCY_EDS = os.path.join(REPO, "test", "fixtures", "eds", "emcy-slave.eds")
+
+
+def use_eds(project, text):
+    """Replaces the project's cpp-slave.eds with `text`."""
+    with open(os.path.join(project, "canworks", "cpp-slave.eds"), "w", encoding="utf-8") as f:
+        f.write(text)
 
 
 def history(fp, *values):
@@ -120,6 +132,11 @@ class ErrorHistory(OnlineBase):
 
 
 class EmcyCobField(OnlineBase):
+    def setUp(self):
+        super().setUp()
+        # The EMCY section needs 0x1014 in the node's EDS.
+        shutil.copy(EMCY_EDS, os.path.join(self.project, "canworks", "cpp-slave.eds"))
+
     def node_page(self):
         pg = self.page
         self.open()
@@ -167,3 +184,85 @@ class EmcyCobField(OnlineBase):
         pg.wait_for_selector('select[data-emcy-cob="mode"]')
         self.assertEqual(pg.input_value('select[data-emcy-cob="mode"]'), "number")
         self.assertEqual(pg.input_value('input[data-emcy-cob="number"]'), "197")
+
+
+class EdsLimits(OnlineBase):
+    """EMCY and the heartbeat consumer follow the EDS, and the reasons look
+    like the other hints unless the file still has the setting
+    (eds-gated-node-settings tasks 2.1-2.6)."""
+
+    def color(self, selector):
+        return self.page.eval_on_selector(selector, "(e) => getComputedStyle(e).color")
+
+    def test_emcy_without_0x1014(self):
+        pg = self.page
+        self.open()  # the ping-pong EDS has no 0x1014
+        tree_node(pg, 0, "supervision")
+        pg.wait_for_selector('[data-emcy-section="unsupported"]')
+        for c in ('input[data-path="nodes[0].emcy_code_location"]', 'input[data-path="nodes[0].error_register_location"]',
+                  'select[data-emcy-cob="mode"]', 'button[data-suggest="emcy"]', 'button[data-suggest="errreg"]'):
+            self.assertTrue(pg.is_disabled(c), c)
+        limit = "[data-emcy-limit]"
+        self.assertIn("no EMCY COB-ID (0x1014)", pg.inner_text(limit))
+        self.assertEqual(pg.get_attribute(limit, "class"), "hint")
+        status_hint = pg.locator('input[data-path="nodes[0].status_location"]').locator("xpath=ancestor::label[1]").locator(".hint")
+        self.assertEqual(self.color(limit), status_hint.evaluate("(e) => getComputedStyle(e).color"))
+        self.assertEqual(pg.locator("[data-emcy-remove]").count(), 0)
+
+    def test_leftover_emcy_settings(self):
+        pg = self.page
+        self.cfg["nodes"][0].update(emcy_code_location="%IW30", emcy_cob_id="eds")
+        self.write_config()
+        self.open()
+        tree_node(pg, 0, "supervision")
+        pg.wait_for_selector("[data-emcy-remove]")
+        self.assertIn("field-msg warning", pg.get_attribute("[data-emcy-limit]", "class"))
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertIn("'emcy_code_location' needs an EDS with the EMCY COB-ID (0x1014)", pg.inner_text("#problem-list"))
+        self.assertTrue(pg.is_disabled("#btn-save"))
+        pg.click("[data-emcy-remove]")
+        self.assertEqual(pg.evaluate("() => ['emcy_code_location', 'emcy_cob_id'].filter((k) => k in S.config.nodes[0])"), [])
+        self.assertEqual(pg.get_attribute("[data-emcy-limit]", "class"), "hint")
+
+    def test_heartbeat_consumer_without_0x1016(self):
+        pg = self.page
+        with open(os.path.join(PINGPONG, "cpp-slave.eds"), encoding="utf-8") as f:
+            text = f.read()
+        # 0x1016 sub 1 read-only: no entry the setting can go to.
+        start = text.index("[1016sub1]")
+        use_eds(self.project, text[:start] + text[start:].replace("AccessType=rw", "AccessType=ro", 1))
+        self.open()
+        tree_node(pg, 0, "advanced")
+        sel = 'select[data-path="nodes[0].heartbeat_consumer"]'
+        pg.wait_for_selector(sel)
+        self.assertTrue(pg.is_disabled(sel))
+        self.assertEqual(pg.input_value(sel), "")
+        self.assertIn("no consumer heartbeat time (0x1016)", pg.inner_text("[data-heartbeat-limit]"))
+        self.assertEqual(pg.get_attribute("[data-heartbeat-limit]", "class"), "hint")
+        # Left in the file: a problem, removed with one click.
+        pg.evaluate("() => { S.config.nodes[0].heartbeat_consumer = false; render(); }")
+        pg.wait_for_selector("[data-heartbeat-remove]")
+        self.assertIn("warning", pg.get_attribute("[data-heartbeat-limit]", "class"))
+        pg.click("[data-heartbeat-remove]")
+        self.assertFalse(pg.evaluate("() => 'heartbeat_consumer' in S.config.nodes[0]"))
+
+    def test_heartbeat_consumer_with_0x1016(self):
+        pg = self.page
+        self.open()
+        tree_node(pg, 0, "advanced")
+        sel = 'select[data-path="nodes[0].heartbeat_consumer"]'
+        pg.wait_for_selector(sel)
+        self.assertTrue(pg.is_enabled(sel))
+        self.assertEqual(pg.locator("[data-heartbeat-limit]").count(), 0)
+
+    def test_lss_and_config_check_reasons_look_alike(self):
+        pg = self.page
+        self.open()  # the ping-pong EDS has neither LSS nor 0x1020
+        tree_node(pg, 0, "advanced")
+        pg.wait_for_selector("[data-lss-warning]")
+        check = pg.locator('input[data-path="nodes[0].config_check"]').locator("xpath=ancestor::div[1]").locator(".hint")
+        self.assertIn("no 0x1020", check.inner_text())
+        for theme in ("light", "dark"):
+            pg.evaluate("(t) => { document.documentElement.dataset.theme = t; }", theme)
+            self.assertEqual(self.color("[data-lss-warning]"), check.evaluate("(e) => getComputedStyle(e).color"), theme)
+            self.assertEqual(pg.get_attribute("[data-lss-warning]", "class"), "hint")

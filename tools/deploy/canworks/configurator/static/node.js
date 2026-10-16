@@ -65,7 +65,7 @@ function renderNode(view, i) {
   } else if (tab === "sdos") {
     panel.append(renderSdos(i, eds), renderSdoVars(i, eds));
   } else if (tab === "supervision") {
-    panel.append(supervisionTab(i));
+    panel.append(supervisionTab(i, eds));
   } else if (tab === "cia402") {
     panel.append(axisFields(i, eds));
   } else if (tab === "simulation") {
@@ -84,8 +84,10 @@ function renderNode(view, i) {
 
 // Supervision and EMCY: how the master watches the node and where the PLC
 // sees its state.
-function supervisionTab(i) {
+function supervisionTab(i, eds) {
   const base = `nodes[${i}]`;
+  const emcy = edsHasEmcy(eds);
+  const emcyKeys = ["emcy_code_location", "error_register_location", "emcy_cob_id"];
   const suggestBtn = (direction, key) => el("button", { type: "button", dataset: { suggest: direction },
     onclick: async () => {
       const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction });
@@ -109,13 +111,26 @@ function supervisionTab(i) {
           "Optional output byte the program uses to command the node: 0 or 1 run (1 also starts a node with boot off), 2 keep STOPPED, 128 keep PRE-OPERATIONAL, a change to 129 resets the node and to 130 its communication (once). Empty: none."),
         nodeInput("Boot error byte", "boot_error", "boot_error_location", "%IB…",
           "Optional. Why the last boot failed, as a CiA 302 letter code (66 B no answer, 77 M wrong product code, 74 J configuration refused, ...); 0 once the node boots. Empty: none."))),
-    el("fieldset", null, el("legend", null, "Emergency (EMCY)"),
+    emcyFieldset(emcy, emcyKeys.some((k) => getPath(base + "." + k) !== undefined), () => emcyKeys.forEach((k) => setPath(base + "." + k, undefined)),
       el("div", { class: "grid" },
         nodeInput("EMCY code", "emcy", "emcy_code_location", "%IW…",
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
         nodeInput("Error register", "errreg", "error_register_location", "%IB…",
           "Optional. Error register (object 0x1001 bits) from the latest emergency message, 0 after a restart. Empty: not mapped."),
         emcyCobField(i))));
+}
+
+// The Emergency (EMCY) section: its controls are disabled with the reason
+// when the node's EDS has no 0x1014 (canopen-configurator "EMCY section
+// follows the EDS"); fields left in the file can still be removed.
+function emcyFieldset(supported, leftover, remove, grid) {
+  const box = el("fieldset", { dataset: { emcySection: supported ? "" : "unsupported" } }, el("legend", null, "Emergency (EMCY)"));
+  if (supported) { box.append(grid); return box; }
+  const why = "The EDS has no EMCY COB-ID (0x1014), so this device sends no emergency messages.";
+  if (!leftover) grid.querySelectorAll("input, select, button").forEach((c) => Icons.disable(c, why));
+  box.append(edsLimit(why, leftover, { label: "Remove the EMCY settings", dataset: { emcyRemove: "" }, run: remove },
+    { emcyLimit: "" }), grid);
+  return box;
 }
 
 // The node's part of simulation.json: value sources, faults at start and

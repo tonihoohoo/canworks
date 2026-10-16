@@ -175,6 +175,7 @@ struct NodeConfig {
   // (Device, the default), keeps the EDS default (Eds), or uses a number.
   enum class EmcyCob { Device, Eds, Number };
   EmcyCob emcy_cob = EmcyCob::Device;
+  bool has_emcy_cob_id = false;  // the JSON gives emcy_cob_id
   // The configured EMCY COB-ID: the number, or else the last startup SDO to
   // 0x1014 sub-index 0 without bit 31 (check_emcy_cob_ids); 0 = none.
   uint32_t emcy_cob_config = 0;
@@ -268,6 +269,12 @@ struct NodeConfig {
 // Why LSS cannot be used on a node whose EDS does not say LSS_Supported=1:
 // its `lss` object in the config, and online LSS operations tied to it.
 std::string lss_unsupported_message(const NodeConfig& n);
+// The refusals of EMCY fields on a node whose EDS has no 0x1014, and of
+// heartbeat_consumer on one whose EDS has no writable 0x1016
+// (canopen-node-supervision "EMCY and heartbeat consumer fields need their
+// EDS objects"); the deploy tool's check gives the same text.
+std::string emcy_unsupported_message(const NodeConfig& n, const std::string& field);
+std::string heartbeat_consumer_unsupported_message(const NodeConfig& n);
 
 // One consumer of a PDO link: an RPDO of a node that receives the producer's
 // TPDO directly (canopen-pdo-links).

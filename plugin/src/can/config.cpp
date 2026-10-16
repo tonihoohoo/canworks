@@ -115,6 +115,15 @@ std::string lss_unsupported_message(const NodeConfig& n) {
   return n.label() + ": 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS";
 }
 
+std::string emcy_unsupported_message(const NodeConfig& n, const std::string& field) {
+  return n.label() + ": '" + field + "' needs an EDS with the EMCY COB-ID (0x1014); this node's EDS has no EMCY";
+}
+
+std::string heartbeat_consumer_unsupported_message(const NodeConfig& n) {
+  return n.label() +
+         ": 'heartbeat_consumer' needs an EDS with a writable consumer heartbeat time (0x1016); this node's EDS has none";
+}
+
 std::string NodeConfig::label() const {
   std::string s = "node " + std::to_string(node_id);
   if (!name.empty()) s += " (" + name + ")";
@@ -2238,6 +2247,7 @@ class Parser {
   void parse_node_options(const cJSON* node, const Config& cfg, NodeConfig& n, const std::string& w) {
     uint64_t v;
     if (const cJSON* e = cJSON_GetObjectItemCaseSensitive(node, "emcy_cob_id")) {
+      n.has_emcy_cob_id = true;
       std::string s = cJSON_IsString(e) ? e->valuestring : "";
       bool ok = true;
       std::string zero = leading_zero_message(s.c_str());
