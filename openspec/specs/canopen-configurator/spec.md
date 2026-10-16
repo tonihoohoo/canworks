@@ -1281,7 +1281,8 @@ In Commission a device, the session log (see "Session log") SHALL record every c
 - write configuration;
 - restore and restore defaults;
 - store;
-- error history clear.
+- error history clear;
+- note write, notes import and their undo, with the notes file's name.
 
 "Save log" in the bottom panel's Log tab SHALL download `node<N>-commissioning-<time>.txt` with the device identity and EDS name at the top and the changes in order, and the bus events too when "Include bus events" is ticked (unticked by default).
 
@@ -1295,8 +1296,12 @@ The log SHALL belong to the commissioning session. Leaving Commission a device (
 - **WHEN** the user made two changes while commissioning, pressed "Add to a config…" and chose not to save the log
 - **THEN** the config opens with an empty session log, and returning to Commission a device starts an empty log
 
+#### Scenario: Note in the log
+- **WHEN** the user writes a note for 0x2010 of node 12 while commissioning a device
+- **THEN** the log has a change line naming 0x2010 and the notes file
+
 ### Requirement: Note editor
-The Notes tab SHALL be the only place in a project that opens the Note editor: each row's **Note** button and **Add note…**. The editor SHALL edit one object or sub-object with text, details, unit, scale, a values table, a bits table and manual. For an object with a built-in note the editor SHALL start from the built-in fields and SHALL save only the fields the user changed into the device notes file. Emptying a field that shows a built-in or inherited value SHALL save that field as `null` (cleared); such a field SHALL show the built-in value greyed and marked hidden, with **Use built-in** to bring it back. The object dictionary view, the startup SDO editor and picker and the PDO entry picker SHALL show notes and SHALL NOT offer a Note button.
+The Notes tab SHALL be the only place that opens the Note editor: each row's **Note** button or a click on the row, and **Add note…**. The editor SHALL edit one object or sub-object with text, details, unit, scale, a values table, a bits table and manual. For an object with a built-in note the editor SHALL start from the built-in fields and SHALL save only the fields the user changed into the device notes file. Emptying a field that shows a built-in or inherited value SHALL save that field as `null` (cleared); such a field SHALL show the built-in value greyed and marked hidden, with **Use built-in** to bring it back. The object dictionary view, the startup SDO editor and picker and the PDO entry picker SHALL show notes and SHALL NOT offer a Note button.
 
 #### Scenario: Write a note while commissioning
 - **WHEN** the user opens the Note editor of 0x2010 of node 7 from its Notes tab, types "Opening ramp of the valve", unit ms, and saves the project
@@ -1319,18 +1324,19 @@ The Notes tab SHALL be the only place in a project that opens the Note editor: e
 - **THEN** the `null` is removed and sub 0 shows ‰ again
 
 ### Requirement: Note edits are draft edits
-A note edit SHALL mark the draft as changed, SHALL be written with Save, and SHALL be undoable like other draft edits.
+With a config open, a note edit SHALL mark the draft as changed, SHALL be written with Save, and SHALL be undoable like other draft edits. In "Commission a device", which has no Save, a kept note SHALL be written at once to the notes file next to the node's EDS file, with the same rules as Save (a new file starts from the skeleton; only changed fields are written). A banner SHALL name the file and offer **Undo**; Undo and Ctrl+Z SHALL put back the file as it was before the last note write of the page session. The Object dictionary, Parameters and PDO test tabs SHALL show the new note without reconnecting.
 
 #### Scenario: Undo a note
-- **WHEN** the user changes the text of 0x2010 in the Note editor and presses Ctrl+Z
+- **WHEN** the user changes the text of 0x2010 in the Note editor of a config and presses Ctrl+Z
 - **THEN** the earlier text is back and the draft is clean again if nothing else changed
 
-### Requirement: Notes read-only without a config
-In "Commission a device" without a config, notes SHALL be shown but not editable.
+#### Scenario: Write a note in Commission a device
+- **WHEN** in "Commission a device" the user keeps the text "Opening ramp of the valve" for 0x2010 of node 12, whose EDS is `valve.eds` in the EDS library
+- **THEN** `valve.eds.notes.json` in the EDS library has that text for 0x2010, the banner names that file and offers Undo, and the Object dictionary tab of node 12 shows the text
 
-#### Scenario: Read-only when commissioning
-- **WHEN** the user opens the object dictionary view in "Commission a device" without a config
-- **THEN** notes are shown and no Note button is offered
+#### Scenario: Undo in Commission a device
+- **WHEN** the user then presses Undo in the banner
+- **THEN** the notes file is as it was before, and the Notes tab no longer lists 0x2010 under My notes
 
 ### Requirement: Notes in the other node lists
 The PDO entry picker and the Parameters compare and restore lists SHALL show each object's note `text` under its name and the meaning and unit of each value from its merged note.
@@ -2150,7 +2156,7 @@ A simulated node (its `simulate`, or a node on a simulated network that is not s
 - **THEN** `simulation.json` has that source for node 5, and the Simulation tool shows it
 
 ### Requirement: Notes tab
-The Notes tab SHALL list the objects of the node's EDS in one of three views chosen above the list: **My notes** (the default), the objects and sub-objects whose device notes entry, with the page's unsaved edits, has at least one field other than `name`; **All notes**, the objects with a note, built-in or the user's own; and **All objects**, every object and sub-object of the EDS. Each row SHALL show the object, its name, the note's text, unit and value meanings, where the note comes from as text (**Mine**, **Built-in** or **Built-in, changed**), and a **Note** button opening the Note editor. The tab SHALL offer a search by index or name and, next to it, **Add note…**, **Import notes…** and **Export notes…** (see `canopen-device-notes`). **Add note…** SHALL open a picker of all objects and sub-objects of the EDS, searchable by index or name and marking those with a note, and then the Note editor of the chosen one. The tab's label SHALL show the number of the user's notes. The chosen view and the search SHALL be kept while the page is open. An empty view SHALL say why and offer **Add note…**, **Import notes…** and a way to show **All notes**. When the node has no EDS or its notes cannot be edited, the tab SHALL be read-only, SHALL say why, and SHALL offer only the views, the search and **Export notes…**.
+The Notes tab SHALL list the objects of the node's EDS in one of three views chosen above the list: **My notes** (the default), the objects and sub-objects whose device notes entry, with the page's unsaved edits, has at least one field other than `name`; **All notes**, the objects with a note, built-in or the user's own; and **All objects**, every object and sub-object of the EDS. Each row SHALL show the object, its name, the note's text, unit and value meanings, where the note comes from as text (**Mine**, **Built-in** or **Built-in, changed**), and a **Note** button opening the Note editor. When the notes can be edited, a click on a row outside its buttons SHALL also open its Note editor, unless the click ends a text selection. The tab SHALL offer a search by index or name and, next to it, **Add note…** (see "Add note picker"), **Import notes…** and **Export notes…** (see `canopen-device-notes`). The tab's label SHALL show the number of the user's notes. The chosen view and the search SHALL be kept while the page is open. An empty view SHALL say why and offer **Add note…**, **Import notes…** and a way to show **All notes**. The tab SHALL work the same in Configure, in Commission with a config and in Commission a device. When the node has no EDS or its notes cannot be edited (a canworks-built EDS, an unreadable notes file, a notes file that cannot be written), the tab SHALL be read-only, SHALL say why, and SHALL offer only the views, the search and **Export notes…**.
 
 #### Scenario: Own notes first
 - **WHEN** the user opens the Notes tab of a drive whose notes file has a text for 0x2010 and only `name` entries for its other manufacturer objects, and the user has changed the values of 0x6060
@@ -2160,17 +2166,29 @@ The Notes tab SHALL list the objects of the node's EDS in one of three views cho
 - **WHEN** the user picks All notes and types `6060` in the search of a drive
 - **THEN** only 0x6060 is listed with its note, and **Note** opens its editor
 
+#### Scenario: Open a note by its row
+- **WHEN** the user clicks the text of 0x2010's row on the Notes tab
+- **THEN** the Note editor of 0x2010 opens
+
+#### Scenario: Copy note text
+- **WHEN** the user drags over part of 0x2010's note text to select it
+- **THEN** the text is selected and no editor opens
+
 #### Scenario: Note for an object without one
-- **WHEN** the user presses **Add note…**, types `2011`, picks 0x2011:1, types a text in the Note editor and keeps it
+- **WHEN** the user presses **Add note…**, types `2011`, clicks the row of 0x2011:1, types a text in the Note editor and keeps it
 - **THEN** My notes lists 0x2011:1 marked Mine with the focus on its row, and the draft is unsaved
 
 #### Scenario: No notes yet
 - **WHEN** the user opens the Notes tab of a node whose EDS has no notes of the user's own
 - **THEN** the tab says there are no notes of the user's own yet and offers Add note…, Import notes… and Show all notes
 
+#### Scenario: Notes while commissioning a device
+- **WHEN** the user opens the Notes tab of node 12 in "Commission a device", whose EDS is in the EDS library
+- **THEN** the tab offers the same views, Note buttons, Add note…, Import notes… and Export notes… as in a config
+
 #### Scenario: Read-only Notes tab
-- **WHEN** the user opens the Notes tab of a node in "Commission a device" without a config
-- **THEN** the notes are listed and can be exported, and no Note, Add note… or Import notes… button is offered
+- **WHEN** the EDS of node 12 in "Commission a device" is in a folder that cannot be written
+- **THEN** the notes are listed and can be exported, the tab says the notes file next to the EDS cannot be written, and no Note, Add note… or Import notes… button is offered
 
 ### Requirement: Problem badges
 Each tree entry and each node tab SHALL show its number of errors and of warnings, marked by shape and text as well as colour, with an accessible name such as "2 errors, 1 warning". A collapsed network SHALL show the sum of its entries' problems; an expanded network SHALL show only its own. A problem whose place cannot be matched to an entry SHALL be counted on its network, or on the node's Advanced tab when it names a node field no other tab holds (General when it names the node itself). Selecting a problem in the bottom panel SHALL select its entry, expand its network, open its tab and any closed part holding the field, and focus the field.
@@ -3001,3 +3019,21 @@ The simulation banner SHALL show one line per page: what is simulated, network b
 #### Scenario: Four simulated networks
 - **WHEN** the virtual plant example is open at 1440 px
 - **THEN** the banner is one line naming io (nodes 5, 6, 7), motion (node 4), cell and host and saying not to upload it, and Details opens the full text
+
+### Requirement: Add note picker
+**Add note…** SHALL open a picker of every object and sub-object of the node's EDS with a search by index or name; each row shows the object, its name and where its note comes from. A click anywhere on a row SHALL pick that object and open its Note editor. The picker SHALL fit its dialog without sideways scrolling at 1000 px; long names SHALL wrap. Rows SHALL show a hover tint and the focused row the selected tint of the Object dictionary tab.
+
+#### Scenario: Pick by clicking a row
+- **WHEN** the user opens Add note… and clicks the name "Save_Communication_Parameters" in the row of 0x1010:2
+- **THEN** the Note editor of 0x1010:2 opens
+
+#### Scenario: Nothing hidden sideways
+- **WHEN** the user opens Add note… for an EDS with long object names in a window 1000 px wide
+- **THEN** every column is visible and the list scrolls only up and down
+
+### Requirement: Add note picker by keyboard
+Each row of the Add note picker SHALL hold one button named after the object (for example "Write a note for 0x2010:0 Ramp_time"). Down in the search SHALL move to the first row, Up and Down SHALL move between rows, Up on the first row SHALL go back to the search, Enter or Space SHALL pick the focused row, Enter in the search SHALL pick the first match, and Escape SHALL close the picker.
+
+#### Scenario: Pick by keyboard
+- **WHEN** the user types `1010` in the search, presses Down twice and Enter
+- **THEN** the Note editor of 0x1010:1 opens
