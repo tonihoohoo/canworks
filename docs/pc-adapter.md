@@ -55,7 +55,7 @@ The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` 
 
 ## Changes are off until you allow them
 
-Without `--allow-changes` (in the configurator: **Allow changes** in the connection bar, asked each time, never saved, and switched on or off without closing the connection) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
+Without `--allow-changes` (in the configurator: **Unlock…** in the connection bar, asked each time, never saved, and switched back with **Lock** without closing the connection) the adapter only reads: status, scan, SDO reads, the object dictionary, backup, compare and trace. SDO writes, NMT commands, restore and every LSS command are refused with "changes not allowed".
 
 Saving to a device's non-volatile memory (0x1010, `store`, and LSS **Store in the device** or `--store`) is never part of anything else and always needs its own command or tick, also with changes allowed: each store wears the device's flash memory.
 

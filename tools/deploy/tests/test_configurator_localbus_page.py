@@ -169,7 +169,7 @@ class CommissionPage(AdapterPage):
         self.connect_adapter()
         self.assertIn("Read-only", pg.inner_text("#conn-bar"))
         client = self.server.connection.client
-        pg.check('#conn-bar input[data-conn="allow"]')
+        pg.click('#conn-bar button[data-conn="allow"]')
         pg.click('#modal button[data-value="allow"]')
         pg.wait_for_selector('#conn-bar:has-text("Changes allowed")')
         self.assertIs(self.server.connection.client, client)
@@ -177,6 +177,40 @@ class CommissionPage(AdapterPage):
         self.assertNotIn("another master", pg.inner_text("#view"))
         with open(os.path.join(self.cfg_dir, "online.json"), encoding="utf-8") as f:
             self.assertNotIn("allow", f.read())
+
+    def test_bar_lock_is_state_and_button(self):
+        # The bar shows the lock's state and one button that does what it says:
+        # no checkbox labelled with the state (ticking "Read-only" used to allow changes).
+        pg = self.page
+        self.device(2, heartbeat_s=0.05)
+        self.commission()
+        self.connect_adapter()
+        lock = '#conn-bar button[data-conn="allow"]'
+        pg.wait_for_selector('#conn-bar [data-conn="lock-state"]:has-text("Read-only")')
+        self.assertEqual(pg.inner_text(lock), "Unlock…")
+        self.assertEqual(pg.locator("#conn-bar input[type=checkbox]").count(), 0)
+        client = self.server.connection.client
+        pg.click(lock)
+        pg.wait_for_selector("#modal:has-text('Allow changes on this adapter connection?')")
+        pg.click('#modal button[data-value="cancel"]')
+        pg.wait_for_selector("#modal", state="hidden")
+        self.assertIn("Read-only", pg.inner_text("#conn-bar"))
+        self.assertTrue(pg.is_disabled('button[data-online="lss-find"]'))
+        pg.wait_for_function("() => document.activeElement.dataset.conn === 'allow'")
+        pg.click(lock)
+        pg.click('#modal button[data-value="allow"]')
+        pg.wait_for_selector('#conn-bar [data-conn="lock-state"]:has-text("Changes allowed")')
+        self.assertEqual(pg.inner_text(lock), "Lock")
+        pg.wait_for_selector('button[data-online="lss-find"]:not([disabled])')
+        pg.wait_for_function("() => document.activeElement.dataset.conn === 'allow'")
+        pg.click(lock)
+        pg.wait_for_selector('#conn-bar [data-conn="lock-state"]:has-text("Read-only")')
+        self.assertEqual(pg.locator("#modal[open]").count(), 0)
+        self.assertEqual(pg.inner_text(lock), "Unlock…")
+        pg.wait_for_selector('[data-online="lss-no-changes"]:has-text("Locked.")')
+        self.assertIn("press Unlock… in the connection bar", pg.inner_text('[data-online="lss-no-changes"]'))
+        pg.wait_for_function("() => document.activeElement.dataset.conn === 'allow'")
+        self.assertIs(self.server.connection.client, client)
 
     def test_other_master_asks_before_lss(self):
         pg = self.page
