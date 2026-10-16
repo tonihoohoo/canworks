@@ -580,6 +580,24 @@ function field(label, path, kind, opts) {
 
 function hint(text) { return text ? el("span", { class: "hint" }, text) : null; }
 
+// Why a node setting is off because of the node's EDS (canopen-configurator
+// "One look for EDS limits"): hint text while the config has nothing the EDS
+// cannot back; warning text, with the remove action when given, while it
+// still has such a setting.
+function edsLimit(text, leftover, remove, data) {
+  if (!leftover) return el("span", { class: "hint", dataset: Object.assign({ edsLimit: "" }, data) }, text);
+  return el("p", { class: "field-msg warning", dataset: Object.assign({ edsLimit: "leftover" }, data) }, text + " ",
+    remove ? el("button", { type: "button", class: "link", dataset: remove.dataset, onclick: () => { remove.run(); render(); } },
+      remove.label) : null);
+}
+
+// Whether the node's EDS has the EMCY COB-ID (0x1014) and a writable 0x1016
+// sub-index; true without a readable EDS, which the Check reports itself.
+function edsHasEmcy(eds) { return !eds || !eds.objects || !!objectInfo(eds, "0x1014", 0); }
+function edsHasHeartbeatConsumer(eds) {
+  return !eds || !eds.objects || eds.objects.some((o) => num(o.index) === 0x1016 && num(o.subindex) >= 1 && o.writable);
+}
+
 function checkbox(label, path, dflt, help) {
   const v = getPath(path);
   const input = el("input", { type: "checkbox", dataset: { path } });
@@ -2356,11 +2374,7 @@ function nodeAdvanced(i, eds) {
     el("div", { class: "grid" }, ...lssFields(i, eds)),
     el("h3", null, "Node objects"),
     el("div", { class: "grid" },
-      choice("Watches the master heartbeat", base + ".heartbeat_consumer", [
-        { value: undefined, label: "EDS default", help: "Nothing is written: the node keeps its 0x1016 entries from the EDS." },
-        { value: true, label: "On", help: "The node watches the master's heartbeat (needs a master heartbeat)." },
-        { value: false, label: "Off", help: "The node's entry for the master is cleared." },
-      ]),
+      heartbeatConsumerField(i, eds),
       field("TIME COB-ID", base + ".time_cob_id", "intstr", { placeholder: dflt(0x1012, 0, hex8),
         hint: "0x1012. Bit 31 (0x80000000) set makes the node consume TIME." }),
       field("Restore configuration", base + ".restore_configuration", "intstr", { placeholder: "none",
@@ -2369,6 +2383,25 @@ function nodeAdvanced(i, eds) {
         "0x1029 as sub=value pairs, e.g. 1=0 (0 pre-operational, 1 no change, 2 stopped). Empty: EDS default.")),
     el("h3", null, "Configuration check"),
     el("div", { class: "grid" }, configCheckField(i, eds), storeConfigurationField(i, eds)));
+}
+
+// heartbeat_consumer: only for a node whose EDS has a writable 0x1016.
+function heartbeatConsumerField(i, eds) {
+  const path = `nodes[${i}].heartbeat_consumer`;
+  const f = choice("Watches the master heartbeat", path, [
+    { value: undefined, label: "EDS default", help: "Nothing is written: the node keeps its 0x1016 entries from the EDS." },
+    { value: true, label: "On", help: "The node watches the master's heartbeat (needs a master heartbeat)." },
+    { value: false, label: "Off", help: "The node's entry for the master is cleared." },
+  ]);
+  if (edsHasHeartbeatConsumer(eds)) return f;
+  const set = getPath(path) !== undefined;
+  const why = "The EDS has no consumer heartbeat time (0x1016), so the device cannot watch the master's heartbeat.";
+  const sel = f.querySelector("select");
+  if (!set) Icons.disable(sel, why);
+  f.querySelector(".hint").replaceWith(edsLimit(why, set,
+    { label: "Remove the heartbeat setting", dataset: { heartbeatRemove: "" }, run: () => setPath(path, undefined) },
+    { heartbeatLimit: "" }));
+  return f;
 }
 
 const lssAssign = (i) => getPath(`nodes[${i}].lss.assign`) === true;
@@ -2420,10 +2453,9 @@ function lssFields(i, eds) {
   }
   const has = getPath(base + ".lss") !== undefined;
   const warn = noLss
-    ? el("p", { class: "field-msg warning", dataset: { lssWarning: "" } },
-      "This device's EDS has no LSS (LSS_Supported=1 missing), so LSS cannot be used for this node. ",
-      has ? el("button", { type: "button", class: "link", dataset: { lssRemove: "" },
-        onclick: () => { setPath(base + ".lss", undefined); render(); } }, "Remove the LSS settings") : null)
+    ? edsLimit("This device's EDS has no LSS (LSS_Supported=1 missing), so LSS cannot be used for this node.", has,
+      { label: "Remove the LSS settings", dataset: { lssRemove: "" }, run: () => setPath(base + ".lss", undefined) },
+      { lssWarning: "" })
     : null;
   return [
     el("div", { class: "check-field" },
@@ -2460,7 +2492,7 @@ function configCheckField(i, eds) {
   });
   return el("div", { class: "check-field" },
     el("label", { class: "check" }, input, " Skip download when unchanged (0x1020)"),
-    hint(why || "After a download the master writes a stamp of this node's configuration to 0x1020, and at later boots " +
+    why ? edsLimit(why, on) : hint("After a download the master writes a stamp of this node's configuration to 0x1020, and at later boots " +
       "skips the download when the node still has it. Default: off."),
     el("span", { class: "field-msg", dataset: { for: base + ".config_check" } }));
 }
@@ -2481,10 +2513,8 @@ function storeConfigurationField(i, eds) {
   let why = null;
   if (!subs.length) why = "The EDS has no writable 0x1010 sub-index (store parameters).";
   else if (getPath(base + ".config_check") !== true) why = "Needs \"Skip download when unchanged\", so the device saves only after a download.";
-  if (why && !set) {
-    Icons.disable(f.querySelector("select"), why);
-    f.querySelector(".hint").textContent = why;
-  }
+  if (why && !set) Icons.disable(f.querySelector("select"), why);
+  if (why) f.querySelector(".hint").replaceWith(subs.length ? hint(why) : edsLimit(why, set));
   return f;
 }
 
@@ -6680,7 +6710,7 @@ async function exportCodesys() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project.`);
+    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project. The bus goes to the project's active device.`);
   } catch (e) {
     banner(e.message, true);
   }

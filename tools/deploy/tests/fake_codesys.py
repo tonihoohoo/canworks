@@ -7,8 +7,11 @@ only through their elements, a mapped object at 0x1MMMMEE0 with its I/O
 channel at the next id."""
 
 import configparser
+import itertools
 import os
 import runpy
+
+_guids = itertools.count(1)
 
 
 class DeviceId:
@@ -79,6 +82,9 @@ class Obj:
         self.connectors = list(connectors)
         self.device_parameters = []
         self.children, self.parent = [], None
+        self.guid = next(_guids)
+        # Device types CODESYS takes under this object (None: any).
+        self.accepts = None
 
     @property
     def is_device(self):
@@ -104,6 +110,8 @@ class Obj:
     def add(self, name, type, id, version):
         if self.world.fail_add.get(type):
             raise Exception(self.world.fail_add[type])
+        if self.accepts is not None and type not in self.accepts:
+            raise Exception("Exception was raised: The device cannot be added or inserted here.")
         child = self.world.make(name, DeviceId(type, id, version))
         if any(c.get_name() == child.get_name() for c in self.children):
             child._name += "_1"
@@ -122,8 +130,9 @@ class Obj:
 
 
 class App:
-    def __init__(self, project):
-        self.project = project
+    def __init__(self, project, parent=None):
+        self.project, self.parent = project, parent
+        self.guid = next(_guids)
 
     def build(self):
         w = self.project.world
@@ -275,6 +284,23 @@ class World:
         p = self.projects.create(path)
         p.add(name, 4096, "0000 0004", "3.5.22.40")
         return p
+
+    def add_application(self, project, device, active=True):
+        """Device > Plc Logic > Application, as CODESYS lays it out."""
+        logic = Obj(self, "Plc Logic")
+        logic.parent = device
+        device.children.append(logic)
+        app = App(project, logic)
+        if active:
+            project.active_application = app
+        return app
+
+    def add_object(self, parent, name, type=None, accepts=None):
+        """An object a device description brings, e.g. Communication > CAN."""
+        obj = Obj(self, name, DeviceId(type, "vendor_%s" % name, "1.0.0.0") if type is not None else None)
+        obj.parent, obj.accepts = parent, accepts
+        parent.children.append(obj)
+        return obj
 
     def run(self, folder, primary=None):
         """Runs the folder's import_canworks.py as CODESYS would."""

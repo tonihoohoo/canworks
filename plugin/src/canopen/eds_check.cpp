@@ -1196,6 +1196,20 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
       n.eds_has_emcy = true;
       if (sub_value(emcy, cob) && !(cob & 0x80000000u) && cob <= 0x7FF) n.eds_emcy_cob_id = static_cast<uint32_t>(cob);
     }
+    if (!n.eds_has_emcy) {
+      if (n.has_emcy_code_location) errors.push_back(emcy_unsupported_message(n, "emcy_code_location"));
+      if (n.has_error_register_location) errors.push_back(emcy_unsupported_message(n, "error_register_location"));
+      if (n.has_emcy_cob_id) errors.push_back(emcy_unsupported_message(n, "emcy_cob_id"));
+    }
+    if (n.has_heartbeat_consumer) {
+      bool writable = false;
+      if (const co_obj_t* hb = co_dev_find_obj(dev, 0x1016))
+        for (unsigned k = 1; k <= 0xFF && !writable; ++k) {
+          const co_sub_t* sub = co_obj_find_sub(hb, static_cast<co_unsigned8_t>(k));
+          writable = sub && sub_writable(sub);
+        }
+      if (!writable) errors.push_back(heartbeat_consumer_unsupported_message(n));
+    }
     n.eds_lss_supported = co_dev_get_lss(dev) != 0;
     if (n.has_lss && !n.eds_lss_supported)
       errors.push_back(lss_unsupported_message(n));

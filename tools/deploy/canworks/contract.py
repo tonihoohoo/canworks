@@ -53,6 +53,26 @@ def lss_unsupported_message(label):
     return "%s: 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS" % label
 
 
+def emcy_unsupported_message(label, field):
+    """The plugin's refusal of an EMCY field on a node whose EDS has no
+    0x1014 (canopen-node-supervision "EMCY and heartbeat consumer fields need
+    their EDS objects")."""
+    return "%s: '%s' needs an EDS with the EMCY COB-ID (0x1014); this node's EDS has no EMCY" % (label, field)
+
+
+def heartbeat_consumer_unsupported_message(label):
+    """The plugin's refusal of heartbeat_consumer on a node whose EDS has no
+    writable 0x1016 sub-index."""
+    return ("%s: 'heartbeat_consumer' needs an EDS with a writable consumer heartbeat time (0x1016); "
+            "this node's EDS has none" % label)
+
+
+def eds_has_heartbeat_consumer(eds):
+    """Whether the EDS has a writable 0x1016 sub-index the node's heartbeat
+    consumer setting can go to."""
+    return any(sub >= 1 and o.writable for sub, o in eds.objects.get(0x1016, {}).items())
+
+
 def supervision_message(label):
     """The plugin's refusal of a node without heartbeat or guarding whose EDS
     heartbeat default is 0 (canopen-node-supervision)."""
@@ -1936,6 +1956,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         messages += [m for m, _ in cyc_errors]
         where += [sub for _, sub in cyc_errors]
         warnings += cyc_warnings
+        if not eds.has(0x1014):
+            for key in ("emcy_code_location", "error_register_location", "emcy_cob_id"):
+                if key in src:
+                    messages.append(emcy_unsupported_message(label, key))
+                    where.append("." + key)
+        if "heartbeat_consumer" in src and not eds_has_heartbeat_consumer(eds):
+            messages.append(heartbeat_consumer_unsupported_message(label))
+            where.append(".heartbeat_consumer")
         if "lss" in cfg["nodes"][i] or "lss" in node:
             info = eds_mod.device_info(file) or {}
             if "lss" in node:

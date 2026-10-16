@@ -299,11 +299,19 @@ The deploy tool SHALL accept `--export-codesys DIR` as an alternative to `--bund
 - **THEN** it writes `out/field/node_<id>.dcf`, `out/canworks-codesys.json`, `out/import_canworks.py` and `out/README.txt` and exits 0
 
 ### Requirement: CODESYS export options
-With the CODESYS export the deploy tool SHALL accept `--network NAME` (one network), `--codesys-net NAME=N` (repeatable, a network's CODESYS network number), `--codesys-plc NAME` (the PLC device to use) and `--codesys-no-variables`. A name that matches no network SHALL fail with a message naming it.
+With the CODESYS export the deploy tool SHALL accept `--network NAME` (one network), `--codesys-net NAME=N` (repeatable, a network's CODESYS network number), `--codesys-plc NAME` (the device to use instead of the project's active application's device), `--codesys-can NETWORK=OBJECT` (repeatable, the CAN interface object in that device that gets the network's bus) and `--codesys-no-variables`. A name that matches no network SHALL fail with a message naming it.
 
 #### Scenario: Unknown network in an override
 - **WHEN** `--codesys-net drives=1` names no network in the config
 - **THEN** the tool exits non-zero naming `drives` and writes nothing
+
+#### Scenario: Device override
+- **WHEN** `--codesys-plc PLC` is given with `--export-codesys out`
+- **THEN** the plan's `plc` is `PLC`
+
+#### Scenario: CAN interface override
+- **WHEN** `--codesys-can field=CAN2` is given with `--export-codesys out`
+- **THEN** the plan's `field` network has interface `CAN2`
 
 ### Requirement: Import into a CODESYS project from the command line
 `canworks-deploy --config FILE --codesys-import PROJECT` SHALL write the CODESYS export (into `--codesys-dir DIR` when given, else a temporary folder removed after a run without errors), set the plan to open PROJECT, or to create it when `--codesys-new TYPE:ID:VERSION` gives the PLC device, run CODESYS headless on the script, print the script's report, and exit non-zero when the report has an error.

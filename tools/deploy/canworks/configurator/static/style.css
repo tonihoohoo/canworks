@@ -965,6 +965,7 @@ table.note-pick-table col.c-obj { width: 9em; }
 table.note-pick-table col.c-from { width: 9em; }
 table.note-pick-table td { overflow-wrap: anywhere; }
 tr.row-open { cursor: pointer; }
+fieldset > [data-eds-limit] { display: block; margin: 0 0 8px; }
 
 /* The selected row of every list (row-highlight-and-list-resize; the object
    dictionary's od-selected is the same look): a wash across the whole row and

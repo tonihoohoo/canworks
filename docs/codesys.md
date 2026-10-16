@@ -13,7 +13,7 @@ The export is a folder:
 | `import_canworks.py` | The script CODESYS runs. It is the same file for every config. |
 | `README.txt` | How to run it. |
 
-The script uses the PLC device already in the project, finds or adds a CANbus with the network's number and a CANopen Manager under it, installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
+The script uses the project's active device (the one whose application is the active application), finds or adds a CANbus with the network's number and a CANopen Manager under it, installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
 
 Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
 
@@ -25,7 +25,7 @@ canworks-deploy --config canworks.json --export-codesys codesys/
 
 ## Run it in CODESYS
 
-1. Open your project in CODESYS. It needs the PLC or display device that has the CAN interface; the script adds nothing else to the project tree.
+1. Open your project in CODESYS. It needs the PLC or display device that has the CAN interface; the script adds nothing else to the project tree. With several devices in the project, make the one that gets the bus active first (**Set Active Application** on its application, the same choice Build and Login use).
 2. **Tools > Scripting > Execute Script File...** and pick `import_canworks.py` in the export folder.
 3. Read the report, check the project and save it. The script does not save a project you have open.
 
@@ -45,9 +45,21 @@ CODESYS.exe --profile="CODESYS V3.5 SP22 Patch 4" --noUI --runscript="C:\path\to
 
 ## Network numbers and the device's CAN interfaces
 
+## Which device gets the bus
+
+The bus goes to one device of the project, chosen in this order:
+
+1. The device named with `--codesys-plc NAME` (`"plc"` in `canworks-codesys.json`).
+2. The device that holds the project's active application, at any depth in the device tree.
+3. The only device of the project.
+
+The report's `device` line names the device and the reason. A project with several devices and no active application stops with the list of devices and changes nothing. When the named device is not the active one, the report warns that the build checked the active application on the other device. If you switch the active device and run the script again, the bus goes to the new device; the old one keeps its manager and nodes, and the report warns when it has a manager on the same network number, since two controllers would then drive the same bus.
+
+## Network numbers and the device's CAN interfaces
+
 CODESYS picks a CAN interface by the CANbus object's **Network** number. The export takes it from the interface's number (`can1` gives 1); `--codesys-net NAME=N` sets it for network NAME. Devices count their CAN interfaces in their own way, some from 0 and some from 1, so look at your device's CANbus objects or its manual first. When the device already has a CANbus with that number (many device descriptions bring theirs), the script uses it and its CANopen Manager; otherwise it adds both, in the newest version installed in that CODESYS, or in the version of a CANbus the device already has.
 
-A project with several devices at the top needs `--codesys-plc NAME` (or `"plc"` in the plan) to say which one gets the bus.
+Many controllers and displays bring their CAN ports as objects of their own, for example **Communication > CAN**, and refuse a CANbus directly under the device. When the device has no CANbus with the network's number, the script adds the new one under the device's CAN interface object: the one `--codesys-can NETWORK=OBJECT` names (`"interface"` on the network in the plan), else the device's only object whose name is CAN or has CAN as a word (`CAN`, `CAN1`, `Port CAN 2`), else the one of those whose name ends in the network number, else the device itself. If the interface does not take a CANbus, the CANopen Manager goes directly under it. With several CAN interfaces and none matching the number, or when nothing takes the bus, that network stops with an error that lists the device's objects.
 
 ## What carries over
 
