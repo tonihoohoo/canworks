@@ -109,6 +109,54 @@ class CommissionTrace(AdapterPage):
         pg.wait_for_selector('[data-decoding-node="7"]:has-text("read from the device")')
         pg.click("[data-trace=start-stop]")
 
+    def three_tpdos(self, mapped):
+        """Node 49 with TPDO1-3; the mapping objects of the PDOs in `mapped` only."""
+        od = {(0x1000, 0): struct.pack("<I", 0x191), (0x6000, 1): b"\x2a"}
+        for n in range(3):
+            od[(0x1800 + n, 1)] = struct.pack("<I", 0x180 + 0x100 * n + 49)
+            od[(0x1800 + n, 2)] = b"\xff"
+            if n in mapped:
+                od[(0x1A00 + n, 0)] = b"\x01"
+                od[(0x1A00 + n, 1)] = struct.pack("<I", 0x60000108)
+        self.device(49, heartbeat_s=0.05, nmt_state=5, pdo=True, od=od)
+        self.commission()
+        pg = self.page
+        pg.click('button[data-view="trace"]')
+        pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
+        self.connect_adapter()
+        pg.click("[data-trace=start-stop]")
+        pg.click("[data-trace=decoding] > summary")
+        pg.wait_for_selector('[data-decoding-node="49"] [data-trace="read-pdos"]')
+
+    def test_read_without_mapping_says_why(self):
+        # canopen-configurator: "Result of a PDO layout read" - the COB-IDs
+        # answer, the mapping objects do not: an error naming the object, and
+        # the column reads "not read" with the reasons instead of "unknown".
+        pg = self.page
+        self.three_tpdos(())
+        pg.click('[data-decoding-node="49"] [data-trace="read-pdos"]')
+        pg.wait_for_selector("#banner:has-text('no PDO decodes')")
+        text = pg.inner_text("#banner")
+        self.assertIn("TPDO1 not usable: 0x1A00:0 not read (abort 0x06020000", text)
+        self.assertNotIn("read from the device", text)
+        row = '[data-decoding-node="49"]'
+        pg.wait_for_selector(row + ':has-text("not read")')
+        self.assertNotIn("unknown", pg.inner_text(row))
+        self.assertEqual(pg.locator(row + ' [data-trace="read-why"]').count(), 3)
+        pg.click("[data-trace=start-stop]")
+
+    def test_read_names_the_pdo_that_does_not_decode(self):
+        pg = self.page
+        self.three_tpdos((0, 1))
+        pg.click('[data-decoding-node="49"] [data-trace="read-pdos"]')
+        pg.wait_for_selector("#banner:has-text('Node 49: TPDO1, TPDO2 read from the device.')")
+        self.assertIn("TPDO3 not usable: 0x1A02:0 not read", pg.inner_text("#banner"))
+        row = '[data-decoding-node="49"]'
+        pg.wait_for_selector(row + ':has-text("read from the device")')
+        self.assertIn("TPDO1, TPDO2", pg.inner_text(row))
+        self.assertIn("TPDO3: 0x1A02:0 not read", pg.inner_text(row + ' [data-trace="read-why"]'))
+        pg.click("[data-trace=start-stop]")
+
     def test_no_automatic_read_beside_another_master(self):
         pg = self.page
         od = {(0x1800, 1): struct.pack("<I", 0x187), (0x1800, 2): b"\xff", (0x1A00, 0): b"\x01",

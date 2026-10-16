@@ -1427,13 +1427,16 @@ function decodingNodes(v) {
       const added = typeof commNodes === "function" ? commNodes()[n.node] || {} : {};
       const eds = (S.onlineEdsName || {})[n.node] || added.eds_name || (S.onlineEds || {})[n.node];
       const scanned = ((S.scanResult && S.scanResult.nodes) || []).find((d) => d.node_id === n.node);
-      const source = n.source ? LAYOUT_SOURCE[n.source] + (n.since_us != null && n.since_us >= 0 && v.start_us != null ? ` at ${traceSeconds(n.since_us - v.start_us)}` : "")
-        : "unknown";
+      const at = (t) => t != null && t >= 0 && v.start_us != null ? ` at ${traceSeconds(t - v.start_us)}` : "";
+      const bad = n.read ? n.read.pdos.filter((p) => !p.usable) : [];
+      let source = n.source ? LAYOUT_SOURCE[n.source] + at(n.since_us) : "unknown";
+      if (!n.source && n.read) source = n.read.pdos.length ? "not read" + at(n.read.since_us) : "not read: no valid PDO";
       return el("tr", { dataset: { decodingNode: n.node } },
         el("td", { class: "num" }, String(n.node)),
         el("td", null, scanned && scanned.device_name ? scanned.device_name : ""),
         el("td", null, n.has_eds ? (eds || "yes") : el("span", { class: "muted" }, "none, built-in CiA names")),
-        el("td", null, source, n.pdos.length ? el("div", { class: "muted" }, n.pdos.join(", ")) : null),
+        el("td", null, source, n.pdos.length ? el("div", { class: "muted" }, n.pdos.join(", ")) : null,
+          bad.map((p) => el("div", { class: "muted", dataset: { trace: "read-why" } }, `${p.name}: ${p.reason}`))),
         el("td", null, commission && n.source !== "configuration" ? layoutActions(n.node, n.has_eds) : null));
     })));
 }
@@ -1477,12 +1480,22 @@ async function readPdoLayout(node, asked) {
   try {
     const r = await api("POST", "/api/online/pdo_layout", { node, port: diagPort() });
     PL.done.set(node, "read");
-    if (asked) banner(r.pdos.length ? `Node ${node}: ${r.pdos.map((p) => p.name).join(", ")} read from the device.` : `Node ${node} has no valid PDO.`);
+    if (asked) readBanner(node, r.pdos);
   } catch (e) {
     PL.done.set(node, "failed");
     if (asked) banner(`Node ${node}'s PDOs not read: ${e.message}`, true);
   }
   if (S.view === "trace") loadDecoding(true);
+}
+
+// The message after Read PDOs from device: the PDOs that now decode, and each
+// other one with its reason (canopen-configurator: "Result of a PDO layout read").
+function readBanner(node, pdos) {
+  if (!pdos.length) { banner(`Node ${node} has no valid PDO.`); return; }
+  const usable = pdos.filter((p) => p.usable).map((p) => p.name);
+  const why = pdos.filter((p) => !p.usable).map((p) => `${p.name} not usable: ${p.reason}`).join("; ");
+  if (!usable.length) banner(`Node ${node}: no PDO decodes after the read. ${why}.`, true);
+  else banner(`Node ${node}: ${usable.join(", ")} read from the device.${why ? ` ${why}.` : ""}`);
 }
 
 // Automatic reads in Commission a device: each heard node once per

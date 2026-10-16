@@ -300,8 +300,93 @@ class DecodingRoutes(Trace):
                         (2, 0x1800, 1): (0x182).to_bytes(4, "little"), (2, 0x1800, 2): b"\xff",
                         (2, 0x1A00, 0): b"\x01", (2, 0x1A00, 1): (0x60000108).to_bytes(4, "little")})
         r = self.ok("POST", "/api/online/pdo_layout", {"node": 2})
-        self.assertEqual(r["pdos"], [{"name": "TPDO1", "cob_id": 0x182}])
+        self.assertEqual(r["pdos"], [{"name": "TPDO1", "cob_id": 0x182, "usable": True}])
         self.assertEqual(r["device_type"], 0x191)
+
+    def test_pdo_layout_read_names_what_is_missing(self):
+        # canopen-configurator: "Result of a PDO layout read" - the COB-ID
+        # answers but the mapping does not: the PDO is listed as not usable,
+        # with the object and the reason, and the panel keeps it.
+        fake = FakePlugin()
+        fake.__enter__()
+        self.addCleanup(fake.__exit__)
+        self.connect(fake)
+        self.save(self.pingpong())
+        fake.objects.update({(2, 0x1000, 0): (0x191).to_bytes(4, "little"),
+                             (2, 0x1800, 1): (0x182).to_bytes(4, "little"),
+                             (2, 0x1801, 1): (0x282).to_bytes(4, "little"),
+                             (2, 0x1A01, 0): b"\x01", (2, 0x1A01, 1): (0x60000108).to_bytes(4, "little")})
+        r = self.ok("POST", "/api/online/pdo_layout", {"node": 2})
+        self.assertEqual(r["pdos"], [
+            {"name": "TPDO1", "cob_id": 0x182, "usable": False,
+             "reason": "0x1A00:0 not read (abort 0x06020000, object does not exist in the object dictionary)"},
+            {"name": "TPDO2", "cob_id": 0x282, "usable": True}])
+        node = next(n for n in self.ok("GET", "/api/trace/decoding")["nodes"] if n["node"] == 2)
+        self.assertEqual(node["read"]["pdos"], r["pdos"])
+
+
+class PdoValues(unittest.TestCase):
+    """params.pdo_values against a client whose answers are set per object."""
+
+    class Client:
+        def __init__(self, objects, timeouts=None):
+            self.objects, self.timeouts, self.asked = objects, dict(timeouts or {}), []
+
+        def sdo_read(self, node, index, sub, timeout_ms=None):
+            self.asked.append((index, sub))
+            if self.timeouts.get((index, sub)):
+                self.timeouts[(index, sub)] -= 1
+                return {"success": False, "error": "timeout"}
+            v = self.objects.get((index, sub))
+            if v is None:
+                return {"success": False, "abort_code": 0x06020000}
+            if isinstance(v, int) and v > 0xFFFFFFFF:
+                return {"success": False, "abort_code": v - 0x100000000}
+            return {"success": True, "data": v.to_bytes(4, "little").hex()}
+
+    BASE = {(0x1000, 0): 0x191, (0x1800, 1): 0x1B1, (0x1A00, 0): 1, (0x1A00, 1): 0x60000108,
+            (0x1801, 1): 0x2B1, (0x1A01, 0): 2, (0x1A01, 1): 0x60000108, (0x1A01, 2): 0x60000208}
+
+    def read(self, client):
+        from canworks.configurator import params, tracing
+        values, dtype, failed = params.pdo_values(client, 49)
+        return tracing.read_result(49, values, dtype, failed)
+
+    def test_all_read(self):
+        r = self.read(self.Client(self.BASE))
+        self.assertEqual([(p["name"], p["usable"]) for p in r], [("TPDO1", True), ("TPDO2", True)])
+
+    def test_no_answer_is_tried_once_more(self):
+        c = self.Client(self.BASE, {(0x1A00, 0): 1, (0x1A01, 2): 1})
+        r = self.read(c)
+        self.assertTrue(all(p["usable"] for p in r), r)
+        self.assertEqual(c.asked.count((0x1A00, 0)), 2)
+        self.assertEqual(c.asked.count((0x1A01, 2)), 2)
+
+    def test_no_answer_twice(self):
+        r = self.read(self.Client(self.BASE, {(0x1A01, 2): 2}))
+        self.assertEqual(r[1], {"name": "TPDO2", "cob_id": 0x2B1, "usable": False,
+                                "reason": "0x1A01:2 not read (no answer)"})
+        self.assertTrue(r[0]["usable"])
+
+    def test_abort_is_not_tried_again(self):
+        objects = dict(self.BASE)
+        objects[(0x1A00, 1)] = 0x100000000 + 0x08000000
+        c = self.Client(objects)
+        r = self.read(c)
+        self.assertEqual(c.asked.count((0x1A00, 1)), 1)
+        self.assertEqual(r[0]["reason"], "0x1A00:1 not read (abort 0x08000000, general error)")
+
+    def test_nothing_mapped(self):
+        objects = dict(self.BASE)
+        objects[(0x1A00, 0)] = 0
+        r = self.read(self.Client(objects))
+        self.assertEqual(r[0]["reason"], "no object mapped (0x1A00:0 is 0)")
+
+    def test_invalid_pdo_not_listed(self):
+        objects = dict(self.BASE)
+        objects[(0x1801, 1)] = 0x800002B1
+        self.assertEqual([p["name"] for p in self.read(self.Client(objects))], ["TPDO1"])
 
 
 class CommandLine(unittest.TestCase):

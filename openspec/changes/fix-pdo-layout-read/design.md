@@ -18,7 +18,7 @@ So any failed mapping read is invisible: the message claims success, the column 
 {"node": 49, "pdos": [{"name": "TPDO1", "cob_id": 433, "usable": true}, {"name": "TPDO3", "cob_id": 945, "usable": false, "reason": "0x1A02:1 not read (no answer)"}], "device_type": 401}
 ```
 
-`usable` is decided by the same code that builds the layout (`NodeLayouts.pdos`), so the message and the decoding never disagree.
+`usable` is decided by the same code that builds the layout (`NodeLayouts.pdos`, through `tracing.read_result`), so the message and the decoding never disagree. A mapping count of 0 or over 64 is named too.
 
 ### One retry on no answer
 A mapping read that times out is tried once more. Aborts are not retried: the device answered.

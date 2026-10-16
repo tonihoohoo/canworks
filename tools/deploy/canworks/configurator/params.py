@@ -770,20 +770,33 @@ NO_OBJECT = 0x06020000
 
 
 def pdo_values(client, node):
-    """({(index, sub): value}, device type or None) of a device's PDO
-    communication (COB-ID, transmission type) and mapping objects, read over
-    SDO: PDO 1-4 always, from 5 on until the first PDO whose communication
-    object the device does not have."""
-    def rd(index, sub):
+    """({(index, sub): value}, device type or None, {communication index:
+    reason}) of a device's PDO communication (COB-ID, transmission type) and
+    mapping objects, read over SDO: PDO 1-4 always, from 5 on until the first
+    PDO whose communication object the device does not have. The reasons name
+    the first mapping object of a valid PDO that could not be read
+    (canopen-configurator: "Result of a PDO layout read"); a mapping read
+    with no answer is tried once more."""
+    def rd(index, sub, again=False):
         res = client.sdo_read(node, index, sub, P.READ_TIMEOUT_MS)
         if res.get("success"):
             return int.from_bytes(bytes.fromhex(res.get("data") or ""), "little"), None
-        return None, res.get("abort_code")
+        code = res.get("abort_code")
+        if again and code in (None, P.TIMEOUT_ABORT):
+            return rd(index, sub)
+        return None, code
+
+    def why(index, sub, code):
+        if code in (None, P.TIMEOUT_ABORT):
+            what = "no answer"
+        else:
+            what = "abort 0x%08X" % code + (", " + diag.ABORT_TEXT[code] if code in diag.ABORT_TEXT else "")
+        return "0x%04X:%d not read (%s)" % (index, sub, what)
 
     dtype, code = rd(0x1000, 0)
     if dtype is None and code in (None, P.TIMEOUT_ABORT):
         raise diag.DiagError("refused", "node %d does not answer SDO; it may be STOPPED or not on the bus" % node)
-    values = {}
+    values, failed = {}, {}
     for comm, mapping in ((0x1800, 0x1A00), (0x1400, 0x1600)):
         for n in range(512):
             cob, code = rd(comm + n, 1)
@@ -797,12 +810,21 @@ def pdo_values(client, node):
             trans, _ = rd(comm + n, 2)
             if trans is not None:
                 values[(comm + n, 2)] = trans
-            count, _ = rd(mapping + n, 0)
-            if not count:
+            count, code = rd(mapping + n, 0, True)
+            if count is None:
+                failed[comm + n] = why(mapping + n, 0, code)
                 continue
             values[(mapping + n, 0)] = count
-            for k in range(1, min(count, 64) + 1):
-                v, _ = rd(mapping + n, k)
-                if v is not None:
+            if not count:
+                failed[comm + n] = "no object mapped (0x%04X:0 is 0)" % (mapping + n)
+                continue
+            if count > 64:
+                failed[comm + n] = "0x%04X:0 reads %d, more than the 64 entries a PDO can map" % (mapping + n, count)
+                continue
+            for k in range(1, count + 1):
+                v, code = rd(mapping + n, k, True)
+                if v is None:
+                    failed.setdefault(comm + n, why(mapping + n, k, code))
+                else:
                     values[(mapping + n, k)] = v
-    return values, dtype
+    return values, dtype, failed
