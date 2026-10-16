@@ -1,5 +1,6 @@
 {
   "device_name": "OpenPLC slave example",
+  "date": "2026-10-16",
   "vendor_id": 0,
   "product_code": 1,
   "heartbeat_ms": 500,

@@ -323,7 +323,7 @@
       "file": "openplc-slave.eds",
       "lss_supported": true,
       "product_name": "OpenPLC slave example",
-      "sha256": "0e58f92c7bfb486d17d29ef84e54247dab6c0f5d5261399367f90ec3770b0281",
+      "sha256": "1ebaa135e2005724edb30c3d6927454c69f8f91182bb1aa60eff0a658ab0e794",
       "vendor_name": "OpenPLC"
      },
      "ident": "OpenPLC",
@@ -761,7 +761,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.79.1"
+  "version": "0.80.0"
  },
  "warnings": []
 }

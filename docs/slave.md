@@ -93,13 +93,15 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 |---|---|---|
 | `device_name` | `OpenPLC slave` | `ProductName` and 0x1008. |
 | `vendor_name` | `OpenPLC` | `VendorName`. |
+| `order_code` | the device name | `OrderCode`. |
+| `date` | today | `"YYYY-MM-DD"` or `"YYYY-MM-DD HH:MM"`: the file's creation and modification date and time (CiA 306 `[FileInfo]`). Give it to get the same file every time; the configurator fills it in at the first build and keeps it. |
 | `vendor_id`, `product_code` | 0 | 0x1018:1 and :2. |
 | `revision_number` | from the content | 0x1018:3. Left out: the low 32 bits of a SHA-256 of the layout and the objects, so a master that checks identity notices a changed dictionary that was not imported again. |
 | `heartbeat_ms` | 1000 | Default producer heartbeat time (0x1017). |
 | `layout` | `manufacturer` | `manufacturer`: objects from the master in ARRAYs from 0x2000, objects to the master from 0x2100, one ARRAY per data type in the order the types first appear, sub-index 0 the count. `cia401`: device type 401 with the generic I/O objects, digital inputs 0x6000 and outputs 0x6200 (UNSIGNED8), analog inputs 0x6401 and outputs 0x6411 (INTEGER16); CiA 401 inputs are what the master reads. |
 | `objects[]` | | `name` (unique), `type` (a CANopen type: BOOLEAN, INTEGER8-64, UNSIGNED8-64, REAL32, REAL64), `direction` (`from_master`: AccessType `rww`, a PLC input; `to_master`: `ro`, a PLC output), and optional `default`, `low` and `high`. |
 
-The file has default RPDOs carrying the objects from the master and TPDOs carrying those to the master, packed in object order, 8 bytes each, with transmission type 255. PDOs 1-4 always exist with the CiA 301 COB-IDs (`$NODEID` + 0x180, 0x200, ...; unused ones switched off), so the master can remap them; PDOs 5 and up start switched off and get their COB-ID from the master. The communication area has what a CiA 301 slave with store and restore, configuration date, heartbeat, guarding, EMCY and LSS needs. The output is deterministic (no dates in it) and passes the plugin's EDS lint with `eds_lint: "all"`; the generator checks that before it writes.
+The file has default RPDOs carrying the objects from the master and TPDOs carrying those to the master, packed in object order, 8 bytes each, with transmission type 255. PDOs 1-4 always exist with the CiA 301 COB-IDs (`$NODEID` + 0x180, 0x200, ...; unused ones switched off), so the master can remap them; PDOs 5 and up start switched off and get their COB-ID from the master. The communication area has what a CiA 301 slave with store and restore, configuration date, heartbeat, guarding, EMCY and LSS needs. Text fields (`device_name`, `vendor_name`, `order_code`, object names) must be printable ASCII, and `device_name` at most 243 characters, as CiA 306 asks. REAL defaults and limits are written as decimal numbers (`21.5`), which other masters' tools read; the plugin reads them through its prepared EDS copy. The output passes the plugin's EDS lint with `eds_lint: "all"` and a strict CiA 306 check of its own ([standards.md](standards.md#how-conformance-is-checked)); the generator checks both before it writes.
 
 A vendor-style EDS written by hand works too: any objects with access types from the table above can be bound.
 

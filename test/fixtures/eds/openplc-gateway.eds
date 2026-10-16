@@ -4,7 +4,12 @@ FileVersion=1
 FileRevision=0
 EDSVersion=4.0
 Description=OpenPLC gateway example, an OpenPLC controller as a CANopen slave
+CreationTime=12:00AM
+CreationDate=10-16-2026
 CreatedBy=canworks-deploy slave-eds
+ModificationTime=12:00AM
+ModificationDate=10-16-2026
+ModifiedBy=canworks-deploy slave-eds
 
 [DeviceInfo]
 VendorName=OpenPLC
@@ -12,6 +17,7 @@ VendorNumber=0x00000000
 ProductName=OpenPLC gateway example
 ProductNumber=0x00000002
 RevisionNumber=0x393D750D
+OrderCode=OpenPLC gateway example
 BaudRate_10=1
 BaudRate_20=1
 BaudRate_50=1
@@ -142,11 +148,11 @@ ObjectType=0x8
 SubNumber=9
 
 [1003sub0]
-ParameterName=Highest sub-index supported
+ParameterName=Number of errors
 ObjectType=0x7
 DataType=0x0005
 AccessType=rw
-DefaultValue=8
+DefaultValue=0
 PDOMapping=0
 
 [1003sub1]

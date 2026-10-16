@@ -1,5 +1,6 @@
 {
   "device_name": "OpenPLC gateway example",
+  "date": "2026-10-16",
   "vendor_id": 0,
   "product_code": 2,
   "heartbeat_ms": 500,

@@ -37,7 +37,7 @@ None.
 
 - `tools/deploy/canworks/slaveeds.py`, `tools/deploy/canworks/dcfexport.py`, a new `tools/deploy/canworks/cia306.py`; the configurator's slave EDS form gets the `date` and `order_code` fields and shows the new errors.
 - `plugin/src/canopen/dcf_gen.cpp` (`config_stamp`), `plugin/src/canopen/network.cpp`/`network.h` (SYNC and TIME gating, counter reset).
-- Regenerated fixture and example slave EDS files (new revision numbers, since the content changes).
+- Regenerated fixture and example slave EDS files (their revision numbers stay: they hash the objects, which do not change).
 - Tests: slave EDS and DCF export tests, the new CI conformance test (Python only, under the existing PC tools path filter, no new job), unit and simulated-bus tests for 0x1020, SYNC and TIME.
 - `docs/standards.md` (new), `docs/slave.md`, `docs/config.md`, README.md. PC tools and plugin minor version bumps.
 - Hardware: a short bench check that node 23 still boots with `config_check` after the 0x1020 change.

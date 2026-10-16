@@ -159,6 +159,7 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 | Modbus TCP bridge for any PLC or program | [modbus-bridge.md](docs/modbus-bridge.md) |
 | CANopen networks in CODESYS | [codesys.md](docs/codesys.md) |
 | Simulation and the local runtime | [simulator.md](docs/simulator.md), [local-runtime.md](docs/local-runtime.md) |
+| CANopen standards: what canworks follows, where it departs, how it is checked | [standards.md](docs/standards.md) |
 | Building, testing, CI and the repository layout | [development.md](docs/development.md) |
 
 ## Development

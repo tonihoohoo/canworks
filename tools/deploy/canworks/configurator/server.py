@@ -16,6 +16,7 @@ Requests whose Host is not loopback are refused (DNS rebinding).
 import argparse
 import base64
 import copy
+import datetime
 import hashlib
 import http.server
 import io
@@ -1411,6 +1412,11 @@ class Session:
         name = os.path.basename(name or "").strip() or slave_eds_name(desc.get("device_name"))
         if not name.lower().endswith(".eds") or name in (".eds",):
             raise ApiError(422, "the EDS file name must end in .eds")
+        if desc.get("date") is None:
+            # The file's dates stay those of its first build, so building it
+            # again from the same objects gives the same file.
+            saved = self.slave_descriptions([name]).get(name) or {}
+            desc = dict(desc, date=saved.get("date") or datetime.date.today().isoformat())
         try:
             text, info = slaveeds.generate(desc, cfg if gateway else None, name)
         except slaveeds.DescriptionError as e:
