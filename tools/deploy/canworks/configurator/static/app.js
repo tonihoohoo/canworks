@@ -2978,7 +2978,7 @@ function objectPicker(i, eds, dir) {
   const d = el("details", { class: "picker", open: S.pickerOpen[dir] || null, dataset: { picker: dir } },
     el("summary", null, "Add entry…"));
   d.addEventListener("toggle", () => { S.pickerOpen[dir] = d.open; if (!d.open) S.pickerTarget = null; });
-  const filter = el("input", { type: "text", placeholder: "Filter by index, name or note", "aria-label": `Filter ${dir} objects` });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": `Filter ${dir} objects` });
   filter.value = S.objectFilter;
   const body = el("tbody");
   const fill = () => {
@@ -3132,7 +3132,7 @@ function renderSdos(i, eds) {
     el("tbody", null, rows)));
   // Picker: settings from the EDS (or every writable object), or an index
   // typed by hand.
-  const filter = el("input", { type: "text", placeholder: "Filter by index, name or note", "aria-label": "Filter SDO objects" });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": "Filter SDO objects" });
   filter.value = S.sdoFilter;
   const body = el("tbody");
   const hidden = el("span", { class: "muted" });
@@ -3253,7 +3253,7 @@ function renderSdoVars(i, eds) {
     el("option", { value: "read" }, "Read (node to PLC)"), el("option", { value: "write" }, "Write (PLC to node)"));
   dirSel.value = S.varDirection;
   dirSel.addEventListener("change", () => { S.varDirection = dirSel.value; fill(); });
-  const filter = el("input", { type: "text", placeholder: "Filter by index, name or note", "aria-label": "Filter SDO variable objects" });
+  const filter = el("input", { type: "text", placeholder: "Index, name or note", "aria-label": "Filter SDO variable objects" });
   filter.value = S.varFilter;
   const body = el("tbody");
   const fill = () => {
