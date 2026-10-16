@@ -195,23 +195,59 @@ Network::~Network() {
   PlcRequests::instance().cancel_taken(cfg_.network_index);
 }
 
-void Network::SetSendTap(std::function<void(const can_msg&)> tap) {
+void Network::HookSend() {
+  if (send_func_) return;
   __can_net* net = lely::io::CanNet::operator __can_net*();
   can_send_func* f = nullptr;
   can_net_get_send_func(net, &f, &send_data_);
   send_func_ = reinterpret_cast<void*>(f);
-  send_tap_ = std::move(tap);
   can_net_set_send_func(net, &Network::SendTapped, this);
+}
+
+void Network::SetSendTap(std::function<void(const can_msg&)> tap) {
+  HookSend();
+  send_tap_ = std::move(tap);
+}
+
+int Network::SendOn(const can_msg& msg) {
+  int r = reinterpret_cast<can_send_func*>(send_func_)(&msg, send_data_);
+  if (!r && send_tap_) send_tap_(msg);
+  return r;
 }
 
 int Network::SendTapped(const can_msg* msg, void* data) {
   auto* self = static_cast<Network*>(data);
-  int r = reinterpret_cast<can_send_func*>(self->send_func_)(msg, self->send_data_);
-  if (!r) self->send_tap_(*msg);
-  return r;
+  if (self->FilterStart(*msg)) return 0;
+  return self->SendOn(*msg);
+}
+
+bool Network::FilterStart(const can_msg& msg) {
+  // Lely starts a slave when its boot ends, and all slaves when the master
+  // starts them at once, before the plugin can send the hold. The plugin's
+  // own STARTs release the hold first, so they pass.
+  if (msg.id != 0 || (msg.flags & (CAN_FLAG_RTR | CAN_FLAG_IDE)) || msg.len < 2 || msg.data[0] != 0x01) return false;
+  uint8_t to = msg.data[1];
+  if (to) {
+    auto it = nodes_.find(to);
+    if (it == nodes_.end() || it->second.run->hold == Hold::None) return false;
+    log_info("%s: no NMT START while it is held", it->second.cfg->label().c_str());
+    return true;
+  }
+  bool held = false;
+  for (const auto& it : nodes_) held |= it.second.run->hold != Hold::None;
+  if (!held) return false;
+  log_info("NMT START to all nodes sent to each node that is not held");
+  for (const auto& it : nodes_) {
+    if (it.second.run->hold != Hold::None) continue;
+    can_msg one = msg;
+    one.data[1] = static_cast<uint8_t>(it.first);
+    SendOn(one);
+  }
+  return true;
 }
 
 void Network::Start() {
+  HookSend();
   // Reset() runs the master's own NMT reset synchronously, which restores its
   // object dictionary from the DCF; the TPDOs are switched off after that and
   // only switched on for nodes that are operational.
@@ -603,9 +639,13 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
     // Lely starts a booted node right away, unless the master may not start
     // nodes, or starts them all at once when it becomes OPERATIONAL itself.
     const MasterConfig& m = cfg_.master;
-    n.node_op = configured_running || (m.start_nodes && (!m.start_all_nodes || master_op_));
+    // A held node is not started (FilterStart drops Lely's START to it).
+    n.node_op = configured_running ||
+                (n.run->hold == Hold::None && m.start_nodes && (!m.start_all_nodes || master_op_));
     if (n.node_op && (static_cast<uint8_t>(st) & 0x7F) != static_cast<uint8_t>(NmtState::START)) StartSent(id, n);
-    SetState(id, n.node_op ? kStateOperational : kStatePreop);
+    SetState(id, n.node_op ? kStateOperational
+                 : n.run->hold == Hold::Stopped ? kStateStopped
+                                                : kStatePreop);
     SetBootError(id, 0);
     // Its EMCY COB-ID is read first in its SDO turn, before the SDO variables.
     n.emcy_read_due = n.cfg->reads_emcy_cob_id();
@@ -757,7 +797,7 @@ void Network::ApplyMasterState(bool lely_started) {
     const MasterConfig& m = cfg_.master;
     if (lely_started && m.start_nodes && m.start_all_nodes)
       for (auto& it : nodes_)
-        if (it.second.cfg->boot && it.second.booted && !it.second.node_op) {
+        if (it.second.cfg->boot && it.second.booted && !it.second.node_op && it.second.run->hold == Hold::None) {
           it.second.node_op = true;
           StartSent(it.first, it.second);
           SetState(it.first, kStateOperational);

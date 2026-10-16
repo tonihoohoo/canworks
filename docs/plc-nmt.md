@@ -57,6 +57,8 @@ reset_all(EXECUTE := reset_request, NODE := 0, COMMAND := 129);  (* RESET NODE t
 
 The command byte, `CO_NMT`, the online view's and `canworks-diag nmt` commands, and the Modbus control block's NMT commands all set the same hold of a configured node, and the command that acted last decides. The command byte acts only when its value changes: a program that holds node 5 with `CO_NMT` while its byte stays at 0 keeps the hold until a START releases it or the byte changes. Use one of the two per node.
 
+A held node never gets NMT START from the master: when it boots it is configured and sent only the hold's command, and when the master starts all nodes at once (`master.start_all_nodes`) the start goes to each node that is not held instead of to all. Its state byte goes from 0 straight to 4 or 127. The log says `no NMT START while it is held` when the master skipped one.
+
 Two holds the program cannot lift:
 
 - The gateway's `on_upper_loss: "stop_nodes"` holds field nodes STOPPED while the upper master is lost; a START from `CO_NMT` to such a node ends with `ERROR_ID` 9 and sends nothing. The gateway starts the node when the upper master is back. STOP and ENTER PRE-OPERATIONAL replace the gateway's hold with the program's.
