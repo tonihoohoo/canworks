@@ -1169,13 +1169,43 @@ function simSummary() {
   return parts.join(" ");
 }
 
-// The banner on every page while anything is simulated.
+// What is simulated in one network, in a few words: "(nodes 5, 6, 7)".
+function netSimShort(net) {
+  if (isSlave(net)) return simNetwork(net) ? "slave" : "";
+  const sim = (net.nodes || []).filter((n) => nodeSimulated(n, net));
+  if (simNetwork(net)) return sim.length ? `${plural(sim, "node", "nodes")} ${nodeIds(sim)}` : "bus only";
+  return sim.length ? `${plural(sim, "node", "nodes")} ${nodeIds(sim)} on the real bus` : "";
+}
+
+// The one-line form (canopen-configurator: "Simulation banner on one line").
+function simShort() {
+  if (!S.config || !S.model) return "";
+  if (!several()) {
+    const t = netSimShort(S.config);
+    return t && (simNetwork(S.config) && !isSlave(S.config) ? `the network (${t})` : t);
+  }
+  return S.model.networks.map((net, i) => [net, i]).filter(([net]) => netSimulates(net))
+    .map(([net, i]) => `${netLabel(net, i)} (${netSimShort(net)})`).join(", ");
+}
+
+const SIM_WARNING = "This configuration must not be uploaded to a machine as it is: its simulated devices control nothing.";
+
+// The banner on every page while anything is simulated: one line, with
+// the full text under Details.
 function updateSimBanner() {
   const b = $("#sim-banner");
   if (!b) return;
   const text = S.state && S.state.mode ? simSummary() : "";
   b.hidden = !text;
-  b.textContent = text ? text + " This configuration must not be uploaded to a machine as it is: its simulated devices control nothing." : "";
+  if (!text) { b.replaceChildren(); b.removeAttribute("aria-label"); return; }
+  const wasOpen = !!b.querySelector("[data-sim=details]:not([hidden])");
+  const full = el("p", { dataset: { sim: "details" }, hidden: wasOpen ? null : true }, text + " " + SIM_WARNING);
+  const toggle = el("button", { type: "button", class: "small", dataset: { sim: "details-toggle" }, "aria-expanded": String(wasOpen),
+    onclick: () => { full.hidden = !full.hidden; toggle.setAttribute("aria-expanded", String(!full.hidden)); toggle.textContent = full.hidden ? "Details" : "Hide details"; } },
+  wasOpen ? "Hide details" : "Details");
+  const line = `Simulated: ${simShort()}. Do not upload it to a machine as it is.`;
+  b.setAttribute("aria-label", line);
+  b.replaceChildren(el("div", { class: "sim-line" }, el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle), full);
 }
 
 // Simulating anything needs online access with Allow changes for the

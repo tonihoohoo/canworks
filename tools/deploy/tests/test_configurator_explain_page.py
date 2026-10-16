@@ -154,7 +154,7 @@ class FrameLab(TraceBase):
         pg.click('[data-fx=examples] .chip:has-text("Heartbeat OPERATIONAL")')
         pg.wait_for_selector("#fx-lab-inspector [data-fx=meaning]:has-text('OPERATIONAL')")
         # The builder: an SDO write with its answer.
-        pg.click("summary:has-text('Build a frame')")
+        pg.click("[data-fx-mode=build]")
         pg.fill("[data-fx-build=index]", "1017")
         pg.select_option("[data-fx-build=op]", "write")
         pg.fill("[data-fx-build=value]", "1000")
@@ -164,7 +164,7 @@ class FrameLab(TraceBase):
         pg.click("[data-fx=built] .chip:nth-of-type(2)")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=meaning]:has-text('confirms')")
         # Arbitration: 0x183 against 0x185.
-        pg.click("summary:has-text('Arbitration')")
+        pg.click("[data-fx-mode=arbitration]")
         pg.fill("[data-fx-arb=arbA]", "185#2500EA00")
         pg.fill("[data-fx-arb=arbB]", "183#01")
         pg.click("[data-fx-arb=go]")
@@ -173,7 +173,8 @@ class FrameLab(TraceBase):
         self.assertIn("up to identifier bit 2", text)
         self.assertIn("(0x183) wins", text)
         self.assertEqual(len(pg.query_selector_all("[data-fx=arbitration] .fx-arbcell.lost")), 1)
-        bad = [u for u in requests if "/api/online" in u or "/api/trace" in u or "/api/sim" in u]
+        # The view settings on this PC (folded layers) are not the trace.
+        bad = [u for u in requests if ("/api/online" in u or "/api/trace" in u or "/api/sim" in u) and "/api/trace/prefs" not in u]
         self.assertEqual(bad, [])
 
     def test_builder_messages_and_network_switch(self):
@@ -186,7 +187,7 @@ class FrameLab(TraceBase):
             json.dump({"schema_version": 2, "networks": [io, line]}, f)
         self.open()
         pg.click('button[data-view="framelab"]')
-        pg.click("summary:has-text('Build a frame')")
+        pg.click("[data-fx-mode=build]")
         pg.fill("[data-fx-build=index]", "zz")
         pg.click("[data-fx-build=go]")
         pg.wait_for_selector("#fx-build-error:has-text(\"index: 'zz' is not a hex number\")")
@@ -197,6 +198,7 @@ class FrameLab(TraceBase):
         pg.click('#tool-tabs button[data-view="network"]')
         tree_net(pg, 1)
         pg.click('button[data-view="framelab"]')
+        pg.click("[data-fx-mode=examples]")
         pg.wait_for_selector("[data-fx=examples] .chip")
         self.assertEqual(pg.input_value("[data-fx=lab-frame]"), "")
         self.assertEqual(pg.locator("#fx-lab-inspector [data-fx=inspector]").count(), 0)

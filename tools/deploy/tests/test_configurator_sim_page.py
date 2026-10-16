@@ -117,7 +117,8 @@ class Base(unittest.TestCase):
                                               " return b ? b.dataset.simBadge : ''; })")
 
     def banner_text(self):
-        return self.page.inner_text("#sim-banner") if self.page.is_visible("#sim-banner") else ""
+        # The full text sits under the one-line banner's Details (frame-lab-usability).
+        return self.page.text_content("#sim-banner [data-sim=details]") if self.page.is_visible("#sim-banner") else ""
 
 
 class Network(Base):

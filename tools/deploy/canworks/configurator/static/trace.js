@@ -17,6 +17,7 @@ const TRACE_STATES = { idle: "not recording", connecting: "connecting…", recor
 const TRACE_TABS = [["ids", "By identifier"], ["frames", "Chronological"], ["graph", "Graph"], ["sequences", "Sequences"],
   ["trigger", "Trigger"]];
 const SPLIT_WIDE = 1280;  // the inspector sits beside the list from this window width, under it below
+const SPLIT_PHONE = 640;  // below this the list and the inspector stack on the page instead of sharing its height
 const ROW_H = 22;
 const MAX_SCROLL_PX = 4000000;
 const LANES = 4;
@@ -433,28 +434,35 @@ function renderTraceTab() {
 
 // The list or table beside (wide) or over (narrow) the inspector, with a
 // split the user drags or moves with the arrow keys (canopen-configurator:
-// "Docked inspector and transmit pane"). Returns the view's half.
+// "Docked inspector and transmit pane"). The inspector closes with its ✕ or
+// Esc and leaves a rail that opens it again ("Close and reopen the
+// inspector"). Returns the view's half.
 function traceSplit(box) {
   const view = el("div", { class: "trace-split-view" });
-  const insp = el("div", { id: "trace-inspector", class: "fx-host trace-split-insp", dataset: { trace: "inspector" } },
+  const body = el("div", { id: "trace-inspector", class: "fx-host trace-insp-body", tabindex: "-1", dataset: { trace: "inspector" } },
     el("p", { class: "muted" }, "Select a frame to see what every bit of it means."));
+  const close = el("button", { type: "button", class: "small icon-button trace-insp-close", dataset: { trace: "inspector-toggle" },
+    title: "Close the inspector (Esc)", "aria-label": "Close the inspector", onclick: () => traceInspector(false, true) }, "✕");
+  const pane = el("section", { class: "trace-split-insp", "aria-label": "Frame inspector", dataset: { trace: "inspector-pane" } },
+    el("div", { class: "trace-insp-head" }, el("h3", null, "Inspector"), close), body);
+  const rail = el("button", { type: "button", class: "trace-insp-rail", dataset: { trace: "inspector-rail" }, "aria-expanded": "false",
+    title: "Open the inspector", onclick: () => traceInspector(true) }, el("span", null, "Inspector"));
   const handle = el("div", { class: "trace-split-handle", role: "separator", tabindex: "0", "aria-label": "Resize the inspector",
     "aria-orientation": "vertical", "aria-valuemin": "15", "aria-valuemax": "85", "aria-valuenow": String(T.split), dataset: { trace: "split" } });
-  const close = el("button", { type: "button", class: "small trace-insp-toggle", dataset: { trace: "inspector-toggle" },
-    "aria-expanded": String(T.inspector), onclick: () => {
-      T.inspector = !T.inspector;
-      tracePrefs({ inspector: T.inspector });
-      apply();
-    } });
-  const split = el("div", { class: "trace-split", dataset: { trace: "split-box" } }, view, handle, insp);
+  const split = el("div", { class: "trace-split", dataset: { trace: "split-box" } }, view, handle, pane, rail);
   const apply = () => {
     split.classList.toggle("no-insp", !T.inspector);
-    close.textContent = T.inspector ? "Hide inspector" : "Show inspector";
-    close.setAttribute("aria-expanded", String(T.inspector));
     split.style.setProperty("--insp", T.split + "%");
     handle.setAttribute("aria-valuenow", String(Math.round(T.split)));
     handle.setAttribute("aria-orientation", window.innerWidth >= SPLIT_WIDE ? "vertical" : "horizontal");
+    traceFitSplit();
   };
+  T.applySplit = apply;
+  pane.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.target.closest("input, select, textarea, details.menu[open]")) return;
+    e.preventDefault();
+    traceInspector(false, true);
+  });
   const set = (v) => { T.split = Math.max(15, Math.min(85, Math.round(v))); apply(); };
   let saveTimer = null;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => tracePrefs({ split: T.split }), 300); };
@@ -478,10 +486,56 @@ function traceSplit(box) {
     set(T.split + d);
     save();
   });
+  box.append(split);
   apply();
-  box.append(el("div", { class: "trace-split-bar" }, close), split);
   return view;
 }
+
+// Opens or closes the docked inspector; `back` puts the focus on the list
+// that holds the selected row (Esc and ✕) or, opening, on the inspector.
+function traceInspector(open, back) {
+  if (T.inspector === open) return;
+  T.inspector = open;
+  tracePrefs({ inspector: open });
+  if (T.applySplit) T.applySplit();
+  if (open) {
+    if (T.selected != null && $("#trace-inspector")) fxInspectSeq(T.selected);
+    const c = document.querySelector("[data-trace=inspector-toggle]");
+    if (c && back) c.focus({ preventScroll: true });
+  } else if (back) {
+    const list = $("#trace-list") || $("#ids-grid");
+    if (list) list.focus({ preventScroll: true });
+  }
+}
+
+// Below SPLIT_WIDE the list and the inspector share the window height under
+// the split's top, each scrolling on its own; the page scrolls so the split
+// starts at the top of the window the first time a frame is picked.
+function traceFitSplit() {
+  const split = document.querySelector("[data-trace=split-box]");
+  if (!split) return;
+  const narrow = window.innerWidth < SPLIT_WIDE && window.innerWidth >= SPLIT_PHONE;
+  split.classList.toggle("shared-height", narrow);
+}
+
+function traceRevealSplit() {
+  const split = document.querySelector("[data-trace=split-box]");
+  if (!split || !T.inspector) return;
+  if (window.innerWidth < SPLIT_PHONE) {
+    const insp = $("#trace-inspector");
+    if (insp) insp.scrollIntoView({ block: "start" });
+    return;
+  }
+  if (window.innerWidth >= SPLIT_WIDE) return;
+  const top = split.getBoundingClientRect().top;
+  // Under the sticky header, and under the message banner while it shows.
+  let head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 0;
+  const b = $("#banner");
+  if (b && !b.hidden && b.offsetParent !== null) head += b.offsetHeight;
+  if (top > head + 4 || top < head - 4) window.scrollBy(0, top - head);
+}
+
+window.addEventListener("resize", () => { if (T.applySplit) T.applySplit(); });
 
 // Send…: the frame becomes a row of the transmit list; nothing is sent.
 function traceSendTo(frame) {
@@ -664,6 +718,7 @@ function renderFrames(box) {
     list,
     el("div", { class: "toolbar", id: "trace-row-actions" }));
   list.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && T.selectedRow && T.selectedRow.seq === T.selected) { e.preventDefault(); selectRow(T.selectedRow, true); return; }
     const page = Math.max(1, Math.floor(list.clientHeight / ROW_H) - 1);
     const step = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -Infinity, End: Infinity }[e.key];
     if (step === undefined) return;
@@ -771,7 +826,7 @@ function drawRows(r) {
   const shown = r.rows.slice(skip);
   rows.replaceChildren(...shown.map((x) => {
     const cls = ["trace-row", "k-" + x.kind, x.seq === T.selected ? "selected" : "", x.dir === "Tx" ? "tx" : ""].join(" ");
-    return el("div", { class: cls, dataset: { seq: x.seq, t: x.t_us }, onclick: () => selectRow(x) },
+    return el("div", { class: cls, dataset: { seq: x.seq, t: x.t_us }, onclick: () => selectRow(x, true) },
       el("span", null, timeText(x.t_us)), el("span", null, x.gap ? "" : x.dir),
       el("span", null, x.gap ? "" : x.err ? "ERR" : x.id + (x.rtr ? " R" : "")),
       el("span", null, x.gap || x.err ? "" : String(x.dlc)), el("span", { class: "mono" }, x.data),
@@ -787,13 +842,17 @@ function drawRows(r) {
   }
 }
 
-function selectRow(x) {
+// `open`: a click or Enter, which opens a closed inspector; the arrow keys
+// move the selection without opening it.
+function selectRow(x, open) {
   T.selected = x.seq;
   T.selectedUs = x.t_us;
   T.selectedRow = x;
   for (const r of document.querySelectorAll("#trace-rows .trace-row")) r.classList.toggle("selected", Number(r.dataset.seq) === x.seq);
   rowActions();
-  fxInspectSeq(x.seq);
+  if (open && !T.inspector) traceInspector(true);
+  else if (T.inspector) fxInspectSeq(x.seq);
+  if (open) traceRevealSplit();
 }
 
 function rowActions() {
