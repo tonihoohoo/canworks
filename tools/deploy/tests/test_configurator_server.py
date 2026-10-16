@@ -1372,3 +1372,70 @@ class Folders(Running):
         changed = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
         self.assertEqual(len(before.splitlines()), len(after.splitlines()))
         self.assertEqual(changed, [('        "heartbeat_ms": 100,', '        "heartbeat_ms": 150,')])
+
+
+class CommissionNotes(Running):
+    """Notes written at once in Commission a device (notes-row-pick-and-commission-notes)."""
+
+    def setUp(self):
+        super().setUp()
+        self.lib = os.path.join(self.dir, "eds-lib")
+        os.makedirs(self.lib)
+        shutil.copy(os.path.join(RTD, "rtd8.eds"), self.lib)
+        self.eds_path = os.path.join(self.lib, "rtd8.eds")
+        self.notes = self.eds_path + ".notes.json"
+        self.ok("POST", "/api/commission", {})
+        self.ok("POST", "/api/online/settings", {"eds_library": self.lib})
+
+    def write(self, **body):
+        return self.request("POST", "/api/notes/write", dict({"eds_path": self.eds_path}, **body))
+
+    def test_write_and_undo(self):
+        status, data, _ = self.write(changes={"0x2000:2": {"text": "Delay before the first reading", "unit": "ms"}})
+        self.assertEqual(status, 200, data)
+        self.assertEqual((data["file"], data["previous"]), ("rtd8.eds.notes.json", None))
+        self.assertTrue(data["notes"]["editable"])
+        doc = json.loads(read(self.notes))
+        # A new file starts from the skeleton, as Save does.
+        self.assertEqual(doc["objects"]["0x2000:2"], {"name": "Start delay ms", "text": "Delay before the first reading",
+                                                      "unit": "ms"})
+        self.assertEqual(doc["objects"]["0x2000:1"], {"name": doc["objects"]["0x2000:1"]["name"]})
+        self.assertEqual(data["notes"]["device"]["0x2000:2"]["unit"], "ms")
+        first = read(self.notes).decode()
+        status, data, _ = self.write(changes={"0x2000:2": {"unit": "s"}})
+        self.assertEqual(data["previous"], first)
+        self.assertEqual(json.loads(read(self.notes))["objects"]["0x2000:2"], {"name": "Start delay ms", "unit": "s"})
+        # Undo puts the earlier file back; undo of the first write removes the file.
+        self.assertEqual(self.write(restore=True, text=first)[0], 200)
+        self.assertEqual(read(self.notes).decode(), first)
+        status, data, _ = self.write(restore=True, text=None)
+        self.assertEqual((status, data["previous"]), (200, first))
+        self.assertFalse(os.path.exists(self.notes))
+
+    def test_import_preview_against_the_library_file(self):
+        self.write(changes={"0x2000:2": {"unit": "ms"}})
+        text = json.dumps({"format": "canworks-notes.v1", "objects": {"0x2000:2": {"unit": "ms"}, "0x2000:1": {"text": "Filter"}}})
+        status, data, _ = self.request("POST", "/api/import_notes", {"eds_path": self.eds_path, "file": "a.notes.json",
+                                                                      "text": text})
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["preview"]["new"], ["0x2000:1"])
+        self.assertEqual(data["preview"]["same"], ["0x2000:2"])
+        self.assertEqual(data["changes"], {"0x2000:1": {"text": "Filter"}})
+
+    def test_refused_outside_the_library_or_without_commission(self):
+        other = os.path.join(self.dir, "rtd8.eds")
+        shutil.copy(self.eds_path, other)
+        status, data, _ = self.request("POST", "/api/notes/write", {"eds_path": other, "changes": {"0x2000:2": {"unit": "ms"}}})
+        self.assertEqual(status, 403, data)
+        self.assertEqual(self.write(changes={})[0], 400)
+        self.assertEqual(self.write(restore=True, text="{ nope")[0], 422)
+        self.open_project()
+        self.assertEqual(self.write(changes={"0x2000:2": {"unit": "ms"}})[0], 409)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_read_only_folder(self):
+        os.chmod(self.lib, 0o555)
+        self.addCleanup(os.chmod, self.lib, 0o755)
+        status, data, _ = self.write(changes={"0x2000:2": {"unit": "ms"}})
+        self.assertEqual(status, 422, data)
+        self.assertIn("cannot be written", data["error"])

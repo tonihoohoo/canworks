@@ -125,7 +125,7 @@ A notes file that is not valid JSON or has another `format` SHALL give one warni
 - **THEN** one warning says the notes file cannot be read, no device notes are shown for `valve.eds`, and saving the project leaves the file as it is
 
 ### Requirement: Import notes
-**Import notes…** on the Notes tab SHALL read a notes file in the `canworks-notes.v1` format, a merged export included, and add its notes to the node's EDS's device notes. Fields equal to the built-in note and `name` SHALL NOT be imported. A `null` field SHALL be imported when the note it lands on has that field (built-in, inherited or the user's own) and SHALL count as the same otherwise. Each imported entry's fields SHALL replace those fields of the existing entry and keep its other fields. The import SHALL be one draft edit: undoable, marking the draft unsaved, and written by Save. A merged export SHALL NOT contain `null` fields.
+**Import notes…** on the Notes tab SHALL read a notes file in the `canworks-notes.v1` format, a merged export included, and add its notes to the node's EDS's device notes. Fields equal to the built-in note and `name` SHALL NOT be imported. A `null` field SHALL be imported when the note it lands on has that field (built-in, inherited or the user's own) and SHALL count as the same otherwise. Each imported entry's fields SHALL replace those fields of the existing entry and keep its other fields. With a config open, the import SHALL be one draft edit: undoable, marking the draft unsaved, and written by Save. In "Commission a device" the import SHALL be written at once to the notes file next to the EDS, as one step that Undo puts back. A merged export SHALL NOT contain `null` fields.
 
 #### Scenario: Re-import a merged export
 - **WHEN** the user imports a merged export of the same EDS into a project whose notes file is empty
@@ -138,6 +138,10 @@ A notes file that is not valid JSON or has another `format` SHALL give one warni
 #### Scenario: Import a cleared unit
 - **WHEN** the imported file has `"0x6071": {"unit": null}` and the built-in note of 0x6071 has a unit
 - **THEN** the preview lists 0x6071 as new, and after Import the unit is gone from 0x6071 sub 0
+
+#### Scenario: Import while commissioning a device
+- **WHEN** in "Commission a device" the user imports a notes file with three new notes for node 12's EDS and presses Import in the preview
+- **THEN** the notes file next to the EDS has the three notes, and Undo removes them again
 
 ### Requirement: Import preview
 Before an import changes anything, the configurator SHALL check the file against the schema and the node's EDS and show the number of new notes, changed notes, notes already the same, and entries skipped because the EDS has no such object, each listed by object. A different EDS identity SHALL be a warning in the preview, not a refusal. A file that is not valid JSON or has another `format` SHALL be refused with a message saying so.
@@ -280,3 +284,14 @@ From a manual for several buses, objects marked for another bus only SHALL NOT b
 #### Scenario: Manual for two buses
 - **WHEN** a CANopen and EtherCAT manual marks 0x3B61 as EtherCAT only and the CANopen EDS lacks it, and marks 0x3B60 as EtherCAT only while the EDS has it
 - **THEN** 0x3B61 is not a difference, and 0x3B60 is a row of the difference table
+
+### Requirement: Notes go with the EDS into a config
+When "Add to a config…" adds a node from "Commission a device" to a config, the notes file next to the node's EDS SHALL be copied with the EDS when the config has no notes file for that EDS. When the config already has one, it SHALL be kept unchanged and the configurator SHALL say that the commissioning notes were not copied and can be imported on the Notes tab.
+
+#### Scenario: Notes written while commissioning reach the config
+- **WHEN** the user wrote notes for node 12 in "Commission a device" and adds node 12 to a config that does not yet use its EDS
+- **THEN** the config's canopen folder has the EDS and its notes file, and node 12's Notes tab in the config lists the notes under My notes
+
+#### Scenario: Config already has notes
+- **WHEN** the config already has a notes file for that EDS
+- **THEN** that file is unchanged and a message says the commissioning notes can be imported on the Notes tab

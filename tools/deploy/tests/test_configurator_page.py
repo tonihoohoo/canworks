@@ -832,6 +832,57 @@ class Page(unittest.TestCase):
                                                         "values": {"1": "two-wire", "30": "four-wire"}})
         self.assertEqual(notes["eds"]["file"], "rtd8.eds")
 
+    def test_note_picker_rows(self):
+        # The Add note picker (notes-row-pick-and-commission-notes): a click
+        # on a row picks it, the arrow keys move between rows, and nothing
+        # needs a sideways scroll at 1000 px.
+        pg = self.page
+        pg.set_viewport_size({"width": 1000, "height": 800})
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.fill("nodes[0].node_id", "5")
+        node_tab(pg, "notes")
+        pg.click("button[data-add-note]")
+        pg.wait_for_selector("#modal [data-note-pick-row]")
+        self.assertTrue(pg.evaluate("""() => { const l = document.querySelector('#modal .note-picker-list');
+            return l.scrollWidth <= l.clientWidth + 1; }"""))
+        self.assertRegex(pg.locator("#modal button[data-note-pick]").first.get_attribute("aria-label"),
+                         r"^(Write a note for|Edit the note of) 0x1000:0 ")
+        pg.fill("#modal [data-note-picker-filter]", "1018")
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("ArrowDown")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.notePick"), "0x1018:1")
+        pg.keyboard.press("ArrowUp")
+        pg.keyboard.press("ArrowUp")
+        self.assertEqual(pg.evaluate("() => document.activeElement.dataset.notePickerFilter"), "1")
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("ArrowDown")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector('#modal .note-editor[data-note-editor="0x1018:1"]')
+        pg.click('#modal button[data-value="cancel"]')
+        pg.click("button[data-add-note]")
+        pg.fill("#modal [data-note-picker-filter]", "2000")
+        pg.click('#modal tr[data-note-pick-row="0x2000:2"] td:nth-child(3)')
+        pg.wait_for_selector('#modal .note-editor[data-note-editor="0x2000:2"]')
+        pg.fill('#modal [data-note-field="text"]', "Delay")
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector('[data-note-row="0x2000:2"][data-note-source="mine"]')
+        # The Notes tab's row opens its note on a click, too.
+        pg.click('[data-note-row="0x2000:2"] td:nth-child(2)')
+        pg.wait_for_selector('#modal .note-editor[data-note-editor="0x2000:2"]')
+        pg.click('#modal button[data-value="cancel"]')
+        # Notes written while commissioning a device go with it into a config
+        # as unsaved edits, unless the config has notes of its own for the EDS.
+        pg.evaluate("""() => carryNotes('rtd8.eds', { '0x2000:1': { text: 'Filter' } })""")
+        pg.wait_for_selector("#banner [data-notes-carried]")
+        self.assertEqual(pg.evaluate("() => S.model.notes['rtd8.eds']['0x2000:1']"), {"text": "Filter"})
+        self.save()
+        pg.evaluate("""() => carryNotes('rtd8.eds', { '0x2000:3': { text: 'Other' } })""")
+        pg.wait_for_selector("#banner [data-notes-kept]")
+        self.assertNotIn("0x2000:3", load(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"))["objects"])
+        self.assertIsNone(pg.evaluate("() => ((S.model.notes || {})['rtd8.eds'] || {})['0x2000:3'] || null"))
+
     def test_note_editor_hides_builtin_field(self):
         # Emptying a built-in field in the Note editor hides it (null in the
         # notes file); Use built-in brings it back (clear-builtin-note-fields).

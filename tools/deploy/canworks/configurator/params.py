@@ -199,25 +199,39 @@ def context(session, body, node, library=""):
                 return ctx
     path = body.get("eds_path")
     if isinstance(path, str) and path:
-        with session.lock:
-            canopen_dir, pending_dir = session.canopen_dir, session.pending_dir
-            if not os.path.isabs(path):
-                path = session.eds_path(path)
-        real = os.path.realpath(path)
-        # pending_dir: EDS files picked in this page and not saved yet; case ignored on Windows
-        roots = [os.path.normcase(os.path.realpath(r)) for r in (canopen_dir, pending_dir, library) if r]
-        if not any(os.path.normcase(real).startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
-            raise Refused(403, "only EDS files in the project's canopen folder or the EDS library can be used")
+        real, notes_at = eds_file(session, path, library)
         try:
             ctx = P.node_context(node, eds_path=real)
         except (OSError, P.ParameterError) as e:
             raise Refused(422, str(e))
         ctx.eds_name = os.path.basename(real)
-        ctx.notes_eds_path = None if real.startswith(os.path.realpath(pending_dir) + os.sep) else real
+        ctx.notes_eds_path = notes_at
         return ctx
     if body.get("standard") is True:
         return standard_context(body, node)
     raise Refused(422, "node %d has no EDS: add it to the configuration, or open it from the scan with its EDS" % node)
+
+
+def eds_file(session, path, library=""):
+    """(real path, where its notes file goes or None) of an EDS file a page
+    names for a scanned node: one in the project's canopen folder, the EDS
+    library, or picked in this page and not saved yet (pending). A pending
+    EDS of a config gets its notes through the draft (None here); in
+    Commission a device, which has no Save, its notes go next to its name in
+    the commissioning folder."""
+    with session.lock:
+        canopen_dir, pending_dir = session.canopen_dir, session.pending_dir
+        if not os.path.isabs(path):
+            path = session.eds_path(path)
+    real = os.path.realpath(path)
+    # pending_dir: EDS files picked in this page and not saved yet; case ignored on Windows
+    roots = [os.path.normcase(os.path.realpath(r)) for r in (canopen_dir, pending_dir, library) if r]
+    if not any(os.path.normcase(real).startswith(r + os.sep) for r in roots) or not os.path.isfile(real):
+        raise Refused(403, "only EDS files in the project's canopen folder or the EDS library can be used")
+    if os.path.normcase(real).startswith(os.path.normcase(os.path.realpath(pending_dir)) + os.sep):
+        with session.lock:
+            return real, session.notes_eds_path(os.path.basename(real)) if session.commission else None
+    return real, real
 
 
 def _count(body, key):
@@ -477,7 +491,10 @@ def handle(route, body, session, conn, jobs, client, node, library, host):
         raise Refused(409, "%s needs a master network: a slave network reads and writes only its own dictionary"
                       % path.replace("_", " "))
     if path == "od_entries":
-        return entries_json(ctx)
+        out = entries_json(ctx)
+        if session.commission:  # notes are written at once there (no Save)
+            out["notes"].update(notes_mod.access(getattr(ctx, "notes_eds_path", None), out["notes"]))
+        return out
     if getattr(ctx, "standard", False) and path not in ("od_read",):
         raise Refused(422, "%s needs the device's EDS: pick it for node %d" % (path.replace("_", " "), node))
     if path == "od_read":

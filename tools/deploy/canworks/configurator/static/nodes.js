@@ -526,17 +526,31 @@ function commNotesEds(id, n) {
   return [name, name ? (S.state.eds || {})[name] : null];
 }
 
+// The Notes tab's label: in Commission a device the count of the user's
+// notes in the notes the object dictionary was read with.
+function commNotesLabel(id, n) {
+  if (!S.state.commission) return notesTabLabel(...commNotesEds(id, n));
+  const c = (S.odEntries || {})[id];
+  const device = c && c.data && c.data.notes && !c.data.notes.error ? c.data.notes.device || {} : {};
+  const k = Object.values(device).filter(noteFilled).length;
+  return k ? `Notes ${k}` : "Notes";
+}
+
 function commNotesTab(id, n) {
   const [name, eds] = commNotesEds(id, n);
-  if (name && eds) return nodeNotesTab({ eds: name }, eds);
+  // With a config: the config's EDS, edited in the draft and written by Save.
+  if (name && eds && !S.state.commission) return nodeNotesTab({ eds: name }, eds);
   const none = () => el("p", { class: "muted", dataset: { nodeNotes: "1" } }, "No notes: this node has no EDS on this page yet (pick one in the Nodes table).");
   if (!name) return none();
-  // No config EDS: the notes the object dictionary is read with (read-only).
+  // Commission a device: the notes the object dictionary is read with,
+  // written at once to the notes file next to the EDS (there is no Save).
   const box = el("div", null, el("p", { class: "muted" }, "Loading…"));
   odEntries(id).then((data) => {
     if (!data || !data.notes || !data.entries) { box.replaceChildren(none()); return; }
     const objects = data.entries.map((e) => ({ index: hex4(e.index), subindex: e.subindex, name: e.sub_name || e.name, var: e.object_type === "VAR" }));
-    box.replaceChildren(nodeNotesTab({ eds: name }, { objects }, data.notes));
+    const src = odSource(id);
+    const live = S.state.commission && src.eds_path ? { id, path: src.eds_path, block: data.notes } : null;
+    box.replaceChildren(nodeNotesTab({ eds: name }, { objects }, live ? null : data.notes, live));
   }).catch(() => box.replaceChildren(none()));
   return box;
 }

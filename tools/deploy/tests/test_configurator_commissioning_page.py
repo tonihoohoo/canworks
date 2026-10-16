@@ -126,14 +126,67 @@ class PdoTestPage(Page):
         self.open_node(23, "pdo", "fixed-io.eds", allow=False)
         pg.wait_for_selector('[data-online="pdo-no-changes"]')
         self.assertTrue(pg.is_disabled('button[data-online="pdo-start"]'))
-        # Notes without a config: shown and exportable, not written or imported.
+
+
+class NotesPage(Page):
+    def test_notes_written_at_once(self):
+        # Commission a device has the configurator's Notes tab; with no Save
+        # there, a note is written at once next to the EDS, logged, and
+        # undone by Ctrl+Z (notes-row-pick-and-commission-notes).
+        pg = self.page
+        od, ro = rtd_od(5)
+        self.device(5, od=od, ro=ro, identity=IDENTITY, heartbeat_s=0.1)
+        self.open_node(5, "notes", "rtd8.eds")
+        pg.wait_for_selector("[data-node-notes] [data-notes-live]:has-text('rtd8.eds.notes.json')")
+        notes = os.path.join(pg.evaluate("() => S.state.canopen_dir"), "rtd8.eds.notes.json")
+        self.assertFalse(os.path.exists(notes))
+        # Add note…: a click on the row's name picks the object.
+        pg.click("[data-node-notes] button[data-add-note]")
+        pg.fill("#modal [data-note-picker-filter]", "2000:2")
+        pg.click('#modal tr[data-note-pick-row="0x2000:2"] td:nth-child(2)')
+        pg.wait_for_selector('#modal .note-editor[data-note-editor="0x2000:2"]')
+        pg.fill('#modal [data-note-field="text"]', "Delay before the first reading")
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector('[data-note-row="0x2000:2"][data-note-source="mine"]')
+        self.assertEqual(load(notes)["objects"]["0x2000:2"], {"name": "Start delay ms", "text": "Delay before the first reading"})
+        pg.wait_for_selector("#banner [data-notes-undo]")
+        self.assertEqual(pg.inner_text('button[data-online-tab="notes"]').strip(), "Notes 1")
+        self.assertIn("Note 0x2000:2", pg.evaluate("() => S.commLog.map((e) => e.what).join(\"\\n\")"))
+        audit(pg, "Commission notes tab")
+        # The Object dictionary tab shows the new note.
+        pg.click('button[data-online-tab="od"]')
+        pg.wait_for_selector('[data-note="text"]:has-text("Delay before the first reading")', state="attached")
+        # Ctrl+Z puts the file back as it was (here: none).
         pg.click('button[data-online-tab="notes"]')
-        pg.wait_for_selector("[data-notes-readonly]:has-text('open the device in a config')")
-        self.assertEqual(pg.locator("[data-node-notes] button[data-add-note], [data-node-notes] button[data-import-notes], "
-                                    "[data-node-notes] button[data-note-edit]").count(), 0)
-        self.assertTrue(pg.is_visible("[data-node-notes] button[data-export-notes]"))
+        pg.wait_for_selector('[data-note-row="0x2000:2"]')
+        pg.click("[data-online=node-heading]")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_selector('[data-notes-empty="mine"]')
+        self.assertFalse(os.path.exists(notes))
+        self.assertIn("Undo: Note 0x2000:2", pg.evaluate("() => S.commLog.map((e) => e.what).join(\"\\n\")"))
+        # A row of the Notes tab opens its note on a click.
         pg.click('[data-notes-view-pick="all"]')
-        pg.wait_for_selector('[data-note-row="0x1017:0"][data-note-source="builtin"]')
+        pg.click('[data-note-row="0x1017:0"] td:nth-child(3)')
+        pg.wait_for_selector('#modal .note-editor[data-note-editor="0x1017"]')
+        pg.click('#modal button[data-value="cancel"]')
+        # Import: the preview, then written at once.
+        path = os.path.join(self.dir, "colleague.notes.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"format": "canworks-notes.v1", "objects": {"0x2000:2": {"unit": "ms"}}}, f)
+        pg.click("[data-node-notes] button[data-import-notes]")
+        pg.set_input_files("#modal [data-import-notes-file]", path)
+        pg.click('#modal button[data-value="next"]')
+        pg.wait_for_selector("#modal [data-import-preview]")
+        pg.click('#modal button[data-value="import"]')
+        pg.wait_for_selector('[data-note-row="0x2000:2"][data-note-source="mine"]')
+        self.assertEqual(load(notes)["objects"]["0x2000:2"]["unit"], "ms")
+        # Export of one's own notes.
+        pg.click("[data-node-notes] button[data-export-notes]")
+        with pg.expect_download() as dl:
+            pg.click('#modal button[data-value="own"]')
+        self.assertEqual(dl.value.suggested_filename, "rtd8.eds.notes.json")
+        with open(dl.value.path(), encoding="utf-8") as f:
+            self.assertEqual(list(json.load(f)["objects"]), ["0x2000:2"])
 
 
 class FrameLabPage(Page):

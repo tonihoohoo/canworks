@@ -773,6 +773,75 @@ class Session:
                     names[k] = o.name
         return {"changes": out, "preview": preview, "names": names, "warnings": warnings}
 
+    def _commission_notes(self, eds_path):
+        """(EDS, its name, its text, where its notes file goes) of the EDS a
+        node of Commission a device uses; refused when its notes cannot be
+        written there (notes are written at once, there is no Save)."""
+        if not self.commission:
+            raise ApiError(409, "notes are written at once only in Commission a device; use Save in a config")
+        if not isinstance(eds_path, str) or not eds_path:
+            raise ApiError(400, "eds_path must name the node's EDS file")
+        try:
+            real, notes_at = params.eds_file(self, eds_path, online.Settings(config_dir()).eds_library)
+        except params.Refused as e:
+            raise ApiError(e.status, str(e))
+        name = os.path.basename(real)
+        try:
+            eds = Eds.read(real)
+            with open(real, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except (OSError, EdsError) as e:
+            raise ApiError(422, "EDS file %s cannot be read: %s" % (name, e))
+        block = notes_mod.Notes.for_eds(eds, name, notes_at).to_json()
+        why = notes_mod.access(notes_at, block)
+        if not why["editable"]:
+            raise ApiError(422, "the notes of %s cannot be written: %s" % (name, why["why"]))
+        return eds, name, text, notes_at
+
+    def write_notes(self, eds_path, changes=None, restore=False, text=None):
+        """POST /api/notes/write (Commission a device): the page's changes
+        written at once to the notes file next to the node's EDS, or an
+        earlier text put back (Undo). Returns the notes block as od_entries
+        gives it, the file's name and its text before."""
+        eds, name, eds_text, notes_at = self._commission_notes(eds_path)
+        if not restore and (not isinstance(changes, dict) or not changes):
+            raise ApiError(400, "changes must be {key: note}")
+        if restore and text is not None and not isinstance(text, str):
+            raise ApiError(400, "text must be the notes file's text or null")
+        try:
+            before = notes_mod.write(eds, name, eds_text, notes_at, changes, restore, text)
+        except notes_mod.NotesError as e:
+            raise ApiError(422, str(e))
+        except OSError as e:
+            raise ApiError(422, "%s cannot be written: %s" % (notes_mod.notes_path(notes_at), e.strerror or e))
+        block = notes_mod.Notes.for_eds(eds, name, notes_at).to_json()
+        block.update(notes_mod.access(notes_at, block))
+        return {"notes": block, "file": os.path.basename(notes_mod.notes_path(notes_at)),
+                "path": notes_mod.notes_path(notes_at), "previous": before}
+
+    def import_notes_commission(self, eds_path, text, file_name):
+        """Import notes… in Commission a device: the preview of a notes file
+        against the node's EDS and its notes file; the page writes the
+        changes with write_notes."""
+        eds, name, eds_text, notes_at = self._commission_notes(eds_path)
+        file_name = os.path.basename(file_name or "") or "the file"
+        if not isinstance(text, str):
+            raise ApiError(422, "no file text")
+        doc, error = notes_mod.load_text(text, file_name)
+        if error:
+            raise ApiError(422, "%s is not a canworks notes file (%s); nothing was imported"
+                           % (file_name, error.split(": ", 1)[-1] if error.startswith(file_name) else error))
+        n = notes_mod.Notes.for_eds(eds, name, notes_at)
+        out, preview, warnings = notes_mod.plan_import(eds, n, doc, notes_mod.identity(name, text=eds_text))
+        names = {}
+        for keys in preview.values():
+            for k in keys:
+                pk = notes_mod.parse_key(k)
+                o = eds.find(pk[0], pk[1] or 0) if pk else None
+                if o is not None and o.name:
+                    names[k] = o.name
+        return {"changes": out, "preview": preview, "names": names, "warnings": warnings}
+
     def eds_paths(self, cfg):
         """{eds value: path} of every node of every network, and of every
         slave network's own EDS."""
@@ -2221,6 +2290,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_notes"):
                     self._need_open(s)
                     out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"), body.get("own") is True)
+                elif route == ("POST", "/api/import_notes") and s.commission:
+                    out = s.import_notes_commission(body.get("eds_path"), body.get("text"), body.get("file"))
+                elif route == ("POST", "/api/notes/write"):
+                    self._need_open(s)
+                    out = s.write_notes(body.get("eds_path"), body.get("changes"), body.get("restore") is True,
+                                        body.get("text"))
                 elif route == ("POST", "/api/import_notes"):
                     self._need_open(s)
                     out = s.import_notes(body.get("config"), body.get("eds"), body.get("text"), body.get("file"), body.get("notes"))
