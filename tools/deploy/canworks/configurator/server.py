@@ -2571,17 +2571,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             node = node_arg()
             client = params.Client(conn, hostname, port, token, network, False)
             try:
-                values, dtype = params.pdo_values(client, node)
+                values, dtype, failed = params.pdo_values(client, node)
             except diag.DiagError as e:
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind)
+            # Each PDO with a valid COB-ID and whether its frames now decode,
+            # with why not (canopen-configurator: "Result of a PDO layout read").
+            pdos = tracing.read_result(node, values, dtype, failed)
             ws = self.server.traces.get(folder)
-            ws.add_device_read(node, values, dtype)
-            pdos = {}
-            for (index, sub), v in values.items():
-                if sub == 1 and (0x1400 <= index < 0x1600 or 0x1800 <= index < 0x1A00) and not v & 0x80000000:
-                    pdos["%s%d" % ("TPDO" if index >= 0x1800 else "RPDO", (index & 0x1FF) + 1)] = v & 0x7FF
-            return {"node": node, "pdos": [{"name": k, "cob_id": v} for k, v in sorted(pdos.items())],
-                    "device_type": dtype}
+            ws.add_device_read(node, values, dtype, pdos)
+            return {"node": node, "pdos": pdos, "device_type": dtype}
         if route in params.ROUTES:
             node = None if route[1].endswith("/job") else node_arg()
             watch = self.server.watch

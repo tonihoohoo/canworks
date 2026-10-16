@@ -197,6 +197,8 @@ class Workspace:
         # "Automatic PDO layout reads in Commission a device"): [(node, values,
         # device type, time on the trace's axis or None before the recording)].
         self.device_reads = []
+        # The last read's result per node: {node: (read_result(...), time or None)}.
+        self.read_results = {}
 
     def _replace(self, session, source, warnings):
         self.session, self.source, self.warnings = session, source, list(warnings)
@@ -265,15 +267,18 @@ class Workspace:
         for nid, values, dtype, _t in self.device_reads:
             decoder.add_device_values(nid, values, -1, dtype)
 
-    def add_device_read(self, nid, values, dtype=None):
+    def add_device_read(self, nid, values, dtype=None, result=None):
         """PDO objects read from device `nid` now: they decode its frames
-        recorded from now on (a live recording only, not an opened file)."""
+        recorded from now on (a live recording only, not an opened file).
+        result: read_result() of the read, shown in the Decoding panel."""
         with self.lock:
             live = self.source == "live"
             s = self.session
             t = self._now_us() if live and len(s.trace) else None
             self.device_reads = [r for r in self.device_reads if r[0] != nid]
             self.device_reads.append((nid, values, dtype, t))
+            if result is not None:
+                self.read_results[nid] = (result, t)
         if live:
             with s.lock:
                 s.decoder.add_device_values(nid, values, t if t is not None else -1, dtype)
@@ -309,12 +314,13 @@ class Workspace:
         EDS and PDO layout source."""
         with self.lock:
             s = self.session
+            results = dict(self.read_results) if self.source in (None, "live") else {}
         with s.lock:
             dec = s.decoder
             heard = {n for n in s.analysis.nodes if n}
             configured = dec.configured_nodes() if hasattr(dec, "configured_nodes") else set()
             nodes = []
-            ids = sorted((heard | set(dec.eds) | set(getattr(dec, "inferred", {})) | configured)
+            ids = sorted((heard | set(dec.eds) | set(getattr(dec, "inferred", {})) | configured | set(results))
                          & set(range(1, 128))) if dec.protocol == "canopen" else []
             for nid in ids:
                 pdos = getattr(dec, "inferred_pdos", {}).get(nid) or {}
@@ -326,9 +332,14 @@ class Workspace:
                     source, since = best.source, best.since_us
                 else:
                     source, since = None, None
-                nodes.append({"node": nid, "heard": nid in heard, "has_eds": nid in dec.eds,
-                              "source": source, "since_us": since,
-                              "pdos": sorted(p.name for p in pdos.values()) if nid not in configured else []})
+                entry = {"node": nid, "heard": nid in heard, "has_eds": nid in dec.eds,
+                         "source": source, "since_us": since,
+                         "pdos": sorted(p.name for p in pdos.values()) if nid not in configured else []}
+                if nid in results and nid not in configured:
+                    # canopen-configurator: "PDO layout read result in the Decoding panel"
+                    result, t = results[nid]
+                    entry["read"] = {"pdos": result, "since_us": t}
+                nodes.append(entry)
             return {"protocol": dec.protocol, "dbc": list(getattr(dec, "dbc_files", [])), "nodes": nodes,
                     "start_us": s.trace.start_us}
 
@@ -653,6 +664,31 @@ def decoder_for(cfg, config_path, eds_paths, names, network=None):
     if contract.version_of(cfg) == 1:
         network = None
     return Decoder.from_config(cfg, config_path, eds_paths=eds_paths, names=names, network=network)
+
+
+def read_result(nid, values, dtype, failed):
+    """[{name, cob_id, usable, reason?}] of a PDO layout read: each PDO whose
+    communication object holds a valid COB-ID, whether the values make a
+    layout that decodes its frames (the decoder's own rule) and, when not,
+    why (failed: {communication index: reason} from params.pdo_values)."""
+    from ..bustrace.decode import PdoLayout
+    from ..bustrace.layouts import INVALID, KINDS as PDO_KINDS, NodeLayouts
+    nl = NodeLayouts(nid, None, dtype & 0xFFFF if isinstance(dtype, int) else None)
+    nl.set("device", values, None)
+    usable = {p.name for p in nl.pdos(PdoLayout).values()}
+    out = []
+    for _tx, comm, _mapping, prefix in PDO_KINDS:
+        for index in sorted(i for (i, sub) in values if sub == 1 and comm <= i < comm + 0x200):
+            cob = values[(index, 1)]
+            if cob & INVALID:
+                continue
+            name = "%s%d" % (prefix, index - comm + 1)
+            entry = {"name": name, "cob_id": cob & (0x1FFFFFFF if cob & 0x20000000 else 0x7FF),
+                     "usable": name in usable}
+            if not entry["usable"]:
+                entry["reason"] = failed.get(index) or "its mapping does not make a usable layout"
+            out.append(entry)
+    return out
 
 
 def commission_decoder(nodes, resolve):
