@@ -10,7 +10,7 @@ Reproduced with a browser test at main ce20648: open the Frame lab, wait for the
 
 - `el()` flattens nested child lists to any depth, like `fxFill()` already does, so a nested list of elements is never turned into text anywhere on the page. This fixes the Examples tab and guards every other caller that passes nested lists.
 - A browser test: open the Frame lab (config workspace and Commission a device), switch Examples → Build → Examples and Examples → Arbitration → Examples, and leave the Frame lab and come back. Each time the Examples panel shows the example chips, and no text in the Frame lab contains `[object `.
-- PC tools 0.74.1 (patch) with a release note line.
+- PC tools 0.74.1 (patch).
 
 No file format, server protocol or CLI changes.
 
@@ -26,5 +26,5 @@ None.
 
 - `tools/deploy/canworks/configurator/static/app.js` (`el()`), maybe `explain.js` if a caller relied on one-level flattening (none found).
 - `tools/deploy/tests/test_configurator_framelab_ux_page.py` (new test).
-- `tools/deploy/pyproject.toml`, `tools/deploy/canworks/__init__.py` if it carries the version, release notes.
+- `tools/deploy/pyproject.toml`, `tools/deploy/canworks/__init__.py`, the doc golden files (they carry the version).
 - README: no user-visible feature or usage change, so no update.

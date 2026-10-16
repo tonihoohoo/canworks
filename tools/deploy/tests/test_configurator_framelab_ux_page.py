@@ -190,6 +190,19 @@ class LabLayout(Base):
         pg.wait_for_selector("#fx-lab-result [data-fx=arb-result]")
         self.assertEqual(pg.locator("#fx-lab-inspector [data-fx=inspector]").count(), 0)
 
+    def test_examples_after_switching_tabs(self):
+        """The Examples tab shows its chips each time, not "[object HTMLDivElement]"
+        (fix-frame-lab-examples-text)."""
+        pg = self.page
+        self.open()
+        self.lab()
+        pg.wait_for_selector("[data-fx=examples] .chip")
+        for other in ("build", "arbitration"):
+            pg.click("[data-fx-mode=%s]" % other)
+            pg.click("[data-fx-mode=examples]")
+            self.assertGreater(pg.locator("[data-fx=examples] .chip").count(), 0, other)
+            self.assertNotIn("[object ", pg.inner_text("#fx-lab-panel"), other)
+
     def test_narrow_result_and_clear(self):
         pg = self.page
         pg.set_viewport_size({"width": 1000, "height": 800})
