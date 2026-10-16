@@ -6502,7 +6502,7 @@ async function exportCodesys() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project.`);
+    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project. The bus goes to the project's active device.`);
   } catch (e) {
     banner(e.message, true);
   }

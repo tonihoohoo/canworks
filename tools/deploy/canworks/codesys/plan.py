@@ -241,11 +241,12 @@ def _notes_for(obj, table, where):
 
 
 def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=True, project=None, create=None,
-          network=None):
+          network=None, interfaces=None):
     """(plan dict, {file name: DCF text}). Raises ExportFailed with every
     problem when the config or a DCF fails, or an override names no master
     network. `network` exports only that network."""
     overrides = dict(overrides or {})
+    interfaces = dict(interfaces or {})
     eds_paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
     nets = contract.networks(cfg)
     if network is not None:
@@ -257,6 +258,11 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
     unknown = sorted(set(overrides) - {n["name"] for n in masters})
     if unknown:
         raise ExportFailed([("--codesys-net names %s, which %s no CANopen master network in the config (%s)"
+                             % (", ".join(unknown), "is" if len(unknown) == 1 else "are",
+                                ", ".join(n["name"] for n in masters) or "none"), ["networks"])])
+    unknown = sorted(set(interfaces) - {n["name"] for n in masters})
+    if unknown:
+        raise ExportFailed([("--codesys-can names %s, which %s no CANopen master network in the config (%s)"
                              % (", ".join(unknown), "is" if len(unknown) == 1 else "are",
                                 ", ".join(n["name"] for n in masters) or "none"), ["networks"])])
     if not masters:
@@ -329,9 +335,12 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
                                "dcf": folder + "/" + dcfexport.dcf_name(node_id),
                                "params": node_params(node, master),
                                "channels": chans.get((net["index"] if net["path"] else 0, k), [])})
-        plan_nets.append({"name": net["name"], "folder": folder, "net_id": number, "bitrate_kbit": bitrate,
-                          "canbus": [_param(CANBUS_BAUDRATE, str(bitrate), "bit rate (kbit/s)")],
-                          "manager": manager_params(master), "nodes": plan_nodes})
+        plan_net = {"name": net["name"], "folder": folder, "net_id": number, "bitrate_kbit": bitrate,
+                    "canbus": [_param(CANBUS_BAUDRATE, str(bitrate), "bit rate (kbit/s)")],
+                    "manager": manager_params(master), "nodes": plan_nodes}
+        if interfaces.get(net["name"]):
+            plan_net["interface"] = interfaces[net["name"]]
+        plan_nets.append(plan_net)
     if problems:
         raise ExportFailed(problems)
     if channels_failed is not None:
@@ -353,7 +362,9 @@ def readme():
     return """CODESYS import of a canworks CANopen bus (canworks-deploy %s)
 
 In CODESYS
-  1. Open your project (it needs the PLC or display device with its CAN interface).
+  1. Open your project and make the device that gets the bus the active one
+     (its application set with Set Active Application). The script uses the
+     active application's device, or the only device in the project.
   2. Tools > Scripting > Execute Script File..., pick import_canworks.py in this folder.
   3. Read the report in the message view (also import_report.txt here), build, and save the project.
 
@@ -362,8 +373,9 @@ From the command line
   or, with this folder's canworks-codesys.json naming the project ("project": "C:\\\\path\\\\to\\\\project.project"):
   CODESYS.exe --profile="<profile name>" --noUI --runscript="<this folder>\\import_canworks.py"
 
-The script adds a CANbus and a CANopen Manager when the PLC has none with the
-network number from canworks-codesys.json, installs every node's DCF and adds
+The script adds a CANbus and a CANopen Manager when the device has none with
+the network number from canworks-codesys.json (under the device's own CAN
+interface, for example Communication > CAN, when it has one), installs every node's DCF and adds
 the node, names each mapped I/O channel, and builds. Running it again
 replaces the nodes it manages. See docs/codesys.md in the canworks repository.
 """ % __version__

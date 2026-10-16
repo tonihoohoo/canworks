@@ -203,19 +203,65 @@ def name_channels(dev, channels, report, where):
             report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
 
 
-def choose_plc(proj, plan):
+def _same(a, b):
+    """Script objects can be new wrappers on every call: compare by guid."""
+    if a is None or b is None:
+        return a is b
+    try:
+        return a.guid == b.guid
+    except Exception:
+        return a is b
+
+
+def _parent(obj):
+    try:
+        return obj.parent
+    except Exception:
+        return None
+
+
+def active_device(proj):
+    """The device that holds the project's active application, or None."""
+    try:
+        obj = proj.active_application
+    except Exception:
+        return None
+    seen = 0
+    while obj is not None and seen < 64:
+        if _same(obj, proj):
+            return None
+        if _is_device(obj):
+            return obj
+        obj = _parent(obj)
+        seen += 1
+    return None
+
+
+def choose_plc(proj, plan, report):
+    """The device that gets the bus: named in the plan, else the active
+    application's device, else the only top-level device."""
     tops = [c for c in _children(proj) if _is_device(c)]
+    active = active_device(proj)
     if plan.get("plc"):
         found = [c for c in _children(proj, True) if _is_device(c) and c.get_name() == plan["plc"]]
         if not found:
             raise Stop("no device named %s in the project (devices: %s)"
                        % (plan["plc"], ", ".join(c.get_name() for c in tops) or "none"))
+        report.add("device", "%s (named in %s)" % (found[0].get_name(), PLAN_NAME))
+        if active is not None and not _same(active, found[0]):
+            report.add("warning", "the active application is on %s, so the build checks %s, not %s"
+                       % (active.get_name(), active.get_name(), found[0].get_name()))
         return found[0]
+    if active is not None:
+        report.add("device", "%s (active application)" % active.get_name())
+        return active
     if len(tops) == 1:
+        report.add("device", "%s (only device)" % tops[0].get_name())
         return tops[0]
     if not tops:
         raise Stop("the project has no PLC device: add your PLC or display device first")
-    raise Stop("the project has several devices (%s): name the one to use with --codesys-plc NAME"
+    raise Stop("the project has several devices (%s) and no active application: set one in CODESYS "
+               "(Set Active Application on the device's application) or name the device with --codesys-plc NAME"
                % ", ".join(c.get_name() for c in tops))
 
 
@@ -231,32 +277,136 @@ def find_canbus(plc, net_id):
     return None, buses
 
 
+CANOPEN_TYPES = (CANBUS_TYPE, MANAGER_TYPE, LOCAL_DEVICE_TYPE, 18)
+
+
+def _path(plc, obj):
+    names = []
+    while obj is not None and not _same(obj, plc):
+        names.append(obj.get_name())
+        obj = _parent(obj)
+    return "/".join([plc.get_name()] + names[::-1])
+
+
+def _trailing_number(name):
+    digits = ""
+    for c in reversed(name):
+        if not c.isdigit():
+            break
+        digits = c + digits
+    return int(digits) if digits else None
+
+
+def _looks_like_can(name):
+    """CAN, CAN1, can_0, Port CAN 2, but not Scanner."""
+    n = name.lower()
+    i = n.find("can")
+    while i >= 0:
+        if (i == 0 or not n[i - 1].isalpha()) and (i + 3 == len(n) or not n[i + 3].isalpha()):
+            return True
+        i = n.find("can", i + 1)
+    return False
+
+
+def can_interface(plc, net, where):
+    """Where a new CANbus goes: the object the plan names, else the
+    device's only CAN interface object, else the one whose name ends in the
+    network number, else the device itself."""
+    objs = [c for c in _children(plc, True) if not _same(c, plc)]
+    if net.get("interface"):
+        found = [c for c in objs if c.get_name() == net["interface"]]
+        if not found:
+            raise Stop("%s: no object named %s in device %s (objects: %s)"
+                       % (where, net["interface"], plc.get_name(), ", ".join(_path(plc, c) for c in objs) or "none"))
+        return found[0]
+    cands = [c for c in objs if _is_device(c) and _type(c) not in CANOPEN_TYPES
+             and _looks_like_can(c.get_name()) and not any(_type(a) in CANOPEN_TYPES for a in _ancestors(plc, c))]
+    if not cands:
+        return plc
+    if len(cands) == 1:
+        return cands[0]
+    match = [c for c in cands if _trailing_number(c.get_name()) == net["net_id"]]
+    if len(match) == 1:
+        return match[0]
+    raise Stop("%s: device %s has several CAN interfaces (%s) and none ends in network number %d: name one with "
+               "--codesys-can %s=OBJECT" % (where, plc.get_name(), ", ".join(_path(plc, c) for c in cands),
+                                            net["net_id"], net["name"] or net["folder"]))
+
+
+def _ancestors(plc, obj):
+    out = []
+    obj = _parent(obj)
+    while obj is not None and not _same(obj, plc):
+        out.append(obj)
+        obj = _parent(obj)
+    return out
+
+
+def _refused(plc, host, where, *errors):
+    others = [_path(plc, c) for c in _children(plc, True) if _is_device(c) and not _same(c, host)]
+    return ("%s: CODESYS takes neither a CANbus nor a CANopen Manager under %s (device type %s): %s. "
+            "Objects in the device: %s. Name the CAN interface with --codesys-can NETWORK=OBJECT"
+            % (where, _path(plc, host), _type(host), "; ".join(str(e) for e in errors), ", ".join(others) or "none"))
+
+
+def warn_other_devices(proj, plc, net, report):
+    """A CANopen Manager on the same network number under another
+    top-level device would drive the same bus from two controllers."""
+    for top in [c for c in _children(proj) if _is_device(c)]:
+        if _same(top, plc) or any(_same(top, a) for a in _ancestors(proj, plc)):
+            continue
+        bus, _ = find_canbus(top, net["net_id"])
+        if bus is not None and any(_type(c) == MANAGER_TYPE for c in _children(bus)):
+            report.add("warning", "network %s: device %s also has a CANopen Manager on network number %d; "
+                       "it was left as it is" % (net["name"] or net["folder"], top.get_name(), net["net_id"]))
+
+
 def build_network(plc, net, base, repo, guid, report):
     where = "network %s" % (net["name"] or net["folder"])
     bus, buses = find_canbus(plc, net["net_id"])
+    mgr = None
     if bus is not None:
         report.add("reused", "%s: CANbus %s (network number %d)" % (where, bus.get_name(), net["net_id"]))
     else:
         like = _ident(buses[0]) if buses else _highest(repo, CANBUS_TYPE, CANBUS_ID)
         if like is None:
             raise Stop("%s: no CANbus device is installed in this CODESYS (CANopen support missing?)" % where)
+        host = can_interface(plc, net, where)
         try:
-            bus = _add(plc, _unique_name(plc, "CANbus"), like.type, like.id, like.version)
+            bus = _add(host, _unique_name(host, "CANbus"), like.type, like.id, like.version)
         except Exception as e:
-            raise Stop("%s: cannot add a CANbus under %s: %s" % (where, plc.get_name(), e))
-        p = _param(bus, CANBUS_NET_ID)
-        if p is None:
-            raise Stop("%s: the new CANbus has no network number parameter" % where)
-        p.value = str(net["net_id"])
-        report.add("created", "%s: CANbus %s %s, network number %d" % (where, bus.get_name(), like.version,
-                                                                         net["net_id"]))
+            bus_refused = e
+        else:
+            bus_refused = None
+        if bus_refused is not None:
+            # The device's own CAN interface can be the bus itself and take
+            # the manager directly.
+            mlike = _highest(repo, MANAGER_TYPE, MANAGER_ID)
+            if _same(host, plc) or mlike is None:
+                raise Stop(_refused(plc, host, where, bus_refused))
+            try:
+                mgr = _add(host, _unique_name(host, "CANopen_Manager"), mlike.type, mlike.id, mlike.version)
+            except Exception as e:
+                raise Stop(_refused(plc, host, where, bus_refused, e))
+            bus = host
+            report.add("created", "%s: CANopen Manager %s %s directly under the CAN interface %s"
+                       % (where, mgr.get_name(), mlike.version, _path(plc, host)))
+        else:
+            p = _param(bus, CANBUS_NET_ID)
+            if p is None:
+                raise Stop("%s: the new CANbus has no network number parameter" % where)
+            p.value = str(net["net_id"])
+            report.add("created", "%s: CANbus %s %s under %s, network number %d"
+                       % (where, bus.get_name(), like.version, _path(plc, host), net["net_id"]))
     apply_params(bus, net["canbus"], report, where + " CANbus")
     kids = [c for c in _children(bus) if _is_device(c)]
     if any(_type(c) == LOCAL_DEVICE_TYPE for c in kids):
         raise Stop("%s: CANbus %s holds a CANopen device (CODESYS as a slave), not a manager"
                    % (where, bus.get_name()))
     managers = [c for c in kids if _type(c) == MANAGER_TYPE]
-    if managers:
+    if mgr is not None:
+        pass
+    elif managers:
         mgr = managers[0]
         report.add("reused", "%s: CANopen Manager %s" % (where, mgr.get_name()))
     else:
@@ -380,10 +530,10 @@ def run(base):
         except ImportError:
             guid = EDS_CONVERTER
         proj, opened = open_project(plan, base, report)
-        plc = choose_plc(proj, plan)
-        report.add("device", plc.get_name())
+        plc = choose_plc(proj, plan, report)
         for net in plan["networks"]:
             try:
+                warn_other_devices(proj, plc, net, report)
                 build_network(plc, net, base, device_repository, guid, report)
             except Stop as e:
                 report.add("error", str(e))

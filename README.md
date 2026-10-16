@@ -80,7 +80,7 @@ Plain CAN messages run on any network, next to CANopen or J1939, or on a plain C
 
 ### CODESYS
 
-The CANopen networks of a config go into a CODESYS project for a CODESYS controller or display with CAN, running CODESYS's own CANopen Manager ([docs/codesys.md](docs/codesys.md)): **Export > CODESYS** in the configurator or `canworks-deploy --export-codesys` writes each node's DCF and a script that CODESYS runs on the open project, or `canworks-deploy --codesys-import` runs CODESYS headless on a project. The nodes arrive with their PDOs, COB-IDs, timers, heartbeat and startup SDOs, the CANbus and manager with their settings, and every mapped I/O channel with the same variable name the OpenPLC editor uses; running it again replaces the nodes it manages. The PC tools trace, commission and simulate next to a CODESYS-run bus as with any other master.
+The CANopen networks of a config go into a CODESYS project for a CODESYS controller or display with CAN, running CODESYS's own CANopen Manager ([docs/codesys.md](docs/codesys.md)): **Export > CODESYS** in the configurator or `canworks-deploy --export-codesys` writes each node's DCF and a script that CODESYS runs on the open project (on its active device, under the device's own CAN interface when it has one), or `canworks-deploy --codesys-import` runs CODESYS headless on a project. The nodes arrive with their PDOs, COB-IDs, timers, heartbeat and startup SDOs, the CANbus and manager with their settings, and every mapped I/O channel with the same variable name the OpenPLC editor uses; running it again replaces the nodes it manages. The PC tools trace, commission and simulate next to a CODESYS-run bus as with any other master.
 
 ### Simulation
 

@@ -128,3 +128,16 @@ def parse_net(values):
             raise ValueError("--codesys-net takes NAME=N with a network number N, not %r" % v)
         out[name] = int(number)
     return out
+
+
+def parse_can(values):
+    """['field=CAN2', ...] -> {'field': 'CAN2'}: the CAN interface object
+    in the CODESYS device that gets a network's bus."""
+    out = {}
+    for v in values or []:
+        name, sep, obj = v.partition("=")
+        if not sep or not name or not obj.strip():
+            raise ValueError("--codesys-can takes NETWORK=OBJECT with the name of a CAN interface object in the "
+                             "CODESYS device, not %r" % v)
+        out[name] = obj.strip()
+    return out

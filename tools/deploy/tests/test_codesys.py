@@ -182,6 +182,18 @@ class CommandLine(unittest.TestCase):
         code, _, err = deploy("--config", BRIDGE, "--export-codesys", out, "--codesys-net", "field")
         self.assertIn("NAME=N", err)
 
+    def test_can_interface_option(self):
+        out = os.path.join(tmpdir(self), "out")
+        code, _, err = deploy("--config", BRIDGE, "--export-codesys", out, "--codesys-can", "field=CAN2")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(load(os.path.join(out, cplan.PLAN_NAME))["networks"][0]["interface"], "CAN2")
+        code, _, err = deploy("--config", BRIDGE, "--export-codesys", os.path.join(out, "b"), "--codesys-can",
+                              "drives=CAN2")
+        self.assertEqual(code, 1)
+        self.assertIn("--codesys-can names drives", err)
+        code, _, err = deploy("--config", BRIDGE, "--export-codesys", out, "--codesys-can", "field")
+        self.assertIn("NETWORK=OBJECT", err)
+
     def test_options_need_the_export(self):
         code, _, err = deploy("--config", BRIDGE, "--export-dcf", os.path.join(tmpdir(self), "d"), "--codesys-plc", "PLC")
         self.assertEqual(code, 1)
@@ -404,11 +416,147 @@ class Script(unittest.TestCase):
         proj = self.project(w)
         proj.add("HMI", 4096, "0000 0004", "3.5.22.40")
         report = w.run(folder, primary=proj)
-        self.assertIn("several devices (PLC, HMI)", report)
+        self.assertIn("several devices (PLC, HMI) and no active application", report)
+        self.assertIn("Set Active Application", report)
+        self.assertEqual(proj.find("PLC")[0].get_children(), [])
         set_plan(folder, plc="HMI")
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertEqual(len(proj.find("HMI")[0].get_children()), 1)
+
+    def two_devices(self, w):
+        proj = self.project(w)
+        proj.add("HMI", 4096, "0000 0004", "3.5.22.40")
+        plc, hmi = proj.find("PLC")[0], proj.find("HMI")[0]
+        return proj, plc, hmi
+
+    def test_active_device_gets_the_bus(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, plc, hmi = self.two_devices(w)
+        w.add_application(proj, plc, active=False)
+        w.add_application(proj, hmi)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("device   HMI (active application)", report)
+        self.assertEqual(len(hmi.find("CANbus")), 1)
+        self.assertEqual(plc.find("CANbus"), [])
+
+    def test_named_device_differs_from_active(self):
+        folder, _ = export(self, BRIDGE)
+        set_plan(folder, plc="PLC")
+        w = fake_codesys.World()
+        proj, plc, hmi = self.two_devices(w)
+        w.add_application(proj, hmi)
+        report = w.run(folder, primary=proj)
+        self.assertIn("device   PLC (named in canworks-codesys.json)", report)
+        self.assertIn("the active application is on HMI, so the build checks HMI, not PLC", report)
+        self.assertEqual(len(plc.find("CANbus")), 1)
+
+    def test_nested_active_device(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, plc, hmi = self.two_devices(w)
+        hmi.add("Controller", 4096, "0000 0004", "3.5.22.40")
+        inner = hmi.find("Controller")[0]
+        w.add_application(proj, inner)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("device   Controller (active application)", report)
+        self.assertEqual(len(inner.find("CANbus")), 1)
+
+    def test_only_device_without_application(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj = self.project(w)
+        report = w.run(folder, primary=proj)
+        self.assertIn("device   PLC (only device)", report)
+
+    def test_switching_the_active_device_warns(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, plc, hmi = self.two_devices(w)
+        w.add_application(proj, plc)
+        self.assertTrue(w.run(folder, primary=proj).startswith("result: ok"))
+        w.add_application(proj, hmi)
+        report = w.run(folder, primary=proj)
+        self.assertIn("device PLC also has a CANopen Manager on network number 0", report)
+        self.assertEqual(len(plc.find("CANbus")[0].get_children()[0].get_children()), 2)  # PLC kept its nodes
+        self.assertEqual(len(hmi.find("CANbus")), 1)
+
+    def display(self, w, accepts_canbus=True, names=("CAN",)):
+        """A device whose description brings Communication > CAN and refuses a CANbus at its root."""
+        proj = self.project(w)
+        dev = proj.find("PLC")[0]
+        dev.accepts = set()
+        comm = w.add_object(dev, "Communication", 9000, accepts=set())
+        w.add_object(comm, "Ethernet", 9001, accepts=set())
+        cans = [w.add_object(comm, n, 9002, accepts={15} if accepts_canbus else {16}) for n in names]
+        return proj, dev, cans
+
+    def test_canbus_under_the_devices_can_interface(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, dev, (can,) = self.display(w)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("under PLC/Communication/CAN, network number 0", report)
+        bus = can.find("CANbus")[0]
+        self.assertEqual(len(bus.find("CANopen_Manager")), 1)
+        report = w.run(folder, primary=proj)  # re-run reuses it
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual(len(can.get_children()), 1)
+
+    def test_manager_directly_under_the_can_interface(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, dev, (can,) = self.display(w, accepts_canbus=False)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("directly under the CAN interface PLC/Communication/CAN", report)
+        mgr = can.find("CANopen_Manager")[0]
+        self.assertEqual(len(mgr.get_children()), 2)
+
+    def test_several_can_interfaces(self):
+        folder, _ = export(self, GANTRY)  # network number 1
+        w = fake_codesys.World()
+        proj, dev, (can0, can1) = self.display(w, names=("CAN0", "CAN1"))
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual(can0.get_children(), [])
+        self.assertEqual(len(can1.find("CANbus")), 1)
+
+    def test_several_can_interfaces_without_a_match(self):
+        folder, _ = export(self, GANTRY)
+        w = fake_codesys.World()
+        proj, dev, cans = self.display(w, names=("CAN_A", "CAN_B"))
+        report = w.run(folder, primary=proj)
+        self.assertIn("several CAN interfaces (PLC/Communication/CAN_A, PLC/Communication/CAN_B)", report)
+        self.assertIn("--codesys-can motion=OBJECT", report)
+        set_plan(folder, networks=[dict(n, interface="CAN_B") for n in load(
+            os.path.join(folder, cplan.PLAN_NAME))["networks"]])
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual(len(cans[1].find("CANbus")), 1)
+
+    def test_nowhere_to_add_the_bus(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj, dev, (can,) = self.display(w)
+        can.accepts = set()
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: error"), report)
+        self.assertIn("CODESYS takes neither a CANbus nor a CANopen Manager under PLC/Communication/CAN", report)
+        self.assertIn("cannot be added or inserted here", report)
+        self.assertIn("PLC/Communication/Ethernet", report)
+
+    def test_scanner_is_not_a_can_interface(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj = self.project(w)
+        w.add_object(proj.find("PLC")[0], "Scanner", 9003, accepts=set())
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
 
     def test_canopen_device_on_the_canbus(self):
         folder, _ = export(self, BRIDGE)  # network number 0
