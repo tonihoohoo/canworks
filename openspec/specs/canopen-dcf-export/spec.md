@@ -17,11 +17,15 @@ The export SHALL produce one DCF file per node in the config, named `node_<id>.d
 - **THEN** the export stops with the same message the deploy tool's checks give, and no DCF is written
 
 ### Requirement: DCF body is the node's EDS
-The DCF SHALL contain every section and key of the EDS copy the plugin uses (the prepared copy from the EDS lint step), in the same order and with the same values, so that removing the added lines gives back that copy. The export SHALL only add or change the lines this capability names: `ParameterValue` keys, the `[DeviceComissioning]` section, `[FileInfo]` keys and leading `;` comment lines.
+The DCF SHALL contain every section and key of the EDS copy the plugin uses (the prepared copy from the EDS lint step), in the same order and with the same values, so that removing the added lines gives back that copy, except that REAL32 and REAL64 DefaultValue, ParameterValue, LowLimit and HighLimit SHALL be written as decimal numbers that read back to exactly the same value. The export SHALL only add or change the lines this capability names: `ParameterValue` keys, the `[DeviceComissioning]` section, `[FileInfo]` keys, leading `;` comment lines and the decimal form of REAL values.
 
 #### Scenario: Unwritten objects untouched
 - **WHEN** a node's EDS defines 0x6000 and the config writes nothing there
 - **THEN** the DCF's 0x6000 sections are identical to the EDS's, with no ParameterValue
+
+#### Scenario: REAL limit
+- **WHEN** a node's prepared EDS has `HighLimit=0x42C80000` on a REAL32 object
+- **THEN** the DCF has `HighLimit=100.0` on that object
 
 ### Requirement: ParameterValue for every boot write
 For every sub-object the plugin writes to the node during its boot-time configuration, the DCF SHALL carry `ParameterValue=` with the value the sub-object holds after the whole configuration download, i.e. the last value written. This covers the writes from PDO communication and mapping settings, linked consumer RPDOs, heartbeat producer and consumer, heartbeat watch entries, node guarding, TIME COB-ID, RPDO deadlines, the configuration-check stamp and startup SDOs. Writes the plugin drops (read-only PDO communication sub-indices whose EDS value already matches, the 0x1016 clear when `heartbeat_consumer` is unset) SHALL get no ParameterValue. `$NODEID` expressions SHALL be resolved: ParameterValue holds the absolute value. A sub-object defined through `CompactSubObj` SHALL get its value in the object's `[<index>Value]` section.
@@ -61,7 +65,7 @@ The DCF SHALL have a `[DeviceComissioning]` section with `NodeID` (the node ID, 
 - **THEN** `[DeviceComissioning]` has `NodeID=23`, `NodeName=valve` and `Baudrate=500`
 
 ### Requirement: Validated against CiA 306
-Before writing, the export SHALL check each finished DCF and SHALL write no file for any node when a check fails, reporting every failure with the node, the DCF section and the key. The checks SHALL be: Lely's CiA 306 lint (every finding fails, whatever `eds_lint` is set to, for the sections the export added or changed; findings already accepted on the EDS stay warnings) and Lely's device read with the node ID; every ParameterValue lies within its data type and the object's LowLimit/HighLimit; every ParameterValue is on a sub-object whose AccessType allows writing, or equals the EDS value; `NodeID` is 1 to 127 and equals the config's node ID; `Baudrate` is one of 10, 20, 50, 125, 250, 500, 800, 1000 and the EDS's `[DeviceInfo]` does not set `BaudRate_<rate>=0`.
+Before writing, the export SHALL check each finished DCF and SHALL write no file for any node when a check fails, reporting every failure with the node, the DCF section and the key. The checks SHALL be: Lely's CiA 306 lint (every finding fails, whatever `eds_lint` is set to, for the sections the export added or changed; findings already accepted on the EDS stay warnings) and Lely's device read with the node ID, both on Lely's form of the file; the PC tools' CiA 306 check on the sections and keys the export added or changed, on the file as written; every ParameterValue lies within its data type and the object's LowLimit/HighLimit; every ParameterValue is on a sub-object whose AccessType allows writing, or equals the EDS value; `NodeID` is 1 to 127 and equals the config's node ID; `NodeName` is printable ASCII of at most 246 characters; `Baudrate` is one of 10, 20, 50, 125, 250, 500, 800, 1000 and the EDS's `[DeviceInfo]` does not set `BaudRate_<rate>=0`.
 
 #### Scenario: Value out of range
 - **WHEN** a startup SDO writes 300 to an UNSIGNED8 object (only possible if the config checks were bypassed, as in a test)
@@ -74,6 +78,10 @@ Before writing, the export SHALL check each finished DCF and SHALL write no file
 #### Scenario: Baud rate the device does not support
 - **WHEN** the adapter runs at 1000 kbit/s and the node's EDS has `BaudRate_1000=0`
 - **THEN** the export fails naming `[DeviceComissioning] Baudrate` and the EDS
+
+#### Scenario: Node name with non-ASCII text
+- **WHEN** node 23 is named `venttiili ä`
+- **THEN** the export fails naming `[DeviceComissioning] NodeName` and writes nothing
 
 ### Requirement: Values match the plugin's downloads
 For every node, the set of sub-objects carrying ParameterValue and their values SHALL equal the final per-sub-object result of the configuration download the plugin performs for the same config (`canopen_check --dump-writes`), excluding the boot commands named above.

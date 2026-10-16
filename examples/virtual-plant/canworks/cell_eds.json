@@ -1,5 +1,6 @@
 {
   "device_name": "Virtual plant cell gateway",
+  "date": "2026-10-16",
   "vendor_id": 0,
   "product_code": 3,
   "heartbeat_ms": 200,

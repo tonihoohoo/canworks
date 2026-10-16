@@ -12,6 +12,8 @@
  "tests.test_bustrace.Recording": 5.1,
  "tests.test_bustrace.Statistics": 0.0,
  "tests.test_bustrace.Triggers": 0.6,
+ "tests.test_cia306.Rules": 0.3,
+ "tests.test_cia306.Sweep": 7.0,
  "tests.test_commissioning.Cli": 1.4,
  "tests.test_commissioning.ConfigSource": 0.3,
  "tests.test_commissioning.DcfSource": 1.5,

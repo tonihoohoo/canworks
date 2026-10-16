@@ -11,7 +11,7 @@ import unittest
 
 import jsonschema
 
-from canworks import bundle, cli, contract, edslint, editorproject, project, slaveeds
+from canworks import bundle, cia306, cli, contract, edslint, editorproject, project, slaveeds
 from canworks.configurator import declare, layout
 from canworks.eds import Eds
 
@@ -35,7 +35,10 @@ def generate(test, desc, gateway=None):
     """Generates, checks the lint verdict with eds_lint "all", and reads it back."""
     text, info = slaveeds.generate(desc, gateway)
     _, corrections, lint = edslint.check(text.encode("utf-8"))
-    test.assertEqual(corrections, [], "the plugin would read a corrected copy, not the file itself")
+    # Decimal REALs (CiA 306) are the one correction the plugin's prepared copy makes.
+    test.assertEqual([c.kind for c in corrections if c.kind != "real"], [],
+                     "the plugin would read a corrected copy, not the file itself")
+    test.assertEqual(cia306.check(text), [])
     test.assertIsNone(lint.read_error)
     test.assertEqual([f.message for f in lint.failing("all")], [])
     path = os.path.join(tmpdir(test), "slave.eds")
@@ -64,7 +67,7 @@ class Generator(unittest.TestCase):
         self.assertEqual(eds.names[0x2000], "UNSIGNED16 from master")
         self.assertEqual(eds.names[0x2101], "REAL32 to master")
         self.assertEqual((eds.find(0x2100, 1).access, eds.find(0x2100, 1).pdo_mapping), ("ro", True))
-        self.assertEqual(eds.find(0x2101, 1).default, "0x41AC0000")  # 21.5 as Lely's bit pattern
+        self.assertEqual(eds.find(0x2101, 1).default, "21.5")  # CiA 306 decimal, not Lely's bit pattern
         self.assertEqual(eds.find(0x1000, 0).value(0), 0)
         self.assertEqual(eds.find(0x1017, 0).value(0), 1000)
         self.assertEqual(eds.find(0x1018, 1).value(0), 0)  # vendor ID defaults to 0
@@ -165,6 +168,42 @@ class Generator(unittest.TestCase):
         eds, info, _ = generate(self, {"device_name": "Test slave", "heartbeat_ms": 0, "objects": objects})
         self.assertEqual(len(info["objects"]), 22)
         self.assertEqual(eds.find(0x1017, 0).value(0), 0)
+
+    def test_cia301_error_history(self):
+        _, _, text = generate(self, {})
+        self.assertIn("[1003sub0]\r\nParameterName=Number of errors\r\nObjectType=0x7\r\nDataType=0x0005\r\n"
+                      "AccessType=rw\r\nDefaultValue=0\r\n", text)
+
+    def test_file_info_dates_and_order_code(self):
+        desc = {"device_name": "pump-io", "date": "2026-10-16 14:30"}
+        first, _ = slaveeds.generate(desc)
+        second, _ = slaveeds.generate(desc)
+        self.assertEqual(first, second)
+        for line in ("CreationDate=10-16-2026", "CreationTime=02:30PM", "ModificationDate=10-16-2026",
+                     "ModificationTime=02:30PM", "ModifiedBy=canworks-deploy slave-eds", "OrderCode=pump-io"):
+            self.assertIn(line + "\r\n", first)
+        text, _ = slaveeds.generate(dict(desc, order_code="PIO-1"))
+        self.assertIn("OrderCode=PIO-1\r\n", text)
+        with self.assertRaisesRegex(slaveeds.DescriptionError, "'date' must be"):
+            slaveeds.generate({"date": "16.10.2026"})
+
+    def test_text_limits(self):
+        with self.assertRaisesRegex(slaveeds.DescriptionError, "'device_name' may hold only printable ASCII"):
+            slaveeds.generate({"device_name": "Pumppuasema \u00e4"})
+        with self.assertRaisesRegex(slaveeds.DescriptionError, "'device_name' is 244 characters; CiA 306 allows 243"):
+            slaveeds.generate({"device_name": "x" * 244})
+        with self.assertRaisesRegex(slaveeds.DescriptionError, "objects\\[0\\]: 'name' may hold only printable"):
+            slaveeds.generate({"objects": [obj("l\u00e4mp\u00f6", "UNSIGNED8", "to_master")]})
+
+    def test_real_default_reaches_the_plugin(self):
+        # The file has CiA 306's 21.5; the plugin's prepared copy gives Lely
+        # the same REAL.
+        text, _ = slaveeds.generate({"objects": [obj("temp", "REAL32", "to_master", default=21.5, low=-40.5,
+                                                     high=1e20)]})
+        self.assertIn("DefaultValue=21.5\r\nLowLimit=-40.5\r\nHighLimit=1e+20\r\n", text)
+        prepared, corrections = edslint.prepare(text.encode("utf-8"))
+        self.assertEqual([c.kind for c in corrections], ["real"])
+        self.assertIn("DefaultValue=0x41AC0000", prepared)
 
     def test_example_is_the_generated_file(self):
         # config/slave/openplc-slave.eds is what the generator writes from slave_eds.json.

@@ -1004,7 +1004,7 @@
       "file": "openplc-gateway.eds",
       "lss_supported": true,
       "product_name": "OpenPLC gateway example",
-      "sha256": "8740a77f06b7352c13ee6fcacb58fcd3bb371d0bde71a634bb6ddc78635c8fea",
+      "sha256": "0da5acbac887a3e2d7fdcc94cb0b59f54354fff8c969096b789c3963ca4416ff",
       "vendor_name": "OpenPLC"
      },
      "ident": "OpenPLC",
@@ -1433,7 +1433,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.79.1"
+  "version": "0.80.0"
  },
  "warnings": []
 }

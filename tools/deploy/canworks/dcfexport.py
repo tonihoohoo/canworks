@@ -21,7 +21,7 @@ import tempfile
 import types
 import warnings
 
-from . import __version__, _lely_dcf, bundle, contract, edslint
+from . import __version__, _lely_dcf, bundle, cia306, contract, edslint
 from . import eds as eds_mod
 from . import links as links_mod
 from ._lely_dcf.parse import parse_file as _parse_file
@@ -298,8 +298,9 @@ def config_stamp(writes, store_subindex):
     for index, sub, data in writes:
         h = _fnv1a(h, bytes([index & 0xFF, index >> 8, sub, len(data) & 0xFF]) + data)
     h = _fnv1a(h, ("store %d" % store_subindex).encode())
-    date, time = h >> 32, h & 0xFFFFFFFF
-    return date or 1, time or 1
+    # CiA 301 ranges: days since 1984-01-01 kept to 1-65535, milliseconds
+    # after midnight to 1-86399999.
+    return 1 + (h >> 32) % 65535, 1 + (h & 0xFFFFFFFF) % 86399999
 
 
 def _add_explicit_pdo_writes(n, norm, ro, sdos):
@@ -495,7 +496,7 @@ def parameter_value(data, data_type):
         return str(n)
     if data_type in (0x0005, 0x0006, 0x0007, 0x0016, 0x0018, 0x0019, 0x001A, 0x001B):  # UNSIGNEDn
         return "0x%X" % n
-    if data_type == 0x0008 and len(data) == 4:  # REAL32: Lely's hex bit pattern
+    if data_type == 0x0008 and len(data) == 4:  # REAL32: Lely's hex bit pattern (decimal in the written file)
         return "0x%08X" % n
     if data_type == 0x0011 and len(data) == 8:  # REAL64
         return "0x%016X" % n
@@ -804,11 +805,28 @@ def _export_network(cfg, config_path, eds_paths, node_id, now):
         text, build_problems = build_dcf(node, downloads[node.node_id], cfg, now, name)
         for msg in build_problems:
             problems.append(("%s: %s: %s" % (label, name, msg), ["nodes[%d]" % i]))
-        for section, key, msg in validate(node, downloads[node.node_id], text, cfg):
+        # Lely's checks run on its own form; the written file has CiA 306's
+        # decimal REALs and is checked against CiA 306 where the export wrote.
+        written = edslint.decimal_reals(text)
+        found = validate(node, downloads[node.node_id], text, cfg)
+        found += [(f.section, f.key or "", f.message) for f in cia306.check(written, only=_exported, defaults=False)]
+        for section, key, msg in found:
             where = "[%s]%s" % (section, " " + key if key else "") if section else ""
             problems.append(("%s: %s%s: %s" % (label, name, " " + where if where else "", msg), ["nodes[%d]" % i]))
-        files[name] = text
+        files[name] = written
     return files, problems
+
+
+_EXPORT_FILE_INFO = {"filename", "lasteds", "modifiedby", "modificationdate", "modificationtime"}
+
+
+def _exported(section, key):
+    """The sections and keys build_dcf() writes, for the CiA 306 check: the
+    rest of the DCF is the node's EDS, which canworks only reads."""
+    key = (key or "").lower()
+    return (section.lower() == "devicecomissioning"
+            or (section.lower() == "fileinfo" and key in _EXPORT_FILE_INFO)
+            or key in ("parametervalue", "defaultvalue", "lowlimit", "highlimit"))
 
 
 def write_files(files, out_dir):

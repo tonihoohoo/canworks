@@ -835,8 +835,11 @@ std::pair<uint32_t, uint32_t> config_stamp(const std::vector<SdoWrite>& sdos, un
     h = fnv1a(h, item);
   }
   h = fnv1a(h, "store " + std::to_string(store_subindex));
-  uint32_t date = static_cast<uint32_t>(h >> 32), time = static_cast<uint32_t>(h);
-  return {date ? date : 1, time ? time : 1};
+  // CiA 301 ranges: days since 1984-01-01 kept to 1-65535, milliseconds
+  // after midnight to 1-86399999.
+  uint32_t date = 1 + static_cast<uint32_t>((h >> 32) % 65535u);
+  uint32_t time = 1 + static_cast<uint32_t>((h & 0xFFFFFFFFu) % 86399999u);
+  return {date, time};
 }
 
 bool generate_device_config(const Config& cfg, const std::string& dcfgen, GeneratedConfig& out,

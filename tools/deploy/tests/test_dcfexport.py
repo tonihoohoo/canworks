@@ -9,6 +9,7 @@ import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
-from canworks import cli, dcfexport, edslint
+from canworks import cia306, cli, dcfexport, edslint
 
 from .test_contract import FIXTURES, REPO, load_cases, patched
 
@@ -96,6 +97,7 @@ class Downloads(unittest.TestCase):
         self.assertNotIn((0x1010, 1), d.final_values())
         self.assertIn('writes "save" to 0x1010 sub 1', "\n".join(d.steps()))
         date, time = dcfexport.config_stamp(d.writes[:-3], 1)
+        self.assertTrue(1 <= date <= 65535 and 1 <= time <= 86399999)  # CiA 301 date and time ranges
         self.assertEqual(d.final_values()[(0x1020, 1)], date.to_bytes(4, "little"))
         self.assertEqual(d.final_values()[(0x1020, 2)], time.to_bytes(4, "little"))
 
@@ -158,6 +160,7 @@ class Writer(unittest.TestCase):
             if cur == "fileinfo" and s.split("=", 1)[0].lower() in dropped_keys:
                 continue
             kept.append(line)
+        eds = edslint.decimal_reals(eds)  # the export writes REALs in CiA 306 decimal form
         expected = [line for line in eds.splitlines(True)
                     if not (line.strip().split("=", 1)[0].lower() in dropped_keys and
                             line.strip().split("=", 1)[0] in eds_fileinfo)]
@@ -197,6 +200,33 @@ class Writer(unittest.TestCase):
         cfg["nodes"][0]["eds"] = "crlf.eds"
         text = export(cfg, os.path.join(tmp, "canworks.json"))["node_2.dcf"]
         self.assertEqual(text.count("\n"), text.count("\r\n"))
+
+    def test_real_values_written_as_decimal(self):
+        # A REAL ParameterValue and the EDS's REAL defaults and limits are
+        # CiA 306 decimal numbers in the written file, not Lely's bit pattern.
+        example = os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json")
+        with open(example, encoding="utf-8") as f:
+            cfg = json.load(f)
+        real = dcfexport.plugin_downloads
+
+        def forged(*a, **kw):
+            out = real(*a, **kw)
+            if 5 in out and out[5].writes:
+                out[5].writes = out[5].writes + [(0x6126, 1, struct.pack("<f", 2.5))]
+            return out
+        with mock.patch.object(dcfexport, "plugin_downloads", forged):
+            files, _ = dcfexport.export(cfg, example, now=NOW, network="io")
+        text = files["node_5.dcf"]
+        self.assertEqual(section(text, "6126sub1")["ParameterValue"], "2.5")
+        self.assertEqual(cia306.check(text, only=dcfexport._exported, defaults=False), [])
+
+    def test_decimal_reals_round_trip(self):
+        with open(os.path.join(EDS_DIR, "lint", "real-decimal.eds"), "rb") as f:
+            original = f.read().decode("utf-8")
+        prepared, corrections = edslint.prepare(original.encode("utf-8"))
+        self.assertEqual([c.kind for c in corrections], ["real"])
+        self.assertNotEqual(prepared, original)
+        self.assertIn("DefaultValue=12.345", edslint.decimal_reals(prepared))
 
     def test_value_forms(self):
         self.assertEqual(dcfexport.parameter_value(b"\xff", 0x0002), "-1")
@@ -274,6 +304,18 @@ class Validation(unittest.TestCase):
         text = export(base_config())["node_2.dcf"].replace("Baudrate=125", "Baudrate=100")
         problems = dcfexport.validate(node, d, text, base_config())
         self.assertIn("Baudrate 100 kbit/s is not a CiA 306 bit rate", str(problems))
+
+    def test_node_name_not_ascii(self):
+        cfg = base_config()
+        cfg["nodes"][0]["name"] = "venttiili \u00e4"
+        try:
+            export(cfg)
+        except dcfexport.ExportFailed as e:
+            text = "\n".join(m for m, _ in e.problems)
+        else:
+            self.fail("the export accepted a node name CiA 306 does not")
+        self.assertIn("[DeviceComissioning] NodeName", text)
+        self.assertIn("printable ASCII", text)
 
     def test_config_errors_stop_the_export(self):
         cfg = base_config()

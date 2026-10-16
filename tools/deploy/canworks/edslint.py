@@ -110,6 +110,53 @@ def _real_hex(value, data_type):
         return None
 
 
+def real_decimal(value, data_type):
+    """The CiA 306 form of a REAL value: the shortest decimal number that
+    reads back to exactly the same REAL32/REAL64 (always with a "." or an
+    exponent, so prepare() recognises it). `value` is a float, or Lely's
+    hexadecimal bit pattern as text."""
+    if isinstance(value, str):
+        bits = int(value, 16)
+        value = (struct.unpack(">f", struct.pack(">I", bits & 0xFFFFFFFF))[0] if data_type == _REAL32
+                 else struct.unpack(">d", struct.pack(">Q", bits & 0xFFFFFFFFFFFFFFFF))[0])
+    value = float(value)
+    if data_type == _REAL32:
+        want = struct.pack(">f", value)
+        for digits in range(1, 10):
+            text = repr(float("%.*g" % (digits, value)))
+            try:
+                if struct.pack(">f", float(text)) == want:
+                    break
+            except OverflowError:  # rounded past REAL32's largest value
+                continue
+    else:
+        text = repr(value)
+    if not any(c in text for c in ".eEn"):  # "nan"/"inf" have no decimal form; callers reject them
+        text += ".0"
+    return text
+
+
+def decimal_reals(text):
+    """The text with every REAL32/REAL64 DefaultValue, ParameterValue,
+    LowLimit and HighLimit written as Lely's hexadecimal bit pattern
+    rewritten as its CiA 306 decimal form (real_decimal()); the inverse of
+    prepare()'s REAL correction. Line ends are kept."""
+    types = _data_types(text)
+    out, section = [], None
+    for line, end in _lines(text):
+        m = _SECTION.match(line)
+        if m:
+            section = m.group(1).strip()
+        m = None if _SECTION.match(line) else _ENTRY.match(line)
+        if m and section is not None and m.group(2).lower() in _NUMBER_KEYS:
+            data_type = types.get(section.lower())
+            value = m.group(3)
+            if data_type in (_REAL32, _REAL64) and value.lower().startswith("0x"):
+                line = m.group(1) + real_decimal(value, data_type) + m.group(4)
+        out.append(line + end)
+    return "".join(out)
+
+
 def prepare(data):
     """(prepared text, [Correction]) for an EDS file's bytes. Only kinds that
     changed something are returned; the text is the input when none did."""

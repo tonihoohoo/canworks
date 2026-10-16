@@ -541,7 +541,9 @@ void Network::OnTick() {
     ServiceRequests();
   }
   auto now = clock::now();
-  if (cfg_.master.time_period_ms && now >= next_time_) SendTime();
+  // CiA 301: a STOPPED master sends no TIME (HandleCommand sends it again at
+  // once when the master leaves STOPPED).
+  if (cfg_.master.time_period_ms && now >= next_time_ && lely_state_ != kStateStopped) SendTime();
   LssRecover(now);
   CheckInputPdos(now);
   for (auto& it : nodes_) {
@@ -750,6 +752,7 @@ void Network::OnCommand(NmtCommand cs) noexcept {
 void Network::HandleCommand(NmtCommand cs) {
   // The master's own NMT state: Lely reports it only as the command that
   // made it enter the state.
+  bool was_stopped = lely_state_ == kStateStopped;
   switch (cs) {
     case NmtCommand::START: lely_state_ = kStateOperational; break;
     case NmtCommand::ENTER_PREOP: lely_state_ = kStatePreop; break;
@@ -759,6 +762,10 @@ void Network::HandleCommand(NmtCommand cs) {
       LoadEmcyCobs();
       break;
   }
+  if (was_stopped && lely_state_ != kStateStopped) next_time_ = clock::now();  // TIME again at once
+  // The PLC-cycle SYNC counter starts again at 1, as Lely's own SYNC
+  // producer does when the master resets communication.
+  if (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE) sync_cnt_ = 1;
   if (cs == NmtCommand::RESET_COMM) {
     // The reset (Lely's own with reset_all_nodes, for example) made every
     // master TPDO valid again, with the DCF's values in its mapped objects,
@@ -1283,7 +1290,9 @@ void Network::CheckInterpolationPeriods(clock::time_point now) {
 
 void Network::ServiceSyncRequests() {
   uint64_t req = image_.sync_requests();
-  if (req == sync_seen_ || stopped_) {
+  // CiA 301: a STOPPED master sends no SYNC; the frames it leaves out are not
+  // skipped frames.
+  if (req == sync_seen_ || stopped_ || lely_state_ == kStateStopped) {
     sync_seen_ = req;
     return;
   }

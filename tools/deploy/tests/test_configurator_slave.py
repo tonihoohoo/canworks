@@ -3,6 +3,7 @@ exporting the slave EDS, placing slave objects, check and save
 (add-canopen-slave tasks 4.1 and 6.8)."""
 
 import base64
+import datetime
 import json
 import os
 import shutil
@@ -51,6 +52,8 @@ class Slave(Running):
         self.assertFalse(os.path.exists(os.path.join(self.folder, "line-cell.eds")))
         state = self.ok("GET", "/api/state")
         self.assertIn("line-cell.eds", state["eds"])
+        # The description keeps the date of the first build (CiA 306 file dates).
+        desc = dict(desc, date=datetime.date.today().isoformat())
         self.assertEqual(state["slave_descriptions"]["line-cell.eds"], desc)
         cfg["networks"][0]["slave"].update(eds=r["name"], objects=r["bindings"])
         check = self.ok("POST", "/api/check", {"config": cfg})
@@ -80,6 +83,16 @@ class Slave(Running):
         r = self.build(cfg, {"objects": OBJECTS + [{"name": "extra", "type": "UNSIGNED16", "direction": "to_master"}]})[1]
         self.assertEqual(r["name"], "openplc-slave.eds")
         self.assertEqual([b["iec_location"] for b in r["bindings"]], ["%IW200", "%IX100.0", "%QW100", "%QW101", "%QW102"])
+
+    def test_rebuild_keeps_the_file_date(self):
+        cfg = slave_config()
+        r = self.build(cfg, {"objects": OBJECTS, "date": "2026-01-02"})[1]
+        state = self.ok("GET", "/api/state")
+        self.assertEqual(state["slave_descriptions"][r["name"]]["date"], "2026-01-02")
+        # The page sends the description without the date: the first one stays.
+        self.build(cfg, {"objects": OBJECTS})
+        state = self.ok("GET", "/api/state")
+        self.assertEqual(state["slave_descriptions"][r["name"]]["date"], "2026-01-02")
 
     def test_description_errors(self):
         status, r, _ = self.build(slave_config(), {"objects": [{"name": "x", "type": "UNSIGNED16"}]})

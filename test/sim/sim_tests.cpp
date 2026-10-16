@@ -1535,6 +1535,57 @@ TEST(sim_plc_cycle_sync_cycles_counter_skips) {
   delete sim;
 }
 
+// CiA 301: a STOPPED master sends neither PLC-cycle SYNC nor TIME, counts no
+// skipped frames for it, sends TIME at once when it leaves STOPPED, and starts
+// the SYNC counter again at 1 after it resets communication.
+TEST(sim_master_stopped_no_sync_or_time) {
+  clear_logs();
+  std::string dir = make_dir(plc_cycle_json(", \"sync_counter_overflow\": 10, \"time_period_ms\": 500"),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSyncCounterSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->frames(0x080) > 0 && !sim->time_frames(0x100).empty());
+
+  sim->net().Command(canopen::NmtCommand::STOP, 1);
+  sim->RunFor(milliseconds(100));
+  int syncs = sim->frames(0x080);
+  size_t times = sim->time_frames(0x100).size();
+  uint64_t skipped = sim->net().sync_stats().skipped;
+  sim->RunFor(milliseconds(1200));
+  CHECK_MSG(sim->frames(0x080) == syncs, std::to_string(sim->frames(0x080) - syncs) + " SYNCs while STOPPED");
+  CHECK_MSG(sim->time_frames(0x100).size() == times,
+            std::to_string(sim->time_frames(0x100).size() - times) + " TIMEs while STOPPED");
+  CHECK(sim->net().sync_stats().skipped == skipped);
+
+  auto left = std::chrono::steady_clock::now();
+  sim->net().Command(canopen::NmtCommand::ENTER_PREOP, 1);
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->frames(0x080) > syncs);
+  auto t = sim->time_frames(0x100);
+  CHECK_MSG(t.size() > times && t[times].at - left < milliseconds(150), "TIME not sent at once after STOPPED");
+
+  // Reset communication: the counter starts again at 1 (not only after 10).
+  CHECK(sim->RunUntil([] {
+    auto f = sim->sync_frames();
+    return !f.empty() && f.back().cnt >= 2 && f.back().cnt <= 8;
+  }, seconds(2)));
+  size_t before = sim->sync_frames().size();
+  sim->net().Command(canopen::NmtCommand::RESET_COMM, 1);
+  sim->RunFor(milliseconds(1500));
+  auto f = sim->sync_frames();
+  bool restarted = false;
+  for (size_t i = before; i < f.size(); ++i)
+    if (f[i].cnt == 1 && f[i - 1].cnt != 10) restarted = true;
+  CHECK_MSG(restarted, "no SYNC counter 1 after reset communication");
+  delete sim;
+}
+
 TEST(sim_plc_cycle_late_pdo) {
   clear_logs();
   std::string dir = make_dir(plc_cycle_json(), {{"cpp-slave.eds", slave_eds()}});

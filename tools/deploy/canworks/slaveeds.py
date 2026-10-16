@@ -33,17 +33,23 @@ route's field entry), the field node status ARRAYs and the SDO bridge record.
 Unless the description sets revision_number, 0x1018:3 is the low 32 bits of
 the SHA-256 of the canonical JSON of the layout, the objects and the gateway
 objects, so a master that checks identity notices a changed dictionary. The
-output is deterministic (no dates) and passes the plugin's EDS lint with
-eds_lint "all"; generate() checks that before it returns.
+file's dates come from the description's "date" ("YYYY-MM-DD" or
+"YYYY-MM-DD HH:MM"; today at 12:00AM without it), so the same description
+gives the same file. REAL values are decimal numbers (CiA 306); the plugin
+reads them through its prepared EDS copy. The output passes the plugin's EDS
+lint with eds_lint "all" and the CiA 306 check (cia306); generate() checks
+both before it returns.
 """
 
+import datetime
 import hashlib
 import json
 import math
 import os
+import re
 import struct
 
-from . import edslint
+from . import cia306, edslint
 from .contract import (DEFAULT_BRIDGE_INDEX, DEFAULT_STATUS_INDEX, MAX_STATUS_NETWORKS, _uint, field_networks, networks,
                        sdo_value)
 from .iec import CO_TYPES
@@ -81,16 +87,16 @@ class DescriptionError(Exception):
 # The description
 
 def _number(value, type_name, what):
-    """The EDS text of a value of `type_name` (REALs as Lely's hexadecimal
-    bit pattern, so the plugin reads the file unchanged)."""
+    """The EDS text of a value of `type_name` (REALs as the shortest decimal
+    number that reads back to the same REAL)."""
     if type_name in ("REAL32", "REAL64"):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise DescriptionError("%s must be a number" % what)
         if type_name == "REAL32":
             if abs(value) > 3.4028234663852886e38:
                 raise DescriptionError("%s does not fit REAL32" % what)
-            return "0x%08X" % struct.unpack("<I", struct.pack("<f", value))[0]
-        return "0x%016X" % struct.unpack("<Q", struct.pack("<d", value))[0]
+            return edslint.real_decimal(value, 0x0008)
+        return edslint.real_decimal(value, 0x0011)
     if isinstance(value, bool):
         value = int(value)
     if isinstance(value, float) and value == math.floor(value):
@@ -106,9 +112,9 @@ def _number(value, type_name, what):
 def _numeric(text, type_name):
     """A value written by _number() as a number, to compare limits."""
     if type_name == "REAL32":
-        return struct.unpack("<f", struct.pack("<I", int(text, 16)))[0]
+        return struct.unpack("<f", struct.pack("<f", float(text)))[0]
     if type_name == "REAL64":
-        return struct.unpack("<d", struct.pack("<Q", int(text, 16)))[0]
+        return float(text)
     return int(text)
 
 
@@ -122,12 +128,37 @@ def _uint_field(desc, key, default, high, what=None):
     return n
 
 
-def _text(value, what):
+def _text(value, what, limit=None):
     if not isinstance(value, str) or not value.strip():
         raise DescriptionError("%s must be a non-empty string" % what)
-    if any(ord(c) < 32 for c in value):
-        raise DescriptionError("%s may not hold control characters" % what)
-    return value.strip()
+    if any(not 32 <= ord(c) < 127 for c in value):
+        raise DescriptionError("%s may hold only printable ASCII characters (CiA 306): %s"
+                               % (what, json.dumps(value, ensure_ascii=False)))
+    value = value.strip()
+    if limit is not None and len(value) > limit:
+        raise DescriptionError("%s is %d characters; CiA 306 allows %d" % (what, len(value), limit))
+    return value
+
+
+_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$")
+
+
+def _date(value):
+    """The description's "date" as a datetime: today at 12:00AM without it."""
+    if value is None:
+        return datetime.datetime.combine(datetime.date.today(), datetime.time())
+    m = _DATE.match(value) if isinstance(value, str) else None
+    try:
+        if not m:
+            raise ValueError
+        return datetime.datetime(*(int(g) for g in m.groups() if g is not None))
+    except ValueError:
+        raise DescriptionError("'date' must be \"YYYY-MM-DD\" or \"YYYY-MM-DD HH:MM\": %s" % json.dumps(value))
+
+
+def cia306_date(when):
+    """(date, time) in CiA 306 form: mm-dd-yyyy and hh:mm with AM or PM."""
+    return when.strftime("%m-%d-%Y"), when.strftime("%I:%M%p")
 
 
 def check_description(desc):
@@ -138,13 +169,16 @@ def check_description(desc):
     object and the field."""
     if not isinstance(desc, dict):
         raise DescriptionError("the description must be a JSON object")
-    out = {"device_name": _text(desc.get("device_name", DEFAULT_NAME), "'device_name'"),
-           "vendor_name": _text(desc.get("vendor_name", "OpenPLC"), "'vendor_name'"),
+    out = {"device_name": _text(desc.get("device_name", DEFAULT_NAME), "'device_name'", cia306.MAX_PRODUCT_NAME),
+           "vendor_name": _text(desc.get("vendor_name", "OpenPLC"), "'vendor_name'", 200),
            "vendor_id": _uint_field(desc, "vendor_id", 0, 0xFFFFFFFF),
            "product_code": _uint_field(desc, "product_code", 0, 0xFFFFFFFF),
            "revision_number": (None if desc.get("revision_number") is None
                                else _uint_field(desc, "revision_number", 0, 0xFFFFFFFF)),
-           "heartbeat_ms": _uint_field(desc, "heartbeat_ms", DEFAULT_HEARTBEAT_MS, 0xFFFF)}
+           "heartbeat_ms": _uint_field(desc, "heartbeat_ms", DEFAULT_HEARTBEAT_MS, 0xFFFF),
+           "date": _date(desc.get("date"))}
+    out["order_code"] = (out["device_name"] if desc.get("order_code") is None
+                         else _text(desc["order_code"], "'order_code'", 200))
     layout = desc.get("layout", "manufacturer")
     if layout not in LAYOUTS:
         raise DescriptionError("layout %s is not supported (supported: %s)" % (json.dumps(layout), ", ".join(LAYOUTS)))
@@ -165,7 +199,7 @@ def check_object(o, i, layout, names):
         raise DescriptionError("objects[%d] must be an object" % i)
     if "name" not in o:
         raise DescriptionError("objects[%d] has no 'name'" % i)
-    name = _text(o["name"], "objects[%d]: 'name'" % i)
+    name = _text(o["name"], "objects[%d]: 'name'" % i, 200)
     what = "object '%s' (objects[%d])" % (name, i)
     if name.lower() in names:
         raise DescriptionError("%s: the name is also used by %s" % (what, names[name.lower()]))
@@ -271,10 +305,13 @@ class Obj:
         self.index, self.name, self.var, self.subs, self.object_type = index, name, var, subs, object_type
 
 
-def _array(index, name, data_type, entries, access, sub0_access="ro", object_type=0x8, pdo=False, default="0"):
-    """An ARRAY (or RECORD) whose sub-index 0 is the count and the others
-    one each of `entries` (names, or (name, type, access, default, pdo))."""
-    subs = {0: Var("Highest sub-index supported", U8, sub0_access, str(len(entries)))}
+def _array(index, name, data_type, entries, access, sub0_access="ro", object_type=0x8, pdo=False, default="0",
+           sub0=None):
+    """An ARRAY (or RECORD) whose sub-index 0 is the count, or `sub0` (name,
+    default), and the others one each of `entries` (names, or (name, type,
+    access, default, pdo))."""
+    sub0_name, sub0_default = sub0 or ("Highest sub-index supported", str(len(entries)))
+    subs = {0: Var(sub0_name, U8, sub0_access, sub0_default)}
     for k, e in enumerate(entries, 1):
         if isinstance(e, tuple):
             subs[k] = Var(e[0], e[1], e[2], e[3], e[4])
@@ -335,7 +372,7 @@ def _values(index, name, members):
 
 
 def _zero(type_name):
-    return "0x00000000" if type_name == "REAL32" else ("0x0000000000000000" if type_name == "REAL64" else "0")
+    return "0.0" if type_name in ("REAL32", "REAL64") else "0"
 
 
 def _pack(items):
@@ -462,7 +499,7 @@ def generate(desc, gateway=None, file_name="openplc-slave.eds"):
         Obj(0x1000, "Device type", Var("Device type", U32, "ro", "0x%08X" % device_type)),
         Obj(0x1001, "Error register", Var("Error register", U8, "ro", "0", True)),
         _array(0x1003, "Pre-defined error field", U32, ["Standard error field %d" % k for k in range(1, 9)], "ro",
-               sub0_access="rw"),
+               sub0_access="rw", sub0=("Number of errors", "0")),
         Obj(0x1005, "COB-ID SYNC", Var("COB-ID SYNC", U32, "rw", "0x00000080")),
         Obj(0x1008, "Manufacturer device name", Var("Manufacturer device name", STRING, "const", d["device_name"])),
         Obj(0x100C, "Guard time", Var("Guard time", U16, "rw", "0")),
@@ -493,10 +530,11 @@ def generate(desc, gateway=None, file_name="openplc-slave.eds"):
     dictionary = sorted(comm + arrays + extra_objs, key=lambda o: o.index)
     text = _write(d, dictionary, revision, file_name, len(rx), len(tx), any(o["type"] == "BOOLEAN"
                                                                             for o in all_objects))
-    # The plugin runs this file with eds_lint "all" if the user asks: it must pass.
+    # The plugin runs this file with eds_lint "all" if the user asks: it must
+    # pass, read through the prepared copy (decimal REALs are its one correction).
     _, corrections, lint = edslint.check(text.encode("utf-8"))
-    problems = [c.text for c in corrections] + ([lint.read_error] if lint.read_error else []) + \
-        ["%s: %s" % (f.where(), f.message) for f in lint.failing("all")]
+    problems = [c.text for c in corrections if c.kind != "real"] + ([lint.read_error] if lint.read_error else []) + \
+        ["%s: %s" % (f.where(), f.message) for f in lint.failing("all")] + [str(f) for f in cia306.check(text)]
     if problems:  # pragma: no cover - a generator bug
         raise DescriptionError("the generated EDS fails the plugin's lint: " + "; ".join(problems))
     info = {"revision_number": revision, "layout": d["layout"], "device_name": d["device_name"],
@@ -519,13 +557,15 @@ def _write(d, dictionary, revision, file_name, n_rx, n_tx, booleans):
         lines.extend("%s=%s" % kv for kv in entries if kv[1] is not None)
         lines.append("")
 
+    date, time = cia306_date(d["date"])
     section("FileInfo", ("FileName", file_name), ("FileVersion", "1"), ("FileRevision", "0"), ("EDSVersion", "4.0"),
             ("Description", "%s, an OpenPLC controller as a CANopen slave" % d["device_name"]),
-            ("CreatedBy", "canworks-deploy slave-eds"))
+            ("CreationTime", time), ("CreationDate", date), ("CreatedBy", "canworks-deploy slave-eds"),
+            ("ModificationTime", time), ("ModificationDate", date), ("ModifiedBy", "canworks-deploy slave-eds"))
     rates = [("BaudRate_%d" % r, "1") for r in (10, 20, 50, 125, 250, 500, 800, 1000)]
     section("DeviceInfo", ("VendorName", d["vendor_name"]), ("VendorNumber", "0x%08X" % d["vendor_id"]),
             ("ProductName", d["device_name"]), ("ProductNumber", "0x%08X" % d["product_code"]),
-            ("RevisionNumber", "0x%08X" % revision), *rates, ("SimpleBootUpMaster", "0"),
+            ("RevisionNumber", "0x%08X" % revision), ("OrderCode", d["order_code"]), *rates, ("SimpleBootUpMaster", "0"),
             ("SimpleBootUpSlave", "1"), ("Granularity", "1" if booleans else "8"), ("DynamicChannelsSupported", "0"),
             ("GroupMessaging", "0"), ("NrOfRxPDO", str(max(MIN_PDOS, n_rx))), ("NrOfTxPDO", str(max(MIN_PDOS, n_tx))),
             ("LSS_Supported", "1"), ("CompactPDO", "0"))

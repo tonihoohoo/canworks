@@ -2037,6 +2037,7 @@ TEST(dcfgen_config_check) {
   CHECK(gen.config_stamps.count(2) == 1);
   auto stamp = gen.config_stamps[2];
   CHECK(stamp.first != 0 && stamp.second != 0);
+  CHECK(stamp.first <= 65535u && stamp.second <= 86399999u);  // CiA 301 date and time ranges
   CHECK(w.size() > 3);
   if (w.size() > 3) {
     auto u32 = [](const SdoWrite& x) {
@@ -2085,10 +2086,11 @@ TEST(dcfgen_config_check) {
   for (const auto& x : unchecked.slave_sdos[2]) CHECK(x.index != 0x1020 && x.index != 0x1010);
   CHECK(read(unchecked.master_dcf).find("[1F26") == std::string::npos);
 
-  // Neither half is ever 0.
+  // Neither half is ever 0, and both stay in CiA 301's ranges.
   for (unsigned sub = 0; sub < 2000; ++sub) {
     auto s = config_stamp({}, sub);
     CHECK(s.first != 0 && s.second != 0);
+    CHECK(s.first <= 65535u && s.second <= 86399999u);
   }
 }
 
