@@ -495,6 +495,13 @@ class Network : public lely::canopen::BasicMaster {
   void* send_func_ = nullptr;  // Lely's can_send_func_t*, called by SendTapped()
   void* send_data_ = nullptr;
   static int SendTapped(const can_msg* msg, void* data);
+  // Puts SendTapped() between Lely and the bus (once).
+  void HookSend();
+  int SendOn(const can_msg& msg);
+  // An NMT START that would reach a held node: dropped, or for a START to
+  // all nodes sent to each configured node that is not held instead
+  // (canopen-plc-nmt "No start for a held node"). True when handled here.
+  bool FilterStart(const can_msg& msg);
   std::unique_ptr<RunState> own_run_;  // without a RunState from the caller
   RunState* run_;
   std::map<unsigned, NodeState> nodes_;

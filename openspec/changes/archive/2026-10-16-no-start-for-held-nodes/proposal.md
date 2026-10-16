@@ -10,7 +10,7 @@ The cause: Lely's master sends START to every slave whose boot ends well, when i
 
 - A node held STOPPED or PRE-OPERATIONAL gets no NMT START from the master while it is held: not when its boot ends, and not when the master starts all nodes. After configuring it, the master sends only the hold's command.
 - Releasing a hold (START from `CO_NMT`, the command byte, a diagnostics client, `CO_NETWORK_START`, the upper master returning) lets the master start the node again as before.
-- The plugin keeps the "may start this node" bit of the master's 0x1F81 entry for the node in step with the hold, so Lely itself does not start a held node. The bit is restored from the configuration when the hold ends. Nothing is written to any node, and nothing is stored.
+- The plugin checks every NMT START that Lely puts on the bus: a START to a held node is dropped, and a START to all nodes is sent to each configured node that is not held instead. The plugin's own STARTs release the hold first, so they pass. Nothing is written to any node, and nothing is stored.
 - The plugin's view of a booted held node is its held state from the start (STOPPED or PRE-OPERATIONAL), never OPERATIONAL first.
 
 No config, schema, PLC API or PC tool change.
@@ -22,7 +22,7 @@ No config, schema, PLC API or PC tool change.
 
 ## Impact
 
-- Code: `plugin/src/canopen/network.cpp` (`HandleBoot`, `SetHold` and the release paths, `ApplyMasterState`).
-- Tests: simulator cases in `test/sim/sim_tests.cpp` that check the CAN frames, not only the log.
+- Code: `plugin/src/canopen/network.cpp` (the send hook, `HandleBoot`, `ApplyMasterState`).
+- Tests: simulator cases in `test/sim/sim_tests.cpp` that check the CAN frames, not only the log, with a simulated node that waits for START as real devices do (the test slave started itself before, so the simulator never showed the bug).
 - Docs: a sentence in the NMT block documentation.
 - Hardware: repeat the 7.1 link drop on the Pi.
