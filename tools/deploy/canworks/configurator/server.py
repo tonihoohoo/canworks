@@ -703,7 +703,7 @@ class Session:
                 continue
             base = doc if doc is not None else notes_mod.skeleton(eds, name, eds_text=text)
             new = notes_mod.update(base, edits, eds)
-            with open(npath + ".tmp", "w", encoding="utf-8") as f:
+            with open(npath + ".tmp", "w", encoding="utf-8", newline="\n") as f:
                 f.write(notes_mod.dumps(new))
             replace_file(npath + ".tmp", npath)
             written.append(npath)

@@ -96,10 +96,21 @@ class Protocol(unittest.TestCase):
     def test_direct_query_takes_the_answer_of_the_asked_host_only(self):
         host = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         host.bind(("127.0.0.1", 0))
+        # The other host: macOS has no 127.0.0.2, so it sends from 127.0.0.1
+        # too and query_host's socket sees its datagrams as from 127.0.0.2.
         other = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        other.bind(("127.0.0.2", 0))
+        other.bind(("127.0.0.1", 0))
         for sock in (host, other):
             self.addCleanup(sock.close)
+        other_port = other.getsockname()[1]
+
+        class Socket(socket.socket):
+            def recvfrom(self, *args):
+                data, src = super().recvfrom(*args)
+                return data, ("127.0.0.2", src[1]) if src[1] == other_port else src
+        patch = mock.patch.object(discovery.socket, "socket", Socket)
+        patch.start()
+        self.addCleanup(patch.stop)
 
         def answer():
             _, asker = host.recvfrom(9000)
