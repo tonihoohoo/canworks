@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Uses the project's PLC
-The script SHALL put the bus on one device of the project: the device the plan names; else the device that holds the project's active application; else the only top-level device. A project with several devices, no name in the plan and no active application SHALL stop the run with the list of devices and a message saying how to set an active application or name a device, and SHALL change nothing. The script SHALL NOT depend on a particular PLC type or CODESYS install path, and SHALL find the active application's device at any depth in the device tree.
+The script SHALL put the bus on one device of the project: the device the plan names; else the device that holds the project's active application, found at any depth in the device tree; else the only top-level device. It SHALL NOT depend on a particular PLC type or CODESYS install path. A project with several devices, no name in the plan and no active application SHALL stop the run with the list of devices and how to set an active application or name a device, and SHALL change nothing.
 
 #### Scenario: Two devices, one active
 - **WHEN** the project has devices `PLC` and `HMI`, `HMI` holds the active application and the plan names none
@@ -24,7 +24,7 @@ The script SHALL put the bus on one device of the project: the device the plan n
 - **THEN** the bus is added under that device
 
 ### Requirement: Reuses the device's CAN interfaces
-For each network the script SHALL use an existing CANbus anywhere under the PLC whose network number equals the plan's, and an existing CANopen Manager under it. Only when none exists SHALL it add one, in the highest version installed in that CODESYS or the version of a CANbus the PLC already has, under the network's CAN interface object: the object the plan names, else the device's only CAN interface object, else the one whose name ends in the network number, else the device itself. When the interface refuses a CANbus, the script SHALL add the CANopen Manager directly under it. It SHALL then set the bit rate and the manager settings from the plan.
+For each network the script SHALL use an existing CANbus anywhere under the PLC whose network number equals the plan's, and an existing CANopen Manager under it. Only when none exists SHALL it add one, in the highest version installed in that CODESYS or the version of a CANbus the PLC already has, under the network's CAN interface object, or add the CANopen Manager directly under that object when it refuses a CANbus. It SHALL then set the bit rate and the manager settings from the plan.
 
 #### Scenario: Device that ships its CAN interfaces
 - **WHEN** the project's PLC already has CANbus objects with network numbers 0 and 1 and the plan's network has number 1
@@ -45,7 +45,7 @@ For each network the script SHALL use an existing CANbus anywhere under the PLC 
 ## ADDED Requirements
 
 ### Requirement: Choosing among several CAN interfaces
-When the device has several CAN interface objects and the plan names none for a network, the script SHALL use the one whose name ends in the network number; when none or several match, that network SHALL stop with the list of interfaces and the option that names one, and other networks SHALL continue.
+A network's CAN interface object SHALL be the object the plan names, else the device's only CAN interface object, else the device itself when it has none. When the device has several CAN interface objects and the plan names none for a network, the script SHALL use the one whose name ends in the network number; when none or several match, that network SHALL stop with the list of interfaces and the option that names one, and other networks SHALL continue.
 
 #### Scenario: Two interfaces
 - **WHEN** the device has `CAN1` and `CAN2`, the network has number 2 and no interface is named
