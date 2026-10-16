@@ -214,6 +214,8 @@ class NetworksPage(unittest.TestCase):
         pg = self.page
         cfg = self.two()
         cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW100"
+        # EMCY fields need 0x1014 in the nodes' EDS.
+        shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "emcy-slave.eds"), os.path.join(self.folder, "cpp-slave.eds"))
         self.write(cfg)
         self.open()
         self.assertEqual(self.tabs(), ["io", "drives"])
