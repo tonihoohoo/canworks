@@ -678,7 +678,7 @@ function fxDrawConversations(body, r) {
   fxFill(body, 
     el("p", { class: "muted" }, `${r.total} SDO conversation${r.total === 1 ? "" : "s"}` +
       (r.total > r.conversations.length ? `, the newest ${r.conversations.length} listed` : "") + "."),
-    shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
+    shown.length ? el("div", { class: "fx-list", dataset: { box: "fx_list", boxLabel: "the list" } }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Operation", "Object", "Result", "Value", "Frames", "Took"]))),
       el("tbody", null, shown.map((c) => el("tr", { class: (c.seq === s.picked ? "selected " : "") + "r-" + c.result, tabindex: "0",
         dataset: { seq: c.seq }, onclick: () => fxPickSequence(c.seq),
@@ -747,7 +747,7 @@ function fxDrawBoots(body, r) {
   fxFill(body, 
     el("p", { class: "muted" }, `${r.total} boot${r.total === 1 ? "" : "s"} found.` +
       (r.compared ? " The master's writes are compared with what the configuration writes at boot." : " The configuration's boot writes could not be computed, so writes are not compared.")),
-    shown.length ? el("div", { class: "fx-list" }, el("table", { class: "fx-table" },
+    shown.length ? el("div", { class: "fx-list", dataset: { box: "fx_list", boxLabel: "the list" } }, el("table", { class: "fx-table" },
       el("thead", null, el("tr", null, thCells(["Time", "Node", "Began with", "Result", "Writes", "Took"]))),
       el("tbody", null, shown.map((b) => el("tr", { class: (b.seq === s.picked ? "selected " : "") + (bad(b) ? "r-aborted" : ""), tabindex: "0",
         dataset: { seq: b.seq }, onclick: () => fxPickSequence(b.seq),
@@ -762,7 +762,7 @@ function fxDrawBoots(body, r) {
     el("p", { dataset: { fx: "boot-result" } }, `The node ${FX_BOOT_RESULT[b.result] || b.result}.`),
     fxDiagram(b.steps.map((st) => ({ seq: st.seq, from: from[st.what] || "right", mid: st.what.startsWith("reset") && false,
       text: st.text, dt: st.dt_us, bad: / refused|abort|unanswered/.test(st.text) })), "PLC (master)", b.node_label),
-    b.writes ? el("div", { class: "fx-list" }, el("table", { class: "fx-table", dataset: { fx: "writes" } },
+    b.writes ? el("div", { class: "fx-list", dataset: { box: "fx_list", boxLabel: "the list" } }, el("table", { class: "fx-table", dataset: { fx: "writes" } },
       el("thead", null, el("tr", null, thCells(["Object", "Name", "Expected", "Written", "Result"]))),
       el("tbody", null, b.writes.map((w) => el("tr", { class: "w-" + w.status, tabindex: w.seq != null ? "0" : null,
         onclick: w.seq != null ? () => fxInspectSeq(w.seq, $("#fx-seq-inspector"), { noLinks: true }) : null },
@@ -835,7 +835,7 @@ function fxTimeline(c) {
   }
   return el("div", null, el("h3", null, `SYNC cycle ${c.n + 1}` + (c.period_us != null ? `, ${fxUs(c.period_us)} until the next SYNC` : "")),
     el("div", { class: "fx-scroll" }, svg),
-    el("div", { class: "fx-list" }, el("table", { class: "fx-table", dataset: { fx: "cycle" } },
+    el("div", { class: "fx-list", dataset: { box: "fx_list", boxLabel: "the list" } }, el("table", { class: "fx-table", dataset: { fx: "cycle" } },
       el("thead", null, el("tr", null, ["After SYNC", "ID", "Name", "Group", "Transmission", "SYNC window"].map((t) => el("th", null, t)))),
       el("tbody", null, c.frames.map((f) => el("tr", { tabindex: "0", class: f.in_window === false ? "r-aborted" : "",
         onclick: () => fxInspectSeq(f.seq, $("#fx-seq-inspector"), { noLinks: true }) },

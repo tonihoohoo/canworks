@@ -401,7 +401,7 @@ function simPanel(id) {
     el("p", { class: "muted", dataset: { simPanelState: id } }, "Reading the simulated device…"),
     el("div", { class: "toolbar sim-fault-buttons", dataset: { simPanelFaults: id } }),
     el("div", { dataset: { simPanelActive: id } }),
-    el("div", { class: "table-scroll" }, el("table", { class: "od sim-values" },
+    el("div", { class: "table-scroll", dataset: { box: "sim_values", boxLabel: "the values" } }, el("table", { class: "od sim-values" },
       el("thead", null, el("tr", null, thCells(["Object", "Name", "Value", "Set to", ""]))),
       el("tbody", { dataset: { simPanelRows: id } }))),
     hint("Override holds a value until Release. The simulation file, scenarios and the other faults are in the Simulation tab."));

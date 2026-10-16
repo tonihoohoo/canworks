@@ -1184,6 +1184,93 @@ class Page(unittest.TestCase):
         self.assertIn("AT %s : UDINT;" % read["iec_location"], block)
         self.assertIn("AT %s : USINT;" % read["status_location"], block)
 
+    def test_selected_rows_resize_and_picker_notes(self):
+        # row-highlight-and-list-resize: one selected row per list, kept
+        # through a re-render, cleared by Escape; the pickers' resize bars keep
+        # their height per kind of box; whole notes on the pickers.
+        pg = self.page
+        self.open_from_start("#start-project", self.project)
+        self.fill("adapter.interface", "can0")
+        self.add_node(os.path.join(RTD, "rtd8.eds"))
+        self.fill("nodes[0].node_id", "5")
+        # A note with named values and no text shows on the pickers.
+        node_tab(pg, "notes")
+        pg.click("button[data-add-note]")
+        pg.fill("#modal [data-note-picker-filter]", "2000:1")
+        pg.keyboard.press("Enter")
+        pg.wait_for_selector("#modal .note-editor")
+        pg.fill('#modal [data-note-field="values"]', "0 = wait\n1 = start")
+        pg.click('#modal button[data-value="save"]')
+        pg.wait_for_selector('[data-note-row="0x2000:1"][data-note-source="mine"]')
+        node_tab(pg, "sdos")
+        self.open_sections()
+        sdo = 'tr:has(button[data-sdo="0x2000:1"])'
+        self.assertIn("0 = wait, 1 = start", pg.inner_text(sdo + ' [data-note="meaning"]'))
+        var = 'tr:has(button[data-sdo-var="0x2000:1"])'
+        self.assertIn("0 = wait, 1 = start", pg.inner_text(var + ' [data-note="meaning"]'))
+        # The SDO variables picker shows built-in note text, and filters by it.
+        pg.fill('input[aria-label="Filter SDO variable objects"]', "heartbeat")
+        pg.wait_for_selector('button[data-sdo-var="0x1017:0"]')
+        self.assertIn("heartbeat", pg.inner_text('tr:has(button[data-sdo-var="0x1017:0"]) [data-note="text"]').lower())
+        pg.fill('input[aria-label="Filter SDO variable objects"]', "")
+        # Selecting rows: a click on the name, then on another row's name.
+        selected = """(box) => [...document.querySelectorAll(`[data-box="${box}"] tr.row-selected`)]
+            .map((r) => r.cells[0].textContent + ' ' + r.getAttribute('aria-current'))"""
+        pg.click(sdo + " td:nth-child(2)")
+        self.assertEqual(pg.evaluate(selected, "sdo_picker"), ["0x2000:1 true"])
+        pg.click('tr:has(button[data-sdo="0x2000:2"]) td:nth-child(1)')
+        self.assertEqual(pg.evaluate(selected, "sdo_picker"), ["0x2000:2 true"])
+        # Add selects its row too, and the selection survives the re-render.
+        pg.click('button[data-sdo-var="0x2000:1"]')
+        pg.wait_for_selector('.sdo-var[data-path="nodes[0].sdo_variables[0]"]')
+        self.assertIn("0 = wait, 1 = start", pg.inner_text('.sdo-var[data-path="nodes[0].sdo_variables[0]"] [data-note="meaning"]'))
+        pg.wait_for_function("() => document.querySelector('[data-box=\"sdo_var_picker\"] tr.row-selected')")
+        self.assertEqual(pg.evaluate(selected, "sdo_var_picker"), ["0x2000:1 true"])
+        self.assertEqual(pg.evaluate(selected, "sdo_picker"), ["0x2000:2 true"])
+        # Tab into a row's button selects it; Escape clears.
+        third = '[data-box="sdo_picker"] tbody tr:nth-child(3)'
+        pg.focus(third + " button")
+        self.assertEqual(pg.evaluate(selected, "sdo_picker"), [pg.inner_text(third + " td:nth-child(1)").strip() + " true"])
+        pg.keyboard.press("Escape")
+        self.assertEqual(pg.evaluate(selected, "sdo_picker"), [])
+        # The look is the same as the object dictionary's.
+        pg.click(sdo + " td:nth-child(2)")
+        look = pg.evaluate("""() => { const tr = document.querySelector('[data-box="sdo_picker"] tr.row-selected');
+            const c = getComputedStyle(tr.cells[0]); return [c.backgroundColor, c.boxShadow.includes('3px')]; }""")
+        sel_bg = pg.evaluate("""() => { const d = document.createElement('div'); d.style.background = 'var(--sel-bg)';
+            document.body.append(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; }""")
+        self.assertEqual(look, [sel_bg, True])
+        pg.emulate_media(forced_colors="active")
+        outline = pg.eval_on_selector('[data-box="sdo_picker"] tr.row-selected', "tr => getComputedStyle(tr).outlineStyle")
+        pg.emulate_media(forced_colors="none")
+        self.assertEqual(outline, "solid")
+        # The resize bar: Down twice makes the picker 80 px taller, the height
+        # is kept on this PC, and double-click restores the default.
+        bar = '[data-box-bar="sdo_picker"]'
+        pg.wait_for_selector(bar)
+        h0 = pg.evaluate("() => document.querySelector('[data-box=\"sdo_picker\"]').getBoundingClientRect().height")
+        pg.focus(bar)
+        pg.keyboard.press("ArrowUp")
+        pg.keyboard.press("ArrowUp")
+        h1 = pg.evaluate("() => document.querySelector('[data-box=\"sdo_picker\"]').getBoundingClientRect().height")
+        self.assertAlmostEqual(h1, h0 - 80, delta=2)
+        self.assertEqual(pg.get_attribute(bar, "role"), "separator")
+        self.assertEqual(pg.get_attribute(bar, "aria-valuenow"), str(round(h1)))
+        pg.wait_for_function("(h) => fetch('/api/ui').then(r => r.json()).then(u => (u.box_heights || {}).sdo_picker === h)",
+                             arg=round(h1))
+        ui = load(os.path.join(self.dir, "cfg", "ui.json"))
+        self.assertEqual(ui["box_heights"], {"sdo_picker": round(h1)})
+        self.save()
+        pg.reload()
+        pg.wait_for_selector("#editor:not([hidden])")
+        tree_node(pg, 0, "sdos")
+        self.open_sections()
+        pg.wait_for_function("(h) => document.querySelector('[data-box=\"sdo_picker\"]').style.maxHeight === h + 'px'",
+                             arg=round(h1))
+        pg.dblclick(bar)
+        self.assertEqual(pg.evaluate("() => document.querySelector('[data-box=\"sdo_picker\"]').style.maxHeight"), "")
+        pg.wait_for_function("() => fetch('/api/ui').then(r => r.json()).then(u => !(u.box_heights || {}).sdo_picker)")
+
     def test_supervision_method_switch(self):
         pg = self.page
         self.open_from_start("#start-project", self.project)

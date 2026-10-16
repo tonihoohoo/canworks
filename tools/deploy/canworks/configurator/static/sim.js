@@ -586,7 +586,7 @@ function simDevicePanel() {
     el("h2", null, `${simRefText(ref)} ${simDeviceName(ref)}`),
     el("p", { class: "muted", dataset: { sim: "device-state" } }, simDeviceState(ref)),
     el("fieldset", null, el("legend", null, "Values"),
-      el("div", { class: "table-scroll" }, el("table", { class: "od sim-values", dataset: { sim: "values" } },
+      el("div", { class: "table-scroll", dataset: { box: "sim_values", boxLabel: "the values" } }, el("table", { class: "od sim-values", dataset: { sim: "values" } },
         el("thead", null, el("tr", null, thCells(["Object", "Name", "Value", "Control", ""]))),
         el("tbody", { id: "sim-rows" }))),
       simPinPicker(ref),

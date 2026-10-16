@@ -402,6 +402,7 @@ async function loadTreeSettings() {
     const ui = await api("GET", "/api/ui");
     S.treeFolded = new Set(Array.isArray(ui.tree_folded) ? ui.tree_folded : []);
     if (typeof ui.node_tab === "string") S.nodeTab = ui.node_tab;
+    if (ui.box_heights && typeof ui.box_heights === "object") { S.boxHeights = Object.assign({}, ui.box_heights); applyBoxHeights(); }
   } catch (e) { /* defaults */ }
 }
 
