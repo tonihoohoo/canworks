@@ -8,6 +8,8 @@ The Trace graph (`static/trace.js`) draws one uPlot chart per lane with a shared
 
 **Also:** the user can make the lists and the graph taller or shorter, and the choice is kept.
 
+**Also:** the trace in its own browser window, watched while the main window sends messages.
+
 **Non-Goals:** keyboard zoom, zooming the value (y) axis, the watch graph, touch pinch on phones.
 
 ## Decisions
@@ -24,9 +26,17 @@ The Trace graph (`static/trace.js`) draws one uPlot chart per lane with a shared
 9. **One list height, per-lane graph height.** `list_h` (px, or none for the default viewport formula) sets a CSS variable used by `.trace-list` and `.ids-grid`, so switching between the two lists keeps the height. `lane_h` (px, or none for the 200/150 default) is used by `drawPlots()`; dragging the graph bar changes the total height and divides it by the lane count, so adding a lane later does not squash the others. The plots get `setSize()` while dragging (no refetch); cursors and the zoom stay. Saved 300 ms after the last change with `tracePrefs()`, like the split.
 10. **Shared-height layout untouched.** Between `SPLIT_PHONE` and `SPLIT_WIDE` the list and inspector already share the window height; a list height there would fight it, so the list bar is hidden in that layout and the saved height applies again when the window is wider or narrower.
 
+11. **Trace window = same page, `?window=trace`.** `window.open("/?window=trace", "canworks-trace", "popup,width=…,height=…")` from the button's click (no popup blocker). The session cookie is shared, so no login. At boot, `?window=trace` puts the page in trace-window mode: `S.view = "trace"` fixed, the header, workspace and tool tabs, bottom panel and connection bar are hidden and replaced by a one-line top bar. The recording, decoding and connection are already server-side (one trace per project folder), so the window needs no new server operations.
+12. **One window shows the trace.** A `BroadcastChannel("canworks-trace")` carries: `open`/`closed` from the trace window (also on `pagehide`), `ping`/`here` so a reloaded main window learns that a trace window is open, `network` and `folder` from the main window when they change, `goto` (open node / Frame lab) from the trace window to the main window, and `bring-back` (the trace window closes itself). The main window's Trace tab shows the note instead of the trace while a trace window answers, so the two windows never both poll or both write view prefs. If no main window answers a `goto` within 300 ms, the trace window opens `/` in a new window with the target in the URL hash.
+13. **Close question.** `unsavedWork()` counts the unsaved recording only in the window showing the trace; the main window's other unsaved-work checks are unchanged.
+14. **Window size.** Saved as `window_w`/`window_h` in the trace prefs on `resize` (debounced), used in the `open` features next time; default 1200 × 800, never larger than the screen.
+15. **Button place.** In the Trace toolbar's right end, label "Open in new window" with the ⧉ icon; hidden below `SPLIT_PHONE` and in the trace window itself.
+
 ## Risks / Trade-offs
 
 - [Users who scroll the page with the pointer over a plot are stopped there] → plot areas are small, the rest of the graph block scrolls the page, and the hint says what the wheel does.
 - [Coarse points while zoomed in before the fetch] → 150 ms later the detail arrives; same as today's drag zoom, which shows nothing new until the fetch returns.
 - [A tall list or graph pushes the toolbar off screen] → the toolbar is above and the page scrolls; double-click on the bar returns to the default.
+- [Browser blocks or ignores popup features] → the window still opens as a tab, which works the same; the note in the main window still applies.
+- [BroadcastChannel missing] → all supported browsers have it; without it the button is hidden.
 - [Many fetches while scrolling slowly] → one fetch per pause, older answers dropped.
