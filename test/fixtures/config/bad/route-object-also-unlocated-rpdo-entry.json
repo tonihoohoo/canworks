@@ -1,0 +1,154 @@
+{
+  "description": "Route \"pong\" reads 0x4001:0 of node 2 from its TPDO entry, and node 2 also has 0x4001:0 in an RPDO entry without iec_location: nothing writes that entry, so it would always send 0 (L13).",
+  "message": "route 1 (pong) reads 0x4001:0 from a TPDO entry, so this RPDO entry without 'iec_location' would only send 0",
+  "config": {
+    "schema_version": 2,
+    "networks": [
+      {
+        "name": "io",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan0",
+          "bitrate": 125000
+        },
+        "master": {
+          "node_id": 1,
+          "sync_period_us": 100000
+        },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "rw-4001.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX10.0",
+            "tx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%ID100"
+                  }
+                ]
+              }
+            ],
+            "rx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4000",
+                    "subindex": 0,
+                    "type": "UNSIGNED32"
+                  },
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "drives",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan1",
+          "bitrate": 500000
+        },
+        "master": {
+          "node_id": 1,
+          "sync_period_us": 100000
+        },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX10.1",
+            "tx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%ID101"
+                  }
+                ]
+              }
+            ],
+            "rx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4000",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%QD101"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "upper",
+        "role": "slave",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan2",
+          "bitrate": 250000
+        },
+        "slave": {
+          "node_id": 20,
+          "eds": "openplc-gateway.eds",
+          "comm_ok_location": "%IX300.0"
+        }
+      }
+    ],
+    "gateway": {
+      "upper": "upper",
+      "routes": [
+        {
+          "slave": {
+            "index": "0x2101",
+            "subindex": 1
+          },
+          "field": {
+            "network": "io",
+            "node": 2,
+            "index": "0x4001",
+            "subindex": 0
+          },
+          "name": "pong"
+        },
+        {
+          "slave": {
+            "index": "0x2000",
+            "subindex": 1
+          },
+          "field": {
+            "network": "io",
+            "node": 2,
+            "index": "0x4000",
+            "subindex": 0
+          },
+          "name": "ping"
+        }
+      ],
+      "status": {
+        "index": "0x5E00"
+      },
+      "emcy_forward": true,
+      "on_upper_loss": "stop_nodes",
+      "sdo_bridge": true
+    }
+  }
+}

@@ -265,7 +265,12 @@ void Cia309Server::adopt(Handover h, std::chrono::steady_clock::time_point now) 
   if (!h.in.empty() && !conns_.back().session->feed(h.in.data(), h.in.size(), now)) conns_.back().closing = true;
 }
 
-void Cia309Server::accept_clients() {
+std::chrono::steady_clock::time_point Cia309Server::idle_due(const Conn& c) const {
+  if (c.session->tunnelled() || !cfg_.idle_timeout_s) return std::chrono::steady_clock::time_point::max();
+  return c.active + std::chrono::seconds(cfg_.idle_timeout_s);
+}
+
+void Cia309Server::accept_clients(std::chrono::steady_clock::time_point now) {
   for (;;) {
     sockaddr_storage a{};
     socklen_t len = sizeof a;
@@ -296,6 +301,7 @@ void Cia309Server::accept_clients() {
     Conn c;
     c.fd = fd;
     c.session.reset(new Cia309Session(cfg_, nets_, addr, false, version_));
+    c.active = now;
     log_info("cia309: session from %s on the plain port", addr);
     conns_.push_back(std::move(c));
   }
@@ -374,7 +380,7 @@ void Cia309Server::run() {
     const size_t first_conn = fds.size();
     auto due = clock::time_point::max();
     for (auto& c : conns_) {
-      due = std::min(due, c.session->poll(now));
+      due = std::min(due, std::min(c.session->poll(now), idle_due(c)));
       short ev = pending(c) ? POLLOUT : 0;
       // A session whose answers are not read is not read either.
       if (!c.closing && pending(c) <= kMaxSendBuffer) ev |= POLLIN;
@@ -440,9 +446,20 @@ void Cia309Server::run() {
           c.closing = true;
       }
     }
-    for (auto& c : conns_) c.session->poll(now);
+    for (auto& c : conns_) {
+      c.session->poll(now);
+      if (c.session->lines() != c.lines || c.session->outstanding()) {
+        c.lines = c.session->lines();
+        c.active = now;
+      }
+    }
     for (size_t i = conns_.size(); i-- > 0;) {
       Conn& c = conns_[i];
+      if (!c.closing && now >= idle_due(c)) {
+        const std::string why = "idle for " + std::to_string(cfg_.idle_timeout_s) + " s, cia309.idle_timeout_s";
+        close_conn(i, why.c_str());
+        continue;
+      }
       if (c.closing) {
         flush(c);  // what is ready still goes out, if the socket takes it
         close_conn(i, "disconnected");
@@ -465,7 +482,7 @@ void Cia309Server::run() {
         c.over_since = {};
       }
     }
-    if (listen_fd_ >= 0 && (fds[2].revents & POLLIN)) accept_clients();
+    if (listen_fd_ >= 0 && (fds[2].revents & POLLIN)) accept_clients(now);
     publish();
   }
 }

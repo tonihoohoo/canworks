@@ -600,6 +600,12 @@
               "minimum": 1,
               "maximum": 16
             },
+            "idle_timeout_s": {
+              "description": "A plain-port session that sends no line for this many seconds is closed (default 300); 0: no limit. Sessions through the diagnostics channel are not timed out here.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400
+            },
             "allow_changes": {
               "description": "Allow SDO downloads, NMT commands and LSS (default false: read-only).",
               "type": "boolean"
@@ -1267,7 +1273,7 @@
           "$ref": "#/$defs/co_type"
         },
         "value": {
-          "description": "A JSON number (true/false for BOOLEAN), or an integer as a decimal or 0x hex string. Must fit the type.",
+          "description": "A JSON number (true/false for BOOLEAN), or an integer as a decimal or 0x hex string (no leading zero). Must fit the type.",
           "oneOf": [
             {
               "type": "number"
@@ -1277,7 +1283,7 @@
             },
             {
               "type": "string",
-              "pattern": "^-?(0[xX][0-9a-fA-F]+|[0-9]+)$"
+              "pattern": "^-?(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
             }
           ]
         }
@@ -1289,9 +1295,9 @@
       ]
     },
     "uint_string": {
-      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"). Its range is checked by the plugin, not by this schema.",
+      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"), with no leading zero (\"012\" is refused). Its range is checked by the plugin, not by this schema.",
       "type": "string",
-      "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+      "pattern": "^(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
     },
     "u8": {
       "anyOf": [
@@ -1339,7 +1345,7 @@
       "description": "Object 0x1029 (error behavior): sub-index (1-254, as a string key) to value (0 = pre-operational, 1 = no change, 2 = stopped, others manufacturer-specific).",
       "type": "object",
       "propertyNames": {
-        "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+        "pattern": "^(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/u8"

@@ -31,3 +31,10 @@ Bit-sized entries SHALL share bytes. Packing SHALL keep every location's size an
 #### Scenario: Pack a mixed config
 - **WHEN** a bridge config with 3 nodes, 2 J1939 messages and a status block is packed
 - **THEN** its inputs occupy one contiguous byte range from 0 with no gap larger than one byte for alignment, and Check reports no problems
+
+### Requirement: J1939 trouble code lists in bridge configs
+A J1939 DM1 trouble code list (`dtcs_location` with `dtcs` above 1) in a Modbus bridge config SHALL place code k at 4 bytes per code from the start, as on a PLC runtime.
+
+#### Scenario: Three codes
+- **WHEN** a bridge config has `dtcs_location` `%ID560` with `dtcs` 3
+- **THEN** the config is accepted and the three codes lie 4 bytes apart in the image, with no overlap error

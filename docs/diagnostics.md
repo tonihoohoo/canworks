@@ -62,14 +62,14 @@ On a J1939 network `dm` works with the trouble codes of J1939-73 ([j1939.md](j19
 ```sh
 canworks-diag --runtime plc.local dm list --network machine [--dbc machine.dbc]   # every ECU's lamps and codes, and the PLC's own
 canworks-diag --runtime plc.local dm read --address 0 [--dm-timeout 1000]         # DM2: previously active codes of ECU 0
-canworks-diag --runtime plc.local dm clear --address 0 --force                    # DM11: clear active codes
+canworks-diag --runtime plc.local dm clear --address 0 --force                    # DM11: clear active codes; needs allow_changes
 canworks-diag --runtime plc.local dm clear --address 0 --previous --force         # DM3: clear previously active codes only
 canworks-diag --runtime plc.local dm clear --address global --force               # to every ECU, no answer awaited
 canworks-diag --adapter slcan:COM5 --bitrate 250 dm list [--listen 1.5]           # PC-direct: listens only
 canworks-diag --adapter slcan:COM5 --bitrate 250 dm read --address 0 [--source-address 249]
 ```
 
-`list` prints each code with its FMI text and, with `--dbc`, the SPN name from the DBC's `SPN` attributes. `read` and `clear` go out from the PLC's claimed address; a clear acts on another ECU, so it needs `--force` and nothing is sent without it. On an adapter `list` only listens, while `read` and `clear` claim service tool address 249 (or `--source-address`) with the tool's own NAME, send nothing when the claim fails and give the address back at exit.
+`list` prints each code with its FMI text and, with `--dbc`, the SPN name from the DBC's `SPN` attributes. `read` and `clear` go out from the PLC's claimed address; a clear acts on another ECU, so it needs `allow_changes` on the runtime ("changes not allowed" otherwise, with or without `--force`) and `--force`, and nothing is sent without both. `read` works on a read-only channel. On an adapter `list` only listens, while `read` and `clear` claim service tool address 249 (or `--source-address`) with the tool's own NAME, send nothing when the claim fails and give the address back at exit.
 
 On a slave network ([slave.md](slave.md#diagnostics)) `status` prints the plugin's own device instead of a master and nodes: its node ID (or that it waits for LSS), NMT state, communication OK, SYNC count, EMCY code and error register, each TPDO and RPDO in force with its COB-ID, transmission type and mapped objects, on a gateway's upper network the gateway's route count, whether the upper master is there and the active forwarded errors, and, as on a master network, `simulated_network` and `simulation_forced`. `sdo-read` and `sdo-write` with the slave's own node ID read and write its dictionary; the other commands exit with status 1 saying that they need a master network.
 
@@ -110,7 +110,7 @@ canworks-diag --adapter slcan:COM5 backup 5 --config canworks/canworks.json --ne
 | Option | |
 |---|---|
 | `--adapter TYPE:CHANNEL` | `slcan:PORT`, `gs_usb:N` (Windows, macOS, Linux) or `socketcan:IFACE` (Linux); other python-can types are passed through untested. Not together with `--runtime`. |
-| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. Every command checks it before sending anything and exits 1 with the reason when the bus does not run at it ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). |
+| `--bitrate KBIT` | the bus's bit rate; without it, the network's `adapter.bitrate` from `--config`. There is no default. Every command checks it before sending anything and exits 1 with the reason when the bus does not run at it ([pc-adapter.md](pc-adapter.md#the-check-on-connect)). A `--config` network with `adapter.listen_only: true` connects listen-only and sends nothing. |
 | `--check-node N` | the node that answers the bit rate check (an SDO read of 0x1000) on a silent bus, for an adapter that cannot confirm its own frames (slcan). |
 | `--adapter-option KEY=VALUE` | passed to python-can when opening the adapter, repeatable. |
 | `--allow-changes` | allows SDO writes, NMT, restore and LSS for this command; without it the adapter only reads. `store` still asks. |

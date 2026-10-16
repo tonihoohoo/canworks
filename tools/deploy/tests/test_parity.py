@@ -5,9 +5,12 @@ test/fixtures/config/bad/ goes through the deploy tool's checks
 through build/canopen_check --no-dcfgen, the plugin's config loader. Both
 must refuse it.
 
-Each entry is {"description", "config", "simulation" (optional)}; the
-config is written as canworks.json, with simulation.json next to it, into a
-folder that holds test/fixtures/eds. A new plugin refusal adds an entry
+Each entry is {"description", "config", "simulation" (optional), "message"
+(optional)}; the config is written as canworks.json, with simulation.json
+next to it, into a folder that holds test/fixtures/eds. An entry with
+"config_text" in place of "config" is written as that text, for what a
+parsed config cannot hold (a repeated key). With "message", both refusals
+must contain that text. A new plugin refusal adds an entry
 (docs/development.md)."""
 
 import glob
@@ -34,6 +37,11 @@ def entries():
 def tool_errors(doc, folder):
     """The deploy tool's errors for an entry written to `folder`."""
     path = os.path.join(folder, "canworks.json")
+    if "config_text" in doc:
+        try:
+            doc = dict(doc, config=contract.loads(doc["config_text"]))
+        except ValueError as e:
+            return [str(e)]
     r = contract.check_config(doc["config"], path)
     if r.errors or "simulation" not in doc:
         return r.errors
@@ -47,7 +55,8 @@ class Corpus(unittest.TestCase):
             with self.subTest(os.path.basename(path)):
                 with open(path, encoding="utf-8") as f:
                     doc = json.load(f)
-                self.assertEqual(sorted(set(doc) - {"simulation"}), ["config", "description"])
+                self.assertEqual(sorted(set(doc) - {"simulation", "message", "config_text", "config"}), ["description"])
+                self.assertEqual(len({"config", "config_text"} & set(doc)), 1)
 
 
 class Parity(unittest.TestCase):
@@ -62,7 +71,10 @@ class Parity(unittest.TestCase):
         folder = os.path.join(tmpdir(self), "cfg")
         shutil.copytree(EDS_DIR, folder)
         with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
-            json.dump(doc["config"], f)
+            if "config_text" in doc:
+                f.write(doc["config_text"])
+            else:
+                json.dump(doc["config"], f)
         if "simulation" in doc:
             with open(os.path.join(folder, "simulation.json"), "w", encoding="utf-8") as f:
                 json.dump(doc["simulation"], f)
@@ -97,6 +109,9 @@ class Parity(unittest.TestCase):
                     "%s (%s): configurator %s, plugin %s\n%s\n%s" % (
                         name, doc["description"], "refuses" if errors else "accepts",
                         "refuses" if plugin else "accepts", "\n".join(errors), out.stdout + out.stderr))
+                if "message" in doc:
+                    self.assertIn(doc["message"], "\n".join(errors), "%s: configurator" % name)
+                    self.assertIn(doc["message"], out.stdout + out.stderr, "%s: plugin" % name)
 
 
 if __name__ == "__main__":

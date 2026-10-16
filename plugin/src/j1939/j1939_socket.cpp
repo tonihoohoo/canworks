@@ -61,13 +61,20 @@ class KernelSocket : public J1939Socket {
     // The program's long sends: a second socket at the same NAME and
     // address, reporting its transport protocol sessions on its error queue.
     // Without it they go through the ECU socket.
-    if (open_ecu(name, address, long_) == 0) {
+    int lr = open_ecu(name, address, long_);
+    if (lr) long_problem_ = std::string("long send socket: ") + strerror(-lr);
+    if (lr == 0) {
       int one = 1;
       unsigned flags = SOF_TIMESTAMPING_OPT_ID | SOF_TIMESTAMPING_TX_ACK | SOF_TIMESTAMPING_TX_SCHED |
                        SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_CMSG | SOF_TIMESTAMPING_OPT_TSONLY;
-      events_ = setsockopt(long_, SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)) == 0 &&
-                setsockopt(long_, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)) == 0;
+      if (setsockopt(long_, SOL_CAN_J1939, SO_J1939_ERRQUEUE, &one, sizeof(one)) < 0)
+        long_problem_ = std::string("SO_J1939_ERRQUEUE: ") + strerror(errno);
+      else if (setsockopt(long_, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags)) < 0)
+        long_problem_ = std::string("SO_TIMESTAMPING: ") + strerror(errno);
+      else
+        events_ = true;
       long_prio_ = -1;
+      next_id_ = 0;  // OPT_ID counts this socket's sessions from 0
     }
     return 0;
   }
@@ -84,7 +91,9 @@ class KernelSocket : public J1939Socket {
     return apply_filter(pgns, any) < 0 ? -errno : 0;
   }
 
-  int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) override {
+  int send_long(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len,
+                uint32_t& id) override {
+    id = 0;
     if (long_ < 0) return send(pgn, destination, priority, data, len);
     if (priority != long_prio_) {
       int p = priority;
@@ -93,13 +102,23 @@ class KernelSocket : public J1939Socket {
     }
     sockaddr_can a = addr(J1939_NO_NAME, destination, pgn);
     ssize_t n = sendto(long_, data, len, MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&a), sizeof(a));
-    return n < 0 ? -errno : 0;
+    int r = n < 0 ? -errno : 0;
+    // The kernel numbers each session it creates on the socket, also one it
+    // then cannot start next to another socket's session to the same
+    // address (EBUSY); other refusals come before the session exists.
+    if (r == 0) id = next_id_;
+    if (r == 0 || r == -EBUSY) ++next_id_;
+    return r;
   }
 
-  int send_event(bool& aborted, int& error) override {
-    if (long_ < 0 || !events_) return -1;
+  bool long_send_events() const override { return long_ >= 0 && events_; }
+  std::string long_send_problem() const override { return long_problem_; }
+
+  int send_event(uint32_t& id, bool& aborted, int& error) override {
+    if (long_ < 0 || !events_) return 0;
     // The kernel puts a "scheduled" note when a session starts, then an
-    // acknowledgement when it completed or an abort.
+    // acknowledgement when it completed or an abort, each with the
+    // session's number in ee_data.
     for (int k = 0; k < 16; ++k) {
       char data[8];
       iovec iov = {data, sizeof(data)};
@@ -116,11 +135,13 @@ class KernelSocket : public J1939Socket {
         sock_extended_err serr;
         std::memcpy(&serr, CMSG_DATA(c), sizeof(serr));
         if (serr.ee_origin == SO_EE_ORIGIN_TIMESTAMPING && serr.ee_info == SCM_TSTAMP_ACK) {
+          id = serr.ee_data;
           aborted = false;
           error = 0;
           return 1;
         }
         if (serr.ee_origin == SO_EE_ORIGIN_LOCAL && serr.ee_info == J1939_EE_INFO_TX_ABORT) {
+          id = serr.ee_data;
           aborted = true;
           error = static_cast<int>(serr.ee_errno);
           return 1;
@@ -195,6 +216,7 @@ class KernelSocket : public J1939Socket {
     if (long_ >= 0) ::close(long_);
     long_ = -1;
     events_ = false;
+    long_problem_.clear();
   }
 
   // The receive socket's filter: `pgns`, or none (every PGN) with `any`.
@@ -238,6 +260,8 @@ class KernelSocket : public J1939Socket {
   int long_ = -1;
   int long_prio_ = -1;
   bool events_ = false;
+  std::string long_problem_;  // why events_ is false after a bind
+  uint32_t next_id_ = 0;  // the number the kernel gives the long socket's next session
   std::vector<uint8_t> buf_;
 };
 

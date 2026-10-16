@@ -130,6 +130,8 @@ ExecStart=$PREFIX/venv/bin/canworks-link --dir $LINK_DIR run
 # It also exits on purpose to apply new internet settings (iroh frees its port only then).
 Restart=always
 RestartSec=1
+# A ceiling for what PCs on the network can make it hold (it runs as root next to the PLC).
+MemoryMax=128M
 
 [Install]
 WantedBy=multi-user.target

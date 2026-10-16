@@ -52,7 +52,10 @@ class MasterRuntime : public NetworkRuntime {
 
   bool make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLink* gw, const char* version,
             std::vector<std::string>& errors);
-  void start() override { bus_->start(); }
+  void start() override {
+    run_ = RunState();  // a new PLC run (the bus thread is not running)
+    bus_->start();
+  }
   void stop() override {
     if (bus_) bus_->stop();
   }
@@ -75,6 +78,9 @@ class MasterRuntime : public NetworkRuntime {
   const Config& cfg_;
   GeneratedConfig gen_;
   ProcessImage image_;
+  // The program's NMT state and the scan watchdog for the PLC run, across
+  // the bus sessions (run_state.h).
+  RunState run_;
   std::unique_ptr<DiagHub> hub_;
   std::shared_ptr<SimSetup> sim_;
   std::unique_ptr<Bus> bus_;
@@ -195,7 +201,7 @@ bool MasterRuntime::make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLin
     }
   }
   if (cfg_.master.has_diagnostics || cfg_.master.cia309.enabled) hub_.reset(new DiagHub(cfg_, version));
-  bus_.reset(new Bus(cfg_, gen_, image_, hub_.get(), sim_, gw));
+  bus_.reset(new Bus(cfg_, gen_, image_, hub_.get(), sim_, gw, &run_));
   log_info("%zu input and %zu output PDO entries bound to the PLC image", image_.inputs().size(),
            image_.outputs().size());
   return true;

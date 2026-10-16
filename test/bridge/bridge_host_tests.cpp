@@ -16,6 +16,7 @@
 #include "bridge_host.h"
 #include "cJSON.h"
 #include "check.hpp"
+#include "host_requests.h"
 #include "iface_lock.h"
 #include "canopen_runtime.h"
 #include "log.h"
@@ -273,6 +274,35 @@ TEST(control_block_nmt_and_idle) {
   EXPECT(state(c) == 3);
   EXPECT(write(c, kControlReg, {5, 1 << 8, 0}));
   EXPECT(wait_for([&] { return state(c) == 1; }));
+}
+
+// An NMT command while the network has no bus session is refused (result
+// 5) and does not run when the bus is back; at most 16 wait per network.
+TEST(control_block_nmt_refused_while_down) {
+  Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 0); });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  canopen_plugin::HostRequests& hr = canopen_plugin::HostRequests::instance();
+  hr.set_session(0, false);  // as between two bus sessions of network 0
+  EXPECT(write(c, kControlReg, {1, (4 << 8) | 0, 5 << 8}));
+  EXPECT(wait_for([&] {
+    auto s = regs(c, kReadInputRegisters, kStatusReg, 4);
+    return s.size() == 4 && s[2] == 1 && (s[3] >> 8) == 5;
+  }));
+  EXPECT(logged("(refused: the network's bus is down"));
+  hr.set_session(0, true);
+  usleep(500 * 1000);
+  EXPECT(both_operational(c));  // node 5 was not stopped
+  // The cap, on a network index this config does not use.
+  hr.set_session(5, true);
+  for (size_t i = 0; i < canopen_plugin::HostRequests::kMaxQueued; ++i) EXPECT(hr.nmt(5, 1, "stop"));
+  EXPECT(!hr.nmt(5, 1, "stop"));
+  hr.set_session(5, false);  // the session's end drops what waits
+  std::vector<canopen_plugin::HostNmt> left;
+  hr.take(5, left);
+  EXPECT(left.empty());
 }
 
 TEST(sdo_bridge_read_and_refused_write) {

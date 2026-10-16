@@ -181,18 +181,21 @@ class AdapterTarget:
     place of a runtime host: the adapter (TYPE:CHANNEL), the bit rate in
     bit/s, the session's allow-changes switch, the configured nodes
     ({node_id: {name, expect}}) for status and scan, and the node ID that
-    answers the bit rate check on an adapter that cannot confirm a sent frame.
+    answers the bit rate check on an adapter that cannot confirm a sent frame,
+    and whether the network is listen-only (adapter.listen_only).
     Equal targets share the kept-open connection; the allow-changes switch is
     not part of that, so turning it changes the open connection."""
 
-    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None, check_node=None):
+    def __init__(self, adapter, bitrate, allow_changes=False, nodes=None, network=None, check_node=None,
+                 listen_only=False):
         self.adapter, self.bitrate, self.allow_changes = adapter, bitrate, bool(allow_changes)
+        self.listen_only = bool(listen_only)
         self.nodes = nodes or {}
         self.network = network
         self.check_node = check_node
 
     def _key(self):
-        return (self.adapter, self.bitrate, self.network, self.check_node,
+        return (self.adapter, self.bitrate, self.network, self.check_node, self.listen_only,
                 json.dumps(self.nodes, sort_keys=True, default=str))
 
     def __eq__(self, other):
@@ -211,7 +214,8 @@ class AdapterTarget:
         except localbus.AdapterError as e:
             raise diag.DiagError("usage", str(e))
         return localbus.LocalBus(spec, self.bitrate, allow_changes=self.allow_changes, config=self.nodes,
-                                 network=self.network, timeout=timeout, check_node=self.check_node)
+                                 network=self.network, timeout=timeout, check_node=self.check_node,
+                                 listen_only=self.listen_only)
 
 
 # Operations that only read: the only ones sent again after a timeout or a

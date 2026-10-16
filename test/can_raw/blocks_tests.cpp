@@ -118,6 +118,45 @@ TEST(can_send_cyclic) {
   CHECK(bad.ERROR && bad.ERROR_ID == CANWORKS_CAN_ERR_INPUT);
 }
 
+// An input error while the job runs ends the job: the frame stops, ENABLE
+// FALSE leaves nothing behind, and a new edge starts exactly one job.
+TEST(can_send_cyclic_input_error_ends_the_job) {
+  Net n;
+  CAN_SEND_CYCLIC_INST cy;
+  cy.ID = 0x123;
+  cy.DLC = 1;
+  cy.PERIOD = 10LL * 1000000;  // T#10ms
+  cy.ENABLE = true;
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ACTIVE && !cy.ERROR);
+  canworks_can_frame out[4];
+  uint8_t jobs[4];
+  CHECK(n.port.cyclic_due(1000, out, jobs, 4) == 1);
+  n.port.cyclic_sent(jobs[0]);
+  cy.PERIOD = 0;  // T#0s
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ERROR && cy.ERROR_ID == CANWORKS_CAN_ERR_INPUT && !cy.ACTIVE);
+  CHECK(n.port.cyclic_due(100000, out, jobs, 4) == 0);
+  cy.ENABLE = false;
+  can_send_cyclic_call(&cy);
+  CHECK(n.port.cyclic_due(200000, out, jobs, 4) == 0);
+  // Re-enabled, then a DLC of 9 while running, then disabled and enabled again.
+  cy.PERIOD = 10LL * 1000000;
+  cy.ENABLE = true;
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ACTIVE && !cy.ERROR);
+  cy.DLC = 9;
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ERROR && cy.ERROR_ID == CANWORKS_CAN_ERR_INPUT && !cy.ACTIVE);
+  cy.DLC = 1;
+  cy.ENABLE = false;
+  can_send_cyclic_call(&cy);
+  cy.ENABLE = true;
+  can_send_cyclic_call(&cy);
+  CHECK(cy.ACTIVE && !cy.ERROR);
+  CHECK(n.port.cyclic_due(300000, out, jobs, 4) == 1 && out[0].id == 0x123);
+}
+
 TEST(can_receive_drain_in_one_scan) {
   Net n;
   CAN_RECEIVE_INST rx;

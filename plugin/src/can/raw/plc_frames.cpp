@@ -458,6 +458,7 @@ int PlcPort::cyc_update(uint32_t handle, const canworks_can_frame* frame, uint32
   f.dlc = frame->dlc;
   std::memcpy(f.data, frame->data, sizeof f.data);
   if (f.dlc > 8 || period_us < kPeriodMin || period_us > kPeriodMax) {
+    cyc_stop(handle);  // the job ends with the error: the block lets go of the handle
     *error_id = CANWORKS_CAN_ERR_INPUT;
     return 2;
   }

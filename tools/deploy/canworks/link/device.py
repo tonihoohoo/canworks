@@ -33,6 +33,9 @@ from .protocol import LinkError, LineReader, encode
 DEFAULT_DIR = "/etc/canworks-link"
 MAX_PEERS = 4
 MAX_STREAMS = 16
+MAX_UNPAIRED = 8           # connections from PCs that are not paired, in all
+MAX_UNPAIRED_PER_ADDR = 2  # and from one address (a relayed PC: its relay)
+UNPAIRED_STREAMS = 2       # streams at a time on a connection that is not paired
 IDLE_S = 600
 WATCH_S = 2.0
 PAIR_DELAY_S = 1.0
@@ -212,6 +215,7 @@ class Service:
         self.endpoint = None
         self.conns = {}          # pc id -> set of connections
         self.streams = {}        # pc id -> open stream count
+        self.unpaired = {}       # connection not paired (yet) -> remote host
         self.fails = {}          # pc id -> time of the last failed pairing
         self.fail_times = []     # failed pairings in the last minute
         self.ratelog = _RateLog()
@@ -334,19 +338,41 @@ class Service:
         if paired and pc not in self.conns and len(self.conns) >= MAX_PEERS:
             conn.close(3, b"too many peers")
             return
+        if not paired:
+            host = protocol.address_host(self._path(conn)[1])
+            if len(self.unpaired) >= MAX_UNPAIRED:
+                self.ratelog("unpaired cap", "refused a connection from %s: %d unpaired connections open" % (
+                    host, MAX_UNPAIRED))
+                conn.close(3, b"too many unpaired")
+                return
+            if sum(1 for h in self.unpaired.values() if h == host) >= MAX_UNPAIRED_PER_ADDR:
+                self.ratelog(("unpaired addr", host), "refused a connection from %s: %d unpaired connections "
+                                                      "from it open" % (host, MAX_UNPAIRED_PER_ADDR))
+                conn.close(3, b"too many unpaired from this address")
+                return
+            self.unpaired[conn] = host
         if paired:
             self.conns.setdefault(pc, set()).add(conn)
             p = self.paired.find(pc)
             kind, where = self._path(conn)
             log("PC %s connected (%s %s)" % (p.get("name") or pc[:10], kind, where))
+        busy = set()  # stream tasks of the connection while it is not paired
         try:
             while True:
                 try:
                     bi = await conn.accept_bi()
                 except Exception:
                     break
+                if conn in self.unpaired:
+                    busy = {t for t in busy if not t.done()}
+                    if len(busy) >= UNPAIRED_STREAMS:
+                        await _finish(bi.send())
+                        continue
+                    busy.add(asyncio.ensure_future(self._stream(conn, pc, bi)))
+                    continue
                 asyncio.ensure_future(self._stream(conn, pc, bi))
         finally:
+            self.unpaired.pop(conn, None)
             if pc in self.conns:
                 self.conns[pc].discard(conn)
                 if not self.conns[pc]:
@@ -433,10 +459,16 @@ class Service:
         self.fail_times = [x for x in self.fail_times if t - x < 60]
         if len(self.fail_times) >= PAIR_FAILS_PER_MIN:
             return "too many failed pairings; try again in a minute"
+        # Counted as failed until the login succeeds, so attempts made at the
+        # same time cannot all pass the checks above.
+        self.fails[pc] = t
+        self.fail_times.append(t)
         return None
 
-    async def _login(self, conn, pc, head, reader, send):
-        """The SCRAM exchange; True when the PC proved the token."""
+    async def _login(self, conn, pc, head, reader, send, counted=False):
+        """The SCRAM exchange; True when the PC proved the token. A wrong
+        token counts as a failed pairing unless `counted` (the attempt was
+        counted before)."""
         import iroh
         cnonce = head.get("nonce")
         v = protocol.diag.parse_verifier(self.verifier or "")
@@ -453,9 +485,10 @@ class Service:
         auth = protocol.auth_message(cnonce, snonce, salt_b64, it, cbind)
         sig = protocol.server_check(self.verifier, auth, msg.get("proof"))
         if not sig:
-            t = _now()
-            self.fails[pc] = t
-            self.fail_times.append(t)
+            if not counted:
+                t = _now()
+                self.fails[pc] = t
+                self.fail_times.append(t)
             self.ratelog(("fail", pc), "pairing failed for %s (wrong token)" % pc[:10])
             await send.write_all(encode({"ok": False, "error": "wrong token"}))
             return False
@@ -468,13 +501,19 @@ class Service:
                 self.ratelog(("scope", pc), "refused pairing from %s: not on the local network" % pc[:10])
             await send.write_all(encode({"ok": False, "error": why}))
             return
-        sig = await self._login(conn, pc, head, reader, send)
+        attempt = self.fails[pc]
+        sig = await self._login(conn, pc, head, reader, send, counted=True)
         if not sig:
             return
+        if attempt in self.fail_times:
+            self.fail_times.remove(attempt)
+        if self.fails.get(pc) == attempt:
+            del self.fails[pc]
         name = str(head.get("name") or "")[:64]
         kind, _ = self._path(conn)
         self.paired.add(pc, name, "lan" if kind == "direct" else kind)
         self.conns.setdefault(pc, set()).add(conn)
+        self.unpaired.pop(conn, None)
         log("paired PC %s (%s)" % (name or pc[:10], self.pairing if self.pairing == "anywhere" else "lan"))
         await send.write_all(encode(dict(self.info(), ok=True, signature=sig)))
 

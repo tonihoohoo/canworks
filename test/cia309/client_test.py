@@ -125,6 +125,22 @@ def plugin_test(build, repo, work):
         check(name == '"RTD-8"', "segmented read of the device name", name)
         check(cia309.error_code(g.request("1 2 r 0x2100 0 u8")) == 0x06020000, "a missing object: its abort code")
         check(cia309.error_code(g.request("1 2 r 0x1018")) == 101, "a syntax error: 101")
+        # A web page posting to the port: one ERROR: 101 and closed, the
+        # command in its body not carried out.
+        web = socket.create_connection(("127.0.0.1", gport), timeout=5)
+        web.sendall(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n[1] 1 2 w 0x2000 0 u8 1\r\n")
+        got = b""
+        try:
+            while True:
+                data = web.recv(4096)
+                if not data:
+                    break
+                got += data
+        except socket.timeout:
+            pass
+        web.close()
+        check(got.decode().splitlines() == ["[0] ERROR: 101 (Syntax error)"], "an HTTP request: one 101, closed",
+              got)
         # OPERATIONAL node: write and stop refused without allow_force.
         check(until(lambda: "pdo" in g.request("1 0 r p 5"), 10), "r p of node 2's TPDO 1 (gateway RPDO 5)")
         check(cia309.error_code(g.request("1 2 w 0x4000 0 u32 7")) == 102, "SDO write to an OPERATIONAL node refused")

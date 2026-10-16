@@ -11,6 +11,7 @@ It is off unless the config has a `cia309` object. It does nothing the diagnosti
   "port": 7533,
   "bind": "127.0.0.1",
   "max_clients": 4,
+  "idle_timeout_s": 300,
   "allow_changes": false,
   "allow_force": false,
   "nets": { "1": "io", "2": "drives" },
@@ -25,6 +26,7 @@ A top-level object in a version 2 file, `master.cia309` in a version 1 file. Eve
 | `port` | Plain TCP port on the loopback address, 1024-65535 (default 7533). `0`: no plain port, sessions through the diagnostics channel only. Must differ from the diagnostics port. |
 | `bind` | `127.0.0.1` (default) or `::1`. Any other address is refused: CiA 309-3 has no login, so the plain port never opens on a network. |
 | `max_clients` | Gateway sessions at a time, plain and tunnelled together, 1-16 (default 4). |
+| `idle_timeout_s` | A plain-port session that sends no line for this many seconds is closed and its place freed, 0-86400 (default 300); `0`: no limit. A session waiting for an answer is not idle. Tunnelled sessions are not timed out here. |
 | `allow_changes` | SDO downloads, NMT commands and LSS (default false: read-only). |
 | `allow_force` | Carry out what the diagnostics channel refuses without `force`: an SDO write to an OPERATIONAL configured node, an NMT command other than start to one (or to node 0 while any is OPERATIONAL). One switch for every client and service; for test benches only (default false). |
 | `nets` | Explicit network numbers, `{"<1-127>": "<network name>"}` (version 2 only). Without it network *n* is the *n*-th network of the file. Each network at most one number. |
@@ -51,7 +53,7 @@ canworks-diag --runtime plc.local gateway                   # an interactive pro
 canworks-diag --runtime plc.local gateway --network drives  # the session's default network
 ```
 
-With `--listen` each connection to the local port opens its own gateway session; the tool on the PC needs no token. `--listen` refuses an address that is not loopback unless `--listen-any` is given. A runtime whose plugin is too old answers `unknown op`, and the command says so. Over the remote link ([remote-access.md](remote-access.md)) it works the same way, since it only uses the diagnostics port.
+With `--listen` each connection to the local port opens its own gateway session once its first command line has come in (blank lines and comments before it are passed on); the tool on the PC needs no token. A first line that is not a CiA 309-3 command, such as a web page's HTTP request, gets one `ERROR: 101` and the connection is closed: no session is opened and nothing reaches the runtime. A local connection that sends no command line for 300 s is closed. `--listen` refuses an address that is not loopback unless `--listen-any` is given. A runtime whose plugin is too old answers `unknown op`, and the command says so. Over the remote link ([remote-access.md](remote-access.md)) it works the same way, since it only uses the diagnostics port.
 
 A tunnelled session leaves the diagnostics channel's limit of 4 clients and counts towards `max_clients`. A full gateway answers the op `too many gateway clients` (the connection stays a diagnostics one) and a further plain connection one `ERROR: 102` line before it is closed.
 
@@ -91,7 +93,7 @@ While a session is open it gets a line for every EMCY of a configured node (`1 3
 
 ## Limits
 
-At most 8 commands outstanding per session, answered in the order sent, one at a time on the bus thread; a ninth answers `ERROR: 102`. A line longer than 16 KiB closes the session. A command the bus thread has not answered within the command timeout (default 5 s, `set command_timeout`, 100-60000 ms; an LSS search waits at least 25 s) answers `ERROR: 103` and its late answer is dropped. A session that leaves more than 256 KiB of answers unread for 10 s is closed; while it is over that limit nothing more is read from it. Plain sessions have no idle timeout.
+At most 8 commands outstanding per session, answered in the order sent, one at a time on the bus thread; a ninth answers `ERROR: 102`. A line longer than 16 KiB closes the session. The first line of a session that is not blank or a comment must be a CiA 309-3 command: otherwise, as for the request line of a web page posting to the port, the session gets one `ERROR: 101` and is closed before any later line is read. A line that does not parse later in the session answers `ERROR: 101` and the session goes on. A command the bus thread has not answered within the command timeout (default 5 s, `set command_timeout`, 100-60000 ms; an LSS search waits at least 25 s) answers `ERROR: 103` and its late answer is dropped. A session that leaves more than 256 KiB of answers unread for 10 s is closed; while it is over that limit nothing more is read from it. A plain session that sends no line for `idle_timeout_s` (default 300 s) is closed, so idle local clients cannot hold every place.
 
 ## Examples
 
@@ -121,5 +123,6 @@ g.command("1 2 r 0x1008 0 vs")
 ## Security
 
 - The plain port listens on loopback only, and only with `cia309` in the config. Anyone with a shell on the PLC computer can use it without a token; they can reach the CAN interface anyway.
+- A web page in a browser on the PLC computer, or on a PC running `canworks-diag gateway --listen`, can send a request to the loopback port, but its first line is an HTTP request line, so the session is closed before the lines in the request's body are read (the PC forwarder does not even open a session).
 - From other machines the gateway is reached only through the diagnostics channel: TLS, the SCRAM login, the token never on the wire.
 - `allow_changes` and `allow_force` are off by default and apply to every client of the gateway; `allow_force` lets a standard tool stop nodes the program drives.

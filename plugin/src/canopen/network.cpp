@@ -123,7 +123,7 @@ void encode_time_of_day(int64_t unix_ms, uint8_t out[6]) {
 Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBase& sup_timer,
                  lely::io::CanChannelBase& chan, const Config& cfg, const GeneratedConfig& gen,
                  ProcessImage& image, std::function<bool()> tick, lely::io::TimerBase* req_timer,
-                 lely::io::TimerBase* out_timer)
+                 lely::io::TimerBase* out_timer, RunState* run)
     : BasicMaster(exec, timer, chan, gen.master_dcf, master_bin(gen), cfg.master.node_id),
       cfg_(cfg),
       gen_(gen),
@@ -131,6 +131,8 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
       sup_timer_(sup_timer),
       exec_(exec),
       tick_(std::move(tick)),
+      own_run_(run ? nullptr : new RunState),
+      run_(run ? run : own_run_.get()),
       tick_wait_(exec, [this](int, std::error_code ec) {
         if (!ec) OnTick();
       }),
@@ -156,12 +158,14 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
     s.cfg = &n;
     auto it = gen.slave_sdos.find(n.node_id);
     s.sdos = it != gen.slave_sdos.end() ? &it->second : nullptr;
+    s.run = &run_->nodes[n.node_id];
   }
   const auto& in = image_.inputs();
   for (size_t i = 0; i < in.size(); ++i) nodes_[in[i].node_id].inputs.push_back(i);
   last_out_.assign(image_.outputs().size(), 0);
   const auto& vars = image_.sdo_vars();
   vars_.assign(vars.size(), VarState());
+  run_->trig_seen.resize(vars.size(), 0);
   for (size_t k = 0; k < vars.size(); ++k) nodes_[vars[k].node_id].vars.push_back(k);
   has_requests_ = !vars.empty();
   for (const auto& n : cfg.nodes) has_requests_ |= n.has_nmt_command_location;
@@ -181,6 +185,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 
 Network::~Network() {
   if (scan_hung_) set_scan_hung(false);
+  HostRequests::instance().set_session(cfg_.network_index, false);
   HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
   sup_timer_.cancel_wait(tick_wait_);
@@ -216,15 +221,17 @@ void Network::Start() {
   MapSyncRpdos();
   MapInputPdos();
   sync_seen_ = image_.sync_requests();
-  for (const auto& t : tpdo_cob_) {
-    std::error_code ec;
-    (*this)[0x1800 + t.first - 1][1].Write<uint32_t>(t.second | 0x80000000u, ec);
-  }
+  MasterTpdosOff();
   started_ = clock::now();
   // CO_GET_STATE: every configured node, and the master.
   PlcRequests::instance().clear_snapshot(cfg_.network_index);
   for (const auto& it : nodes_) Publish(it.first);
   PublishMaster();
+  // A gateway's field network: the upper master's state now, not only its
+  // next change. Lost before this session or while none ran, the
+  // on_upper_loss behaviour applies at once (the nodes are held as they
+  // boot). Never seen in this run, it is not lost yet.
+  if (gw_ && (gw_->upper_ok() || run_->upper_seen)) UpperLoss(gw_->upper_ok());
   if (cfg_.master.time_period_ms) {
     char now[32];
     std::time_t t = std::time(nullptr);
@@ -233,6 +240,8 @@ void Network::Start() {
              cfg_.master.time_period_ms, now);
     SendTime();
   }
+  // The host's NMT commands are taken from now on (refused between sessions).
+  HostRequests::instance().set_session(cfg_.network_index, true);
   sup_timer_.settime(kTick, kTick);
   sup_timer_.submit_wait(tick_wait_);
   // Always: the program's SDO function blocks may start transfers any time.
@@ -244,6 +253,13 @@ void Network::Start() {
   if (out_timer_ && !cfg_.master.produces_sync()) {
     out_timer_->settime(kOutputPeriod, kOutputPeriod);
     out_timer_->submit_wait(out_wait_);
+  }
+}
+
+void Network::MasterTpdosOff() {
+  for (const auto& t : tpdo_cob_) {
+    std::error_code ec;
+    (*this)[0x1800 + t.first - 1][1].Write<uint32_t>(t.second | 0x80000000u, ec);
   }
 }
 
@@ -271,6 +287,7 @@ void Network::SendTime() {
 void Network::Stop() {
   if (stopped_) return;
   stopped_ = true;
+  HostRequests::instance().set_session(cfg_.network_index, false);
   if (scan_hung_) {
     scan_hung_ = false;
     set_scan_hung(false);
@@ -414,7 +431,7 @@ void Network::SetMasterState(uint8_t state) {
 void Network::Publish(unsigned id) {
   auto it = nodes_.find(id);
   if (it == nodes_.end()) return;
-  const Hold h = it->second.hold;
+  const Hold h = it->second.run->hold;
   uint8_t held = h == Hold::Stopped ? CANOPEN_PLC_NMT_CS_STOP : h == Hold::Preop ? CANOPEN_PLC_NMT_CS_PREOP : 0;
   PlcRequests::instance().publish_node(cfg_.network_index, id, image_.node_state(id), held, image_.node_boot_error(id));
 }
@@ -496,7 +513,7 @@ void Network::OnTick() {
     FlushEmcySummary(n, now, false);
     if (n.start_unconfirmed && now >= n.start_confirm_by) {
       n.start_unconfirmed = false;
-      if (n.node_op && n.hold == Hold::None && master_state_ != kStateStopped) {
+      if (n.node_op && n.run->hold == Hold::None && master_state_ != kStateStopped) {
         log_warn("%s did not report OPERATIONAL in its heartbeat after the start command; booting it again",
                  n.cfg->label().c_str());
         n.node_op = false;
@@ -593,7 +610,7 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
     // Its EMCY COB-ID is read first in its SDO turn, before the SDO variables.
     n.emcy_read_due = n.cfg->reads_emcy_cob_id();
     Update(id, "");
-    if (!n.node_op && n.hold == Hold::None)
+    if (!n.node_op && n.run->hold == Hold::None)
       log_info("%s: configured; %s", n.cfg->label().c_str(),
                m.start_nodes ? "it starts when the master starts all nodes"
                              : "it stays PRE-OPERATIONAL (master start_nodes is false)");
@@ -702,13 +719,27 @@ void Network::HandleCommand(NmtCommand cs) {
       LoadEmcyCobs();
       break;
   }
+  if (cs == NmtCommand::RESET_COMM) {
+    // The reset (Lely's own with reset_all_nodes, for example) made every
+    // master TPDO valid again, with the DCF's values in its mapped objects,
+    // and the master RPDOs synchronous again: as at Start, the TPDOs are off
+    // until a node comes up (SetUp sends the program's outputs, subject to
+    // the outputs gate and a program stop), and the RPDOs event-driven again
+    // with PLC-cycle SYNC (the map of them stays: the DCF's is the same).
+    MasterTpdosOff();
+    SyncRpdosEventDriven();
+  }
   if (cs == NmtCommand::STOP) log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
-  if (cs == NmtCommand::START && prog_stopped_)
+  if (cs == NmtCommand::START && run_->prog_stopped)
     // Lely's own start-up (after the master reset itself with reset_all_nodes)
     // while the program holds the network stopped: it stays held.
     log_info("the master's start-up ended while the PLC program holds the network stopped (CO_NETWORK_STOP); "
              "no PDOs are exchanged until it starts the network");
   ApplyMasterState(cs == NmtCommand::START);
+  // Lely leaves a master with start false PRE-OPERATIONAL after its own
+  // reset and in a new session: the program's CO_NETWORK_START of this run
+  // starts it again once the mandatory nodes have booted.
+  if (cs == NmtCommand::ENTER_PREOP && !cfg_.master.start) StartHeldMaster();
 }
 
 void Network::ApplyMasterState(bool lely_started) {
@@ -716,10 +747,10 @@ void Network::ApplyMasterState(bool lely_started) {
   // plugin (no PDOs in or out), without changing Lely's NMT state: Lely
   // runs its whole network start-up again when its master enters
   // PRE-OPERATIONAL, resetting the communication of every node (design.md).
-  bool held = prog_stopped_ && lely_state_ == kStateOperational;
+  bool held = run_->prog_stopped && lely_state_ == kStateOperational;
   SetMasterState(held ? kStatePreop : lely_state_);
   bool was_op = master_op_;
-  master_op_ = lely_state_ == kStateOperational && !prog_stopped_;
+  master_op_ = lely_state_ == kStateOperational && !run_->prog_stopped;
   if (master_op_ && !was_op) {
     log_info("master is operational");
     // Starting all nodes at once: Lely starts every booted node now.
@@ -798,7 +829,7 @@ void Network::OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept {
 void Network::HandleRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) {
   // The program holds the network stopped (CO_NETWORK_STOP): the inputs keep
   // their last values, as with a PRE-OPERATIONAL master.
-  if (prog_stopped_) return;
+  if (run_->prog_stopped) return;
   auto it = nodes_.find(id);
   if (it == nodes_.end()) return;
   const auto& bindings = image_.inputs();
@@ -916,6 +947,7 @@ void Network::ServiceGateway() {
 
 void Network::UpperLoss(bool ok) {
   upper_ok_ = ok;
+  if (ok) run_->upper_seen = true;
   auto loss = gw_->cfg().on_upper_loss;
   std::set<unsigned> targets;
   for (size_t r : routes_down_) targets.insert(gw_->cfg().routes[r].node);
@@ -938,9 +970,9 @@ void Network::UpperLoss(bool ok) {
       auto it = nodes_.find(id);
       if (it == nodes_.end()) continue;
       NodeState& n = it->second;
-      bool by_gateway = n.hold != Hold::None && n.hold_src == HoldSource::Gateway;
+      bool by_gateway = n.run->hold != Hold::None && n.run->hold_src == HoldSource::Gateway;
       if (!ok) {
-        if (n.hold != Hold::None && !by_gateway) continue;  // the program or an operator holds it
+        if (n.run->hold != Hold::None && !by_gateway) continue;  // the program or an operator holds it
         SetHold(id, n, Hold::Stopped, HoldSource::Gateway);
         SendHold(id, n);
       } else if (by_gateway) {
@@ -1138,13 +1170,19 @@ void Network::MapSyncRpdos() {
         if (n.tpdo_cob_id(pdo) == cob) r.node_id = n.node_id, r.pdo = pdo.number;
     if (!r.node_id) continue;
     sync_rpdos_[num] = r;
-    // PLC-cycle SYNC: take the inputs as they arrive, so the next frame's
-    // cycle_start() sees them (Lely would hold a synchronous RPDO until the
-    // next SYNC). The node keeps its own synchronous type.
-    if (cfg_.master.sync_plc_cycle) {
-      (*this)[0x1400 + num - 1][2].Write<uint8_t>(0xFF, ec);
-      if (ec) log_warn("cannot make master RPDO %u event-driven: %s", num, ec.message().c_str());
-    }
+  }
+  SyncRpdosEventDriven();
+}
+
+void Network::SyncRpdosEventDriven() {
+  // PLC-cycle SYNC: take the inputs as they arrive, so the next frame's
+  // cycle_start() sees them (Lely would hold a synchronous RPDO until the
+  // next SYNC). The node keeps its own synchronous type.
+  if (!cfg_.master.sync_plc_cycle) return;
+  for (const auto& it : sync_rpdos_) {
+    std::error_code ec;
+    (*this)[0x1400 + it.first - 1][2].Write<uint8_t>(0xFF, ec);
+    if (ec) log_warn("cannot make master RPDO %u event-driven: %s", it.first, ec.message().c_str());
   }
 }
 
@@ -1284,9 +1322,9 @@ void Network::CheckScanWatchdog(clock::time_point now) {
   unsigned ms = cfg_.master.scan_watchdog_ms;
   if (!ms) return;
   uint64_t count = image_.scan_count(LatestOutputs());
-  if (count != scan_seen_) {
-    scan_seen_ = count;
-    scan_moved_ = now;
+  if (count != run_->scan_seen) {
+    run_->scan_seen = count;
+    run_->scan_moved = now;
     if (scan_hung_) {
       scan_hung_ = false;
       set_scan_hung(false);
@@ -1295,7 +1333,7 @@ void Network::CheckScanWatchdog(clock::time_point now) {
     return;
   }
   // Armed once the program has finished its first cycle.
-  if (!count || scan_hung_ || now - scan_moved_ < std::chrono::milliseconds(ms)) return;
+  if (!count || scan_hung_ || now - run_->scan_moved < std::chrono::milliseconds(ms)) return;
   scan_hung_ = true;
   set_scan_hung(true);
   log_error("scan watchdog: the PLC scan has not finished a cycle for %u ms (master.scan_watchdog_ms); outputs off "
@@ -1466,7 +1504,7 @@ void Network::HandleState(uint8_t id, NmtState st) {
       ScheduleRetry(n, true);
       break;
     case NmtState::START:
-      if (n.hold != Hold::None && (n.booted || !n.cfg->boot)) {
+      if (n.run->hold != Hold::None && (n.booted || !n.cfg->boot)) {
         // Started by someone else (the master's own start of all nodes):
         // the program holds it, so put it back.
         SendHold(id, n);
@@ -1482,8 +1520,8 @@ void Network::HandleState(uint8_t id, NmtState st) {
       bool was_running = n.node_op && n.booted;
       n.node_op = false;
       Update(id, state_name(st));
-      if (n.hold != Hold::None) {
-        if ((n.hold == Hold::Stopped) != (st == NmtState::STOP)) SendHold(id, n);
+      if (n.run->hold != Hold::None) {
+        if ((n.run->hold == Hold::Stopped) != (st == NmtState::STOP)) SendHold(id, n);
         break;
       }
       if (was_running && master_state_ != kStateStopped) {
@@ -1747,28 +1785,28 @@ void Network::OnBooted(unsigned id, NodeState& n) {
     v.boot_read = true;
     v.written = false;
   }
-  if (n.hold != Hold::None) SendHold(id, n);
+  if (n.run->hold != Hold::None) SendHold(id, n);
 }
 
 void Network::SendHold(unsigned id, const NodeState& n) {
   if (n.cfg->boot && !n.booted) return;  // applied when the boot ends
-  NmtCommand cs = n.hold == Hold::Stopped ? NmtCommand::STOP : NmtCommand::ENTER_PREOP;
+  NmtCommand cs = n.run->hold == Hold::Stopped ? NmtCommand::STOP : NmtCommand::ENTER_PREOP;
   const char* by = "the program";
-  switch (n.hold_src) {
+  switch (n.run->hold_src) {
     case HoldSource::Byte: break;
     case HoldSource::Block: by = "the program (CO_NMT)"; break;
     case HoldSource::Operator: by = "a diagnostics client"; break;
     case HoldSource::Gateway: by = "the gateway: the upper master is lost"; break;
     case HoldSource::Network: by = "the program (CO_NETWORK_STOP)"; break;
   }
-  log_info("%s: NMT %s (held by %s)", n.cfg->label().c_str(), n.hold == Hold::Stopped ? "STOP" : "ENTER PRE-OPERATIONAL",
+  log_info("%s: NMT %s (held by %s)", n.cfg->label().c_str(), n.run->hold == Hold::Stopped ? "STOP" : "ENTER PRE-OPERATIONAL",
            by);
   Command(cs, static_cast<uint8_t>(id));
 }
 
 void Network::SetHold(unsigned id, NodeState& n, Hold hold, HoldSource src) {
-  n.hold = hold;
-  n.hold_src = src;
+  n.run->hold = hold;
+  n.run->hold_src = src;
   Publish(id);
 }
 
@@ -1788,20 +1826,20 @@ void Network::ResetNode(unsigned id, NodeState& n, bool comm, const char* by, bo
 
 void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t resets, uint8_t reset_code) {
   const std::string label = n.cfg->label();
-  if (resets != n.nmt_resets) {
+  if (resets != n.run->nmt_resets) {
     // A reset asked for (a change to 129 or 130), even if the byte moved on
     // since: send it once, then run the node as usual.
-    n.nmt_resets = resets;
-    n.nmt_level = level;
+    n.run->nmt_resets = resets;
+    n.run->nmt_level = level;
     ResetNode(id, n, reset_code == 130, "the program");
     return;
   }
-  if (level == n.nmt_level) return;
-  n.nmt_level = level;
+  if (level == n.run->nmt_level) return;
+  n.run->nmt_level = level;
   switch (level) {
     case 0:
     case 1: {
-      bool was_held = n.hold != Hold::None;
+      bool was_held = n.run->hold != Hold::None;
       SetHold(id, n, Hold::None, HoldSource::Byte);
       // Release a held node; a node the master does not boot starts on 1.
       if ((was_held && n.booted) || (!n.cfg->boot && level == 1)) {
@@ -1855,8 +1893,8 @@ void Network::ServiceRequests() {
         const SdoVariable& var = image_.sdo_vars()[k].var;
         if (var.has_trigger) {
           uint64_t count = image_.sdo_trigger_count(snap, k);
-          if (count != v.trig_seen) {
-            v.trig_seen = count;
+          if (count != run_->trig_seen[k]) {
+            run_->trig_seen[k] = count;
             if (avail) {
               v.trig_pending = true;
             } else {

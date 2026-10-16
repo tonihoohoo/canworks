@@ -121,7 +121,7 @@ A message may have several switches, also nested (the DBC's `mNM` with `SG_MUL_V
 
 | `pages` | Behaviour |
 |---|---|
-| `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
+| `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch output wider than the switch is cut to the switch's length first (17 on a 4-bit switch is page 1), as on J1939. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
 | `all` | Every page is sent each period, one frame per page, in switch-value order. The plugin sets the switch, so it has no `iec_location`. |
 | `rotate` | One page per period, the next one each time. The plugin sets the switch. |
 
@@ -196,7 +196,7 @@ d[0] := d[0] + 1;
 hb(ENABLE := TRUE, ID := 16#18FF0080, EXTENDED := TRUE, DLC := 8, PERIOD := T#10ms, DATA := d);
 ```
 
-While `ENABLE` is TRUE the plugin sends the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle. `ID` and `EXTENDED` are taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` on every call, used from the next send. `COUNT` counts frames sent since `ENABLE` rose. A network has at most 16 cyclic jobs.
+While `ENABLE` is TRUE the plugin sends the frame every `PERIOD` (1 ms to 60 s) from its own timer, whatever the PLC cycle. `ID` and `EXTENDED` are taken when `ENABLE` rises; `DATA`, `DLC` and `PERIOD` on every call, used from the next send. `COUNT` counts frames sent since `ENABLE` rose. A `DLC` over 8 or a `PERIOD` out of range while the job runs ends the job (the frame stops on the bus) and shows `ERROR_ID` 3 with `ACTIVE` FALSE; fix the input and give `ENABLE` a new rising edge to start again. A network has at most 16 cyclic jobs.
 
 ### `CAN_RECEIVE`: a filtered queue
 

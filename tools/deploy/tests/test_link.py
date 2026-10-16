@@ -24,6 +24,26 @@ from .fake_diag import TOKEN, FakePlugin
 HAVE_IROH = available()
 
 
+def _answer(instance, link_id):
+    """A direct mDNS answer of the runtime `instance` with link ID `link_id`."""
+    import struct
+
+    def name(text, ptr=None):
+        out = b"".join(bytes([len(p)]) + p.encode() for p in text.split(".") if p)
+        return out + (struct.pack(">H", 0xC000 | ptr) if ptr is not None else b"\0")
+
+    def rr(owner, rtype, rdata):
+        return owner + struct.pack(">HHIH", rtype, 0x8001, 120, len(rdata)) + rdata
+
+    q = name("_canworks._tcp.local")                      # at offset 12
+    txt = b"".join(bytes([len(t)]) + t for t in (b"v=1", b"diag=7531", b"runtime=8443", b"id=" + link_id.encode(),
+                                                 b"link=7533"))
+    answers = [rr(b"\xc0\x0c", 12, name(instance, 12)),       # PTR -> <instance>._canworks._tcp.local
+               rr(name(instance, 12), 33, struct.pack(">HHH", 0, 0, 7531) + name(instance + ".local")),
+               rr(name(instance, 12), 16, txt)]
+    return struct.pack(">HHHHHH", 0x6377, 0x8400, 1, 0, 0, 3) + q + struct.pack(">HH", 12, 1) + b"".join(answers)
+
+
 class Protocol(unittest.TestCase):
     def test_lan_addresses(self):
         for a in ("192.168.1.20:7533", "10.1.2.3", "172.20.0.5:1", "169.254.10.2:7533", "[fe80::1%eth0]:7533",
@@ -67,25 +87,34 @@ class Protocol(unittest.TestCase):
 
     def test_parse_a_direct_answer(self):
         import struct
-
-        def name(text, ptr=None):
-            out = b"".join(bytes([len(p)]) + p.encode() for p in text.split(".") if p)
-            return out + (struct.pack(">H", 0xC000 | ptr) if ptr is not None else b"\0")
-
-        def rr(owner, rtype, rdata):
-            return owner + struct.pack(">HHIH", rtype, 0x8001, 120, len(rdata)) + rdata
-
-        q = name("_canworks._tcp.local")                      # at offset 12
-        txt = b"".join(bytes([len(t)]) + t for t in (b"v=1", b"diag=7531", b"runtime=8443", b"id=abc", b"link=7533"))
-        answers = [rr(b"\xc0\x0c", 12, name("line3", 12)),       # PTR -> line3._canworks._tcp.local
-                   rr(name("line3", 12), 33, struct.pack(">HHH", 0, 0, 7531) + name("line3.local")),
-                   rr(name("line3", 12), 16, txt)]
-        packet = struct.pack(">HHHHHH", 0x6377, 0x8400, 1, 0, 0, 3) + q + struct.pack(">HH", 12, 1) + b"".join(answers)
-        r = discovery.parse_answer(packet)
+        r = discovery.parse_answer(_answer("line3", "abc"))
         self.assertEqual(r["name"], "line3")
         self.assertEqual(r["port"], 7531)
         self.assertEqual(r["txt"], {"v": "1", "diag": "7531", "runtime": "8443", "id": "abc", "link": "7533"})
         self.assertIsNone(discovery.parse_answer(struct.pack(">HHHHHH", 1, 0x8400, 0, 0, 0, 0)))
+
+    def test_direct_query_takes_the_answer_of_the_asked_host_only(self):
+        host = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        host.bind(("127.0.0.1", 0))
+        other = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        other.bind(("127.0.0.2", 0))
+        for sock in (host, other):
+            self.addCleanup(sock.close)
+
+        def answer():
+            _, asker = host.recvfrom(9000)
+            other.sendto(_answer("line3", "forged"), asker)   # another host, first
+            time.sleep(0.05)
+            host.sendto(_answer("line3", "real"), asker)
+        threading.Thread(target=answer, daemon=True).start()
+        r = discovery.query_host("127.0.0.1", timeout=2, port=host.getsockname()[1])
+        self.assertEqual((r["name"], r["id"]), ("line3", "real"))
+
+        def forged_only():
+            _, asker = host.recvfrom(9000)
+            other.sendto(_answer("line3", "forged"), asker)
+        threading.Thread(target=forged_only, daemon=True).start()
+        self.assertIsNone(discovery.query_host("127.0.0.1", timeout=0.3, port=host.getsockname()[1]))
 
     def test_avahi_service(self):
         text = discovery.avahi_service(link_id="abc", name="line<3>")
@@ -109,6 +138,199 @@ def _cli(*argv):
             err.write("canworks-diag: %s\n" % e)
             code = 2 if e.kind == "usage" else 1
     return code, out.getvalue(), err.getvalue()
+
+
+class ChangedIdentity(unittest.TestCase):
+    """A paired runtime that answers discovery with another link ID."""
+
+    def setUp(self):
+        from canworks.link import pc
+        self.pc = pc
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        for p in (mock.patch.dict(os.environ, {"CANWORKS_CONFIG_DIR": self.tmp, "CANWORKS_LINK": "on"}),
+                  mock.patch.object(pc, "available", return_value=True),
+                  mock.patch.dict(pc._after, clear=True)):
+            p.start()
+            self.addCleanup(p.stop)
+        pc.remember("line3", hosts=["192.0.2.7"], id="old" * 10, link_addrs=["192.0.2.7:7533"], paired=True)
+        self.answer = {"name": "line3", "addresses": ["192.0.2.7"], "diag": 7531, "runtime": 8443,
+                       "id": "new" * 10, "link": 7533}
+
+    def login(self, repair=False):
+        def pair(entry, token):
+            self.paired_with = dict(entry)
+            return self.pc.remember(entry["name"], paired=True)
+        self.paired_with = None
+        with mock.patch.object(discovery, "find_address", return_value=self.answer), \
+                mock.patch.object(self.pc, "pair", side_effect=pair), \
+                mock.patch.object(self.pc, "refresh") as refresh:
+            job = self.pc.after_login("192.0.2.7", 7531, TOKEN, wait=5, repair=repair)
+        self.refreshed = refresh.called
+        return job
+
+    def test_not_stored_and_reported(self):
+        job = self.login()
+        entry = self.pc.find("line3")
+        self.assertEqual(entry["id"], "old" * 10)
+        self.assertTrue(entry["paired"])
+        self.assertIsNone(self.paired_with)
+        self.assertTrue(job.get("changed"))
+        self.assertIn("identity changed", job["note"])
+        self.assertIn("--repair", job["note"])
+
+    def test_repair_takes_the_new_id_and_pairs(self):
+        self.login(repair=True)
+        self.assertEqual(self.paired_with["id"], "new" * 10)
+        self.assertFalse(self.paired_with["paired"])
+        entry = self.pc.find("line3")
+        self.assertEqual((entry["id"], entry["paired"]), ("new" * 10, True))
+
+    def test_same_id_refreshes(self):
+        self.answer["id"] = "old" * 10
+        job = self.login()
+        self.assertTrue(self.refreshed)
+        self.assertIsNone(job["note"])
+
+    def test_repair_option(self):
+        self.assertTrue(diag.parser().parse_args(["--runtime", "line3", "--repair", "status"]).repair)
+
+
+class _FakeConn:
+    """An accepted link connection from `pc` at `addr`, without iroh: its
+    streams are put on `streams` (None ends the connection)."""
+
+    def __init__(self, pc, addr):
+        self.pc, self.addr, self.closed = pc, addr, None
+        self.streams = asyncio.Queue()
+
+    def remote_id(self):
+        return self.pc
+
+    def paths(self):
+        from types import SimpleNamespace
+        return [SimpleNamespace(is_selected=True, is_relay=False, remote_addr=self.addr)]
+
+    async def accept_bi(self):
+        bi = await self.streams.get()
+        if bi is None:
+            raise ConnectionError("closed")
+        return bi
+
+    def close(self, code, reason):
+        self.closed = reason
+        self.streams.put_nowait(None)
+
+
+class _FakeIncoming:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def accept(self):
+        return self
+
+    async def connect(self):
+        return self.conn
+
+
+@unittest.skipUnless(HAVE_IROH, "the iroh package is not installed")
+class Limits(unittest.TestCase):
+    """The service's limits on PCs that are not paired, on fake connections."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.svc = device.Service(self.tmp, name="testdev")
+        self.svc.verifier = diag.token_verifier(TOKEN)
+        self.svc.pairing = "lan"
+        self.out = io.StringIO()
+        p = mock.patch("sys.stdout", self.out)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def run_async(self, coro):
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_unpaired_connections_are_capped(self):
+        async def go():
+            n = iter(range(1000))
+
+            def connect(addr, pc=None):
+                conn = _FakeConn(pc or "pc%d" % next(n), addr)
+                return conn, asyncio.ensure_future(self.svc._accept(_FakeIncoming(conn)))
+            one = [connect("192.168.1.5:%d" % (4000 + i)) for i in range(20)]
+            await asyncio.sleep(0.05)
+            kept = [c for c, _ in one if c.closed is None]
+            self.assertEqual(len(kept), 2)
+            self.assertTrue(all(c.closed == b"too many unpaired from this address" for c, _ in one
+                                if c.closed is not None))
+            many = [connect("192.168.1.%d:4000" % (10 + i)) for i in range(10)]
+            await asyncio.sleep(0.05)
+            self.assertEqual(len([c for c, _ in many if c.closed is None]), 6)  # 8 unpaired in all
+            self.assertEqual(len(self.svc.unpaired), 8)
+            self.svc.paired.add("known", "office", "lan")
+            paired, _ = connect("192.168.1.5:5000", pc="known")
+            await asyncio.sleep(0.05)
+            self.assertIsNone(paired.closed)
+            for c, _ in one + many + [(paired, None)]:
+                if c.closed is None:
+                    c.close(0, b"bye")
+            await asyncio.gather(*[t for _, t in one + many if t])
+            self.assertEqual(self.svc.unpaired, {})
+        self.run_async(go())
+
+    def test_streams_of_an_unpaired_connection_are_capped(self):
+        running, finished = [], []
+
+        async def stream(conn, pc, bi):
+            running.append(bi)
+            await asyncio.sleep(1)
+
+        class Bi:
+            def send(self):
+                return self
+
+            async def finish(self):
+                finished.append(self)
+
+        async def go():
+            conn = _FakeConn("pc1", "192.168.1.5:4000")
+            task = asyncio.ensure_future(self.svc._accept(_FakeIncoming(conn)))
+            for _ in range(5):
+                conn.streams.put_nowait(Bi())
+            await asyncio.sleep(0.05)
+            conn.close(0, b"bye")
+            await task
+        with mock.patch.object(self.svc, "_stream", stream):
+            self.run_async(go())
+        self.assertEqual((len(running), len(finished)), (device.UNPAIRED_STREAMS, 5 - device.UNPAIRED_STREAMS))
+
+    def test_concurrent_pairing_attempts_are_counted_before_the_login(self):
+        started = []
+
+        async def login(conn, pc, head, reader, send, **kw):
+            started.append(pc)
+            await asyncio.sleep(0.05)
+            return False  # a wrong token
+
+        class Send:
+            def __init__(self):
+                self.lines = []
+
+            async def write_all(self, b):
+                self.lines.append(json.loads(b))
+
+        async def go():
+            sends = [Send() for _ in range(15)]
+            await asyncio.gather(*[self.svc._pair(_FakeConn("pc%d" % i, "192.168.1.%d:4000" % (10 + i)), "pc%d" % i,
+                                                  {"t": "pair"}, None, sends[i]) for i in range(15)])
+            return sends
+        with mock.patch.object(self.svc, "_login", login):
+            sends = self.run_async(go())
+        self.assertEqual(len(started), device.PAIR_FAILS_PER_MIN)
+        refused = [s.lines[0]["error"] for s in sends if s.lines]
+        self.assertEqual(len(refused), 15 - device.PAIR_FAILS_PER_MIN)
+        self.assertTrue(all("try again in a minute" in e for e in refused), refused)
 
 
 @unittest.skipUnless(HAVE_IROH, "the iroh package is not installed")

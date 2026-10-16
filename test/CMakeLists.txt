@@ -12,6 +12,10 @@ if(CANWORKS_WITH_J1939)
   target_compile_definitions(j1939_unit_tests PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
   target_link_libraries(j1939_unit_tests PRIVATE canopen_core)
   add_test(NAME j1939_unit_tests COMMAND j1939_unit_tests)
+  # The kernel socket's long send numbering on vcan0 (needs can-j1939; run by
+  # the vcan CI job, test/j1939/long_ids.cpp).
+  add_executable(j1939_long_ids j1939/long_ids.cpp)
+  target_link_libraries(j1939_long_ids PRIVATE canopen_core)
 endif()
 
 # Raw CAN (can-raw-messages, can-plc-frames): the frame port and its C table,

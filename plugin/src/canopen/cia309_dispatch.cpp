@@ -145,6 +145,7 @@ bool Cia309Session::feed(const char* data, size_t n, clock::time_point now) {
     if (nl == std::string::npos) break;
     std::string line = in_.substr(start, nl - start);
     start = nl + 1;
+    ++lines_;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.size() > kMaxLine) {
       ok = false;
@@ -154,6 +155,22 @@ bool Cia309Session::feed(const char* data, size_t n, clock::time_point now) {
     uint32_t seq = 0;
     bool parsed = text_->line(line, seq);
     parsing_ = nullptr;
+    if (!parsed && !commanded_) {
+      // The first line is not CiA 309-3, like the request line of a web page
+      // posting to the port: one error 101, and nothing after it is read.
+      log_warn("cia309 %s: the first line is not a CiA 309-3 command; closing the session", peer_.c_str());
+      Command c;
+      c.seq = seq;
+      c.srv = CO_GW_SRV_SDO_UP;
+      confirm(c, CO_GW_IEC_SYNTAX);
+      in_.clear();
+      return false;
+    }
+    if (parsed && !commanded_) {
+      // Blank lines and comments come before the first command.
+      size_t i = line.find_first_not_of(" \t");
+      commanded_ = i != std::string::npos && line[i] != '#';
+    }
     if (!parsed) {
       Command c;
       c.seq = seq;

@@ -27,10 +27,19 @@ class HostRequests {
  public:
   static HostRequests& instance();
 
-  // Host: queues an NMT command for a master network's bus thread.
-  void nmt(unsigned network, unsigned node, const std::string& command);
+  // NMT commands that may wait per network.
+  static constexpr size_t kMaxQueued = 16;
+
+  // Host: queues an NMT command for a master network's bus thread. False,
+  // and nothing queued, while the network has no bus session (a command
+  // must not run minutes later when the bus comes back) or kMaxQueued of
+  // its commands wait already.
+  bool nmt(unsigned network, unsigned node, const std::string& command);
   // Bus thread: the network's queued commands, oldest first.
   void take(unsigned network, std::vector<HostNmt>& out);
+  // Bus thread: the network's bus session started or ended; at the end its
+  // waiting commands are dropped.
+  void set_session(unsigned network, bool up);
 
   // Bus thread: node `node` of `network` is operational (or not).
   void set_operational(unsigned network, unsigned node, bool up);
@@ -42,6 +51,7 @@ class HostRequests {
  private:
   std::mutex mu_;
   std::vector<HostNmt> queue_;
+  bool session_[kMaxNetworks] = {};  // under mu_
   std::atomic<uint64_t> up_[kMaxNetworks][2] = {};
 };
 

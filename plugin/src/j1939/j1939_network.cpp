@@ -184,9 +184,13 @@ void J1939Engine::rebind(uint8_t address) {
     log_error("J1939: cannot bind to address %u: %s", address,
               j1939_socket_problem(r, cfg_.adapter.interface).c_str());
     bound_ = 0xFF;
+    prog_end_long(CANWORKS_J1939_ERR_ABORTED);
     return;
   }
   bound_ = address;
+  // The long socket was opened again: the sessions it ran end with it, and
+  // their ends never come.
+  prog_end_long(CANWORKS_J1939_ERR_ABORTED);
 }
 
 int J1939Engine::send(uint32_t pgn, uint8_t destination, uint8_t priority, const uint8_t* data, size_t len) {
@@ -381,10 +385,17 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
   for (size_t i = 0; i < j_.tx.size(); ++i) {
     if (j_.tx[i].pgn != pgn) continue;
     if (!outputs_enabled()) return;  // a transmit message, stopped with the outputs
-    if (!reply_allowed(pgn, m.source, now)) return;
+    // Before the first scan the outputs are not written: no answer (a NACK
+    // would say the PGN is not sent at all).
     const uint64_t* snap = image_.latest_outputs();
+    if (image_.scan_count(snap) == 0) return;
+    if (!reply_allowed(pgn, m.source, now)) return;
+    const J1939Tx& t = j_.tx[i];
+    const uint8_t own = t.has_destination ? static_cast<uint8_t>(t.destination) : kJ1939Global;
     uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
-    send_all(i, dest, now, snap);
+    // A reply to the requester only is not the send to the entry's own
+    // destination: an on-change value still goes there.
+    send_all(i, dest, now, snap, dest == own);
     ++tx_[i].answered;
     return;
   }
@@ -442,7 +453,7 @@ bool J1939Engine::build_tx(size_t i, const uint64_t* snap, int page) {
   return !st.sent_once || st.next != st.data;
 }
 
-bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, int page) {
+bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, int page, bool record) {
   const J1939Tx& t = j_.tx[i];
   TxState& st = tx_[i];
   int r = send(t.pgn, destination, static_cast<uint8_t>(t.priority), st.next.data(), st.next.size());
@@ -451,6 +462,7 @@ bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, 
   // is tried again on the next tick.
   if (r < 0) return true;
   ++st.sent;
+  if (!record) return true;
   if (page >= 0) {
     st.page_data[static_cast<size_t>(page)] = st.next;
     st.page_sent_once[static_cast<size_t>(page)] = 1;
@@ -462,22 +474,23 @@ bool J1939Engine::send_tx(size_t i, uint8_t destination, clock::time_point now, 
   return true;
 }
 
-bool J1939Engine::send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap) {
+bool J1939Engine::send_all(size_t i, uint8_t destination, clock::time_point now, const uint64_t* snap,
+                           bool record) {
   TxState& st = tx_[i];
   if (st.pages.empty()) {
     build_tx(i, snap);
-    return send_tx(i, destination, now);
+    return send_tx(i, destination, now, -1, record);
   }
   if (j_.tx[i].pages == canworks_can::MuxPages::Rotate) {
     int p = static_cast<int>(st.cursor);
     build_tx(i, snap, p);
-    if (!send_tx(i, destination, now, p)) return false;
+    if (!send_tx(i, destination, now, p, record)) return false;
     st.cursor = (st.cursor + 1) % st.pages.size();
     return true;
   }
   for (size_t p = 0; p < st.pages.size(); ++p) {
     build_tx(i, snap, static_cast<int>(p));
-    if (!send_tx(i, destination, now, static_cast<int>(p))) return false;
+    if (!send_tx(i, destination, now, static_cast<int>(p), record)) return false;
   }
   return true;
 }
@@ -772,6 +785,50 @@ void J1939Engine::prog_end_all(uint16_t error) {
   for (const auto& r : prog_requests_) msgs.finish(r.handle, error);
   prog_sends_.clear();
   prog_requests_.clear();
+  prog_late_.clear();
+}
+
+void J1939Engine::prog_end_long(uint16_t error) {
+  prog_late_.clear();
+  J1939PlcMsgs& msgs = J1939PlcMsgs::instance();
+  for (auto it = prog_sends_.begin(); it != prog_sends_.end();) {
+    if (!it->in_flight) {
+      ++it;
+      continue;
+    }
+    ++prog_aborted_;
+    log_warn("J1939: the program's PGN %s to %u ended: the network's address changed",
+             j1939_pgn_text(it->pgn).c_str(), it->destination);
+    msgs.finish(it->handle, error);
+    it = prog_sends_.erase(it);
+  }
+}
+
+void J1939Engine::prog_long_events() {
+  J1939PlcMsgs& msgs = J1939PlcMsgs::instance();
+  uint32_t id = 0;
+  bool aborted = false;
+  int error = 0;
+  while (socket_.send_event(id, aborted, error) > 0) {
+    auto late = std::find(prog_late_.begin(), prog_late_.end(), id);
+    if (late != prog_late_.end()) {
+      prog_late_.erase(late);
+      continue;
+    }
+    for (auto it = prog_sends_.begin(); it != prog_sends_.end(); ++it) {
+      if (!it->in_flight || it->id != id) continue;
+      if (aborted) {
+        ++prog_aborted_;
+        log_warn("J1939: the program's PGN %s to %u was aborted: %s", j1939_pgn_text(it->pgn).c_str(),
+                 it->destination, strerror(error ? error : ECONNABORTED));
+      } else {
+        ++prog_sent_;
+      }
+      msgs.finish(it->handle, aborted ? CANWORKS_J1939_ERR_ABORTED : 0);
+      prog_sends_.erase(it);
+      break;
+    }
+  }
 }
 
 void J1939Engine::prog_on_message(const J1939Message& m) {
@@ -908,33 +965,18 @@ void J1939Engine::serve_plc_msgs(clock::time_point now) {
 
   // Sends: short ones at once, long ones one at a time (the kernel runs one
   // session per address pair; their end comes on the long socket).
+  // Every end is read, also those of sends that timed out already, so the
+  // socket's error queue does not fill up.
+  if (socket_.long_send_events()) prog_long_events();
   bool long_busy = false;
   for (const auto& s : prog_sends_)
     if (s.in_flight) long_busy = true;
-  if (long_busy) {
-    bool aborted = false;
-    int error = 0;
-    int ev = socket_.send_event(aborted, error);
-    for (auto it = prog_sends_.begin(); it != prog_sends_.end(); ++it) {
-      if (!it->in_flight) continue;
-      if (ev != 0) {
-        if (aborted) {
-          ++prog_aborted_;
-          log_warn("J1939: the program's PGN %s to %u was aborted: %s", j1939_pgn_text(it->pgn).c_str(),
-                   it->destination, strerror(error ? error : ECONNABORTED));
-        } else {
-          ++prog_sent_;
-        }
-        msgs.finish(it->handle, aborted ? CANWORKS_J1939_ERR_ABORTED : 0);
-        prog_sends_.erase(it);
-        long_busy = false;
-      }
-      break;
-    }
-  }
   for (auto it = prog_sends_.begin(); it != prog_sends_.end();) {
     if (it->in_flight) {
       if (now >= it->deadline) {
+        // The kernel's session goes on; its end belongs to no other send.
+        if (prog_late_.size() >= kProgLateMax) prog_late_.pop_front();
+        prog_late_.push_back(it->id);
         msgs.finish(it->handle, CANWORKS_J1939_ERR_TIMEOUT);
         it = prog_sends_.erase(it);
         long_busy = false;
@@ -958,20 +1000,20 @@ void J1939Engine::serve_plc_msgs(clock::time_point now) {
       ++it;
       continue;
     }
-    int r = is_long ? socket_.send_long(it->pgn, it->destination, it->priority, it->data.data(), it->data.size())
+    uint32_t id = 0;
+    int r = is_long ? socket_.send_long(it->pgn, it->destination, it->priority, it->data.data(), it->data.size(), id)
                     : send(it->pgn, it->destination, it->priority, it->data.data(), it->data.size());
     if (r == 0) {
       if (is_long) {
-        bool aborted = false;
-        int error = 0;
         // A kernel that does not report sessions: done once it took it.
-        if (socket_.send_event(aborted, error) < 0) {
+        if (!socket_.long_send_events()) {
           ++prog_sent_;
           msgs.finish(it->handle, 0);
           it = prog_sends_.erase(it);
           continue;
         }
         it->in_flight = true;
+        it->id = id;
         long_busy = true;
         ++it;
         continue;

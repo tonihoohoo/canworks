@@ -64,8 +64,8 @@ IfaceState iface_state(const std::string& name) {
 }
 
 Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub,
-         std::shared_ptr<const SimSetup> sim, GatewayLink* gw)
-    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)), gw_(gw),
+         std::shared_ptr<const SimSetup> sim, GatewayLink* gw, RunState* run)
+    : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)), gw_(gw), run_(run),
       adapter_(cfg.adapter.simulate ? nullptr : make_adapter(cfg.adapter)), monitor_(cfg, image) {}
 
 Bus::~Bus() { stop(); }
@@ -222,7 +222,7 @@ void Bus::run_session() {
       }
       if (virt ? monitor_.simulated() : monitor_.poll(BusMonitor::clock::now())) image_.commit_inputs();
       return true;
-    }, &req_timer, &out_timer);
+    }, &req_timer, &out_timer, run_);
     netp = &net;
     log_info("opened %s, starting the CANopen master (node ID %u)", where.c_str(), cfg_.master.node_id);
     net.SetDiag(hub_);

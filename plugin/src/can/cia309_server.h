@@ -68,6 +68,10 @@ class Cia309Server {
     std::unique_ptr<Cia309Session> session;
     bool closing = false;
     std::chrono::steady_clock::time_point over_since{};  // output above kMaxSendBuffer since
+    // The idle timeout of plain sessions: the session's line count when last
+    // seen, and since when it has not changed with no command outstanding.
+    uint64_t lines = 0;
+    std::chrono::steady_clock::time_point active{};
   };
   struct Handover {
     int fd = -1;
@@ -78,7 +82,9 @@ class Cia309Server {
 
   void run();
   bool open_listener();
-  void accept_clients();
+  void accept_clients(std::chrono::steady_clock::time_point now);
+  // When plain session `c` times out (time_point::max(): never).
+  std::chrono::steady_clock::time_point idle_due(const Conn& c) const;
   void adopt(Handover h, std::chrono::steady_clock::time_point now);
   void on_bytes(Conn& c, const char* data, size_t n, std::chrono::steady_clock::time_point now);
   bool flush(Conn& c);  // false: connection lost

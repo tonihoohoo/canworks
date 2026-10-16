@@ -9,8 +9,9 @@ open() is the one place an adapter is opened. With `listen_only` the
 adapter receives without acknowledging or sending anything while the bit
 rate check listens (core.check_bitrate): slcan opens the channel in silent
 mode ('m1', then 'O') where the firmware takes 'm1', else with 'L', and
-gs_usb starts its channel listen-only when the device has that mode. Other
-adapter types open normally.
+gs_usb starts its channel listen-only; a gs_usb device without that mode
+refuses a listen-only open (ListenOnlyMissing). Other adapter types open
+normally. Opened.listen_only says whether the adapter really is listen-only.
 """
 
 import json
@@ -43,6 +44,14 @@ class AdapterError(Exception):
     def __init__(self, kind, message):
         super().__init__(message)
         self.kind = kind
+
+
+class ListenOnlyMissing(AdapterError):
+    """A listen-only open of an adapter that has no listen-only mode."""
+
+    def __init__(self, spec):
+        super().__init__("usage", "adapter %s: this adapter cannot listen only (it would acknowledge frames on "
+                                  "the bus)" % spec)
 
 
 class Spec:
@@ -388,10 +397,13 @@ def gs_usb_timing(cap, bitrate):
     return None
 
 
-def _gs_usb_mode(dev, flags):
+def _gs_usb_mode(dev, flags, spec):
     """Starts the channel with `flags` (those the device has), on the open
-    USB handle: no USB reset."""
+    USB handle: no USB reset. Raises ListenOnlyMissing when listen-only is
+    asked for and the device does not have it."""
     from gs_usb.gs_usb_structures import DeviceMode
+    if flags & GS_LISTEN_ONLY and not dev.device_capability.feature & GS_LISTEN_ONLY:
+        raise ListenOnlyMissing(spec)
     flags &= dev.device_capability.feature
     dev.gs_usb.ctrl_transfer(0x41, GS_BREQ_MODE, 0, 0, DeviceMode(GS_MODE_START, flags).pack())
     dev.device_flags = flags  # read() and send() size the frames by the timestamp flag
@@ -436,7 +448,8 @@ def _stalled(e):
 
 def _gs_usb_open(spec, bitrate, listen_only, kwargs):
     """python-can's gs_usb bus with the timing set from the device's limits
-    and the channel started (listen-only when asked and the device has it).
+    and the channel started (listen-only when asked: ListenOnlyMissing when
+    the device does not have it).
     A USB stall resets the USB device and tries once more."""
     import can
     _libusb_path()
@@ -461,7 +474,7 @@ def _gs_usb_open(spec, bitrate, listen_only, kwargs):
             dev.set_timing(*timing)
             _gs_usb_drain(dev)
             flags = GS_HW_TIMESTAMP | GS_BERR_REPORTING | (GS_LISTEN_ONLY if listen_only else 0)
-            _gs_usb_mode(dev, flags)
+            _gs_usb_mode(dev, flags, spec)
             if hasattr(bus, "_bitrate"):
                 bus._bitrate = bitrate
             return bus
@@ -536,12 +549,14 @@ class Opened:
                 dev = self.bus.gs_usb
                 _gs_usb_reset(dev)
                 _gs_usb_mode(dev, GS_HW_TIMESTAMP | GS_BERR_REPORTING | (GS_LISTEN_ONLY if listen_only else 0) |
-                             (GS_ONE_SHOT if one_shot else 0))
+                             (GS_ONE_SHOT if one_shot else 0), self.spec)
             elif self.spec.kind == "slcan" and not listen_only and hasattr(self.bus, "normal"):
                 self.bus.normal()
         except Exception as e:
             if self.spec.kind == "gs_usb":
                 _gs_usb_reset(self.bus.gs_usb)
+            if isinstance(e, AdapterError):
+                raise
             if _stalled(e):
                 raise AdapterError("unreachable", "adapter %s %s" % (self.spec, USB_STALL))
             raise AdapterError("unreachable", "cannot set adapter %s's mode: %s" % (self.spec, e))
@@ -566,8 +581,9 @@ class Opened:
 def open(spec, bitrate, listen_only=False, options=None, shared=False):  # noqa: A001 - the module's one entry point
     """Open `spec` (a Spec) at `bitrate` (bit/s). With `listen_only` the
     adapter receives without acknowledging or sending where it has such a
-    mode (slcan, gs_usb; others open normally); the bit rate check leaves it
-    with Opened.set_mode(). With `shared`, a SocketCAN link or the in-process
+    mode (slcan, gs_usb; others open normally, and Opened.listen_only is then
+    False); a gs_usb device without that mode raises ListenOnlyMissing. The
+    bit rate check leaves it with Opened.set_mode(). With `shared`, a SocketCAN link or the in-process
     virtual bus is opened without the one-tool lock, as several programs can
     use those at once (J1939 simulators side by side on vcan0). Raises
     AdapterError."""
@@ -600,6 +616,7 @@ def open(spec, bitrate, listen_only=False, options=None, shared=False):  # noqa:
             kwargs["bitrate"] = bitrate
         if spec.kind == "slcan":
             bus = _slcan_bus(listen_only)(channel=spec.channel, **kwargs)
+            listen_only = bool(getattr(bus, "_silent", False) or getattr(bus, "_listen", False))
         elif spec.kind == "gs_usb":
             bus = _gs_usb_open(spec, bitrate, listen_only, kwargs)
         else:

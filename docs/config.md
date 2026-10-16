@@ -4,6 +4,8 @@ The canworks plugin reads one JSON file, the config path given for the `canworks
 
 The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
 
+A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. An object may not have the same key twice.
+
 At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
 ## Example (the Lely tutorial ping-pong slave)
@@ -131,7 +133,7 @@ A top-level `gateway` connects a slave network (the upper network) with the mast
 }
 ```
 
-A PDO entry that a route writes (an RPDO entry fed from the upper master) may leave out `iec_location`; every other PDO entry needs one. A route's target may not also have an output location: one writer per object.
+A PDO entry that a route writes (an RPDO entry fed from the upper master) may leave out `iec_location`; every other PDO entry needs one. A route takes the node's TPDO entry when its object is in a TPDO and an RPDO, so an RPDO entry of that object without `iec_location` is refused. A route's target may not also have an output location: one writer per object.
 
 ## `adapter`
 
@@ -190,7 +192,7 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
 | `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent between the stop and the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. It applies whatever the program held, and it is also what `CO_NETWORK_STOP` sends with `NODE_COMMAND := 0` ([plc-nmt.md](plc-nmt.md#stop-the-network-from-the-program-co_network_stop)). |
-| `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. Set a larger value, or 0, for a program with a deliberately long scan. |
+| `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. A scan that hangs while the CAN interface goes down and comes back keeps the outputs off after it. Set a larger value, or 0, for a program with a deliberately long scan. |
 | `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
 
 The master also takes every option `dcfgen` offers for it (below, [Master options](#master-options)).
@@ -257,7 +259,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: the nodes are booted and configured (and started, with `start_nodes`), but no PDOs move and every status bit stays FALSE until the PLC program starts it with `CO_NETWORK_START` ([plc-nmt.md](plc-nmt.md#start-the-network-from-the-program-co_network_start)). Nothing else starts it, and each PLC start begins PRE-OPERATIONAL again. The plugin warns about this at load. |
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
-| `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. |
+| `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. After the master's own reset its output PDOs stay off until each node is up again, and then carry the program's current outputs (never the device configuration's defaults). |
 | `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included. Takes precedence over `reset_all_nodes`. |
 | `boot_time_ms` | 0x1F89 | Time allowed for all mandatory nodes to boot; 0 or left out: no limit. |
 | `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity reads, PDO and startup SDO downloads and `restore_configuration`. Raise it for a device that answers late, for example one that saves each parameter to flash first; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
@@ -743,7 +745,7 @@ The EMCY code and the [boot error byte](#identity-check-and-boot-error-byte) are
 
 If the file does not exist, the plugin logs a warning with the expected path and stays inactive. Otherwise it stays inactive, opens no CAN interface, and logs every problem with the file and the field, node, object or location it concerns, when:
 
-- the file is not valid JSON, or lacks a required field;
+- the file is not valid JSON, has an object with the same key twice, has a number string with a leading zero (`"012"`), or lacks a required field;
 - a node ID is outside 1-127, is used twice, or is the master's;
 - an EDS file is missing or cannot be parsed;
 - the file's `schema_version` is newer than the plugin's, or it has both `adapter` and the old top-level keys, or an unknown adapter type, or a field of the other adapter type, or an `slcan` adapter without an absolute `device`;
@@ -774,7 +776,7 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;
 - a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave`, `gateway`, `protocol` or `j1939`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
-- a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link;
+- a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link, or it is an RPDO entry of an object a gateway route reads from the node's TPDO (nothing would write it);
 - a link names a node that is not on the network, a TPDO that is not in the producer's `tx_pdos`, a TPDO another link names, a consumer that is the producer, an RPDO that is in the consumer's `rx_pdos`, in another link or not in its EDS, a consumer entry with `iec_location`, a layout that differs from the producer's in positions or sizes, a dummy entry the consumer's `[DummyUsage]` does not allow, a consumer object that is missing, not mappable, not receivable or of another type, a read-only consumer COB-ID other than the link's, a synchronous consumer without SYNC, or `links` on a slave, J1939 or plain CAN network;
 - a `heartbeat_watch` entry watches the node itself, the master, a node that is not on the network or sends no heartbeat, has a timeout not above the watched period, or does not fit the EDS 0x1016;
 - the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.

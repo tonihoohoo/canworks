@@ -41,6 +41,8 @@ from . import __version__, localruntime
 
 DEFAULT_PORT = 7531
 GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
+GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
+GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
 GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
@@ -386,9 +388,10 @@ class Client:
     always; a standalone simulator with a token); without one it is plain,
     for a local simulator without a token."""
 
-    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None):
+    def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None, repair=False):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
         self.network = network
+        self.repair = repair    # pair the remote link again when the runtime's link ID changed (--repair)
         # Sent as force: true with sdo_write, nmt and scan unless a call says
         # otherwise: the plugin refuses them without it while a configured
         # node is OPERATIONAL (canworks-diag --force).
@@ -493,7 +496,7 @@ class Client:
             # the background (nothing happens without iroh and discovery).
             try:
                 from .link import pc as linkpc
-                self.pairing = linkpc.after_login(self.host, self.port, self.token)
+                self.pairing = linkpc.after_login(self.host, self.port, self.token, repair=self.repair)
             except Exception:
                 self.pairing = None
         return self.info
@@ -867,6 +870,9 @@ def parser():
                         "master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
                    help="sim commands: a standalone simulator's control channel (default port 7532)")
+    p.add_argument("--repair", action="store_true",
+                   help="remote link: when a paired runtime answers with another link ID (reinstalled), take the "
+                        "new ID and pair this PC with it again")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="read the access token from this file")
     p.add_argument("--json", action="store_true", help="print the plugin's answer as JSON")
@@ -2060,7 +2066,8 @@ def _pdo_test(client, args, out):
 
 def _local_client(args):
     """A localbus.LocalBus for --adapter: the bit rate from --bitrate or the
-    network of --config, the configured nodes' names from --config."""
+    network of --config, the configured nodes' names and the network's
+    adapter.listen_only from --config."""
     from . import localbus
     from .localbus import configinfo
     try:
@@ -2069,10 +2076,12 @@ def _local_client(args):
         raise DiagError("usage", str(e))
     bitrate = args.bitrate * 1000 if args.bitrate else None
     nodes = {}
+    listen_only = False
     config = getattr(args, "config", None)
     if config:
         try:
             cfg_bitrate, nodes = configinfo.load(config, args.network)
+            listen_only = configinfo.load_listen_only(config, args.network)
         except (OSError, ValueError) as e:
             raise DiagError("usage", "cannot use %s: %s" % (config, e))
         bitrate = bitrate or cfg_bitrate
@@ -2082,7 +2091,8 @@ def _local_client(args):
     if localbus.untested(spec):
         print("canworks-diag: adapter type %s is passed to python-can untested" % spec.kind, file=sys.stderr)
     return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
-                             network=args.network, timeout=args.timeout, check_node=args.check_node)
+                             network=args.network, timeout=args.timeout, check_node=args.check_node,
+                             listen_only=listen_only)
 
 
 def _adapters(args, out):
@@ -2338,7 +2348,8 @@ def run(args, out=sys.stdout):
             host, port = parse_runtime(args.runtime)
         except ValueError as e:
             raise DiagError("usage", str(e))
-        client = Client(host, port, _token(args), args.timeout, network=args.network)
+        client = Client(host, port, _token(args), args.timeout, network=args.network,
+                        repair=bool(getattr(args, "repair", False)))
     client.connect()
     client.force = bool(getattr(args, "force", False))
     try:
@@ -2939,10 +2950,50 @@ def _gateway_listen(args, host, port, token, lhost, lport, out):
     return 0
 
 
+def _gateway_first_line(local):
+    """The local client's bytes up to and with its first line that is not
+    blank or a comment: (bytes, that line), or (bytes, None) when the client
+    left or stayed silent for GATEWAY_IDLE_S first."""
+    from . import cia309
+    buf = b""
+    local.settimeout(GATEWAY_IDLE_S)
+    while True:
+        lines = buf.split(b"\n")
+        for raw in lines[:-1]:
+            text = raw.decode("utf-8", "replace")
+            if not cia309.skipped(text):
+                return buf, text.strip()
+        if len(lines[-1]) > GATEWAY_MAX_LINE:
+            return buf, lines[-1].decode("utf-8", "replace")
+        try:
+            data = local.recv(65536)
+        except OSError:
+            return buf, None
+        if not data:
+            return buf, None
+        buf += data
+
+
 def _gateway_pipe(args, host, port, token, local):
     """Copies one local connection to a new gateway session, both ways (one
-    thread: the TLS socket is not shared between threads)."""
+    thread: the TLS socket is not shared between threads). The session opens
+    only after the client's first command line, and not at all when that
+    line is not CiA 309-3 (a web page's HTTP request): the client then gets
+    one ERROR: 101, as from the runtime's plain port."""
     import select
+    from . import cia309
+    first, line = _gateway_first_line(local)
+    if line is None or not cia309.looks_like_command(line):
+        if line is not None:
+            m = re.match(r"^\s*\[?\s*(\d+)", line)
+            try:
+                local.sendall(b"[%d] ERROR: 101 (Syntax error)\r\n" % (int(m.group(1)) if m else 0))
+            except OSError:
+                pass
+            print("canworks-diag gateway: a local connection's first line is not a CiA 309-3 command; closed",
+                  file=sys.stderr)
+        local.close()
+        return
     try:
         session, _ = _gateway_session(args, host, port, token)
     except (DiagError, OSError) as e:
@@ -2959,6 +3010,7 @@ def _gateway_pipe(args, host, port, token, local):
     try:
         if session.buf:
             local.sendall(session.buf)
+        far.sendall(first)
         while True:
             ready = [far] if getattr(far, "pending", lambda: 0)() else []
             if not ready:

@@ -86,6 +86,49 @@ def schema(version=1):
     return _schemas[version]
 
 
+class _Pairs(dict):
+    """A parsed JSON object that remembers the keys it was given twice."""
+    repeated = ()
+
+
+def _pairs(items):
+    out = _Pairs()
+    seen = []
+    for k, v in items:
+        if k in out and k not in seen:
+            seen.append(k)
+        out[k] = v
+    out.repeated = seen
+    return out
+
+
+def _plain(value, path, problems):
+    """`value` with plain dicts, noting each repeated key with its object's path."""
+    if isinstance(value, dict):
+        where = json_path(path) or "the top level"
+        problems += ["%s: key '%s' is given more than once" % (where, k) for k in getattr(value, "repeated", ())]
+        return {k: _plain(v, path + [k], problems) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain(v, path + [i], problems) for i, v in enumerate(value)]
+    return value
+
+
+def loads(text):
+    """A config's JSON text parsed, refusing an object that has the same key
+    twice (json keeps the last, the plugin's cJSON the first; plugin:
+    repeated_keys). Raises ValueError, which names the key and its object."""
+    problems = []
+    doc = _plain(json.loads(text, object_pairs_hook=_pairs), [], problems)
+    if problems:
+        raise ValueError("; ".join(problems))
+    return doc
+
+
+def load(f):
+    """loads() of an open file."""
+    return loads(f.read())
+
+
 def version_of(cfg):
     """The config's schema_version as the plugin reads it (1 when left out),
     or None when it is not a version number."""
@@ -101,9 +144,17 @@ def networks(cfg):
     network's fields, "" for version 1), `role` ("master", "slave" or, for a
     J1939 network, "j1939"), `protocol` ("canopen" or "j1939"), `adapter`,
     `master` and `nodes` (empty for a slave or J1939 network), `slave` (the
-    slave object, empty for the others) and `j1939` (the j1939 object of a
-    J1939 network, else empty). A version 2 network without a name is named
+    slave object, empty for the others), `j1939` (the j1939 object of a
+    J1939 network, else empty) and `byte_mode` (a bridge config, whose
+    locations count bytes). A version 2 network without a name is named
     after its interface."""
+    out = _networks(cfg)
+    for n in out:
+        n["byte_mode"] = isinstance(cfg, dict) and "bridge" in cfg
+    return out
+
+
+def _networks(cfg):
     if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
         adapter = cfg.get("adapter")
         if adapter is None and "interface" in cfg:
@@ -227,7 +278,19 @@ def json_path(parts):
     return out
 
 
-UINT_PATTERN = r"^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+UINT_PATTERN = r"^(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
+_LEADING_ZERO = re.compile(r"^-?0[0-9]+$")
+
+
+def leading_zero_message(text):
+    """The refusal of a number string with a leading zero ("012"), or None.
+    Octal is never meant in a config, so neither the tools nor the plugin
+    read it either way (plugin: leading_zero_message)."""
+    if not isinstance(text, str) or not _LEADING_ZERO.match(text):
+        return None
+    sign = "-" if text.startswith("-") else ""
+    n = int(text.lstrip("-"), 10)
+    return "leading zero: write %s%d or %s0x%02X" % (sign, n, sign, n)
 
 
 def _uint(value):
@@ -241,7 +304,7 @@ def _uint(value):
     if isinstance(value, float):
         return int(value) if value >= 0 and value == math.floor(value) else None
     if isinstance(value, str) and re.match(UINT_PATTERN, value):
-        return int(value, 16) if value[:2].lower() == "0x" else int(value, 0 if value == "0" else 10)
+        return int(value, 16) if value[:2].lower() == "0x" else int(value, 10)
     return None
 
 
@@ -372,6 +435,9 @@ def plain_schema_message(e, root):
         name = "each entry of " + name
     hex_field = key in HEX_FIELDS
     v = e.validator
+    zero = leading_zero_message(e.instance)
+    if zero and v in ("anyOf", "oneOf", "pattern"):
+        return "%s %s: %s" % (name, json.dumps(e.instance), zero)
     if v in ("anyOf", "oneOf") and not isinstance(e.instance, (dict, list)):
         alts = _alternatives(e.schema, root)
         numbers = [a for a in alts if a.get("type") in ("integer", "null") or "const" in a or "enum" in a]
@@ -530,15 +596,11 @@ def sdo_value(value, type_name):
     elif isinstance(value, str) and value:
         neg = value.startswith("-")
         body = value[1:] if neg else value
-        m = re.match(r"^(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$", body)
-        if not m:
+        if leading_zero_message(value):
+            return None, "is not a valid integer (%s)" % leading_zero_message(value)
+        if not re.match(UINT_PATTERN, body):
             return None, "is not a valid integer"
-        if body[:2].lower() == "0x":
-            mag = int(body, 16)
-        elif body.startswith("0"):
-            mag = int(body, 8)  # strtoull base 0: a leading 0 is octal
-        else:
-            mag = int(body)
+        mag = int(body, 16) if body[:2].lower() == "0x" else int(body, 10)
         if mag >= 1 << 64:
             return None, "is not a valid integer"
         n = -mag if neg else mag
@@ -693,7 +755,9 @@ def check_emcy_cob_ids(raw_nodes, nodes, master, master_id, err):
     for i, (n, node) in enumerate(zip(raw_nodes, nodes)):
         v = n.get("emcy_cob_id")
         if v is not None and v not in EMCY_COB_ID_KINDS and (isinstance(v, (dict, list)) or _uint(v) is None):
-            err("nodes[%d]" % i, "%s: field 'emcy_cob_id' must be \"device\", \"eds\" or a COB-ID" % label_of(node),
+            zero = leading_zero_message(v)
+            err("nodes[%d]" % i, "%s: field 'emcy_cob_id' %s" % (
+                label_of(node), "%s: %s" % (json.dumps(v), zero) if zero else "must be \"device\", \"eds\" or a COB-ID"),
                 ["nodes[%d].emcy_cob_id" % i])
             configured.append(False)
             continue
@@ -813,7 +877,10 @@ def _error_behavior(obj, where, err):
         return
     for key in eb:
         sub = _uint(key)
-        if sub is None or not 1 <= sub <= 254:
+        if leading_zero_message(key):
+            err(where + ": error_behavior", 'sub-index "%s": %s' % (key, leading_zero_message(key)),
+                ["%s.error_behavior" % where])
+        elif sub is None or not 1 <= sub <= 254:
             err(where + ": error_behavior", 'sub-index "%s" must be 1-254' % key,
                 ["%s.error_behavior" % where])
 
@@ -914,7 +981,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
 # The CiA 309-3 gateway (canopen-cia309-gateway, plugin/src/can/config.cpp
 # parse_cia309 and resolve_cia309).
 CIA309_PATH = re.compile(r"^(master\.|networks\[\d+\]\.master\.)?cia309(\.|$)")
-CIA309_FIELDS = ("port", "bind", "max_clients", "allow_changes", "allow_force", "nets", "default_net")
+CIA309_FIELDS = ("port", "bind", "max_clients", "idle_timeout_s", "allow_changes", "allow_force", "nets", "default_net")
 CIA309_DEFAULT_PORT = 7533
 CIA309_BIND_MESSAGE = ("the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"%s\": CiA 309-3 "
                        "has no login; remote clients use the diagnostics channel (canworks-diag gateway)")
@@ -990,6 +1057,10 @@ def check_cia309(cfg, version, err):
         v = _uint(g["max_clients"])
         if v is None or not 1 <= v <= 16:
             err(w, "field 'max_clients' must be 1-16", [w + ".max_clients"])
+    if "idle_timeout_s" in g:
+        v = _uint(g["idle_timeout_s"])
+        if v is None or v > 86400:
+            err(w, "field 'idle_timeout_s' must be 0 (no limit) to 86400", [w + ".idle_timeout_s"])
     for key in ("allow_changes", "allow_force"):
         if key in g and not isinstance(g[key], bool):
             err(w, "field '%s' must be true or false" % key, [w + "." + key])
@@ -1200,14 +1271,17 @@ def _raw_path(message):
 
 
 def routed_entries(cfg):
-    """{(network name, node ID, index, subindex)} of every field PDO entry a
-    gateway route names: only these may leave out iec_location."""
-    out = set()
+    """{(network name, node ID, index, subindex): the first route's label
+    ("route 1 (name)")} of every field PDO entry a gateway route names: only
+    these may leave out iec_location."""
+    out = {}
     g = cfg.get("gateway") if isinstance(cfg, dict) else None
-    for rt in (g.get("routes") if isinstance(g, dict) and isinstance(g.get("routes"), list) else []):
+    for i, rt in enumerate(g.get("routes") if isinstance(g, dict) and isinstance(g.get("routes"), list) else []):
         f = rt.get("field") if isinstance(rt, dict) else None
         if isinstance(f, dict):
-            out.add((f.get("network"), _uint(f.get("node")), _uint(f.get("index")), _uint(f.get("subindex", 0))))
+            name = rt.get("name") if isinstance(rt.get("name"), str) else ""
+            out.setdefault((f.get("network"), _uint(f.get("node")), _uint(f.get("index")), _uint(f.get("subindex", 0))),
+                           "route %d" % (i + 1) + (" (%s)" % name if name else ""))
     return out
 
 
@@ -1307,7 +1381,7 @@ def location_uses(net, prefix=""):
     if net.get("role") == "plain":
         return out
     if net.get("role") == "j1939":
-        _j1939_location_uses(net.get("j1939") or {}, add)
+        _j1939_location_uses(net.get("j1939") or {}, add, 4 if net.get("byte_mode") else 1)
         return out
     s = net.get("slave") or {}
     for key in SLAVE_LOCATION_KEYS:
@@ -1355,8 +1429,10 @@ def location_uses(net, prefix=""):
     return out
 
 
-def _j1939_location_uses(j, add):
-    """location_uses() of a J1939 network, in the plugin's order and words."""
+def _j1939_location_uses(j, add, dword_step=1):
+    """location_uses() of a J1939 network, in the plugin's order and words.
+    `dword_step` is how far apart consecutive double words lie: 4 in a
+    bridge config, whose locations count bytes."""
     ecu = j.get("ecu") if isinstance(j.get("ecu"), dict) else {}
     for key, who in (("state_location", "ECU state"), ("address_location", "ECU address")):
         if key in ecu:
@@ -1388,7 +1464,7 @@ def _j1939_location_uses(j, add):
         loc = parse_location(m["dtcs_location"]) if isinstance(m.get("dtcs_location"), str) else None
         if loc is not None and loc.size == "D" and n:
             for k in range(min(n, J1939_MAX_DM_RX_CODES)):
-                add("%%%sD%d" % (loc.area, loc.index + k), "%s code %d" % (who, k), at + ".dtcs_location")
+                add("%%%sD%d" % (loc.area, loc.index + k * dword_step), "%s code %d" % (who, k), at + ".dtcs_location")
     for i, c in enumerate(d.get("dtcs") if isinstance(d.get("dtcs"), list) else []):
         if isinstance(c, dict) and "active_location" in c:
             add(c["active_location"], "diagnostics SPN %s FMI %s active_location" % (_uint(c.get("spn")),
@@ -1710,7 +1786,20 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 for k, e in enumerate(p["entries"]):
                     entry = {"index": _uint(e["index"]), "subindex": _uint(e.get("subindex", 0)), "type": e["type"]}
                     loc = parse_location(e.get("iec_location"))
-                    if loc is None:
+                    route = routed.get((net_name, node["node_id"], entry["index"], entry["subindex"])) \
+                        if isinstance(routed, dict) else None
+                    if loc is None and route and key == "rx_pdos" and any(
+                            _uint(te.get("index")) == entry["index"] and _uint(te.get("subindex", 0)) == entry["subindex"]
+                            for tp in n.get("tx_pdos", []) if isinstance(tp, dict)
+                            for te in tp.get("entries", []) if isinstance(te, dict)):
+                        # The route takes the TPDO entry (plugin: TPDOs
+                        # first), so this one would have no writer.
+                        err("%s: entries[%d]" % (pw, k),
+                            "%s, object 0x%04X:%d: %s reads 0x%04X:%d from a TPDO entry, so this RPDO entry without "
+                            "'iec_location' would only send 0 (give it an iec_location or remove it)"
+                            % (label, entry["index"], entry["subindex"], route, entry["index"], entry["subindex"]),
+                            ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
+                    elif loc is None:
                         if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
                                 key == "tx_pdos" and (node["node_id"], pdo["number"]) in linked_tx):
                             err("%s: entries[%d]" % (pw, k),
@@ -2281,18 +2370,10 @@ class _J1939Parser:
             return None
         v = obj[key]
         if isinstance(v, str) and v and not v.startswith("-"):
-            text = v.strip()
-            try:
-                if re.match(r"^0[xX][0-9a-fA-F]+$", text):
-                    n = int(text, 16)
-                elif re.match(r"^0[0-7]*$", text):
-                    n = int(text, 8)
-                elif re.match(r"^[1-9][0-9]*$", text):
-                    n = int(text)
-                else:
-                    n = None
-            except ValueError:
-                n = None
+            if leading_zero_message(v):
+                self.err(where, "field '%s' \"%s\": %s" % (key, v, leading_zero_message(v)), [path + "." + key])
+                return None
+            n = _uint(v)
             if n is not None and n < 1 << 64:
                 return n
         elif isinstance(v, (int, float)) and not isinstance(v, bool):

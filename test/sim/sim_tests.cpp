@@ -32,6 +32,7 @@
 #include <lely/co/obj.h>
 #include <lely/co/val.h>
 #include <lely/ev/loop.hpp>
+#include <lely/ev/strand.hpp>
 #include <lely/io2/posix/poll.hpp>
 #include <lely/io2/sys/io.hpp>
 #include <lely/io2/sys/timer.hpp>
@@ -419,8 +420,7 @@ class Sim {
     image_.build(cfg_);
     fake_runtime::attach(fake_, rt_);
     chan_.open(ctrl_);
-    net_.reset(new Network(exec_, timer_, sup_timer_, chan_, cfg_, gen_, image_, nullptr, &req_timer_, &out_timer_));
-    sync_wake_.reset(new SyncWake(poll_, image_.sync_fd(), *net_));
+    MakeNetwork();
     sniff_.open(ctrl_);
     Sniff();
     scan_timer_.settime(milliseconds(10), milliseconds(10));
@@ -451,6 +451,23 @@ class Sim {
   bool ok() const { return ok_; }
   Network& net() { return *net_; }
   std::string gen_master_dcf() const { return gen_.master_dcf; }
+
+  // A new bus session, as Bus starts one after an interface loss or a
+  // session error: the Network ends and a new one starts on the same image
+  // and run state (run_state.h); the devices keep running.
+  void RestartSession() {
+    net_->Stop();
+    net_->MarkAllDown();
+    sync_wake_.reset();
+    // A stopped Network's timer waits end without being submitted again;
+    // the work it queued and that has not run yet goes with its strand
+    // (Bus shuts the session's I/O down and drains its loop instead).
+    RunFor(Network::kTick + milliseconds(50));
+    net_.reset();
+    MakeNetwork();
+    if (hub_) net_->SetDiag(hub_.get());
+    net_->Start();
+  }
   const Config& cfg() const { return cfg_; }
 
   // Serves the diagnostics channel through a hub (call before Start()).
@@ -708,6 +725,9 @@ class Sim {
     return out;
   }
   int nmt(uint8_t id, uint8_t cs) { return nmt_[id * 256 + cs]; }
+  // The data of every frame on COB-ID `id` from now on.
+  void Record(uint32_t id) { records_[id]; }
+  std::vector<std::vector<uint8_t>> recorded(uint32_t id) { return records_[id]; }
 
   // Simulated devices (canopen_sim) on this bus. `specs` default to every
   // node of the config.
@@ -804,6 +824,15 @@ class Sim {
   long scans() const { return scans_; }
 
  private:
+  // The session's Network, on a strand of its own, with the run state the
+  // runtime keeps for the PLC run.
+  void MakeNetwork() {
+    strand_.reset(new ev::Strand(exec_));
+    net_.reset(new Network(*strand_, timer_, sup_timer_, chan_, cfg_, gen_, image_, nullptr, &req_timer_, &out_timer_,
+                           &run_));
+    sync_wake_.reset(new SyncWake(poll_, image_.sync_fd(), *net_));
+  }
+
   void Sniff() {
     sniff_.submit_read(&sniff_msg_, nullptr, nullptr, exec_, [this](int result, std::error_code ec) {
       if (ec) return;
@@ -817,6 +846,7 @@ class Sim {
           m.data[2] == 0x10 && m.data[3] == 0)
         ++emcy_cob_reads_[static_cast<uint8_t>(m.id - 0x600)];
       if (result == 1) ++frames_[m.id];
+      if (result == 1 && records_.count(m.id)) records_[m.id].emplace_back(m.data, m.data + m.len);
       if (result == 1 && m.id == 0x080) sync_frames_.push_back({steady_clock::now(), m.len ? m.data[0] : -1});
       if (result == 1 && m.id == 0x7E5 && m.len >= 1) ++lss_cs_[m.data[0]];
       if (result == 1 && m.id > 0x700 && m.id < 0x780 && m.len == 1 && m.data[0] == 0)
@@ -869,6 +899,7 @@ class Sim {
   std::map<uint32_t, int> frames_;
   std::map<uint8_t, int> bootups_;
   std::map<int, int> nmt_;
+  std::map<uint32_t, std::vector<std::vector<uint8_t>>> records_;
   std::vector<Stamped> time_frames_;
   std::vector<SyncFrame> sync_frames_;
   std::map<uint8_t, std::unique_ptr<SlaveBox>> slaves_;
@@ -880,6 +911,8 @@ class Sim {
   ProcessImage image_;
   fake_runtime::Image fake_;
   plugin_runtime_args_t rt_;
+  RunState run_;
+  std::unique_ptr<ev::Strand> strand_;
   std::unique_ptr<Network> net_;
   std::unique_ptr<SyncWake> sync_wake_;
   std::unique_ptr<DiagHub> hub_;
@@ -6367,5 +6400,157 @@ TEST(sim_plc_nmt_entry_missing) {
   CHECK(run_nmt(sim, b.nmt, 2, 2));
   CHECK(b.nmt.ERROR_ID.get() == 0);
   CHECK(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)));
+  nmt_end(sim);
+}
+
+// ---------------------------------------------------------------------------
+// The program's NMT state across bus session restarts (canopen-plc-nmt
+// "Program NMT state lasts across bus restarts"): Sim::RestartSession plays
+// an interface loss and its return.
+
+// CO_NETWORK_STOP with the nodes STOPPED, then a new session: the master
+// stays PRE-OPERATIONAL, the nodes are configured and sent STOP, and no
+// output PDO goes out until CO_NETWORK_START.
+TEST(sim_plc_nmt_network_stop_restart) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json(""));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  b.stop.NODE_COMMAND = 2;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4; }, seconds(2)));
+  clear_logs();
+  int rpdos = sim->frames(0x202) + sim->frames(0x203);
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] {
+    return logged("node 2 (pingpong): NMT STOP (held by the program (CO_NETWORK_STOP))") &&
+           logged("node 3 (second): NMT STOP (held by the program (CO_NETWORK_STOP))");
+  }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4,
+            std::to_string(sim->ib(21)) + " " + std::to_string(sim->ib(20)) + " " + std::to_string(sim->ib(22)));
+  CHECK(!sim->status());
+  CHECK_MSG(sim->frames(0x202) + sim->frames(0x203) == rpdos,
+            std::to_string(sim->frames(0x202) + sim->frames(0x203) - rpdos));
+  read_state(sim, 2);
+  CHECK(!b.gs.STARTED && b.gs.HELD.get() == 2);
+  CHECK(run_block(sim, b.start));
+  CHECK(b.start.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  nmt_end(sim);
+}
+
+// A node held by CO_NMT, and a reset its command byte asked for earlier:
+// after a new session the held node is configured and sent STOP, the other
+// node runs, and the earlier reset is not sent again.
+TEST(sim_plc_nmt_hold_restart) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("", "\"nmt_command_location\": \"%QB30\", "));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  int boots = sim->bootups(2);
+  nmt_byte = 129;
+  CHECK(sim->RunUntil([boots] { return sim->bootups(2) > boots && all_running(sim); }, seconds(5)));
+  nmt_byte = 0;
+  sim->RunFor(milliseconds(100));
+  CHECK(run_nmt(sim, b.nmt, 2, 2));
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 4; }, seconds(2)));
+  int resets = sim->nmt(2, 129);
+  clear_logs();
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] { return logged("node 2 (pingpong): NMT STOP (held by the program (CO_NMT))"); },
+                      seconds(5)));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(22) == 5 && sim->plc().bool_in[10][1]; },
+                      seconds(3)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->ib(20) == 4, std::to_string(sim->ib(20)));
+  CHECK(!sim->status());
+  CHECK_MSG(sim->nmt(2, 129) == resets, std::to_string(sim->nmt(2, 129) - resets));
+  read_state(sim, 2);
+  CHECK(b.gs.HELD.get() == 2);
+  CHECK(run_nmt(sim, b.nmt, 2, 1));
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  nmt_end(sim);
+}
+
+// master.start false and CO_NETWORK_START: a new session starts the master
+// again once the mandatory node has booted.
+TEST(sim_plc_nmt_network_start_restart) {
+  static Sim* sim;
+  sim = nmt_sim(with_node(two_nodes_json("\"start\": false, "), "second", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
+  CHECK(run_block(sim, nmt_blk->start));
+  CHECK(nmt_blk->start.ERROR_ID.get() == 0);
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(3)));
+  sim->RestartSession();
+  CHECK_MSG(sim->RunUntil([] { return all_running(sim); }, seconds(5)), std::to_string(sim->ib(21)));
+  read_state(sim, 0);
+  CHECK(nmt_blk->gs.STARTED);
+  nmt_end(sim);
+}
+
+// A scan that hung before a new session keeps the outputs gate closed after
+// it (canopen-pdo-io "Scan watchdog across bus restarts").
+TEST(sim_scan_watchdog_restart) {
+  clear_logs();
+  std::string dir = make_dir(with_master(pingpong_json(), "\"scan_watchdog_ms\": 1500, "),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  sim->StopPlc(true);  // the scan hangs
+  CHECK(sim->RunUntil([] { return logged("scan watchdog: the PLC scan has not finished a cycle for 1500 ms"); },
+                      seconds(3)));
+  CHECK(!outputs_enabled());
+  int rpdos = sim->frames(0x202);
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  CHECK(!outputs_enabled());
+  CHECK_MSG(sim->frames(0x202) == rpdos, std::to_string(sim->frames(0x202) - rpdos));
+  sim->StopPlc(false);
+  CHECK(sim->RunUntil([rpdos] { return outputs_enabled() && sim->frames(0x202) > rpdos + 5; }, seconds(2)));
+  delete sim;
+  CHECK(outputs_enabled());
+}
+
+// The master resets itself after a mandatory node is lost (reset_all_nodes):
+// a node held STOPPED gets no master TPDO (with the DCF's default values)
+// once the master runs again, and its first RPDO after the hold carries the
+// program's value (canopen-pdo-io "Master outputs after a master NMT reset").
+TEST(sim_master_reset_tpdos_off) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"reset_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim) && sim->plc().dint_in[200] > 3; }, seconds(5)));
+  CHECK(run_nmt(sim, b.nmt, 3, 2));
+  CHECK(sim->RunUntil([] { return sim->ib(22) == 4; }, seconds(2)));
+  sim->RunFor(milliseconds(100));
+  sim->Record(0x203);
+  clear_logs();
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(21) != 5; }, seconds(2)));
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  CHECK_MSG(sim->RunUntil([] { return sim->ib(21) == 5 && sim->ib(20) == 5 && sim->ib(22) == 4; }, seconds(10)),
+            std::to_string(sim->ib(21)) + " " + std::to_string(sim->ib(20)) + " " + std::to_string(sim->ib(22)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->recorded(0x203).empty(), std::to_string(sim->recorded(0x203).size()));
+  CHECK(run_nmt(sim, b.nmt, 3, 1));
+  CHECK(sim->RunUntil([] { return all_running(sim) && !sim->recorded(0x203).empty(); }, seconds(3)));
+  auto first = sim->recorded(0x203).front();
+  uint32_t v = first.size() >= 4 ? first[0] | first[1] << 8 | first[2] << 16 | uint32_t(first[3]) << 24 : 0;
+  CHECK_MSG(v != 0, "first RPDO to node 3 after the reset carries 0");
   nmt_end(sim);
 }

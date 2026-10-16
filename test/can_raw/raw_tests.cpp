@@ -281,6 +281,15 @@ TEST(cyclic_job_period_and_update) {
   api()->cyc_stop(h);
   CHECK(n.port.cyclic_due(t + 60000, out, jobs, 4) == 0);
   CHECK(api()->cyc_update(h, &g, 20000, &count, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  // An input error ends the job and frees its slot.
+  h = api()->cyc_start(0, &f, 10000, &err);
+  CHECK(h != 0);
+  CHECK(n.port.cyclic_due(t + 70000, out, jobs, 4) == 1);
+  n.port.cyclic_sent(jobs[0]);
+  CHECK(api()->cyc_update(h, &g, 0, &count, &err) == 2 && err == CANWORKS_CAN_ERR_INPUT);
+  CHECK(n.port.cyclic_due(t + 90000, out, jobs, 4) == 0);
+  CHECK(api()->cyc_update(h, &g, 20000, &count, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  for (unsigned i = 0; i < CANWORKS_CAN_CYCLIC_JOBS; ++i) CHECK(api()->cyc_start(0, &f, 1000, &err) != 0);
 }
 
 TEST(cyclic_limit) {
@@ -757,6 +766,25 @@ TEST(engine_multiplexed_send_program) {
   e.due(100000, frames, idx);
   CHECK(frames.size() == 1 && frames[0].data[0] == 9 && frames[0].data[1] == 0 && frames[0].data[2] == 5);
   CHECK(e.tx_status()[0].unknown_page);
+}
+
+// A switch value beyond the switch's length is cut to it before the page is
+// chosen: 17 on a 4-bit switch is page 1, with A packed.
+TEST(engine_multiplexed_send_program_switch_cut_to_length) {
+  Parsed p = parse(R"({ "tx": [ { "name": "M", "id": 256, "period_ms": 10, "fill": 0, "signals": [
+      { "name": "Sw", "start_bit": 0, "length": 4, "multiplexer": true, "iec_location": "%QB0" },
+      { "name": "A", "start_bit": 8, "length": 8, "mux": { "values": [1] }, "iec_location": "%QB1" },
+      { "name": "B", "start_bit": 8, "length": 8, "mux": { "values": [2] }, "iec_location": "%QB2" } ] } ] })");
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[3] = {17, 0xAA, 0xBB};
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  e.set_outputs(out, 0);
+  e.set_plc_running(true, 0);
+  e.due(0, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 1 && frames[0].data[1] == 0xAA);
+  CHECK(!e.tx_status()[0].unknown_page);
 }
 
 TEST(engine_multiplexed_send_all_and_rotate) {

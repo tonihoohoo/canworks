@@ -265,7 +265,7 @@ def _ask(question):
 def _export_modbus_map(config, path, out):
     try:
         with open(config, encoding="utf-8") as f:
-            cfg = json.load(f)
+            cfg = contract.load(f)
     except OSError as e:
         raise Failure("cannot read %s: %s" % (config, e))
     except ValueError as e:
@@ -498,7 +498,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     # 1. The config and its checks.
     try:
         with open(args.config, encoding="utf-8") as f:
-            cfg = json.load(f)
+            cfg = contract.load(f)
     except OSError as e:
         raise Failure("cannot read %s: %s" % (args.config, e))
     except ValueError as e:
