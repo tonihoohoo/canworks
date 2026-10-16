@@ -591,6 +591,7 @@ async function addToConfig(id) {
       return;
     }
   } catch (e) { banner(e.message, true); return; }
+  const carried = commOwnNotes(id);
   if (!(await leaveCommission("opening the config"))) return;
   try {
     banner("");
@@ -610,6 +611,51 @@ async function addToConfig(id) {
     node.serial_number = d.serial_number;
     changed(true);
   }
+  if (node) carryNotes(node.eds, carried);
+}
+
+// The user's own notes of a Commission node (the device file's filled
+// entries the object dictionary was read with), to go with it into a config.
+function commOwnNotes(id) {
+  const c = (S.odEntries || {})[id];
+  const device = c && c.data && c.data.notes && !c.data.notes.error ? c.data.notes.device || {} : {};
+  const out = {};
+  for (const [k, v] of Object.entries(device)) if (noteFilled(v)) out[k] = v;
+  return out;
+}
+
+// The notes written while commissioning, as unsaved edits of the config's
+// notes for that EDS (Save writes them, one Undo with the node). A config
+// that already has notes of its own for that EDS keeps them.
+function carryNotes(name, notes) {
+  const k = Object.keys(notes || {}).length;
+  if (!name || !k) return;
+  const block = notesOf(name);
+  if (!block || block.error || !block.editable) return;
+  if (Object.values(block.device || {}).some(noteFilled)) {
+    commNotesKeptMessage(name, k);
+    return;
+  }
+  S.model.notes = S.model.notes || {};
+  S.model.notes[name] = Object.assign({}, S.model.notes[name] || {}, notes);
+  undoBase();  // in the same undo step as the added node
+  S.dirty = draftDirty();
+  render();
+  bannerAdd(el("div", { dataset: { notesCarried: "1" } }, k === 1 ? `The note written while commissioning goes with ${name}; Save keeps it.`
+    : `The ${k} notes written while commissioning go with ${name}; Save keeps them.`));
+}
+
+function commNotesKeptMessage(name, k) {
+  bannerAdd(el("div", { dataset: { notesKept: "1" } },
+    `This config already has notes for ${name}, so they are kept. The ${k === 1 ? "note" : k + " notes"} written while commissioning ${k === 1 ? "was" : "were"} not copied: export ${k === 1 ? "it" : "them"} in Commission a device and use Import notes… on the node's Notes tab.`));
+}
+
+// A line added under the message bar's message (the node just added), or
+// the message itself when there is none.
+function bannerAdd(line) {
+  const b = $("#banner");
+  if (b && !b.hidden && $("#banner-text").textContent) $("#banner-text").append(line);
+  else banner(el("div", null, line));
 }
 
 // -- Write configuration and Restore defaults in the Parameters tab --------------------

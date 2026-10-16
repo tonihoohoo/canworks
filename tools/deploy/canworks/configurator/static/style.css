@@ -957,3 +957,17 @@ dialog.folder-dialog h2 { margin-top: 0; font-size: 16px; }
 .eds-choices { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .device-line { margin: 0 0 8px; overflow-wrap: anywhere; }
 .trace-insp-body .fx-box { top: 0; }
+/* Note lists whose rows open on a click (notes-row-pick-and-commission-notes):
+   the Add note picker and an editable Notes tab. The picker fits its dialog:
+   fixed Object and Note columns, names wrap, no sideways scroll. */
+dialog:has(.note-picker) { width: min(900px, calc(100vw - 32px)); max-width: none; }
+.note-picker-list { overflow-x: hidden; }
+table.note-pick-table { table-layout: fixed; width: 100%; }
+table.note-pick-table col.c-obj { width: 9em; }
+table.note-pick-table col.c-from { width: 9em; }
+table.note-pick-table td { overflow-wrap: anywhere; }
+tr.row-open { cursor: pointer; }
+@media (hover: hover) { table tbody tr.row-open:hover > td { background: var(--hover); } }
+table tbody tr.row-open:focus-within > td { background: var(--sel-bg); }
+table tbody tr.row-open:focus-within > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+@media (forced-colors: active) { table tbody tr.row-open:focus-within { outline: 2px solid Highlight; outline-offset: -2px; } }

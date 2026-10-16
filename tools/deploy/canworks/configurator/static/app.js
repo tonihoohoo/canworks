@@ -405,6 +405,8 @@ function undoKeys(e) {
   const field = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT");
   if (field && !a.dataset.path) return;
   e.preventDefault();
+  // Commission a device has no draft for notes: Ctrl+Z puts back the last note write.
+  if (S.state.commission && !e.shiftKey && S.notesUndo) { liveNotesUndo(); return; }
   undo(e.shiftKey);
 }
 
@@ -4380,7 +4382,7 @@ async function renderOnlineNode() {
   if (!have.some(([k]) => k === tab)) tab = "status";
   if (tab === "status" && S.emcyNew && S.emcyNew[id]) { delete S.emcyNew[id]; if (S.onlineLast) treeLive(S.onlineLast.status); }
   const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
-  const notesLabel = notesTabLabel(...commNotesEds(id, n));
+  const notesLabel = commNotesLabel(id, n);
   const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : k === "notes" ? notesLabel : label]),
     tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const head = el("h2", { dataset: { online: "node-heading" } }, nodeHeading(id));
@@ -4964,7 +4966,9 @@ function noteUnder(block, name, index, sub, isVar, key) {
 
 const NOTE_TEXT = { values: noteLines, bits: noteLines };
 
-async function editNote(name, block, index, sub, isVar, label) {
+// `commit` (Commission a device): writes the change at once instead of the
+// draft; resolves to whether it was written.
+async function editNote(name, block, index, sub, isVar, label, commit) {
   const key = isVar && num(sub) === 0 ? noteKey(index) : noteKey(index, sub);
   const cur = noteFor(block, name, index, sub, isVar);
   const base = noteUnder(block, name, index, sub, isVar, key);
@@ -5024,6 +5028,7 @@ async function editNote(name, block, index, sub, isVar, label) {
         }
       } catch (e) { msg.textContent = e.message; continue; }
     }
+    if (commit) return commit({ [key]: entry }, label);
     S.model.notes = S.model.notes || {};
     S.model.notes[name] = S.model.notes[name] || {};
     S.model.notes[name][key] = entry;

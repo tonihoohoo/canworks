@@ -17,6 +17,8 @@ import re
 
 import jsonschema
 
+from .userdirs import replace_file
+
 FORMAT = "canworks-notes.v1"
 SUFFIX = ".notes.json"
 FIELDS = ("text", "details", "unit", "scale", "values", "bits", "manual")
@@ -429,6 +431,56 @@ def update(doc, changes, eds):
 
 def dumps(doc):
     return json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+
+
+def access(eds_path, block=None):
+    """{"editable", "why"} of the notes file of an EDS file, for a page that
+    writes notes at once (Commission a device): no notes file (a built EDS),
+    an unreadable one, or a folder or file that cannot be written is
+    read-only, with why."""
+    if not eds_path:
+        return {"editable": False, "why": "this EDS gets canworks' built-in notes only"}
+    if block and block.get("error"):
+        return {"editable": False, "why": block["error"]}
+    path = notes_path(eds_path)
+    folder = os.path.dirname(path) or "."
+    if (os.path.exists(path) and not os.access(path, os.W_OK)) or not os.access(folder, os.W_OK):
+        return {"editable": False, "why": "%s cannot be written in %s" % (os.path.basename(path), folder)}
+    return {"editable": True, "why": None}
+
+
+def write(eds, eds_name, eds_text, eds_path, changes=None, restore=False, text=None):
+    """Writes the notes file of an EDS at once (Commission a device): the
+    page's changes over the file, or a new file from the skeleton, with the
+    same rules as the configurator's Save. With `restore`, puts back `text`
+    (an earlier file; None removes the file). Returns the file's text before."""
+    path = notes_path(eds_path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            before = f.read()
+    except FileNotFoundError:
+        before = None
+    if restore:
+        if text is None:
+            if before is not None:
+                os.remove(path)
+            return before
+        _doc, error = load_text(text, os.path.basename(path))
+        if error:
+            raise NotesError(error)
+        new_text = text
+    else:
+        if before is not None:
+            doc, error = load_text(before, os.path.basename(path))
+            if error:
+                raise NotesError(error + "; it is not changed")
+        else:
+            doc = skeleton(eds, eds_name, eds_text=eds_text)
+        new_text = dumps(update(doc, changes, eds))
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        f.write(new_text)
+    replace_file(path + ".tmp", path)
+    return before
 
 
 # Data types the IEC type table leaves out, for messages.
