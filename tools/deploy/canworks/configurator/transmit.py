@@ -182,9 +182,14 @@ class Store:
 
 
 DEFAULT_PREFS = {"view": "ids", "split": 42, "inspector": True, "sort": "id", "sort_desc": False,
-                 "pane": 220, "pane_open": True, "fx_fold": []}
+                 "pane": 220, "pane_open": True, "fx_fold": [], "list_h": None, "lane_h": None,
+                 "window_w": None, "window_h": None}
 # The inspector layers that can be folded (frame-lab-usability).
 FX_LAYERS = ("id", "data", "wire")
+
+
+def _number(v, low, high):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and low <= v <= high
 
 
 def check_prefs(p, lenient=False):
@@ -197,7 +202,13 @@ def check_prefs(p, lenient=False):
              "sort_desc": lambda v: isinstance(v, bool),
              "pane": lambda v: isinstance(v, (int, float)) and 80 <= v <= 2000,
              "pane_open": lambda v: isinstance(v, bool),
-             "fx_fold": lambda v: isinstance(v, list) and len(set(v)) == len(v) and all(x in FX_LAYERS for x in v)}
+             "fx_fold": lambda v: isinstance(v, list) and len(set(v)) == len(v) and all(x in FX_LAYERS for x in v),
+             # Heights the user dragged (trace-window-zoom-resize); None is the default.
+             "list_h": lambda v: v is None or _number(v, 120, 3000),
+             "lane_h": lambda v: v is None or _number(v, 80, 1000),
+             # The last size of the trace's own window.
+             "window_w": lambda v: v is None or _number(v, 300, 10000),
+             "window_h": lambda v: v is None or _number(v, 200, 10000)}
     for k, v in p.items():
         if k not in rules:
             if lenient:

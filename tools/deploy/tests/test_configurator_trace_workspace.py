@@ -263,6 +263,15 @@ class TransmitStore(Trace):
         for bad in (["meaning"], ["id", "id"], "data"):
             status, _, _ = self.request("POST", "/api/trace/prefs", {"prefs": {"fx_fold": bad}})
             self.assertEqual(status, 422)
+        # Dragged heights and the trace window's size (trace-window-zoom-resize); None is the default.
+        p = self.ok("GET", "/api/trace/prefs")
+        self.assertEqual([p[k] for k in ("list_h", "lane_h", "window_w", "window_h")], [None] * 4)
+        p = self.ok("POST", "/api/trace/prefs", {"prefs": {"list_h": 600, "lane_h": 300, "window_w": 1200, "window_h": 800}})
+        self.assertEqual([p[k] for k in ("list_h", "lane_h", "window_w", "window_h")], [600, 300, 1200, 800])
+        self.assertIsNone(self.ok("POST", "/api/trace/prefs", {"prefs": {"lane_h": None}})["lane_h"])
+        for bad in ({"list_h": 50}, {"list_h": 4000}, {"lane_h": 79}, {"lane_h": True}, {"window_w": "big"}):
+            status, _, _ = self.request("POST", "/api/trace/prefs", {"prefs": bad})
+            self.assertEqual(status, 422)
 
 
 class TransmitRows(unittest.TestCase):
