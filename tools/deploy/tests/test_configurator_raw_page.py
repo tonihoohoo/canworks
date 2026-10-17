@@ -81,10 +81,17 @@ class RawPage(OnlineBase):
         self.assertIn("0x18FF1020 ext", pg.inner_text('[data-raw-table="rx"]'))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        # The network's own scan watchdog; a bad value shows at the field.
+        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "5")
+        pg.wait_for_selector('input[data-path="raw.scan_watchdog_ms"].invalid')
+        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "250")
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
         net = saved["networks"][0]
+        self.assertEqual(net["raw"]["scan_watchdog_ms"], 250)
         self.assertEqual(len(saved["networks"]), 1)
         self.assertEqual(net["protocol"], "none")
         self.assertEqual(net["adapter"]["interface"], "can1")

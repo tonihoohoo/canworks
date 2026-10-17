@@ -25,6 +25,10 @@
 #include "can/raw/raw_devices.h"
 #include "can/raw/raw_io.h"
 #include "can/raw/raw_link.h"
+#include "can/raw/raw_runtime.h"
+#include "can/config.h"
+#include "can/outputs_gate.h"
+#include "can/scan_watchdog.h"
 #include "canopen/sim/sim_raw.h"
 #include "can/signals.h"
 #include "check.hpp"
@@ -1246,6 +1250,310 @@ TEST(raw_scenarios_parse) {
   CHECK(has("scenarios.a.steps[0]: unknown key \"node\""));
   CHECK(has("scenarios.b.steps[0].fault: \"wrong_dlc\" must be an integer 0-8"));
   CHECK(sc.size() == 1 && sc[0].name == "c" && sc[0].steps[1].steps.size() == 1 && sc[0].steps[1].count == 2);
+}
+
+// On-change messages sent by a trigger only (no period): a change after a
+// PLC start or gate reopen goes out before the first trigger edge, compared
+// with the first output values (the baseline, not sent).
+TEST(engine_on_change_before_the_first_trigger) {
+  Parsed p = parse(R"({ "tx": [ { "name": "Cmd", "id": 784, "on_change": true, "trigger_location": "%QX30.0",
+      "signals": [ { "name": "Mode", "start_bit": 0, "length": 8, "iec_location": "%QB31" } ] } ] })");
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine e(p.cfg);
+  uint64_t out[2] = {0, 1};  // trigger, Mode
+  std::vector<canworks_can_frame> frames;
+  std::vector<size_t> idx;
+  for (int run = 0; run < 2; ++run) {  // a start, then a gate reopen
+    uint64_t t = run * 1000000u;
+    e.set_plc_running(true, t);
+    e.set_outputs(out, t);
+    frames.clear();
+    write_due(e, t, frames, idx);
+    CHECK(frames.empty());  // the baseline is not sent
+    out[1] += 1;
+    e.set_outputs(out, t + 1000);
+    write_due(e, t + 1000, frames, idx);
+    CHECK_MSG(frames.size() == 1 && frames[0].data[0] == out[1], "run " + std::to_string(run));
+    frames.clear();
+    write_due(e, t + 2000, frames, idx);
+    CHECK(frames.empty());
+    e.set_plc_running(false, t + 3000);
+  }
+  // Paged with pages "all": only the page whose value changed.
+  Parsed q = parse(R"({ "tx": [ { "name": "Display", "id": 769, "on_change": true, "pages": "all",
+      "trigger_location": "%QX30.1", "signals": [
+      { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },
+      { "name": "A", "start_bit": 8, "length": 8, "mux": { "values": [1] }, "iec_location": "%QB20" },
+      { "name": "B", "start_bit": 8, "length": 8, "mux": { "values": [2] }, "iec_location": "%QB21" } ] } ] })");
+  CHECK(q.ok && q.errors.empty());
+  canworks_raw::RawEngine g(q.cfg);
+  uint64_t pout[3] = {0, 1, 2};  // trigger, A, B
+  g.set_plc_running(true, 0);
+  g.set_outputs(pout, 0);
+  frames.clear();
+  write_due(g, 0, frames, idx);
+  CHECK(frames.empty());
+  pout[2] = 7;
+  g.set_outputs(pout, 1000);
+  write_due(g, 1000, frames, idx);
+  CHECK(frames.size() == 1 && frames[0].data[0] == 2 && frames[0].data[1] == 7);
+}
+
+// A link whose descriptor hangs up when the test says the adapter is
+// unplugged, and which then cannot be opened again.
+class GoneLink : public RawLink {
+ public:
+  ~GoneLink() override { close(); }
+  int open() override {
+    if (gone) return -ENODEV;
+    int p[2];
+    if (pipe(p)) return -EIO;
+    std::lock_guard<std::mutex> lock(mutex_);
+    r_ = p[0];
+    w_ = p[1];
+    return 0;
+  }
+  void close() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (r_ >= 0) ::close(r_);
+    r_ = -1;
+  }
+  int fd() const override { return r_; }
+  Confirm confirm() const override { return Confirm::Write; }
+  void set_filters(const std::vector<LinkFilter>&, bool) override {}
+  void read(std::vector<LinkFrame>& out, size_t) override {
+    char buf[64];
+    if (::read(r_, buf, sizeof buf) < 0) {
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    out.insert(out.end(), queued_.begin(), queued_.end());
+    queued_.clear();
+  }
+  int write(const canworks_can_frame&, Origin) override { return 0; }
+  std::string where() const override { return "test"; }
+  void frame_in(const canworks_can_frame& f) {
+    LinkFrame lf;
+    lf.frame = f;
+    std::lock_guard<std::mutex> lock(mutex_);
+    queued_.push_back(lf);
+    char c = 1;
+    if (::write(w_, &c, 1) < 0) {
+    }
+  }
+  void unplug() {
+    gone = true;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (w_ >= 0) ::close(w_);  // the read end hangs up
+    w_ = -1;
+  }
+  std::atomic<bool> gone{false};
+
+ private:
+  std::mutex mutex_;
+  int r_ = -1, w_ = -1;
+  std::vector<LinkFrame> queued_;
+};
+
+// The adapter goes away and the interface cannot be opened: the received
+// message's status and valid bits go FALSE at once, not only when it is back.
+TEST(raw_io_inputs_go_stale_while_the_link_is_down) {
+  Parsed p = parse(R"({ "rx": [ { "id": 291, "timeout_ms": 100, "status_location": "%IX0.0",
+      "signals": [ { "start_bit": 0, "length": 8, "iec_location": "%IB1", "valid_location": "%IX0.1" } ] } ] })");
+  CHECK(p.ok && p.errors.empty());
+  canworks_raw::RawEngine engine(p.cfg);
+  std::unique_ptr<GoneLink> owned(new GoneLink);
+  GoneLink* link = owned.get();
+  std::mutex m;
+  std::vector<uint64_t> in;  // status, value, valid
+  RawIoHooks hooks;
+  hooks.publish_inputs = [&](const std::vector<uint64_t>& v) {
+    std::lock_guard<std::mutex> lock(m);
+    in = v;
+  };
+  RawIo io(std::move(owned), 250000, false, &engine, nullptr, hooks);
+  io.start();
+  auto wait_for = [&](uint64_t status, uint64_t valid) {
+    for (int i = 0; i < 100; ++i) {
+      {
+        std::lock_guard<std::mutex> lock(m);
+        if (in.size() == 3 && in[0] == status && in[2] == valid) return true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return false;
+  };
+  bool got = false;
+  for (int i = 0; i < 100 && !got; ++i) {  // until the I/O thread has the link open
+    link->frame_in(frame(291, {42}));
+    got = wait_for(1, 1);
+  }
+  CHECK(got);
+  link->unplug();
+  CHECK(wait_for(0, 0));
+  {
+    std::lock_guard<std::mutex> lock(m);
+    CHECK(in[1] == 42);  // the value holds
+  }
+  io.stop();
+}
+
+// A link that counts what is written and confirms it with its echo.
+class CountLink : public RawLink {
+ public:
+  CountLink() : fd_(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)) {}
+  ~CountLink() override { ::close(fd_); }
+  int open() override { return 0; }
+  void close() override {}
+  int fd() const override { return fd_; }
+  Confirm confirm() const override { return Confirm::Echo; }
+  void set_filters(const std::vector<LinkFilter>&, bool) override {}
+  void read(std::vector<LinkFrame>& out, size_t) override {
+    uint64_t v;
+    if (::read(fd_, &v, sizeof v) < 0) {
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    out.insert(out.end(), echoes_.begin(), echoes_.end());
+    echoes_.clear();
+  }
+  int write(const canworks_can_frame& f, Origin) override {
+    if (f.id == 0x321) ++cyclic;
+    LinkFrame lf;
+    lf.frame = f;
+    lf.ours = true;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      echoes_.push_back(lf);
+    }
+    uint64_t one = 1;
+    if (::write(fd_, &one, sizeof one) < 0) {
+    }
+    return 0;
+  }
+  std::string where() const override { return "test"; }
+  std::atomic<int> cyclic{0};
+
+ private:
+  int fd_;
+  std::mutex mutex_;
+  std::vector<LinkFrame> echoes_;
+};
+
+// The outputs gate closes (a scan watchdog trips): a CAN_SEND_CYCLIC job
+// stops on the bus and resumes at its period when the gate opens; a frame
+// CAN_SEND queues meanwhile fails with "not running".
+TEST(program_frames_obey_the_outputs_gate) {
+  PlcPort port(1);
+  port.set_rules(PortRules{});
+  set_port(1, &port);
+  std::unique_ptr<CountLink> owned(new CountLink);
+  CountLink* link = owned.get();
+  RawIo io(std::move(owned), 500000, false, nullptr, &port, RawIoHooks{});
+  io.start();
+  for (int i = 0; i < 100 && !port.running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  uint16_t err = 0;
+  canworks_can_frame f = frame(0x321, {1});
+  uint32_t job = port.cyc_start(&f, 10000, &err);
+  CHECK(job != 0);
+  for (int i = 0; i < 100 && link->cyclic < 2; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  CHECK(link->cyclic >= 2);
+  canopen_plugin::set_scan_hung(true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  int held = link->cyclic;
+  canworks_can_frame g = frame(0x322, {2});
+  uint32_t h = port.tx_send(&g, 1000, &err);
+  CHECK(h != 0);
+  int st = 0;
+  for (int i = 0; i < 40 && st == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    st = port.tx_poll(h, &err);
+  }
+  CHECK_MSG(st == 2 && err == CANWORKS_CAN_ERR_NOT_RUNNING, std::to_string(st) + " " + std::to_string(err));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK_MSG(link->cyclic == held, std::to_string(link->cyclic - held) + " frames while the gate was closed");
+  canopen_plugin::set_scan_hung(false);
+  auto opened = std::chrono::steady_clock::now();
+  for (int i = 0; i < 100 && link->cyclic < held + 2; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  int resumed = link->cyclic - held;
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - opened).count();
+  // At its period again, no burst of the frames missed.
+  CHECK_MSG(resumed >= 2 && resumed <= ms / 10 + 2, std::to_string(resumed) + " in " + std::to_string(ms) + " ms");
+  port.cyc_stop(job);
+  io.stop();
+  set_port(1, nullptr);
+}
+
+// On a CANopen network a 29-bit PDO COB-ID is the protocol's: CAN_SEND with
+// EXTENDED on it is refused like an 11-bit one.
+TEST(program_extended_frames_on_owned_pdo_ids) {
+  canopen_plugin::ConfigSet set;
+  set.networks.resize(1);
+  canopen_plugin::Config& cfg = set.networks[0];
+  cfg.network_index = 2;
+  cfg.adapter.interface = "vcan9";
+  cfg.master.node_id = 1;
+  canopen_plugin::NodeConfig n;
+  n.node_id = 5;
+  canopen_plugin::PdoConfig tp;
+  tp.number = 1;
+  tp.cob_id = 0x20000000u | 0x18FF0105u;
+  tp.has_cob_id = true;
+  n.tx_pdos.push_back(tp);
+  cfg.nodes.push_back(n);
+  std::vector<std::string> errors;
+  {
+    RawRuntime raw(cfg);
+    CHECK(raw.make(set, errors));
+    PlcPort* p = port(2);
+    CHECK(p != nullptr);
+    p->set_running(true);
+    uint16_t err = 0;
+    canworks_can_frame f = frame(0x18FF0105u, {1}, CANWORKS_CAN_EXTENDED);
+    CHECK(p->tx_send(&f, 10, &err) == 0 && err == CANWORKS_CAN_ERR_PROTOCOL);
+    canworks_can_frame other = frame(0x18FF0106u, {1}, CANWORKS_CAN_EXTENDED);
+    CHECK(p->tx_send(&other, 10, &err) != 0 && err == 0);
+    p->cancel_all();
+  }
+}
+
+// A J1939 or plain CAN network's scan watchdog (j1939/raw.scan_watchdog_ms):
+// armed by the first finished scan, it closes the shared outputs gate when
+// no scan finishes for its time and opens it at the next one; the PLC stop
+// releases it.
+TEST(scan_watchdog_of_j1939_and_plain_networks) {
+  using canopen_plugin::ScanWatchdog;
+  canopen_plugin::Config c;
+  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 0);  // a CANopen master runs its own
+  c.protocol = canopen_plugin::Protocol::J1939;
+  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 1000);
+  c.j1939.scan_watchdog_ms = 0;
+  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 0);
+  c.protocol = canopen_plugin::Protocol::None;
+  c.raw.scan_watchdog_ms = 250;
+  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 250);
+  ScanWatchdog w(250, "raw.scan_watchdog_ms", "");
+  auto t0 = ScanWatchdog::clock::now();
+  auto at = [&](int ms) { return t0 + std::chrono::milliseconds(ms); };
+  w.check(at(0));
+  w.check(at(1000));
+  CHECK(canopen_plugin::outputs_enabled());  // no scan finished yet
+  w.scan_done();
+  w.check(at(1010));
+  w.check(at(1259));
+  CHECK(canopen_plugin::outputs_enabled() && !w.hung());
+  w.check(at(1260));
+  CHECK(!canopen_plugin::outputs_enabled() && w.hung());
+  w.check(at(1500));
+  w.scan_done();
+  w.check(at(1510));
+  CHECK(canopen_plugin::outputs_enabled() && !w.hung());
+  w.check(at(1760));
+  CHECK(!canopen_plugin::outputs_enabled());
+  w.release();
+  CHECK(canopen_plugin::outputs_enabled());
+  // The next run starts timing afresh.
+  w.check(at(5000));
+  w.check(at(5100));
+  CHECK(canopen_plugin::outputs_enabled());
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

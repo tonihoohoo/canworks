@@ -147,7 +147,8 @@ bool RawIo::write_frame(const canworks_can_frame& f, int& error, Origin origin) 
 
 void RawIo::send_due(uint64_t now) {
   // The host's outputs gate (the bridge's outputs off) stops transmit messages like a PLC stop.
-  bool running = (hooks_.plc_running ? hooks_.plc_running() : true) && canopen_plugin::outputs_enabled();
+  const bool gate = canopen_plugin::outputs_enabled();
+  bool running = (hooks_.plc_running ? hooks_.plc_running() : true) && gate;
   if (devices_) {
     dev_buf_.clear();
     devices_->due(now / 1000, dev_buf_);
@@ -189,6 +190,14 @@ void RawIo::send_due(uint64_t now) {
     port_->tx_failed(tag, err == ENETDOWN || err == ENODEV ? CANWORKS_CAN_ERR_BUS : CANWORKS_CAN_ERR_FULL);
     return true;
   };
+  // The gate stops program frames too (canopen-pdo-io "Program frames obey
+  // the outputs gate"): queued ones fail with "not running", cyclic jobs
+  // keep their period without sending.
+  if (held_ && !gate) {
+    if (port_->tx_pending(held_tag_)) port_->tx_failed(held_tag_, CANWORKS_CAN_ERR_NOT_RUNNING);
+    held_ = false;
+  }
+  if (!gate) port_->drop_queued();
   if (held_ && (!port_->tx_pending(held_tag_) || send_program(held_frame_, held_tag_))) held_ = false;
   canworks_can_frame f;
   uint32_t tag;
@@ -200,7 +209,7 @@ void RawIo::send_due(uint64_t now) {
   }
   canworks_can_frame due[CANWORKS_CAN_CYCLIC_JOBS];
   uint8_t jobs[CANWORKS_CAN_CYCLIC_JOBS];
-  int n = port_->cyclic_due(now, due, jobs, CANWORKS_CAN_CYCLIC_JOBS);
+  int n = port_->cyclic_due(now, due, jobs, CANWORKS_CAN_CYCLIC_JOBS, gate);
   for (int k = 0; k < n; ++k) {
     int err = 0;
     if (write_frame(due[k], err)) port_->cyclic_sent(jobs[k]);
@@ -320,6 +329,14 @@ void RawIo::run() {
           hooks_.log("raw CAN on " + link_->where() + " waits for the interface: " + std::strerror(-r));
         reported = true;
         if (port_) port_->set_running(false);
+        // Received messages go stale while the link is gone (can-raw-messages
+        // "Receive timeouts while the link is down").
+        if (engine_) {
+          std::lock_guard<std::mutex> lock(engine_mutex_);
+          bool changed = engine_->link_lost();
+          if (engine_->check_timeouts(monotonic_us())) changed = true;
+          if (changed && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
+        }
         pollfd w{wake_fd_, POLLIN, 0};
         poll(&w, 1, kRetryMs);
         continue;

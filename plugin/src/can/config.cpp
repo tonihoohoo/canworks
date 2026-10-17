@@ -1151,6 +1151,10 @@ class Parser {
         errors_.push_back(path_ + ": " + l.second + ": " + l.first.str() +
                           " lies outside the runtime I/O image (index must be below " +
                           std::to_string(limits_.buffer_size) + ")");
+    if (cfg.raw.has_scan_watchdog && !cfg.is_plain())
+      errors_.push_back(path_ + ": " + at + ".scan_watchdog_ms: only a plain CAN network takes it; " +
+                        (cfg.is_j1939() ? "a J1939 network has j1939.scan_watchdog_ms"
+                                        : "a CANopen master has master.scan_watchdog_ms"));
     if (cfg.is_plain() && cfg.raw.empty())
       cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
   }
@@ -1343,11 +1347,17 @@ class Parser {
       error("", "field 'j1939' must be an object");
       return;
     }
-    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics"});
+    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics", "scan_watchdog_ms"});
     J1939Config& jc = cfg.j1939;
     parse_j1939_ecu(j, jc.ecu);
     get_string(j, "dbc", "j1939", false, jc.dbc);
     uint64_t v;
+    if (j_uint(j, "scan_watchdog_ms", "j1939", v)) {
+      if (v != 0 && (v < 10 || v > 60000))
+        error("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
+      else
+        jc.scan_watchdog_ms = (unsigned)v;
+    }
     for (const char* list : {"rx", "tx", "requests"}) {
       const cJSON* arr = cJSON_GetObjectItemCaseSensitive(j, list);
       if (arr && !cJSON_IsArray(arr)) {

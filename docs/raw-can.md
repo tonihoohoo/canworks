@@ -24,6 +24,8 @@ A network with `"protocol": "none"` has an `adapter`, an optional `raw` object a
 
 A config with `raw` or a `none` network is version 2; the configurator and the deploy tool write it so.
 
+`"scan_watchdog_ms"` in the `raw` object of a `none` network (10-60000, default 1000; 0 turns it off) is the network's scan watchdog, as `master.scan_watchdog_ms` is a CANopen master's: while the PLC runs and its scan has not finished a cycle for this long, the outputs gate closes, so `tx` messages and the program's frames stop ([Frame blocks](#frame-blocks)); received messages go on. The next finished scan opens the gate again. Both are logged. The gate is shared: a watchdog of any network stops the outputs of every network. Only a `none` network takes it in `raw`; a CANopen master has `master.scan_watchdog_ms` and a J1939 network `j1939.scan_watchdog_ms`.
+
 ### Listen-only
 
 `"listen_only": true` in the `adapter` of a `none` network makes the PLC a silent observer: it receives, but never acknowledges a frame or sends one. The plugin sets the controller to listen-only (SocketCAN ctrlmode, silent mode on slcan adapters). Where it cannot (`configure_link: false`, vcan, a simulated bus) it says so in the log and only refuses its own sends. A listen-only network may have no `tx` messages; program sends end with `ERROR_ID` 9 and `send_frame` is refused.
@@ -67,6 +69,8 @@ Identifiers are numbers in the file (the configurator shows and takes hex). `ext
 | `data_location` | `%IL`: the whole 8 bytes, byte 0 in the lowest byte. |
 | `signals` | See [Signals](#signals). |
 
+When the CAN interface goes away (an adapter unplugged, the interface down), every `status_location` and `valid_location` goes FALSE at once, whatever `timeout_ms`; the values hold. They come back with the next frames once the interface is open again.
+
 ### Sent messages (`tx`)
 
 | Field | Meaning |
@@ -74,14 +78,14 @@ Identifiers are numbers in the file (the configurator shows and takes hex). `ext
 | `id`, `extended`, `rtr`, `dlc` | The frame. `dlc` defaults to the bytes the signals need. |
 | `period_ms` | Sent every 1 to 60000 ms. |
 | `on_change`, `min_gap_ms` | Also sent when a signal value changes, but not more often than `min_gap_ms`; a change restarts the period. |
-| `trigger_location` | `%QX`: a rising edge sends the frame once. |
+| `trigger_location` | `%QX`: a rising edge sends the frame once. With `on_change` too, a change is sent also before the first edge: the first outputs after the PLC starts (or the outputs gate opens) are the values changes are compared with, and are not sent themselves. |
 | `enable_location` | `%QX`: FALSE stops periodic and on-change sends. |
 | `fill` | The byte value for bits no signal covers, default 0. |
 | `data_location` | `%QL`: the whole 8 bytes from the program; signals are written on top. |
 | `override_protocol` | Needed to send an identifier the network's protocol uses (see [Protocol identifiers](#protocol-identifiers)). |
 | `signals` | See [Signals](#signals). |
 
-A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the PLC runs and stops when it stops.
+A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the PLC runs and stops when it stops, or while the outputs gate is closed (a scan watchdog, the Modbus bridge's outputs off).
 
 A send the interface refuses (its transmit queue is full, or it is down) does not count as sent. An on-change or trigger send stays pending and goes out with the current values on a later 1 ms tick, still no more often than `min_gap_ms`. A refused periodic send waits for its next period; missed periods are not sent in a burst.
 
@@ -237,6 +241,8 @@ While `ENABLE` is TRUE the plugin queues every frame of the given format whose `
 | 7 | The network is bus-off or its interface is down. |
 | 8 | Cancelled by a PLC stop or a network restart. |
 | 9 | The network is listen-only. |
+
+While the outputs gate is closed (a scan watchdog tripped, or the Modbus bridge's outputs off), program frames stop like the `tx` messages: a running `CAN_SEND_CYCLIC` job sends nothing and goes on at its period when the gate opens (no burst of the missed frames), and a frame `CAN_SEND` queued meanwhile ends with `ERROR_ID` 1.
 
 `CAN_SEND_CYCLIC` and `CAN_RECEIVE` whose `ENABLE` stays TRUE try to start again on every call after `ERROR_ID` 1, 7 or 8, so a block enabled from the first scan starts once the network runs, and comes back after a network restart. `ERROR` stays TRUE until it does; other errors need a new rising edge of `ENABLE`.
 

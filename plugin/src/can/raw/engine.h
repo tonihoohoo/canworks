@@ -30,6 +30,9 @@ class RawEngine {
   bool on_frame(const canworks_can_frame& f, uint64_t now_us);
   // Status bits of entries whose timeout passed go FALSE. True on a change.
   bool check_timeouts(uint64_t now_us);
+  // The CAN interface is gone: every status and valid bit goes FALSE at
+  // once, whatever the timeouts (values hold). True on a change.
+  bool link_lost();
 
   // --- Outputs (from the PLC) ---
   const std::vector<IecLocation>& output_locations() const { return out_locs_; }
@@ -102,6 +105,10 @@ class RawEngine {
     bool prev_trigger = false;
     std::vector<uint64_t> sent_values;
     bool has_sent = false;
+    // sent_values (or page_sent) holds what changes are compared with: the
+    // last frame sent, or the first output values after a start or gate
+    // reopen (the baseline, recorded without sending).
+    bool has_base = false;
     // Frames due() gave and sent() has not reported yet: the page (-1: not
     // paged) and the output values they carry.
     std::deque<std::pair<int, std::vector<uint64_t>>> inflight;
@@ -115,6 +122,7 @@ class RawEngine {
   bool enabled(size_t i) const;
   bool paged(size_t i) const { return !tx_pages_[i].empty(); }
   void reset_tx(size_t i, uint64_t now_us);
+  void take_base(size_t i);
   void due_paged(size_t i, uint64_t now_us, std::vector<canworks_can_frame>& frames, std::vector<size_t>& tx_index);
   void push(size_t i, int page, std::vector<canworks_can_frame>& frames, std::vector<size_t>& tx_index);
 

@@ -73,6 +73,7 @@ class RawRuntime {
   std::unique_ptr<RawIo> io_;
   canopen_plugin::TripleBuffer in_, out_;
   std::vector<uint8_t> owned_std_;  // 2048 entries: the protocol uses the 11-bit identifier
+  std::vector<uint32_t> owned_ext_;  // sorted: 29-bit identifiers the protocol uses (CANopen PDOs)
 };
 
 // The NetworkRuntime of a plain CAN network: `raw` does the work (the plugin

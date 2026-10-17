@@ -268,6 +268,17 @@ class CopyAsStCall(unittest.TestCase):
         self.cfg["networks"][0]["j1939"]["tx"][0]["signals"].append(sig)
         self.assertIn("PGN := 65281, DESTINATION := 255, PRIORITY := 6, LENGTH := 15,", self.text("tx", 0))
 
+    def test_big_endian_signals_refused(self):
+        # J1939_GET_BITS and J1939_SET_BITS are little-endian: no call for a
+        # big-endian signal, a message naming it instead.
+        for kind, index in (("rx", 0), ("tx", 1)):
+            entry = self.cfg["networks"][0]["j1939"][kind][index]
+            entry["signals"].append({"name": "Motorola", "start_bit": 39, "length": 16, "byte_order": "big"})
+            st = self.text(kind, index)
+            self.assertNotIn("_Motorola", st)
+            self.assertIn("(* Motorola is big-endian; J1939_%s_BITS is little-endian only, so this call leaves it out. *)"
+                          % ("GET" if kind == "rx" else "SET"), st)
+
     def test_no_entry(self):
         with self.assertRaises(server.ApiError):
             self.text("rx", 9)

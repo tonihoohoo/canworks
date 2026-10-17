@@ -42,6 +42,11 @@ def _big(s):
     return s.get("byte_order") == "big"
 
 
+def _big_note(s, op):
+    return "(* %s is big-endian; J1939_%s_BITS is little-endian only, so this call leaves it out. *)" % (
+        s.get("name") or "a signal", op)
+
+
 def st_call(entry, kind, network=0, net_name=None):
     """The declarations and calls for one rx (J1939_RECEIVE and
     J1939_REQUEST) or tx (J1939_SEND) entry of network number `network`."""
@@ -50,6 +55,10 @@ def st_call(entry, kind, network=0, net_name=None):
     prefix = _ident(net_name) + "_" + name if net_name else name
     data = prefix + "_data"
     sigs = [s for s in entry.get("signals") or [] if isinstance(s, dict)]
+    # J1939_GET_BITS and J1939_SET_BITS work in little-endian (J1939) order:
+    # a big-endian signal gets a note instead of a call that decodes it wrong.
+    big = [s for s in sigs if _big(s)]
+    sigs = [s for s in sigs if not _big(s)]
     net = "NETWORK := %d%s" % (network, " (* %s *)" % net_name if net_name else "")
     var = ["VAR"]
     body = []
@@ -80,9 +89,7 @@ def st_call(entry, kind, network=0, net_name=None):
         for j, s in enumerate(sigs):
             body.append("  %s := J1939_GET_BITS(DATA := %s, %s, SIGNED := %s);%s" % (
                 sig_var(j, s), data, bits(s), "TRUE" if s.get("signed") else "FALSE", _scaling(s)))
-            if _big(s):
-                body.append("  (* %s is big-endian in the config: J1939_GET_BITS reads little-endian. *)"
-                            % (s.get("name") or "signal %d" % j))
+        body += ["  " + _big_note(s, "GET") for s in big]
         body.append("  " + call)
         body.append("END_WHILE;")
         body.append("")
@@ -98,7 +105,7 @@ def st_call(entry, kind, network=0, net_name=None):
         if length is None:
             try:
                 need = j1939_bytes_needed([{"start_bit": _int(s.get("start_bit"), 0), "length": _int(s.get("length"), 1),
-                                            "big_endian": _big(s)} for s in sigs])
+                                            "big_endian": _big(s)} for s in sigs + big])
             except (TypeError, ValueError):
                 need = 0
             length = max(8, need)
@@ -112,9 +119,7 @@ def st_call(entry, kind, network=0, net_name=None):
         for j, s in enumerate(sigs):
             body.append("%s_packed := J1939_SET_BITS(DATA := %s, %s, VALUE := %s);%s" % (
                 prefix, data, bits(s), sig_var(j, s), _scaling(s)))
-            if _big(s):
-                body.append("(* %s is big-endian in the config: J1939_SET_BITS writes little-endian. *)"
-                            % (s.get("name") or "signal %d" % j))
+        body += [_big_note(s, "SET") for s in big]
         body.append("(* A rising edge of %s_go sends it. *)" % prefix)
         body.append("%s(EXECUTE := %s_go, %s, PGN := %d, DESTINATION := %d, PRIORITY := %d, LENGTH := %d, DATA := %s);"
                     % (tx, prefix, net, pgn, dest, _int(entry.get("priority"), 6), length, data))

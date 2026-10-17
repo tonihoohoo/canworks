@@ -33,9 +33,24 @@ inline void j1939_insert(uint8_t* data, size_t len, const std::vector<unsigned>&
 inline uint64_t j1939_to_plc(const J1939Signal& s, uint64_t raw) {
   return s.is_signed ? signal_sign_extend(raw, s.length) : raw;
 }
-// J1939-71: for signals of 2 bits or more, all ones is "not available" and
-// all ones minus one is "error".
-inline bool j1939_not_valid(const J1939Signal& s, uint64_t raw) { return signal_not_available_or_error(raw, s.length); }
+// J1939-71 (spec j1939-ecu "Not-available values"): a signed signal is
+// never "not available" or "error". Unsigned 8, 16 and 32-bit signals use
+// the ranges: 0xFE / 0xFE00-0xFEFF / 0xFE000000-0xFEFFFFFF error, 0xFF /
+// 0xFF00-0xFFFF / 0xFF000000-0xFFFFFFFF not available. Other lengths of 2
+// bits or more: all ones is "not available", all ones minus one "error".
+inline bool j1939_not_valid(const J1939Signal& s, uint64_t raw) {
+  if (s.is_signed) return false;
+  switch (s.length) {
+    case 8:
+      return (raw & 0xFFu) >= 0xFEu;
+    case 16:
+      return (raw & 0xFFFFu) >= 0xFE00u;
+    case 32:
+      return (raw & 0xFFFFFFFFu) >= 0xFE000000u;
+    default:
+      return signal_not_available_or_error(raw, s.length);
+  }
+}
 // An output location's value as the signal's raw bits (truncated to its length).
 inline uint64_t j1939_from_plc(const J1939Signal& s, uint64_t value) { return signal_truncate(value, s.length); }
 

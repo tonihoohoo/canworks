@@ -1,11 +1,13 @@
 // outputs_gate.h - whether the host lets the networks send outputs.
 //
-// The OpenPLC plugin closes it while the scan watchdog of a CANopen master
-// (master.scan_watchdog_ms) sees the PLC scan hung; otherwise outputs stop
+// The OpenPLC plugin closes it while a scan watchdog (a CANopen master's
+// master.scan_watchdog_ms, or j1939/raw.scan_watchdog_ms on J1939 and plain
+// CAN networks) sees the PLC scan hung; otherwise outputs stop
 // there because the whole network stops with the PLC. The Modbus bridge closes it for "outputs
 // off" (watchdog or idle command, modbus-bridge spec): the CANopen master
 // stops its RPDOs (SYNC goes on, so synchronous inputs keep coming), J1939
-// stops its transmit messages and the raw path its transmit messages, while
+// stops its transmit messages and the raw path its transmit messages and
+// program frames, while
 // inputs, supervision, the diagnostics channel and J1939 address claim keep
 // running.
 
