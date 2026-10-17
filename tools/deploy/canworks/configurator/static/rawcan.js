@@ -267,7 +267,7 @@ function renderCanMessages(view) {
   const none = getPath("protocol") === "none";
   const listenOnly = getPath("adapter.listen_only") === true;
   view.append(
-    el("h2", null, "CAN messages" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "CAN messages" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     el("p", { class: "muted" }, none
       ? "A plain CAN network: only the messages below run on it."
       : "Plain CAN messages next to the network's protocol, for devices that speak neither CANopen nor J1939. " +
@@ -548,7 +548,7 @@ const isPlain = (net) => !!net && net.protocol === "none";
 
 function renderPlainBus(view) {
   view.append(
-    el("h2", null, "Bus" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "Bus" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     protocolField(),
     el("fieldset", { dataset: { section: "network" } }, el("legend", null, "Network"),
       el("div", { class: "grid" },
@@ -563,7 +563,7 @@ function renderPlainBus(view) {
         } }))),
     adapterFieldset(),
     el("p", { class: "muted" }, "Only plain CAN messages run on this network. Set them up under ",
-      el("button", { type: "button", class: "link", dataset: { go: "raw" }, onclick: () => showView("raw") }, "CAN messages"), "."),
+      el("button", { type: "button", class: "link target", dataset: { go: "raw" }, onclick: () => showView("raw") }, "CAN messages"), "."),
     onlineAccessSettings());
 }
 

@@ -296,7 +296,7 @@ function openEntry(e) {
     }
     S.onlineNode = a.node !== undefined ? num((net.nodes || [])[a.node].node_id) : null;
     if (S.view !== "online") showView("online");
-    else { renderTree(); if (S.onlineNode !== null) { renderOnlineNode(); pollHighlight(); } else put($("#online-node")); }
+    else { renderTree(); if (S.onlineNode !== null) { renderOnlineNode(); pollHighlight(); } else if ($("#online-node")) put($("#online-node")); }
     return;
   }
   if (a.net !== undefined && a.net !== S.net) {

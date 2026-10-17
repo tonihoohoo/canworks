@@ -126,6 +126,7 @@ class LinksPage(unittest.TestCase):
         self.assertIn("PDO links", problems)
         self.assertIn("RPDO 2 maps 24 bits in 2 positions", problems)
         self.assertIn("32 bits in 2 positions", problems)
+        self.assertNotIn("stick_to_valves: link", problems)  # the place, said once
         pg.fill('input[data-path="links[0].name"]', "stick_valves")
         self.checked()
         self.assertTrue(pg.is_disabled("#btn-save"))
@@ -144,6 +145,52 @@ class LinksPage(unittest.TestCase):
         pg.click('button[data-remove-pdo="nodes[0].tx_pdos[0]"]')
         pg.click('#modal button[data-value="remove"]')
         self.assertEqual(pg.evaluate("() => S.config.links"), None)
+
+    def test_node_id_change_and_removal_follow(self):
+        """Links and heartbeat watches follow a node ID; removing the node
+        lists them and removes them with it."""
+        pg = self.page
+        self.open()
+        tree_node(pg, 0, "general")
+        pg.fill('#view input[data-path="nodes[0].node_id"]', "")
+        pg.type('#view input[data-path="nodes[0].node_id"]', "11")
+        self.assertEqual(pg.evaluate("() => S.config.links[0].from.node"), 11)
+        self.assertEqual(pg.evaluate("() => S.config.nodes[1].heartbeat_watch"), [{"node": 11}])
+        tree_node(pg, 1, "general")
+        pg.fill('#view input[data-path="nodes[1].node_id"]', "21")
+        self.assertEqual(pg.evaluate("() => S.config.links[0].to[0].node"), 21)
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        tree_node(pg, 0, "general")
+        pg.click('button[data-remove-node="0"]')
+        pg.wait_for_selector("#modal[open]")
+        text = pg.inner_text("#modal-text")
+        self.assertIn("link stick_to_valves", text)
+        self.assertIn("the heartbeat watch of node 21 valves", text)
+        pg.click('#modal button[data-value="remove"]')
+        self.assertIsNone(pg.evaluate("() => S.config.links || null"))
+        self.assertIsNone(pg.evaluate("() => S.config.nodes[0].heartbeat_watch || null"))
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+
+    def test_watch_problem_wording(self):
+        cfg = self.config()
+        cfg["nodes"][1]["heartbeat_watch"] = [{"node": 99}]
+        self.write(cfg)
+        pg = self.page
+        self.open()
+        pg.wait_for_selector("#problem-list li.error")
+        problems = pg.inner_text("#problem-list")
+        self.assertIn("Node 20 valves: heartbeat watch: node 99 is not a configured node", problems)
+        self.assertNotIn("heartbeat_watch", problems)
+
+    def test_master_id_clash_names_the_node(self):
+        pg = self.page
+        self.open()
+        pg.fill('input[data-path="master.node_id"]', "10")
+        pg.wait_for_selector('input[data-path="master.node_id"].invalid')
+        self.assertEqual(pg.inner_text('.field-msg[data-for="master.node_id"]'),
+                         "Node 10 stick: node ID 10 is the master's node ID")
 
     def test_watch_default_timeout(self):
         pg = self.page

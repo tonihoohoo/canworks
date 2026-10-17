@@ -883,9 +883,10 @@ function renderFrameLab(view) {
   }
   L.net = net;
   const j1939 = !!S.model && isJ1939(S.config);
-  const modes = FX_LAB_MODES.filter(([k]) => !(j1939 && k === "build"));  // the builder makes CANopen frames only
+  const plain = !!S.model && isPlain(S.config);
+  const modes = FX_LAB_MODES.filter(([k]) => !((j1939 || plain) && k === "build"));  // the builder makes CANopen frames only
   if (!L.mode || !modes.some(([k]) => k === L.mode)) L.mode = "examples";
-  const input = el("input", { type: "text", spellcheck: "false", autocomplete: "off", placeholder: j1939 ? "18FF0000#0102" : "705#7F", "aria-label": "Frame (ID#DATA)",
+  const input = el("input", { type: "text", spellcheck: "false", autocomplete: "off", placeholder: j1939 ? "18FF0000#0102" : plain ? "123#0102" : "705#7F", "aria-label": "Frame (ID#DATA)",
     value: L.frame, dataset: { fx: "lab-frame" } });
   input.style.width = "24ch";
   const go = () => { L.frame = input.value.trim(); fxLabExplain(L.frame, { reveal: true }); };
@@ -908,6 +909,7 @@ function renderFrameLab(view) {
         el("h3", null, "Explain a frame"),
         el("p", { class: "muted" }, j1939
           ? "Type or paste a frame as ID#DATA in hex, as candump writes it: 18FF0000#D204F664, 18EAFF80#00EE00; J1939 identifiers have 8 digits."
+          : plain ? "Type or paste a frame as ID#DATA in hex, as candump writes it: 123#0102, 18FF1020#00FF, 8 digits for an extended identifier, 123#R for a remote request."
           : "Type or paste a frame as ID#DATA in hex, as candump writes it: 185#2500EA00, 705#7F, 701#R for a remote request, 8 digits for an extended identifier."),
         el("div", { class: "toolbar" }, input, el("button", { type: "button", class: "primary", dataset: { fx: "lab-explain" }, onclick: go }, "Explain"), rate),
         el("div", { id: "fx-lab-error", class: "fx-error", role: "alert" })),

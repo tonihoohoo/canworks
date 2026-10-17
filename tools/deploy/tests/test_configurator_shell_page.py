@@ -84,6 +84,9 @@ class Workspaces(OnlineBase):
         pg.wait_for_selector("[data-ws-note]")
         pg.click('#ws [data-ws="commission"]')
         self.assertEqual(pg.query_selector_all("[data-ws-note]"), [])
+        # Not connected: the network's tree entry opens without a page error.
+        pg.click('#tree [data-key="0"] > .tree-row')
+        pg.click('#tree [data-key="0"] > .tree-row')
         pg.click("#btn-close")
         self.open()
         self.assertEqual(pg.query_selector_all("[data-ws-note]"), [])

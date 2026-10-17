@@ -882,7 +882,7 @@ class Session:
         return list(dict.fromkeys(names))
 
     def state(self):
-        base = {"version": __version__, "recent": self.recent(), "home": os.path.expanduser("~"),
+        base = {"version": __version__, "recent": self.recent(), "home": home_folder(),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
                 "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS}
         if not self.mode:
@@ -1934,6 +1934,41 @@ def windows_drives():
     return ["%s:\\" % c for c in string.ascii_uppercase if os.path.isdir("%s:\\" % c)]
 
 
+def plain_examples(dec):
+    """A plain CAN network's Frame lab examples: one frame of each
+    configured message, data all zero (no NMT or SYNC there)."""
+    from ..bustrace.model import Frame
+    from ..raw import contract as raw_contract
+    out = []
+    for kind, m in (dec.raw.entries if dec.raw is not None else []):
+        if kind not in ("rx", "tx") or not isinstance(m.get("id"), int) or isinstance(m.get("id"), bool):
+            continue
+        rtr = m.get("rtr") is True
+        try:
+            n = 0 if rtr else raw_contract.tx_dlc(m) if kind == "tx" else m.get("dlc", 8)
+        except (TypeError, ValueError, KeyError):  # an unfinished draft
+            n = 8
+        n = n if isinstance(n, int) and 0 <= n <= 8 else 8
+        name = m.get("name") or "0x%X" % m["id"]
+        frame = Frame(0, m["id"], bytes(n), ext=m.get("extended") is True, rtr=rtr, dlc=n if rtr else None)
+        out.append({"group": "Received messages" if kind == "rx" else "Sent messages", "label": name,
+                    "frames": [{"label": name, "frame": frame}]})
+    return out
+
+
+def home_folder():
+    """Where the folder browsers start: the home folder, else (a HOME that
+    does not exist) the current folder, else the file system's root."""
+    for where in (lambda: os.path.expanduser("~"), os.getcwd):
+        try:
+            path = where()
+        except OSError:  # the current folder was removed
+            continue
+        if os.path.isdir(path):
+            return os.path.abspath(path)
+    return os.path.abspath(os.sep)
+
+
 def list_folders(path, drives=False):
     """A folder's subfolders for the folder browsers, each with its number of
     EDS files (`eds`). On Windows, `drives` lists the drive roots, and a
@@ -1944,7 +1979,7 @@ def list_folders(path, drives=False):
         return {"path": "", "parent": None, "drive": False, "drive_list": True, "project": False, "config": False,
                 "eds": 0, "entries": [{"name": d, "path": d, "project": False, "config": False, "eds": None}
                                       for d in windows_drives()]}
-    path = os.path.abspath(os.path.expanduser(path or "~"))
+    path = os.path.abspath(os.path.expanduser(path)) if path else home_folder()
     if not os.path.isdir(path):
         raise ApiError(404, "%s is not a folder" % path)
     entries = []
@@ -2630,7 +2665,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except diag.DiagError as e:
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
         if route == ("POST", "/api/online/status"):
-            used, st = call(lambda c: (picked(c), c.status()))
+            try:
+                used, st = call(lambda c: (picked(c), c.status()))
+            except ApiError as e:
+                if e.status != 502:
+                    raise
+                # Not answering: said in the answer, not as an HTTP error on every poll.
+                return dict(e.body, reachable=False)
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
             out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
@@ -3192,7 +3233,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         what = body.get("what")
         try:
             if what == "examples":
-                groups = framebuild.examples(dec)
+                groups = plain_examples(dec) if getattr(dec, "protocol", "canopen") == "none" else framebuild.examples(dec)
                 return dict(info, examples=[{"group": g["group"], "label": g["label"],
                                              "frames": [{"label": x["label"], "frame": explain_mod.candump_text(x["frame"])}
                                                         for x in g["frames"]]} for g in groups])

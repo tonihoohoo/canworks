@@ -159,7 +159,7 @@ function renderBridge(view) {
         ...bridgeListenFields(),
         field("Unit ID", "bridge.unit_id", "int", { placeholder: "1", hint: "0 to 255. Requests to unit 0 and 255 are always answered." }),
         choice("Word order", "bridge.word_order", [
-          { value: undefined, label: "High word first", help: "Default. The first register of a 32- or 64-bit value holds its high word." },
+          { value: undefined, literal: "high_first", label: "High word first", help: "Default. The first register of a 32- or 64-bit value holds its high word." },
           { value: "low_first", label: "Low word first", help: "The first register holds the low word, for clients that expect that order." },
         ]),
         field("Maximum clients", "bridge.max_clients", "int", { placeholder: "16", hint: "Connections served at once, 1 to 64." }),
@@ -172,7 +172,7 @@ function renderBridge(view) {
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
         choice("When the writer is lost", "bridge.on_client_loss", [
-          { value: undefined, label: "Stop", help: "Default. No RPDOs and no sent messages until the next write; inputs keep updating." },
+          { value: undefined, literal: "stop", label: "Stop", help: "Default. No RPDOs and no sent messages until the next write; inputs keep updating." },
           { value: "zero", label: "Zero", help: "Every output is set to 0 and sent once, then outputs stop." },
           { value: "hold", label: "Hold", help: "Outputs keep being sent with their last values." },
         ]))),
@@ -213,7 +213,8 @@ function bridgeLiveLists(b) {
         onclick: () => { lists.splice(i, 1); if (!lists.length) delete b.live_lists; changed(true); } }, "Remove")));
   });
   const free = masters.filter((n) => !lists.some((e) => e.network === n));
-  const add = el("button", { type: "button", dataset: { bridge: "add-live-list" }, disabled: !free.length || null }, "Add live list");
+  const add = el("button", { type: "button", dataset: { bridge: "add-live-list" },
+    disabled: free.length ? null : masters.length ? "Every CANopen master network has a live list." : "The config has no CANopen master network with a name." }, "Add live list");
   add.onclick = () => busy(add, "Adding…", async () => {
     b.live_lists = lists.concat([{ network: free[0] }]);
     try { b.live_lists[b.live_lists.length - 1].location = await bridgeSuggested("live_list", b.live_lists.length - 1); }

@@ -437,7 +437,7 @@ function closeConnect() {
 function runtimeBox(message) {
   if (!diagConfig()) {
     return el("div", { dataset: { conn: "no-access" } }, notice("info", ["Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
       ", save, and upload the program to the runtime."], { live: false }));
   }
   const host = hostField(true);

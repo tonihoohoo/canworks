@@ -60,6 +60,19 @@ class Signals(unittest.TestCase):
         self.assertEqual(contract.tx_dlc({"rtr": True}), 0)
         self.assertEqual(contract.tx_dlc({"data_location": "%QL1"}), 8)
 
+    def test_bad_length_is_a_field_problem(self):
+        # A cleared or out-of-range length is reported once, at the length.
+        for kind, loc in (("rx", "%IW304"), ("tx", "%QW300")):
+            for v in ("", 0, 70, "abc", None):
+                sig = {"name": "X", "start_bit": 0, "iec_location": loc}
+                if v is not None:
+                    sig["length"] = v
+                raw = {kind: [{"name": "M", "id": 0x123, "period_ms": 100, "signals": [sig]}]}
+                with self.subTest(kind=kind, length=v):
+                    errors, _, _ = contract.check_raw(raw, "raw")
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn("raw.%s[0].signals[0].length:" % kind, errors[0])
+
 
 CAB = {
     "rx": [{"name": "Joystick", "id": 291, "dlc": 8, "timeout_ms": 300, "status_location": "%IX300.0",

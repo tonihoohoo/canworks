@@ -28,16 +28,18 @@ const LANE_H = [80, 1000];   // the height of each graph lane
 const COND_TYPES = [["frame", "Frame"], ["emcy", "EMCY"], ["state", "Node state"], ["heartbeat_lost", "Heartbeat lost"],
   ["boot_error", "Boot error"], ["sdo_abort", "SDO abort"], ["signal", "Signal value"], ["bus", "Bus state"],
   ["error_frame", "Error frame"]];
-// A J1939 network shows only its kinds and conditions, a CANopen one only its own.
+// A J1939 network shows only its kinds and conditions, a CANopen one only its
+// own; a plain CAN network the shared kinds and the J1939 network's conditions.
 const J1939_KINDS = ["pgn", "claim", "request", "ack", "tp"];
 const SHARED_KINDS = ["error", "gap", "other", "raw"];
 const J1939_CONDS = ["frame", "signal", "bus", "error_frame"];
 function traceJ1939() { return isJ1939(onlineConfig()); }
+function traceCanopen() { const n = onlineConfig(); return !isJ1939(n) && !isPlain(n); }
 function traceKinds() {
-  const j = traceJ1939();
-  return TRACE_KINDS.filter(([k]) => SHARED_KINDS.includes(k) || J1939_KINDS.includes(k) === j);
+  const j = traceJ1939(), co = traceCanopen();
+  return TRACE_KINDS.filter(([k]) => SHARED_KINDS.includes(k) || (J1939_KINDS.includes(k) ? j : co));
 }
-function condTypes() { return traceJ1939() ? COND_TYPES.filter(([k]) => J1939_CONDS.includes(k)) : COND_TYPES; }
+function condTypes() { return traceCanopen() ? COND_TYPES : COND_TYPES.filter(([k]) => J1939_CONDS.includes(k)); }
 const SIGNAL_OPS = [">", "<", "=", "!=", "cross_up", "cross_down", "rising", "falling"];
 // Graph series colours, one set per theme (readable on the panel of each).
 const SERIES_COLORS = {
@@ -162,7 +164,7 @@ function renderTrace(view) {
     T.trigDraft = null;
     clearErrorBanner();
   }
-  if (traceJ1939() && T.tab === "sequences") T.tab = "frames";
+  if (!traceCanopen() && T.tab === "sequences") T.tab = "frames";
   T.net = net;
   // The Nodes tab's EDS files changed since the trace decoded with them: decode again.
   const eds = JSON.stringify(commissionEds() || {});
@@ -181,7 +183,7 @@ function renderTrace(view) {
         for (const b of timeMode.children) b.setAttribute("aria-pressed", String(b.dataset.traceTime === v));
         renderTraceTab();
       } }, l)));
-  const tabList = TRACE_TABS.filter(([k]) => !(k === "sequences" && traceJ1939()));
+  const tabList = TRACE_TABS.filter(([k]) => !(k === "sequences" && !traceCanopen()));
   view.append(
     el("h2", null, "Trace"),
     traceSourceSlot(),
@@ -918,7 +920,7 @@ function jumpToFrame(us, from) {
 function seriesGroups() {
   const all = (T.st ? T.st.series : []).slice();
   const out = [["Bus", [{ key: "bus.rate", label: "Frames per second", kind: "bus" }, { key: "bus.load", label: "Bus load % (estimate)", kind: "bus" }]]];
-  const by = { signal: traceJ1939() ? "Message signals" : "PDO signals", status: "Status (polled)", event: "Events" };
+  const by = { signal: traceCanopen() ? "PDO signals" : "Message signals", status: "Status (polled)", event: "Events" };
   for (const kind of ["signal", "status", "event"]) {
     const list = all.filter((s) => s.kind === kind);
     if (list.length) out.push([by[kind], list]);
@@ -1267,7 +1269,7 @@ function showCursors() {
 
 // -- trigger ----------------------------------------------------------------
 
-function blankCondition(type) { return { type: type || (traceJ1939() ? "frame" : "emcy") }; }
+function blankCondition(type) { return { type: type || (traceCanopen() ? "emcy" : "frame") }; }
 
 function triggerDraft() {
   if (!T.trigDraft) {
@@ -1315,7 +1317,7 @@ function condEditor(c, k) {
     ["operational", "OPERATIONAL"], ["preop", "PRE-OPERATIONAL"]], "any"));
   if (c.type === "signal") {
     const sigs = ((T.st && T.st.series) || []).filter((s) => s.kind === "signal");
-    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", traceJ1939() ? "no message signals in this config" : "no PDO signals in this config"]], sigs.length ? sigs[0].key : ""),
+    fields.push(sel("key", "Signal", sigs.length ? sigs.map((s) => [s.key, s.label]) : [["", traceCanopen() ? "no PDO signals in this config" : "no message signals in this config"]], sigs.length ? sigs[0].key : ""),
       sel("op", "Comparison", SIGNAL_OPS.map((o) => [o, o.replace("_", " ")]), ">"), txt("value", "value", "10ch"));
   }
   if (c.type === "bus") fields.push(sel("state", "Bus state", [["warning", "error-warning or worse"], ["passive", "error-passive or worse"], ["off", "bus-off"]], "warning"));
@@ -1539,7 +1541,9 @@ function drawDecoding() {
   });
   const parts = [
     el("h3", null, "DBC files"),
-    el("p", { class: "hint" }, "Messages of these files decode their identifiers: the configuration's own PDOs and raw messages first, then the files in this order. NMT, SYNC, EMCY, SDO, heartbeat and LSS keep their CANopen decoding, with the DBC's next to it. Kept on this PC."),
+    el("p", { class: "hint" }, v.protocol === "canopen"
+      ? "Messages of these files decode their identifiers: the configuration's own PDOs and raw messages first, then the files in this order. NMT, SYNC, EMCY, SDO, heartbeat and LSS keep their CANopen decoding, with the DBC's next to it. Kept on this PC."
+      : "Messages of these files decode their identifiers: the configuration's own messages first, then the files in this order. Kept on this PC."),
     rows.length ? el("ul", { class: "dbc-list" }, rows) : el("p", { class: "muted" }, "No DBC file."),
     el("div", { class: "toolbar" }, el("label", { class: "file-button" }, "Add DBC…", add))];
   if (v.protocol === "canopen") parts.push(el("h3", null, "Nodes"), decodingNodes(v));

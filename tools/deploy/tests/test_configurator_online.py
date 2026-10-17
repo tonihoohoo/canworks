@@ -217,16 +217,18 @@ class Proxy(Online):
     def test_connection_errors(self):
         self.ok("POST", "/api/online/settings", {"host": "127.0.0.1:%d" % closed_port()})
         self.ok("POST", "/api/online/token", {"action": "set", "token": TOKEN})
+        # The status poll says so in its answer, not as an HTTP error on every poll.
         status, data, _ = self.request("POST", "/api/online/status", {})
-        self.assertEqual((status, data["kind"]), (502, "closed"))
+        self.assertEqual((status, data["reachable"], data["kind"]), (200, False, "closed"))
+        self.assertTrue(data["error"])
         with FakePlugin() as fp:
             self.connect(fp, token="wrong")
             self.ok("POST", "/api/online/token", {"action": "set", "token": "wrong"})
             status, data, _ = self.request("POST", "/api/online/status", {})
-            self.assertEqual((status, data["kind"]), (502, "token"))
+            self.assertEqual((status, data["reachable"], data["kind"]), (200, False, "token"))
         self.ok("POST", "/api/online/settings", {"host": "no-such-host.invalid"})
         status, data, _ = self.request("POST", "/api/online/status", {})
-        self.assertEqual((status, data["kind"]), (502, "unreachable"))
+        self.assertEqual((status, data["reachable"], data["kind"]), (200, False, "unreachable"))
 
     def test_port_from_the_config(self):
         with FakePlugin() as fp:
