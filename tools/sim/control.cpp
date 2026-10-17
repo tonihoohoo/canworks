@@ -28,6 +28,7 @@ namespace {
 constexpr size_t kMaxClients = 8;
 constexpr size_t kMaxLine = 1 << 20;   // a request line
 constexpr size_t kMaxOut = 4 << 20;    // unread answers before a client is dropped
+constexpr size_t kLinesPerPoll = 32;   // requests of one client handled per poll: the loop's timers keep running
 
 std::string trim(const std::string& s) {
   size_t b = s.find_first_not_of(" \t\r\n");
@@ -398,7 +399,26 @@ void ControlServer::handle_line(Client& c, const std::string& raw) {
 
 void ControlServer::read_client(Client& c) {
   char buf[4096];
+  size_t lines = 0;
   while (!c.closing) {
+    // The lines already here first: at most kLinesPerPoll per poll, none
+    // while the client leaves kMaxOut of answers unread, and nothing more
+    // read while some wait (the rest of a pipelined burst stays in the
+    // socket until the next poll).
+    size_t nl;
+    while (!c.closing && lines < kLinesPerPoll && c.out.size() <= kMaxOut &&
+           (nl = c.in.find('\n')) != std::string::npos) {
+      std::string line = c.in.substr(0, nl);
+      c.in.erase(0, nl + 1);
+      handle_line(c, line);
+      ++lines;
+    }
+    if (c.closing || c.in.find('\n') != std::string::npos) return;
+    if (c.in.size() > kMaxLine) {
+      c.out += error_line("", "request line too long") + "\n";
+      c.closing = true;
+      return;
+    }
     ssize_t n = recv(c.fd, buf, sizeof buf, MSG_DONTWAIT);
     if (n == 0) {
       c.closing = true;
@@ -409,16 +429,6 @@ void ControlServer::read_client(Client& c) {
       return;
     }
     on_wire(c, buf, static_cast<size_t>(n));
-    size_t nl;
-    while (!c.closing && (nl = c.in.find('\n')) != std::string::npos) {
-      std::string line = c.in.substr(0, nl);
-      c.in.erase(0, nl + 1);
-      handle_line(c, line);
-    }
-    if (c.in.size() > kMaxLine) {
-      c.out += error_line("", "request line too long") + "\n";
-      c.closing = true;
-    }
   }
 }
 
@@ -428,10 +438,12 @@ void ControlServer::poll_once() {
   fds.push_back({fd_, POLLIN, 0});
   for (const auto& c : clients_)
     fds.push_back({c.fd, static_cast<short>(POLLIN | (c.out.empty() && !(c.tls && !c.tls->wire().empty()) ? 0 : POLLOUT)), 0});
-  if (::poll(fds.data(), fds.size(), 0) <= 0) return;
+  bool waiting = false;  // lines left from the last poll
+  for (const auto& c : clients_) waiting = waiting || c.in.find('\n') != std::string::npos;
+  if (::poll(fds.data(), fds.size(), 0) <= 0 && !waiting) return;
   for (size_t i = 0; i < clients_.size(); ++i) {
     short ev = fds[i + 1].revents;
-    if (ev & (POLLIN | POLLHUP | POLLERR)) read_client(clients_[i]);
+    if (ev & (POLLIN | POLLHUP | POLLERR) || clients_[i].in.find('\n') != std::string::npos) read_client(clients_[i]);
     if (ev & (POLLHUP | POLLERR) && !(ev & POLLIN)) clients_[i].closing = true;
     flush(clients_[i]);
   }

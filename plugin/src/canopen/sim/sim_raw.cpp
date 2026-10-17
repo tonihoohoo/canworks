@@ -596,6 +596,7 @@ void RawScenarioRunner::start(const RawScenario& sc, uint64_t now_ms) {
   r.start = r.prev_end = now_ms;
   Frame f;
   f.steps = &sc.steps;
+  f.pass_begin = now_ms;
   r.stack.push_back(f);
   runs_.push_back(std::move(r));
   if (log_) log_("scenario " + sc.name + " started");
@@ -606,6 +607,7 @@ bool RawScenarioRunner::due_at(const Run& r, uint64_t& at) const {
   if (f.i >= f.steps->size()) return false;
   const RawScenarioStep& s = (*f.steps)[f.i];
   at = s.has_at ? r.start + s.at_ms : s.has_after ? r.prev_end + s.after_ms : 0;
+  at = std::max(at, f.not_before);
   return true;
 }
 
@@ -616,11 +618,21 @@ void RawScenarioRunner::step(uint64_t now_ms) {
     // cannot hang the I/O thread.
     for (int n = 0; n < 1000; ++n) {
       Frame& f = r.stack.back();
+      if (f.pass_begin == UINT64_MAX) {
+        if (f.not_before > now_ms) break;
+        f.pass_begin = now_ms;
+      }
       if (f.i >= f.steps->size()) {
         if (f.forever || f.remaining) {
           if (!f.forever) --f.remaining;
           f.i = 0;
-          continue;
+          // A pass that did not wait ends the run's steps for this call and
+          // the next pass begins a tick later (as in the CANopen engine).
+          bool waited = now_ms != f.pass_begin;
+          f.not_before = waited ? 0 : now_ms + kTickMs;
+          f.pass_begin = waited ? now_ms : UINT64_MAX;  // UINT64_MAX: when the next call runs it
+          if (waited) continue;
+          break;
         }
         r.stack.pop_back();
         if (r.stack.empty()) break;
@@ -636,6 +648,7 @@ void RawScenarioRunner::step(uint64_t now_ms) {
         nf.steps = &s.steps;
         nf.forever = s.count == 0;
         nf.remaining = s.count ? s.count - 1 : 0;
+        nf.pass_begin = now_ms;
         r.stack.push_back(nf);
         continue;
       }

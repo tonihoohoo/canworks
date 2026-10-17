@@ -83,18 +83,31 @@ class Expressions(unittest.TestCase):
         self.assertAlmostEqual(total, 10.0)
         lag = simfile.Evaluator(simfile.parse("lag(x0, 1)".replace("x0", "100 * (t > 0)")))
         self.assertEqual(lag.eval({"t": 0, "dt": 0.1}), 0)
-        self.assertAlmostEqual(lag.eval({"t": 0.1, "dt": 0.1}), 10.0)
+        self.assertAlmostEqual(lag.eval({"t": 0.1, "dt": 0.1}), 100 * (1 - math.exp(-0.1)))
         delay = simfile.Evaluator(simfile.parse("delay(t, 0.5)"))
         seen = [delay.eval({"t": i * 0.1, "dt": 0.1}) for i in range(11)]
         self.assertAlmostEqual(seen[-1], 0.5)
         edge = simfile.Evaluator(simfile.parse("edge(t >= 0.2)"))
         self.assertEqual([edge.eval({"t": i * 0.1}) for i in range(5)], [0, 0, 1, 0, 0])
 
-    def test_delay_limit_only_for_constants(self):
+    def test_branches_not_taken_still_tick(self):
+        # As in the plugin, if() evaluates every argument: the integral in the
+        # branch not taken keeps counting.
+        ev = simfile.Evaluator(simfile.parse("if(t >= 0.5, integrate(10), 0)"))
+        seen = [ev.eval({"t": i * 0.1, "dt": 0.1}) for i in range(6)]
+        self.assertEqual(seen[:5], [0] * 5)
+        self.assertAlmostEqual(seen[5], 6.0)
+        hold = simfile.Evaluator(simfile.parse("hold(t, t >= 0.2)"))
+        self.assertEqual([hold.eval({"t": i * 0.1}) for i in range(4)], [0, 0, 0.2, 0.2])
+
+    def test_delay_limit_only_for_numbers(self):
+        # As in the plugin: a number written as the dead time is checked, a
+        # computed one is limited while running.
         simfile.parse("delay(1, 600)")
         simfile.parse("delay(1, t * 1000)")
+        simfile.parse("delay(1, 60 * 11)")
         with self.assertRaises(simfile.ExprError):
-            simfile.parse("delay(1, 60 * 11)")
+            simfile.parse("delay(1, 700)")
 
     def test_references(self):
         tree = simfile.parse("[0x6200:1] + lag([7/0x6000:1], 2) + integrate([spare/0x2000])")

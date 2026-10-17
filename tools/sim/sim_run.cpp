@@ -636,10 +636,10 @@ class Session {
                              std::string(std::getenv("CANWORKS_SIM_VIRTUAL_BUS")) == "1";
     bool real = false;
     if (!virtual_bus && !prepare_interface(o, real)) return false;
+    std::set<unsigned> seen;  // node IDs in use on the real bus
     // Plain CAN devices have no node ID: only CANopen devices need the check.
     if (real && (!specs.empty() || !file.extra.empty())) {
       say("listening 1 s on " + o.iface + " for node IDs in use (real bus)");
-      std::set<unsigned> seen;
       std::string err;
       if (!listen_node_ids(o.iface, 1000, seen, err)) return report(err);
       unsigned left = 0;
@@ -718,6 +718,7 @@ class Session {
       opt.state_dir = o.state_dir;
       opt.version = CANWORKS_PLUGIN_VERSION;
       opt.simulated_network = virtual_bus;
+      opt.taken = seen;  // also against node IDs stored over LSS (--state-dir)
       size_t count = specs.size() + file.extra.size() + raw->size();
       sim_.reset(new canopen_sim::Simulator(*host_, specs, file, opt));
       if (raw->size()) {

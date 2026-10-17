@@ -419,7 +419,7 @@ void Simulator::LoadPersisted(Dev& d) {
     if (word == "lss_id") {
       unsigned id = 0;
       in >> id;
-      d.store->lss_id = static_cast<uint8_t>(id);
+      if (id >= 1 && id <= 127) d.store->lss_id = static_cast<uint8_t>(id);  // else damaged: none
     } else if (word == "saved") {
       std::string k, h;
       in >> k >> h;
@@ -484,15 +484,19 @@ bool Simulator::Start(std::vector<std::string>& errors) {
       cJSON_Delete(j);
     }
     d.inputs = DriveInputs();
-    d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node));
+    // A node ID stored over LSS counts as well: the device would boot with it.
+    d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node)) ||
+              (d.store->lss_id && opt_.taken.count(d.store->lss_id));
   }
   if (!errors.empty()) return false;
 
   for (auto& dp : devs_) {
     Dev& d = *dp;
     if (d.taken) {
-      Log(Host::Level::Error, d.label + ": node ID " + std::to_string(d.spec.node) +
-                                  " is taken by a device on " + host_.interface_name() + "; not simulated");
+      bool stored = !(d.spec.node && (d.spec.conflict || opt_.taken.count(d.spec.node)));
+      Log(Host::Level::Error, d.label + ": node ID " + std::to_string(stored ? d.store->lss_id : d.spec.node) +
+                                  (stored ? " (stored by an LSS master)" : "") + " is taken by a device on " +
+                                  host_.interface_name() + "; not simulated");
       continue;
     }
     PowerOn(d);
@@ -693,7 +697,12 @@ void Simulator::PowerOn(Dev& d) {
     });
   }
   dev.Reset();
-  if (d.drive) d.drive->power_on();
+  if (d.drive) {
+    d.drive->power_on();
+    // NMT reset node restarts the drive's application, as on a real drive.
+    DriveModel* dm = d.drive.get();
+    dev.on_reset_node = [dm]() { dm->power_on(); };
+  }
   Log(Host::Level::Info, d.label + ": powered on (" + basename_of(d.spec.eds_path) +
                              (id == 0xFF ? ", no node ID, waiting for LSS" : "") + ")");
 }
@@ -708,6 +717,7 @@ void Simulator::PowerOff(Dev& d, const std::string& why) {
   d.timer.reset();
   d.emcy_periodic = false;
   d.active.erase("emcy");
+  d.sets.clear();  // set values go with the dictionary
   if (!why.empty()) Log(Host::Level::Info, d.label + ": powered off" + (why == "fault" ? "" : " (" + why + ")"));
 }
 
@@ -1505,6 +1515,7 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     return true;
   }
   if (a == "set" || a == "override") {
+    if (a == "set" && !d->dev) return fail(d->label + " is powered off");
     for (const auto& kv : s.values) {
       if (!d->objects.count(kv.first)) return fail(d->label + " has no object " + kv.first.str());
       if (a == "set") {
@@ -1825,11 +1836,14 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       if (!parse_obj_key(c->string, k)) return answer(id, nullptr, std::string("\"") + c->string + "\" is not an object");
       if (!parse_value(c, v)) return answer(id, nullptr, std::string("the value of ") + c->string + " must be a number or text");
       if (!d->objects.count(k)) return answer(id, nullptr, d->label + " has no object " + k.str());
-      // Also while powered off: the value is written at power on.
+      // The data type is known also while powered off.
       std::string why = value_misfit(d->types[k], v);
       if (!why.empty()) return answer(id, nullptr, k.str() + " is " + type_name(d->types[k]) + "; " + why);
       values.emplace_back(k, v);
     }
+    // A set value would be lost with the dictionary at power on; an override
+    // is kept and written then.
+    if (op == "sim_set" && !d->dev) return answer(id, nullptr, d->label + " is powered off");
     std::string desc;
     for (const auto& kv : values) {
       if (op == "sim_set") {

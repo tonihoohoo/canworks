@@ -1,6 +1,7 @@
 // Unit tests of the standalone simulator's control channel: with a token,
 // TLS and the SCRAM login of secure_channel.h; without one, plain lines.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -171,4 +172,38 @@ TEST(control_plain_needs_hello_first) {
   got = plain_exchange(s.port(), "{\"op\":\"hello\",\"id\":1}\nnot json\n{\"op\":\"sim_status\",\"id\":2}\n", closed);
   CHECK(!closed && got.find("\"echo\":\"sim_status\"") != std::string::npos);
   CHECK(g_handled == 1);
+}
+
+// A client that pipelines requests faster than it reads gets at most 32 of
+// them handled per poll, so the simulator's loop keeps running between
+// polls; the rest follow in the next ones.
+TEST(control_pipelined_requests_per_poll) {
+  int handled = 0;
+  ControlServer server("v-test", "", [&handled](const cJSON*, const std::string& id, const std::string&) {
+    ++handled;
+    return "{\"id\":" + (id.empty() ? std::string("null") : id) + ",\"ok\":true}";
+  });
+  std::string err;
+  CHECK(server.listen("127.0.0.1", 0, err));
+  unsigned port = std::stoul(server.address().substr(server.address().rfind(':') + 1));
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  sockaddr_in a{};
+  a.sin_family = AF_INET;
+  a.sin_port = htons(static_cast<uint16_t>(port));
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  CHECK(connect(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0);
+  std::string text = "{\"op\":\"hello\"}\n";
+  for (int i = 0; i < 200; ++i) text += "{\"op\":\"sim_status\",\"id\":" + std::to_string(i) + "}\n";
+  CHECK(send(fd, text.data(), text.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(text.size()));
+  int most = 0, polls = 0;
+  for (int i = 0; i < 2000 && handled < 200; ++i) {
+    int before = handled;
+    server.poll_once();
+    most = std::max(most, handled - before);
+    polls += handled > before;
+    if (handled == before) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  CHECK_MSG(handled == 200, std::to_string(handled));
+  CHECK_MSG(most <= 32 && polls >= 7, std::to_string(most) + " at most, in " + std::to_string(polls) + " polls");
+  close(fd);
 }

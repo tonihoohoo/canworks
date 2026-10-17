@@ -103,7 +103,9 @@ def parse_object(text):
     if not m:
         raise ValueError("%r is not an object (write 0xIIII:S)" % text)
     index = int(m.group(1), 16)
-    sub = int(m.group(2), 0) if m.group(2) else 0
+    # As the plugin: "0x" hex, else decimal (leading zeros allowed: 01 is 1).
+    sub = m.group(2) or "0"
+    sub = int(sub[2:], 16) if sub[:2].lower() == "0x" else int(sub, 10)
     if sub > 255:
         raise ValueError("%r: subindex %d is above 255" % (text, sub))
     return index, sub
@@ -228,6 +230,8 @@ def _parse_ref(body, pos):
         dev, _, inner = inner.partition("/")
         dev, inner = dev.strip(), inner.strip()
         if re.match(r"^[0-9]+$", dev):
+            if dev[0] == "0":
+                raise ExprError(pos, "device %s: write the node ID without leading zeros" % dev)
             device = int(dev)
             if not 1 <= device <= 127:
                 raise ExprError(pos, "device %s: a node ID is 1-127" % dev)
@@ -379,30 +383,11 @@ class _Parser:
             else:
                 want = "%d argument%s" % (least, "" if least == 1 else "s")
             raise ExprError(pos, "%s takes %s, not %d" % (name, want, len(args)))
-        if name == "delay" and _constant(args[1]):
-            s = _const_value(args[1])
-            if s is not None and not 0 <= s <= DELAY_MAX_S:
-                raise ExprError(pos, "delay of %g s: the dead time is 0-%d s" % (s, DELAY_MAX_S))
+        # As the plugin: a number written as the dead time is checked; one
+        # computed is limited to 0-600 s while running.
+        if name == "delay" and args[1].kind == "num" and args[1].value > DELAY_MAX_S:
+            raise ExprError(pos, "delay of %g s: the dead time is at most %d s" % (args[1].value, DELAY_MAX_S))
         return Node("call", pos, name, args)
-
-
-def _constant(node):
-    if node.kind == "num":
-        return True
-    if node.kind == "name":
-        return node.value in ("pi", "true", "false")
-    if node.kind == "ref":
-        return False
-    if node.kind == "call" and node.value in STATEFUL:
-        return False
-    return all(_constant(a) for a in node.args)
-
-
-def _const_value(node):
-    try:
-        return Evaluator(node).eval({})
-    except EvalError:
-        return None
 
 
 def parse(text, resolve=None):
@@ -441,16 +426,33 @@ def _round(x):
 
 
 def _int(x):
+    """The integer part as the plugin takes it: 64-bit, saturated, 0 for a
+    value that is not a finite number."""
     if math.isnan(x) or math.isinf(x):
-        raise EvalError("not a finite number")
+        return 0
+    if x >= 9.2e18:
+        return (1 << 63) - 1
+    if x <= -9.2e18:
+        return -(1 << 63)
     return int(x)
 
 
+_NAN = float("nan")
+
+
+def _int64(v):
+    """v wrapped to a signed 64-bit integer."""
+    v &= (1 << 64) - 1
+    return v - (1 << 64) if v >> 63 else v
+
+
 class Evaluator:
-    """Evaluates a tree tick after tick; stateful functions keep their state
-    per call site. On the first tick lag, rate_limit and delay give their
-    input, integrate x * dt, hold 0 unless its condition is already true,
-    edge 1 when its condition is already true."""
+    """Evaluates a tree tick after tick, as the plugin does (sim_expr.cpp);
+    stateful functions keep their state per call site. Every argument is
+    evaluated (if, && and || too), so stateful functions in a branch not
+    taken still tick. On the first tick lag, rate_limit, delay and hold give
+    their input, integrate x * dt, edge 1 when its condition is already
+    true."""
 
     def __init__(self, tree, rng=None):
         self.tree = tree
@@ -493,34 +495,34 @@ class Evaluator:
     def _binary(self, n, ctx):
         op = n.value
         a = self._eval(n.args[0], ctx)
-        if op == "&&":
-            return 1 if a != 0 and self._eval(n.args[1], ctx) != 0 else 0
-        if op == "||":
-            return 1 if a != 0 or self._eval(n.args[1], ctx) != 0 else 0
         b = self._eval(n.args[1], ctx)
+        if op == "&&":
+            return 1 if a != 0 and b != 0 else 0
+        if op == "||":
+            return 1 if a != 0 or b != 0 else 0
         if op == "+":
             return a + b
         if op == "-":
             return a - b
         if op == "*":
             return a * b
+        # Division by zero and the like give NaN or infinity, as in the
+        # plugin; eval() refuses a result that is not a finite number.
         if op == "/":
-            if b == 0:
-                raise EvalError("division by zero")
-            r = a / b
-            return r
+            return _NAN if b == 0 else a / b
         if op == "%":
             if b == 0:
-                raise EvalError("division by zero")
-            return math.fmod(a, b)
+                return _NAN
+            try:
+                return math.fmod(a, b)
+            except ValueError:
+                return _NAN
         if op == "**":
             try:
                 r = float(a) ** float(b)
             except (OverflowError, ZeroDivisionError):
-                raise EvalError("not a finite number")
-            if isinstance(r, complex):
-                raise EvalError("not a finite number")
-            return r
+                return math.inf
+            return _NAN if isinstance(r, complex) else r
         if op in ("==", "!=", "<", "<=", ">", ">="):
             return 1 if {"==": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op] else 0
         x, y = _int(a), _int(b)
@@ -531,55 +533,63 @@ class Evaluator:
         if op == "^":
             return x ^ y
         if not 0 <= y <= 63:
-            raise EvalError("shift by %d" % y)
-        return x << y if op == "<<" else x >> y
+            return 0
+        return _int64(x << y) if op == "<<" else x >> y
 
     def _call(self, n, ctx):
         f = n.value
-        if f == "if":
-            return self._eval(n.args[1], ctx) if self._eval(n.args[0], ctx) != 0 else self._eval(n.args[2], ctx)
         args = [self._eval(a, ctx) for a in n.args]
+        if f == "if":
+            return args[1] if args[0] != 0 else args[2]
         dt = ctx.get("dt", 0) or 0
         st = self.state.get(id(n))
+        x = args[0]
+        if f in ("floor", "ceil", "round") and not math.isfinite(x):
+            return x
         try:
             if f == "abs":
-                return abs(args[0])
+                return abs(x)
             if f == "floor":
-                return math.floor(args[0])
+                return math.floor(x)
             if f == "ceil":
-                return math.ceil(args[0])
+                return math.ceil(x)
             if f == "round":
-                return _round(args[0])
+                return _round(x)
             if f == "sqrt":
-                return math.sqrt(args[0])
+                return math.sqrt(x)
             if f == "exp":
-                return math.exp(args[0])
+                return math.exp(x)
             if f == "log":
-                return math.log(args[0])
+                return -math.inf if x == 0 else math.log(x)
             if f == "sin":
-                return math.sin(args[0])
+                return math.sin(x)
             if f == "cos":
-                return math.cos(args[0])
-        except (ValueError, OverflowError):
-            raise EvalError("not a finite number")
+                return math.cos(x)
+        except ValueError:
+            return _NAN
+        except OverflowError:
+            return math.inf
         if f == "min":
             return min(args)
         if f == "max":
             return max(args)
         if f == "clamp":
-            return min(max(args[0], args[1]), args[2])
+            return args[1] if args[0] < args[1] else args[2] if args[0] > args[2] else args[0]
         if f == "bit":
-            return (_int(args[0]) >> _int(args[1])) & 1 if 0 <= _int(args[1]) <= 63 else 0
+            return ((_int(args[0]) & ((1 << 64) - 1)) >> _int(args[1])) & 1 if 0 <= _int(args[1]) <= 63 else 0
         if f == "setbit":
             x, b = _int(args[0]), _int(args[1])
             if not 0 <= b <= 63:
-                return x
-            return x | (1 << b) if args[2] != 0 else x & ~(1 << b)
+                return args[0]
+            return _int64(x | (1 << b) if args[2] != 0 else x & ~(1 << b))
         if f == "noise":
-            return self.rng.uniform(-args[0], args[0])
+            return self.rng.uniform(-args[0], args[0]) if args[0] > 0 else 0
         if f == "lag":
             x, tau = args
-            y = x if st is None else (x if tau <= 0 else st + (x - st) * min(1.0, dt / tau))
+            if st is None or not math.isfinite(st) or tau <= 0:
+                y = x
+            else:
+                y = st + (x - st) * (1.0 - math.exp(-dt / tau))
             self.state[id(n)] = y
             return y
         if f == "rate_limit":
@@ -594,7 +604,7 @@ class Evaluator:
         if f == "delay":
             # The newest sample at least s old; before there is one, the oldest.
             x, s = args
-            s = s if math.isfinite(s) else 0
+            s = min(s, DELAY_MAX_S) if math.isfinite(s) and s > 0 else 0
             t = ctx.get("t", 0)
             hist = st if st is not None else []
             if hist and t < hist[-1][0]:
@@ -607,9 +617,12 @@ class Evaluator:
             return hist[0][1]
         if f == "hold":
             x, c = args
-            last_c, held = st if st is not None else (0, 0)
-            if c != 0 and last_c == 0:
-                held = x
+            if st is None:
+                held = x  # the first tick takes x
+            else:
+                last_c, held = st
+                if c != 0 and last_c == 0:
+                    held = x
             self.state[id(n)] = (c, held)
             return held
         if f == "edge":
@@ -617,6 +630,28 @@ class Evaluator:
             self.state[id(n)] = args[0]
             return 1 if args[0] != 0 and last == 0 else 0
         raise EvalError("unknown function %s" % f)
+
+
+def check_expression(text, known_devices, has_object):
+    """One expression checked as the plugin compiles it, for the
+    configurator's editor: None when it is fine, else (position, message).
+    known_devices: the node IDs and extra device names (ints or text) an
+    expression may name; has_object(device, (index, subindex)) whether a
+    device (None: the expression's own) has an object."""
+    def resolve(device, index, sub):
+        if device is not None and device not in known_devices and str(device) not in known_devices:
+            if isinstance(device, int):
+                return "unknown device %d: not a node of the configuration nor an extra device" % device
+            return "unknown device '%s': no extra device has this name" % device
+        if not has_object(device, (index, sub)):
+            return "object %s%s is not in the EDS" % (object_key(index, sub),
+                                                      "" if device is None else " of device %s" % device)
+        return None
+    try:
+        parse(str(text), resolve)
+    except ExprError as e:
+        return e.position, e.message
+    return None
 
 
 def evaluate(text, ctx=None, resolve=None):
