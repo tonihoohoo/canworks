@@ -365,6 +365,23 @@ class RestoreTest(Base):
             self.assertEqual(len(res["written"]), 1)
             self.assertTrue(res["released"])
 
+    def test_hold_on_an_adapter_keeps_the_state(self):
+        # On a USB adapter no master hands the node on: NMT start only when
+        # it was OPERATIONAL before the hold (bug hunt PC-M2).
+        for state, last_heard, started in ((127, 0.5, False), (5, 0.5, True), (5, 60.0, False)):
+            with FakeDevice() as fp:
+                client = self.connect(fp)
+                plan = self.make_plan(fp, client, {(0x6112, 1): b"\x01"})
+                client.info["local"] = True
+                client.status = lambda: {"local": True, "nodes": [
+                    {"node_id": NODE, "state": state, "last_heard_s": last_heard}]}
+                fp.requests.clear()
+                res = P.restore(client, NODE, plan, hold=True)
+                commands = [r.get("command") for r in fp.requests if r["op"] == "nmt"]
+                self.assertEqual(commands, ["preop", "start"] if started else ["preop"], (state, last_heard))
+                self.assertEqual(res["released"], True if started else None)
+                self.assertEqual("stays PRE-OPERATIONAL" in res["note"], not started)
+
     def test_cancel_releases_hold(self):
         with FakeDevice() as fp:
             client = self.connect(fp)
