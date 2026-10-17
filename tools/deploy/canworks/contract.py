@@ -41,7 +41,7 @@ ON_PLC_STOP = ("preop", "stop", "keep")
 
 def interface_message(name):
     """The plugin's refusal of an interface name, or None when it is fine."""
-    if not isinstance(name, str) or not name or INTERFACE_NAME.match(name):
+    if not isinstance(name, str) or not name or INTERFACE_NAME.fullmatch(name):
         return None
     return ("interface \"%s\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character "
             "limit of Linux interface names)" % name)
@@ -106,6 +106,19 @@ def schema(version=1):
     return _schemas[version]
 
 
+def _pattern(validator, patrn, instance, schema):
+    """The schema's "pattern" as ECMA-262 reads it: a final "$" ends the
+    string, so "3\\n" does not pass "^[0-9]+$" (Python's "$" also matches
+    before a final newline; the plugin refuses such a string)."""
+    full = patrn[:-1] + r"\Z" if patrn.endswith("$") and not patrn.endswith("\\$") else patrn
+    if validator.is_type(instance, "string") and not re.search(full, instance):
+        yield jsonschema.ValidationError("%r does not match %r" % (instance, patrn))
+
+
+# The validator for the config and simulation schemas.
+Validator = jsonschema.validators.extend(jsonschema.Draft202012Validator, {"pattern": _pattern})
+
+
 class _Pairs(dict):
     """A parsed JSON object that remembers the keys it was given twice."""
     repeated = ()
@@ -133,12 +146,51 @@ def _plain(value, path, problems):
     return value
 
 
+# A JSON number the plugin's cJSON (a double) cannot hold exactly (canopen-
+# config-contract "64-bit values as JSON numbers").
+INEXACT_NUMBER = 2 ** 53
+INEXACT_NUMBER_MESSAGE = ("a JSON number of 2^53 (9007199254740992) or more cannot be read exactly; write it as a "
+                          "string (\"0x...\")")
+
+
+def inexact_numbers(value, path=()):
+    """The places (json_path) of numbers in `value` whose magnitude is 2^53 or
+    more, which the plugin would round (plugin: inexact_numbers)."""
+    out = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            out += inexact_numbers(v, path + (k,))
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            out += inexact_numbers(v, path + (i,))
+    elif isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) >= INEXACT_NUMBER:
+        out.append(json_path(path) or "the top level")
+    return out
+
+
+def _nonfinite(value, path=()):
+    """The places of NaN and Infinity in `value` (a dict given to
+    check_config without loads())."""
+    if isinstance(value, dict):
+        return [w for k, v in value.items() for w in _nonfinite(v, path + (k,))]
+    if isinstance(value, list):
+        return [w for i, v in enumerate(value) for w in _nonfinite(v, path + (i,))]
+    if isinstance(value, float) and not math.isfinite(value):
+        return [json_path(path) or "the top level"]
+    return []
+
+
+def _no_constant(name):
+    raise ValueError("not valid JSON: %s is not a JSON number" % name)
+
+
 def loads(text):
     """A config's JSON text parsed, refusing an object that has the same key
     twice (json keeps the last, the plugin's cJSON the first; plugin:
-    repeated_keys). Raises ValueError, which names the key and its object."""
+    repeated_keys) and NaN or Infinity (not JSON; cJSON refuses them).
+    Raises ValueError, which names the key and its object."""
     problems = []
-    doc = _plain(json.loads(text, object_pairs_hook=_pairs), [], problems)
+    doc = _plain(json.loads(text, object_pairs_hook=_pairs, parse_constant=_no_constant), [], problems)
     if problems:
         raise ValueError("; ".join(problems))
     return doc
@@ -190,7 +242,7 @@ def _networks(cfg):
         name = net.get("name")
         if not isinstance(name, str) or not name:
             iface = adapter.get("interface")
-            name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
+            name = iface if isinstance(iface, str) and NETWORK_NAME.fullmatch(iface) else ""
         if net.get("protocol") == "none":
             out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "plain", "protocol": "none",
                         "adapter": adapter, "master": {}, "nodes": [], "slave": {}, "j1939": {}, "json": net})
@@ -306,7 +358,7 @@ def leading_zero_message(text):
     """The refusal of a number string with a leading zero ("012"), or None.
     Octal is never meant in a config, so neither the tools nor the plugin
     read it either way (plugin: leading_zero_message)."""
-    if not isinstance(text, str) or not _LEADING_ZERO.match(text):
+    if not isinstance(text, str) or not _LEADING_ZERO.fullmatch(text):
         return None
     sign = "-" if text.startswith("-") else ""
     n = int(text.lstrip("-"), 10)
@@ -323,7 +375,7 @@ def _uint(value):
         return value if value >= 0 else None
     if isinstance(value, float):
         return int(value) if value >= 0 and value == math.floor(value) else None
-    if isinstance(value, str) and re.match(UINT_PATTERN, value):
+    if isinstance(value, str) and re.fullmatch(UINT_PATTERN, value):
         return int(value, 16) if value[:2].lower() == "0x" else int(value, 10)
     return None
 
@@ -356,7 +408,17 @@ def parse_numbers(value, node, root):
         return n if n is not None and _takes_number_string(node, root) else value
     if isinstance(value, dict):
         props = _properties(node, root)
-        return {k: parse_numbers(v, props[k], root) if k in props else v for k, v in value.items()}
+        resolved = _resolve(node, root)
+        out = {}
+        for k, v in value.items():
+            sub = props.get(k)
+            if sub is None:
+                # A map's values (error_behavior): patternProperties, else
+                # additionalProperties, as the schema applies them.
+                sub = next((p for pat, p in resolved.get("patternProperties", {}).items() if re.search(pat, k)),
+                           resolved.get("additionalProperties"))
+            out[k] = parse_numbers(v, sub, root) if isinstance(sub, dict) else v
+        return out
     if isinstance(value, list):
         items = _items(node, root)
         return [parse_numbers(v, items, root) for v in value] if items is not None else value
@@ -607,6 +669,7 @@ def sdo_value(value, type_name):
                 return None, "does not fit REAL32"
             return struct.pack("<f", value), None
         return struct.pack("<d", value), None
+    neg = False
     if isinstance(value, bool):
         n = int(value)
     elif isinstance(value, (int, float)):
@@ -618,7 +681,7 @@ def sdo_value(value, type_name):
         body = value[1:] if neg else value
         if leading_zero_message(value):
             return None, "is not a valid integer (%s)" % leading_zero_message(value)
-        if not re.match(UINT_PATTERN, body):
+        if not re.fullmatch(UINT_PATTERN, body):
             return None, "is not a valid integer"
         mag = int(body, 16) if body[:2].lower() == "0x" else int(body, 10)
         if mag >= 1 << 64:
@@ -626,7 +689,9 @@ def sdo_value(value, type_name):
         n = -mag if neg else mag
     else:
         return None, "must be a number"
-    if type_name == "BOOLEAN":
+    if neg and not type_name.startswith("INTEGER"):
+        fits = False  # "-0" too, as the plugin reads it
+    elif type_name == "BOOLEAN":
         fits = 0 <= n <= 1
     elif type_name.startswith("INTEGER"):
         fits = -(1 << (bits - 1)) <= n <= (1 << (bits - 1)) - 1
@@ -976,6 +1041,18 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         err("", "top level must be a JSON object")
         return r
 
+    # Numbers the plugin cannot read exactly, and NaN or Infinity (which the
+    # plugin's JSON parser refuses), before anything else (plugin:
+    # parse_config_set).
+    bad = inexact_numbers(cfg)
+    for where in bad:
+        err(where, INEXACT_NUMBER_MESSAGE, [where])
+    nonfinite = _nonfinite(cfg)
+    for where in nonfinite:
+        err(where, "NaN and Infinity are not JSON numbers", [where])
+    if bad or nonfinite:
+        return r
+
     # schema_version first: a newer format is not guessed at.
     version = 1
     if "schema_version" in cfg:
@@ -990,7 +1067,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         version = v
 
     s = schema(version)
-    validator = jsonschema.Draft202012Validator(s)
+    validator = Validator(s)
     # Numbers written as strings are parsed first, so "0x80" meets the same
     # range check as 128.
     schema_errors = sorted(validator.iter_errors(parse_numbers(cfg, s, s)),
@@ -1268,7 +1345,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             if key in net:
                 err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
         name = net.get("name")
-        if "name" in net and not (isinstance(name, str) and NETWORK_NAME.match(name)):
+        if "name" in net and not (isinstance(name, str) and NETWORK_NAME.fullmatch(name)):
             err(prefix, 'network name "%s" must start with a letter and hold only letters, digits and \'_\', at '
                         "most 16 characters" % name, [prefix + ".name"])
         master = net.get("master")
@@ -1300,7 +1377,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         for m in raw_warnings:
             r.add("warning", "%s: %s" % (args["path"], m), [_raw_path(m)])
         iface = adapter.get("interface")
-        if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
+        if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.fullmatch(iface):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None

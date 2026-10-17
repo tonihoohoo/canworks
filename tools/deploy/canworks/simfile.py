@@ -911,7 +911,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         version = v
 
     s = schema(version)
-    for e in sorted(jsonschema.Draft202012Validator(s).iter_errors(data),
+    for e in sorted(contract.Validator(s).iter_errors(data),
                     key=lambda e: list(map(str, e.absolute_path))):
         first = e
         while e.context:

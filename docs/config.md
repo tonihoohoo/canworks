@@ -4,7 +4,7 @@ The canworks plugin reads one JSON file, the config path given for the `canworks
 
 The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
 
-A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. An object may not have the same key twice.
+A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. A number string has no spaces or line breaks around it (`"3\n"` is refused), and `"-0"` is refused on an unsigned type. A JSON number of 2^53 (9007199254740992) or more is refused in every field, since the plugin's JSON parser would round it: write a large 64-bit value as a string, such as `"0x20000000000001"`. `NaN` and `Infinity` are not JSON and are refused. An object may not have the same key twice.
 
 At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
@@ -745,7 +745,7 @@ The EMCY code and the [boot error byte](#identity-check-and-boot-error-byte) are
 
 If the file does not exist, the plugin logs a warning with the expected path and stays inactive. Otherwise it stays inactive, opens no CAN interface, and logs every problem with the file and the field, node, object or location it concerns, when:
 
-- the file is not valid JSON, has an object with the same key twice, has a number string with a leading zero (`"012"`), or lacks a required field;
+- the file is not valid JSON (`NaN` and `Infinity` included), has an object with the same key twice, has a number string with a leading zero (`"012"`), spaces or a line break around it, a JSON number of 2^53 or more, or lacks a required field;
 - a node ID is outside 1-127, is used twice, or is the master's;
 - an EDS file is missing or cannot be parsed;
 - the file's `schema_version` is newer than the plugin's, or it has both `adapter` and the old top-level keys, or an unknown adapter type, or a field of the other adapter type, or an `slcan` adapter without an absolute `device`;

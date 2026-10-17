@@ -3690,6 +3690,27 @@ void repeated_keys(const cJSON* item, const std::string& where, std::vector<std:
   }
 }
 
+// Numbers whose magnitude is 2^53 or more: cJSON keeps them as a double,
+// which rounds them (canopen-config-contract "64-bit values as JSON
+// numbers"); the same rule as contract.inexact_numbers.
+void inexact_numbers(const cJSON* item, const std::string& where, std::vector<std::string>& out) {
+  if (cJSON_IsObject(item)) {
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) {
+      std::string key = c->string ? c->string : "";
+      inexact_numbers(c, where.empty() ? key : where + "." + key, out);
+    }
+  } else if (cJSON_IsArray(item)) {
+    int i = 0;
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) inexact_numbers(c, where + "[" + std::to_string(i++) + "]", out);
+  } else if (cJSON_IsNumber(item) && std::fabs(item->valuedouble) >= 9007199254740992.0) {
+    out.push_back((where.empty() ? "the top level" : where) +
+                  ": a JSON number of 2^53 (9007199254740992) or more cannot be read exactly; write it as a string "
+                  "(\"0x...\")");
+  }
+}
+
 }  // namespace
 
 bool parse_config_set(const std::string& json, const std::string& path, const ImageLimits& limits,
@@ -3707,6 +3728,7 @@ bool parse_config_set(const std::string& json, const std::string& path, const Im
   }
   std::vector<std::string> repeated;
   repeated_keys(root, "", repeated);
+  inexact_numbers(root, "", repeated);
   if (!repeated.empty()) {
     for (const auto& r : repeated) errors.push_back(path + ": " + r);
     cJSON_Delete(root);
