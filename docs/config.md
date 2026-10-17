@@ -300,7 +300,7 @@ The two `simulate` switches give four combinations: everything simulated (`adapt
 | `name` | no | Used in log messages. |
 | `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file first, then in the runtime's `core/generated/conf/`, where a stock runtime extracts the uploaded `conf/` tree (the deploy tool puts EDS files under `conf/canworks/eds/`). The plugin logs the path it used. |
 | `heartbeat_ms` | no | Heartbeat period the slave is configured to produce; 0 switches its heartbeat off. Left out, the slave keeps the period its EDS gives (object 0x1017) and nothing is written. The master reports the node lost when no heartbeat arrives within `heartbeat_timeout_ms`. Every node must be supervised (below). |
-| `heartbeat_timeout_ms` | no | Default 3 × `heartbeat_ms`, or 3 × the EDS heartbeat period when `heartbeat_ms` is left out. |
+| `heartbeat_timeout_ms` | no | Default 3 × `heartbeat_ms`, or 3 × the EDS heartbeat period when `heartbeat_ms` is left out. The master's heartbeat consumer entry (0x1016) for the node is exactly this time (before, a timeout that was not a multiple of the period could come out 1 ms short). |
 | `guard_time_ms`, `life_time_factor` | no | Node guarding instead of heartbeat. Give both, and not together with `heartbeat_ms`. |
 
 **Supervision.** A node without guarding whose heartbeat is 0 (from `heartbeat_ms`, or from its EDS 0x1017 default when `heartbeat_ms` is left out) would never be seen as lost. Such a node is rejected, unless `"heartbeat_ms": 0` is written out: then the file loads and every start logs a warning that the node's loss is not detected.

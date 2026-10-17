@@ -39,6 +39,19 @@ std::string hex(unsigned v, int width = 4) {
   return buf;
 }
 
+// The node's heartbeat_multiplier for dcfgen, which writes the master's
+// consumer time as int(heartbeat_producer * multiplier): timeout / period,
+// unless that rounds below the timeout (3 ms and 10 ms gave 9 ms); then a
+// multiplier half a millisecond above it, so the entry is the timeout. 3 x
+// the EDS period without heartbeat_ms. dcfexport.dcfgen_input does the same.
+std::string heartbeat_multiplier_text(unsigned period_ms, unsigned timeout_ms) {
+  char mult[32];
+  std::snprintf(mult, sizeof(mult), "%.6f", period_ms ? (double)timeout_ms / period_ms : 3.0);
+  if (period_ms && (unsigned long long)(period_ms * std::strtod(mult, nullptr)) != timeout_ms)
+    std::snprintf(mult, sizeof(mult), "%.6f", (timeout_ms + 0.5) / period_ms);
+  return mult;
+}
+
 // Quotes a string for YAML (double-quoted scalar).
 std::string yq(const std::string& s) {
   std::string out = "\"";
@@ -351,10 +364,7 @@ std::string make_dcfgen_yaml(const Config& cfg, const std::string& work_dir) {
     // Without heartbeat_ms the slave keeps its EDS heartbeat (0x1017), and
     // the master watches it with 3 x that period.
     if (n.has_heartbeat) y << "  heartbeat_producer: " << n.heartbeat_ms << "\n";
-    char mult[32];
-    std::snprintf(mult, sizeof(mult), "%.6f",
-                  n.heartbeat_ms ? (double)n.heartbeat_timeout_ms / n.heartbeat_ms : 3.0);
-    y << "  heartbeat_multiplier: " << mult << "\n";
+    y << "  heartbeat_multiplier: " << heartbeat_multiplier_text(n.heartbeat_ms, n.heartbeat_timeout_ms) << "\n";
     if (n.guard_time_ms) {
       y << "  guard_time: " << n.guard_time_ms << "\n";
       y << "  life_time_factor: " << n.life_time_factor << "\n";

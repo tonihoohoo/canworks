@@ -444,6 +444,20 @@ class Links(unittest.TestCase):
         self.assertFalse([x for x in w if x[0] in (0x1016, 0x1601)])
 
 
+class HeartbeatMultiplier(unittest.TestCase):
+    """canopen-config-contract "Heartbeat consumer time is the configured
+    timeout": dcfgen writes int(period x multiplier), which must be the
+    timeout (3 ms and 10 ms gave 9 ms)."""
+
+    def test_consumer_time(self):
+        self.assertEqual(int(3 * dcfexport.heartbeat_multiplier(3, 10)), 10)
+        self.assertEqual(dcfexport.heartbeat_multiplier(500, 1500), 3.0)  # unchanged where it was exact
+        self.assertEqual(dcfexport.heartbeat_multiplier(0, 0), 3.0)
+        for period in range(1, 300, 7):
+            for timeout in range(period, min(4 * period + 20, 0xFFFF)):
+                self.assertEqual(int(period * dcfexport.heartbeat_multiplier(period, timeout)), timeout)
+
+
 class Parity(unittest.TestCase):
     """Every accepted fixture config, the examples and the compact fixture:
     the export's download equals canopen_check --dump-writes, and its DCF

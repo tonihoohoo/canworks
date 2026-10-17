@@ -2248,6 +2248,21 @@ TEST(dcfgen_yaml_unchanged_without_options) {
             node);
 }
 
+// The master's consumer time for a node is its heartbeat_timeout_ms: dcfgen
+// truncates heartbeat_producer x multiplier, and 10 / 3 = 3.333333 gave 9 ms.
+TEST(dcfgen_heartbeat_consumer_time_is_the_timeout) {
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse(replace(kValid, "\"heartbeat_ms\": 500,", "\"heartbeat_ms\": 3, \"heartbeat_timeout_ms\": 10,"), cfg,
+                  errors),
+            join(errors));
+  std::string yaml = make_dcfgen_yaml(cfg, "/tmp/x");
+  size_t at = yaml.find("  heartbeat_multiplier: ", yaml.find("node_2:"));
+  CHECK_MSG(at != std::string::npos, yaml);
+  double mult = std::strtod(yaml.c_str() + at + 24, nullptr);
+  CHECK_MSG((long)(3 * mult) == 10, yaml);
+}
+
 const char* kAllMasterOptions =
     "\"sync_period_us\": 10000, \"heartbeat_ms\": 100, \"vendor_id\": \"0x360\", \"product_code\": 7, "
     "\"revision_number\": 2, \"serial_number\": \"0x1234\", \"sync_window_us\": 5000, "

@@ -124,7 +124,7 @@ class Prepare(unittest.TestCase):
         text = eds((0x2000, var("0x0005", DefaultValue="$NODEID")), (0x2001, var("0x0005", DefaultValue="$nodeid")))
         out, corrections = edslint.prepare(text.encode("utf-8"))
         self.assertEqual(out.count("DefaultValue=$NODEID+0\n"), 2)
-        self.assertEqual([c.kind for c in corrections], ["nodeid"])
+        self.assertEqual([c.kind for c in corrections], ["nodeid_bare"])
 
     def test_real_integer(self):
         # A plain decimal integer on a REAL is a decimal value (CiA 306), not

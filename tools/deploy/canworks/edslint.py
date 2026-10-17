@@ -172,7 +172,8 @@ def prepare(data):
     utf8 = Correction("utf8", "converted from CP1252 to UTF-8")
     if converted:
         utf8.items.append({})
-    nodeid = Correction("nodeid", "\"<number>+$NODEID\" and a bare \"$NODEID\" rewritten as \"$NODEID+<number>\"")
+    nodeid = Correction("nodeid", "\"<number>+$NODEID\" rewritten as \"$NODEID+<number>\"")
+    bare = Correction("nodeid_bare", "a bare \"$NODEID\" rewritten as \"$NODEID+0\"")
     real = Correction("real", "decimal REAL values rewritten as Lely's hexadecimal bit pattern")
     octets = Correction("string", "OCTET_STRING/DOMAIN values Lely cannot read cleared")
     types = _data_types(text)
@@ -194,7 +195,7 @@ def prepare(data):
             elif key in _NUMBER_KEYS and _BARE_NODEID.match(value):
                 # Lely cannot parse a bare "$NODEID" ("unable to parse DefaultValue").
                 new = "$NODEID+0"
-                nodeid.items.append(dict(where, new=new))
+                bare.items.append(dict(where, new=new))
             elif key in _NUMBER_KEYS and data_type in (_REAL32, _REAL64) and _DECIMAL_REAL.match(value):
                 new = _real_hex(value, data_type)
                 if new is not None:
@@ -208,7 +209,7 @@ def prepare(data):
             if new is not None:
                 line = head + new + tail
         out.append(line + end)
-    corrections = [c for c in (utf8, nodeid, real, octets) if c.items]
+    corrections = [c for c in (utf8, nodeid, bare, real, octets) if c.items]
     return ("".join(out) if corrections else text), corrections
 
 

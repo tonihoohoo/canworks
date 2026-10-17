@@ -215,6 +215,17 @@ def _emit_pdos(node_json, norm, dev, eds, ro, is_tx, linked=()):
     return out
 
 
+def heartbeat_multiplier(period, timeout):
+    """The node's heartbeat_multiplier for dcfgen, which writes the master's
+    consumer time as int(period * multiplier): timeout / period, unless that
+    rounds below the timeout; then half a millisecond above it (plugin:
+    heartbeat_multiplier_text). 3.0 without a period."""
+    if not period:
+        return 3.0
+    mult = _fmt6(timeout / period)
+    return mult if int(period * mult) == timeout else _fmt6((timeout + 0.5) / period)
+
+
 def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, linked=()):
     """The node's part of the plugin's dcfgen YAML (make_dcfgen_yaml), as
     the dict yaml.safe_load would read."""
@@ -224,7 +235,7 @@ def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, linked=()):
     if "heartbeat_ms" in n:
         y["heartbeat_producer"] = hb
     timeout = _u(n.get("heartbeat_timeout_ms")) if "heartbeat_timeout_ms" in n else min(hb * 3, 0xFFFF)
-    y["heartbeat_multiplier"] = _fmt6(timeout / hb if hb else 3.0)
+    y["heartbeat_multiplier"] = heartbeat_multiplier(hb, timeout)
     guard = _u(n.get("guard_time_ms"), 0)
     life = _u(n.get("life_time_factor"), 0)
     if guard:
