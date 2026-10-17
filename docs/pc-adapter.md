@@ -67,7 +67,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 - LSS commands are refused while another master is active, because LSS addresses every device at once and the master may be using LSS itself. `--force` (in the configurator, **Run anyway** in the question) runs them anyway.
 - `lss-set-id` refuses a node ID the bus already shows (by heartbeat) unless forced.
 - NMT goes to one node at a time; the other master may start the node again.
-- `sdo-write`, `nmt` other than `start`, and `scan` need `--force` while a node's heartbeat in the last 30 s said OPERATIONAL, as on a runtime (see [diagnostics.md](diagnostics.md#changes-to-a-running-network)).
+- `sdo-write`, `nmt` other than `start`, `scan`, and the writes of `configure` and `restore` need `--force` while another master is active or any node's heartbeat in the last 30 s said OPERATIONAL (see [diagnostics.md](diagnostics.md#changes-to-a-running-network)). The tools listen only a second first, so a node with a slow heartbeat or node guarding may not have shown its own state yet; the refusal says what was seen. The PC sends no node-guarding requests, which would disturb the other master's guarding.
 
 ## Limits
 
