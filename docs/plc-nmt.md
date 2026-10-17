@@ -28,14 +28,16 @@ The blocks follow the SDO blocks' handshake: a rising edge on `EXECUTE` starts o
 | 1 START | Releases the node's hold and starts it (a node that has not booted yet is started when its boot ends) | NMT START is sent |
 | 2 STOP | Holds the node STOPPED: NMT STOP now, and again after every boot of the node | NMT STOP is sent |
 | 128 ENTER PRE-OPERATIONAL | Holds the node PRE-OPERATIONAL, likewise | sent |
-| 129 RESET NODE | Clears the hold; the node reboots and the master configures and starts it again | sent |
+| 129 RESET NODE | Clears the hold; the node reboots and the master configures and starts it again (during `CO_NETWORK_STOP`: configures it and sends it the stop's node command) | sent |
 | 130 RESET COMMUNICATION | The same with a communication reset | sent |
 
 `DONE` means the command was sent (NMT commands are not confirmed) and the hold recorded; read the state the node reports afterwards with `CO_GET_STATE`. For a node the config does not list nothing is kept: the master does not boot, supervise or hold it, so the program owns that node's NMT state.
 
 A held node is not rebooted by the master when it leaves OPERATIONAL, a node that starts by itself is sent the hold again, and a held node that is lost (heartbeat timeout) is still booted again by the retry loop, configured, and then held again. A held node's status bit is FALSE and it exchanges no PDOs; SDO access works in PRE-OPERATIONAL.
 
-`NODE := 0` sends one NMT command to node ID 0, which every device on the bus acts on, also those the config does not list, and applies the bookkeeping above to every configured node. The master's own state does not change. A broadcast START is refused (`ERROR_ID` 9) while the gateway holds a node (below).
+`NODE := 0` sends one NMT command to node ID 0, which every device on the bus acts on, also those the config does not list, and applies the bookkeeping above to every configured node. The master's own state does not change. A broadcast START or reset is refused (`ERROR_ID` 9) while the gateway holds a node (below).
+
+When some configured node is held, the CANopen stack's own NMT START to all nodes (at its start-up, or when it starts all nodes at once) is sent as one START to each configured node that is not held. A device on the bus that the config does not list then gets no START from the master and stays PRE-OPERATIONAL; start it with `CO_NMT` and its node ID.
 
 `NODE` above 127, `NODE` equal to the master's node ID, or a `COMMAND` not in the table ends with `ERROR_ID` 6 in the same call, and nothing is sent. Every command is logged with its node and "from the program (CO_NMT)".
 
@@ -61,7 +63,7 @@ A held node never gets NMT START from the master: when it boots it is configured
 
 Two holds the program cannot lift:
 
-- The gateway's `on_upper_loss: "stop_nodes"` holds field nodes STOPPED while the upper master is lost; a START from `CO_NMT` to such a node ends with `ERROR_ID` 9 and sends nothing. The gateway starts the node when the upper master is back. STOP and ENTER PRE-OPERATIONAL replace the gateway's hold with the program's.
+- The gateway's `on_upper_loss: "stop_nodes"` holds field nodes STOPPED while the upper master is lost; a START or a reset from `CO_NMT` to such a node ends with `ERROR_ID` 9 and sends nothing. The command byte's 0 or 1 and its resets, and a start or reset from an operator (the online view, the Modbus control block, the CiA 309-3 gateway), are refused the same way and logged; on the diagnostics channel `force` overrides it (a forced reset keeps the gateway's hold, so the node boots and is stopped again). The gateway starts the node when the upper master is back, or gives it `CO_NETWORK_STOP`'s node command while that is in force. STOP and ENTER PRE-OPERATIONAL replace the gateway's hold with the program's.
 - A master STOPPED by `master.stop_all_nodes` after a mandatory node was lost (below).
 
 ## Mandatory nodes
@@ -88,7 +90,7 @@ END_IF;
 
 In the configurator: **Advanced master settings**, **Master goes operational** off, and **Copy as ST call** next to it copies this call.
 
-A master STOPPED by `stop_all_nodes` after a mandatory node's loss is the configuration's safety reaction: `CO_NETWORK_START` ends with `ERROR_ID` 9, and the log says that the plugin must restart (stop and start the PLC).
+A master STOPPED by `stop_all_nodes` after a mandatory node's loss is the configuration's safety reaction: `CO_NETWORK_START` ends with `ERROR_ID` 9, and the log says that the plugin must restart (stop and start the PLC). The stop lasts for the PLC run: after the bus comes back (below) the master stays STOPPED and sends NMT STOP to every node.
 
 ## Stop the network from the program: CO_NETWORK_STOP
 
@@ -101,7 +103,7 @@ A master STOPPED by `stop_all_nodes` after a mandatory node's loss is the config
 | 128 | ENTER PRE-OPERATIONAL |
 | 255 | nothing: the nodes stay as they are, with their last outputs |
 
-Any other value ends with `ERROR_ID` 6. The block ends with `DONE` once the master is PRE-OPERATIONAL and the commands are sent. Until `CO_NETWORK_START`, the master does not go OPERATIONAL by itself, also not with `master.start: true` or after it reset itself; it keeps supervising and booting nodes, and a node that boots meanwhile is configured and then sent the same command. SDO transfers (blocks, SDO variables, the online view) keep working to nodes that are not STOPPED. Nodes with a hold of their own keep it.
+Any other value ends with `ERROR_ID` 6. The block ends with `DONE` once the master is PRE-OPERATIONAL and the commands are sent. Until `CO_NETWORK_START`, the master does not go OPERATIONAL by itself, also not with `master.start: true` or after it reset itself; it keeps supervising and booting nodes, and a node that boots meanwhile is configured and then sent the same command. SDO transfers (blocks, SDO variables, the online view) keep working to nodes that are not STOPPED. Nodes with a hold of their own keep it. A node reset meanwhile (by `CO_NMT`, the command byte or an operator) also boots into the stop's command, and so does a node the gateway releases when the upper master is back. With 255 nothing holds the nodes: one that reboots during the stop is started by the CANopen stack as usual after its boot.
 
 `CO_NETWORK_START` afterwards starts the master again and sends START to every booted node that the network stop held (not with `start_nodes: false`, and not to nodes with a hold of their own); their status bits come back as their PDOs flow.
 
@@ -114,6 +116,7 @@ A master STOPPED by `stop_all_nodes` is not changed: `CO_NETWORK_STOP` ends with
 What the program asked for lasts for the PLC run, not for one connection to the bus. When the CAN interface goes down and comes back (an adapter unplugged and plugged in again, the link set down and up) or the bus session restarts after an error, the master starts from it again:
 
 - after `CO_NETWORK_STOP` the master stays PRE-OPERATIONAL, every node is configured and then sent the stop's node command, and no output PDO goes out until `CO_NETWORK_START`;
+- after `stop_all_nodes` stopped the master, it stays STOPPED and every node is sent NMT STOP;
 - a node held by `CO_NMT`, its command byte, an operator or the gateway is configured and then sent its hold; the other nodes start as usual;
 - with `master.start: false`, a `CO_NETWORK_START` of this run starts the master again once every mandatory node has booted;
 - a reset that the command byte asked for before is not sent again.

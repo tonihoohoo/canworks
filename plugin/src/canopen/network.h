@@ -434,6 +434,13 @@ class Network : public lely::canopen::BasicMaster {
   // `send` false: the command went out as one broadcast; only the bookkeeping.
   void ResetNode(unsigned id, NodeState& n, bool comm, const char* by, bool send = true);
   void SetHold(unsigned id, NodeState& n, Hold hold, HoldSource src);
+  // The gateway's on_upper_loss "stop_nodes" holds the node: START and the
+  // resets are refused on every path (canopen-plc-nmt "Gateway hold on every
+  // NMT path"); `what` and `by` name the refused command in the log.
+  bool GatewayHeld(const NodeState& n) const {
+    return n.run->hold != Hold::None && n.run->hold_src == HoldSource::Gateway;
+  }
+  void LogGatewayRefusal(const NodeState& n, const char* what, const std::string& by) const;
   // An NMT command (CiA 301 command specifier: 1, 2, 128, 129, 130) for a
   // configured node from CO_NMT, an operator or the Modbus control block:
   // STOP and ENTER PRE-OPERATIONAL hold the node, START releases it, the
@@ -459,8 +466,10 @@ class Network : public lely::canopen::BasicMaster {
   void DiagNmt(const DiagRequest& r);
   void DiagPdoRead(const DiagRequest& r);
   // NMT for one node from an operator (diagnostics client or host); returns a
-  // note when the command waits for the node's boot.
-  std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by);
+  // note when the command waits for the node's boot, or why it was refused
+  // (a START or reset of a node the gateway holds, unless `force`).
+  std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by,
+                          bool force = false);
   // The host's requests (host_requests.h) and its outputs gate (outputs_gate.h).
   void ServiceHost();
   void SyncOutputsGate();
@@ -574,9 +583,6 @@ class Network : public lely::canopen::BasicMaster {
   bool nodes_stopped_ = false;  // StopNodes() ran
   bool outputs_on_ = true;  // the outputs gate as last applied (SYNC, master TPDOs)
   bool outputs_fresh_ = false;  // see LatestOutputs()
-  // Scan watchdog (what it saw is in run_): whether this network holds the
-  // gate closed for it.
-  bool scan_hung_ = false;
   std::vector<HostNmt> host_nmt_;
   // NMT blocks: requests taken this tick, and CO_NETWORK_START requests
   // waiting for the master (the program's network start and stop are in run_).

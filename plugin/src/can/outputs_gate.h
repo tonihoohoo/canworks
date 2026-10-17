@@ -4,9 +4,10 @@
 // (master.scan_watchdog_ms) sees the PLC scan hung; otherwise outputs stop
 // there because the whole network stops with the PLC. The Modbus bridge closes it for "outputs
 // off" (watchdog or idle command, modbus-bridge spec): the CANopen master
-// stops SYNC and its RPDOs, J1939 stops its transmit messages and the raw
-// path its transmit messages, while inputs, supervision, the diagnostics
-// channel and J1939 address claim keep running.
+// stops its RPDOs (SYNC goes on, so synchronous inputs keep coming), J1939
+// stops its transmit messages and the raw path its transmit messages, while
+// inputs, supervision, the diagnostics channel and J1939 address claim keep
+// running.
 
 #ifndef CANWORKS_OUTPUTS_GATE_H
 #define CANWORKS_OUTPUTS_GATE_H

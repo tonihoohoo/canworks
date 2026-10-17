@@ -446,6 +446,7 @@ class Sim {
       loop_.stop();
     }
     net_.reset();
+    run_.end_run();  // as MasterRuntime::stop
   }
 
   bool ok() const { return ok_; }
@@ -6510,6 +6511,49 @@ TEST(sim_plc_nmt_network_stop_restart) {
   nmt_end(sim);
 }
 
+
+// A lost mandatory node with stop_all_nodes stopped the master and every
+// node: a new bus session keeps them stopped and sends no output PDO
+// (canopen-plc-nmt "Master stop by stop_all_nodes lasts for the run").
+TEST(sim_stop_all_nodes_restart) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"stop_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->ib(21) == 4, "master " + std::to_string(sim->ib(21)) + " before restart");
+  int rpdos = sim->frames(0x202) + sim->frames(0x203);
+  sim->RestartSession();
+  sim->RunFor(milliseconds(3000));
+  CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)) + " after a session restart; node 2 " + std::to_string(sim->ib(20)) + ", node 3 " + std::to_string(sim->ib(22)) + "; master RPDO frames since: " + std::to_string(sim->frames(0x202) + sim->frames(0x203) - rpdos));
+  nmt_end(sim);
+}
+
+// CO_NETWORK_STOP stopped the nodes, then the program resets node 2: it is
+// configured and stopped again, not started (canopen-plc-nmt "Network stop
+// survives resets and gateway release").
+TEST(sim_plc_nmt_reset_during_network_stop) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json(""));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  b.stop.NODE_COMMAND = 2;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4; }, seconds(2)));
+  int boots2 = sim->bootups(2);
+  CHECK(run_nmt(sim, b.nmt, 2, 129));
+  CHECK(sim->RunUntil([boots2] { return sim->bootups(2) > boots2; }, seconds(5)));
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->ib(20) != 5, "node 2 state " + std::to_string(sim->ib(20)) + " (OPERATIONAL) while CO_NETWORK_STOP holds the network, master " + std::to_string(sim->ib(21)));
+  nmt_end(sim);
+}
+
 // A node held by CO_NMT, and a reset its command byte asked for earlier:
 // after a new session the held node is configured and sent STOP, the other
 // node runs, and the earlier reset is not sent again.
@@ -6742,6 +6786,38 @@ TEST(sim_scan_watchdog_restart) {
   CHECK_MSG(sim->frames(0x202) == rpdos, std::to_string(sim->frames(0x202) - rpdos));
   sim->StopPlc(false);
   CHECK(sim->RunUntil([rpdos] { return outputs_enabled() && sim->frames(0x202) > rpdos + 5; }, seconds(2)));
+  delete sim;
+  CHECK(outputs_enabled());
+}
+
+// The interface of the network whose watchdog tripped goes down while the
+// scan is still hung: the gate stays closed for every other network until
+// the scan moves (canopen-pdo-io "Scan watchdog trip lasts until the scan
+// moves").
+TEST(sim_scan_watchdog_interface_down) {
+  clear_logs();
+  std::string dir = make_dir(with_master(pingpong_json(), "\"scan_watchdog_ms\": 200, "),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  sim->StopPlc(true);  // the scan hangs
+  CHECK(sim->RunUntil([] { return !outputs_enabled(); }, seconds(2)));
+  sim->net().Stop();  // the session ends: no session while the interface is down
+  sim->RunFor(milliseconds(200));
+  CHECK(!outputs_enabled());
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  CHECK(!outputs_enabled());
+  sim->StopPlc(false);
+  CHECK(sim->RunUntil([] { return outputs_enabled(); }, seconds(2)));
+  // A trip when the run ends (the PLC stops) opens the gate again.
+  sim->StopPlc(true);
+  CHECK(sim->RunUntil([] { return !outputs_enabled(); }, seconds(2)));
   delete sim;
   CHECK(outputs_enabled());
 }

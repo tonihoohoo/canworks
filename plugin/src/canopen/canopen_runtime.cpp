@@ -53,11 +53,13 @@ class MasterRuntime : public NetworkRuntime {
   bool make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLink* gw, const char* version,
             std::vector<std::string>& errors);
   void start() override {
+    run_.end_run();
     run_ = RunState();  // a new PLC run (the bus thread is not running)
     bus_->start();
   }
   void stop() override {
     if (bus_) bus_->stop();
+    run_.end_run();  // the PLC stops: so does a tripped scan watchdog
   }
   void cycle_start(const plugin_runtime_args_t& rt) override {
     image_.copy_to_plc(rt);

@@ -142,6 +142,7 @@ PlcSlave::PlcSlave(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerB
     route_seen_.assign(routes.size(), 0);
     route_last_.assign(routes.size(), 0);
     route_have_.assign(routes.size(), false);
+    route_base_.assign(routes.size(), false);
     const GatewayConfig& g = gw_->cfg();
     if (g.sdo_bridge) {
       uint16_t b = g.sdo_bridge_index;
@@ -211,8 +212,38 @@ void PlcSlave::OnRestored() {
         const RouteConfig& rc = gw_->cfg().routes[r];
         SetObject(rc.slave_index, rc.slave_subindex, route_last_[r], rc.type, false);
       }
+    BaselineRoutesDown();
     states_seen_ = ~0ull;
   }
+}
+
+void PlcSlave::BaselineRoutesDown() {
+  // The objects of the routes down hold the EDS (or stored) values again,
+  // which the upper master did not write: they become the baseline, and only
+  // later changes go down (canopen-gateway "Hold keeps values through a
+  // gateway reset"). A route that never had a value in this PLC run still
+  // sends its first one.
+  co_dev_t* d = D(dev());
+  const auto& routes = gw_->cfg().routes;
+  for (size_t r = 0; r < routes.size(); ++r) {
+    const RouteConfig& rc = routes[r];
+    uint64_t v;
+    uint32_t none = 0;
+    if (rc.up || !gw_->get(r, v, none)) continue;
+    route_have_[r] = true;
+    route_base_[r] = true;
+    route_last_[r] = read_raw(d, rc.slave_index, rc.slave_subindex, rc.type);
+  }
+}
+
+void PlcSlave::OnWrite(uint16_t idx, uint8_t subidx) noexcept {
+  if (!gw_) return;
+  // The upper master wrote a route object (RPDO or SDO download): the next
+  // period sends its value down even when it equals the baseline.
+  const auto& routes = gw_->cfg().routes;
+  for (size_t r = 0; r < routes.size(); ++r)
+    if (!routes[r].up && route_base_[r] && routes[r].slave_index == idx && routes[r].slave_subindex == subidx)
+      route_have_[r] = false;
 }
 
 void PlcSlave::OnRpdoWrite(uint8_t, uint16_t, uint8_t) noexcept {
@@ -389,6 +420,12 @@ void PlcSlave::UpdateStatus() {
 
 void PlcSlave::ReadRoutesDown() {
   if (!gw_) return;
+  // "hold": nothing goes down while the upper master is lost (what the
+  // dictionary holds then is not its value); a change it made before goes
+  // down once it is back.
+  if (gw_->cfg().on_upper_loss == GatewayConfig::UpperLoss::Hold &&
+      (nmt_state() != kStateOperational || hb_error_ || lg_error_) && ever_started_)
+    return;
   co_dev_t* d = D(dev());
   const auto& routes = gw_->cfg().routes;
   for (size_t r = 0; r < routes.size(); ++r) {
@@ -397,6 +434,7 @@ void PlcSlave::ReadRoutesDown() {
     uint64_t v = read_raw(d, rc.slave_index, rc.slave_subindex, rc.type);
     if (route_have_[r] && v == route_last_[r]) continue;
     route_have_[r] = true;
+    route_base_[r] = false;
     route_last_[r] = v;
     gw_->put(r, v);
   }

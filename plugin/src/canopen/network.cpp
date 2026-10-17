@@ -184,7 +184,7 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 }
 
 Network::~Network() {
-  if (scan_hung_) set_scan_hung(false);
+  if (own_run_) own_run_->end_run();  // the run is this Network's
   HostRequests::instance().set_session(cfg_.network_index, false);
   HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
@@ -227,6 +227,10 @@ bool Network::FilterStart(const can_msg& msg) {
   // own STARTs release the hold first, so they pass.
   if (msg.id != 0 || (msg.flags & (CAN_FLAG_RTR | CAN_FLAG_IDE)) || msg.len < 2 || msg.data[0] != 0x01) return false;
   uint8_t to = msg.data[1];
+  if (run_->master_stopped) {
+    log_info("no NMT START: the master is STOPPED after a mandatory node was lost (master.stop_all_nodes)");
+    return true;
+  }
   if (to) {
     auto it = nodes_.find(to);
     if (it == nodes_.end() || it->second.run->hold == Hold::None) return false;
@@ -268,6 +272,19 @@ void Network::Start() {
   // on_upper_loss behaviour applies at once (the nodes are held as they
   // boot). Never seen in this run, it is not lost yet.
   if (gw_ && (gw_->upper_ok() || run_->upper_seen)) UpperLoss(gw_->upper_ok());
+  // And every route's value now: the upper side only passes a value down
+  // when it changes, and the last session took the wake (canopen-gateway
+  // "Routes are read at network start").
+  if (gw_) ServiceGateway();
+  if (run_->master_stopped) {
+    // stop_all_nodes stopped the master and every node earlier in this run:
+    // a new session does not lift that (canopen-plc-nmt "Master stop by
+    // stop_all_nodes lasts for the run").
+    log_error("the master stays STOPPED: a mandatory node was lost earlier in this PLC run (master.stop_all_nodes); "
+              "NMT STOP to every node, no PDOs are exchanged until the plugin restarts");
+    Command(NmtCommand::STOP, static_cast<uint8_t>(cfg_.master.node_id));
+    Command(NmtCommand::STOP, 0);
+  }
   if (cfg_.master.time_period_ms) {
     char now[32];
     std::time_t t = std::time(nullptr);
@@ -324,10 +341,8 @@ void Network::Stop() {
   if (stopped_) return;
   stopped_ = true;
   HostRequests::instance().set_session(cfg_.network_index, false);
-  if (scan_hung_) {
-    scan_hung_ = false;
-    set_scan_hung(false);
-  }
+  // A tripped scan watchdog keeps the gate closed for the other networks
+  // while this one has no session (RunState::scan_hung).
   if (lss_) lss_->CancelAll();
   CancelPrograms();
 }
@@ -546,6 +561,7 @@ void Network::OnTick() {
   if (cfg_.master.time_period_ms && now >= next_time_ && lely_state_ != kStateStopped) SendTime();
   LssRecover(now);
   CheckInputPdos(now);
+  if (gw_) ServiceGateway();  // in case a wake was missed
   for (auto& it : nodes_) {
     NodeState& n = it.second;
     FlushEmcySummary(n, now, false);
@@ -641,22 +657,29 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
     // Lely starts a booted node right away, unless the master may not start
     // nodes, or starts them all at once when it becomes OPERATIONAL itself.
     const MasterConfig& m = cfg_.master;
-    // A held node is not started (FilterStart drops Lely's START to it).
-    n.node_op = configured_running ||
-                (n.run->hold == Hold::None && m.start_nodes && (!m.start_all_nodes || master_op_));
+    // A held node is not started (FilterStart drops Lely's START to it), and
+    // one already running is stopped by the hold (OnBooted), so it is not
+    // set up as running either. Nor is any node while stop_all_nodes holds
+    // the master STOPPED.
+    const bool held = n.run->hold != Hold::None || run_->master_stopped;
+    n.node_op = !held && (configured_running || (m.start_nodes && (!m.start_all_nodes || master_op_)));
     if (n.node_op && (static_cast<uint8_t>(st) & 0x7F) != static_cast<uint8_t>(NmtState::START)) StartSent(id, n);
-    SetState(id, n.node_op ? kStateOperational
-                 : n.run->hold == Hold::Stopped ? kStateStopped
-                                                : kStatePreop);
+    SetState(id, n.node_op                                                 ? kStateOperational
+                 : n.run->hold == Hold::Stopped || run_->master_stopped ? kStateStopped
+                                                                         : kStatePreop);
     SetBootError(id, 0);
     // Its EMCY COB-ID is read first in its SDO turn, before the SDO variables.
     n.emcy_read_due = n.cfg->reads_emcy_cob_id();
     Update(id, "");
-    if (!n.node_op && n.run->hold == Hold::None)
+    if (!n.node_op && !held)
       log_info("%s: configured; %s", n.cfg->label().c_str(),
                m.start_nodes ? "it starts when the master starts all nodes"
                              : "it stays PRE-OPERATIONAL (master start_nodes is false)");
     OnBooted(id, n);
+    if (run_->master_stopped && n.run->hold == Hold::None) {
+      log_info("%s: NMT STOP (the master is STOPPED after a mandatory node was lost)", n.cfg->label().c_str());
+      Command(NmtCommand::STOP, id);
+    }
     // After the master has started (or found the network held), the
     // master's own queued work runs first.
     if (n.cfg->mandatory) Defer([this] { StartHeldMaster(); });
@@ -776,7 +799,10 @@ void Network::HandleCommand(NmtCommand cs) {
     MasterTpdosOff();
     SyncRpdosEventDriven();
   }
-  if (cs == NmtCommand::STOP) log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
+  if (cs == NmtCommand::STOP && !run_->master_stopped) {
+    run_->master_stopped = true;  // for the rest of the PLC run, across sessions
+    log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
+  }
   if (cs == NmtCommand::START && run_->prog_stopped)
     // Lely's own start-up (after the master reset itself with reset_all_nodes)
     // while the program holds the network stopped: it stays held.
@@ -1022,6 +1048,12 @@ void Network::UpperLoss(bool ok) {
         if (n.run->hold != Hold::None && !by_gateway) continue;  // the program or an operator holds it
         SetHold(id, n, Hold::Stopped, HoldSource::Gateway);
         SendHold(id, n);
+      } else if (by_gateway && run_->prog_stopped) {
+        // CO_NETWORK_STOP came meanwhile: the node gets its command, never
+        // START, until CO_NETWORK_START (mode "nodes keep their state": it
+        // stays as it is).
+        SetHold(id, n, run_->prog_stop_hold, HoldSource::Network);
+        if (n.run->hold != Hold::None) SendHold(id, n);
       } else if (by_gateway) {
         SetHold(id, n, Hold::None, HoldSource::Gateway);
         if (n.booted) {
@@ -1374,16 +1406,16 @@ void Network::CheckScanWatchdog(clock::time_point now) {
   if (count != run_->scan_seen) {
     run_->scan_seen = count;
     run_->scan_moved = now;
-    if (scan_hung_) {
-      scan_hung_ = false;
+    if (run_->scan_hung) {
+      run_->scan_hung = false;
       set_scan_hung(false);
       log_info("scan watchdog: the PLC scan finishes cycles again; outputs on");
     }
     return;
   }
   // Armed once the program has finished its first cycle.
-  if (!count || scan_hung_ || now - run_->scan_moved < std::chrono::milliseconds(ms)) return;
-  scan_hung_ = true;
+  if (!count || run_->scan_hung || now - run_->scan_moved < std::chrono::milliseconds(ms)) return;
+  run_->scan_hung = true;
   set_scan_hung(true);
   log_error("scan watchdog: the PLC scan has not finished a cycle for %u ms (master.scan_watchdog_ms); outputs off "
             "until it does",
@@ -1859,8 +1891,24 @@ void Network::SetHold(unsigned id, NodeState& n, Hold hold, HoldSource src) {
   Publish(id);
 }
 
+void Network::LogGatewayRefusal(const NodeState& n, const char* what, const std::string& by) const {
+  log_warn("%s: NMT %s from %s refused: the gateway holds the node STOPPED while the upper master is lost, and "
+           "starts it when the upper master is back",
+           n.cfg->label().c_str(), what, by.c_str());
+}
+
 void Network::ResetNode(unsigned id, NodeState& n, bool comm, const char* by, bool send) {
-  SetHold(id, n, Hold::None, HoldSource::Byte);
+  // The node boots again with the hold that is in force for it beyond its
+  // own command: the gateway's (a forced reset), or CO_NETWORK_STOP's node
+  // command (canopen-plc-nmt "Network stop survives resets and gateway
+  // release"). Otherwise the reset clears the hold.
+  if (GatewayHeld(n)) {
+    // kept
+  } else if (run_->prog_stopped && run_->prog_stop_hold != Hold::None) {
+    SetHold(id, n, run_->prog_stop_hold, HoldSource::Network);
+  } else {
+    SetHold(id, n, Hold::None, HoldSource::Byte);
+  }
   if (send) {
     log_info("%s: NMT %s (from %s)", n.cfg->label().c_str(), comm ? "RESET COMMUNICATION" : "RESET NODE", by);
     Command(comm ? NmtCommand::RESET_COMM : NmtCommand::RESET_NODE, static_cast<uint8_t>(id));
@@ -1880,6 +1928,10 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
     // since: send it once, then run the node as usual.
     n.run->nmt_resets = resets;
     n.run->nmt_level = level;
+    if (GatewayHeld(n)) {
+      LogGatewayRefusal(n, reset_code == 130 ? "RESET COMMUNICATION" : "RESET NODE", "the program's command byte");
+      return;
+    }
     ResetNode(id, n, reset_code == 130, "the program");
     return;
   }
@@ -1888,6 +1940,10 @@ void Network::ApplyNmtCommand(unsigned id, NodeState& n, uint8_t level, uint64_t
   switch (level) {
     case 0:
     case 1: {
+      if (GatewayHeld(n)) {
+        LogGatewayRefusal(n, "START", "the program's command byte");
+        break;
+      }
       bool was_held = n.run->hold != Hold::None;
       SetHold(id, n, Hold::None, HoldSource::Byte);
       // Release a held node; a node the master does not boot starts on 1.

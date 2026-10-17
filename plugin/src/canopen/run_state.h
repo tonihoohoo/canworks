@@ -17,6 +17,8 @@
 #include <map>
 #include <vector>
 
+#include "outputs_gate.h"
+
 namespace canopen_plugin {
 
 // NMT state the program (nmt_command_location, CO_NMT, CO_NETWORK_STOP),
@@ -29,6 +31,12 @@ enum class HoldSource : uint8_t { Byte, Block, Operator, Gateway, Network };
 struct RunState {
   bool prog_start = false;    // CO_NETWORK_START ran in this PLC run
   bool prog_stopped = false;  // CO_NETWORK_STOP ran since
+  // The hold CO_NETWORK_STOP's node command gives (None: the nodes keep
+  // their state), for a node reset or released by the gateway meanwhile.
+  Hold prog_stop_hold = Hold::None;
+  // A lost mandatory node with stop_all_nodes stopped the master and every
+  // node: it stays so until the PLC restarts.
+  bool master_stopped = false;
   struct Node {
     // The program's NMT command byte: the level last acted on and the reset
     // requests handled (ProcessImage counts them for the run).
@@ -46,9 +54,18 @@ struct RunState {
   // Scan watchdog: the scan count last seen and when it last moved.
   uint64_t scan_seen = 0;
   std::chrono::steady_clock::time_point scan_moved{};
+  // The watchdog tripped (it holds the outputs gate, outputs_gate.h, until
+  // the scan moves again or the run ends, whatever the bus sessions do).
+  bool scan_hung = false;
   // A gateway's field network: the upper master was OK once in this run, so
   // a session that starts while it is not has lost it.
   bool upper_seen = false;
+
+  // The PLC run ends: a tripped scan watchdog no longer holds the gate.
+  void end_run() {
+    if (scan_hung) set_scan_hung(false);
+    scan_hung = false;
+  }
 };
 
 }  // namespace canopen_plugin

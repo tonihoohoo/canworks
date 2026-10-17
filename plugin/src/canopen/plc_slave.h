@@ -98,6 +98,7 @@ class PlcSlave : public SlaveDevice {
  protected:
   void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnRestored() override;
+  void OnWrite(uint16_t idx, uint8_t subidx) noexcept override;
   void OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
   void OnHeartbeat(uint8_t id, bool occurred) noexcept override;
@@ -110,6 +111,7 @@ class PlcSlave : public SlaveDevice {
   void ReadInputs();
   void UpdateStatus();
   void ReadRoutesDown();
+  void BaselineRoutesDown();
   void WriteStatusRecord(bool all);
   void ForwardEmcy();
   // Active errors behind 0x1001 and the EMCY stack, newest first: the
@@ -155,6 +157,7 @@ class PlcSlave : public SlaveDevice {
   std::vector<uint32_t> route_seen_;  // GatewayLink versions read (routes up)
   std::vector<uint64_t> route_last_;  // last value put (routes down) / written (up)
   std::vector<bool> route_have_;
+  std::vector<bool> route_base_;  // routes down: route_last_ is a baseline, not the upper master's
   uint64_t states_seen_ = ~0ull;
   std::vector<GatewayLink::Emcy> emcy_scratch_;
   struct Bridge {
