@@ -301,11 +301,24 @@ void Network::DiagNmt(const DiagRequest& r) {
     diag_->answer(r.seq, diag_error(r.id, "node " + std::to_string(r.node) + " is not in the configuration"));
     return;
   }
+  // A START or reset of a node the gateway holds needs force, as a change to
+  // a running node does.
+  const bool lifts = r.command != "stop" && r.command != "preop";
+  for (unsigned id : ids)
+    if (lifts && !r.force && GatewayHeld(nodes_[id])) {
+      diag_->answer(r.seq, diag_error(r.id, nodes_[id].cfg->label() + " is held STOPPED by the gateway while the "
+                                                                       "upper master is lost; force needed"));
+      return;
+    }
   std::string note;
   for (unsigned id : ids) {
     const bool forced = r.force && r.command != "start" && image_.node_state(id) == 5;
+    const bool held = lifts && GatewayHeld(nodes_[id]);
     std::string n = OperatorNmt(id, nodes_[id], r.command,
-                                diag_client(r) + (forced ? " (forced: the node was OPERATIONAL)" : ""));
+                                diag_client(r) + (forced ? " (forced: the node was OPERATIONAL)"
+                                                  : held ? " (forced: the gateway held the node)"
+                                                         : ""),
+                                r.force);
     if (!n.empty() && note.empty()) note = ids.size() > 1 ? nodes_[id].cfg->label() + ": " + n : n;
   }
   cJSON* res = cJSON_CreateObject();
@@ -350,12 +363,21 @@ void Network::DiagPdoRead(const DiagRequest& r) {
   diag_->answer(r.seq, diag_ok(r.id, res));
 }
 
-std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by) {
+std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by,
+                                 bool force) {
   uint8_t cs = command == "stop"         ? CANOPEN_PLC_NMT_CS_STOP
                : command == "preop"      ? CANOPEN_PLC_NMT_CS_PREOP
                : command == "start"      ? CANOPEN_PLC_NMT_CS_START
                : command == "reset-comm" ? CANOPEN_PLC_NMT_CS_RESET_COMM
                                          : CANOPEN_PLC_NMT_CS_RESET_NODE;
+  if (!force && GatewayHeld(n) && cs != CANOPEN_PLC_NMT_CS_STOP && cs != CANOPEN_PLC_NMT_CS_PREOP) {
+    LogGatewayRefusal(n,
+                      cs == CANOPEN_PLC_NMT_CS_START        ? "START"
+                      : cs == CANOPEN_PLC_NMT_CS_RESET_COMM ? "RESET COMMUNICATION"
+                                                            : "RESET NODE",
+                      by);
+    return "refused: the gateway holds the node STOPPED while the upper master is lost";
+  }
   return NodeCommand(id, n, cs, HoldSource::Operator, by);
 }
 
