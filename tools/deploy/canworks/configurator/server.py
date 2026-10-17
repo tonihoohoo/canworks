@@ -2665,7 +2665,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except diag.DiagError as e:
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
         if route == ("POST", "/api/online/status"):
-            used, st = call(lambda c: (picked(c), c.status()))
+            try:
+                used, st = call(lambda c: (picked(c), c.status()))
+            except ApiError as e:
+                if e.status != 502:
+                    raise
+                # Not answering: said in the answer, not as an HTTP error on every poll.
+                return dict(e.body, reachable=False)
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
             out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],

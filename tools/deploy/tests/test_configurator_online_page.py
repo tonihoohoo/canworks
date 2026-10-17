@@ -358,13 +358,23 @@ class OnlinePage(OnlineBase):
             self.online(fp)
             pg.click('tr[data-online-node="23"]')
             pg.wait_for_selector('[data-pdo-timeout-row="1"]')
+            read = '#online-node button[data-online="read"]'
+            self.assertFalse(pg.is_disabled(read))
+            # The status polls while the runtime is away answer without an HTTP error.
+            failed = []
+            pg.on("console", lambda m: m.type == "error" and failed.append(m.text))
             fp.outage()
             pg.wait_for_selector("#online-node.stale [data-online='node-stale']", timeout=8000)
             self.assertIn("Connection lost", pg.inner_text('[data-online="node-stale"]'))
             self.assertIn("s ago", pg.inner_text('[data-online="node-stale"]'))
+            # Nothing can be sent meanwhile, and the controls say why.
+            self.assertTrue(pg.is_disabled(read))
+            self.assertIn("connection is lost", pg.get_attribute(read, "title"))
+            self.assertEqual(failed, [])
             fp.restart()
             pg.wait_for_selector("#online-node:not(.stale)", timeout=8000)
             self.assertEqual(pg.locator('[data-online="node-stale"]').count(), 0)
+            self.assertFalse(pg.is_disabled(read))
 
     def test_connection_button_for_a_runtime(self):
         # C1: Change… in the connection bar brings the connect panel back.

@@ -110,7 +110,7 @@ class AdapterTarget(Online):
         self.ok("POST", "/api/online/status", {})
         self.server.connection.client.core.end("test")
         status, data, _ = self.request("POST", "/api/online/status", {})
-        self.assertEqual(status, 502, data)
+        self.assertEqual((status, data.get("reachable")), (200, False), data)
         self.assertIn("connection ended: test", data["error"])
         self.assertFalse(self.server.connection.connected)
 

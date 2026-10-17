@@ -11,7 +11,7 @@ from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
 from .helpers import REPO, add_network, net_action, tree_view
-from .test_configurator_layout import CONTRAST
+from .test_configurator_layout import CONTRAST, TARGETS
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -345,7 +345,11 @@ class RawPage(OnlineBase):
         shutil.copy(os.path.join(EXAMPLE, "cab.sim.json"), os.path.join(self.project, "canworks", "simulation.json"))
         self.write_config()
         self.open()
+        # The links in running text are 24 px targets: Bus's CAN messages, Simulation's Online access.
+        self.assertEqual(pg.evaluate(TARGETS), [])
         pg.click('#tool-tabs button[data-view="simulation"]')
+        pg.wait_for_selector("#view a:has-text('Online access')")
+        self.assertEqual(pg.evaluate(TARGETS), [])
         pg.click('button[data-sim-tab="file"]')
         devices = pg.inner_text('[data-sim="raw-devices"]')
         self.assertIn("0x181 every 20 ms (X, Y)", devices)

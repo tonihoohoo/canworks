@@ -184,6 +184,14 @@ class LinksPage(unittest.TestCase):
         self.assertIn("Node 20 valves: heartbeat watch: node 99 is not a configured node", problems)
         self.assertNotIn("heartbeat_watch", problems)
 
+    def test_master_id_clash_names_the_node(self):
+        pg = self.page
+        self.open()
+        pg.fill('input[data-path="master.node_id"]', "10")
+        pg.wait_for_selector('input[data-path="master.node_id"].invalid')
+        self.assertEqual(pg.inner_text('.field-msg[data-for="master.node_id"]'),
+                         "Node 10 stick: node ID 10 is the master's node ID")
+
     def test_watch_default_timeout(self):
         pg = self.page
         self.open()

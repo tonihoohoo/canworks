@@ -140,7 +140,7 @@ async function switchProtocol(protocol) {
 function renderJ1939(view) {
   const j = j1939Of(S.config);
   view.append(
-    el("h2", null, "Bus and ECU" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "Bus and ECU" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     el("span", { class: "field-msg", dataset: { for: "j1939" } }),
     protocolField(),
     adapterFieldset(),

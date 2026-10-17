@@ -226,12 +226,15 @@ async function api(method, path, body) {
   });
   let data = {};
   try { data = await res.json(); } catch (e) { /* empty body */ }
-  if (method === "POST" && typeof commLogApi === "function") commLogApi(path, body, res.ok, data);
+  // The online status of a runtime or adapter that does not answer comes as
+  // { reachable: false, error, kind }: an error to the callers, like any other.
+  const ok = res.ok && !(data && data.reachable === false);
+  if (method === "POST" && typeof commLogApi === "function") commLogApi(path, body, ok, data);
   // A job was started or stopped: the status bar (jobs.js) looks at once.
   if (method === "POST" && typeof jobsKick === "function" && JOB_ROUTES.test(path)) jobsKick();
-  if (!res.ok) {
+  if (!ok) {
     const err = new Error(data.error || res.statusText);
-    err.status = res.status;
+    err.status = res.ok ? 502 : res.status;
     err.body = data;
     throw err;
   }
@@ -1470,7 +1473,7 @@ function simSummary() {
   if (!S.config || !S.model) return "";
   if (!several()) return netSimSummary(S.config);
   const parts = S.model.networks.map((net, i) => [net, i]).filter(([net]) => netSimulates(net))
-    .map(([net, i]) => `Network ${netLabel(net, i)}: ${netSimSummary(net)}`);
+    .map(([net, i]) => `${upperFirst(netNamed(net, i))}: ${netSimSummary(net)}`);
   if (!parts.length) return "";
   return parts.join(" ");
 }
@@ -4086,7 +4089,7 @@ function renderOnline(view) {
   view.append(el("h2", null, "Nodes"));
   if (!diagConfig()) {
     view.append(notice("info", ["Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
       ", save, and upload the program to the runtime."], { live: false, dataset: { online: "access-off" } }));
     return;
   }
@@ -4114,6 +4117,33 @@ function renderOnline(view) {
 // The views that poll the connection's status.
 function onlineViews() { return S.state && S.state.commission ? ["online", "nodes"] : ["online"]; }
 
+// The node panel's controls that send to the device (NMT, Read, Write): off
+// while the connection is lost, as they were once it answers again.
+const NODE_TALK = ["[data-nmt]", "read", "write", "od-read", "od-read-object", "od-read-all", "od-any-read", "od-any-write",
+  "od-write", "od-edit"].map((k) => (k.startsWith("[") ? k : `[data-online="${k}"]`)).join(", ");
+const LOST_TEXT = "The connection is lost: nothing can be sent until the runtime answers again.";
+function nodeTalk(box, on) {
+  if (on) {
+    for (const b of box.querySelectorAll("[data-lost]")) {
+      const [title, desc] = JSON.parse(b.dataset.lost);
+      delete b.dataset.lost;
+      b.disabled = false;
+      if (title) b.title = title; else b.removeAttribute("title");
+      if (desc) b.setAttribute("aria-description", desc); else b.removeAttribute("aria-description");
+    }
+    return;
+  }
+  for (const b of box.querySelectorAll(NODE_TALK)) {
+    if (b.disabled || b.dataset.lost) continue;
+    b.dataset.lost = JSON.stringify([b.getAttribute("title"), b.getAttribute("aria-description")]);
+    const had = document.activeElement === b;
+    b.disabled = true;
+    b.title = LOST_TEXT;
+    b.setAttribute("aria-description", LOST_TEXT);
+    if (had) focusNear(b);
+  }
+}
+
 // A status answer (or the error of the last poll) on the online views; the
 // connection's poller (connection.js) calls it.
 function onlineApply(r, err) {
@@ -4138,6 +4168,7 @@ function onlineApply(r, err) {
       const note = node.querySelector("[data-online=node-stale] .notice-text");
       if (note) note.textContent = nodeAge(age ?? 0);
       else (node.querySelector(":scope > .notice-slot") || node).prepend(noteBar("error", nodeAge(age ?? 0), { online: "node-stale" }));
+      nodeTalk(node, false);
     }
     clearTimeout(S.onlineAgeTimer);
     if (age !== null) S.onlineAgeTimer = setTimeout(() => {
@@ -4152,7 +4183,7 @@ function onlineApply(r, err) {
   clearTimeout(S.onlineAgeTimer);
   live.classList.remove("stale");
   const nodeBox = $("#online-node");
-  if (nodeBox) nodeBox.classList.remove("stale");
+  if (nodeBox) { nodeBox.classList.remove("stale"); nodeTalk(nodeBox, true); }
   const staleNote = document.querySelector("[data-online=node-stale]");
   if (staleNote) staleNote.remove();
   runtimeNetworks(r);
@@ -7025,7 +7056,7 @@ function applyCheck() {
       if (input && (input.tagName === "INPUT" || input.tagName === "SELECT")) input.classList.add(it.level === "error" ? "invalid" : "warned");
       const msg = document.querySelector(`.field-msg[data-for="${CSS.escape(p)}"]`);
       if (msg) {
-        msg.textContent = (msg.textContent ? msg.textContent + " " : "") + readable(it.message);
+        msg.textContent = (msg.textContent ? msg.textContent + " " : "") + fieldText(it, where[0], w);
         msg.classList.toggle("warning", it.level !== "error");
       }
     }
@@ -7101,6 +7132,20 @@ function humanise(m) {
   return head + (place.length ? `${place.join(", ")}: ${text}` : text);
 }
 
+// A problem at one of its fields. At a field away from the node the problem
+// is about (the master's node ID, for a node that has it) the text names
+// that node, unless it already does.
+function fieldText(it, first, w) {
+  const text = readable(it.message);
+  if (!first || w === first || (w.net ?? S.net) !== (first.net ?? S.net)) return text;
+  const m = /^nodes\[(\d+)\]/.exec(first.path);
+  if (!m || w.path.startsWith(m[0])) return text;
+  const net = first.net === null || first.net === undefined ? S.config : S.model.networks[first.net];
+  const n = ((net && net.nodes) || [])[Number(m[1])];
+  if (!n || new RegExp(`\\bnode ${n.node_id}\\b`).test(text)) return text;
+  return `Node ${n.node_id ?? "?"}${n.name ? " " + n.name : ""}: ${text}`;
+}
+
 // "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...", with the network first
 // when the draft has several.
 const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device.";
@@ -7123,7 +7168,7 @@ function problemText(it, w) {
 function placeOf(w) {
   if (!w || !w.path) return [];
   const net = w.net === null ? null : S.model.networks[w.net];
-  const lead = several() && net ? [`Network ${netLabel(net, w.net)}`] : [];
+  const lead = several() && net ? [upperFirst(netNamed(net, w.net))] : [];
   const path = w.path;
   if (path.startsWith("master.diagnostics")) return ["Online access"];
   if (path.startsWith("master.cia309")) return ["Online access", "CiA 309-3 gateway"];

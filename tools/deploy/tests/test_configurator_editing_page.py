@@ -308,6 +308,7 @@ class Editing(Base):
         self.assertNotIn("network network", pg.inner_text("#view h2"))
         count, text = self.problems(False)
         self.assertNotIn('network ""', text)
+        self.assertNotIn("etwork network", text)
 
     def test_remove_pdo_and_startup_sdo_twice(self):
         pg = self.page
