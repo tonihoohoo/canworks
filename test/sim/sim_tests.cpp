@@ -713,7 +713,7 @@ class Sim {
   // Boot-up messages seen from a node ID, and NMT commands sent to it (0 =
   // to all nodes) with command specifier `cs`.
   int bootups(uint8_t id) { return bootups_[id]; }
-  // 6-byte frames seen on COB-ID 0x100 or 0x180 (TIME), with when they came.
+  // 6-byte frames seen on COB-ID 0x100 or 0x190 (TIME), with when they came.
   struct Stamped {
     std::chrono::steady_clock::time_point at;
     can_msg msg;
@@ -852,7 +852,7 @@ class Sim {
       if (result == 1 && m.id > 0x700 && m.id < 0x780 && m.len == 1 && m.data[0] == 0)
         ++bootups_[static_cast<uint8_t>(m.id - 0x700)];
       if (result == 1 && m.id == 0 && m.len == 2) ++nmt_[m.data[1] * 256 + m.data[0]];
-      if (result == 1 && (m.id == 0x100 || m.id == 0x180)) time_frames_.push_back({std::chrono::steady_clock::now(), m});
+      if (result == 1 && (m.id == 0x100 || m.id == 0x190)) time_frames_.push_back({std::chrono::steady_clock::now(), m});
       Sniff();
     });
   }
@@ -1698,7 +1698,7 @@ TEST(sim_time_producer) {
   CHECK(logged("no configured node is set to consume it"));
 
   clear_logs();
-  res = run(", \"time_period_ms\": 500, \"time_cob_id\": \"0x180\"", 0x180, 600);
+  res = run(", \"time_period_ms\": 500, \"time_cob_id\": \"0x190\"", 0x190, 600);
   CHECK(!res.first.empty());
 
   clear_logs();
