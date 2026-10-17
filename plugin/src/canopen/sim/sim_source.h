@@ -76,6 +76,7 @@ class Source {
   bool has_min_ = false, has_max_ = false, has_start_ = false;
   std::vector<std::pair<double, double>> csv_;  // (time, value)
   bool linear_ = true, loop_ = false;
+  size_t csv_i_ = 1;  // the row found last: time runs forward, so the next search starts there
   std::string expr_text_;
   std::unique_ptr<Expr> expr_;
   // State.

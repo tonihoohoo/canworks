@@ -244,6 +244,11 @@ void SimDevice::ApplyOverrides() {
   if (has_device_type) od_write(od(), 0x1000, 0, Value::number(device_type));
 }
 
+void SimDevice::OnCommand(lely::canopen::NmtCommand cs) noexcept {
+  SlaveDevice::OnCommand(cs);
+  if (cs == lely::canopen::NmtCommand::RESET_NODE && on_reset_node) on_reset_node();
+}
+
 void SimDevice::OnRestored() {
   // After the stored values: the overrides win, and Lely may have replaced
   // the indications on the communication objects.

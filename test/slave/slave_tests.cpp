@@ -709,6 +709,7 @@ TEST(slave_store_survives_restart) {
 }
 
 TEST(slave_lss_assigned_node_id) {
+  clear_logs();
   char tmpl[] = "/tmp/canopen-slave-state-XXXXXX";
   std::string state = mkdtemp(tmpl);
   // The other PLC assigns node 12 over LSS and stores it.
@@ -726,6 +727,9 @@ TEST(slave_lss_assigned_node_id) {
     sim->Start();
     CHECK(sim->RunUntil([&] { return slave_up(*sim); }, seconds(8)));
     CHECK(sim->dev(1).node_id() == 12);
+    // The node ID conflict guard follows the assigned node ID.
+    sim->Send("line", 0x70C, {0x05});
+    CHECK(sim->RunUntil([&] { return logged("uses node ID 12"); }, seconds(1)));
     CHECK(read(state + "/line.json").find("\"lss_node_id\":\t12") != std::string::npos ||
           read(state + "/line.json").find("\"lss_node_id\": 12") != std::string::npos);
   }

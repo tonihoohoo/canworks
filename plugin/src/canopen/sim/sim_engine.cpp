@@ -419,7 +419,7 @@ void Simulator::LoadPersisted(Dev& d) {
     if (word == "lss_id") {
       unsigned id = 0;
       in >> id;
-      d.store->lss_id = static_cast<uint8_t>(id);
+      if (id >= 1 && id <= 127) d.store->lss_id = static_cast<uint8_t>(id);  // else damaged: none
     } else if (word == "saved") {
       std::string k, h;
       in >> k >> h;
@@ -484,15 +484,19 @@ bool Simulator::Start(std::vector<std::string>& errors) {
       cJSON_Delete(j);
     }
     d.inputs = DriveInputs();
-    d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node));
+    // A node ID stored over LSS counts as well: the device would boot with it.
+    d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node)) ||
+              (d.store->lss_id && opt_.taken.count(d.store->lss_id));
   }
   if (!errors.empty()) return false;
 
   for (auto& dp : devs_) {
     Dev& d = *dp;
     if (d.taken) {
-      Log(Host::Level::Error, d.label + ": node ID " + std::to_string(d.spec.node) +
-                                  " is taken by a device on " + host_.interface_name() + "; not simulated");
+      bool stored = !(d.spec.node && (d.spec.conflict || opt_.taken.count(d.spec.node)));
+      Log(Host::Level::Error, d.label + ": node ID " + std::to_string(stored ? d.store->lss_id : d.spec.node) +
+                                  (stored ? " (stored by an LSS master)" : "") + " is taken by a device on " +
+                                  host_.interface_name() + "; not simulated");
       continue;
     }
     PowerOn(d);
@@ -693,7 +697,12 @@ void Simulator::PowerOn(Dev& d) {
     });
   }
   dev.Reset();
-  if (d.drive) d.drive->power_on();
+  if (d.drive) {
+    d.drive->power_on();
+    // NMT reset node restarts the drive's application, as on a real drive.
+    DriveModel* dm = d.drive.get();
+    dev.on_reset_node = [dm]() { dm->power_on(); };
+  }
   Log(Host::Level::Info, d.label + ": powered on (" + basename_of(d.spec.eds_path) +
                              (id == 0xFF ? ", no node ID, waiting for LSS" : "") + ")");
 }

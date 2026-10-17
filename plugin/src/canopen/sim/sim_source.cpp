@@ -343,6 +343,7 @@ bool Source::bind(const ExprResolver& res, ExprError& err) {
 void Source::restart() {
   started_ = false;
   state_ = 0;
+  csv_i_ = 1;
   if (expr_) expr_->reset();
 }
 
@@ -432,8 +433,11 @@ Value Source::eval(double t, ExprContext& ctx) {
       } else if (tt >= end) {
         v = csv_.back().second;
       } else {
-        size_t i = 1;
+        // The first row at or after tt; from the last one found while time
+        // runs forward (not every row of a long file each tick).
+        size_t i = csv_i_ < csv_.size() && csv_[csv_i_ - 1].first < tt ? csv_i_ : 1;
         while (i < csv_.size() && csv_[i].first < tt) ++i;
+        csv_i_ = i;
         const auto& a = csv_[i - 1];
         const auto& b = csv_[i];
         if (!linear_ || b.first == a.first) v = tt >= b.first ? b.second : a.second;

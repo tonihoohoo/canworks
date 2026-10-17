@@ -71,8 +71,8 @@ class SlaveDevice : public lely::canopen::BasicSlave {
   };
   std::vector<PdoMap> Pdos(bool tpdo) const;
   // Watches for frames another device sends with this device's node ID
-  // (boot-up or heartbeat, EMCY, SDO answer); `on_conflict` is posted to the
-  // loop once.
+  // (boot-up or heartbeat, EMCY, SDO answer), also one LSS assigns later;
+  // `on_conflict` is posted to the loop once.
   void GuardNodeId(std::function<void()> on_conflict);
 
   std::function<void(const std::string&)> on_log;
@@ -100,10 +100,12 @@ class SlaveDevice : public lely::canopen::BasicSlave {
 
  private:
   void WaitForNmtStart();
+  void StartGuard();
   void ApplyStored(bool node);
   bool InPdo(uint16_t base, uint16_t index, uint8_t subindex) const;
   Options options_;
   std::vector<__can_recv*> recvs_;
+  std::vector<__can_recv*> guard_;  // in recvs_ too
   std::function<void()> on_conflict_;
   bool conflict_posted_ = false;
   bool node_reset_ = true;
