@@ -24,6 +24,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr size_t kMbapSize = 7;
 constexpr size_t kMaxPdu = 253;
+constexpr size_t kMaxFrame = kMbapSize + kMaxPdu;
 
 struct Client {
   int fd;
@@ -34,15 +35,25 @@ struct Client {
   Clock::time_point over{};      // since when tx is over max_queued
   bool over_cap = false;
   std::vector<uint8_t> rx;
+  size_t used = 0;  // rx[used..] is not yet handled; compacted once per round
   std::vector<uint8_t> tx;
   uint64_t requests = 0;
 };
 
 // Whether rx holds a whole frame (or a bad header, which closes).
-bool frame_ready(const std::vector<uint8_t>& rx) {
-  if (rx.size() < kMbapSize) return false;
-  uint16_t len = get_be16(&rx[4]);
-  return get_be16(&rx[2]) != 0 || len < 2 || len > kMaxPdu + 1 || rx.size() >= 6u + len;
+bool frame_ready(const Client& c) {
+  size_t n = c.rx.size() - c.used;
+  if (n < kMbapSize) return false;
+  const uint8_t* f = &c.rx[c.used];
+  uint16_t len = get_be16(f + 4);
+  return get_be16(f + 2) != 0 || len < 2 || len > kMaxPdu + 1 || n >= 6u + len;
+}
+
+// Whether more may be read: under the reply cap, and less than one frame
+// waiting (a client that pipelines faster than it reads its replies waits in
+// its own socket buffer, not in ours).
+bool may_read(const Client& c, size_t max_queued) {
+  return c.tx.size() < max_queued && c.rx.size() - c.used < kMaxFrame;
 }
 
 void close_fd(int& fd) {
@@ -109,8 +120,9 @@ void ModbusServer::run() {
     for (const Client& c : clients) {
       // Over the reply cap: nothing more is read until the client takes its replies.
       bool room = c.tx.size() < cfg_.max_queued;
-      fds.push_back({c.fd, static_cast<short>((room ? POLLIN : 0) | (c.tx.empty() ? 0 : POLLOUT)), 0});
-      if (room && frame_ready(c.rx)) timeout = 0;  // requests left over from the last round
+      bool read = may_read(c, cfg_.max_queued);
+      fds.push_back({c.fd, static_cast<short>((read ? POLLIN : 0) | (c.tx.empty() ? 0 : POLLOUT)), 0});
+      if (room && frame_ready(c)) timeout = 0;  // requests left over from the last round
     }
     if (::poll(fds.data(), fds.size(), timeout) < 0 && errno != EINTR) break;
     if (stop_) break;
@@ -125,43 +137,48 @@ void ModbusServer::run() {
       if (!drop && (re & (POLLIN | POLLHUP))) {
         if (c.tx.size() >= cfg_.max_queued) {
           drop = (re & POLLHUP) != 0;  // gone; its replies cannot be delivered
-        } else {
+        } else if (may_read(c, cfg_.max_queued)) {
           uint8_t buf[1024];
           ssize_t got = ::recv(c.fd, buf, sizeof(buf), 0);
           if (got <= 0) {
             drop = !(got < 0 && (errno == EAGAIN || errno == EINTR));
           } else {
-            if (c.rx.empty()) c.partial = now;
+            if (c.rx.size() == c.used) c.partial = now;
             c.rx.insert(c.rx.end(), buf, buf + got);
           }
         }
       }
       // The complete frames in the buffer, in order, while the replies fit.
-      while (!drop && c.tx.size() < cfg_.max_queued && c.rx.size() >= kMbapSize) {
-        uint16_t proto = get_be16(&c.rx[2]);
-        uint16_t len = get_be16(&c.rx[4]);
+      while (!drop && c.tx.size() < cfg_.max_queued && c.rx.size() - c.used >= kMbapSize) {
+        const uint8_t* f = &c.rx[c.used];
+        uint16_t proto = get_be16(f + 2);
+        uint16_t len = get_be16(f + 4);
         if (proto != 0 || len < 2 || len > kMaxPdu + 1) {
           say("modbus: closing " + c.peer + ": not a Modbus TCP frame");
           drop = true;
           break;
         }
-        if (c.rx.size() < 6u + len) break;
-        uint8_t unit = c.rx[6];
+        if (c.rx.size() - c.used < 6u + len) break;
+        uint8_t unit = f[6];
         ++c.requests;
         c.last = now;
-        const uint8_t* pdu = &c.rx[kMbapSize];
+        const uint8_t* pdu = f + kMbapSize;
         size_t n = len - 1u;
         if (unit != cfg_.unit_id && unit != 0 && unit != 255) {
           exception_pdu(pdu[0], kGatewayTargetFailed, resp);
         } else if (handle_pdu(image_, pdu, n, c.may_write, resp) && on_write) {
           on_write();
         }
-        uint8_t head[kMbapSize] = {c.rx[0], c.rx[1], 0, 0, 0, 0, unit};
+        uint8_t head[kMbapSize] = {f[0], f[1], 0, 0, 0, 0, unit};
         put_be16(head + 4, static_cast<uint16_t>(resp.size() + 1));
         c.tx.insert(c.tx.end(), head, head + kMbapSize);
         c.tx.insert(c.tx.end(), resp.begin(), resp.end());
-        c.rx.erase(c.rx.begin(), c.rx.begin() + 6 + len);
+        c.used += 6u + len;
         c.partial = now;  // the next request starts now
+      }
+      if (c.used) {  // once per round, not once per request
+        c.rx.erase(c.rx.begin(), c.rx.begin() + static_cast<std::ptrdiff_t>(c.used));
+        c.used = 0;
       }
       if (!drop && !c.tx.empty()) {
         ssize_t sent = ::send(c.fd, c.tx.data(), c.tx.size(), MSG_NOSIGNAL);
@@ -237,14 +254,15 @@ void ModbusServer::run() {
         }
         int one = 1;
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-        clients.push_back(Client{fd, writer, who, now, now, now, false, {}, {}, 0});
+        clients.push_back(Client{fd, writer, who, now, now, now, false, {}, 0, {}, 0});
       }
     }
     clients_.store(static_cast<int>(clients.size()), std::memory_order_relaxed);
     {
       std::lock_guard<std::mutex> lock(info_mu_);
       info_.clear();
-      for (const Client& c : clients) info_.push_back(ClientInfo{c.peer, c.requests, c.may_write, c.tx.size()});
+      for (const Client& c : clients)
+        info_.push_back(ClientInfo{c.peer, c.requests, c.may_write, c.tx.size(), c.rx.size()});
     }
   }
   for (Client& c : clients) ::close(c.fd);

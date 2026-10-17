@@ -75,6 +75,15 @@ class Client {
     return read_frame();
   }
 
+  // Reads whatever has arrived without waiting; the number of bytes.
+  size_t drain() {
+    size_t n = 0;
+    uint8_t buf[4096];
+    ssize_t got;
+    while ((got = ::recv(fd_, buf, sizeof(buf), MSG_DONTWAIT)) > 0) n += static_cast<size_t>(got);
+    return n;
+  }
+
   // True when the server closed the connection.
   bool closed(int timeout_ms = 2000) {
     pollfd p{fd_, POLLIN, 0};
