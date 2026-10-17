@@ -44,10 +44,12 @@ def _u(data):
 
 
 def layout(get, eds, node_id):
-    """{"tpdos": [...], "rpdos": [...]} of the PDOs whose COB-ID is valid.
-    `get(key)` returns an entry's bytes or None (from the device, or from a
-    configuration with the device as fallback)."""
-    out = {"tpdos": [], "rpdos": [], "node": node_id}
+    """{"tpdos": [...], "rpdos": [...], "notes": [...]} of the PDOs whose
+    COB-ID is valid. `get(key)` returns an entry's bytes or None (from the
+    device, or from a configuration with the device as fallback). A PDO whose
+    mapping cannot be read whole is left out with a note: packing the entries
+    that were read would put the later ones at the wrong bits."""
+    out = {"tpdos": [], "rpdos": [], "node": node_id, "notes": []}
     for key, comm, mapping, prefix in kinds():
         for n in range(MAX_PDOS):
             if not (eds.has(comm + n) and eds.has(mapping + n)):
@@ -59,15 +61,23 @@ def layout(get, eds, node_id):
                 continue
             trans = _u(get((comm + n, 2)))
             timer = _u(get((comm + n, 5))) if eds.find(comm + n, 5) is not None else None
-            count = _u(get((mapping + n, 0))) or 0
+            name = "%s%d" % (prefix, n + 1)
+            count = _u(get((mapping + n, 0)))
+            if count is None:
+                out["notes"].append("%s left out: its mapping count 0x%04X:0 is not readable" % (name, mapping + n))
+                continue
             entries = []
             for k in range(1, min(count, 64) + 1):
                 v = _u(get((mapping + n, k)))
-                if v:
-                    entries.append(_entry(eds, v))
+                if not v:
+                    out["notes"].append("%s left out: mapping entry 0x%04X:%d %s" % (
+                        name, mapping + n, k, "is not readable" if v is None else "is 0"))
+                    entries = []
+                    break
+                entries.append(_entry(eds, v))
             if not entries:
                 continue
-            out[key].append({"number": n + 1, "name": "%s%d" % (prefix, n + 1), "cob_id": cob & 0x7FF,
+            out[key].append({"number": n + 1, "name": name, "cob_id": cob & 0x7FF,
                              "transmission": trans if trans is not None else 255, "event_timer_ms": timer or 0,
                              "entries": entries})
     return out

@@ -2008,7 +2008,8 @@ def _pdo_test(client, args, out):
     else:
         layout = pdotest.from_device(client, args.node, ctx.eds)
     if not layout["tpdos"] and not layout["rpdos"]:
-        raise DiagError("refused", "node %d has no valid PDO" % args.node)
+        raise DiagError("refused", "node %d has no valid PDO%s" % (args.node, "".join(
+            "; " + n for n in layout["notes"])))
     sets = {}
     for item in args.set:
         key, eq, value = item.partition("=")
@@ -2036,6 +2037,8 @@ def _pdo_test(client, args, out):
         out.write("PDO test of node %d (%s): %s\n" % (args.node, "configuration" if ctx.configured else "read from "
                                                      "the device", ", ".join(p["name"] for p in
                                                                              layout["tpdos"] + layout["rpdos"])))
+        for note in layout["notes"]:
+            out.write("  %s\n" % note)
         out.flush()
     started = time.monotonic()
     st = {}
