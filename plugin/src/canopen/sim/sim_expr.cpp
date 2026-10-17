@@ -403,6 +403,9 @@ class Parser {
     if (!parse_object_key(obj, idx, sub)) fail(k.pos, "malformed object '" + obj + "' (want [0xIIII:S] or [NODE/0xIIII:S])");
     int d = res_.self();
     if (!dev.empty()) {
+      // A node ID is written as the device list names it: [5/...], not [05/...].
+      if (dev[0] == '0' && dev.find_first_not_of("0123456789") == std::string::npos)
+        fail(k.pos, "device " + dev + ": write the node ID without leading zeros");
       d = res_.device(dev);
       if (d < 0) fail(k.pos, "unknown device " + dev + " (not a simulated device)");
     }

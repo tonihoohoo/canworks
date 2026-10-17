@@ -208,8 +208,14 @@ class Live(Sim):
 
 class Offline(Sim):
     def test_without_the_checker_module_nothing_is_claimed(self):
-        with mock.patch.dict("sys.modules", {"canworks.simfile": None}):
-            r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
+        import canworks
+        saved = canworks.__dict__.pop("simfile", None)  # imported already: hide it as if not installed
+        try:
+            with mock.patch.dict("sys.modules", {"canworks.simfile": None}):
+                r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
+        finally:
+            if saved is not None:
+                canworks.simfile = saved
         self.assertEqual(r, {"checked": False})
 
     def test_with_the_checker_module(self):
@@ -231,6 +237,22 @@ class Offline(Sim):
                                "by": "configurator"})
         self.assertEqual(good, {"checked": True, "ok": True, "by": "configurator"})
         self.assertEqual(seen[0], (True, True, False))
+
+    def test_with_the_real_checker(self):
+        # The configurator's own simfile, not a stand-in: errors are shown
+        # without a runtime, with the plugin's positions.
+        self.ok("POST", "/api/save", {"config": sim_config()})
+        r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
+        self.assertEqual((r["checked"], r["ok"], r["position"], r["by"]), (True, False, 4, "configurator"))
+        self.assertIn("unknown name 'foo'", r["error"])
+        r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "[05/0x7130:1] + 1"})
+        self.assertEqual((r["ok"], r["position"]), (False, 0))
+        self.assertIn("leading zeros", r["error"])
+        r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "[9/0x7130:1]"})
+        self.assertEqual(r["ok"], False)
+        self.assertIn("unknown device 9", r["error"])
+        r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "[0x7130:01] * 2"})
+        self.assertEqual(r, {"checked": True, "ok": True, "by": "configurator"})
 
 
 if __name__ == "__main__":

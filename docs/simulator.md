@@ -239,20 +239,22 @@ An expression computes a value every tick. It has numbers (`12`, `-3.5`, `0x1F`,
 | `[0x6200:1]` | Object 0x6200 subindex 1 of the same device (`[0x6200]` is subindex 0). |
 | `[7/0x6200:1]` | The same object of simulated node 7 (or of the extra device named `spare`: `[spare/0x6200:1]`). |
 
-Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!=`, `<` `<=` `>` `>=`, `<<` `>>`, `+` `-`, `*` `/` `%`, `**` (power, right to left), unary `-` `!` `~`. Bit operators work on the integer part. Comparisons and `!` give 1 or 0.
+A subindex is decimal (`:1`, `:01`) or hex with `0x` (`:0x01`); a node ID is written without leading zeros (`[7/…]`, not `[07/…]`). The configurator's check and the plugin read expressions alike and give the same values (the shared cases are in `test/fixtures/sim/expressions.json`).
+
+Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!=`, `<` `<=` `>` `>=`, `<<` `>>`, `+` `-`, `*` `/` `%`, `**` (power, right to left), unary `-` `!` `~`. Bit operators work on the integer part as a signed 64-bit integer; a shift by less than 0 or more than 63 gives 0. Comparisons and `!` give 1 or 0. `&&` and `||` evaluate both sides.
 
 | Function | Value |
 |---|---|
 | `abs(x)`, `floor(x)`, `ceil(x)`, `round(x)`, `sqrt(x)`, `exp(x)`, `log(x)`, `sin(x)`, `cos(x)` | As usual (radians). |
 | `min(a, b, ...)`, `max(a, b, ...)`, `clamp(x, lo, hi)` | Limits. |
-| `if(c, a, b)` | `a` when `c` is not 0, else `b`. |
+| `if(c, a, b)` | `a` when `c` is not 0, else `b`. All three are evaluated every tick, so `lag`, `integrate`, `edge` and the like in the branch not taken keep running. |
 | `bit(x, n)`, `setbit(x, n, v)` | Bit `n` of `x`; `x` with bit `n` set to `v`. |
 | `noise(a)` | A new random value between -a and a every tick. |
-| `lag(x, tau)` | First-order lag of `x` with time constant `tau` seconds (a temperature following its heater). |
-| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s; a delay that is not a finite number counts as 0). It keeps at most 10,000 samples, so at a short tick a long delay gets shorter, and it starts over when time goes back. |
+| `lag(x, tau)` | First-order lag of `x` with time constant `tau` seconds (a temperature following its heater): it starts at `x` and moves by (x − value) × (1 − e^(−dt/tau)) each tick. |
+| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s: a number above it is refused, a computed one is limited to 0-600 s; a delay that is not a finite number counts as 0). It keeps at most 10,000 samples, so at a short tick a long delay gets shorter, and it starts over when time goes back. |
 | `rate_limit(x, r)` | Follows `x`, changing by at most `r` per second. |
 | `integrate(x)` | The integral of `x` over time since power-on. |
-| `hold(x, c)` | Takes `x` when `c` rises, keeps it otherwise. |
+| `hold(x, c)` | Takes `x` on the first tick and when `c` rises, keeps it otherwise. |
 | `edge(c)` | 1 in the tick `c` rises, else 0. |
 
 An expression is checked when it is loaded: an unknown name, function, object or device, a wrong number of arguments, text longer than 4096 characters, nesting deeper than 128 levels (parentheses, calls, operators), or a reference cycle through objects whose sources are expressions without `lag`, `delay` or `integrate` on the way is refused with its position in the text. While running, a division by zero or a result that is not a finite number keeps the object's previous value; the device reports it once.
@@ -322,7 +324,7 @@ A scenario is a named list of steps, run in order. A step has one action, option
 | `wait` | a condition, and `timeout_ms` on the step | Waits until it holds; a timeout fails the scenario. |
 | `expect` | a condition, and `within_ms` or `for_ms` on the step | Checks it: now, until it holds within the time, or that it holds the whole time. |
 | `log` | text | Prints the text. |
-| `repeat` | `count` (0: forever), `steps` | Runs the steps again and again. A pass in which no step waited ends the scenario's steps for that tick, so a repeat of instant steps runs one pass per tick. |
+| `repeat` | `count` (0 or none: forever), `steps` | Runs the steps again and again. A pass in which no step waited ends the scenario's steps for that tick, so a repeat of instant steps runs one pass per tick. |
 
 A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `ne`, `lt`, `le`, `gt`, `ge` and optionally `bit` (compares that bit), or `{"expr": "[7/0x6200:1] > 5 && [5/0x7130:1] < 300"}`.
 
