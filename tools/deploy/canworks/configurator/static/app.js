@@ -711,6 +711,9 @@ function choice(label, path, choices, opts) {
   let current = opts.current !== undefined ? opts.current : getPath(path);
   const list = choices.slice();
   if (current === undefined && !list.some((c) => c.value === undefined)) current = list[0].value;
+  // A default written out ("word_order": "high_first") shows as the default's row.
+  const lit = list.find((c) => c.literal !== undefined && key(c.literal) === key(current));
+  if (lit) current = lit.value;
   if (!list.some((c) => key(c.value) === key(current))) {
     list.push({ value: current, label: String(current) + " (as in the file)", help: "A value this page has no name for." });
   }
@@ -935,19 +938,27 @@ async function renameNetwork() {
   const was = netName(net);
   if (!name || name === iface) delete net.name;
   else net.name = name;
-  // The gateway names networks: it follows the rename.
+  // The gateway and the Modbus bridge's live lists name networks: they follow the rename.
   const g = S.model.top.gateway;
   const now = netName(net);
   if (g && was && now && was !== now) {
     if (g.upper === was) g.upper = now;
     for (const r of g.routes || []) if (r && r.field && r.field.network === was) r.field.network = now;
   }
+  if (was && now && was !== now) for (const e of bridgeLists()) if (e.network === was) e.network = now;
   changed(true);
 }
 
-// A node ID changed: the gateway routes that read or write the node follow
-// it. The last whole ID is kept while the field is empty, so typing over
-// the ID carries the routes along too.
+// The Modbus bridge's live lists ({ network, location }) of the draft.
+function bridgeLists() {
+  const b = S.model.top.bridge;
+  return b && Array.isArray(b.live_lists) ? b.live_lists.filter((e) => e && typeof e === "object") : [];
+}
+
+// A node ID changed: the gateway routes that read or write the node, the
+// PDO links it is in and the heartbeat watches of it follow it. The last
+// whole ID is kept while the field is empty, so typing over the ID carries
+// them along too.
 function followNodeId(path, was, now) {
   S.nodeIdWas = S.nodeIdWas || {};
   const key = `${S.net}|${path}`;
@@ -955,10 +966,28 @@ function followNodeId(path, was, now) {
   if (Number.isInteger(was)) S.nodeIdWas[key] = was;
   if (!Number.isInteger(now)) return;
   S.nodeIdWas[key] = now;
+  if (!Number.isInteger(from) || from === now) return;
+  const u = nodeUses(from);
+  for (const r of u.routes) r.field.node = now;
+  for (const l of u.from) l.from.node = now;
+  for (const c of u.to) c.node = now;
+  for (const h of u.watches) h.node = now;
+}
+
+// What names node `id` of the open network: the gateway routes that read or
+// write it, the links it produces ({ from }) or receives ({ to }, the
+// consumers) and the other nodes' heartbeat watches of it.
+function nodeUses(id) {
   const g = S.model.top.gateway;
   const net = netName(S.config);
-  if (!g || !net || !Number.isInteger(from) || from === now) return;
-  for (const r of g.routes || []) if (r && r.field && r.field.network === net && num(r.field.node) === from) r.field.node = now;
+  const out = { routes: [], from: [], to: [], watches: [] };
+  if (g && net) for (const r of g.routes || []) if (r && r.field && r.field.network === net && num(r.field.node) === id) out.routes.push(r);
+  for (const l of S.config.links || []) {
+    if (l && l.from && num(l.from.node) === id) out.from.push(l);
+    for (const c of (l && Array.isArray(l.to) ? l.to : [])) if (c && num(c.node) === id) out.to.push(c);
+  }
+  for (const n of S.config.nodes || []) for (const h of n.heartbeat_watch || []) if (h && num(h.node) === id) out.watches.push(h);
+  return out;
 }
 
 async function removeNetwork() {
@@ -967,13 +996,20 @@ async function removeNetwork() {
   const g = S.model.top.gateway;
   const upper = !!(g && netName(S.config) && g.upper === netName(S.config));
   const routes = upper && Array.isArray(g.routes) ? g.routes.length : 0;
-  // The gateway's upper network: the gateway goes with it.
+  const live = netName(S.config) ? bridgeLists().filter((e) => e.network === netName(S.config)) : [];
+  // The gateway's upper network: the gateway goes with it. Its bridge live list too.
   const v = await modal(`Remove ${label}` + (k ? ` and its ${k} node${k === 1 ? "" : "s"}` : "") + "? " +
     (upper ? `It is the gateway's upper network: the gateway and its ${routes} route${routes === 1 ? "" : "s"} are removed too, ` +
       "and the PDO entries the routes use then need a PLC location. " : "") +
+    (live.length ? "Its Modbus bridge live list is removed too. " : "") +
     "Its EDS files stay in the folder.", [["cancel", "Keep the network"], ["remove", upper ? "Remove network and gateway" : "Remove network", { danger: true }]]);
   if (v !== "remove") return;
   if (upper) delete S.model.top.gateway;
+  if (live.length) {
+    const b = S.model.top.bridge;
+    b.live_lists = b.live_lists.filter((e) => !live.includes(e));
+    if (!b.live_lists.length) delete b.live_lists;
+  }
   S.model.networks.splice(S.net, 1);
   openNet(Math.min(S.net, S.model.networks.length - 1));
   S.onlineNet = null;
@@ -1630,7 +1666,7 @@ function renderBus(view) {
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
           hint: "Required, 1 to 127, and not used by any slave. New configs start with 1." }),
         choice("SYNC source", "master.sync_source", [
-          { value: undefined, label: "Timer",
+          { value: undefined, literal: "timer", label: "Timer",
             help: "Default. The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
           { value: "plc_cycle", label: "PLC cycle",
             help: "One SYNC at the start of every PLC cycle (or every N cycles): inputs are one cycle old and outputs reach the devices after a fixed delay. The SYNC period is the PLC task interval; give every task an interval that is a multiple of the fastest one." },
@@ -1647,7 +1683,7 @@ function renderBus(view) {
         field("Master heartbeat (ms)", "master.heartbeat_ms", "intstr", { placeholder: "off",
           hint: "Empty: off. Set it when slaves should watch the master." }),
         choice("When the PLC stops", "master.on_plc_stop", [
-          { value: undefined, label: "Pre-operational",
+          { value: undefined, literal: "preop", label: "Pre-operational",
             help: "Default. Each node that is up gets ENTER PRE-OPERATIONAL before the network closes: its PDOs stop, so its own communication-loss setting applies, and SDO access stays for a restart." },
           { value: "stop", label: "Stopped", help: "Each node that is up gets NMT STOP: PDOs and SDO stop until the next PLC start." },
           { value: "keep", label: "Keep running", help: "Nothing is sent: the nodes keep the last outputs they got. Only for devices that are safe that way." },
@@ -1655,7 +1691,7 @@ function renderBus(view) {
         field("Scan watchdog (ms)", "master.scan_watchdog_ms", "intstr", { placeholder: "1000",
           hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (RPDOs and raw sends; SYNC goes on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }),
         choice("EDS lint (dcfgen)", "master.eds_lint", [
-          { value: undefined, label: "Communication objects",
+          { value: undefined, literal: "communication", label: "Communication objects",
             help: "Default. The PLC stops only on lint findings in the objects 0x1000-0x1FFF that dcfgen writes, and not on findings only about limits. Other findings are logged as one warning per EDS." },
           { value: "all", label: "Every object", help: "The PLC stops on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it." },
           { value: "off", label: "Off", help: "The PLC never stops on a lint finding; findings are logged as one warning per EDS." },
@@ -1829,7 +1865,7 @@ const BINDABLE = { rww: "input", rw: "input", ro: "output", rwr: "output" };
 function roleField() {
   return el("fieldset", null, el("legend", null, "Role"),
     el("div", { class: "grid" }, choice("This network", "role", [
-      { value: undefined, label: "Master", help: "Default. The plugin is the network's master: it boots and configures the nodes listed here." },
+      { value: undefined, literal: "master", label: "Master", help: "Default. The plugin is the network's master: it boots and configures the nodes listed here." },
       { value: "slave", label: "Slave", help: "Another master runs this network; the plugin is one of its nodes, with an EDS for that master's tool." },
     ], { onChange: switchRole })));
 }
@@ -1909,11 +1945,11 @@ function slaveFieldsets() {
           el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
         el("label", { class: "file-button" }, "Use an EDS file… ", edsFile),
         choice("Inputs when the master is lost", base + ".inputs_on_loss", [
-          { value: undefined, label: "Hold", help: "Default. Inputs keep their last value while the node is not operational or the master's heartbeat is lost." },
+          { value: undefined, literal: "hold", label: "Hold", help: "Default. Inputs keep their last value while the node is not operational or the master's heartbeat is lost." },
           { value: "zero", label: "Zero", help: "Inputs read 0 while the node is not operational or the master's heartbeat is lost." },
         ]),
         choice("EDS lint (dcfgen)", base + ".eds_lint", [
-          { value: undefined, label: "Communication objects", help: "Default. The PLC stops only on lint findings in 0x1000-0x1FFF." },
+          { value: undefined, literal: "communication", label: "Communication objects", help: "Default. The PLC stops only on lint findings in 0x1000-0x1FFF." },
           { value: "all", label: "Every object", help: "The PLC stops on any lint finding. An EDS built here always passes it." },
           { value: "off", label: "Off", help: "The PLC never stops on a lint finding." },
         ]))),
@@ -2177,7 +2213,7 @@ function renderGateway(view) {
         checkbox("Forward field EMCYs", "gateway.emcy_forward", false,
           "A field node's EMCY goes out as the gateway's EMCY, with the network and node in the manufacturer bytes."),
         choice("When the upper master is lost", "gateway.on_upper_loss", [
-          { value: undefined, label: "Hold", help: "Default. Routed field outputs keep their last values." },
+          { value: undefined, literal: "hold", label: "Hold", help: "Default. Routed field outputs keep their last values." },
           { value: "zero", label: "Zero", help: "Routed field outputs are set to 0." },
           { value: "stop_nodes", label: "Stop the field nodes", help: "Field nodes that receive routes get NMT stop, and start again when the upper master starts the gateway." },
         ]),
@@ -6649,9 +6685,36 @@ function moveEntry(i, key, j, k, to) {
 
 async function removeNode(i) {
   const n = S.config.nodes[i];
-  const v = await modal(`Remove node ${n.node_id} ${n.name || ""}? Its EDS file stays in the folder.`,
-    [["cancel", "Keep the node"], ["remove", "Remove node", { danger: true }]]);
-  if (v !== "remove") return;
+  const id = num(n.node_id);
+  // What names the node: listed, and removed with it unless kept to point elsewhere.
+  const u = Number.isInteger(id) ? nodeUses(id) : { routes: [], from: [], to: [], watches: [] };
+  const own = new Set((n.heartbeat_watch || []));
+  const watches = u.watches.filter((h) => !own.has(h));
+  const links = new Set(u.from.concat(linkList().filter((l) => (l.to || []).some((c) => u.to.includes(c)))));
+  const uses = [];
+  if (links.size) uses.push([...links].map((l) => linkName(l, linkList().indexOf(l))).join(", "));
+  if (u.routes.length) uses.push(u.routes.map((r) => `gateway route ${r.name || S.model.top.gateway.routes.indexOf(r) + 1}`).join(", "));
+  const watchers = S.config.nodes.filter((m) => m !== n && (m.heartbeat_watch || []).some((h) => watches.includes(h)));
+  if (watchers.length) uses.push(`the heartbeat watch of ${watchers.map(nodeText).join(", ")}`);
+  const text = `Remove node ${n.node_id} ${n.name || ""}? Its EDS file stays in the folder.` +
+    (uses.length ? ` It is used by ${uses.join("; ")}.` : "");
+  const v = await modal(text, uses.length
+    ? [["cancel", "Keep the node"], ["node", "Remove the node only"], ["remove", "Remove node and its uses", { danger: true }]]
+    : [["cancel", "Keep the node"], ["remove", "Remove node", { danger: true }]]);
+  if (v !== "remove" && v !== "node") return;
+  if (v === "remove" && uses.length) {
+    // Its links as producer go; as consumer it leaves the link's consumers.
+    const keep = linkList().filter((l) => !u.from.includes(l));
+    for (const l of keep) if (Array.isArray(l.to)) l.to = l.to.filter((c) => !u.to.includes(c));
+    if (keep.length) S.config.links = keep; else delete S.config.links;
+    const g = S.model.top.gateway;
+    if (g && u.routes.length) g.routes = g.routes.filter((r) => !u.routes.includes(r));
+    for (const m of S.config.nodes) {
+      if (m === n || !m.heartbeat_watch) continue;
+      m.heartbeat_watch = m.heartbeat_watch.filter((h) => !watches.includes(h));
+      if (!m.heartbeat_watch.length) delete m.heartbeat_watch;
+    }
+  }
   S.config.nodes.splice(i, 1);
   S.supervision = {};
   S.view = "bus";

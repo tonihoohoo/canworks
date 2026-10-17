@@ -125,6 +125,38 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page")
 
+    def test_example_live_list_follows_the_network(self):
+        """The example as it is: defaults written out show as the default,
+        a network rename carries the live list along, a removal takes it."""
+        pg = self.page
+        self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
+        self.write_config()
+        self.open()
+        tree_view(pg, "bridge")
+        pg.wait_for_selector("h2:has-text('Modbus bridge')")
+        for path, label in (("bridge.word_order", "High word first"), ("bridge.on_client_loss", "Stop")):
+            self.assertEqual(pg.eval_on_selector('select[data-path="%s"]' % path,
+                                                 "s => s.selectedOptions[0].textContent"), label)
+        self.assertNotIn("as in the file", pg.inner_text("#view"))
+        add = 'button[data-bridge="add-live-list"]'
+        self.assertTrue(pg.is_disabled(add))
+        self.assertIn("Every CANopen master network has a live list", pg.get_attribute(add, "title"))
+        pg.click('#tree [data-net-menu="0"]')
+        pg.click('#modal-buttons [data-value="rename"]')
+        pg.fill('#modal-extra input[data-net="name"]', "plant")
+        pg.press('#modal-extra input[data-net="name"]', "Enter")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.live_lists[0].network"), "plant")
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        # A second network, then the first removed: its live list goes with it.
+        pg.click('#tree [data-action="add-network"] > .tree-row')
+        pg.click('#modal button[data-value="canopen"]')
+        pg.click('#tree [data-net-menu="0"]')
+        pg.click('#modal-buttons [data-value="remove"]')
+        self.assertIn("Its Modbus bridge live list is removed too", pg.inner_text("#modal-text"))
+        pg.click('#modal button[data-value="remove"]')
+        self.assertIsNone(pg.evaluate("() => S.model.top.bridge.live_lists || null"))
+
     def test_plc_cycle_and_back_to_openplc(self):
         pg = self.page
         self.open()

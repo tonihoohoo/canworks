@@ -76,7 +76,7 @@ function j1939NameFields(text) {
 function protocolField() {
   return el("fieldset", null, el("legend", null, "Protocol"),
     el("div", { class: "grid" }, choice("This network runs", "protocol", [
-      { value: undefined, label: "CANopen", help: "Default. A CANopen master with its nodes, or a CANopen slave device." },
+      { value: undefined, literal: "canopen", label: "CANopen", help: "Default. A CANopen master with its nodes, or a CANopen slave device." },
       { value: "j1939", label: "J1939", help: "The PLC is an ECU on a J1939 network: it claims an address, receives and sends parameter groups (PGNs), usually from a DBC file." },
       { value: "none", label: "Plain CAN", help: "No protocol: only the network's CAN messages (raw frames) run on it, for devices that speak neither CANopen nor J1939." },
     ], { onChange: switchProtocol, dataset: { j1939: "protocol" } })));

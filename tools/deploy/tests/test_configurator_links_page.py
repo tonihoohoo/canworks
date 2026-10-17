@@ -145,6 +145,33 @@ class LinksPage(unittest.TestCase):
         pg.click('#modal button[data-value="remove"]')
         self.assertEqual(pg.evaluate("() => S.config.links"), None)
 
+    def test_node_id_change_and_removal_follow(self):
+        """Links and heartbeat watches follow a node ID; removing the node
+        lists them and removes them with it."""
+        pg = self.page
+        self.open()
+        tree_node(pg, 0, "general")
+        pg.fill('#view input[data-path="nodes[0].node_id"]', "")
+        pg.type('#view input[data-path="nodes[0].node_id"]', "11")
+        self.assertEqual(pg.evaluate("() => S.config.links[0].from.node"), 11)
+        self.assertEqual(pg.evaluate("() => S.config.nodes[1].heartbeat_watch"), [{"node": 11}])
+        tree_node(pg, 1, "general")
+        pg.fill('#view input[data-path="nodes[1].node_id"]', "21")
+        self.assertEqual(pg.evaluate("() => S.config.links[0].to[0].node"), 21)
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        tree_node(pg, 0, "general")
+        pg.click('button[data-remove-node="0"]')
+        pg.wait_for_selector("#modal[open]")
+        text = pg.inner_text("#modal-text")
+        self.assertIn("link stick_to_valves", text)
+        self.assertIn("the heartbeat watch of node 21 valves", text)
+        pg.click('#modal button[data-value="remove"]')
+        self.assertIsNone(pg.evaluate("() => S.config.links || null"))
+        self.assertIsNone(pg.evaluate("() => S.config.nodes[0].heartbeat_watch || null"))
+        self.checked()
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+
     def test_watch_default_timeout(self):
         pg = self.page
         self.open()
