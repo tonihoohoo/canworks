@@ -1934,6 +1934,28 @@ def windows_drives():
     return ["%s:\\" % c for c in string.ascii_uppercase if os.path.isdir("%s:\\" % c)]
 
 
+def plain_examples(dec):
+    """A plain CAN network's Frame lab examples: one frame of each
+    configured message, data all zero (no NMT or SYNC there)."""
+    from ..bustrace.model import Frame
+    from ..raw import contract as raw_contract
+    out = []
+    for kind, m in (dec.raw.entries if dec.raw is not None else []):
+        if kind not in ("rx", "tx") or not isinstance(m.get("id"), int) or isinstance(m.get("id"), bool):
+            continue
+        rtr = m.get("rtr") is True
+        try:
+            n = 0 if rtr else raw_contract.tx_dlc(m) if kind == "tx" else m.get("dlc", 8)
+        except (TypeError, ValueError, KeyError):  # an unfinished draft
+            n = 8
+        n = n if isinstance(n, int) and 0 <= n <= 8 else 8
+        name = m.get("name") or "0x%X" % m["id"]
+        frame = Frame(0, m["id"], bytes(n), ext=m.get("extended") is True, rtr=rtr, dlc=n if rtr else None)
+        out.append({"group": "Received messages" if kind == "rx" else "Sent messages", "label": name,
+                    "frames": [{"label": name, "frame": frame}]})
+    return out
+
+
 def home_folder():
     """Where the folder browsers start: the home folder, else (a HOME that
     does not exist) the current folder, else the file system's root."""
@@ -3205,7 +3227,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         what = body.get("what")
         try:
             if what == "examples":
-                groups = framebuild.examples(dec)
+                groups = plain_examples(dec) if getattr(dec, "protocol", "canopen") == "none" else framebuild.examples(dec)
                 return dict(info, examples=[{"group": g["group"], "label": g["label"],
                                              "frames": [{"label": x["label"], "frame": explain_mod.candump_text(x["frame"])}
                                                         for x in g["frames"]]} for g in groups])

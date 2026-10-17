@@ -241,6 +241,28 @@ class RawPage(OnlineBase):
         self.assertTrue(pg.is_disabled("#btn-save"))
         self.assertNotIn("hit an error", pg.inner_text("#banner"))
 
+    def test_trace_and_frame_lab_without_canopen(self):
+        """A plain network's Trace offers no CANopen kinds, and the Frame
+        lab's examples are its own messages."""
+        pg = self.page
+        self.joystick_config()
+        self.open()
+        pg.click('#tool-tabs button[data-view="trace"]')
+        pg.click("[data-trace=filters] > summary")
+        kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
+        self.assertEqual(kinds, ["error", "gap", "other", "raw"])
+        self.assertEqual(pg.locator('[data-trace-tab="sequences"]').count(), 0)
+        pg.click('[data-trace-tab="trigger"]')
+        conds = pg.eval_on_selector_all('[data-trace-cond="0.type"] option', "es => es.map(e => e.value)")
+        self.assertEqual(conds, ["frame", "signal", "bus", "error_frame"])
+        pg.click('button[data-view="framelab"]')
+        pg.wait_for_selector("[data-fx=examples] .chip")
+        chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
+        self.assertEqual(chips, ["Joystick"])
+        self.assertEqual(pg.locator("[data-fx-mode=build]").count(), 0)
+        pg.click('[data-fx-example="Joystick"]')
+        pg.wait_for_selector("#fx-lab-inspector:has-text('Raw message Joystick')")
+
     def test_missing_dbc_file(self):
         pg = self.page
         self.joystick_config("old.dbc")
