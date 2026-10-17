@@ -123,17 +123,28 @@ def untested(spec):
 class _Lock:
     """An OS file lock named after the adapter, held while it is open, so a
     second tool (another configurator, a CLI) gets a clear message instead of
-    sharing the adapter."""
+    sharing the adapter. The folder is the user's own (a shared temporary
+    folder holds one per user); another user's tool on the same adapter is
+    refused by the adapter's own driver instead. A lock that cannot be made
+    is an unreachable adapter."""
 
     def __init__(self, spec):
-        folder = os.path.join(tempfile.gettempdir(), "canworks-adapters")
-        os.makedirs(folder, exist_ok=True)
+        uid = os.getuid() if hasattr(os, "getuid") else None
+        folder = os.path.join(tempfile.gettempdir(), "canworks-adapters" + ("-%d" % uid if uid is not None else ""))
         name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(spec))
         self.path = os.path.join(folder, name + ".lock")
         self.fd = None
+        try:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+        except OSError as e:
+            raise AdapterError("unreachable", "adapter %s: cannot make the lock folder %s: %s" % (
+                spec, folder, e.strerror or e))
 
     def acquire(self):
-        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as e:
+            raise AdapterError("unreachable", "cannot open the adapter lock %s: %s" % (self.path, e.strerror or e))
         try:
             if os.name == "nt":
                 import msvcrt

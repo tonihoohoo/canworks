@@ -90,6 +90,31 @@ class AdapterSpec(unittest.TestCase):
         finally:
             lock.release()
 
+    def test_lock_per_user_and_lock_errors(self):
+        # A shared temporary folder holds one lock folder per user, and a
+        # lock that cannot be made is an unreachable adapter, not a
+        # traceback (bug hunt PC lows).
+        import tempfile
+        from canworks.localbus import adapter
+        lock = adapter._Lock(parse("virtual:lock-test"))
+        if hasattr(os, "getuid"):
+            self.assertEqual(os.path.basename(os.path.dirname(lock.path)), "canworks-adapters-%d" % os.getuid())
+        real_open = os.open
+
+        def refused(path, *a, **kw):
+            if path.endswith(".lock"):
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *a, **kw)
+        with mock.patch.object(adapter.os, "open", refused):
+            with self.assertRaises(diag.DiagError) as e:
+                LocalBus(parse("virtual:" + channel()), 250000, listen_s=0.05).connect()
+        self.assertEqual(e.exception.kind, "unreachable")
+        self.assertIn("Permission denied", str(e.exception))
+        with mock.patch.object(tempfile, "gettempdir", lambda: "/proc/no-such-folder"):
+            with self.assertRaises(AdapterError) as e:
+                adapter._Lock(parse("virtual:x"))
+        self.assertEqual(e.exception.kind, "unreachable")
+
 
 class Sdo(Base):
     def test_expedited_and_segmented(self):
@@ -107,6 +132,19 @@ class Sdo(Base):
         long = bytes(range(100, 130))
         self.assertTrue(c.sdo_write(5, 0x2001, 0, long)["success"])
         self.assertEqual(self.devices[0].od[(0x2001, 0)], long)
+
+    def test_segmented_size_mismatch_aborts(self):
+        # The data must match the size the server indicated (bug hunt PC lows).
+        d = self.device(5, od={(0x2001, 0): bytes(range(40))})
+        c = self.client()
+        send = d.send
+        for indicated in (43, 37):
+            d.send = lambda cob, data, n=indicated: send(cob, (data[:4] + struct.pack("<I", n)) if data[0] == 0x41
+                                                         else data)
+            r = c.sdo_read(5, 0x2001, 0)
+            self.assertFalse(r["success"])
+            self.assertEqual(r["abort_code"], 0x06070010)
+            self.assertIn("40 bytes for an indicated size of %d" % indicated, r["error"])
 
     def test_expedited_write_is_one_request(self):
         self.device(5, od={(0x2000, 1): b"\x11\x22"})

@@ -843,6 +843,13 @@ def _int_range(what, lo, hi):
     return parse
 
 
+def _sync_counter(t):
+    v = _uint(t, "SYNC counter", 240)
+    if v == 1:
+        raise argparse.ArgumentTypeError("SYNC counter must be 0 (none) or 2-240")
+    return v
+
+
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-diag",
@@ -1096,8 +1103,8 @@ def parser():
                     help="send event-driven RPDOs again every MS (default: once per --set)")
     pt.add_argument("--sync", type=_int_range("SYNC period", 1, 10000), metavar="MS",
                     help="send SYNC every MS (synchronous TPDOs answer it, synchronous RPDOs go with it)")
-    pt.add_argument("--sync-counter", type=_int_range("SYNC counter", 0, 240), default=0, metavar="N",
-                    help="SYNC counter overflow value (2-240; default 0: no counter)")
+    pt.add_argument("--sync-counter", type=_sync_counter, default=0, metavar="N",
+                    help="SYNC counter overflow value: 0 (no counter, the default) or 2-240")
     pt.add_argument("--start", action="store_true", help="send NMT start to the node first")
     pt.add_argument("--duration", type=float, metavar="S", help="stop after S seconds (default: Ctrl-C)")
     pt.add_argument("--force", action="store_true", default=argparse.SUPPRESS,

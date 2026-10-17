@@ -452,6 +452,18 @@ class Commands(unittest.TestCase):
         self.assertEqual((rc, out), (0, ""))
         with open(target, encoding="utf-8") as f:
             self.assertIn("0x2300", json.load(f)["objects"])
+        # An existing file (filled-in notes) is kept unless --force (bug hunt PC lows).
+        filled = self.write_notes({"0x2010": {"text": "mine"}})
+        before = open(filled, encoding="utf-8").read()
+        rc, out, err = self.run_cli("skeleton", self.eds, "-o", filled)
+        self.assertEqual(rc, 1)
+        self.assertIn("already exists", err)
+        with open(filled, encoding="utf-8") as f:
+            self.assertEqual(f.read(), before)
+        rc, _, _ = self.run_cli("skeleton", self.eds, "-o", filled, "--force")
+        self.assertEqual(rc, 0)
+        with open(filled, encoding="utf-8") as f:
+            self.assertIn("0x2300", json.load(f)["objects"])
 
     def test_builtin_by_profile(self):
         rc, out, _ = self.run_cli("builtin", self.eds)
