@@ -92,11 +92,13 @@ def load(path):
         raise ReplayError(str(e))
 
 
-def plan(frames, rate=None):
+def plan(frames, rate=None, loop=False):
     """[(offset_us from the first frame, frame)] of the frames to send: error
     frames and loss markers are left out. With `rate` (frames per second) the
     frames go out evenly at that rate instead of with their recorded spacing.
-    A plan faster than MAX_RATE frames per second over any second is refused."""
+    A plan faster than MAX_RATE frames per second over any second is refused;
+    with `loop` the check covers the plan repeated (as `play` repeats it), and
+    a plan shorter than 1 s needs `rate`."""
     if rate is not None and not 0 < rate <= MAX_RATE:
         raise ReplayError("--rate must be above 0 and at most %d frames per second" % MAX_RATE)
     sendable = [f for f in frames if not f.err]
@@ -107,15 +109,35 @@ def plan(frames, rate=None):
     for i, f in enumerate(sendable):
         off = round(i * 1e6 / rate) if rate else f.time_us - t0
         out.append((off, f))
+    if loop and not rate and out[-1][0] < 1000000:
+        raise ReplayError("the trace is shorter than 1 s; --loop needs --rate for it")
     # Recorded traffic above the limit: say so instead of silently stretching it.
+    # Looping, two passes cover every second (a looped plan lasts 1 s or more,
+    # or goes out evenly at `rate`).
+    check = out
+    if loop:
+        period = out[-1][0] + loop_gap_us(out, rate)
+        check = out + [(off + period, f) for off, f in out]
     lo = 0
-    for hi in range(len(out)):
-        while out[hi][0] - out[lo][0] >= 1000000:
+    for hi in range(len(check)):
+        while check[hi][0] - check[lo][0] >= 1000000:
             lo += 1
         if hi - lo + 1 > MAX_RATE:
-            raise ReplayError("the trace has more than %d frames in one second (at %.3f s); replay it with --rate"
-                              % (MAX_RATE, out[hi][0] / 1e6))
+            raise ReplayError("the trace has more than %d frames in one second (at %.3f s%s); replay it with --rate"
+                              % (MAX_RATE, check[hi][0] / 1e6, ", looping" if loop else ""))
     return out
+
+
+def loop_gap_us(p, rate=None):
+    """The wait between two loops of the plan: one frame period (the recorded
+    gap of the last two frames, or 1/rate), at least 1 ms."""
+    if rate:
+        gap = 1e6 / rate
+    elif len(p) > 1:
+        gap = p[-1][0] - p[-2][0]
+    else:
+        gap = 0
+    return max(1000, round(gap))
 
 
 def frame_json(f):
@@ -138,7 +160,7 @@ def batches(p, size=BATCH):
     return out
 
 
-def play_on_bus(bus, p, loop=False, stop=None, clock=time.monotonic, sleep=time.sleep):
+def play_on_bus(bus, p, loop=False, stop=None, clock=time.monotonic, sleep=time.sleep, gap_us=None):
     """Sends the plan on a python-can bus with its timing; `stop()` true ends
     it. Returns the number of frames sent."""
     import can
@@ -147,25 +169,31 @@ def play_on_bus(bus, p, loop=False, stop=None, clock=time.monotonic, sleep=time.
         bus.send(can.Message(arbitration_id=f.can_id, is_extended_id=f.ext, is_remote_frame=f.rtr,
                              dlc=f.dlc, data=b"" if f.rtr else f.data))
 
-    return play(send, p, loop, stop, clock, sleep)
+    return play(send, p, loop, stop, clock, sleep, gap_us)
 
 
-def play(send, p, loop=False, stop=None, clock=time.monotonic, sleep=time.sleep):
+def play(send, p, loop=False, stop=None, clock=time.monotonic, sleep=time.sleep, gap_us=None):
     """Calls send(frame) for each frame of the plan with its timing; `stop()`
-    true ends it. Returns the number of frames sent."""
+    true ends it. With `loop` the plan starts again `gap_us` (default
+    loop_gap_us) after its last frame, and the frames sent since the first
+    loop never run ahead of MAX_RATE per second (one second of burst).
+    Returns the number of frames sent."""
     sent = 0
+    gap = (loop_gap_us(p) if gap_us is None else max(1000, gap_us)) / 1e6
+    first = start = clock()
     while True:
-        start = clock()
         for off, f in p:
             if stop and stop():
                 return sent
             wait = start + off / 1e6 - clock()
+            if loop:
+                wait = max(wait, first + (sent + 1 - MAX_RATE) / MAX_RATE - clock())
             if wait > 0:
                 sleep(wait)
             send(f)
             sent += 1
         if not loop:
             return sent
-        # The next round keeps the recorded gap of one frame period.
-        if len(p) > 1:
-            sleep(max(0.0, (p[-1][0] - p[-2][0]) / 1e6))
+        # The next round keeps one frame period after the last frame, and does
+        # not catch up when this one ran late.
+        start = max(start + p[-1][0] / 1e6 + gap, clock())

@@ -213,6 +213,48 @@ class ReplayTests(unittest.TestCase):
             tx.shutdown()
             rx.shutdown()
 
+    def test_loop_keeps_the_rate(self):
+        """--loop waits a frame period between rounds and keeps the rate
+        limit across them (bug hunt PC-H1)."""
+        from canworks.bustrace.model import Frame
+        one = [Frame(0, 0x123, b"\x01")]
+        ten = [Frame(i * 100, 0x123, b"\x01") for i in range(10)]
+        for frames in (one, ten):
+            with self.assertRaisesRegex(replay.ReplayError, "needs --rate"):
+                replay.plan(frames, loop=True)
+
+        def run(p, gap_us=None, seconds=2.0):
+            now = [0.0]
+            times = []
+
+            def sleep(s):
+                self.assertGreater(s, 0)
+                now[0] += s
+            n = replay.play(lambda f: times.append(now[0]), p, loop=True, stop=lambda: now[0] >= seconds,
+                            clock=lambda: now[0], sleep=sleep, gap_us=gap_us)
+            return n, times
+        p = replay.plan(one, rate=10, loop=True)
+        n, _ = run(p, replay.loop_gap_us(p, 10))
+        self.assertLessEqual(n, 21)
+        # Without a gap the 1 ms floor still holds.
+        n, _ = run(p, 0)
+        self.assertLessEqual(n, 2002)
+        p = replay.plan(ten, rate=100, loop=True)
+        n, times = run(p, replay.loop_gap_us(p, 100))
+        self.assertLessEqual(n, 201)
+        self.assertGreaterEqual(min(b - a for a, b in zip(times, times[1:])), 0.0099)
+        # A second of recorded frames with bursts at both ends: one pass is
+        # within the limit, looping puts the bursts side by side.
+        bursts = [Frame(i * 100, 1, b"") for i in range(501)] + [Frame(1000000 + i * 100, 1, b"") for i in range(501)]
+        self.assertEqual(len(replay.plan(bursts)), 1002)
+        with self.assertRaisesRegex(replay.ReplayError, "looping"):
+            replay.plan(bursts, loop=True)
+        # A plan of a second or more loops with its recorded gap.
+        slow = [Frame(i * 250000, 1, b"") for i in range(5)]
+        p = replay.plan(slow, loop=True)
+        _, times = run(p, seconds=2.6)
+        self.assertEqual([round(t, 3) for t in times], [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75])
+
 
 if __name__ == "__main__":
     unittest.main()

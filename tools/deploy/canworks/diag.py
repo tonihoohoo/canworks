@@ -963,7 +963,9 @@ def parser():
     rp.add_argument("file", metavar="FILE", help="the trace to replay")
     rp.add_argument("--rate", type=float, metavar="FPS",
                     help="send the frames evenly at this many frames per second instead (at most 1000)")
-    rp.add_argument("--loop", action="store_true", help="start again at the end, until Ctrl-C")
+    rp.add_argument("--loop", action="store_true",
+                    help="start again one frame period after the end, until Ctrl-C; a trace shorter than 1 s "
+                         "needs --rate")
     rp.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
                     help="send even when the network uses an identifier or a node is OPERATIONAL")
     rp.add_argument("--config", metavar="canworks.json",
@@ -2221,7 +2223,7 @@ def _replay(client, args, out):
     straight onto the PC's adapter."""
     from .raw import replay as rp
     try:
-        p = rp.plan(rp.load(args.file), args.rate)
+        p = rp.plan(rp.load(args.file), args.rate, loop=args.loop)
     except (OSError, rp.ReplayError) as e:
         raise DiagError("usage", "cannot replay %s: %s" % (args.file, e))
     force = bool(getattr(args, "force", False))
@@ -2285,7 +2287,7 @@ def _replay_local(client, args, p, force, out):
     reason = "done"
     sent = 0
     try:
-        sent = rp.play(send, p, loop=args.loop)
+        sent = rp.play(send, p, loop=args.loop, gap_us=rp.loop_gap_us(p, args.rate))
     except KeyboardInterrupt:
         reason = "stopped"
     except Exception as e:  # the adapter went away
