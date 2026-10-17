@@ -702,11 +702,14 @@ class Client:
         lists each with its "sent" count and "reason"."""
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def replay(self, frames, more=False, loop=False, force=False):
+    def replay(self, frames, more=False, loop=False, force=False, loop_gap_us=None):
         """One batch of a replay (raw.replay.batches): the first starts it,
-        `more` says another follows. The answer has "running", "sent" and
+        `more` says another follows; `loop_gap_us` is the least gap between
+        loop rounds (from --rate). The answer has "running", "sent" and
         "queued"."""
         fields = {"frames": frames}
+        if loop and loop_gap_us:
+            fields["loop_gap_us"] = int(loop_gap_us)
         for key, v in (("more", more), ("loop", loop), ("force", force)):
             if v:
                 fields[key] = True
@@ -2247,7 +2250,8 @@ def _replay(client, args, out):
     batches = rp.batches(p)
     try:
         for i, b in enumerate(batches):
-            res = client.replay(b["frames"], more=i + 1 < len(batches), loop=args.loop, force=force)
+            res = client.replay(b["frames"], more=i + 1 < len(batches), loop=args.loop, force=force,
+                                loop_gap_us=1e6 / args.rate if args.rate else None)
     except DiagError as e:
         if i:
             client.replay_stop()

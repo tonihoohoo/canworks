@@ -386,6 +386,7 @@ class DiagServer {
     bool more = false;   // the client sends more batches
     bool loop = false;
     bool forced = false;
+    uint64_t loop_gap = 0;  // the client's least gap between rounds in µs (its --rate)
     uint64_t sent = 0, rounds = 0;
     std::chrono::steady_clock::time_point started, round_start, blocked_since{};
     // When the last kReplayMaxRate frames went out (the run-time rate limit).

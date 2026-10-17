@@ -5163,6 +5163,32 @@ TEST(diag_replay_loop_rate) {
   set_log_sink(nullptr);
 }
 
+TEST(diag_replay_loop_gap_from_rate) {
+  set_log_sink(diag_capture);
+  Config cfg = diag_config(true);
+  cfg.adapter.interface = "can0";
+  DiagHub hub(cfg, "test");
+  DiagServer server(hub);
+  auto* sink = new TimedSink;
+  server.set_frame_sink(std::unique_ptr<FrameSink>(sink));
+  hub.attach();
+  server.start();
+  CHECK(wait_port(server));
+  DiagClient c(server.port());
+  c.ask(R"({"op":"hello","token":"secret"})");
+  // One frame looped at --rate 20: the client's gap, not 1 ms, between rounds.
+  std::string a = c.ask(R"({"op":"replay","loop":true,"loop_gap_us":50000,"frames":[{"t_us":0,"id":1}]})");
+  CHECK_MSG(a.find("\"running\":true") != std::string::npos, a);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  c.ask(R"({"op":"replay_stop"})");
+  size_t most = sink->most_per_second();
+  CHECK_MSG(most >= 15 && most <= 22, std::to_string(most));
+  a = c.ask(R"({"op":"replay","loop":true,"loop_gap_us":"x","frames":[{"t_us":0,"id":1}]})");
+  CHECK_MSG(a.find("loop_gap_us") != std::string::npos, a);
+  server.stop();
+  set_log_sink(nullptr);
+}
+
 TEST(diag_guard_map_effective_ids) {
   Config cfg;
   std::vector<std::string> errors;
