@@ -4,9 +4,13 @@
 
 Lely boots every slave whose 0x1F81 bit 2 (boot) is set: at its own start-up, on each boot-up message, and again after a failed boot (error status B, about once a second). The plugin's `ScheduleRetry` already does nothing while the master is STOPPED, but Lely's own boot is not under the plugin's control.
 
-In `Start`, when `run_->master_stopped` is set, the plugin clears bit 2 of each slave's 0x1F81 entry in the master's object dictionary after `Reset()`. That is before Lely's asynchronous start-up reads it, so Lely starts no boot and schedules no retry. Error control (the 0x1016 heartbeat consumer) stays on, so heartbeats keep the node states up to date. The entries come back from the DCF at the next PLC start, the only thing that lifts the stop.
+The plugin clears bit 2 of each slave's 0x1F81 entry in the master's object dictionary in `OnCommand`, which Lely calls synchronously with the master's lock held (so it uses the C API, `co_sub_set_val_u32`, not `Device::Write`):
+- on the master's STOP, and
+- on a reset (communication or node) while the stop holds. A reset restores 0x1F81 from the DCF just before `OnCommand(RESET_COMM)`, and Lely's start-up runs right after it. The first boot of a mandatory slave runs inside `Reset()` itself, so clearing the bit after `Reset()` returns would be too late.
 
-To check during apply: Lely must read 0x1F81 at start-up and on boot-up, not cache it at `Reset()`. If it caches it, the fallback is to cancel the boot right after Lely starts it (the `BasicMaster` boot cancel, or a `co_nmt_boot` abort) and to drop the boot SDO in the send hook. The fallback is a second path, so the 0x1F81 route is preferred.
+Lely reads 0x1F81 again for every boot attempt (`co_nmt_boot_wait_on_time`). Without bit 2 it skips the boot and only starts error control, sends no START (`co_nmt_boot_con` needs bits 0 and 2), and never retries with status B. Heartbeat consumption stays on, so heartbeats keep the node states up to date. When the master leaves STOPPED on an explicit command (no relapse), `OnCommand` puts the cleared entries back. The next PLC start restores them from the DCF anyway.
+
+`HandleBoot` while the stop holds is only that error-control start after a boot-up. The node is not configured, nothing is read from it, it gets NMT STOP and it reads STOPPED. The plugin's own `ScheduleRetry` does nothing while the stop holds.
 
 The send hook allow list from stopped-master-stays-silent stays as it is. SDO requests still pass, so the program's and the diagnostics channel's SDO keep working. A STOPPED node does not answer them, as CiA 301 says.
 
@@ -18,8 +22,8 @@ The `OnTick` absent check (`kAbsentAfter`) skips nodes while the stop holds: no 
 
 ## Simulated power state across sessions
 
-The simulated bus builds its devices per session. The power state (off through `power off`, a fault or a scenario) moves into the per-run state the plugin already keeps for stored values. A device that was off when the session ended is created powered off. `power on`, `clear` or a scenario step powers it on, and a PLC restart starts it powered on. The real-device guard ("taken by a real device") stays per session.
+The simulated bus builds its devices per session. The power state (off through `power off`, a fault or a scenario) moves into the run's state (`RunState::sim_powered_off`, by device store key), which the bus passes to each session's simulator (`SimOptions::powered_off`). The stored values live longer, for the life of the runtime, but power state must not survive a PLC restart. A device that was off when the session ended is created powered off. `power on`, `clear` or a scenario step powers it on, and a PLC restart starts it powered on. The real-device guard ("taken by a real device") stays per session.
 
 ## Not changed
 
-- `reset_all_nodes`, and a master stopped by `CO_NETWORK_STOP`, an operator command or the gateway: those masters boot nodes as before.
+- `reset_all_nodes`, and `CO_NETWORK_STOP` (it keeps Lely's master OPERATIONAL and holds it in the plugin): those masters boot nodes as before. A master that leaves STOPPED on a command boots nodes again (`OnCommand` puts bit 2 back).

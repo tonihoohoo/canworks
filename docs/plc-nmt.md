@@ -90,7 +90,7 @@ END_IF;
 
 In the configurator: **Advanced master settings**, **Master goes operational** off, and **Copy as ST call** next to it copies this call.
 
-A master STOPPED by `stop_all_nodes` after a mandatory node's loss is the configuration's safety reaction: `CO_NETWORK_START` ends with `ERROR_ID` 9, and the log says that the plugin must restart (stop and start the PLC). The stop lasts for the PLC run: after the bus comes back (below) the master stays STOPPED and sends NMT STOP to every node. Until the plugin restarts it sends only NMT STOP, its heartbeat and EMCY, SDO requests and LSS: no reset or START of a node, no SYNC, TIME or PDO, also when the lost node boots again.
+A master STOPPED by `stop_all_nodes` after a mandatory node's loss is the configuration's safety reaction: `CO_NETWORK_START` ends with `ERROR_ID` 9, and the log says that the plugin must restart (stop and start the PLC). The stop lasts for the PLC run: after the bus comes back (below) the master stays STOPPED and sends NMT STOP to every node. Until the plugin restarts it sends only NMT STOP, its heartbeat and EMCY, SDO requests and LSS: no reset or START of a node, no SYNC, TIME or PDO, also when the lost node boots again. It boots no node either (no SDO of a boot to a node it stopped), and the nodes read STOPPED (state 4) until their own heartbeat or boot-up says otherwise; none is reported as not answering.
 
 ## Stop the network from the program: CO_NETWORK_STOP
 

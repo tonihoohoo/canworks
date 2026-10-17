@@ -29,7 +29,7 @@ No config, schema or PLC API change.
 
 ## Impact
 
-- Code: `plugin/src/canopen/network.cpp` and `.h` (session `Start`, `HandleBoot`, the `OnTick` absent check, the held-master message), and the simulated bus's per-session device set, which keeps each device's power state for the run.
-- Tests: extend `sim_stop_all_nodes_restart_node_back_in_session` (no SDO to the stopped nodes after the restart, node states 4, no boot error B), and add a simulator test for power off across a session restart.
-- Docs: `docs/config.md` (Mandatory nodes, `stop_all_nodes`) and `docs/simulator.md` (power off).
+- Code: `plugin/src/canopen/network.cpp` and `.h` (`OnCommand`, `Start`, `HandleCommand`, `HandleBoot`, `ScheduleRetry`, the `OnTick` absent check), `run_state.h`, `bus.cpp` and `sim/sim_engine.cpp`/`.h` (power state kept for the run).
+- Tests: `sim_stop_all_nodes_restart_boots_nothing` (no SDO to the stopped nodes after the restart, node states 4, no "not answering"), and `sim_simulated_power_off_across_sessions`.
+- Docs: `docs/config.md` (Mandatory nodes), `docs/plc-nmt.md` and `docs/simulator.md` (power off).
 - Hardware: repeat 9.1 on the Pi.

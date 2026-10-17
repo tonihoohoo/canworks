@@ -424,7 +424,7 @@ A **cyclic** axis also needs SYNC from the PLC cycle with one SYNC per cycle (`"
 
 With `mandatory: true` on any node the master does not go OPERATIONAL until every mandatory node has booted, so **no node exchanges PDOs** before that, also the optional ones that are up. The plugin logs a missing mandatory node as an error naming it as the reason the network is held, the master state byte reads 127, and every status bit is FALSE. The PLC keeps scanning. Once the last mandatory node boots, the plugin starts the master and logs "all mandatory nodes have booted: starting the master".
 
-When a mandatory node is lost later, the master resets that node (default), stops every node including itself (`stop_all_nodes`), or resets every node including itself (`reset_all_nodes`). An optional node that is lost is always reset on its own.
+When a mandatory node is lost later, the master resets that node (default), stops every node including itself (`stop_all_nodes`), or resets every node including itself (`reset_all_nodes`). An optional node that is lost is always reset on its own. After a `stop_all_nodes` stop the master boots no node until the plugin restarts, also after a link drop: a node that boots again gets NMT STOP and reads STOPPED, and the log says once per bus session that the master boots no node ([plc-nmt.md](plc-nmt.md)).
 
 ### Identity check and boot error byte
 
