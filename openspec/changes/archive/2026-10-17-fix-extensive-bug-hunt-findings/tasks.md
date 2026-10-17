@@ -80,9 +80,11 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 9. Hardware
 
-- [ ] 9.1 On the Pi with node 23 as mandatory with `stop_all_nodes`: power node 23 off so the master stops, take the CAN interface down and up, confirm the master and node 23 stay STOPPED and no output PDO is sent. Clean PLC start afterwards.
-- [ ] 9.2 From a PC USB adapter on the Pi's running bus: `sdo-write` and `nmt stop` to node 23 without `--force` are refused naming the other master.
+- [x] 9.1 On the Pi with node 23 as mandatory with `stop_all_nodes`: power node 23 off so the master stops, take the CAN interface down and up, confirm the master and node 23 stay STOPPED and no output PDO is sent. Clean PLC start afterwards.
+- [x] 9.2 From a PC USB adapter on the Pi's running bus: `sdo-write` and `nmt stop` to node 23 without `--force` are refused naming the other master.
 
 ## 10. CI time
 
 - [x] 10.1 Compare the PR's CI wall and summed job time with the main baseline and state both in the PR body.
+
+Hardware results (2026-10-17, Windows PC over SSH, simulated mandatory node 10 in place of a power cycle): 9.1 first failed (the master started again after the slcan0 bounce) and passed after stopped-master-stays-silent (#140). 9.2 was refused both times, and after #140 the refusal names the other master.
