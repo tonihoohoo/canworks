@@ -270,6 +270,7 @@ void Bus::run_session() {
       opt.store = sim_->store;
       opt.simulated_network = virt;
       opt.taken = taken_ids;
+      if (run_) opt.powered_off = &run_->sim_powered_off;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));
       // Plain CAN devices run in the network's raw path (raw_devices.h).
       unsigned index = cfg_.network_index;

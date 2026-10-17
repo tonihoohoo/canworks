@@ -15,6 +15,8 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "outputs_gate.h"
@@ -37,6 +39,10 @@ struct RunState {
   // A lost mandatory node with stop_all_nodes stopped the master and every
   // node: it stays so until the PLC restarts.
   bool master_stopped = false;
+  // The simulated devices powered off (their store keys), until powered on:
+  // a new bus session does not power them on (canopen-device-simulator
+  // "Power off lasts across bus sessions").
+  std::set<std::string> sim_powered_off;
   struct Node {
     // The program's NMT command byte: the level last acted on and the reset
     // requests handled (ProcessImage counts them for the run).

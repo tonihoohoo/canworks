@@ -520,6 +520,12 @@ class Network : public lely::canopen::BasicMaster {
   bool stop_relapse_ = false;
   // The stop holds: the master is STOPPED now, or it was reset since.
   bool StopHolds() const;
+  // While the stop holds the master boots no node: clears bit 2 (boot) of
+  // each slave's 0x1F81 entry in the master's dictionary (off) or puts back
+  // what was cleared (on). Only with the master's lock held (OnCommand).
+  void BootSlaves(bool on);
+  std::map<uint8_t, uint32_t> boot_cleared_;  // node: its 0x1F81 value before
+  bool boot_none_logged_ = false;
   std::unique_ptr<RunState> own_run_;  // without a RunState from the caller
   RunState* run_;
   std::map<unsigned, NodeState> nodes_;

@@ -6,6 +6,9 @@
 #include <unistd.h>
 
 #include <lely/can/msg.h>
+#include <lely/co/dev.hpp>
+#include <lely/co/obj.hpp>
+#include <lely/co/val.hpp>
 #include <lely/ev/exec.hpp>
 
 // <lely/can/net.h> clashes with the C++ headers; only these are needed.
@@ -223,6 +226,31 @@ int Network::SendTapped(const can_msg* msg, void* data) {
 
 bool Network::StopHolds() const { return run_->master_stopped && (stop_relapse_ || lely_state_ == kStateStopped); }
 
+void Network::BootSlaves(bool on) {
+  // Lely boots a slave whose 0x1F81 entry has bit 2 set at its start-up, on
+  // each boot-up message and again every second after a failed boot, and it
+  // reads the entry again for each attempt. Without the bit it only starts
+  // error control: a STOPPED master boots no node, and sends no SDO of a
+  // boot to a node it stopped (canopen-plc-nmt "A stopped master stays
+  // silent in later sessions"). A reset restores the entries from the DCF.
+  co_dev_t* d = reinterpret_cast<co_dev_t*>(dev());
+  if (!on) {
+    for (const auto& it : nodes_) {
+      auto id = static_cast<uint8_t>(it.first);
+      co_sub_t* sub = co_dev_find_sub(d, 0x1F81, id);
+      if (!sub) continue;
+      uint32_t v = co_sub_get_val_u32(sub);
+      if (!(v & 0x04)) continue;
+      boot_cleared_[id] = v;
+      co_sub_set_val_u32(sub, v & ~0x04u);
+    }
+    return;
+  }
+  for (const auto& it : boot_cleared_)
+    if (co_sub_t* sub = co_dev_find_sub(d, 0x1F81, it.first)) co_sub_set_val_u32(sub, it.second);
+  boot_cleared_.clear();
+}
+
 bool Network::FilterStopped(const can_msg& msg) {
   // stop_all_nodes stopped the master for the run: whatever Lely does after
   // a new session's reset (its boot-up, resetting every node, starting
@@ -312,6 +340,8 @@ void Network::Start() {
               "NMT STOP to every node, no PDOs are exchanged until the plugin restarts");
     Command(NmtCommand::STOP, static_cast<uint8_t>(cfg_.master.node_id));
     Command(NmtCommand::STOP, 0);
+    // What the master last told them; a heartbeat or boot-up says otherwise.
+    for (const auto& it : nodes_) SetState(it.first, kStateStopped);
   }
   if (cfg_.master.time_period_ms) {
     char now[32];
@@ -564,7 +594,7 @@ void Network::StartSent(unsigned id, NodeState& n) {
 void Network::ScheduleRetry(NodeState& n, bool quiet) {
   // A boot: false node is not the master's to boot; a STOPPED master boots
   // nothing until the plugin restarts.
-  if (n.retry_pending || stopped_ || !n.cfg->boot || master_state_ == kStateStopped) return;
+  if (n.retry_pending || stopped_ || !n.cfg->boot || master_state_ == kStateStopped || StopHolds()) return;
   n.retry_pending = true;
   n.next_retry = clock::now() + n.backoff;
   if (!quiet) log_info("%s: retrying boot in %lld ms", n.cfg->label().c_str(), (long long)n.backoff.count());
@@ -607,7 +637,10 @@ void Network::OnTick() {
     }
     // Lely keeps re-trying the boot of a silent slave by itself (every second,
     // CiA 302 error status B) without reporting it, so say so once.
-    if (n.cfg->boot && !n.up && !n.booted && !n.warned_absent && now - started_ >= kAbsentAfter) {
+    // Not while stop_all_nodes holds the master STOPPED: it boots no node,
+    // so none is missing (canopen-node-supervision "A stopped master reports
+    // no absent nodes").
+    if (n.cfg->boot && !n.up && !n.booted && !n.warned_absent && !StopHolds() && now - started_ >= kAbsentAfter) {
       n.warned_absent = true;
       SetBootError(it.first, 'B');
       if (n.cfg->mandatory && !master_op_)
@@ -662,6 +695,21 @@ void Network::HandleBoot(uint8_t id, NmtState st, char es, const std::string& wh
   if (it == nodes_.end()) return;
   NodeState& n = it->second;
   n.boot_waiting = false;
+  if (StopHolds()) {
+    // The stopped master boots no node (BootSlaves): Lely only started error
+    // control after the node's boot-up. Nothing is configured or read; the
+    // node is stopped and reads STOPPED (canopen-node-supervision "Node
+    // states while the master is stopped").
+    n.booted = false;
+    n.node_op = false;
+    n.retry_pending = false;
+    n.boot_what.clear();
+    SetBootError(id, 0);
+    SetState(id, kStateStopped);
+    Update(id, "");
+    Command(NmtCommand::STOP, id);
+    return;
+  }
   // With config_check, Lely skips the configuration step (no OnConfig) when
   // the node's 0x1020 equals the master's 0x1F26/0x1F27: the node already has
   // this configuration.
@@ -797,6 +845,18 @@ void Network::StartHeldMaster() {
 
 void Network::OnCommand(NmtCommand cs) noexcept {
   BasicMaster::OnCommand(cs);
+  // Here, with the master's lock held and before Lely's start-up after a
+  // reset boots any slave (the first boot of a mandatory node runs inside
+  // the reset): a STOPPED master, or a stopped one being reset, boots no
+  // node; one that leaves STOPPED on a command boots them again.
+  if (cs == NmtCommand::STOP) {
+    BootSlaves(false);
+  } else if (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE) {
+    boot_cleared_.clear();  // the DCF's entries are back
+    if (run_->master_stopped && (stop_relapse_ || lely_state_ == kStateStopped)) BootSlaves(false);
+  } else if (!stop_relapse_) {
+    BootSlaves(true);
+  }
   Defer([this, cs] { HandleCommand(cs); });
 }
 
@@ -834,6 +894,11 @@ void Network::HandleCommand(NmtCommand cs) {
   // A reset of the stopped master (not one it left STOPPED for first).
   if (run_->master_stopped && was_stopped && (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE))
     stop_relapse_ = true;
+  if (cs == NmtCommand::STOP && StopHolds() && !boot_none_logged_) {
+    boot_none_logged_ = true;
+    log_info("the master is STOPPED after a mandatory node was lost (master.stop_all_nodes): it boots no node until "
+             "the plugin restarts");
+  }
   if (stop_relapse_ && (cs == NmtCommand::START || cs == NmtCommand::ENTER_PREOP)) {
     // Lely's own start-up after a new session's reset: the stop of this run
     // holds, the master is sent STOP again.

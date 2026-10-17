@@ -771,6 +771,12 @@ class Sim {
     return ok;
   }
   canopen_sim::Simulator& simulator() { return *simulator_; }
+  // Ends the simulator as a bus session's end does (bus.cpp): its devices go.
+  void StopSimulator() {
+    if (simulator_) simulator_->Stop();
+    simulator_.reset();
+    sim_host_.reset();
+  }
   const std::vector<canopen_sim::ScenarioResult>& scenario_results() const { return results_; }
   // Writes `n` frames (0x7F0, no CANopen use) onto the bus, running the loop
   // between batches; false once the bus refuses one, as it does when a
@@ -3661,6 +3667,44 @@ class Watchdog {
 // Power off and on, five times (canopen-device-simulator "Power cycle keeps
 // the network running"): the device boots again each time, the diagnostics
 // channel keeps answering and the session ends promptly.
+// A simulated device powered off stays off when the bus session restarts
+// (the simulator is built again, as bus.cpp does after a link bounce), until
+// it is cleared (canopen-device-simulator "Power off lasts across bus sessions").
+TEST(sim_simulated_power_off_across_sessions) {
+  clear_logs();
+  Watchdog dog("sim_simulated_power_off_across_sessions", seconds(60));
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  static std::set<std::string> off;  // the run's, as RunState keeps it
+  off.clear();
+  canopen_sim::SimOptions opt;
+  opt.powered_off = &off;
+  CHECK(sim->StartSimulator("", {}, opt));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return !sim->status(); }, seconds(3)));
+  CHECK(off.size() == 1);
+  sim->StopSimulator();
+  CHECK(sim->StartSimulator("", {}, opt));
+  int boots = sim->bootups(2);
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->bootups(2) == boots, "node 2 booted in the new session while powered off");
+  CHECK(!sim->status());
+  CHECK(logged("stays powered off"));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK_MSG(sim->RunUntil([] { return sim->status(); }, seconds(5)), "node 2 not back after clear");
+  CHECK(off.empty());
+  delete sim;
+}
+
 TEST(sim_simulated_power_cycles) {
   clear_logs();
   Watchdog dog("sim_simulated_power_cycles", seconds(60));
@@ -6743,6 +6787,35 @@ TEST(sim_stop_all_nodes_restart_node_back_in_session) {
   CHECK_MSG(sim->nmt(0, 129) + sim->nmt(0, 130) == resets, "reset of all nodes sent while the master is stopped");
   CHECK_MSG(sim->nmt(0, 1) + sim->nmt(3, 1) == starts, "NMT START sent while the master is stopped");
   CHECK_MSG(sim->ib(22) != 5, "node 3 state " + std::to_string(sim->ib(22)));
+  nmt_end(sim);
+}
+
+// As above: the stopped master also boots no node in the new session (the
+// hardware rerun of 9.1, where it read 0x1000 of the stopped node every
+// second), the nodes read STOPPED, and none is reported as not answering.
+TEST(sim_stop_all_nodes_restart_boots_nothing) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"stop_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
+  sim->RunFor(milliseconds(300));
+  clear_logs();
+  int sdo = sim->frames(0x602) + sim->frames(0x603);
+  sim->RestartSession();
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  sim->RunFor(milliseconds(5000));
+  CHECK_MSG(sim->frames(0x602) + sim->frames(0x603) == sdo,
+            std::to_string(sim->frames(0x602) + sim->frames(0x603) - sdo) + " SDO requests since the restart");
+  CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)));
+  CHECK_MSG(sim->ib(20) == 4, "node 2 state " + std::to_string(sim->ib(20)));
+  CHECK_MSG(sim->ib(22) == 4, "node 3 state " + std::to_string(sim->ib(22)));
+  CHECK_MSG(!logged("not answering"), "a node reported as not answering");
+  CHECK_MSG(!logged("PRE-OPERATIONAL (no PDOs"), "the network reported as held in PRE-OPERATIONAL");
+  CHECK_MSG(!logged("boot failed"), "a boot failure logged");
+  CHECK(logged("it boots no node until the plugin restarts"));
   nmt_end(sim);
 }
 

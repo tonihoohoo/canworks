@@ -88,6 +88,9 @@ struct SimOptions {
   // Node IDs found in use on the wire before the start (a real interface):
   // config nodes and extra devices with one of them are taken, never started.
   std::set<unsigned> taken;
+  // The devices powered off by a fault, kept by the caller across sessions
+  // (store keys): such a device starts powered off. Null: all start on.
+  std::set<std::string>* powered_off = nullptr;
 };
 
 struct ScenarioResult {
