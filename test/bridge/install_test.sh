@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/install-bridge.sh with a stub systemctl and a prebuilt binary
-# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge, and
-# a prefix whose venv the runtime's Docker container made.
+# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge, a
+# prefix whose venv the runtime's Docker container made, and the runtime
+# archive's sha256 check (local archives, nothing is built).
 #
 #   test/bridge/install_test.sh CANWORKS_BRIDGE
 
@@ -54,4 +55,26 @@ else
     check 'grep -q "made with Python 3.0 but runs as" "$T/out" && grep -q -- "--prefix /opt/canworks-bridge" "$T/out"' \
         "a container's venv is refused with the way out"
 fi
+
+# The runtime archive: the pinned release's sha256, or the one given with
+# --runtime-ref; a mismatch stops before anything is unpacked.
+mkdir -p "$T/archive/openplc-runtime-x" "$T/plain"
+echo "not a runtime" > "$T/archive/openplc-runtime-x/README"
+PIN=$(cat "$REPO/docker/local-runtime/runtime-version")
+tar czf "$T/plain/$PIN.tar.gz" -C "$T/archive" openplc-runtime-x
+cp "$T/plain/$PIN.tar.gz" "$T/plain/other.tar.gz"
+export CANWORKS_RUNTIME_URL="file://$T/plain"
+if "$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen > "$T/out" 2>&1; then
+    check false "a runtime archive with another sha256 is refused"
+else
+    check 'grep -q "archive $PIN has sha256 .*, expected $(cat "$REPO/docker/local-runtime/runtime-sha256")" "$T/out" &&
+           [ ! -e "$T/fetch/src/openplc-runtime" ]' "a runtime archive with another sha256 is refused"
+fi
+"$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen --runtime-ref other > "$T/out" 2>&1 || true
+check 'grep -q -- "--runtime-ref other needs the sha256" "$T/out"' "another --runtime-ref needs its sha256"
+sum=$(sha256sum "$T/plain/other.tar.gz" | cut -d" " -f1)
+"$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen --runtime-ref other \
+    --runtime-sha256 "$sum" > "$T/out" 2>&1 || true
+check 'grep -q "is not an OpenPLC runtime v4 checkout" "$T/out" && [ -f "$T/fetch/src/openplc-runtime/README" ]' \
+    "an archive with the given sha256 is unpacked"
 exit $fail

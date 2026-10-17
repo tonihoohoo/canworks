@@ -11,6 +11,9 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   changes:
     # code=false when only documentation and specs changed: the build and
@@ -27,7 +30,7 @@ jobs:
       # always true on main.
       ui: ${{ steps.classify.outputs.ui }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
@@ -48,7 +51,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
@@ -69,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install the OpenSpec CLI
         run: npm install -g --silent @fission-ai/openspec@1.14.0
@@ -87,14 +90,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Cache STruC++ (the editor's ST compiler, for the CiA 402 tests)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/canworks/strucpp
           key: strucpp-${{ runner.os }}-${{ hashFiles('scripts/fetch-strucpp.sh') }}
@@ -115,7 +118,7 @@ jobs:
           CANWORKS_REQUIRE_STRUCPP: "1"
         run: ctest --test-dir build --output-on-failure -j8
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -146,7 +149,7 @@ jobs:
         group: [1, 2, 3]
     name: vcan (${{ matrix.group }}/3)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - uses: ./.github/actions/build-plugin
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
@@ -157,7 +160,7 @@ jobs:
             canworks_plugin canworks-sim canopen_check canopen_host pingpong_slave lss_slave
             sensor_slave link_check sdo_program plc_sdo_lookup_check j1939_long_ids
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
           python-version: "3.12"
@@ -303,9 +306,9 @@ jobs:
         --timings .github/ci/tool-test-times.json
         --together ^tests\.(test_parity\.\w+|test_dcfexport\.Parity|test_project\.IntoProject)$
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -343,7 +346,7 @@ jobs:
 
       - name: Cache the tshark packages
         if: steps.bustrace.outputs.here == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/canworks/apt-tshark
           key: apt-tshark-${{ steps.bustrace.outputs.image }}
@@ -393,9 +396,9 @@ jobs:
         shard: [1, 2, 3, 4]
     name: configurator-page (${{ matrix.shard }}/4)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -409,7 +412,7 @@ jobs:
           echo "image=${ImageOS:-os}-${ImageVersion:-image}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Chromium
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/ms-playwright

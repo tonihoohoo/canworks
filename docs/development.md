@@ -6,7 +6,7 @@ Building the plugin, running the tests, and how CI is set up. For using the tool
 
 ```sh
 sudo scripts/dev-setup.sh                       # Lely into /opt/canworks, dcfgen, vcan0
-git clone -b development https://github.com/Autonomy-Logic/openplc-runtime ../openplc-runtime
+git clone -b $(cat docker/local-runtime/runtime-version) https://github.com/Autonomy-Logic/openplc-runtime ../openplc-runtime
 cmake -B build -DOPENPLC_ROOT=../openplc-runtime
 cmake --build build -j
 ctest --test-dir build --output-on-failure -j4  # unit and virtual-bus tests (one test per sim case)
@@ -149,7 +149,9 @@ tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks
                    canworks-j1939-sim (the J1939 ECU simulator)
 docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
-                   the pinned upstream runtime version
+                   the pinned upstream runtime release and its archive's sha256 (the plugin and
+                   bridge builds in CI and scripts/install-bridge.sh use it; the weekly stock install
+                   test runs against upstream development)
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
 library/           the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks, ST helpers;
                    docs/plc-library.md): generate.py writes the

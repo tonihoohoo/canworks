@@ -5,7 +5,7 @@
 # registers to any PLC or program.
 #
 #   sudo scripts/install-bridge.sh [--prefix /opt/canworks] [--runtime-dir DIR]
-#                                  [--runtime-ref development] [--lely-ref <commit>]
+#                                  [--runtime-ref REF [--runtime-sha256 HASH]] [--lely-ref <commit>]
 #                                  [--no-deps] [--without-canopen | --without-j1939]
 #                                  [--binary FILE] [--with-link NAME]
 #   sudo scripts/install-bridge.sh --uninstall [--purge] [--prefix /opt/canworks]
@@ -16,7 +16,11 @@
 # template unit canworks-bridge@.service and creates /etc/canworks-bridge/.
 # The build needs the plugin interface headers of the OpenPLC runtime source:
 # --runtime-dir uses a checkout, otherwise the script downloads
-# Autonomy-Logic/openplc-runtime at --runtime-ref into <prefix>/src.
+# Autonomy-Logic/openplc-runtime into <prefix>/src: by default the release the
+# project pins (docker/local-runtime/runtime-version), whose archive must match
+# the sha256 in docker/local-runtime/runtime-sha256. Another --runtime-ref
+# (a tag, branch or commit) needs the sha256 of its archive in
+# --runtime-sha256.
 #
 # One service instance runs one config: put it in
 # /etc/canworks-bridge/NAME/canworks.json (its EDS files next to it), then
@@ -46,7 +50,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX=/opt/canworks
 LELY_REF=${LELY_REF:-$(cat "$REPO/tools/deploy/canworks/_lely_dcf/VERSION")}
 RUNTIME_DIR=""
-RUNTIME_REF=development
+PINNED_REF=$(cat "$REPO/docker/local-runtime/runtime-version")
+PINNED_SHA256=$(cat "$REPO/docker/local-runtime/runtime-sha256")
+RUNTIME_REF=$PINNED_REF
+RUNTIME_SHA256=""
+RUNTIME_URL=${CANWORKS_RUNTIME_URL:-https://github.com/Autonomy-Logic/openplc-runtime/archive}  # the tests' archives
 DEPS=1
 UNINSTALL=0
 PURGE=0
@@ -62,13 +70,14 @@ MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 
 LINK_NAME=""
 
-usage() { sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix) PREFIX="$2"; shift ;;
         --runtime-dir) RUNTIME_DIR="$2"; shift ;;
         --runtime-ref) RUNTIME_REF="$2"; shift ;;
+        --runtime-sha256) RUNTIME_SHA256="$2"; shift ;;
         --lely-ref) LELY_REF="$2"; shift ;;
         --no-deps) DEPS=0 ;;
         --without-canopen) WITH_CANOPEN=0 ;;
@@ -154,11 +163,24 @@ else
         die "OpenSSL 3 development files are missing: apt-get install libssl-dev"
     if [ -z "$RUNTIME_DIR" ]; then
         RUNTIME_DIR="$PREFIX/src/openplc-runtime"
+        if [ -z "$RUNTIME_SHA256" ]; then
+            [ "$RUNTIME_REF" = "$PINNED_REF" ] ||
+                die "--runtime-ref $RUNTIME_REF needs the sha256 of its archive (--runtime-sha256), or use --runtime-dir"
+            RUNTIME_SHA256=$PINNED_SHA256
+        fi
         say "Fetching the OpenPLC runtime's plugin headers ($RUNTIME_REF)"
+        ARCHIVE=$(mktemp)
+        curl -fsSL -o "$ARCHIVE" "$RUNTIME_URL/$RUNTIME_REF.tar.gz" ||
+            { rm -f "$ARCHIVE"; die "cannot download the OpenPLC runtime $RUNTIME_REF"; }
+        got=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
+        if [ "$got" != "$RUNTIME_SHA256" ]; then
+            rm -f "$ARCHIVE"
+            die "the OpenPLC runtime archive $RUNTIME_REF has sha256 $got, expected $RUNTIME_SHA256; not building against it"
+        fi
         rm -rf "$RUNTIME_DIR"
         mkdir -p "$RUNTIME_DIR"
-        curl -fsSL "https://github.com/Autonomy-Logic/openplc-runtime/archive/$RUNTIME_REF.tar.gz" |
-            tar xz -C "$RUNTIME_DIR" --strip-components=1
+        tar xzf "$ARCHIVE" -C "$RUNTIME_DIR" --strip-components=1
+        rm -f "$ARCHIVE"
     fi
     [ -f "$RUNTIME_DIR/core/src/drivers/plugin_types.h" ] ||
         die "$RUNTIME_DIR is not an OpenPLC runtime v4 checkout (no core/src/drivers/plugin_types.h)"
