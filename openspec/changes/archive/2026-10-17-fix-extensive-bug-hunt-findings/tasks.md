@@ -85,4 +85,4 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 10. CI time
 
-- [ ] 10.1 Compare the PR's CI wall and summed job time with the main baseline and state both in the PR body.
+- [x] 10.1 Compare the PR's CI wall and summed job time with the main baseline and state both in the PR body.
