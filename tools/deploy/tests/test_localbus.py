@@ -329,6 +329,40 @@ class Force(Base):
         time.sleep(0.1)
         self.assertEqual(d.nmt_log, [1, 2])
 
+    def test_other_master_or_running_node_needs_force(self):
+        # Node 5 runs without a heartbeat the adapter heard (a slow one, or
+        # node guarding); a PLC sends SYNC (bug hunt PC-H2).
+        d = self.device(5, nmt_state=5)
+        peer = Peer(self.ch)
+        self.addCleanup(peer.close)
+        c = self.client(allow_changes=True)
+        peer.send(0x80, b"")
+        time.sleep(0.1)
+        self.assertTrue(c.status()["other_master"])
+        for call, end in ((lambda: c.nmt(5, "stop"), "node 5 may be under its control"),
+                          (lambda: c.sdo_write(5, 0x2000, 0, b"\1"), "node 5 may be under its control"),
+                          (lambda: c.scan(True), "a scan sends SDO requests to every node ID")):
+            with self.assertRaises(diag.DiagError) as e:
+                call()
+            self.assertTrue(diag.needs_force(e.exception), str(e.exception))
+            self.assertTrue(str(e.exception).startswith("another master is active on this bus (SYNC, last at "),
+                            str(e.exception))
+            self.assertIn(end, str(e.exception))
+        self.assertTrue(c.sdo_read(5, 0x1018, 1)["success"])
+        c.nmt(5, "start")
+        c.sdo_write(5, 0x2000, 0, b"\1", force=True)
+        time.sleep(0.1)
+        self.assertEqual(d.nmt_log, [1])
+        # Without another master, any node heard OPERATIONAL counts.
+        self.ch = channel()
+        self.device(7, heartbeat_s=0.05, nmt_state=5)
+        self.device(6)
+        c = self.client(allow_changes=True)
+        time.sleep(0.2)
+        with self.assertRaises(diag.DiagError) as e:
+            c.sdo_write(6, 0x2000, 0, b"\1")
+        self.assertEqual(str(e.exception), "node 7 is OPERATIONAL; a program may drive node 6 too; force needed")
+
     def test_no_bit_rate_detection(self):
         c = self.client(allow_changes=True)
         for op in ("detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop"):
