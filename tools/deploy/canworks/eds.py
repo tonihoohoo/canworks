@@ -53,11 +53,10 @@ class SubObject:
     def value(self, node_id):
         """The value the device starts with, as Lely reads it: ParameterValue,
         else DefaultValue, with $NODEID resolved ("$NODEID+0x180", and the
-        "0x180+$NODEID" form some vendors write); 0 when empty, as Lely reads
-        it. None if not a number."""
+        "0x180+$NODEID" form some vendors write). None if not a number."""
         text = (self.parameter or self.default).strip()
         if not text:
-            return 0  # an empty value is 0, as Lely reads it
+            return None
         parts = [t.strip() for t in text.split("+")]
         total = 0
         for t in parts:
