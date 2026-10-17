@@ -888,6 +888,15 @@ def sdo_override(node, entry, data, linked_rpdos=()):
     return None
 
 
+# Store (0x1010) and restore (0x1011) write the device's non-volatile memory:
+# never as a startup write (plugin: kNvmStartupMessage, kNvmVariableMessage).
+NVM_STARTUP_MESSAGE = ("a startup SDO to 0x1010 (store) or 0x1011 (restore) would write the device's non-volatile "
+                       "memory at every boot; use 'store_configuration' or 'restore_configuration'")
+NVM_VARIABLE_MESSAGE = ("a write SDO variable on 0x1010 (store) or 0x1011 (restore) without 'trigger_location' is "
+                        "written after every boot; give it a 'trigger_location', or use 'store_configuration' or "
+                        "'restore_configuration'")
+
+
 def plugin_owned_object(index):
     """What the plugin itself configures in this object of a node, or None
     (plugin: plugin_owned_object in config.cpp)."""
@@ -1871,6 +1880,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     % (node["node_id"], entry["index"], entry["subindex"], _value_text(sdo["value"]), problem),
                     ["%s.sdo[%d].value" % (w, j)])
             entry["value"] = data
+            if not problem and entry["index"] in (0x1010, 0x1011):
+                err("%s: sdo[%d]" % (w, j), "node %d, index 0x%04X, subindex %d: %s"
+                    % (node["node_id"], entry["index"], entry["subindex"], NVM_STARTUP_MESSAGE),
+                    ["%s.sdo[%d].index" % (w, j)])
             node["sdo"].append(entry)
             over = None if problem else sdo_override(n, entry, data, linked_rx.get(node["node_id"], ()))
             if over:
@@ -1885,6 +1898,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 err("%s: sdo_variables[%d]" % (w, j), "%s, %s: type %s (%d bit) does not fit location %s (%d bit)"
                     % (label, vlabel, v["type"], CO_TYPES[v["type"]][1], loc, SIZE_BITS[loc.size]),
                     ["%s.sdo_variables[%d].iec_location" % (w, j)])
+            if entry["direction"] == "write" and entry["index"] in (0x1010, 0x1011) and "trigger_location" not in v:
+                err("%s: sdo_variables[%d]" % (w, j), "%s, %s: %s" % (label, vlabel, NVM_VARIABLE_MESSAGE),
+                    ["%s.sdo_variables[%d]" % (w, j)])
             what = plugin_owned_object(entry["index"]) if entry["direction"] == "write" else None
             if what:
                 warn(label, "%s writes an object the plugin configures itself; the program can override %s"

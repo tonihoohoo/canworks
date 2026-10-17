@@ -53,6 +53,16 @@ bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent) {
   return false;
 }
 
+// Store (0x1010) and restore (0x1011) write the device's non-volatile
+// memory: never as a startup write, which runs at every boot
+// (canopen-config-contract "Store and restore are never startup writes").
+const char* const kNvmStartupMessage =
+    "a startup SDO to 0x1010 (store) or 0x1011 (restore) would write the device's non-volatile memory at every "
+    "boot; use 'store_configuration' or 'restore_configuration'";
+const char* const kNvmVariableMessage =
+    "a write SDO variable on 0x1010 (store) or 0x1011 (restore) without 'trigger_location' is written after every "
+    "boot; give it a 'trigger_location', or use 'store_configuration' or 'restore_configuration'";
+
 const char* plugin_owned_object(uint16_t index) {
   if (index >= 0x1400 && index <= 0x1BFF) return "the PDO settings";
   switch (index) {
@@ -2588,6 +2598,12 @@ class Parser {
         error(sw, std::string(obj) + ": value " + sdo.value_text + " " + why);
         continue;
       }
+      if (sdo.index == 0x1010 || sdo.index == 0x1011) {
+        char obj[64];
+        std::snprintf(obj, sizeof(obj), "node %u, index 0x%04X, subindex %u", n.node_id, sdo.index, sdo.subindex);
+        error(sw, std::string(obj) + ": " + kNvmStartupMessage);
+        continue;
+      }
       n.sdos.push_back(sdo);
     }
   }
@@ -2690,6 +2706,10 @@ class Parser {
                                        "an input byte (%IB...)", sv.status_location);
       sv.has_abort_code = sdo_var_location(item, "abort_code_location", vw, n, sv, IecArea::Input, 'D',
                                            "an input double word (%ID...)", sv.abort_code_location);
+      if (ok && !sv.is_read() && !sv.has_trigger && (sv.index == 0x1010 || sv.index == 0x1011)) {
+        error(vw, n.label() + ", " + sv.label() + ": " + kNvmVariableMessage);
+        ok = false;
+      }
       if (ok) n.sdo_variables.push_back(sv);
     }
   }
