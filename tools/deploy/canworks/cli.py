@@ -617,11 +617,15 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
     if into:
         try:
-            written, converted = project.write(cfg, args.config, into, force=args.force, sim_path=sim_path)
+            report = {}
+            written, converted = project.write(cfg, args.config, into, force=args.force, sim_path=sim_path,
+                                               report=report)
         except project.ProjectError as e:
             raise Failure(str(e))
         for name in converted:
             out("converted %s from CP1252 to UTF-8 (the editor sends project files as UTF-8)" % name)
+        if report.get("backup"):
+            out("kept the old folder as %s" % report["backup"])
         out("wrote %s" % ", ".join(written))
         out("The editor's \"Build and upload\" now carries this config, on a runtime with the CANopen editor hook "
             "(docs/install-stock.md).")
@@ -849,7 +853,9 @@ def notes_parser():
                                    "the sets used")):
         c = sub.add_parser(name, help=text, description=text)
         c.add_argument("eds", help="the EDS file")
-        c.add_argument("-o", "--output", metavar="FILE", help="write the document to FILE instead of printing it")
+        c.add_argument("-o", "--output", metavar="FILE",
+                       help="write the document to FILE instead of printing it (an existing FILE needs --force)")
+        c.add_argument("--force", action="store_true", help="replace an existing -o FILE")
         if name == "skeleton":
             c.add_argument("--all", action="store_true", dest="all_objects",
                            help="every object of the EDS, standard ones included, with an entry for each ARRAY "
@@ -894,6 +900,9 @@ def run_notes(args, out=print, err=None):
         for f in findings:
             out(f)
         return 1 if findings else 0
+    if args.output and os.path.lexists(args.output) and not args.force:
+        raise Failure("%s already exists (filled-in notes are lost if it is replaced); pass --force to replace it"
+                      % args.output)
     if args.command == "skeleton":
         doc = notes.skeleton(eds, name, eds_path=args.eds, describe=True, all_objects=args.all_objects,
                              indices=args.index)

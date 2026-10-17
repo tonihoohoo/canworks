@@ -65,7 +65,7 @@ On a runtime with the [editor hook](install-stock.md#the-editors-build-and-uploa
 canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` relative to `canworks/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`. Nothing is uploaded. A simulation file `canworks/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
+It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` and each network's `dbc` relative to `canworks/`), the EDS files with their device notes (`<eds>.notes.json`) and the DBC files into the project. EDS and DBC files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`, and is then kept as `canworks.bak-<time>` next to it (delete it once you no longer need it). Nothing is uploaded. A simulation file `canworks/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
 
 ## A new editor project from the config
 
@@ -179,12 +179,12 @@ An invalid description or gateway section stops it with the reason (the object a
 ## Device notes
 
 ```sh
-canworks-deploy notes skeleton [--all] [--index LOW-HIGH] canworks/valve.eds [-o FILE]
-canworks-deploy notes builtin canworks/valve.eds [-o FILE]
+canworks-deploy notes skeleton [--all] [--index LOW-HIGH] canworks/valve.eds [-o FILE [--force]]
+canworks-deploy notes builtin canworks/valve.eds [-o FILE [--force]]
 canworks-deploy notes check canworks/valve.eds canworks/valve.eds.notes.json
 ```
 
-work with the [device notes](configurator.md#device-notes) of an EDS without the configurator. `skeleton` prints a `canworks-notes.v1` document with the EDS identity and an entry for each manufacturer object and sub-object (0x2000-0x5FFF): its EDS name, data type (`x-type`) and access (`x-access`), to fill in. With `--all` it has every object of the EDS, standard ones included, an entry with the name of each ARRAY and RECORD object, and on each sub-object also the EDS default (`x-default`), limits (`x-low`, `x-high`) as the EDS writes them and PDO mapping (`x-pdo`); `--index 0x3000-0x30FF` keeps only the objects of that range. When the EDS lacks the vendor ID, product code or revision, the identity leaves it out and stderr says so. `builtin` prints the built-in notes that apply to the EDS (CiA 301, and CiA 401 or 402 by its device type); stderr names the sets used and says when the device's profile has none. `check` prints the warnings the configurator shows for a notes file, one per line, and exits with status 1 when there is any and 0 when there is none. An EDS or notes file that cannot be read stops with the reason and exit status 1; for an EDS the reason names the line and its section (a line that is not `key=value`) or the section (a missing entry or section). The [datasheet notes skill](configurator.md#notes-from-a-datasheet) uses all three.
+work with the [device notes](configurator.md#device-notes) of an EDS without the configurator. `skeleton` prints a `canworks-notes.v1` document with the EDS identity and an entry for each manufacturer object and sub-object (0x2000-0x5FFF): its EDS name, data type (`x-type`) and access (`x-access`), to fill in. With `--all` it has every object of the EDS, standard ones included, an entry with the name of each ARRAY and RECORD object, and on each sub-object also the EDS default (`x-default`), limits (`x-low`, `x-high`) as the EDS writes them and PDO mapping (`x-pdo`); `--index 0x3000-0x30FF` keeps only the objects of that range. When the EDS lacks the vendor ID, product code or revision, the identity leaves it out and stderr says so. `builtin` prints the built-in notes that apply to the EDS (CiA 301, and CiA 401 or 402 by its device type); stderr names the sets used and says when the device's profile has none. `-o FILE` writes the document to FILE instead and refuses a FILE that exists (it may be filled-in notes) unless `--force` is given. `check` prints the warnings the configurator shows for a notes file, one per line, and exits with status 1 when there is any and 0 when there is none. An EDS or notes file that cannot be read stops with the reason and exit status 1; for an EDS the reason names the line and its section (a line that is not `key=value`) or the section (a missing entry or section). The [datasheet notes skill](configurator.md#notes-from-a-datasheet) uses all three.
 
 ## Export documentation of the network
 

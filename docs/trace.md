@@ -24,7 +24,7 @@ A trace records one network. With several CAN networks in the config (`schema_ve
 
 ## Recording
 
-The plugin keeps the newest 65536 frames in memory while a client traces, and the PC fetches what is new every 100 ms. If the PC falls behind by more than that (a network hiccup on a busy bus), the frames it missed are counted as lost and marked in the trace. Frames the Pi's kernel dropped before the plugin read them are counted separately ("dropped by the PLC's kernel"). A trace on the PC holds up to 2 million frames (about 70 MB of memory); past that the oldest tenth is dropped at once, and the view says how many frames it holds and how many were dropped.
+The plugin keeps the newest 65536 frames in memory while a client traces, and the PC fetches what is new every 100 ms. If the PC falls behind by more than that (a network hiccup on a busy bus), the frames it missed are counted as lost and marked in the trace. Frames the Pi's kernel dropped before the plugin read them are counted separately ("dropped by the PLC's kernel"). A trace on the PC holds up to 2 million frames (about 70 MB of memory); past that the oldest tenth is dropped at once, and the view says how many frames it holds and how many were dropped. `canworks-diag trace` says so too when it ends ("the oldest N frames were dropped"), and the file then holds only the last part of the recording: record a shorter time, or with `--filter`.
 
 Capture filters (ID and mask, up to 16) are applied on the runtime and limit what is recorded, for example `0x180/0x780` for all TPDO1s or `0x717/0x7FF` for node 23's heartbeat. Error frames (bus errors, error-passive, bus-off) are recorded on request; with an slcan adapter such as the CANable they need Linux 6.0 or later and adapter firmware that reports them.
 
@@ -44,13 +44,13 @@ Time stamps are the Pi's kernel receive times in microseconds, shown relative to
 |---|---|---|---|
 | pcapng | `.pcapng` | Wireshark (with a CANopen dissector), tshark, scapy; the configurator and `convert` open it again | The native format: keeps direction per frame, markers, lost-frame notes, gaps, the network name, interface and bit rate, and the trigger. |
 | candump log | `.log` | can-utils (`canplayer`, `log2asc`), SavvyCAN, python-can, cantools | Plain text, one frame per line with `T`/`R` for the direction; opened again by the configurator. |
-| Vector ASC | `.asc` | CANalyzer, CANoe, SavvyCAN, python-can | Plain text; opened again by the configurator. |
+| Vector ASC | `.asc` | CANalyzer, CANoe, SavvyCAN, python-can | Plain text; opened again by the configurator, `base hex` or `base dec` and absolute or relative timestamps. |
 | Vector BLF | `.blf` | CANalyzer, CANoe, python-can | Binary, compressed; written only. |
 | PEAK TRC 2.1 | `.trc` | PCAN-View, PCAN-Explorer, python-can | Written only. |
 | CSV | `.csv` | Spreadsheets | One row per frame with time, direction, ID, data and the decoded text. |
 | Signals CSV | `.csv` | Spreadsheets | The configurator's graph series (PDO signals, polled status values), one row per change. |
 
-Files are checked against python-can and Wireshark in the tests; the hardware check opens them in Wireshark and SavvyCAN. CANalyzer, CANoe and PCAN-View were not available for checking.
+A pcapng or pcap file opens only when it has a SocketCAN interface (link type 227); a capture of another link type is refused instead of showing as empty. A damaged file is refused with the line or byte where it went wrong. Files are checked against python-can and Wireshark in the tests; the hardware check opens them in Wireshark and SavvyCAN. CANalyzer, CANoe and PCAN-View were not available for checking.
 
 ### Wireshark: decode as CANopen
 
@@ -107,4 +107,4 @@ canworks-diag convert bench.log bench.csv --dbc machine.dbc --dbc valves.dbc
 canworks-diag explain --trace bench.log --index 12 --dbc machine.dbc
 ```
 
-`trace` prints how many frames it recorded, the rate, and any lost or dropped frames when it ends. Ctrl-C ends a recording and still writes the file.
+`trace` prints how many frames it recorded, the rate, any lost or dropped frames, and a warning when the oldest frames were dropped past the 2 million frame limit, when it ends. Ctrl-C ends a recording and still writes the file.

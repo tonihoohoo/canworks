@@ -1002,7 +1002,8 @@ function pdoTestPanel(id, n, allow) {
     run.on = true;
     run.forced = !!r.forced;
     stopBtn.disabled = false;
-    say("info", `PDO test of node ${id}, layout ${r.source === "configuration" ? "from the configuration" : "read from the device"}.`);
+    const leftOut = (r.notes || []).length ? " " + r.notes.join("; ") + "." : "";
+    say(leftOut ? "warning" : "info", `PDO test of node ${id}, layout ${r.source === "configuration" ? "from the configuration" : "read from the device"}.${leftOut}`);
     put(live, el("h3", null, "TPDOs (from the device)"), tpdoBox, el("h3", null, "RPDOs (to the device)"),
       r.rpdos.length ? rpdoTable(r.rpdos) : el("p", { class: "muted" }, "The node has no valid RPDO."));
     put(tpdoBox, tpdoTable(r.tpdos));

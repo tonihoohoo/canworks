@@ -39,6 +39,14 @@ class FormatError(Exception):
     pass
 
 
+# What a damaged file makes the readers' parsing raise; turned into FormatError.
+DAMAGED = (ValueError, struct.error, IndexError, TypeError, KeyError, OverflowError)
+
+
+def _damaged(where, e):
+    return FormatError("damaged trace file at %s: %s" % (where, e))
+
+
 def format_of(path, fmt=None):
     """The format id for a path (by extension) or an explicit name."""
     if fmt:
@@ -92,25 +100,29 @@ _CANDUMP = re.compile(r"^\((\d+)\.(\d+)\)\s+(\S+)\s+([0-9A-Fa-f]+)#(#?)([0-9A-Fa
 def read_candump(text):
     t = Trace()
     iface = None
-    for line in text.splitlines():
+    for n, line in enumerate(text.splitlines(), 1):
         m = _CANDUMP.match(line.strip())
         if not m:
             continue
-        sec, frac, iface, cid, fd, body, direction = m.groups()
+        sec, frac, name, cid, fd, body, direction = m.groups()
         if fd:
             continue  # CAN FD: not supported
-        time_us = int(sec) * 1000000 + int((frac + "000000")[:6])
-        raw = int(cid, 16)
-        err = bool(raw & ERR) and len(cid) == 8
-        ext = len(cid) == 8 and not err
-        rtr = body.startswith("R")
-        if rtr:
-            dlc = int(body[1:]) if body[1:].isdigit() else 0
-            data = b""
-        else:
-            data = bytes.fromhex(body.replace(".", ""))
-            dlc = None
-        t.append(Frame(time_us, raw & ID_MASK, data, ext=ext, rtr=rtr, err=err, tx=direction == "T", dlc=dlc))
+        try:
+            time_us = int(sec) * 1000000 + int((frac + "000000")[:6])
+            raw = int(cid, 16)
+            err = bool(raw & ERR) and len(cid) == 8
+            ext = len(cid) == 8 and not err
+            rtr = body.startswith("R")
+            if rtr:
+                dlc = int(body[1:]) if body[1:].isdigit() else 0
+                data = b""
+            else:
+                data = bytes.fromhex(body.replace(".", ""))
+                dlc = None
+            t.append(Frame(time_us, raw & ID_MASK, data, ext=ext, rtr=rtr, err=err, tx=direction == "T", dlc=dlc))
+        except DAMAGED as e:
+            raise _damaged("line %d" % n, e)
+        iface = name
     if iface:
         t.meta["interface"] = iface
     return t
@@ -162,29 +174,48 @@ def _parse_asc_date(text):
     return 0
 
 
+_ASC_BASE = re.compile(r"^base\s+(hex|dec)\b(?:.*\btimestamps\s+(absolute|relative)\b)?", re.I)
+
+
 def read_asc(text):
+    """The frames of a Vector ASC log, by its "base hex|dec" (identifiers,
+    DLC and data) and "timestamps absolute|relative" (each time from the
+    previous event) header."""
     t = Trace()
     start = 0
-    for line in text.splitlines():
+    base, relative, last = 16, False, 0
+    for n, line in enumerate(text.splitlines(), 1):
         s = line.strip()
         if s.startswith("date "):
             start = _parse_asc_date(s[5:])
             continue
-        m = _ASC_ERROR.match(line)
+        m = _ASC_BASE.match(s)
         if m:
-            t.append(Frame(start + int(round(float(m.group(1)) * 1e6)), 0, b"", err=True))
+            base = 10 if m.group(1).lower() == "dec" else 16
+            relative = (m.group(2) or "absolute").lower() == "relative"
             continue
-        m = _ASC_FRAME.match(line)
-        if not m:
-            continue
-        ts, _ch, cid, x, direction, kind, dlc, rest = m.groups()
-        dlc = int(dlc or "0", 16)
-        if kind == "r":
-            data, rtr = b"", True
-        else:
-            data, rtr = bytes(int(b, 16) for b in rest.split()[:dlc]), False
-        t.append(Frame(start + int(round(float(ts) * 1e6)), int(cid, 16), data, ext=bool(x), rtr=rtr,
-                       tx=direction == "Tx", dlc=dlc))
+        try:
+            m = _ASC_ERROR.match(line)
+            if m:
+                last = (last if relative else 0) + int(round(float(m.group(1)) * 1e6))
+                t.append(Frame(start + last, 0, b"", err=True))
+                continue
+            m = _ASC_FRAME.match(line)
+            if not m:
+                continue
+            ts, _ch, cid, x, direction, kind, dlc, rest = m.groups()
+            dlc = int(dlc or "0", base)
+            if kind == "r":
+                data, rtr = b"", True
+            else:
+                tokens = rest.split()[:dlc]
+                if len(tokens) < dlc:
+                    raise ValueError("%d data bytes for DLC %d" % (len(tokens), dlc))
+                data, rtr = bytes(int(b, base) for b in tokens), False
+            last = (last if relative else 0) + int(round(float(ts) * 1e6))
+            t.append(Frame(start + last, int(cid, base), data, ext=bool(x), rtr=rtr, tx=direction == "Tx", dlc=dlc))
+        except DAMAGED as e:
+            raise _damaged("line %d" % n, e)
     return t
 
 
@@ -376,83 +407,107 @@ def read_pcapng(data):
     i = 0
     endian = "<"
     u32, epb, flags_opt = _pcapng_structs(endian)
-    ifaces = []  # (linktype, ticks per second)
+    ifaces = []  # this section's (linktype, ticks per second, name, if_tsoffset)
+    can = []  # the names of every section's SocketCAN interfaces
+    others = set()
     meta = None
     while i + 12 <= len(data):
-        btype = u32.unpack_from(data, i)[0]
-        if btype == 0x0A0D0D0A:
-            bom = data[i + 8:i + 12]
-            endian = "<" if bom == b"\x4d\x3c\x2b\x1a" else ">"
-            u32, epb, flags_opt = _pcapng_structs(endian)
-            ifaces = []
-        blen = u32.unpack_from(data, i + 4)[0]
-        if blen < 12 or i + blen > len(data):
-            raise FormatError("damaged pcapng block at byte %d" % i)
-        body = data[i + 8:i + blen - 4]
-        if btype == 0x0A0D0D0A:
-            opts = _parse_options(body[16:], endian)
-            comment = opts.get(1)
-            if comment:
-                try:
-                    m = json.loads(comment.decode("utf-8"))
-                    if isinstance(m, dict) and m.get("canworks_trace"):
-                        meta = m
-                except ValueError:
-                    pass
-        elif btype == 1:
-            linktype = struct.unpack_from(endian + "H", body, 0)[0]
-            opts = _parse_options(body[8:], endian)
-            res = opts.get(9, b"\x06")[0]
-            tps = 2 ** (res & 0x7F) if res & 0x80 else 10 ** res
-            ifaces.append((linktype, tps, (opts.get(2) or b"").decode("utf-8", "replace")))
-        elif btype in (6, 3):
-            if btype == 6:
-                ifid, hi, lo, caplen = epb.unpack_from(body, 0)
-                pkt = body[20:20 + caplen]
-                o = 20 + caplen + (-caplen % 4)
-                if body[o:o + 4] == flags_opt:  # epb_flags first, as write_pcapng puts it
-                    flags = u32.unpack_from(body, o + 4)[0]
+        try:
+            btype = u32.unpack_from(data, i)[0]
+            if btype == 0x0A0D0D0A:
+                bom = data[i + 8:i + 12]
+                endian = "<" if bom == b"\x4d\x3c\x2b\x1a" else ">"
+                u32, epb, flags_opt = _pcapng_structs(endian)
+                ifaces = []
+            blen = u32.unpack_from(data, i + 4)[0]
+            if blen < 12 or i + blen > len(data):
+                raise FormatError("damaged pcapng block at byte %d" % i)
+            body = data[i + 8:i + blen - 4]
+            if btype == 0x0A0D0D0A:
+                opts = _parse_options(body[16:], endian)
+                comment = opts.get(1)
+                if comment:
+                    try:
+                        m = json.loads(comment.decode("utf-8"))
+                        if isinstance(m, dict) and m.get("canworks_trace"):
+                            meta = m
+                    except ValueError:
+                        pass
+            elif btype == 1:
+                linktype = struct.unpack_from(endian + "H", body, 0)[0]
+                opts = _parse_options(body[8:], endian)
+                res = opts.get(9, b"\x06")[0]
+                tps = 2 ** (res & 0x7F) if res & 0x80 else 10 ** res
+                tsoffset = struct.unpack(endian + "q", opts[14])[0] if 14 in opts else 0  # if_tsoffset, seconds
+                ifaces.append((linktype, tps, (opts.get(2) or b"").decode("utf-8", "replace"), tsoffset))
+                if linktype == LINKTYPE_CAN_SOCKETCAN:
+                    can.append(ifaces[-1][2])
                 else:
-                    opts = _parse_options(body[o:], endian)
-                    flags = struct.unpack_from(endian + "I", opts[2])[0] if 2 in opts else 0
-                ticks = (hi << 32) | lo
-            else:
-                ifid, ticks, flags = 0, 0, 0
-                pkt = body[4:]
-            if ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_CAN_SOCKETCAN:
-                time_us = ticks * 1000000 // ifaces[ifid][1]
-                rec = _socketcan_record(pkt, time_us, (flags & 3) == 2)
-                if rec:
-                    recs.append(rec)
-                    if len(t) + len(recs) > t.limit:
-                        t.append_packed(b"".join(recs))
-                        recs = []
+                    others.add(linktype)
+            elif btype in (6, 3):
+                if btype == 6:
+                    ifid, hi, lo, caplen = epb.unpack_from(body, 0)
+                    pkt = body[20:20 + caplen]
+                    o = 20 + caplen + (-caplen % 4)
+                    if body[o:o + 4] == flags_opt:  # epb_flags first, as write_pcapng puts it
+                        flags = u32.unpack_from(body, o + 4)[0]
+                    else:
+                        opts = _parse_options(body[o:], endian)
+                        flags = struct.unpack_from(endian + "I", opts[2])[0] if 2 in opts else 0
+                    ticks = (hi << 32) | lo
+                else:
+                    ifid, ticks, flags = 0, 0, 0
+                    pkt = body[4:]
+                if ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_CAN_SOCKETCAN:
+                    time_us = ticks * 1000000 // ifaces[ifid][1] + ifaces[ifid][3] * 1000000
+                    rec = _socketcan_record(pkt, time_us, (flags & 3) == 2)
+                    if rec:
+                        recs.append(rec)
+                        if len(t) + len(recs) > t.limit:
+                            t.append_packed(b"".join(recs))
+                            recs = []
+        except DAMAGED as e:
+            raise _damaged("byte %d" % i, e)
         i += blen
     t.append_packed(b"".join(recs))
-    if ifaces:
-        t.meta["interface"] = ifaces[0][2] or None
+    if not can:
+        raise FormatError("the pcapng file has no SocketCAN interface (link type %d)%s; capture CAN with a "
+                          "SocketCAN interface" % (LINKTYPE_CAN_SOCKETCAN, ", only link type %s" % ", ".join(
+                              str(k) for k in sorted(others)) if others else ""))
+    t.meta["interface"] = can[0] or None
     if meta:
-        for k in ("network", "interface", "bitrate", "config_sha256", "source", "trigger", "started_utc", "runtime",
-                  "connection"):
-            if meta.get(k) is not None:
-                t.meta[k] = meta[k]
-        for m in meta.get("markers") or []:
-            if isinstance(m, dict) and "time_us" in m:
-                t.add_marker(m["time_us"], m.get("label", ""), m.get("kind", "marker"))
-        t.lost = [(int(a), int(b)) for a, b in meta.get("lost") or []]
-        t.kernel_drops = int(meta.get("kernel_drops") or 0)
-        gaps = sorted(int(g) for g in meta.get("gaps") or [])
-        if gaps:
-            frames = list(t) + [Frame(g, 0, gap=True) for g in gaps]
-            frames.sort(key=lambda f: (f.time_us, not f.gap))
-            t2 = Trace()
-            t2.meta, t2.markers, t2.lost, t2.kernel_drops = t.meta, t.markers, t.lost, t.kernel_drops
-            t2.extend(frames)
-            t = t2
+        try:
+            t = _apply_meta(t, meta)
+        except DAMAGED as e:
+            raise _damaged("the canworks metadata", e)
+    return t
+
+
+def _apply_meta(t, meta):
+    """The trace with the canworks metadata of a pcapng file applied."""
+    for k in ("network", "interface", "bitrate", "config_sha256", "source", "trigger", "started_utc", "runtime",
+              "connection"):
+        if meta.get(k) is not None:
+            t.meta[k] = meta[k]
+    for m in meta.get("markers") or []:
+        if isinstance(m, dict) and "time_us" in m:
+            t.add_marker(m["time_us"], m.get("label", ""), m.get("kind", "marker"))
+    t.lost = [(int(a), int(b)) for a, b in meta.get("lost") or []]
+    t.kernel_drops = int(meta.get("kernel_drops") or 0)
+    gaps = sorted(int(g) for g in meta.get("gaps") or [])
+    if gaps:
+        frames = list(t) + [Frame(g, 0, gap=True) for g in gaps]
+        frames.sort(key=lambda f: (f.time_us, not f.gap))
+        t2 = Trace()
+        t2.meta, t2.markers, t2.lost, t2.kernel_drops = t.meta, t.markers, t.lost, t.kernel_drops
+        t2.extend(frames)
+        t = t2
     return t
 
 
 def _read_pcap(data):
+    if len(data) < 24:
+        raise FormatError("damaged pcap file: %d bytes, shorter than its 24-byte header" % len(data))
     magic = struct.unpack_from("<I", data)[0]
     endian = "<" if magic in (0xA1B2C3D4, 0xA1B23C4D) else ">"
     nano = magic in (0xA1B23C4D, 0x4D3CB2A1)
@@ -462,11 +517,14 @@ def _read_pcap(data):
     t = Trace()
     i = 24
     while i + 16 <= len(data):
-        sec, frac, caplen, _ = struct.unpack_from(endian + "IIII", data, i)
-        pkt = data[i + 16:i + 16 + caplen]
-        f = _socketcan_frame(pkt, sec * 1000000 + (frac // 1000 if nano else frac), False)
-        if f:
-            t.append(f)
+        try:
+            sec, frac, caplen, _ = struct.unpack_from(endian + "IIII", data, i)
+            pkt = data[i + 16:i + 16 + caplen]
+            f = _socketcan_frame(pkt, sec * 1000000 + (frac // 1000 if nano else frac), False)
+            if f:
+                t.append(f)
+        except DAMAGED as e:
+            raise _damaged("byte %d" % i, e)
         i += 16 + caplen
     return t
 

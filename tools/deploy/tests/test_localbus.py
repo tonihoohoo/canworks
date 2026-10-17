@@ -90,6 +90,31 @@ class AdapterSpec(unittest.TestCase):
         finally:
             lock.release()
 
+    def test_lock_per_user_and_lock_errors(self):
+        # A shared temporary folder holds one lock folder per user, and a
+        # lock that cannot be made is an unreachable adapter, not a
+        # traceback (bug hunt PC lows).
+        import tempfile
+        from canworks.localbus import adapter
+        lock = adapter._Lock(parse("virtual:lock-test"))
+        if hasattr(os, "getuid"):
+            self.assertEqual(os.path.basename(os.path.dirname(lock.path)), "canworks-adapters-%d" % os.getuid())
+        real_open = os.open
+
+        def refused(path, *a, **kw):
+            if path.endswith(".lock"):
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *a, **kw)
+        with mock.patch.object(adapter.os, "open", refused):
+            with self.assertRaises(diag.DiagError) as e:
+                LocalBus(parse("virtual:" + channel()), 250000, listen_s=0.05).connect()
+        self.assertEqual(e.exception.kind, "unreachable")
+        self.assertIn("Permission denied", str(e.exception))
+        with mock.patch.object(tempfile, "gettempdir", lambda: "/proc/no-such-folder"):
+            with self.assertRaises(AdapterError) as e:
+                adapter._Lock(parse("virtual:x"))
+        self.assertEqual(e.exception.kind, "unreachable")
+
 
 class Sdo(Base):
     def test_expedited_and_segmented(self):
@@ -107,6 +132,19 @@ class Sdo(Base):
         long = bytes(range(100, 130))
         self.assertTrue(c.sdo_write(5, 0x2001, 0, long)["success"])
         self.assertEqual(self.devices[0].od[(0x2001, 0)], long)
+
+    def test_segmented_size_mismatch_aborts(self):
+        # The data must match the size the server indicated (bug hunt PC lows).
+        d = self.device(5, od={(0x2001, 0): bytes(range(40))})
+        c = self.client()
+        send = d.send
+        for indicated in (43, 37):
+            d.send = lambda cob, data, n=indicated: send(cob, (data[:4] + struct.pack("<I", n)) if data[0] == 0x41
+                                                         else data)
+            r = c.sdo_read(5, 0x2001, 0)
+            self.assertFalse(r["success"])
+            self.assertEqual(r["abort_code"], 0x06070010)
+            self.assertIn("40 bytes for an indicated size of %d" % indicated, r["error"])
 
     def test_expedited_write_is_one_request(self):
         self.device(5, od={(0x2000, 1): b"\x11\x22"})
@@ -329,6 +367,40 @@ class Force(Base):
         time.sleep(0.1)
         self.assertEqual(d.nmt_log, [1, 2])
 
+    def test_other_master_or_running_node_needs_force(self):
+        # Node 5 runs without a heartbeat the adapter heard (a slow one, or
+        # node guarding); a PLC sends SYNC (bug hunt PC-H2).
+        d = self.device(5, nmt_state=5)
+        peer = Peer(self.ch)
+        self.addCleanup(peer.close)
+        c = self.client(allow_changes=True)
+        peer.send(0x80, b"")
+        time.sleep(0.1)
+        self.assertTrue(c.status()["other_master"])
+        for call, end in ((lambda: c.nmt(5, "stop"), "node 5 may be under its control"),
+                          (lambda: c.sdo_write(5, 0x2000, 0, b"\1"), "node 5 may be under its control"),
+                          (lambda: c.scan(True), "a scan sends SDO requests to every node ID")):
+            with self.assertRaises(diag.DiagError) as e:
+                call()
+            self.assertTrue(diag.needs_force(e.exception), str(e.exception))
+            self.assertTrue(str(e.exception).startswith("another master is active on this bus (SYNC, last at "),
+                            str(e.exception))
+            self.assertIn(end, str(e.exception))
+        self.assertTrue(c.sdo_read(5, 0x1018, 1)["success"])
+        c.nmt(5, "start")
+        c.sdo_write(5, 0x2000, 0, b"\1", force=True)
+        time.sleep(0.1)
+        self.assertEqual(d.nmt_log, [1])
+        # Without another master, any node heard OPERATIONAL counts.
+        self.ch = channel()
+        self.device(7, heartbeat_s=0.05, nmt_state=5)
+        self.device(6)
+        c = self.client(allow_changes=True)
+        time.sleep(0.2)
+        with self.assertRaises(diag.DiagError) as e:
+            c.sdo_write(6, 0x2000, 0, b"\1")
+        self.assertEqual(str(e.exception), "node 7 is OPERATIONAL; a program may drive node 6 too; force needed")
+
     def test_no_bit_rate_detection(self):
         c = self.client(allow_changes=True)
         for op in ("detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop"):
@@ -528,24 +600,48 @@ class Cli(Base):
 
 class AdapterList(unittest.TestCase):
     def _usb(self, ids, platform="darwin"):
-        from types import SimpleNamespace
+        """_usb_adapters() and gs_usb:N opens on a gs_usb package whose scan
+        finds `ids` [(vid, pid)], at USB bus 1, addresses 3, 4, ..."""
+        from types import ModuleType, SimpleNamespace
         from canworks.localbus import adapter as adapter_mod
-        devices = [SimpleNamespace(idVendor=v, idProduct=p) for v, p in ids]
-        usb = SimpleNamespace(core=SimpleNamespace(find=lambda find_all: iter(devices)))
-        with mock.patch.dict("sys.modules", {"usb": usb, "usb.core": usb.core}), \
-                mock.patch.object(adapter_mod.sys, "platform", platform):
-            return adapter_mod._usb_adapters()
 
-    def test_gs_usb_by_usb_id(self):
-        # python-can's gs_usb driver cannot list its adapters: they are found
-        # by USB ID and numbered as the driver numbers them.
-        found = self._usb([(0x1D50, 0x606F), (0x05E3, 0x0610), (0x1D50, 0x606F)])
-        self.assertEqual([(a["type"], a["channel"], a["usb_id"]) for a in found],
-                         [("gs_usb", "0", "1D50:606F"), ("gs_usb", "1", "1D50:606F")])
-        self.assertIn("candleLight", found[0]["known"])
+        class GsUsb:
+            def __init__(self, k, vid, pid):
+                self.bus, self.address = 1, 3 + k
+                self.gs_usb = SimpleNamespace(idVendor=vid, idProduct=pid)
+
+            @classmethod
+            def scan(cls):
+                return [GsUsb(k, v, p) for k, (v, p) in enumerate(ids)]
+
+            def start(self, flags=0):
+                pass
+
+        pkg, mod = ModuleType("gs_usb"), ModuleType("gs_usb.gs_usb")
+        mod.GsUsb = pkg.gs_usb = GsUsb
+        with mock.patch.dict("sys.modules", {"gs_usb": pkg, "gs_usb.gs_usb": mod}), \
+                mock.patch.object(adapter_mod.sys, "platform", platform):
+            found = adapter_mod._usb_adapters()
+            opened = {}
+            for a in found:
+                kwargs = {}
+                adapter_mod._gs_usb_options(parse("gs_usb:" + a["channel"]), kwargs)
+                opened[a["channel"]] = (kwargs["bus"], kwargs["address"])
+            return found, opened
+
+    def test_gs_usb_listed_as_opened(self):
+        # The listing is the gs_usb package's own scan, so gs_usb:N opens the
+        # adapter listed as N, also for USB IDs other than 1D50:606F (bug
+        # hunt PC-M5).
+        found, opened = self._usb([(0x1209, 0x2323), (0x1D50, 0x606F)])
+        self.assertEqual([(a["type"], a["channel"], a["usb_id"], a["usb_bus"], a["usb_address"]) for a in found],
+                         [("gs_usb", "0", "1209:2323", 1, 3), ("gs_usb", "1", "1D50:606F", 1, 4)])
+        self.assertEqual(opened, {"0": (1, 3), "1": (1, 4)})
+        self.assertIn("candleLight", found[1]["known"])
+        self.assertIn("bus 1 address 3", found[0]["description"])
 
     def test_gs_usb_not_on_linux(self):
-        self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux"), [])  # a SocketCAN link there
+        self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux")[0], [])  # a SocketCAN link there
 
     def test_no_pyusb(self):
         from canworks.localbus import adapter as adapter_mod

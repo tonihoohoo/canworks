@@ -226,6 +226,70 @@ class ReplayTests(unittest.TestCase):
             tx.shutdown()
             rx.shutdown()
 
+    def test_trc_layouts(self):
+        # TRC 1.0 has no Rx/Tx column (bug hunt JR-M5, PC-M3).
+        def ids(text):
+            return [(f.time_us, f.can_id, f.dlc, f.data) for f in replay.read_trc(text)]
+        v10 = "1) 1841 0201 2 01 00\n2) 1842 0123 8 11 22 33 44 55 66 77 88\n"
+        want = [(0, 0x201, 2, b"\x01\x00"), (1000, 0x123, 8, bytes.fromhex("1122334455667788"))]
+        self.assertEqual(ids(v10), want)
+        self.assertEqual(ids(";$FILEVERSION=1.0\n" + v10), want)
+        v11 = ";$FILEVERSION=1.1\n1) 1841.0 Rx 0201 2 01 00\n2) 1841.5 Warng FFFFFFFF 4 00 00 00 08 BUSHEAVY\n" \
+              "3) 1842.0 Tx 0123 1 RTR\n"
+        self.assertEqual([(f.can_id, f.rtr) for f in replay.read_trc(v11)], [(0x201, False), (0x123, True)])
+        v20 = ";$FILEVERSION=2.0\n     1      1059.900 DT 0300 Rx 2 01 02\n"
+        self.assertEqual(ids(v20), [(0, 0x300, 2, b"\x01\x02")])
+        for text, why in ((";$FILEVERSION=1.3\n1) 1.0 1 Rx 0201 - 2 01 00\n", "version 1.3 cannot be replayed"),
+                          (";$FILEVERSION=1.1\n" + v10, "line 2 .*no Rx/Tx column"),
+                          (";$FILEVERSION=1.0\n1) 1841.0 Rx 0201 2 01 00\n", "an Rx/Tx column"),
+                          ("1) 1841 0201 3 01 00\n", "line 1 .*2 data bytes for DLC 3"),
+                          ("1) 1841 Rx 0201 1 01 00\n", "2 data bytes for DLC 1"),
+                          (";$FILEVERSION=2.0\n     1      1059.900 DT 0300 Rx 2 01\n", "1 data bytes for DLC 2")):
+            with self.assertRaisesRegex(replay.ReplayError, why):
+                replay.read_trc(text)
+
+    def test_loop_keeps_the_rate(self):
+        """--loop waits a frame period between rounds and keeps the rate
+        limit across them (bug hunt PC-H1)."""
+        from canworks.bustrace.model import Frame
+        one = [Frame(0, 0x123, b"\x01")]
+        ten = [Frame(i * 100, 0x123, b"\x01") for i in range(10)]
+        for frames in (one, ten):
+            with self.assertRaisesRegex(replay.ReplayError, "needs --rate"):
+                replay.plan(frames, loop=True)
+
+        def run(p, gap_us=None, seconds=2.0):
+            now = [0.0]
+            times = []
+
+            def sleep(s):
+                self.assertGreater(s, 0)
+                now[0] += s
+            n = replay.play(lambda f: times.append(now[0]), p, loop=True, stop=lambda: now[0] >= seconds,
+                            clock=lambda: now[0], sleep=sleep, gap_us=gap_us)
+            return n, times
+        p = replay.plan(one, rate=10, loop=True)
+        n, _ = run(p, replay.loop_gap_us(p, 10))
+        self.assertLessEqual(n, 21)
+        # Without a gap the 1 ms floor still holds.
+        n, _ = run(p, 0)
+        self.assertLessEqual(n, 2002)
+        p = replay.plan(ten, rate=100, loop=True)
+        n, times = run(p, replay.loop_gap_us(p, 100))
+        self.assertLessEqual(n, 201)
+        self.assertGreaterEqual(min(b - a for a, b in zip(times, times[1:])), 0.0099)
+        # A second of recorded frames with bursts at both ends: one pass is
+        # within the limit, looping puts the bursts side by side.
+        bursts = [Frame(i * 100, 1, b"") for i in range(501)] + [Frame(1000000 + i * 100, 1, b"") for i in range(501)]
+        self.assertEqual(len(replay.plan(bursts)), 1002)
+        with self.assertRaisesRegex(replay.ReplayError, "looping"):
+            replay.plan(bursts, loop=True)
+        # A plan of a second or more loops with its recorded gap.
+        slow = [Frame(i * 250000, 1, b"") for i in range(5)]
+        p = replay.plan(slow, loop=True)
+        _, times = run(p, seconds=2.6)
+        self.assertEqual([round(t, 3) for t in times], [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75])
+
 
 if __name__ == "__main__":
     unittest.main()

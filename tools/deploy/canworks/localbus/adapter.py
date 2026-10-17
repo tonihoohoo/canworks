@@ -123,17 +123,28 @@ def untested(spec):
 class _Lock:
     """An OS file lock named after the adapter, held while it is open, so a
     second tool (another configurator, a CLI) gets a clear message instead of
-    sharing the adapter."""
+    sharing the adapter. The folder is the user's own (a shared temporary
+    folder holds one per user); another user's tool on the same adapter is
+    refused by the adapter's own driver instead. A lock that cannot be made
+    is an unreachable adapter."""
 
     def __init__(self, spec):
-        folder = os.path.join(tempfile.gettempdir(), "canworks-adapters")
-        os.makedirs(folder, exist_ok=True)
+        uid = os.getuid() if hasattr(os, "getuid") else None
+        folder = os.path.join(tempfile.gettempdir(), "canworks-adapters" + ("-%d" % uid if uid is not None else ""))
         name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(spec))
         self.path = os.path.join(folder, name + ".lock")
         self.fd = None
+        try:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+        except OSError as e:
+            raise AdapterError("unreachable", "adapter %s: cannot make the lock folder %s: %s" % (
+                spec, folder, e.strerror or e))
 
     def acquire(self):
-        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as e:
+            raise AdapterError("unreachable", "cannot open the adapter lock %s: %s" % (self.path, e.strerror or e))
         try:
             if os.name == "nt":
                 import msvcrt
@@ -678,26 +689,28 @@ def _socketcan_links():
 
 
 def _usb_adapters():
-    """gs_usb adapters by USB ID, numbered as python-can's gs_usb driver
-    numbers them (its channel), which cannot list them itself. On Linux they
-    are SocketCAN links instead. Needs pyusb and libusb."""
+    """gs_usb adapters as the gs_usb package finds them (GsUsb.scan(): its
+    USB IDs, its order), numbered as gs_usb:N opens them, with each one's USB
+    bus and address. On Linux they are SocketCAN links instead. Needs the
+    gs_usb package, pyusb and libusb."""
     out = []
     if sys.platform.startswith("linux"):
         return out
     _libusb_path()
     try:
-        import usb.core
-        devices = list(usb.core.find(find_all=True))
-    except Exception:  # no pyusb, or no libusb backend
+        from gs_usb.gs_usb import GsUsb
+        devices = list(GsUsb.scan())
+    except Exception:  # no gs_usb or pyusb, or no libusb backend
         return out
-    index = 0
-    for d in devices:
-        kind = OTHER_USB_IDS.get((d.idVendor, d.idProduct))
-        if not kind or kind[0] != "gs_usb":
-            continue
-        out.append({"type": "gs_usb", "channel": str(index), "description": "USB device",
-                    "usb_id": "%04X:%04X" % (d.idVendor, d.idProduct), "known": kind[1]})
-        index += 1
+    for index, d in enumerate(devices):
+        usb = getattr(d, "gs_usb", None)
+        vid, pid = getattr(usb, "idVendor", None), getattr(usb, "idProduct", None)
+        kind = OTHER_USB_IDS.get((vid, pid))
+        out.append({"type": "gs_usb", "channel": str(index),
+                    "description": "USB device at bus %s address %s" % (d.bus, d.address),
+                    "usb_id": "%04X:%04X" % (vid, pid) if vid is not None and pid is not None else None,
+                    "known": kind[1] if kind else "gs_usb firmware",
+                    "usb_bus": d.bus, "usb_address": d.address})
     return out
 
 

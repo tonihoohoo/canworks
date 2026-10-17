@@ -82,6 +82,48 @@ class IntoProject(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "cpp-slave.eds"])
 
+    def test_dbc_files_come_along(self):
+        # A J1939 network's DBC (bug hunt PC-M4).
+        src = os.path.join(self.dir, "j1939")
+        shutil.copytree(os.path.join(REPO, "examples", "j1939"), src)
+        os.makedirs(os.path.join(src, "dbc"))
+        os.rename(os.path.join(src, "machine.dbc"), os.path.join(src, "dbc", "machine.dbc"))
+        config = os.path.join(src, "canworks.json")
+        with open(config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["networks"][0]["j1939"]["dbc"] = "dbc/machine.dbc"
+        with open(config, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        code, out, err = deploy("--config", config, "--into-project", self.project)
+        self.assertEqual(code, 0, err)
+        self.assertIn("machine.dbc", os.listdir(self.canopen))
+        self.assertEqual(read(os.path.join(self.canopen, "machine.dbc")), read(os.path.join(src, "dbc", "machine.dbc")))
+        with open(os.path.join(self.canopen, "canworks.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["networks"][0]["j1939"]["dbc"], "machine.dbc")
+        self.assertIn(os.path.join(self.canopen, "machine.dbc"), out)
+
+    def test_refresh_keeps_notes_and_a_backup(self):
+        # The project's own config moved again with --force: device notes go
+        # along and the old folder is kept (bug hunt PC-M4).
+        project = os.path.join(self.dir, "gantry-cell")
+        shutil.copytree(os.path.join(REPO, "examples", "gantry-cell"), project)
+        canopen = os.path.join(project, "canworks")
+        notes = '{"format": "canworks-notes.v1", "objects": {}}\n'
+        with open(os.path.join(canopen, "dio16.eds.notes.json"), "w", encoding="utf-8") as f:
+            f.write(notes)
+        with open(os.path.join(canopen, "keep.txt"), "w") as f:
+            f.write("mine")
+        config = os.path.join(canopen, "canworks.json")
+        code, out, err = deploy("--config", config, "--into-project", project, "--force")
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(canopen, "dio16.eds.notes.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), notes)
+        backups = [d for d in os.listdir(project) if d.startswith("canworks.bak-")]
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(read(os.path.join(project, backups[0], "keep.txt")), b"mine")
+        self.assertIn("kept the old folder as %s" % os.path.join(project, backups[0]), out)
+        self.assertNotIn("keep.txt", os.listdir(canopen))
+
     def test_not_a_project(self):
         os.remove(os.path.join(self.project, "project.json"))
         code, _, err = deploy("--config", pingpong_config(self.dir), "--into-project", self.project)

@@ -638,14 +638,20 @@ def plan_keys(backup, eds, include_comm=False, config=None, owned=None):
 
 def restore(client, node_id, plan, hold=False, progress=None, cancel=None, timeout_ms=1000):
     """Writes a plan. Returns {written, failed, skipped, unchanged, held,
-    released, cancelled, note}. Never writes 0x1010."""
+    released, cancelled, note}. Never writes 0x1010. With `hold` on a USB
+    adapter (no master hands the node on) the node is started again only
+    when it was OPERATIONAL before, as commissioning.configure does."""
     if plan.refused:
         raise ParameterError("restore refused: %s" % plan.refused)
     result = {"written": [], "failed": [], "skipped": plan.skipped, "unchanged": plan.unchanged, "held": False,
               "released": None, "cancelled": False,
               "note": "the restored values are not stored on the device: they are lost at power off until "
                       "Store on device (0x1010) is used"}
+    restart = True
     if hold:
+        if client.info.get("local"):
+            from .commissioning import node_state
+            restart = node_state(client, node_id)[0]
         client.nmt(node_id, "preop")
         result["held"] = True
     try:
@@ -665,13 +671,16 @@ def restore(client, node_id, plan, hold=False, progress=None, cancel=None, timeo
             if progress:
                 progress(n + 1, len(plan.writes))
     finally:
-        if hold:
+        if hold and restart:
             try:
                 client.nmt(node_id, "start")
                 result["released"] = True
             except DiagError as e:
                 result["released"] = False
                 result["release_error"] = str(e)
+        elif hold:
+            result["note"] = "node %d stays PRE-OPERATIONAL (it was not seen OPERATIONAL before); %s" % (
+                node_id, result["note"])
     return result
 
 

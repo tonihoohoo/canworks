@@ -10,6 +10,12 @@ runtime's editor hook (tools/editor-hook):
     <project>/canworks/<name>.csv      (the simulation file's CSV files)
     <project>/canworks/<name>.json     (the machine files its sections name,
                                        machine -> "<name>")
+    <project>/canworks/<name>.dbc      (each network's j1939.dbc and raw.dbc
+                                       -> "<name>")
+    <project>/canworks/<eds>.notes.json (each EDS file's device notes)
+
+With force, an existing canworks/ folder is kept as canworks.bak-<time>,
+so files only it holds are not lost.
 
 The editor reads every project file as UTF-8 text when it builds the
 snapshot, so EDS files are stored as UTF-8; one that is not valid UTF-8 is
@@ -19,8 +25,9 @@ converted from CP1252 (Latin-1 for the bytes CP1252 leaves undefined).
 import json
 import os
 import shutil
+import time
 
-from . import bundle, contract, simfile
+from . import bundle, contract, notes, simfile
 from .eds import to_utf8  # noqa: F401 (the configurator imports it from here)
 
 DIR = "canworks"
@@ -32,10 +39,33 @@ class ProjectError(Exception):
     pass
 
 
-def write(cfg, config_path, project_dir, force=False, sim_path=None):
+def dbc_refs(cfg):
+    """The objects of the config that name a DBC file in "dbc": each J1939
+    network's j1939 object and each network's raw object."""
+    out = []
+    for n in contract.networks(cfg):
+        net = n.get("json") if isinstance(n.get("json"), dict) else {}
+        for obj in (net.get("j1939") if n["role"] == "j1939" else None, net.get("raw")):
+            if isinstance(obj, dict) and isinstance(obj.get("dbc"), str) and obj["dbc"]:
+                out.append(obj)
+    return out
+
+
+def _backup_path(target):
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path, n = "%s.bak-%s" % (target, stamp), 1
+    while os.path.lexists(path):
+        n += 1
+        path = "%s.bak-%s-%d" % (target, stamp, n)
+    return path
+
+
+def write(cfg, config_path, project_dir, force=False, sim_path=None, report=None):
     """Writes the project's canworks/ folder. Returns (paths written, names of
-    converted EDS files). The config (and the simulation file sim_path, when
-    given) must already have passed the checks."""
+    converted EDS and DBC files). The config (and the simulation file
+    sim_path, when given) must already have passed the checks. With force an
+    existing folder is renamed to canworks.bak-<time>; its path goes into
+    report["backup"] when `report` is a dict."""
     if not os.path.isdir(project_dir):
         raise ProjectError("%s is not a directory" % project_dir)
     if not os.path.isfile(os.path.join(project_dir, "project.json")):
@@ -51,6 +81,19 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
     out = json.loads(json.dumps(cfg))
     for n in contract.eds_users(out):
         n["eds"] = os.path.basename(files[n["eds"]])
+    # Each EDS's device notes go along (the configurator reads them next to it).
+    notes_by_name = {name + notes.SUFFIX: notes.notes_path(src) for name, src in by_name.items()
+                     if os.path.isfile(notes.notes_path(src))}
+    base = os.path.dirname(os.path.abspath(config_path))
+    dbcs = {}
+    for obj in dbc_refs(out):
+        src = obj["dbc"] if os.path.isabs(obj["dbc"]) else os.path.join(base, obj["dbc"])
+        obj["dbc"] = os.path.basename(src)
+        if os.path.isfile(src):
+            try:
+                bundle.merge_by_name(dbcs, {obj["dbc"]: src}, "DBC files")
+            except bundle.BundleError as e:
+                raise ProjectError(str(e))
     sim_out, csv, machines = None, {}, {}
     if sim_path:
         try:
@@ -66,6 +109,10 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
     for reserved in (CONFIG, SIM):
         if reserved in by_name or reserved in csv or reserved in machines:
             raise ProjectError("an EDS, CSV or machine file may not be named %s" % reserved)
+    for name in set(dbcs) & (set(by_name) | set(csv) | set(machines) | set(notes_by_name)):
+        raise ProjectError("a DBC file and another file are both named %s; rename one" % name)
+    for name in set(notes_by_name) & (set(csv) | set(machines)):
+        raise ProjectError("a CSV or machine file and a notes file are both named %s; rename one" % name)
     for name in set(machines) & (set(by_name) | set(csv)):
         raise ProjectError("a machine file of the simulation and another file are both named %s; rename one" % name)
     for name in set(csv) & set(by_name):
@@ -95,6 +142,15 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
         for name, data in csv_data.items():
             with open(os.path.join(staged, name), "wb") as f:
                 f.write(data)
+        for name, src in sorted(dbcs.items()):
+            with open(src, "rb") as f:
+                data, was = to_utf8(f.read())
+            if was:
+                converted.append(name)
+            with open(os.path.join(staged, name), "wb") as f:
+                f.write(data)
+        for name, src in sorted(notes_by_name.items()):
+            shutil.copyfile(src, os.path.join(staged, name))
         if sim_out is not None:
             with open(os.path.join(staged, SIM), "w", encoding="utf-8") as f:
                 json.dump(sim_out, f, indent=2)
@@ -113,10 +169,15 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None):
             if not result.ok:
                 raise ProjectError("\n".join(result.errors))
         if os.path.lexists(target):
-            shutil.rmtree(target) if os.path.isdir(target) and not os.path.islink(target) else os.remove(target)
+            # Kept, not deleted: it may hold notes, DBC or other files of the user's.
+            backup = _backup_path(target)
+            os.rename(target, backup)
+            if isinstance(report, dict):
+                report["backup"] = backup
         os.rename(staged, target)
     finally:
         shutil.rmtree(staged, ignore_errors=True)
     written = [os.path.join(target, CONFIG)] + ([os.path.join(target, SIM)] if sim_out is not None else []) + [
-        os.path.join(target, n) for n in sorted(set(by_name) | set(csv) | set(machines))]
+        os.path.join(target, n) for n in sorted(set(by_name) | set(csv) | set(machines) | set(dbcs)
+                                                | set(notes_by_name))]
     return written, converted

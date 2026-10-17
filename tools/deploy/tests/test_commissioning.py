@@ -310,6 +310,42 @@ class PdoTest(Base):
         self.assertIn("RPDO1 0x205:", out)
         self.assertIn("SYNC every 50 ms", out)
 
+    def test_unreadable_mapping_entry_leaves_the_pdo_out(self):
+        # One mapping read times out: the later entries must not move down
+        # to its bits (bug hunt PC-M1).
+        from canworks import pdotest
+        eds, _ = P.read_eds(FIXED_IO)
+        od = fixed_io_od()
+        lay = pdotest.layout(od.get, eds, 5)
+        self.assertEqual([p["name"] for p in lay["rpdos"]], ["RPDO1"])
+        self.assertEqual(lay["notes"], [])
+        for key, note in (((0x1600, 2), "RPDO1 left out: mapping entry 0x1600:2 is not readable"),
+                          ((0x1600, 0), "RPDO1 left out: its mapping count 0x1600:0 is not readable")):
+            lay = pdotest.layout(lambda k: None if k == key else od.get(k), eds, 5)
+            self.assertEqual(lay["rpdos"], [])
+            self.assertEqual(lay["notes"], [note])
+            self.assertEqual([p["name"] for p in lay["tpdos"]], ["TPDO1", "TPDO2"])
+        od[(0x1600, 1)] = b"\0\0\0\0"
+        self.assertEqual(pdotest.layout(od.get, eds, 5)["notes"], ["RPDO1 left out: mapping entry 0x1600:1 is 0"])
+
+    def test_sync_counter_range(self):
+        # 0 (none) or 2-240, as the help says and the adapter takes (bug hunt PC lows).
+        import contextlib
+        import io
+        from canworks import diag
+        help_text = io.StringIO()
+        with contextlib.redirect_stdout(help_text), self.assertRaises(SystemExit):
+            diag.parser().parse_args(["pdo-test", "--help"])
+        self.assertIn("0 (no counter, the default) or 2-240", " ".join(help_text.getvalue().split()))
+        for value in ("0", "2", "240"):
+            self.assertEqual(diag.parser().parse_args(["pdo-test", "5", "--sync-counter", value]).sync_counter,
+                             int(value))
+        for value, why in (("1", "must be 0 (none) or 2-240"), ("241", "out of range")):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                diag.parser().parse_args(["pdo-test", "5", "--sync-counter", value])
+            self.assertIn(why, err.getvalue())
+
     def test_needs_allow_changes_and_an_adapter(self):
         self.device(5, od=fixed_io_od(), pdo=True)
         code, out, err = cli("--adapter", "virtual:" + self.ch, "--bitrate", "250", "pdo-test", "5", "--eds",

@@ -719,7 +719,7 @@ def pdo_layout(session, body, client, node, library):
     except C.CommissioningError as e:
         raise Refused(422, str(e))
     if not lay["tpdos"] and not lay["rpdos"]:
-        raise Refused(422, "node %d has no valid PDO" % node)
+        raise Refused(422, "node %d has no valid PDO%s" % (node, "".join("; " + n for n in lay["notes"])))
     return lay
 
 
@@ -729,11 +729,12 @@ def pdo_test(path, body, session, client, node, library):
         if not client.info.get("local"):
             raise Refused(409, "the PDO test is only on a USB adapter: on a runtime the PLC runs the PDOs")
         lay = pdo_layout(session, body, client, node, library)
-        source = lay.pop("source")
+        source, notes = lay.pop("source"), lay.pop("notes")
         if body.get("start") is True:
             client.nmt(node, "start")
         res = client.local(lambda c: c.pdo_test_start(node, lay, force), force)
         res["source"] = source
+        res["notes"] = notes
         return res
     if path == "pdo_test_status":
         return client.local(lambda c: c.pdo_test_status(node))
