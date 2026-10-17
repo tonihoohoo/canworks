@@ -2,7 +2,7 @@
 
 `canworks-config` edits the CANopen config of an OpenPLC editor project in a local web page: the CAN adapter, the master, the nodes with their supervision settings, the PDO mapping to PLC addresses, and the startup SDO writes, and also [J1939 networks](#j1939-networks) with their parameter groups. It writes the project's `canworks/` folder, which the editor's own **Build and upload** carries to a runtime with the [editor hook](install-stock.md#the-editors-build-and-upload). The stock editor itself is not changed: it has no extension point for a new kind of remote device.
 
-It runs on the engineering PC, next to the editor, and needs Python 3.8 or newer and a browser. It listens only on `127.0.0.1` and loads nothing from the network. The only connections it makes are to the runtime you name for [online access](#online-access), from the moment you connect (the Commission workspace, Simulation or a [trace](#trace) recording) until **Disconnect**, and to a standalone simulator you name in the [Simulation view](#simulation-view).
+It runs on the engineering PC, next to the editor, and needs Python 3.10 or newer and a browser. It listens only on `127.0.0.1` and loads nothing from the network. The only connections it makes are to the runtime you name for [online access](#online-access), from the moment you connect (the Commission workspace, Simulation or a [trace](#trace) recording) until **Disconnect**, and to a standalone simulator you name in the [Simulation view](#simulation-view).
 
 ## Install
 

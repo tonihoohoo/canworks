@@ -7,13 +7,13 @@ name = "canworks"
 version = "0.80.0"
 description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5", "cantools>=39", "can-j1939>=2.0.12",
                 "python-can[gs-usb]>=4.3; sys_platform == 'darwin' or sys_platform == 'win32'",  # gs_usb adapters
-                "libusb; sys_platform == 'win32'",  # the libusb DLL for gs_usb on Windows (macOS: brew install libusb)
+                "libusb>=1.0.30; sys_platform == 'win32'",  # the libusb DLL for gs_usb on Windows (macOS: brew install libusb)
                 "pywin32; sys_platform == 'win32'",  # can-j1939's job thread (transport protocol) needs pythoncom
-                "zeroconf>=0.130; python_version >= '3.9'",  # finding runtimes on the local network
+                "zeroconf>=0.149.16",  # finding runtimes on the local network (mDNS parser fixes)
                 # The remote link (docs/remote-access.md), where iroh publishes a wheel: Windows x64, macOS
                 # arm64, Linux x86_64 and aarch64.
                 "iroh>=1.1,<1.2; platform_machine == 'AMD64' or platform_machine == 'arm64' or platform_machine == 'aarch64' or (platform_machine == 'x86_64' and sys_platform == 'linux')"]
