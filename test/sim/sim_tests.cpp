@@ -6722,6 +6722,30 @@ TEST(sim_stop_all_nodes_restart) {
   nmt_end(sim);
 }
 
+// As above, with the CAN link dropped while the mandatory node is still lost
+// and the node back during the new session (the hardware run of 9.1): the
+// master stays STOPPED, sends no SYNC and resets no node.
+TEST(sim_stop_all_nodes_restart_node_back_in_session) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"stop_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
+  sim->RunFor(milliseconds(300));
+  int syncs = sim->frames(0x80), resets = sim->nmt(0, 129) + sim->nmt(0, 130), starts = sim->nmt(0, 1) + sim->nmt(3, 1);
+  sim->RestartSession();
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  sim->RunFor(milliseconds(3000));
+  CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)) + " after a session restart");
+  CHECK_MSG(sim->frames(0x80) == syncs, std::to_string(sim->frames(0x80) - syncs) + " SYNC frames since the restart");
+  CHECK_MSG(sim->nmt(0, 129) + sim->nmt(0, 130) == resets, "reset of all nodes sent while the master is stopped");
+  CHECK_MSG(sim->nmt(0, 1) + sim->nmt(3, 1) == starts, "NMT START sent while the master is stopped");
+  CHECK_MSG(sim->ib(22) != 5, "node 3 state " + std::to_string(sim->ib(22)));
+  nmt_end(sim);
+}
+
 // CO_NETWORK_STOP stopped the nodes, then the program resets node 2: it is
 // configured and stopped again, not started (canopen-plc-nmt "Network stop
 // survives resets and gateway release").

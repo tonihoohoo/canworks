@@ -332,14 +332,17 @@ def _check_force(c, f, what, node=None):
     # The heartbeats heard while the adapter listens tell which node is
     # OPERATIONAL; the transmit would wait as long anyway.
     c.core.wait_listened()
+    other = c.core.other_master()
     if node is not None:
         busy = _running(c, node)
         if busy:
-            raise DiagError("refused", "%s is OPERATIONAL; %s; %s" % (busy, what, FORCE_NEEDED))
+            # Both seen: the refusal names the other master too.
+            seen = "; another master is active on this bus (%s, last at %s)" % (
+                other["what"], other["last_at"]) if other else ""
+            raise DiagError("refused", "%s is OPERATIONAL%s; %s; %s" % (busy, seen, what, FORCE_NEEDED))
     # Another master, or another node running: a program may drive this one
     # too (or, for a scan, any of them).
     of = "node %d may be under its control" % node if node is not None else what
-    other = c.core.other_master()
     if other:
         raise DiagError("refused", "another master is active on this bus (%s, last at %s); %s; %s" % (
             other["what"], other["last_at"], of, FORCE_NEEDED))
