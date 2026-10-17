@@ -73,7 +73,7 @@ Details, evidence and the full finding table are in design.md.
 - Smaller fixes: Commission tree click error, explicit defaults shown by name, PDO-link problem wording, a missing HOME, Plain CAN trace and Frame lab controls, disabled-reason and target size, a quiet status poll while the runtime is unreachable.
 
 **Exports**
-- The DBC export uses the EDS EMCY COB-ID, the CODESYS export emits no TIME settings for period 0, and the DCF export runs the CiA 306 check only on lines it wrote.
+- The DBC export uses the EDS EMCY COB-ID, and the DCF export runs the CiA 306 check only on lines it wrote.
 
 ## Capabilities
 
@@ -102,12 +102,12 @@ None.
 - `canopen-configurator`: raw signal length, node and network renames, smaller UI fixes.
 - `canopen-pc-install`: dependency floors.
 - `canopen-ci`: workflow permissions, pinned actions, security policy.
-- `canopen-dbc-export`, `codesys-export`, `canopen-dcf-export`: export fixes.
+- `canopen-dbc-export`, `canopen-dcf-export`: export fixes.
 
 ## Impact
 
 - Plugin: `can/config.cpp`, `canopen/eds_check.cpp`, `canopen/dcf_gen.cpp`, `canopen/network.cpp`/`.h`, `canopen/network_plc.cpp`, `canopen/network_diag.cpp`, `canopen/plc_slave.cpp`, `canopen/run_state.h`, `can/engine.cpp`, `can/raw/plc_frames.cpp`, `can/raw/raw_io.cpp`, `can/raw/engine.cpp`, `can/raw/raw_runtime.cpp`, `j1939/j1939_network.cpp`, `j1939/j1939_signal.h`, `canopen/sim/*`, `tools/sim/control.cpp`, `tools/sim/sim_run.cpp`, `bridge/modbus_server.cpp`.
-- PC tools: `contract.py`, `edslint.py`, `eds.py`, `links.py`, `cia306.py`, `raw/contract.py`, `raw/replay.py`, `bustrace/formats.py`, `bustrace/model.py`, `localbus/client.py`, `localbus/adapter.py`, `localbus/sdo.py`, `pdotest.py`, `parameters.py`, `project.py`, `cli.py`, `diag.py`, `simfile.py`, `j1939/sim.py`, `j1939/stcall.py`, `link/device.py`, `dbcexport.py`, `dcfexport.py`, `codesys/plan.py`, `configurator/*` (server, simulation, app.js, tree.js, bridge.js, trace.js), the schemas, `pyproject.toml`.
+- PC tools: `contract.py`, `edslint.py`, `eds.py`, `links.py`, `cia306.py`, `raw/contract.py`, `raw/replay.py`, `bustrace/formats.py`, `bustrace/model.py`, `localbus/client.py`, `localbus/adapter.py`, `localbus/sdo.py`, `pdotest.py`, `parameters.py`, `project.py`, `cli.py`, `diag.py`, `simfile.py`, `j1939/sim.py`, `j1939/stcall.py`, `link/device.py`, `dbcexport.py`, `dcfexport.py`, `configurator/*` (server, simulation, app.js, tree.js, bridge.js, trace.js), the schemas, `pyproject.toml`.
 - Repo: `scripts/install-bridge.sh`, `.github/workflows/*`, `.github/dependabot.yml`, `SECURITY.md`.
 - Breaking (clean cut, nothing is in real use): configs with startup writes to 0x1010/0x1011, PDOs on restricted IDs, JSON integers above 2^53 in 64-bit fields, or number strings with whitespace are refused; Python 3.8 and 3.9 are no longer supported by the PC tools; J1939 signed signals at -1/-2 now read as valid.
 - Docs: `docs/config.md` (restricted IDs, NVM, watchdog for J1939/plain CAN, 64-bit numbers), `docs/simulation.md`, `docs/trace.md`, the J1939 page, README where user-visible.
