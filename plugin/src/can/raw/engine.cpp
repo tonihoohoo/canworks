@@ -197,6 +197,24 @@ bool RawEngine::check_timeouts(uint64_t now_us) {
   return changed;
 }
 
+bool RawEngine::link_lost() {
+  bool changed = false;
+  auto clear = [&](int slot) {
+    if (slot < 0 || in_vals_[slot] == 0) return;
+    in_vals_[slot] = 0;
+    changed = true;
+  };
+  for (size_t i = 0; i < cfg_.rx.size(); ++i) {
+    if (rx_[i].seen) rx_[i].timed_out = true;
+    clear(rx_map_[i].status);
+    for (size_t k = 0; k < rx_sig_[i].size(); ++k) {
+      if (rx_sig_[i][k].seen) rx_sig_[i][k].timed_out = true;
+      clear(rx_map_[i].valid[k]);
+    }
+  }
+  return changed;
+}
+
 bool RawEngine::enabled(size_t i) const {
   int slot = tx_map_[i].enable;
   return slot < 0 || out_vals_[slot] != 0;
@@ -212,7 +230,27 @@ void RawEngine::set_plc_running(bool running, uint64_t now_us) {
       // A trigger already TRUE at start is not an edge.
       int slot = tx_map_[i].trigger;
       t.prev_trigger = slot >= 0 && have_outputs_ && out_vals_[slot] != 0;
+      if (have_outputs_ && cfg_.tx[i].on_change) take_base(i);
     }
+  }
+}
+
+// The baseline of an on-change entry: a change before its first send (an
+// entry sent by its trigger only) is a change against these values.
+void RawEngine::take_base(size_t i) {
+  TxState& t = tx_[i];
+  const TxMap& map = tx_map_[i];
+  t.has_base = true;
+  if (paged(i)) {
+    for (size_t p = 0; p < map.page_all.size(); ++p) {
+      if (t.page_has_sent[p]) continue;
+      t.page_sent[p].resize(map.all.size());
+      for (size_t k : map.page_all[p]) t.page_sent[p][k] = out_vals_[map.all[k]];
+      t.page_has_sent[p] = 1;
+    }
+  } else if (!t.has_sent) {
+    t.sent_values.resize(map.all.size());
+    for (size_t k = 0; k < map.all.size(); ++k) t.sent_values[k] = out_vals_[map.all[k]];
   }
 }
 
@@ -230,6 +268,10 @@ void RawEngine::set_outputs(const uint64_t* values, uint64_t now_us) {
       t.prev_trigger = now;
     }
     if (!cfg_.tx[i].on_change) continue;
+    if (running_ && !t.has_base) {
+      take_base(i);  // the first outputs since the start
+      continue;
+    }
     if (paged(i)) {
       // A page is pending when a value it sends changed since it was sent.
       for (size_t p = 0; p < map.page_all.size(); ++p) {
@@ -240,7 +282,7 @@ void RawEngine::set_outputs(const uint64_t* values, uint64_t now_us) {
             break;
           }
       }
-    } else if (t.has_sent) {
+    } else if (t.has_sent || t.has_base) {
       for (size_t k = 0; k < map.all.size(); ++k)
         if (out_vals_[map.all[k]] != t.sent_values[k]) {
           t.change_pending = true;

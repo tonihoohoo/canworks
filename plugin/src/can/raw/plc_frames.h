@@ -141,6 +141,9 @@ class PlcPort {
   bool tx_pending(uint32_t tag);
   // The frame could not be written (error_id: CANWORKS_CAN_ERR_BUS ...).
   void tx_failed(uint32_t tag, uint16_t error_id);
+  // The outputs gate is closed: every queued frame fails with
+  // CANWORKS_CAN_ERR_NOT_RUNNING instead of going out later.
+  void drop_queued();
   // An echo of a frame this plugin sent; confirms the oldest written frame
   // with the same identifier, flags, DLC and data. False when none matched
   // (the echo is someone else's, e.g. a config message).
@@ -149,8 +152,10 @@ class PlcPort {
   // CANWORKS_CAN_ERR_TIMEOUT (adapters that stopped echoing, bus-off).
   void expire_echoes(uint64_t now_us, uint64_t max_age_us);
   // Fills `out` with up to `max` cyclic frames due at `now_us`; returns how
-  // many. Count them with cyclic_sent() once written.
-  int cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs, int max);
+  // many. Count them with cyclic_sent() once written. With `send` false (the
+  // outputs gate is closed) none is given, but each job's period goes on,
+  // so the jobs resume in their phase when it opens, without a burst.
+  int cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs, int max, bool send = true);
   void cyclic_sent(uint8_t job);
   // Microseconds until the next cyclic frame is due (UINT64_MAX: none).
   uint64_t next_cyclic_in(uint64_t now_us) const;
