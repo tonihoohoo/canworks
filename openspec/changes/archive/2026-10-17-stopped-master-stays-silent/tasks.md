@@ -11,5 +11,5 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 Repeat 9.1 on the Pi: simulated mandatory node powered off, slcan0 down and up. No `000#82..`, no SYNC, no START, no PDO in the trace; the master and node 23 stay STOPPED. Clean PLC start afterwards.
+- [x] 3.1 Repeat 9.1 on the Pi: simulated mandatory node powered off, slcan0 down and up. No `000#82..`, no SYNC, no START, no PDO in the trace; the master and node 23 stay STOPPED. Clean PLC start afterwards. Passed 2026-10-17 on the Pi (plugin 786907ad): after the bounce only NMT STOP, boot-up, heartbeat and SDO; no reset, START, SYNC, TIME or PDO; master and node 23 STOPPED.
 - [x] 3.2 Repeat 9.2: the refusal names node 23 OPERATIONAL and the other master. Passed 2026-10-17 on the Pi bus (gs_usb, PC tools 0.81.1).
