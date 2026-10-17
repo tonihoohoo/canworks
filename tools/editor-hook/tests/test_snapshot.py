@@ -1,6 +1,7 @@
 """snapshot.materialize(): the project's canworks/ folder from an editor
 project snapshot into the upload's conf/ directory."""
 
+import copy
 import glob
 import importlib.util
 import json
@@ -206,7 +207,7 @@ class Materialize(Base):
     def test_same_name_different_eds(self):
         project = rtd_project()
         cfg = json.loads(project["canworks/canworks.json"])
-        node = dict(cfg["nodes"][0], node_id=6, name="rtd2", eds="other/rtd8.eds")
+        node = dict(copy.deepcopy(cfg["nodes"][0]), node_id=6, name="rtd2", eds="other/rtd8.eds")
         for pdo in node.get("tx_pdos", []) + node.get("rx_pdos", []):
             for e in pdo["entries"]:
                 e["iec_location"] = e["iec_location"].replace("%IW10", "%IW20").replace("%IB10", "%IB20")
