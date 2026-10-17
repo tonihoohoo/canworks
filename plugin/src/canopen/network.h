@@ -520,6 +520,8 @@ class Network : public lely::canopen::BasicMaster {
   bool stop_relapse_ = false;
   // The stop holds: the master is STOPPED now, or it was reset since.
   bool StopHolds() const;
+  // Clears 0x1F81 bit 2 of every node: Lely boots none (Start, master_stopped).
+  void SkipSlaveBoots();
   std::unique_ptr<RunState> own_run_;  // without a RunState from the caller
   RunState* run_;
   std::map<unsigned, NodeState> nodes_;

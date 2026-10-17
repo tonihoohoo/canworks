@@ -82,6 +82,10 @@ using StoreMap = std::map<std::string, std::shared_ptr<StoredState>>;
 struct SimOptions {
   bool defaults = true;  // default behaviour by profile
   std::shared_ptr<StoreMap> store;
+  // Store keys of the devices powered off with the power fault, kept by the
+  // host for the PLC run: such a device starts powered off in the next bus
+  // session (canopen-device-simulator "Power off lasts across bus sessions").
+  std::shared_ptr<std::set<std::string>> powered_off;
   std::string state_dir;  // standalone: keep stored state on disk
   std::string version;    // for hello/status
   bool simulated_network = false;

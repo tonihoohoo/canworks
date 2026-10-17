@@ -499,6 +499,12 @@ bool Simulator::Start(std::vector<std::string>& errors) {
                                   host_.interface_name() + "; not simulated");
       continue;
     }
+    if (opt_.powered_off && opt_.powered_off->count(d.store_key)) {
+      // Powered off in an earlier session of this PLC run: it stays off.
+      d.active["power"] = R"({"power":"off"})";
+      Log(Host::Level::Info, d.label + ": stays powered off (power fault from an earlier bus session)");
+      continue;
+    }
     PowerOn(d);
     if (!d.powered) {
       errors.push_back(d.label + ": cannot start the device from " + d.spec.eds_path);
@@ -581,6 +587,7 @@ void Simulator::Stop() {
 
 void Simulator::PowerOn(Dev& d) {
   if (d.powered || d.taken) return;
+  if (opt_.powered_off) opt_.powered_off->erase(d.store_key);
   d.cycle_pending = false;
   uint8_t id = static_cast<uint8_t>(d.spec.node ? d.spec.node : 0xFF);
   if (d.spec.lss || !d.spec.node) id = 0xFF;
@@ -1116,6 +1123,7 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
     }
     PowerOff(d, "fault");
     d.active["power"] = f.json;
+    if (f.mode != "cycle" && opt_.powered_off) opt_.powered_off->insert(d.store_key);
     if (f.mode == "cycle") {
       d.cycle_pending = true;
       d.power_on_due = Clock::now() + std::chrono::milliseconds(f.off_ms);

@@ -260,7 +260,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. After the master's own reset its output PDOs stay off until each node is up again, and then carry the program's current outputs (never the device configuration's defaults). |
-| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included. Takes precedence over `reset_all_nodes`. |
+| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included, and the master boots no node until the plugin restarts ([plc-nmt.md](plc-nmt.md)). Takes precedence over `reset_all_nodes`. |
 | `boot_time_ms` | 0x1F89 | Time allowed for all mandatory nodes to boot; 0 or left out: no limit. |
 | `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity reads, PDO and startup SDO downloads and `restore_configuration`. Raise it for a device that answers late, for example one that saves each parameter to flash first; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
 

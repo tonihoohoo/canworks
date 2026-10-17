@@ -268,6 +268,7 @@ void Bus::run_session() {
       }
       canopen_sim::SimOptions opt;
       opt.store = sim_->store;
+      opt.powered_off = sim_->powered_off;
       opt.simulated_network = virt;
       opt.taken = taken_ids;
       simulator.reset(new canopen_sim::Simulator(*sim_host, specs, sim_->file, opt));

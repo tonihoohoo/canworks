@@ -5544,6 +5544,49 @@ TEST(sim_set_while_powered_off) {
   delete sim;
 }
 
+// A device powered off by the power fault stays off in the next bus session
+// of the PLC run, until it is cleared (canopen-device-simulator "Power off
+// lasts across bus sessions"); the host keeps the set per PLC run.
+TEST(sim_power_off_across_sessions) {
+  clear_logs();
+  std::string json = pingpong_json();
+  canopen_sim::SimOptions opt;
+  opt.store = std::make_shared<canopen_sim::StoreMap>();
+  opt.powered_off = std::make_shared<std::set<std::string>>();
+  static Sim* sim;
+  sim = new Sim(make_dir(json, {{"cpp-slave.eds", slave_eds()}}));
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator("{}", {}, opt));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(opt.powered_off->size() == 1);
+  delete sim;
+
+  sim = new Sim(make_dir(json, {{"cpp-slave.eds", slave_eds()}}));
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator("{}", {}, opt));
+  sim->net().Start();
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->frames(0x702) == 0, std::to_string(sim->frames(0x702)) + " frames from node 2");
+  CHECK(logged("node 2: stays powered off"));
+  r = sim->SimAsk(R"({"op":"sim_status"})");
+  const cJSON* dev = cJSON_GetArrayItem(field(result(r), "devices"), 0);
+  CHECK_MSG(str(dev, "power") == "off" && cJSON_GetArraySize(field(dev, "faults")) == 1,
+            r ? cJSON_PrintUnformatted(r) : "null");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"all"})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  CHECK(opt.powered_off->empty());
+  delete sim;
+}
+
 // A node ID stored over LSS that a real device uses now is taken too: the
 // spare device does not boot with it. A damaged state file's ID outside
 // 1-127 is ignored.
@@ -6712,9 +6755,14 @@ TEST(sim_stop_all_nodes_restart) {
   CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
   sim->KillSlave(2);
   CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
+  int sdos = sim->frames(0x602) + sim->frames(0x603);
   sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
   sim->RunFor(milliseconds(1500));
   CHECK_MSG(sim->ib(21) == 4, "master " + std::to_string(sim->ib(21)) + " before restart");
+  // Back in the same session, the node is sent STOP and not booted.
+  CHECK_MSG(sim->frames(0x602) + sim->frames(0x603) == sdos,
+            std::to_string(sim->frames(0x602) + sim->frames(0x603) - sdos) + " SDO requests after the stop");
+  CHECK_MSG(sim->ib(20) == 4, "node 2 state " + std::to_string(sim->ib(20)));
   int rpdos = sim->frames(0x202) + sim->frames(0x203);
   sim->RestartSession();
   sim->RunFor(milliseconds(3000));
@@ -6735,9 +6783,27 @@ TEST(sim_stop_all_nodes_restart_node_back_in_session) {
   CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
   sim->RunFor(milliseconds(300));
   int syncs = sim->frames(0x80), resets = sim->nmt(0, 129) + sim->nmt(0, 130), starts = sim->nmt(0, 1) + sim->nmt(3, 1);
+  clear_logs();
   sim->RestartSession();
+  int sdos = sim->frames(0x602) + sim->frames(0x603);
   sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
-  sim->RunFor(milliseconds(3000));
+  sim->RunFor(milliseconds(5000));
+  // The stopped master boots no node: no boot SDO, no boot retry
+  // (canopen-plc-nmt "A stopped master stays silent in later sessions").
+  CHECK_MSG(sim->frames(0x602) + sim->frames(0x603) == sdos,
+            std::to_string(sim->frames(0x602) + sim->frames(0x603) - sdos) + " SDO requests since the restart");
+  // The nodes read STOPPED, no boot error B, and the log says why
+  // (canopen-node-supervision "Node states while the master is stopped").
+  CHECK_MSG(sim->ib(20) == 4 && sim->ib(22) == 4,
+            "node 2 " + std::to_string(sim->ib(20)) + ", node 3 " + std::to_string(sim->ib(22)));
+  for (unsigned id : {2u, 3u}) {
+    read_state(sim, id);
+    CHECK_MSG(nmt_blk->gs.BOOT_ERROR.get() == 0, "node " + std::to_string(id) + " boot error " +
+                                                     std::string(1, char(nmt_blk->gs.BOOT_ERROR.get())));
+  }
+  CHECK(count_logs("it boots no node until the plugin restarts") == 1);
+  CHECK(!logged("not answering"));
+  CHECK(!logged("holds the whole network in PRE-OPERATIONAL"));
   CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)) + " after a session restart");
   CHECK_MSG(sim->frames(0x80) == syncs, std::to_string(sim->frames(0x80) - syncs) + " SYNC frames since the restart");
   CHECK_MSG(sim->nmt(0, 129) + sim->nmt(0, 130) == resets, "reset of all nodes sent while the master is stopped");
