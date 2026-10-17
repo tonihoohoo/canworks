@@ -305,6 +305,26 @@ class Validation(unittest.TestCase):
         problems = dcfexport.validate(node, d, text, base_config())
         self.assertIn("Baudrate 100 kbit/s is not a CiA 306 bit rate", str(problems))
 
+    def test_vendor_lines_not_cia306_checked(self):
+        # canopen-dcf-export "CiA 306 check on written lines only": a vendor
+        # line the export copies (a long, non-ASCII comment after a value) is
+        # not reported; a value the export writes still is.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        with open(os.path.join(EDS_DIR, "cpp-slave.eds"), encoding="utf-8") as f:
+            eds = f.read()
+        old = "AccessType=rwr\nDefaultValue=0x00000000"
+        self.assertIn(old, eds)
+        with open(os.path.join(tmp, "vendor.eds"), "w", encoding="utf-8") as f:
+            f.write(eds.replace(old, old + " ; Gr\u00fc\u00dfe " + "x" * 260))
+        cfg = base_config()
+        cfg["nodes"][0]["eds"] = "vendor.eds"
+        self.assertIn("node_2.dcf", export(cfg, os.path.join(tmp, "canworks.json")))
+        cfg["nodes"][0]["name"] = "venttiili \u00e4"
+        with self.assertRaises(dcfexport.ExportFailed) as cm:
+            export(cfg, os.path.join(tmp, "canworks.json"))
+        self.assertIn("[DeviceComissioning] NodeName", str(cm.exception.problems))
+
     def test_node_name_not_ascii(self):
         cfg = base_config()
         cfg["nodes"][0]["name"] = "venttiili \u00e4"

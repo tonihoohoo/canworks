@@ -820,7 +820,9 @@ def _export_network(cfg, config_path, eds_paths, node_id, now):
         # decimal REALs and is checked against CiA 306 where the export wrote.
         written = edslint.decimal_reals(text)
         found = validate(node, downloads[node.node_id], text, cfg)
-        found += [(f.section, f.key or "", f.message) for f in cia306.check(written, only=_exported, defaults=False)]
+        mine = _written_by_export(written, edslint.decimal_reals(node.text))
+        found += [(f.section, f.key or "", f.message) for f in cia306.check(
+            written, only=lambda section, key: _exported(section, key) and mine(section, key), defaults=False)]
         for section, key, msg in found:
             where = "[%s]%s" % (section, " " + key if key else "") if section else ""
             problems.append(("%s: %s%s: %s" % (label, name, " " + where if where else "", msg), ["nodes[%d]" % i]))
@@ -829,6 +831,29 @@ def _export_network(cfg, config_path, eds_paths, node_id, now):
 
 
 _EXPORT_FILE_INFO = {"filename", "lasteds", "modifiedby", "modificationdate", "modificationtime"}
+
+
+def _written_by_export(written, eds_text):
+    """only(section, key) for the CiA 306 check: False for a key whose line
+    the DCF has as the node's EDS has it (in the same section), which the
+    export copied and did not write (canopen-dcf-export "CiA 306 check on
+    written lines only")."""
+    def lines_by_key(text):
+        out, section = {}, ""
+        for line in text.splitlines():
+            s = line.strip()
+            if s.startswith("[") and s.endswith("]"):
+                section = s[1:-1].strip().lower()
+            elif "=" in s and not s.startswith(";"):
+                out[(section, s.split("=", 1)[0].strip().lower())] = line
+        return out
+
+    dcf, eds = lines_by_key(written), lines_by_key(eds_text)
+
+    def mine(section, key):
+        at = ((section or "").lower(), (key or "").lower())
+        return at not in dcf or dcf[at] != eds.get(at)
+    return mine
 
 
 def _exported(section, key):

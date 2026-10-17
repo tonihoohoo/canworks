@@ -514,10 +514,12 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
         # The configured EMCY COB-ID (emcy_cob_id, or a startup SDO to 0x1014),
-        # else the predefined one; a COB-ID read from the device is not known here.
+        # else the EDS default of 0x1014, which the plugin listens on until a
+        # read (plugin: NodeConfig::emcy_cob_id), else the predefined one; a
+        # COB-ID read from the device is not known here.
         emcy = contract.configured_emcy_cob_id(n)
-        em = Message(emcy[0] if emcy and emcy[0] <= 0x7FF else 0x80 + node_id, "%s_EMCY" % node_name, 8, node_name,
-                     "node %d emergency" % node_id)
+        cob = emcy[0] if emcy and emcy[0] <= 0x7FF else _eds_emcy_cob_id(eds, node_id) or 0x80 + node_id
+        em = Message(cob, "%s_EMCY" % node_name, 8, node_name, "node %d emergency" % node_id)
         em.signals += [Signal("Error_Code", 0, 16, receivers=[MASTER]),
                        Signal("Error_Register", 16, 8, receivers=[MASTER]),
                        Signal("Manufacturer_Data", 24, 40, receivers=[MASTER])]
@@ -535,6 +537,17 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     comment = "CANopen network of %s, exported by canworks-deploy %s" % (
         os.path.basename(config_path), __version__)
     return Model([MASTER] + node_names, messages, comment, warnings)
+
+
+def _eds_emcy_cob_id(eds, node_id):
+    """The EDS default of 0x1014 sub-index 0 when it is a valid 11-bit
+    COB-ID (plugin: check_eds_files), else None."""
+    sub = eds.find(0x1014, 0) if eds is not None else None
+    try:
+        cob = sub.value(node_id) if sub is not None else None
+    except ValueError:
+        return None
+    return cob if cob and not cob & 0x80000000 and cob <= 0x7FF else None
 
 
 def frames(cfg, model):
