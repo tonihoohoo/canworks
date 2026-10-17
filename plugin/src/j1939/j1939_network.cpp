@@ -268,7 +268,11 @@ void J1939Engine::bus_lost(const std::string& why) {
   problem_ = why;
   claimer_.bus_lost();
   bound_ = 0xFF;
-  for (size_t i = 0; i < j_.rx.size(); ++i) image_.set_status(i, false);
+  // Received values hold; their status and valid bits say they are stale.
+  for (size_t i = 0; i < j_.rx.size(); ++i) {
+    image_.set_status(i, false);
+    for (size_t k = 0; k < j_.rx[i].signals.size(); ++k) image_.set_valid(i, k, false);
+  }
   for (size_t i = 0; i < dm_rx_.size(); ++i) image_.set_dm_status(i, false);
   end_jobs(CANWORKS_J1939_ERR_BUS);
   prog_end_all(CANWORKS_J1939_ERR_BUS);
@@ -392,7 +396,9 @@ void J1939Engine::on_request(const J1939Message& m, clock::time_point now) {
     if (!reply_allowed(pgn, m.source, now)) return;
     const J1939Tx& t = j_.tx[i];
     const uint8_t own = t.has_destination ? static_cast<uint8_t>(t.destination) : kJ1939Global;
-    uint8_t dest = j1939_pdu1(pgn) && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
+    // J1939-21: a Request to us is answered to the requester, a global one
+    // to the global address (a PDU2 PGN is always global).
+    uint8_t dest = j1939_pdu1(pgn) && to_us && m.source <= kJ1939MaxAddress ? m.source : kJ1939Global;
     // A reply to the requester only is not the send to the entry's own
     // destination: an on-change value still goes there.
     send_all(i, dest, now, snap, dest == own);
@@ -851,7 +857,8 @@ void J1939Engine::prog_on_message(const J1939Message& m) {
     answer.length = 0;
     answer.time_us = static_cast<uint64_t>(wall);
     uint16_t error = 0;
-    if (r.sent && m.source == r.destination) {
+    // The answer comes from the ECU asked and is addressed to us (or global).
+    if (r.sent && m.source == r.destination && (m.destination == ours || m.destination == kJ1939Global)) {
       if (m.pgn == r.pgn) {
         size_t n = std::min<size_t>(m.data.size(), CANWORKS_J1939_MAX_LENGTH);
         std::memcpy(answer.data, m.data.data(), n);

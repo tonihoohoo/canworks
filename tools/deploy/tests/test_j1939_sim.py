@@ -141,6 +141,22 @@ class Values(unittest.TestCase):
         self.assertEqual(sim.ramp_limits(self.sig("Pressures", "PumpOn")), (0, 1))
         self.assertEqual(sim.ramp_limits(self.sig("ComponentInfo", "Serial")), (0, 0xFAFFFFFF))  # below "not available"
 
+    def test_not_available_vectors(self):
+        # test/fixtures/j1939_not_available.json, as the plugin runs it.
+        with open(os.path.join(REPO, "test", "fixtures", "j1939_not_available.json")) as f:
+            cases = json.load(f)["cases"]
+        self.assertGreaterEqual(len(cases), 30)
+        for c in cases:
+            s = cantools.database.can.Signal("s", 0, c["length"], is_signed=c["signed"])
+            want = {"not_available": "not available"}.get(c["state"], c["state"])
+            self.assertEqual(sim.raw_state(s, int(c["raw"], 16)), want, c)
+        # What the simulator sends is valid there.
+        for length, is_signed in itertools.product(range(1, 65), (False, True)):
+            s = cantools.database.can.Signal("s", 0, length, is_signed=is_signed)
+            lo, hi = sim.valid_limits(s)
+            for raw in (lo, hi):
+                self.assertEqual(sim.raw_state(s, raw & ((1 << length) - 1)), "valid", (length, is_signed, raw))
+
     def test_sources(self):
         r = sim.Ramp(0, 100, 1.0)
         self.assertEqual([r.raw(t) for t in (0, 0.25, 0.5, 0.999, 1.0)], [0, 25, 50, 100, 0])
@@ -358,6 +374,15 @@ class Receive(Base):
         self.assertEqual((fields["message"], fields["signals"]), ("Setpoints", {"Setpoint": 500, "Run": 1}))
         self.assertEqual(self.wait_event(engine, "rx", "61184")[1], "PGN 61184 from 128: Mode=3")
         self.assertEqual(engine.received, 2)
+
+    def test_not_available_and_error_marked(self):
+        # The plugin's rule: unsigned 16 bits from 0xFE00 is error.
+        engine = self.sim()
+        self.assertTrue(engine.wait_claimed(1))
+        self.send(0x18FF0180, [0x50, 0xFE, 0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        event, text, fields = self.wait_event(engine, "rx", "65281")
+        self.assertEqual(text, "PGN 65281 from 128: Setpoint=65104 (error) Run=1")
+        self.assertEqual(fields["not_valid"], {"Setpoint": "error"})
 
     def test_rts_cts_between_simulators(self):
         d = tempfile.mkdtemp()

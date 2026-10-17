@@ -108,9 +108,27 @@ def raw_limits(signal):
     return 0, (1 << n) - 1
 
 
+def raw_state(signal, raw):
+    """"valid", "error" or "not available" for a received raw value, as the
+    plugin decides it (spec j1939-ecu "Not-available values"): a signed signal
+    is always valid; unsigned 8, 16 and 32-bit signals use the J1939-71 ranges
+    (0xFE.. error, 0xFF.. not available); other lengths of 2 bits or more all
+    ones (not available) and all ones minus one (error)."""
+    n = signal.length
+    if signal.is_signed or n < 2:
+        return "valid"
+    ones = (1 << n) - 1
+    raw &= ones
+    if n in (8, 16, 32):
+        top = raw >> (n - 8)
+        return "not available" if top == 0xFF else "error" if top == 0xFE else "valid"
+    return "not available" if raw == ones else "error" if raw == ones - 1 else "valid"
+
+
 def valid_limits(signal):
-    """The raw values below J1939's "error" and "not available" (all ones and
-    all ones minus one; for 8 bits and more the whole top range from 0xFB...)."""
+    """The raw values the simulator sends: below J1939's "error" and "not
+    available" (raw_state), and for 8 bits and more also below the reserved
+    range from 0xFB..."""
     lo, hi = raw_limits(signal)
     if signal.is_signed or signal.length == 1:
         return lo, hi
@@ -960,9 +978,20 @@ class Simulator:
                 self._report("rx", "PGN %d from %d: cannot decode %s: %s" % (pgn, sa, msg.name, e), pgn=pgn,
                              source=sa, message=msg.name, data=bytes(data).hex(), error=str(e))
                 return
-        text = page + " ".join("%s=%s" % (k, fmt_value(v)) for k, v in values.items())
+        # Not available and error values, by the plugin's rule.
+        from ..raw import signals as sig
+        states = {}
+        for s in msg.signals:
+            big = s.byte_order == "big_endian"
+            if s.name in values and sig.fits(s.start, s.length, big, len(data)):
+                state = raw_state(s, sig.unpack(bytes(data), s.start, s.length, big))
+                if state != "valid":
+                    states[s.name] = state
+        text = page + " ".join("%s=%s%s" % (k, fmt_value(v), " (%s)" % states[k] if k in states else "")
+                               for k, v in values.items())
+        extra = {"not_valid": states} if states else {}
         self._report("rx", "PGN %d from %d: %s" % (pgn, sa, text), pgn=pgn, source=sa, message=msg.name,
-                     signals=values, data=bytes(data).hex())
+                     signals=values, data=bytes(data).hex(), **extra)
 
     def _on_request(self, src, dest, pgn):
         from . import dm
