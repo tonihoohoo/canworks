@@ -5464,6 +5464,85 @@ TEST(sim_gantry_demo) {
 #endif
 }
 
+// SDO abort rules and the OPERATIONAL write refusal apply to SDO transfers of
+// objects the PDOs map too; the PDOs keep carrying them.
+TEST(sim_sdo_faults_on_pdo_mapped_objects) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  // 0x4001 is in node 2's TPDO, 0x4000 in its RPDO.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x4001","code":"0x08000020","on":"read"}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  cJSON* a = sim->Ask(diag_req("sdo_read", 2, 0x4001, 0));
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000020, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x4000","code":"0x08000021","on":"write"}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  DiagRequest w = diag_req("sdo_write", 2, 0x4000, 0);
+  w.data = {1, 2, 3, 4};
+  w.force = true;
+  a = sim->Ask(w);
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000021, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  // The TPDO reads 0x4001 and the RPDO writes 0x4000 as before.
+  uint32_t before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() >= before + 3; }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"sdo_abort"})");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"refuse_write_operational":true}})");
+  cJSON_Delete(r);
+  a = sim->Ask(w);
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000022, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x4001, 0));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+  before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() >= before + 3; }, seconds(3)));
+  delete sim;
+}
+
+// A set on a powered-off device is refused and leaves no hold behind: the
+// device's own value comes through after power on.
+TEST(sim_set_while_powered_off) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":1234}})");  // a hold while on
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":1234}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "node 2 is powered off", str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"on"}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":2,"object":"0x4001"}]})");
+  const cJSON* v = cJSON_GetArrayItem(field(result(r), "values"), 0);
+  CHECK_MSG(str(v, "writer") != "set", r ? cJSON_PrintUnformatted(r) : "null");
+  cJSON_Delete(r);
+  uint32_t before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() > before && sim->in() != 1234; }, seconds(3)));
+  delete sim;
+}
+
 int main(int argc, char** argv) {
   set_log_sink(capture);
   route_lely_diagnostics();

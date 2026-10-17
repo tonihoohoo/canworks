@@ -207,3 +207,34 @@ TEST(sim_raw_multiplexed_rejections) {
   CHECK(has_error(errors, "raw_devices[0].send[2].signals[0]: needs a \"source\" (only a switch, multiplexer: true, has none)"));
   CHECK(has_error(errors, "raw_devices[0].send[3].signals[0].mux: the message has no switch (multiplexer: true)"));
 }
+
+// A plain CAN scenario's repeat of instant steps runs one pass per tick, as
+// the CANopen engine does, and `next_in` is then at least a tick; a repeat
+// without "count" repeats forever; a repeat that waits keeps its timing.
+TEST(sim_raw_scenario_repeat_one_pass_per_tick) {
+  std::vector<RawScenario> sc;
+  std::vector<std::string> errors;
+  cJSON* j = cJSON_Parse(R"({"spin": {"steps": [{"repeat": {"steps": [{"log": "a"}, {"log": "b"}]}}]},
+                             "slow": {"steps": [{"repeat": {"count": 3, "steps": [{"log": "w", "after_ms": 50}]}}]}})");
+  CHECK(parse_raw_scenarios(j, sc, errors));
+  cJSON_Delete(j);
+  CHECK(sc.size() == 2 && sc[0].steps[0].count == 0);
+  if (sc.size() != 2) return;
+  size_t a = 0, w = 0, ended = 0;
+  RawScenarioRunner run({}, [&](const std::string& m) {
+    if (m == "scenario spin: a") ++a;
+    if (m == "scenario slow: w") ++w;
+    if (m == "scenario slow ended") ++ended;
+  });
+  run.start(sc[0], 0);
+  run.start(sc[1], 0);
+  uint64_t polls = 0;
+  for (uint64_t t = 0; t <= 1000; ++t) {  // polled the way RawIo polls an idle runner: every ms
+    run.step(t);
+    if (run.next_in(t) == 0) ++polls;
+  }
+  CHECK_MSG(a >= 95 && a <= 105, std::to_string(a));  // about one pass per 10 ms tick, not 1000 per call
+  CHECK_MSG(polls == 0, std::to_string(polls));
+  CHECK(w == 3 && ended == 1);
+  CHECK(run.running());  // "spin" repeats forever
+}

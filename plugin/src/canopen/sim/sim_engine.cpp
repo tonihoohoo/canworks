@@ -708,6 +708,7 @@ void Simulator::PowerOff(Dev& d, const std::string& why) {
   d.timer.reset();
   d.emcy_periodic = false;
   d.active.erase("emcy");
+  d.sets.clear();  // set values go with the dictionary
   if (!why.empty()) Log(Host::Level::Info, d.label + ": powered off" + (why == "fault" ? "" : " (" + why + ")"));
 }
 
@@ -1505,6 +1506,7 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     return true;
   }
   if (a == "set" || a == "override") {
+    if (a == "set" && !d->dev) return fail(d->label + " is powered off");
     for (const auto& kv : s.values) {
       if (!d->objects.count(kv.first)) return fail(d->label + " has no object " + kv.first.str());
       if (a == "set") {
@@ -1825,11 +1827,14 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       if (!parse_obj_key(c->string, k)) return answer(id, nullptr, std::string("\"") + c->string + "\" is not an object");
       if (!parse_value(c, v)) return answer(id, nullptr, std::string("the value of ") + c->string + " must be a number or text");
       if (!d->objects.count(k)) return answer(id, nullptr, d->label + " has no object " + k.str());
-      // Also while powered off: the value is written at power on.
+      // The data type is known also while powered off.
       std::string why = value_misfit(d->types[k], v);
       if (!why.empty()) return answer(id, nullptr, k.str() + " is " + type_name(d->types[k]) + "; " + why);
       values.emplace_back(k, v);
     }
+    // A set value would be lost with the dictionary at power on; an override
+    // is kept and written then.
+    if (op == "sim_set" && !d->dev) return answer(id, nullptr, d->label + " is powered off");
     std::string desc;
     for (const auto& kv : values) {
       if (op == "sim_set") {

@@ -21,11 +21,18 @@ co_nmt_t* N(__co_nmt* n) { return reinterpret_cast<co_nmt_t*>(n); }
 
 int send_hook(const can_msg* msg, void* data) {
   auto* self = static_cast<SimDevice*>(data);
+  self->SdoEnd();  // the SDO server answers after the indications
   if (self->DropLelyReset(msg->id, msg->data, msg->len)) return 0;
   if (self->Blocked(msg->id, msg->data, msg->len)) return 0;
   if (self->Hold(msg, sizeof *msg, msg->id, msg->data, msg->len)) return 0;
   return self->SendOriginal(msg);
 }
+
+int sdo_begin(const can_msg* msg, void* data) {
+  static_cast<SimDevice*>(data)->SdoBegin(msg->data, msg->len);
+  return 0;
+}
+
 
 }  // namespace
 
@@ -68,9 +75,13 @@ SimDevice::SimDevice(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::CanC
   send_data_ = d;
   can_net_set_send_func(net, &send_hook, this);
   InstallIndications();
+  can_recv_t* b = can_recv_create();  // NOLINT
+  if (b) can_recv_set_func(b, &sdo_begin, this);
+  sdo_begin_ = b;
 }
 
 SimDevice::~SimDevice() {
+  can_recv_destroy(static_cast<can_recv_t*>(sdo_begin_));
   can_net_t* net = reinterpret_cast<can_net_t*>(NetPtr());
   can_net_set_send_func(net, reinterpret_cast<can_send_func_t*>(send_func_), send_data_);
 }
@@ -117,14 +128,59 @@ void SimDevice::InstallIndications() {
   }
 }
 
+// Lely's CAN network calls the receivers of an identifier head first, and
+// its SDO server ends the frame's dispatch: with this receiver started before
+// the server (which Lely starts when the device enters PRE-OPERATIONAL, after
+// the reset), it marks the server's processing of each request. The mark
+// ends with the next frame the device sends (the server answers after the
+// indications) or, for a request that gets no answer, once the loop has run
+// the frame's dispatch. It follows the node ID at every reset. Only the
+// default SDO server (0x1200) is marked; transfers through further servers
+// see no rules.
+void SimDevice::InstallSdoMark() {
+  auto* b = static_cast<can_recv_t*>(sdo_begin_);
+  in_sdo_ = sdo_block_dn_ = false;
+  if (!b) return;
+  can_recv_stop(b);
+  uint8_t nid = node_id();
+  if (nid == 0 || nid > 127) return;  // no SDO server without a node ID
+  uint32_t cob = 0x600u + nid;
+  const co_dev_t* d = reinterpret_cast<const co_dev_t*>(dev());
+  if (co_dev_find_sub(d, 0x1200, 1)) cob = co_dev_get_val_u32(d, 0x1200, 1);
+  if (cob & 0x80000000u) return;
+  uint8_t flags = cob & 0x20000000u ? CAN_FLAG_IDE : 0;
+  cob &= flags ? 0x1FFFFFFFu : 0x7FFu;
+  can_recv_start(b, reinterpret_cast<can_net_t*>(NetPtr()), cob, flags);
+}
+
+void SimDevice::SdoBegin(const uint8_t* data, uint8_t len) {
+  in_sdo_ = len > 0;
+  if (!in_sdo_) return;
+  unsigned gen = ++sdo_gen_;
+  std::weak_ptr<bool> alive = alive_;
+  lely::ev::Executor(exec_).post([this, alive, gen]() {
+    if (!alive.expired() && sdo_gen_ == gen) in_sdo_ = false;
+  });
+  uint8_t ccs = data[0] >> 5;
+  // Block download segments carry a sequence number, not a command, until
+  // the end of the transfer.
+  if (sdo_block_dn_) {
+    sdo_write_ = true;
+    if (ccs == 4 || (ccs == 6 && (data[0] & 0x01))) sdo_block_dn_ = false;
+    return;
+  }
+  sdo_write_ = ccs == 0 || ccs == 1 || ccs == 6;
+  sdo_block_dn_ = ccs == 6 && !(data[0] & 0x01);
+  if (ccs == 4) in_sdo_ = false;  // abort
+}
+
 uint32_t SimDevice::Rule(uint16_t index, uint8_t subindex, bool write) {
-  // RPDO data goes through the same indication: process data is never refused.
-  if (write && InRpdo(index, subindex)) return 0;
+  // Only SDO access: PDOs read and write their objects through the same
+  // indications, as does a TPDO event a write sends while it is processed.
+  if (!in_sdo_ || write != sdo_write_) return 0;
   for (auto it = sdo_rules.begin(); it != sdo_rules.end(); ++it) {
     if (it->index != index || it->subindex != subindex) continue;
     if (write ? !it->on_write : !it->on_read) continue;
-    // TPDOs read their objects through the same indication.
-    if (!write && InTpdo(index, subindex)) return 0;
     uint32_t code = it->code;
     if (it->count > 0 && --it->count == 0) sdo_rules.erase(it);
     return code;
@@ -193,6 +249,7 @@ void SimDevice::OnRestored() {
   // the indications on the communication objects.
   ApplyOverrides();
   InstallIndications();
+  InstallSdoMark();
 }
 
 void SimDevice::SendEmcy(uint16_t code, uint8_t reg, const uint8_t msef[5]) { Error(code, reg, msef); }

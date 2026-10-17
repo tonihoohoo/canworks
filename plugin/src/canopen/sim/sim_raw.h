@@ -145,7 +145,7 @@ struct RawScenarioStep {
   std::string device, what;  // fault: stop | wrong_dlc; clear: stop | wrong_dlc | all
   int dlc = -1;
   std::string log;
-  unsigned count = 1;  // repeat: 0 = forever
+  unsigned count = 0;  // repeat: 0 (or no "count") = forever, as in the CANopen parser
   std::vector<RawScenarioStep> steps;
 };
 
@@ -160,6 +160,8 @@ bool parse_raw_scenarios(const cJSON* scenarios, std::vector<RawScenario>& out, 
 
 class RawScenarioRunner {
  public:
+  // A repeat pass in which no step waited runs again one tick later, not at once.
+  static constexpr uint64_t kTickMs = 10;
   using Log = std::function<void(const std::string&)>;
   RawScenarioRunner(std::vector<RawDevice*> devices, Log log) : devices_(std::move(devices)), log_(std::move(log)) {}
   void start(const RawScenario& sc, uint64_t now_ms);
@@ -175,6 +177,8 @@ class RawScenarioRunner {
     size_t i = 0;
     unsigned remaining = 0;
     bool forever = false;
+    uint64_t pass_begin = 0;  // when this pass began
+    uint64_t not_before = 0;  // the next pass of a pass that did not wait: one tick later
   };
   struct Run {
     std::string name;
