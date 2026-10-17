@@ -226,6 +226,21 @@ class RawPage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('Imported 1 message from cab.dbc')")
         self.assertEqual(self.draft("S.config.raw.rx.map((m) => m.name)"), ["Joystick", "Pedal"])
 
+    def test_cleared_signal_length(self):
+        """A cleared signal length is a field problem, not a failed check."""
+        pg = self.page
+        self.joystick_config()
+        self.open()
+        tree_view(pg, "raw")
+        pg.click('tr[data-raw="rx:0"]')
+        length = 'input[data-path="raw.rx[0].signals[0].length"]'
+        pg.fill(length, "")
+        pg.press(length, "Tab")
+        pg.wait_for_selector(length + ".invalid")
+        self.assertIn("Received Joystick, signal X: missing", pg.inner_text("#problem-list"))
+        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertNotIn("hit an error", pg.inner_text("#banner"))
+
     def test_missing_dbc_file(self):
         pg = self.page
         self.joystick_config("old.dbc")
