@@ -50,6 +50,8 @@ enum class IfaceState { Missing, Down, Up };
 struct SimSetup {
   canopen_sim::SimFile file;
   std::shared_ptr<canopen_sim::StoreMap> store;
+  // The devices powered off by a fault, for this PLC run (SimOptions).
+  std::shared_ptr<std::set<std::string>> powered_off = std::make_shared<std::set<std::string>>();
   std::shared_ptr<SimTraceTap> tap;
   // Frames sent by hand through the diagnostics channel (frame_tx.h).
   std::shared_ptr<SimFrameInjector> injector;
