@@ -358,7 +358,9 @@ class RuntimeScan(Online):
 
     def test_scan_compares_with_the_config(self):
         cfg = self.pingpong()
-        cfg["nodes"].append(dict(cfg["nodes"][0], node_id=7, name="gone"))
+        gone = dict(cfg["nodes"][0], node_id=7, name="gone", tx_pdos=[], rx_pdos=[])
+        gone.pop("status_location", None)  # its own locations, not node 2's
+        cfg["nodes"].append(gone)
         self.save(cfg)
         with FakePlugin(scan_polls=1) as fp:
             fp.scan_nodes[0]["serial_number"] = 7

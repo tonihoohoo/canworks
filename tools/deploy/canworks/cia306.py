@@ -13,6 +13,7 @@ Sections and keys compare case-insensitively, as CiA 306 says.
 import re
 
 MAX_LINE = 255
+MAX_SUPPORTED_OBJECTS = 0xFFFF  # checked before the list is walked
 MAX_PRODUCT_NAME = 243
 MAX_NODE_NAME = 246
 MANDATORY = (0x1000, 0x1001, 0x1018)
@@ -137,6 +138,10 @@ def check(text, only=None, defaults=True):
         count = _int(get(lst, "SupportedObjects"))
         if count is None:
             add(lst, "SupportedObjects", "missing or not a number")
+            continue
+        if count > MAX_SUPPORTED_OBJECTS:
+            add(lst, "SupportedObjects", "%d is above %d, more objects than an object dictionary holds"
+                % (count, MAX_SUPPORTED_OBJECTS))
             continue
         indices = []
         for n in range(1, count + 1):

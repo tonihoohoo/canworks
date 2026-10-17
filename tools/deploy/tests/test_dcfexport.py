@@ -305,6 +305,26 @@ class Validation(unittest.TestCase):
         problems = dcfexport.validate(node, d, text, base_config())
         self.assertIn("Baudrate 100 kbit/s is not a CiA 306 bit rate", str(problems))
 
+    def test_vendor_lines_not_cia306_checked(self):
+        # canopen-dcf-export "CiA 306 check on written lines only": a vendor
+        # line the export copies (a long, non-ASCII comment after a value) is
+        # not reported; a value the export writes still is.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        with open(os.path.join(EDS_DIR, "cpp-slave.eds"), encoding="utf-8") as f:
+            eds = f.read()
+        old = "AccessType=rwr\nDefaultValue=0x00000000"
+        self.assertIn(old, eds)
+        with open(os.path.join(tmp, "vendor.eds"), "w", encoding="utf-8") as f:
+            f.write(eds.replace(old, old + " ; Gr\u00fc\u00dfe " + "x" * 260))
+        cfg = base_config()
+        cfg["nodes"][0]["eds"] = "vendor.eds"
+        self.assertIn("node_2.dcf", export(cfg, os.path.join(tmp, "canworks.json")))
+        cfg["nodes"][0]["name"] = "venttiili \u00e4"
+        with self.assertRaises(dcfexport.ExportFailed) as cm:
+            export(cfg, os.path.join(tmp, "canworks.json"))
+        self.assertIn("[DeviceComissioning] NodeName", str(cm.exception.problems))
+
     def test_node_name_not_ascii(self):
         cfg = base_config()
         cfg["nodes"][0]["name"] = "venttiili \u00e4"
@@ -444,6 +464,20 @@ class Links(unittest.TestCase):
         self.assertFalse([x for x in w if x[0] in (0x1016, 0x1601)])
 
 
+class HeartbeatMultiplier(unittest.TestCase):
+    """canopen-config-contract "Heartbeat consumer time is the configured
+    timeout": dcfgen writes int(period x multiplier), which must be the
+    timeout (3 ms and 10 ms gave 9 ms)."""
+
+    def test_consumer_time(self):
+        self.assertEqual(int(3 * dcfexport.heartbeat_multiplier(3, 10)), 10)
+        self.assertEqual(dcfexport.heartbeat_multiplier(500, 1500), 3.0)  # unchanged where it was exact
+        self.assertEqual(dcfexport.heartbeat_multiplier(0, 0), 3.0)
+        for period in range(1, 300, 7):
+            for timeout in range(period, min(4 * period + 20, 0xFFFF)):
+                self.assertEqual(int(period * dcfexport.heartbeat_multiplier(period, timeout)), timeout)
+
+
 class Parity(unittest.TestCase):
     """Every accepted fixture config, the examples and the compact fixture:
     the export's download equals canopen_check --dump-writes, and its DCF
@@ -527,6 +561,24 @@ class Parity(unittest.TestCase):
                 with self.subTest(name):
                     self._compare(cfg, path, run.result())
         self.assertGreater(len(cases), 5)
+
+    def test_empty_eds_default(self):
+        # An empty DefaultValue is 0 on both sides, so the heartbeat watch
+        # takes 0x1016 sub 1 as a free entry (canopen-config-contract).
+        doc = load_cases("cases-links.json")
+        cfg = patched(doc["base"], [["set", "nodes/1/heartbeat_watch/0/timeout_ms", 250]])
+        path = self._in_copy(cfg)
+        eds = os.path.join(os.path.dirname(path), "link-io.eds")
+        with open(eds, encoding="utf-8") as f:
+            text = f.read()
+        head = "[1016sub1]\n"
+        at = text.index(head)
+        start = text.index("DefaultValue=", at)
+        end = text.index("\n", start)
+        with open(eds, "w", encoding="utf-8") as f:
+            f.write(text[:start] + "DefaultValue=" + text[end:])
+        self._compare(cfg, path)
+        self.assertIn((0x1016, 1), {(i, s) for i, s, _ in dcfexport.plugin_downloads(cfg, path)[20].writes})
 
     def test_compact_fixture(self):
         cfg = compact_config()

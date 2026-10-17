@@ -594,6 +594,12 @@ struct Config {
 // A CiA 301 restricted CAN-ID (0x000-0x07F, 0x101-0x180, 0x581-0x5FF,
 // 0x601-0x67F, 0x6E0-0x6FF, 0x701-0x7FF), which no EMCY may use.
 bool restricted_can_id(uint32_t id);
+// The service a PDO or TIME COB-ID `id` would clash with: NMT, SYNC, TIME,
+// the master's EMCY, a node's EMCY (0x80 + node ID, unless the node's EMCY
+// is configured), a node's SDO or heartbeat, LSS or another restricted
+// CAN-ID; "" when it is free for a PDO. `time` false leaves out TIME (for
+// the TIME COB-ID itself).
+std::string reserved_cob_service(const Config& cfg, uint32_t id, bool time = true);
 // What on the network already uses `id`, which node `n`'s EMCY would clash
 // with: SYNC, TIME, the master's EMCY, another configured node's EMCY (the
 // COB-ID `in_use` gives, by default NodeConfig::emcy_cob_id) or a configured
