@@ -1312,6 +1312,10 @@ def _check_source(src, obj, dev, at, devices, err, base, csv_roots=None):
     if kind == "constant" and isinstance(src["constant"], str) and o is not None and not is_string:
         err(w, "%s: object %s is not a VISIBLE_STRING; its constant must be a number"
             % (dev.label, object_key(index, sub)))
+    if kind == "random_walk" and isinstance(src["random_walk"], dict):
+        walk = src["random_walk"]
+        if all(isinstance(walk.get(k), (int, float)) for k in ("min", "max")) and walk["min"] > walk["max"]:
+            err(w + ".random_walk", "random_walk needs min <= max and max_step above 0")  # the plugin's words
     if kind == "csv":
         problem = csv_problem(src["csv"]["file"], base, csv_roots or [base])
         if problem:

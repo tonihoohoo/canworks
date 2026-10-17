@@ -1040,11 +1040,13 @@
         },
         "at_ms": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 2147483647
         },
         "after_ms": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 2147483647
         },
         "set": {
           "$ref": "#/$defs/values"
@@ -1096,15 +1098,18 @@
         },
         "timeout_ms": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 2147483647
         },
         "within_ms": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 2147483647
         },
         "for_ms": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 2147483647
         },
         "log": {
           "type": "string"
