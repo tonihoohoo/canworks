@@ -401,6 +401,22 @@ class Force(Base):
             c.sdo_write(6, 0x2000, 0, b"\1")
         self.assertEqual(str(e.exception), "node 7 is OPERATIONAL; a program may drive node 6 too; force needed")
 
+    def test_running_node_and_other_master_both_named(self):
+        # The hardware run of 9.2: node 23 heard OPERATIONAL and the PLC's
+        # SYNC on the bus; the refusal names both.
+        self.device(5, heartbeat_s=0.05, nmt_state=5)
+        peer = Peer(self.ch)
+        self.addCleanup(peer.close)
+        c = self.client(allow_changes=True)
+        peer.send(0x80, b"")
+        time.sleep(0.3)
+        for call in (lambda: c.nmt(5, "stop"), lambda: c.sdo_write(5, 0x2000, 0, b"\1")):
+            with self.assertRaises(diag.DiagError) as e:
+                call()
+            self.assertTrue(diag.needs_force(e.exception), str(e.exception))
+            self.assertTrue(str(e.exception).startswith(
+                "node 5 is OPERATIONAL; another master is active on this bus (SYNC, last at "), str(e.exception))
+
     def test_no_bit_rate_detection(self):
         c = self.client(allow_changes=True)
         for op in ("detect_bitrate", "detect_bitrate_status", "detect_bitrate_stop"):

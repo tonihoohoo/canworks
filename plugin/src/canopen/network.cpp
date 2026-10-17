@@ -217,8 +217,33 @@ int Network::SendOn(const can_msg& msg) {
 
 int Network::SendTapped(const can_msg* msg, void* data) {
   auto* self = static_cast<Network*>(data);
-  if (self->FilterStart(*msg)) return 0;
+  if (self->FilterStopped(*msg) || self->FilterStart(*msg)) return 0;
   return self->SendOn(*msg);
+}
+
+bool Network::StopHolds() const { return run_->master_stopped && (stop_relapse_ || lely_state_ == kStateStopped); }
+
+bool Network::FilterStopped(const can_msg& msg) {
+  // stop_all_nodes stopped the master for the run: whatever Lely does after
+  // a new session's reset (its boot-up, resetting every node, starting
+  // itself once the mandatory nodes are back), the bus sees a STOPPED
+  // master. It sends NMT STOP, its heartbeat and EMCY, SDO and LSS requests
+  // (a STOPPED node answers none but LSS), and nothing else: no reset or
+  // START of a node, no SYNC, TIME or PDO (canopen-plc-nmt "Master stop by
+  // stop_all_nodes lasts for the run").
+  if (!StopHolds()) return false;
+  const uint32_t master = cfg_.master.node_id;
+  if (!(msg.flags & (CAN_FLAG_RTR | CAN_FLAG_IDE))) {
+    if (msg.id == 0 && msg.len >= 2 && msg.data[0] == 0x02) return false;
+    if (msg.id == 0x700 + master || msg.id == 0x80 + master) return false;
+    if ((msg.id >= 0x601 && msg.id <= 0x67F) || msg.id == 0x7E5) return false;
+  }
+  if (!stopped_drop_logged_) {
+    stopped_drop_logged_ = true;
+    log_info("the master is STOPPED after a mandatory node was lost (master.stop_all_nodes): its frames other than "
+             "NMT STOP, heartbeat, EMCY, SDO and LSS are not sent (first: 0x%03X)", msg.id);
+  }
+  return true;
 }
 
 bool Network::FilterStart(const can_msg& msg) {
@@ -252,6 +277,9 @@ bool Network::FilterStart(const can_msg& msg) {
 
 void Network::Start() {
   HookSend();
+  // A master stopped by stop_all_nodes earlier in this run: Lely's start-up
+  // after the reset below must not undo it.
+  stop_relapse_ = run_->master_stopped;
   // Reset() runs the master's own NMT reset synchronously, which restores its
   // object dictionary from the DCF; the TPDOs are switched off after that and
   // only switched on for nodes that are operational.
@@ -760,7 +788,7 @@ void Network::StartHeldMaster() {
   // every mandatory node has booted. With start false only the program
   // starts it (CO_NETWORK_START), and after CO_NETWORK_STOP nothing does
   // until the program starts it again.
-  if (!MayRun() || lely_state_ != kStatePreop) return;
+  if (!MayRun() || StopHolds() || lely_state_ != kStatePreop) return;
   for (const auto& it : nodes_)
     if (it.second.cfg->mandatory && !it.second.booted) return;
   log_info("all mandatory nodes have booted: starting the master");
@@ -803,6 +831,15 @@ void Network::HandleCommand(NmtCommand cs) {
     run_->master_stopped = true;  // for the rest of the PLC run, across sessions
     log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
   }
+  // A reset of the stopped master (not one it left STOPPED for first).
+  if (run_->master_stopped && was_stopped && (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE))
+    stop_relapse_ = true;
+  if (stop_relapse_ && (cs == NmtCommand::START || cs == NmtCommand::ENTER_PREOP)) {
+    // Lely's own start-up after a new session's reset: the stop of this run
+    // holds, the master is sent STOP again.
+    log_info("the master stays STOPPED: a mandatory node was lost earlier in this PLC run (master.stop_all_nodes)");
+    Defer([this] { Command(NmtCommand::STOP, static_cast<uint8_t>(cfg_.master.node_id)); });
+  }
   if (cs == NmtCommand::START && run_->prog_stopped)
     // Lely's own start-up (after the master reset itself with reset_all_nodes)
     // while the program holds the network stopped: it stays held.
@@ -823,7 +860,7 @@ void Network::ApplyMasterState(bool lely_started) {
   bool held = run_->prog_stopped && lely_state_ == kStateOperational;
   SetMasterState(held ? kStatePreop : lely_state_);
   bool was_op = master_op_;
-  master_op_ = lely_state_ == kStateOperational && !run_->prog_stopped;
+  master_op_ = lely_state_ == kStateOperational && !run_->prog_stopped && !StopHolds();
   if (master_op_ && !was_op) {
     log_info("master is operational");
     // Starting all nodes at once: Lely starts every booted node now.

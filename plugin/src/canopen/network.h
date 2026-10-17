@@ -511,6 +511,15 @@ class Network : public lely::canopen::BasicMaster {
   // all nodes sent to each configured node that is not held instead
   // (canopen-plc-nmt "No start for a held node"). True when handled here.
   bool FilterStart(const can_msg& msg);
+  // While stop_all_nodes holds the master STOPPED: drops what a STOPPED
+  // master does not send (canopen-plc-nmt). True when dropped.
+  bool FilterStopped(const can_msg& msg);
+  bool stopped_drop_logged_ = false;
+  // The master was stopped (stop_all_nodes) and then reset, by a new
+  // session's Start or Lely itself: its start-up does not lift the stop.
+  bool stop_relapse_ = false;
+  // The stop holds: the master is STOPPED now, or it was reset since.
+  bool StopHolds() const;
   std::unique_ptr<RunState> own_run_;  // without a RunState from the caller
   RunState* run_;
   std::map<unsigned, NodeState> nodes_;
