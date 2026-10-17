@@ -1154,6 +1154,29 @@ bool eds_identity(const NodeConfig& n, uint32_t& vendor_id, uint32_t& product_co
   return true;
 }
 
+// A node's EMCY COB-ID from its EDS default (0x1014), when its EMCY is not
+// configured and the EDS moves it off 0x80 + node ID: no PDO may use it
+// (the config check covers 0x80 + node ID and the configured ones).
+static void check_eds_emcy_cob_ids(const Config& cfg, std::vector<std::string>& errors) {
+  for (const auto& m : cfg.nodes) {
+    if (m.emcy_cob == NodeConfig::EmcyCob::Number || m.emcy_cob_from_sdo) continue;
+    uint32_t emcy = m.eds_emcy_cob_id;
+    if (!emcy || emcy == 0x80 + m.node_id) continue;
+    char hex[16];
+    std::snprintf(hex, sizeof(hex), "0x%03X", emcy);
+    for (const auto& n : cfg.nodes) {
+      for (const auto& p : n.tx_pdos)
+        if (n.tpdo_cob_id(p) == emcy)
+          errors.push_back(n.label() + " TPDO " + std::to_string(p.number) + ": COB-ID " + hex + " is node " +
+                           std::to_string(m.node_id) + "'s EMCY (its EDS's 0x1014)");
+      for (const auto& p : n.rx_pdos)
+        if (n.rpdo_cob_id(p) == emcy)
+          errors.push_back(n.label() + " RPDO " + std::to_string(p.number) + ": COB-ID " + hex + " is node " +
+                           std::to_string(m.node_id) + "'s EMCY (its EDS's 0x1014)");
+    }
+  }
+}
+
 bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
   size_t before = errors.size();
   if (cfg.is_slave()) {
@@ -1218,6 +1241,7 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
     else
       devs[n.node_id] = dev;
   }
+  check_eds_emcy_cob_ids(cfg, errors);
   check_lss_addresses(cfg, errors);
   check_heartbeat_watch(cfg, devs, errors);
   check_links(cfg, devs, errors);

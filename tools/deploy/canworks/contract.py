@@ -736,6 +736,32 @@ def restricted_can_id(cob):
     return any(lo <= cob <= hi for lo, hi in RESTRICTED_CAN_IDS)
 
 
+def reserved_cob_service(cob, master, master_id, default_emcy, time=True):
+    """The service a PDO or TIME COB-ID would clash with, or None (plugin:
+    reserved_cob_service): NMT, SYNC, TIME, the master's EMCY, a node's EMCY
+    (`default_emcy`: the node IDs whose EMCY is not configured, so it is
+    0x80 + node ID), a node's SDO or heartbeat, LSS or another restricted
+    CAN-ID. `time` False leaves out TIME (for the TIME COB-ID itself)."""
+    if cob == 0x000:
+        return "NMT"
+    if cob == 0x080:
+        return "SYNC"
+    if time and cob == (_uint(master.get("time_cob_id", 0x100)) or 0) & 0x7FF:
+        return "TIME"
+    if master_id is not None and cob == 0x80 + master_id:
+        return "the master's EMCY"
+    if cob - 0x80 in default_emcy:
+        return "node %d's EMCY" % (cob - 0x80)
+    for lo, what in ((0x580, "SDO response"), (0x600, "SDO request"), (0x700, "heartbeat")):
+        if lo < cob <= lo + 0x7F:
+            return "node %d's %s" % (cob - lo, what)
+    if cob in (0x7E4, 0x7E5):
+        return "LSS"
+    if restricted_can_id(cob):
+        return "a restricted CAN-ID (CiA 301)"
+    return None
+
+
 def configured_emcy_cob_id(n, sdo_entries=None):
     """A node's configured EMCY COB-ID, as the plugin takes it: (value,
     "emcy_cob_id") for a number in emcy_cob_id, else (value, "startup SDO",
@@ -1881,7 +1907,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             l["cob_id"] = t["cob_id"] if isinstance(t.get("cob_id"), int) else t["default_cob_id"]
 
     # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
-    # the COB-ID is set, "auto" or the default.
+    # the COB-ID is set, "auto" or the default, and a PDO on a service's
+    # COB-ID is taken for that service (plugin: check_pdo_cob_ids).
+    default_emcy = {node["node_id"] for n, node in zip(cfg["nodes"], nodes) if not configured_emcy_cob_id(n, node["sdo"])}
+    if "time_cob_id" in master:
+        t = (_uint(master["time_cob_id"]) or 0) & 0x7FF
+        what = reserved_cob_service(t, master, master_id, default_emcy, time=False)
+        if what:
+            err("master", "TIME COB-ID 0x%03X is %s" % (t, what), ["master.time_cob_id"])
     cobs = {}
     for i, node in enumerate(nodes):
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
@@ -1895,6 +1928,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 if key == "tx_pdos":
                     who += "".join(" (%s)" % l["label"] for l in links
                                    if l["producer"] == node["node_id"] and l["tpdo"] == pdo["number"])
+                what = reserved_cob_service(cob, master, master_id, default_emcy)
+                if what:
+                    err("nodes", "%s: COB-ID 0x%03X is %s" % (who, cob, what), [at])
                 if cob in cobs:
                     err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
                 else:
@@ -1974,6 +2010,26 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         for msg, sub in zip(messages, where):
             add("error", msg, [w + sub])
         eds_warnings += [(msg, w + sub) for msg, sub in warnings]
+    # A node's EMCY COB-ID from its EDS default (0x1014), when the EDS moves it
+    # off 0x80 + node ID (plugin: check_eds_emcy_cob_ids).
+    for m in nodes:
+        sub = eds_by_id[m["node_id"]].find(0x1014, 0) if m["node_id"] in eds_by_id else None
+        if m["node_id"] not in default_emcy or sub is None:
+            continue
+        try:
+            emcy = sub.value(m["node_id"])
+        except (ValueError, eds_mod.EdsError):
+            emcy = None
+        if not emcy or emcy & 0x80000000 or emcy > 0x7FF or emcy == 0x80 + m["node_id"]:
+            continue
+        for i, node in enumerate(nodes):
+            label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node.get("name") else "")
+            for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
+                for j, pdo in enumerate(node[key]):
+                    cob = pdo.get("cob_id")
+                    if (cob if isinstance(cob, int) else pdo["default_cob_id"]) == emcy:
+                        add("error", "%s %s %d: COB-ID 0x%03X is node %d's EMCY (its EDS's 0x1014)"
+                            % (label, kind, pdo["number"], emcy, m["node_id"]), ["nodes[%d].%s[%d].cob_id" % (i, key, j)])
     # Two nodes with lss.assign must not name the same device.
     lss_nodes = [(i, n) for i, n in enumerate(nodes) if "vendor_id" in n.get("lss", {})]
     for a in range(len(lss_nodes)):

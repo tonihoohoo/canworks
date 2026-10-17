@@ -2345,18 +2345,18 @@ TEST(time_producer_parsed) {
 
   Config own;
   CHECK_MSG(parse(replace(kValid, "\"sync_period_us\": 10000",
-                          "\"sync_period_us\": 10000, \"time_period_ms\": 5000, \"time_cob_id\": \"0x180\""),
+                          "\"sync_period_us\": 10000, \"time_period_ms\": 5000, \"time_cob_id\": \"0x190\""),
                   own, errors),
             join(errors));
-  CHECK(own.master.time_producer_cob_id() == 0x180);
-  CHECK(make_dcfgen_yaml(own, "/tmp/x").find("  time_cob_id: 0x40000180\n") != std::string::npos);
+  CHECK(own.master.time_producer_cob_id() == 0x190);
+  CHECK(make_dcfgen_yaml(own, "/tmp/x").find("  time_cob_id: 0x40000190\n") != std::string::npos);
 
   // Without time_period_ms a time_cob_id goes to dcfgen as given.
   Config plain;
-  CHECK_MSG(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"time_cob_id\": \"0x180\""),
+  CHECK_MSG(parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"time_cob_id\": \"0x190\""),
                   plain, errors),
             join(errors));
-  CHECK(make_dcfgen_yaml(plain, "/tmp/x").find("  time_cob_id: 0x00000180\n") != std::string::npos);
+  CHECK(make_dcfgen_yaml(plain, "/tmp/x").find("  time_cob_id: 0x00000190\n") != std::string::npos);
 
   for (const char* bad : {"10", "3600001"}) {
     Config c;

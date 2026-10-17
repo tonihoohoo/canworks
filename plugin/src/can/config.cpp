@@ -95,6 +95,22 @@ bool restricted_can_id(uint32_t id) {
          (id >= 0x601 && id <= 0x67F) || (id >= 0x6E0 && id <= 0x6FF) || (id >= 0x701 && id <= 0x7FF);
 }
 
+std::string reserved_cob_service(const Config& cfg, uint32_t id, bool time) {
+  if (id == 0x000) return "NMT";
+  if (id == 0x080) return "SYNC";
+  if (time && id == (cfg.master.time_producer_cob_id() & 0x7FF)) return "TIME";
+  if (id == 0x80 + cfg.master.node_id) return "the master's EMCY";
+  for (const auto& n : cfg.nodes)
+    if (n.emcy_cob != NodeConfig::EmcyCob::Number && !n.emcy_cob_from_sdo && id == 0x80 + n.node_id)
+      return "node " + std::to_string(n.node_id) + "'s EMCY";
+  if (id >= 0x581 && id <= 0x5FF) return "node " + std::to_string(id - 0x580) + "'s SDO response";
+  if (id >= 0x601 && id <= 0x67F) return "node " + std::to_string(id - 0x600) + "'s SDO request";
+  if (id >= 0x701 && id <= 0x77F) return "node " + std::to_string(id - 0x700) + "'s heartbeat";
+  if (id == 0x7E4 || id == 0x7E5) return "LSS";
+  if (restricted_can_id(id)) return "a restricted CAN-ID (CiA 301)";
+  return "";
+}
+
 std::string emcy_cob_clash(const Config& cfg, const NodeConfig& n, uint32_t id,
                            const std::function<uint32_t(const NodeConfig&)>& in_use) {
   if (id == 0x080) return "SYNC";
@@ -1614,6 +1630,7 @@ class Parser {
         for (const auto& t : p->tx_pdos)
           if (t.number == l.tpdo) l.cob_id = p->tpdo_cob_id(t);
     check_emcy_cob_ids(cfg);
+    check_pdo_cob_ids(cfg);
     // A version 2 file checks the locations of all networks at once.
     if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
@@ -3167,19 +3184,39 @@ class Parser {
       if (++seen[n.node_id] == 2)
         error("nodes", "node ID " + std::to_string(n.node_id) + " is used by more than one slave");
     }
-    // Two PDOs on the same COB-ID would collide on the bus.
-    // A link's COB-ID belongs to its producer TPDO; its consumer RPDOs
-    // receive on it and are not registered (canopen-pdo-links "Link COB-ID
-    // rules"), so any other use clashes with the TPDO, named with the link.
+  }
+
+  // The PDO COB-IDs, once the "auto" ones are resolved and the EMCY
+  // COB-IDs are known. Two PDOs on the same COB-ID would collide on the
+  // bus, and a PDO on a service's COB-ID (SYNC, TIME, an EMCY, SDO,
+  // heartbeat, LSS or another restricted CAN-ID) would be taken for that
+  // service (canopen-config-contract "PDO identifiers stay off service
+  // identifiers"). A link's COB-ID belongs to its producer TPDO; its consumer
+  // RPDOs receive on it and are not registered (canopen-pdo-links "Link
+  // COB-ID rules"), so any other use clashes with the TPDO, named with the link.
+  void check_pdo_cob_ids(const Config& cfg) {
+    char hex[16];
+    if (cfg.master.has_time_cob_id) {
+      uint32_t t = cfg.master.time_producer_cob_id() & 0x7FF;
+      std::string what = reserved_cob_service(cfg, t, false);
+      std::snprintf(hex, sizeof(hex), "0x%03X", t);
+      if (!what.empty()) error("master", std::string("TIME COB-ID ") + hex + " is " + what);
+    }
     std::map<uint32_t, std::string> cobs;
+    auto add = [&](uint32_t cob, const std::string& who) {
+      std::string what = reserved_cob_service(cfg, cob);
+      std::snprintf(hex, sizeof(hex), "0x%03X", cob);
+      if (!what.empty()) error("nodes", who + ": COB-ID " + hex + " is " + what);
+      add_cob(cobs, cob, who);
+    };
     for (const auto& n : cfg.nodes) {
       for (const auto& p : n.tx_pdos) {
         std::string who = n.label() + " TPDO " + std::to_string(p.number);
         for (const auto& l : cfg.links)
           if (l.producer == n.node_id && l.tpdo == p.number) who += " (" + l.label() + ")";
-        add_cob(cobs, n.tpdo_cob_id(p), who);
+        add(n.tpdo_cob_id(p), who);
       }
-      for (const auto& p : n.rx_pdos) add_cob(cobs, n.rpdo_cob_id(p), n.label() + " RPDO " + std::to_string(p.number));
+      for (const auto& p : n.rx_pdos) add(n.rpdo_cob_id(p), n.label() + " RPDO " + std::to_string(p.number));
     }
   }
 
