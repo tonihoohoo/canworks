@@ -1022,6 +1022,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
                 err("", "field '%s' needs schema_version 2" % key, [key])
         found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge",)]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
+        if r.ok:
+            # Two uses of one location (plugin: check_overlaps), as a
+            # version 2 file checks them across its networks.
+            _report_overlaps(location_uses(networks(cfg)[0]), "nodes", err)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
     check_cia309(cfg, version, err)
@@ -1409,10 +1413,15 @@ def _check_across_networks(r, cfg, err, bridge_uses=None):
         located = [(parse_location(text), who, at, None) for _, who, at, text in uses] + bridge_uses
         bridgecheck.report_byte_overlaps(located, "networks", err)
         return
+    _report_overlaps(uses, "networks", err)
+
+
+def _report_overlaps(uses, where, err):
+    """Two location_uses() entries on one location (plugin: report_overlaps)."""
     for i, a in enumerate(uses):
         for b in uses[i + 1:]:
             if a[0] == b[0]:
-                err("networks", "%s and %s both map to %s" % (a[1], b[1], a[3]), [a[2], b[2]])
+                err(where, "%s and %s both map to %s" % (a[1], b[1], a[3]), [a[2], b[2]])
 
 
 def location_uses(net, prefix=""):
