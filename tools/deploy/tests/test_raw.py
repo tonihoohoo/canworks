@@ -213,6 +213,28 @@ class ReplayTests(unittest.TestCase):
             tx.shutdown()
             rx.shutdown()
 
+    def test_trc_layouts(self):
+        # TRC 1.0 has no Rx/Tx column (bug hunt JR-M5, PC-M3).
+        def ids(text):
+            return [(f.time_us, f.can_id, f.dlc, f.data) for f in replay.read_trc(text)]
+        v10 = "1) 1841 0201 2 01 00\n2) 1842 0123 8 11 22 33 44 55 66 77 88\n"
+        want = [(0, 0x201, 2, b"\x01\x00"), (1000, 0x123, 8, bytes.fromhex("1122334455667788"))]
+        self.assertEqual(ids(v10), want)
+        self.assertEqual(ids(";$FILEVERSION=1.0\n" + v10), want)
+        v11 = ";$FILEVERSION=1.1\n1) 1841.0 Rx 0201 2 01 00\n2) 1841.5 Warng FFFFFFFF 4 00 00 00 08 BUSHEAVY\n" \
+              "3) 1842.0 Tx 0123 1 RTR\n"
+        self.assertEqual([(f.can_id, f.rtr) for f in replay.read_trc(v11)], [(0x201, False), (0x123, True)])
+        v20 = ";$FILEVERSION=2.0\n     1      1059.900 DT 0300 Rx 2 01 02\n"
+        self.assertEqual(ids(v20), [(0, 0x300, 2, b"\x01\x02")])
+        for text, why in ((";$FILEVERSION=1.3\n1) 1.0 1 Rx 0201 - 2 01 00\n", "version 1.3 cannot be replayed"),
+                          (";$FILEVERSION=1.1\n" + v10, "line 2 .*no Rx/Tx column"),
+                          (";$FILEVERSION=1.0\n1) 1841.0 Rx 0201 2 01 00\n", "an Rx/Tx column"),
+                          ("1) 1841 0201 3 01 00\n", "line 1 .*2 data bytes for DLC 3"),
+                          ("1) 1841 Rx 0201 1 01 00\n", "2 data bytes for DLC 1"),
+                          (";$FILEVERSION=2.0\n     1      1059.900 DT 0300 Rx 2 01\n", "1 data bytes for DLC 2")):
+            with self.assertRaisesRegex(replay.ReplayError, why):
+                replay.read_trc(text)
+
     def test_loop_keeps_the_rate(self):
         """--loop waits a frame period between rounds and keeps the rate
         limit across them (bug hunt PC-H1)."""

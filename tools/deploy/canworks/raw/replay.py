@@ -18,28 +18,43 @@ class ReplayError(ValueError):
     pass
 
 
+TRC_VERSIONS = ("1.0", "1.1", "2.0", "2.1")
+# Version 2.0 has no $COLUMNS line: its fixed layout.
+TRC2_COLUMNS = ["N", "O", "T", "I", "d", "l", "D"]
+
+
 def read_trc(text):
-    """The data and remote frames of a PEAK .trc file (versions 1.x and 2.x)."""
+    """The data and remote frames of a PEAK .trc file, versions 1.0, 1.1, 2.0
+    and 2.1; the layout follows ;$FILEVERSION (a file without one is 1.0 or
+    1.1, told by its Rx/Tx column). Other versions, lines it cannot read and
+    lines whose data bytes do not match their DLC are refused."""
     frames = []
+    version = None
     columns = None
     t0_ms = None
-    for line in text.splitlines():
+    for n, line in enumerate(text.splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         if line.startswith(";"):
+            m = re.match(r";\$FILEVERSION=(\S+)", line)
+            if m:
+                version = m.group(1)
+                if version not in TRC_VERSIONS:
+                    raise ReplayError("PEAK .trc version %s cannot be replayed (versions %s)"
+                                      % (version, ", ".join(TRC_VERSIONS)))
             m = re.match(r";\$COLUMNS=(.*)", line)
             if m:
                 columns = [c.strip() for c in m.group(1).split(",")]
             continue
         parts = line.split()
         try:
-            if columns:
-                f = _trc2(parts, columns)
+            if columns or (version or "").startswith("2."):
+                f = _trc2(parts, columns or TRC2_COLUMNS)
             else:
-                f = _trc1(parts)
-        except (ValueError, IndexError):
-            raise ReplayError("cannot read this .trc line: %s" % line[:80])
+                f = _trc1(parts, version)
+        except (ValueError, IndexError, KeyError) as e:
+            raise ReplayError("cannot read .trc line %d (%s): %s" % (n, e, line[:80]))
         if f is None:
             continue
         ms, can_id, ext, rtr, dlc, data = f
@@ -47,6 +62,16 @@ def read_trc(text):
             t0_ms = ms
         frames.append(Frame(round((ms - t0_ms) * 1000), can_id, data, ext=ext, rtr=rtr, dlc=dlc))
     return frames
+
+
+def _data(parts, rtr, dlc):
+    if not 0 <= dlc <= 8:
+        raise ValueError("DLC %d" % dlc)
+    if rtr:
+        return b""
+    if len(parts) != dlc:
+        raise ValueError("%d data bytes for DLC %d" % (len(parts), dlc))
+    return bytes(int(b, 16) for b in parts)
 
 
 def _trc2(parts, columns):
@@ -63,21 +88,28 @@ def _trc2(parts, columns):
     dlc = int(parts[get["l"]] if "l" in get else parts[get["L"]])
     rtr = typ == "RR"
     start = get.get("D", len(parts))
-    data = bytes(int(b, 16) for b in parts[start:start + (0 if rtr else dlc)])
-    return ms, can_id, ext, rtr, dlc, data
+    return ms, can_id, ext, rtr, dlc, _data(parts[start:], rtr, dlc)
 
 
-def _trc1(parts):
-    # "1)  1059.9  Rx  0300  8  00 00 ..." or "1)  1059.9  Rx  0300  1  RTR"
+def _trc1(parts, version):
+    # 1.1: "1)  1059.9  Rx  0300  8  00 00 ..." or "1)  1059.9  Rx  0300  1  RTR";
+    # 1.0: "1)  1059  0300  8  00 00 ..." (no direction column).
     if not parts[0].endswith(")"):
         return None
+    has_dir = parts[2] in ("Rx", "Tx")
+    if version == "1.1" and not has_dir:
+        if parts[2] in ("Warng", "Error"):
+            return None  # bus state records
+        raise ValueError("no Rx/Tx column in a version 1.1 line")
+    if version == "1.0" and has_dir:
+        raise ValueError("an Rx/Tx column in a version 1.0 line")
+    k = 3 if has_dir else 2
     ms = float(parts[1])
-    cid_text = parts[3]
+    cid_text = parts[k]
     can_id = int(cid_text, 16)
-    dlc = int(parts[4])
-    rtr = len(parts) > 5 and parts[5] == "RTR"
-    data = b"" if rtr else bytes(int(b, 16) for b in parts[5:5 + dlc])
-    return ms, can_id, len(cid_text) > 4, rtr, dlc, data
+    dlc = int(parts[k + 1])
+    rtr = parts[k + 2:] == ["RTR"]
+    return ms, can_id, len(cid_text) > 4, rtr, dlc, _data(parts[k + 2:], rtr, dlc)
 
 
 def load(path):

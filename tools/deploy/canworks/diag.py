@@ -3271,11 +3271,15 @@ def _record(args, out, fmt, filters, spec, connect, names):
         except OSError as e:
             raise DiagError("usage", "cannot write %s: %s" % (args.output, e.strerror or e))
         summary = session.analysis.summary(info["lost"], info["kernel_drops"])
+        dropped, limit = session.trace.dropped, session.trace.limit
     seconds = ((summary["last_us"] or 0) - (summary["first_us"] or 0)) / 1e6
     rate = summary["frames"] / seconds if seconds > 0 else 0.0
     out.write("%d frames in %.1f s (%.0f frames/s), %d lost, %d dropped by the PLC's kernel%s -> %s\n" % (
         summary["frames"], seconds, rate, summary["lost"], summary["kernel_drops"],
         ", %d error frames" % summary["error_frames"] if summary["error_frames"] else "", args.output))
+    if dropped:
+        out.write("warning: the oldest %d frames were dropped past the %d-frame limit; the file holds the last "
+                  "%.1f s of the recording (record shorter or with --filter)\n" % (dropped, limit, seconds))
     if spec:
         hits = info["hits"]
         out.write("trigger %s: %s\n" % (triggers.describe(rec.engine.spec),
