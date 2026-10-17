@@ -212,11 +212,11 @@ A finding is limit-only when it is about a `LowLimit` or `HighLimit`, or about a
 Before the lint, the plugin makes a prepared copy of an EDS that needs one, `.canworks/eds/node_<id>.eds`, which its EDS checks and `dcfgen` then read. The original file is left unchanged. The corrections are lossless:
 
 - a file that is not valid UTF-8 is converted from CP1252;
-- `0x200+$NODEID` is rewritten `$NODEID+0x200` (the CiA 306 form, the only one `dcfgen` parses);
-- a REAL32 or REAL64 value written as a decimal number (`12.345`) is rewritten as Lely's hexadecimal bit pattern (`0x4145851F`);
+- `0x200+$NODEID` is rewritten `$NODEID+0x200` (the CiA 306 form, the only one `dcfgen` parses), and a bare `$NODEID` (any case) `$NODEID+0`, which Lely's EDS parser needs;
+- a REAL32 or REAL64 value written as a decimal number (`12.345`, also a plain integer such as `100`) is rewritten as Lely's hexadecimal bit pattern (`0x4145851F`);
 - an OCTET_STRING or DOMAIN `DefaultValue` or `ParameterValue` that does not start with a hex digit (`----`) is cleared, since Lely reads these as hex and refuses the file otherwise. The master never writes these values.
 
-The plugin logs one line per node that needed corrections, with each kind and its count, and each cleared value with its object and old text. The configurator and the deploy tool run the same lint and corrections, so the PC refuses what the PLC would refuse.
+The plugin logs one line per node that needed corrections, with each kind and its count, and each cleared value with its object and old text. The configurator and the deploy tool run the same lint and corrections, so the PC refuses what the PLC would refuse. They also refuse what Lely's EDS parser cannot load, in its words: a `DataType` of 0 or above 0xFFFF ("DataType not specified"), one Lely has no sub-object for (0x000E, 0x0017, 0x001C and up: "unable to create sub-object 4002sub0"), and a TIME_OF_DAY or TIME_DIFFERENCE value that is not `<milliseconds> <days>`. An empty `DefaultValue` or `PDOMapping` reads as 0, as Lely reads it. An object list with `SupportedObjects` above 65535 is refused before it is read.
 
 ### Bus diagnostics
 

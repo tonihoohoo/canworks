@@ -528,6 +528,24 @@ class Parity(unittest.TestCase):
                     self._compare(cfg, path, run.result())
         self.assertGreater(len(cases), 5)
 
+    def test_empty_eds_default(self):
+        # An empty DefaultValue is 0 on both sides, so the heartbeat watch
+        # takes 0x1016 sub 1 as a free entry (canopen-config-contract).
+        doc = load_cases("cases-links.json")
+        cfg = patched(doc["base"], [["set", "nodes/1/heartbeat_watch/0/timeout_ms", 250]])
+        path = self._in_copy(cfg)
+        eds = os.path.join(os.path.dirname(path), "link-io.eds")
+        with open(eds, encoding="utf-8") as f:
+            text = f.read()
+        head = "[1016sub1]\n"
+        at = text.index(head)
+        start = text.index("DefaultValue=", at)
+        end = text.index("\n", start)
+        with open(eds, "w", encoding="utf-8") as f:
+            f.write(text[:start] + "DefaultValue=" + text[end:])
+        self._compare(cfg, path)
+        self.assertIn((0x1016, 1), {(i, s) for i, s, _ in dcfexport.plugin_downloads(cfg, path)[20].writes})
+
     def test_compact_fixture(self):
         cfg = compact_config()
         self._compare(cfg, self._in_copy(cfg))

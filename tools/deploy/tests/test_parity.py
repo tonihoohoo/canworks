@@ -140,6 +140,27 @@ class Parity(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("node 2 (pingpong) TPDO 6: automatic COB-ID 0x57F", out.stdout + out.stderr)
 
+    def test_both_accept_eds_forms(self):
+        # EDS forms Lely loads, through the prepared copy where needed: the PC
+        # check takes them too (a bare $NODEID, an empty PDOMapping or
+        # DefaultValue, an integer REAL default, a TIME_OF_DAY "<ms> <days>").
+        for name, obj in (("bare $NODEID", "DataType=0x0005\nAccessType=rw\nDefaultValue=$nodeid\nPDOMapping=0\n"),
+                          ("empty PDOMapping", "DataType=0x0007\nAccessType=rw\nDefaultValue=0\nPDOMapping=\n"),
+                          ("empty DefaultValue", "DataType=0x0007\nAccessType=rw\nDefaultValue=\nPDOMapping=0\n"),
+                          ("integer REAL", "DataType=0x0008\nAccessType=rw\nDefaultValue=100\nPDOMapping=0\n"),
+                          ("TIME_OF_DAY", "DataType=0x000C\nAccessType=rw\nDefaultValue=0 0\nPDOMapping=0\n")):
+            with self.subTest(name):
+                cfg = load_cases()["base"]
+                cfg["nodes"][0]["eds"] = "forms.eds"
+                doc = {"description": name, "config": cfg, "eds_files": {"forms.eds": {"from": "cpp-slave.eds", "replace": [
+                    ["SupportedObjects=2\n1=0x4000\n2=0x4001\n", "SupportedObjects=3\n1=0x4000\n2=0x4001\n3=0x4002\n"],
+                    ["PDOMapping=1\n", "PDOMapping=1\n\n[4002]\nParameterName=form\n" + obj]]}}}
+                folder = self.write(doc)
+                self.assertEqual(tool_errors(doc, folder), [])
+                out = subprocess.run([self.check, "--no-dcfgen", os.path.join(folder, "canworks.json")],
+                                     capture_output=True, text=True)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
     def test_both_refuse_every_entry(self):
         for path in entries():
             name = os.path.relpath(path, FIXTURES)

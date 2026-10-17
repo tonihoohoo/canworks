@@ -53,10 +53,11 @@ class SubObject:
     def value(self, node_id):
         """The value the device starts with, as Lely reads it: ParameterValue,
         else DefaultValue, with $NODEID resolved ("$NODEID+0x180", and the
-        "0x180+$NODEID" form some vendors write). None if not a number."""
+        "0x180+$NODEID" form some vendors write); 0 when empty, as Lely reads
+        it. None if not a number."""
         text = (self.parameter or self.default).strip()
         if not text:
-            return None
+            return 0  # an empty value is 0, as Lely reads it
         parts = [t.strip() for t in text.split("+")]
         total = 0
         for t in parts:
@@ -101,6 +102,28 @@ def _syntax_error(e, text=None):
         return "line %d%s is not a key=value line: %s%s" % (
             lineno, " (in %s)" % section if section else "", str(line).strip().strip("'").rstrip("\\n"), more)
     return str(e).splitlines()[0]
+
+
+# The DataTypes Lely's EDS parser creates a sub-object for (co_dev, which the
+# plugin loads every EDS into): the basic types, the strings, DOMAIN and the
+# times. Others (0x000E, 0x0017, 0x001C and up) fail its load.
+LELY_DATA_TYPES = frozenset(list(range(0x0001, 0x000E)) + [0x000F] + list(range(0x0010, 0x0017))
+                            + list(range(0x0018, 0x001C)))
+_TIME_TYPES = (0x000C, 0x000D)  # TIME_OF_DAY, TIME_DIFFERENCE: "<ms> <days>"
+
+
+def _lely_refusal(section, where, data_type):
+    """Why Lely's EDS parser refuses a sub-object, in its words, or None."""
+    if data_type == 0 or data_type > 0xFFFF:
+        return "DataType not specified"
+    if data_type not in LELY_DATA_TYPES:
+        return "unable to create sub-object %s" % where
+    if data_type in _TIME_TYPES:
+        for key, name in (("defaultvalue", "DefaultValue"), ("parametervalue", "ParameterValue")):
+            text = section.get(key, "").strip()
+            if text and len(text.split()) < 2:
+                return "unable to parse %s of %s (a time is \"<milliseconds> <days>\")" % (name, where)
+    return None
 
 
 def _int(text, what):
@@ -169,14 +192,20 @@ class Eds:
             raise EdsError(_syntax_error(e, text))
         sections = {name.lower(): parser[name] for name in parser.sections()}
 
-        def sub_from(section, where, name=None):
+        def sub_from(section, where, name=None, sub=0):
             if "datatype" not in section:
                 raise EdsError("[%s] has no DataType" % where)
             access = section.get("accesstype", "").strip().lower()
             if access not in ACCESS:
                 raise EdsError("[%s] has an invalid AccessType %r" % (where, access))
-            return SubObject(_int(section["datatype"], "[%s] DataType" % where), access,
-                             _int(section.get("pdomapping", "0"), "[%s] PDOMapping" % where) != 0,
+            data_type = _int(section["datatype"], "[%s] DataType" % where)
+            refusal = _lely_refusal(section, where if "sub" in where.lower() else "%ssub%X" % (where, sub),
+                                    data_type)
+            if refusal:
+                raise EdsError(refusal)
+            # An empty PDOMapping is 0, as Lely reads it.
+            return SubObject(data_type, access,
+                             _int(section.get("pdomapping", "").strip() or "0", "[%s] PDOMapping" % where) != 0,
                              name if name is not None else section.get("parametername", "").strip(),
                              section.get("defaultvalue", "").strip(), section.get("parametervalue", "").strip(),
                              section.get("lowlimit", "").strip(), section.get("highlimit", "").strip())
@@ -209,7 +238,7 @@ class Eds:
                     subs[0] = SubObject(0x0005, "ro", False)
                     base_name = section.get("parametername", "").strip()
                     for sub in range(1, n + 1):
-                        subs[sub] = sub_from(section, "%04X" % index, "%s%d" % (base_name, sub))
+                        subs[sub] = sub_from(section, "%04X" % index, "%s%d" % (base_name, sub), sub)
                 else:
                     for sub in range(0, 256):
                         s = sections.get("%xsub%x" % (index, sub)) or sections.get("%04xsub%x" % (index, sub))

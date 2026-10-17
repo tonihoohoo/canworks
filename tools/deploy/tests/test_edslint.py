@@ -118,6 +118,23 @@ class Prepare(unittest.TestCase):
         self.assertEqual(corrections[0].items[0],
                          {"section": "2000", "key": "DefaultValue", "old": "0x180+$NODEID", "new": "$NODEID+0x180"})
 
+    def test_bare_nodeid(self):
+        # Lely cannot parse a bare "$NODEID" (any case), which vendor files
+        # write for node-ID parameters.
+        text = eds((0x2000, var("0x0005", DefaultValue="$NODEID")), (0x2001, var("0x0005", DefaultValue="$nodeid")))
+        out, corrections = edslint.prepare(text.encode("utf-8"))
+        self.assertEqual(out.count("DefaultValue=$NODEID+0\n"), 2)
+        self.assertEqual([c.kind for c in corrections], ["nodeid"])
+
+    def test_real_integer(self):
+        # A plain decimal integer on a REAL is a decimal value (CiA 306), not
+        # the bit pattern Lely would read.
+        text = eds((0x2000, var("0x0008", DefaultValue="100")), (0x2001, var("0x0011", DefaultValue="-3")))
+        out, corrections = edslint.prepare(text.encode("utf-8"))
+        self.assertIn("DefaultValue=0x42C80000\n", out)  # 100.0f
+        self.assertIn("DefaultValue=0xC008000000000000\n", out)  # -3.0
+        self.assertEqual([c.kind for c in corrections], ["real"])
+
     def test_real(self):
         text = eds((0x2000, var("0x0008", DefaultValue="12.345", LowLimit="-1e3")),
                    (0x2001, var("0x0011", DefaultValue="0.5")),
@@ -283,6 +300,13 @@ class Lint(unittest.TestCase):
         self.assertEqual(r.failing("communication"), [])
         self.assertEqual(r.accepted("communication"), r.findings)
         self.assertEqual(r.failing("all"), r.findings)
+
+    def test_supported_objects_cap(self):
+        # Refused before the lint walks the list (a huge count took minutes).
+        text = eds((0x2000, var("0x0007", DefaultValue="5"))).replace(
+            "[ManufacturerObjects]\nSupportedObjects=1", "[ManufacturerObjects]\nSupportedObjects=50000000")
+        _, _, r = edslint.check(text.encode("utf-8"), 1)
+        self.assertIn("[ManufacturerObjects] SupportedObjects=50000000 is above 65535", r.read_error)
 
     def test_read_error_without_prepare(self):
         r = edslint.lint_file(os.path.join(LINT, "real-decimal.eds"), 1)
