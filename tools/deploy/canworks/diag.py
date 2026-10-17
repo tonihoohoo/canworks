@@ -2115,7 +2115,8 @@ def _adapters(args, out):
         elif a.get("description"):
             line += "  %s" % a["description"]
         if a.get("usb_id"):
-            line += " [USB %s]" % a["usb_id"]
+            line += " [USB %s%s]" % (a["usb_id"], ", bus %s address %s" % (a["usb_bus"], a["usb_address"])
+                                    if a.get("usb_bus") is not None else "")
         out.write(line + "\n")
     return 0
 

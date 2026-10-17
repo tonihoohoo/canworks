@@ -529,7 +529,7 @@ On a network whose simulation section names a [machine file](simulator.md#the-ma
 
 ## From standalone to project
 
-In a standalone config, **Move into project…** in the Project menu copies the saved config and its EDS files, with `simulation.json` and the files it names (CSV and machine files) and a slave EDS's description, into an editor project's `canworks/` folder, after the same checks as `canworks-deploy --into-project`. It asks before replacing an existing `canworks/` folder. The page then switches to the project, and the address checks run against it.
+In a standalone config, **Move into project…** in the Project menu copies the saved config, its EDS files with their device notes and its DBC files, with `simulation.json` and the files it names (CSV and machine files) and a slave EDS's description, into an editor project's `canworks/` folder, after the same checks as `canworks-deploy --into-project`. It asks before replacing an existing `canworks/` folder, which is then kept as `canworks.bak-<time>`. The page then switches to the project, and the address checks run against it.
 
 ## A new editor project from a standalone config
 

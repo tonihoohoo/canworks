@@ -65,7 +65,7 @@ On a runtime with the [editor hook](install-stock.md#the-editors-build-and-uploa
 canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` relative to `canworks/`) and the EDS files into the project. EDS files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`. Nothing is uploaded. A simulation file `canworks/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
+It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` and each network's `dbc` relative to `canworks/`), the EDS files with their device notes (`<eds>.notes.json`) and the DBC files into the project. EDS and DBC files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`, and is then kept as `canworks.bak-<time>` next to it (delete it once you no longer need it). Nothing is uploaded. A simulation file `canworks/simulation.json` in the project travels with the editor's upload too, and the editor hook checks it as this tool does.
 
 ## A new editor project from the config
 

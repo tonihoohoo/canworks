@@ -617,11 +617,15 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
     if into:
         try:
-            written, converted = project.write(cfg, args.config, into, force=args.force, sim_path=sim_path)
+            report = {}
+            written, converted = project.write(cfg, args.config, into, force=args.force, sim_path=sim_path,
+                                               report=report)
         except project.ProjectError as e:
             raise Failure(str(e))
         for name in converted:
             out("converted %s from CP1252 to UTF-8 (the editor sends project files as UTF-8)" % name)
+        if report.get("backup"):
+            out("kept the old folder as %s" % report["backup"])
         out("wrote %s" % ", ".join(written))
         out("The editor's \"Build and upload\" now carries this config, on a runtime with the CANopen editor hook "
             "(docs/install-stock.md).")

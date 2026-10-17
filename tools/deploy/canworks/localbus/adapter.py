@@ -678,26 +678,28 @@ def _socketcan_links():
 
 
 def _usb_adapters():
-    """gs_usb adapters by USB ID, numbered as python-can's gs_usb driver
-    numbers them (its channel), which cannot list them itself. On Linux they
-    are SocketCAN links instead. Needs pyusb and libusb."""
+    """gs_usb adapters as the gs_usb package finds them (GsUsb.scan(): its
+    USB IDs, its order), numbered as gs_usb:N opens them, with each one's USB
+    bus and address. On Linux they are SocketCAN links instead. Needs the
+    gs_usb package, pyusb and libusb."""
     out = []
     if sys.platform.startswith("linux"):
         return out
     _libusb_path()
     try:
-        import usb.core
-        devices = list(usb.core.find(find_all=True))
-    except Exception:  # no pyusb, or no libusb backend
+        from gs_usb.gs_usb import GsUsb
+        devices = list(GsUsb.scan())
+    except Exception:  # no gs_usb or pyusb, or no libusb backend
         return out
-    index = 0
-    for d in devices:
-        kind = OTHER_USB_IDS.get((d.idVendor, d.idProduct))
-        if not kind or kind[0] != "gs_usb":
-            continue
-        out.append({"type": "gs_usb", "channel": str(index), "description": "USB device",
-                    "usb_id": "%04X:%04X" % (d.idVendor, d.idProduct), "known": kind[1]})
-        index += 1
+    for index, d in enumerate(devices):
+        usb = getattr(d, "gs_usb", None)
+        vid, pid = getattr(usb, "idVendor", None), getattr(usb, "idProduct", None)
+        kind = OTHER_USB_IDS.get((vid, pid))
+        out.append({"type": "gs_usb", "channel": str(index),
+                    "description": "USB device at bus %s address %s" % (d.bus, d.address),
+                    "usb_id": "%04X:%04X" % (vid, pid) if vid is not None and pid is not None else None,
+                    "known": kind[1] if kind else "gs_usb firmware",
+                    "usb_bus": d.bus, "usb_address": d.address})
     return out
 
 

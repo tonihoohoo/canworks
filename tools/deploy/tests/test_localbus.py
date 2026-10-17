@@ -562,24 +562,48 @@ class Cli(Base):
 
 class AdapterList(unittest.TestCase):
     def _usb(self, ids, platform="darwin"):
-        from types import SimpleNamespace
+        """_usb_adapters() and gs_usb:N opens on a gs_usb package whose scan
+        finds `ids` [(vid, pid)], at USB bus 1, addresses 3, 4, ..."""
+        from types import ModuleType, SimpleNamespace
         from canworks.localbus import adapter as adapter_mod
-        devices = [SimpleNamespace(idVendor=v, idProduct=p) for v, p in ids]
-        usb = SimpleNamespace(core=SimpleNamespace(find=lambda find_all: iter(devices)))
-        with mock.patch.dict("sys.modules", {"usb": usb, "usb.core": usb.core}), \
-                mock.patch.object(adapter_mod.sys, "platform", platform):
-            return adapter_mod._usb_adapters()
 
-    def test_gs_usb_by_usb_id(self):
-        # python-can's gs_usb driver cannot list its adapters: they are found
-        # by USB ID and numbered as the driver numbers them.
-        found = self._usb([(0x1D50, 0x606F), (0x05E3, 0x0610), (0x1D50, 0x606F)])
-        self.assertEqual([(a["type"], a["channel"], a["usb_id"]) for a in found],
-                         [("gs_usb", "0", "1D50:606F"), ("gs_usb", "1", "1D50:606F")])
-        self.assertIn("candleLight", found[0]["known"])
+        class GsUsb:
+            def __init__(self, k, vid, pid):
+                self.bus, self.address = 1, 3 + k
+                self.gs_usb = SimpleNamespace(idVendor=vid, idProduct=pid)
+
+            @classmethod
+            def scan(cls):
+                return [GsUsb(k, v, p) for k, (v, p) in enumerate(ids)]
+
+            def start(self, flags=0):
+                pass
+
+        pkg, mod = ModuleType("gs_usb"), ModuleType("gs_usb.gs_usb")
+        mod.GsUsb = pkg.gs_usb = GsUsb
+        with mock.patch.dict("sys.modules", {"gs_usb": pkg, "gs_usb.gs_usb": mod}), \
+                mock.patch.object(adapter_mod.sys, "platform", platform):
+            found = adapter_mod._usb_adapters()
+            opened = {}
+            for a in found:
+                kwargs = {}
+                adapter_mod._gs_usb_options(parse("gs_usb:" + a["channel"]), kwargs)
+                opened[a["channel"]] = (kwargs["bus"], kwargs["address"])
+            return found, opened
+
+    def test_gs_usb_listed_as_opened(self):
+        # The listing is the gs_usb package's own scan, so gs_usb:N opens the
+        # adapter listed as N, also for USB IDs other than 1D50:606F (bug
+        # hunt PC-M5).
+        found, opened = self._usb([(0x1209, 0x2323), (0x1D50, 0x606F)])
+        self.assertEqual([(a["type"], a["channel"], a["usb_id"], a["usb_bus"], a["usb_address"]) for a in found],
+                         [("gs_usb", "0", "1209:2323", 1, 3), ("gs_usb", "1", "1D50:606F", 1, 4)])
+        self.assertEqual(opened, {"0": (1, 3), "1": (1, 4)})
+        self.assertIn("candleLight", found[1]["known"])
+        self.assertIn("bus 1 address 3", found[0]["description"])
 
     def test_gs_usb_not_on_linux(self):
-        self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux"), [])  # a SocketCAN link there
+        self.assertEqual(self._usb([(0x1D50, 0x606F)], platform="linux")[0], [])  # a SocketCAN link there
 
     def test_no_pyusb(self):
         from canworks.localbus import adapter as adapter_mod

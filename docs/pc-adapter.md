@@ -14,7 +14,7 @@ The PC is a guest on the bus, not its master. It sends nothing until you act, an
 
 Other interfaces python-can knows (`pcan`, `kvaser`, `ixxat`, `vector`, ...) are passed through untested: `--adapter pcan:PCAN_USBBUS1` works when python-can and the vendor's driver do, and the tools say the type is untested. Their options go in `--adapter-option KEY=VALUE` (repeatable).
 
-`canworks-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, gs_usb adapters by USB ID on macOS and Windows (numbered from 0 in USB order), and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
+`canworks-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, gs_usb adapters on macOS and Windows (every USB ID the gs_usb driver knows, numbered from 0 in the order `gs_usb:N` opens them, each with its USB bus and address), and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
 
 A SocketCAN interface that is already up is used at its own bit rate. One that is down is brought up at the given bit rate when the user may; otherwise the message gives the `sudo ip link set ...` command to run first.
 
