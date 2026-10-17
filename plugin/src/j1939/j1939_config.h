@@ -175,6 +175,9 @@ struct J1939Config {
   std::vector<J1939Tx> tx;
   std::vector<J1939Request> requests;
   J1939Diagnostics diagnostics;
+  // Closes the outputs gate while the PLC scan hangs (0: off), as a CANopen
+  // master's scan_watchdog_ms.
+  unsigned scan_watchdog_ms = 1000;
 };
 
 // PDU1 (PDU format below 240): addressed, the low byte is the destination.

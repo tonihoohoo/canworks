@@ -23,6 +23,8 @@
 #include "config.h"
 #include "fake_runtime.hpp"
 #include "log.h"
+#include "outputs_gate.h"
+#include "scan_watchdog.h"
 #include "dm.h"
 #include "j1939_network.h"
 #include "j1939_plc_api.h"
@@ -690,6 +692,31 @@ TEST(j1939_program_request_answer_destination) {
   CHECK(m.poll(h, J1939PlcMsgs::Kind::Request, &out, e, r.at(531)) == 1 && out.data[0] == 2 && out.length == 1);
   m.close();
   m.set_attached(0, false);
+}
+
+// A J1939-only project: its scan watchdog trips after 1 s without a
+// finished scan and the periodic PGN stops until the scan runs again.
+TEST(j1939_scan_watchdog_stops_periodic_sends) {
+  Rig r;
+  r.claim();
+  ScanWatchdog w(r.cfg.j1939.scan_watchdog_ms, "j1939.scan_watchdog_ms", "");
+  CHECK(own_scan_watchdog_ms(r.cfg) == 1000);
+  r.img.int_out[0] = 0x0102;
+  r.image.copy_from_plc(r.rt);
+  w.scan_done();
+  w.check(r.at(500));
+  r.engine.tick(r.at(510));
+  size_t n = r.socket.of(0xFF01).size();
+  CHECK(n == 1);
+  w.check(r.at(1500));  // the scan hangs
+  CHECK(w.hung());
+  for (int ms = 1510; ms < 2000; ms += 50) r.engine.tick(r.at(ms));
+  CHECK(r.socket.of(0xFF01).size() == n);
+  w.scan_done();
+  w.check(r.at(2000));
+  r.engine.tick(r.at(2010));
+  CHECK(r.socket.of(0xFF01).size() == n + 1);
+  w.release();
 }
 
 // Requests for the same PGN from the same requester are answered at most

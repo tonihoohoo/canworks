@@ -199,9 +199,12 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
         return errors, warnings, overrides
     if not isinstance(raw, dict):
         return ["%s: must be an object" % path], warnings, overrides
-    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "rx", "tx"))
+    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "scan_watchdog_ms", "rx", "tx"))
     top.text("dbc")
     top.flag("program_override_protocol")
+    wd = top.uint("scan_watchdog_ms", 0, 60000)
+    if wd is not None and 0 < wd < 10:
+        errors.append("%s.scan_watchdog_ms: must be 0 or 10-60000: %d" % (path, wd))
     rx = raw.get("rx")
     if rx is not None and not isinstance(rx, list):
         errors.append("%s.rx: must be a list" % path)

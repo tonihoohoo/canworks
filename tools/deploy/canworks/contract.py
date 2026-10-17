@@ -1256,6 +1256,10 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
                        net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i, **args)
         raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
                                                              adapter.get("listen_only") is True)
+        if not plain and isinstance(net.get("raw"), dict) and "scan_watchdog_ms" in net["raw"]:
+            raw_errors.append("%s.raw.scan_watchdog_ms: only a plain CAN network takes it; %s" % (
+                prefix, "a J1939 network has j1939.scan_watchdog_ms" if j1939
+                else "a CANopen master has master.scan_watchdog_ms"))
         for m in raw_errors:
             r.add("error", "%s: %s" % (args["path"], m), [_raw_path(m)])
         for m in raw_warnings:
@@ -2483,6 +2487,9 @@ class _J1939Parser:
         out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": [], "diagnostics": None}
         out["ecu"] = self.ecu(j)
         out["dbc"] = self.string(j, "dbc", "j1939", "j1939")
+        wd = self.uint(j, "scan_watchdog_ms", "j1939", "j1939")
+        if wd is not None and wd != 0 and not 10 <= wd <= 60000:
+            self.err("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % wd, ["j1939.scan_watchdog_ms"])
         for key in ("rx", "tx", "requests"):
             arr = j.get(key)
             if key in j and not isinstance(arr, list):
