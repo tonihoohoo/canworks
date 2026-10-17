@@ -882,7 +882,7 @@ class Session:
         return list(dict.fromkeys(names))
 
     def state(self):
-        base = {"version": __version__, "recent": self.recent(), "home": os.path.expanduser("~"),
+        base = {"version": __version__, "recent": self.recent(), "home": home_folder(),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
                 "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS}
         if not self.mode:
@@ -1934,6 +1934,19 @@ def windows_drives():
     return ["%s:\\" % c for c in string.ascii_uppercase if os.path.isdir("%s:\\" % c)]
 
 
+def home_folder():
+    """Where the folder browsers start: the home folder, else (a HOME that
+    does not exist) the current folder, else the file system's root."""
+    for where in (lambda: os.path.expanduser("~"), os.getcwd):
+        try:
+            path = where()
+        except OSError:  # the current folder was removed
+            continue
+        if os.path.isdir(path):
+            return os.path.abspath(path)
+    return os.path.abspath(os.sep)
+
+
 def list_folders(path, drives=False):
     """A folder's subfolders for the folder browsers, each with its number of
     EDS files (`eds`). On Windows, `drives` lists the drive roots, and a
@@ -1944,7 +1957,7 @@ def list_folders(path, drives=False):
         return {"path": "", "parent": None, "drive": False, "drive_list": True, "project": False, "config": False,
                 "eds": 0, "entries": [{"name": d, "path": d, "project": False, "config": False, "eds": None}
                                       for d in windows_drives()]}
-    path = os.path.abspath(os.path.expanduser(path or "~"))
+    path = os.path.abspath(os.path.expanduser(path)) if path else home_folder()
     if not os.path.isdir(path):
         raise ApiError(404, "%s is not a folder" % path)
     entries = []

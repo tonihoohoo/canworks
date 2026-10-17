@@ -126,6 +126,7 @@ class LinksPage(unittest.TestCase):
         self.assertIn("PDO links", problems)
         self.assertIn("RPDO 2 maps 24 bits in 2 positions", problems)
         self.assertIn("32 bits in 2 positions", problems)
+        self.assertNotIn("stick_to_valves: link", problems)  # the place, said once
         pg.fill('input[data-path="links[0].name"]', "stick_valves")
         self.checked()
         self.assertTrue(pg.is_disabled("#btn-save"))
@@ -171,6 +172,17 @@ class LinksPage(unittest.TestCase):
         self.assertIsNone(pg.evaluate("() => S.config.nodes[0].heartbeat_watch || null"))
         self.checked()
         self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+
+    def test_watch_problem_wording(self):
+        cfg = self.config()
+        cfg["nodes"][1]["heartbeat_watch"] = [{"node": 99}]
+        self.write(cfg)
+        pg = self.page
+        self.open()
+        pg.wait_for_selector("#problem-list li.error")
+        problems = pg.inner_text("#problem-list")
+        self.assertIn("Node 20 valves: heartbeat watch: node 99 is not a configured node", problems)
+        self.assertNotIn("heartbeat_watch", problems)
 
     def test_watch_default_timeout(self):
         pg = self.page

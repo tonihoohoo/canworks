@@ -286,6 +286,13 @@ class OpenAndModes(Running):
         self.assertTrue(entry["project"])
         self.assertEqual(data["parent"], os.path.dirname(self.dir))
 
+    def test_missing_home(self):
+        # A HOME that does not exist: the start page starts in the current folder.
+        with unittest.mock.patch.dict(os.environ, {"HOME": os.path.join(self.dir, "nonexistent")}):
+            home = self.ok("GET", "/api/state")["home"]
+            self.assertEqual(home, os.getcwd())
+            self.assertEqual(self.ok("GET", "/api/folders")["path"], os.getcwd())
+
     def test_folders_count_eds(self):
         lib = os.path.join(self.dir, "lib")
         os.makedirs(os.path.join(lib, "vendor"))

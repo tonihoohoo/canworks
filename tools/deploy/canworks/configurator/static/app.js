@@ -7073,6 +7073,9 @@ function readable(m) {
   while (/^[a-z_]+(\[\d+\])?(\.[a-z_]+(\[\d+\])?)*: /.test(t)) t = t.replace(/^[^:]*: /, "");
   t = t.replace(/^node \d+( \([^)]*\))?( [TR]PDO \d+)?(, |: )/, "");
   t = t.replace(/^object (0x[0-9A-Fa-f]+:\d+): /, "$1: ");
+  // The link the place names already, and a watch's config path in words.
+  t = t.replace(/^link [A-Za-z0-9_]+: /, "");
+  t = t.replace(/^heartbeat_watch(\[\d+\])?: /, "heartbeat watch: ");
   return t;
 }
 
