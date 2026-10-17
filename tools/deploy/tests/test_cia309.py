@@ -243,6 +243,56 @@ class GatewayCommand(unittest.TestCase):
                 tool.close()
             self.assertIn("[2] 1 2 r 0x1018", f.cia309_lines)
 
+    def test_listen_takes_four_local_connections(self):
+        """Four local clients may be connected; a fifth gets one ERROR: 102
+        and is closed, and a slot that frees takes a new client."""
+        with self.fake() as f, redirect_stderr(io.StringIO()) as err:
+            port = self._listen(f)
+            held = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(diag.FORWARD_MAX)]
+            try:
+                fifth = socket.create_connection(("127.0.0.1", port), timeout=5)
+                got = self._read_all(fifth)
+                fifth.close()
+                self.assertEqual(got, "ERROR: 102 (too many local connections, at most 4)\r\n")
+                held.pop().close()
+                time.sleep(0.2)
+                tool = socket.create_connection(("127.0.0.1", port), timeout=5)
+                held.append(tool)
+                tool.sendall(b"[1] 1 2 r 0x1018 1 u32\r\n")
+                self.assertEqual(tool.makefile("rb").readline().strip(), b"[1] 0x000001A2")
+            finally:
+                for s in held:
+                    s.close()
+            self.assertIn("refused a local connection", err.getvalue())
+
+    def test_link_forwarder_holds_a_fifth_connection(self):
+        """canworks-diag link open: past four local connections the next one
+        waits (unaccepted) until one ends."""
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        release, started = threading.Event(), []
+
+        def handle(local):
+            started.append(local)
+            release.wait(5)
+            local.close()
+        threading.Thread(target=diag._serve_local, args=(srv, handle, None), daemon=True).start()
+        clients = [socket.create_connection(srv.getsockname(), timeout=5) for _ in range(diag.FORWARD_MAX + 1)]
+        try:
+            time.sleep(0.2)
+            self.assertEqual(len(started), diag.FORWARD_MAX)
+            release.set()
+            for _ in range(50):
+                if len(started) == diag.FORWARD_MAX + 1:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(len(started), diag.FORWARD_MAX + 1)
+        finally:
+            for c in clients:
+                c.close()
+            srv.close()
+
     def test_first_line_check(self):
         for line in ("[1] 1 2 r 0x1018 1 u32", "1 2 r 0x1018 1 u32", "[7] info version", "[2] 1 lss_switch_sel 1 2 3 4",
                      "[3] set network 2", "[4]2 start", "[5] 1 2 W 0x2000 0 u8 1", "[0x10] 1 _lss_fastscan"):

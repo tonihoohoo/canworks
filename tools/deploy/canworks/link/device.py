@@ -36,10 +36,12 @@ MAX_STREAMS = 16
 MAX_UNPAIRED = 8           # connections from PCs that are not paired, in all
 MAX_UNPAIRED_PER_ADDR = 2  # and from one address (a relayed PC: its relay)
 UNPAIRED_STREAMS = 2       # streams at a time on a connection that is not paired
+UNPAIRED_S = 30.0          # an unpaired connection is closed this long after it opened
 IDLE_S = 600
 WATCH_S = 2.0
 PAIR_DELAY_S = 1.0
 PAIR_FAILS_PER_MIN = 10
+PAIR_FAILS_PER_ADDR_PER_MIN = 5  # so one address alone cannot refuse pairing to everyone
 LOG_EVERY_S = 60.0
 CHUNK = 256 * 1024
 
@@ -218,6 +220,7 @@ class Service:
         self.unpaired = {}       # connection not paired (yet) -> remote host
         self.fails = {}          # pc id -> time of the last failed pairing
         self.fail_times = []     # failed pairings in the last minute
+        self.addr_fails = {}     # remote host -> its failed pairings in the last minute
         self.ratelog = _RateLog()
         self.stopping = False
         self.restart = False     # stopped to apply new internet settings (systemd starts it again)
@@ -351,6 +354,9 @@ class Service:
                 conn.close(3, b"too many unpaired from this address")
                 return
             self.unpaired[conn] = host
+            # Closed when not paired in time, so idle connections cannot hold
+            # the unpaired slots (QUIC keep-alives keep a connection open).
+            timer = asyncio.get_running_loop().call_later(UNPAIRED_S, self._unpaired_timeout, conn)
         if paired:
             self.conns.setdefault(pc, set()).add(conn)
             p = self.paired.find(pc)
@@ -372,6 +378,8 @@ class Service:
                     continue
                 asyncio.ensure_future(self._stream(conn, pc, bi))
         finally:
+            if not paired:
+                timer.cancel()
             self.unpaired.pop(conn, None)
             if pc in self.conns:
                 self.conns[pc].discard(conn)
@@ -385,6 +393,21 @@ class Service:
                         except OSError:
                             pass
                     log("PC %s disconnected" % ((p or {}).get("name") or pc[:10]))
+
+    def _unpaired_timeout(self, conn):
+        host = self.unpaired.get(conn)
+        if host is None:
+            return
+        self.ratelog(("unpaired timeout", host), "closed an unpaired connection from %s: not paired within %d s" % (
+            host, UNPAIRED_S))
+        self._close_unpaired(conn, b"not paired in time")
+
+    def _close_unpaired(self, conn, reason):
+        self.unpaired.pop(conn, None)
+        try:
+            conn.close(3, reason)
+        except Exception:
+            pass
 
     async def _stream(self, conn, pc, bi):
         send, recv = bi.send(), bi.recv()
@@ -421,7 +444,13 @@ class Service:
         except Exception as e:  # a stream must never take the service down
             log("stream error: %s" % e)
         finally:
-            await _finish(send)
+            if target == "pair" and conn in self.unpaired:
+                # One pairing attempt per connection: a failed one ends it,
+                # after the answer reached the PC.
+                await _delivered(send)
+                self._close_unpaired(conn, b"pairing failed")
+            else:
+                await _finish(send)
 
     async def _forward(self, pc, target, reader, send):
         port = self.diag_port if target == "diag" else self.runtime_port
@@ -456,14 +485,33 @@ class Service:
         t = _now()
         if t - self.fails.get(pc, -1e9) < PAIR_DELAY_S:
             return "too many tries; wait a second"
+        host = self._host(conn)
         self.fail_times = [x for x in self.fail_times if t - x < 60]
-        if len(self.fail_times) >= PAIR_FAILS_PER_MIN:
+        self.addr_fails = {h: [x for x in v if t - x < 60] for h, v in self.addr_fails.items() if v and t - v[-1] < 60}
+        if len(self.addr_fails.get(host, ())) >= PAIR_FAILS_PER_ADDR_PER_MIN or \
+                len(self.fail_times) >= PAIR_FAILS_PER_MIN:
             return "too many failed pairings; try again in a minute"
         # Counted as failed until the login succeeds, so attempts made at the
         # same time cannot all pass the checks above.
+        self._count_fail(conn, pc, t)
+        return None
+
+    def _host(self, conn):
+        return protocol.address_host(self._path(conn)[1])
+
+    def _count_fail(self, conn, pc, t):
         self.fails[pc] = t
         self.fail_times.append(t)
-        return None
+        self.addr_fails.setdefault(self._host(conn), []).append(t)
+
+    def _uncount_fail(self, conn, pc, t):
+        if t in self.fail_times:
+            self.fail_times.remove(t)
+        mine = self.addr_fails.get(self._host(conn), [])
+        if t in mine:
+            mine.remove(t)
+        if self.fails.get(pc) == t:
+            del self.fails[pc]
 
     async def _login(self, conn, pc, head, reader, send, counted=False):
         """The SCRAM exchange; True when the PC proved the token. A wrong
@@ -486,9 +534,7 @@ class Service:
         sig = protocol.server_check(self.verifier, auth, msg.get("proof"))
         if not sig:
             if not counted:
-                t = _now()
-                self.fails[pc] = t
-                self.fail_times.append(t)
+                self._count_fail(conn, pc, _now())
             self.ratelog(("fail", pc), "pairing failed for %s (wrong token)" % pc[:10])
             await send.write_all(encode({"ok": False, "error": "wrong token"}))
             return False
@@ -505,10 +551,7 @@ class Service:
         sig = await self._login(conn, pc, head, reader, send, counted=True)
         if not sig:
             return
-        if attempt in self.fail_times:
-            self.fail_times.remove(attempt)
-        if self.fails.get(pc) == attempt:
-            del self.fails[pc]
+        self._uncount_fail(conn, pc, attempt)
         name = str(head.get("name") or "")[:64]
         kind, _ = self._path(conn)
         self.paired.add(pc, name, "lan" if kind == "direct" else kind)
@@ -518,9 +561,17 @@ class Service:
         await send.write_all(encode(dict(self.info(), ok=True, signature=sig)))
 
     async def _manage(self, conn, pc, head, reader, send):
+        # The pairing delay: a paired PC cannot guess the token faster.
+        t = _now()
+        if t - self.fails.get(pc, -1e9) < PAIR_DELAY_S:
+            await send.write_all(encode({"ok": False, "error": "too many tries; wait a second"}))
+            return
+        self.fails[pc] = t  # until the login succeeds, as for pairing
         sig = await self._login(conn, pc, head, reader, send)
         if not sig:
             return
+        if self.fails.get(pc) == t:
+            del self.fails[pc]
         op = head.get("op")
         if op == "remove":
             p = self.paired.remove(str(head.get("pc") or ""))

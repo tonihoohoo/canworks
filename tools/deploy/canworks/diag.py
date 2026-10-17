@@ -43,6 +43,7 @@ DEFAULT_PORT = 7531
 GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
 GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
 GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
+FORWARD_MAX = 4  # local connections at a time on a forwarding port (gateway --listen, link open)
 GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
@@ -2718,16 +2719,10 @@ def _link_open(args, entry, out):
     out.write("forwarding to %s until Ctrl-C\n" % entry["name"])
     out.flush()
 
-    def serve(srv, target, remote):
-        while True:
-            try:
-                local, _ = srv.accept()
-            except OSError:
-                return
-            threading.Thread(target=_link_pipe, args=(linkpc, entry, target, remote, local), daemon=True).start()
-
     for srv, target, remote in listeners:
-        threading.Thread(target=serve, args=(srv, target, remote), daemon=True).start()
+        # More connections wait unaccepted (a browser opens several at once).
+        threading.Thread(target=_serve_local, daemon=True, args=(
+            srv, lambda local, t=target, r=remote: _link_pipe(linkpc, entry, t, r, local), None)).start()
     try:
         while True:
             time.sleep(3600)
@@ -2737,6 +2732,36 @@ def _link_open(args, entry, out):
         for srv, _, _ in listeners:
             srv.close()
     return 0
+
+
+def _serve_local(srv, handle, refuse):
+    """Accepts the local connections of `srv` and runs `handle(sock)` for
+    each in its own thread, FORWARD_MAX at a time. One more is passed to
+    `refuse(sock)` and closed, or with `refuse` None waits in the listen
+    queue until one ends."""
+    slots = threading.BoundedSemaphore(FORWARD_MAX)
+
+    def run(local):
+        try:
+            handle(local)
+        finally:
+            slots.release()
+
+    while True:
+        if refuse is None:
+            slots.acquire()
+        try:
+            local, _ = srv.accept()
+        except OSError:
+            return
+        if refuse is not None and not slots.acquire(blocking=False):
+            try:
+                refuse(local)
+            except OSError:
+                pass
+            local.close()
+            continue
+        threading.Thread(target=run, args=(local,), daemon=True).start()
 
 
 def _link_pipe(linkpc, entry, target, remote, local):
@@ -2931,15 +2956,12 @@ def _gateway_listen(args, host, port, token, lhost, lport, out):
               % (args.runtime, lhost, srv.getsockname()[1], gateway_nets_text(info)))
     out.flush()
 
-    def serve():
-        while True:
-            try:
-                local, peer = srv.accept()
-            except OSError:
-                return
-            threading.Thread(target=_gateway_pipe, args=(args, host, port, token, local), daemon=True).start()
+    def refuse(local):
+        print("canworks-diag gateway: refused a local connection: %d are open" % FORWARD_MAX, file=sys.stderr)
+        local.sendall(b"ERROR: 102 (too many local connections, at most %d)\r\n" % FORWARD_MAX)
 
-    threading.Thread(target=serve, daemon=True).start()
+    threading.Thread(target=_serve_local, daemon=True, args=(
+        srv, lambda local: _gateway_pipe(args, host, port, token, local), refuse)).start()
     try:
         while True:
             time.sleep(3600)
