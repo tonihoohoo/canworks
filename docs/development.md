@@ -6,7 +6,7 @@ Building the plugin, running the tests, and how CI is set up. For using the tool
 
 ```sh
 sudo scripts/dev-setup.sh                       # Lely into /opt/canworks, dcfgen, vcan0
-git clone -b development https://github.com/Autonomy-Logic/openplc-runtime ../openplc-runtime
+git clone -b $(cat docker/local-runtime/runtime-version) https://github.com/Autonomy-Logic/openplc-runtime ../openplc-runtime
 cmake -B build -DOPENPLC_ROOT=../openplc-runtime
 cmake --build build -j
 ctest --test-dir build --output-on-failure -j4  # unit and virtual-bus tests (one test per sim case)
@@ -32,7 +32,7 @@ test/j1939/run.sh                               # the J1939 ECU against the J193
 
 `-DCANWORKS_WITH_CANOPEN=OFF` or `-DCANWORKS_WITH_J1939=OFF` builds one protocol only; a J1939-only build needs no Lely.
 
-The configurator and the plugin refuse the same configs: `tools/deploy/tests/test_parity.py` runs every entry of `test/fixtures/config/bad/` (a config, and optionally its simulation file) through the deploy tool's checks and through `build/canopen_check --no-dcfgen`, and fails naming the entry when one of them accepts it. An entry's optional `message` is a text both refusals must contain; `config_text` in place of `config` gives the file as text, for what a parsed config cannot hold (a repeated key). It skips without the build unless `CANWORKS_REQUIRE_PARITY=1`. In CI the tools job keeps the classes that need `build/canopen_check` (`test_parity`, `test_dcfexport.Parity`, `test_project.IntoProject`) on one shard with `test_shard.py --together`, and only that shard builds it and sets `CANWORKS_REQUIRE_PARITY=1`. A new test class that runs the build joins that `--together` pattern in `.github/workflows/ci.yml`. Both test jobs split by recorded class times (`.github/ci/tool-test-times.json`, `.github/ci/page-test-times.json`); refresh them from the shards' "class times:" lines when the shards drift apart. **A pull request that makes the plugin refuse something new adds a corpus file for it**, and the configurator's check that refuses it too.
+The configurator and the plugin refuse the same configs: `tools/deploy/tests/test_parity.py` runs every entry of `test/fixtures/config/bad/` (a config, and optionally its simulation file) through the deploy tool's checks and through `build/canopen_check --no-dcfgen`, and fails naming the entry when one of them accepts it. An entry's optional `message` is a text both refusals must contain; `config_text` in place of `config` gives the file as text, for what a parsed config cannot hold (a repeated key); `eds_files` (`{"name.eds": "text"}`) adds EDS files next to `test/fixtures/eds`, for EDS-level entries. It skips without the build unless `CANWORKS_REQUIRE_PARITY=1`. In CI the tools job keeps the classes that need `build/canopen_check` (`test_parity`, `test_dcfexport.Parity`, `test_project.IntoProject`) on one shard with `test_shard.py --together`, and only that shard builds it and sets `CANWORKS_REQUIRE_PARITY=1`. A new test class that runs the build joins that `--together` pattern in `.github/workflows/ci.yml`. Both test jobs split by recorded class times (`.github/ci/tool-test-times.json`, `.github/ci/page-test-times.json`); refresh them from the shards' "class times:" lines when the shards drift apart. **A pull request that makes the plugin refuse something new adds a corpus file for it**, and the configurator's check that refuses it too.
 
 The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
 
@@ -149,7 +149,9 @@ tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks
                    canworks-j1939-sim (the J1939 ECU simulator)
 docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
-                   the pinned upstream runtime version
+                   the pinned upstream runtime release and its archive's sha256 (the plugin and
+                   bridge builds in CI and scripts/install-bridge.sh use it; the weekly stock install
+                   test runs against upstream development)
 tools/editor-hook/ the runtime-side hook that keeps CANopen on with the editor's Build and upload
 library/           the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks, ST helpers;
                    docs/plc-library.md): generate.py writes the

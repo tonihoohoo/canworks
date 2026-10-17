@@ -145,15 +145,30 @@ uint8_t SlaveDevice::nmt_state() const { return co_nmt_get_st(N(nmt())) & 0x7F; 
 
 void SlaveDevice::GuardNodeId(std::function<void()> on_conflict) {
   on_conflict_ = std::move(on_conflict);
+  if (guard_.empty()) {
+    for (int i = 0; i < 3; ++i) {
+      can_recv_t* r = can_recv_create();  // NOLINT
+      if (!r) continue;
+      can_recv_set_func(r, &guard_hook, this);
+      guard_.push_back(reinterpret_cast<__can_recv*>(r));
+      recvs_.push_back(guard_.back());
+    }
+  }
+  StartGuard();
+}
+
+// The guard listens on the node ID in force: again after every reset, so it
+// follows a node ID an LSS master assigns (none while the device has none).
+void SlaveDevice::StartGuard() {
   uint8_t nid = node_id();
-  if (nid == 0 || nid > 127) return;
+  const uint32_t ids[3] = {0x700u + nid, 0x080u + nid, 0x580u + nid};
   can_net_t* net = reinterpret_cast<can_net_t*>(NetPtr());
-  for (uint32_t id : {0x700u + nid, 0x080u + nid, 0x580u + nid}) {
-    can_recv_t* r = can_recv_create();  // NOLINT
-    if (!r) continue;
-    can_recv_set_func(r, &guard_hook, this);
-    can_recv_start(r, net, id, 0);
-    recvs_.push_back(reinterpret_cast<__can_recv*>(r));
+  for (size_t i = 0; i < guard_.size(); ++i) {
+    can_recv_t* r = reinterpret_cast<can_recv_t*>(guard_[i]);
+    if (nid == 0 || nid > 127)
+      can_recv_stop(r);
+    else
+      can_recv_start(r, net, ids[i], 0);
   }
 }
 
@@ -230,6 +245,7 @@ void SlaveDevice::OnCommand(lely::canopen::NmtCommand cs) noexcept {
       co_lss_t* lss = co_nmt_get_lss(N(nmt()));
       if (lss) co_lss_set_rate_ind(lss, nullptr, nullptr);
     }
+    if (on_conflict_) StartGuard();
     OnRestored();
   }
 }

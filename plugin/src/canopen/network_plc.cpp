@@ -328,12 +328,12 @@ uint16_t Network::ProgramNmt(const canopen_plc_nmt_request& r) {
     // the holds and resets of the configured nodes are kept by hand. Lely
     // sends it without applying it to the master itself (checked by
     // sim_lely_broadcast_command_and_master).
-    if (cs == CANOPEN_PLC_NMT_CS_START)
+    if (cs == CANOPEN_PLC_NMT_CS_START || cs == CANOPEN_PLC_NMT_CS_RESET_NODE || cs == CANOPEN_PLC_NMT_CS_RESET_COMM)
       for (const auto& it : nodes_)
-        if (it.second.run->hold != Hold::None && it.second.run->hold_src == HoldSource::Gateway) {
-          log_warn("NMT START to all nodes from the program (CO_NMT) refused: the gateway holds %s STOPPED while "
+        if (GatewayHeld(it.second)) {
+          log_warn("NMT %s to all nodes from the program (CO_NMT) refused: the gateway holds %s STOPPED while "
                    "the upper master is lost",
-                   it.second.cfg->label().c_str());
+                   cs_name(cs), it.second.cfg->label().c_str());
           return CANOPEN_PLC_ERR_REFUSED;
         }
     for (auto& it : nodes_) NodeCommand(it.first, it.second, cs, HoldSource::Block, by, false);
@@ -352,10 +352,9 @@ uint16_t Network::ProgramNmt(const canopen_plc_nmt_request& r) {
     return 0;
   }
   NodeState& n = it->second;
-  if (cs == CANOPEN_PLC_NMT_CS_START && n.run->hold != Hold::None && n.run->hold_src == HoldSource::Gateway) {
-    log_warn("%s: NMT START from the program (CO_NMT) refused: the gateway holds the node STOPPED while the upper "
-             "master is lost, and starts it when the upper master is back",
-             n.cfg->label().c_str());
+  if ((cs == CANOPEN_PLC_NMT_CS_START || cs == CANOPEN_PLC_NMT_CS_RESET_NODE ||
+       cs == CANOPEN_PLC_NMT_CS_RESET_COMM) && GatewayHeld(n)) {
+    LogGatewayRefusal(n, cs_name(cs), by);
     return CANOPEN_PLC_ERR_REFUSED;
   }
   NodeCommand(r.node, n, cs, HoldSource::Block, by);
@@ -375,6 +374,7 @@ void Network::ProgramStart(uint32_t handle, const canopen_plc_nmt_request&) {
   bool was_stopped = run_->prog_stopped;
   run_->prog_start = true;
   run_->prog_stopped = false;
+  run_->prog_stop_hold = Hold::None;
   PublishMaster();
   // A master the network stop held while Lely kept it OPERATIONAL runs again.
   if (was_stopped) ApplyMasterState(false);
@@ -435,8 +435,11 @@ uint16_t Network::ProgramStop(const canopen_plc_nmt_request& r) {
   PublishMaster();
   ApplyMasterState(false);
   unsigned sent = 0;
+  run_->prog_stop_hold = mode == CANOPEN_PLC_NMT_NODES_NONE ? Hold::None
+                         : mode == CANOPEN_PLC_NMT_CS_STOP   ? Hold::Stopped
+                                                             : Hold::Preop;
   if (mode != CANOPEN_PLC_NMT_NODES_NONE) {
-    Hold h = mode == CANOPEN_PLC_NMT_CS_STOP ? Hold::Stopped : Hold::Preop;
+    Hold h = run_->prog_stop_hold;
     // Every configured node without a hold of its own is held, so a node
     // that boots while the network is stopped gets the command too.
     for (auto& it : nodes_) {

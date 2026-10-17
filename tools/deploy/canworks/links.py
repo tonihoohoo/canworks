@@ -254,7 +254,8 @@ def resolve_watch(nodes_json, nodes, eds_by_id, master, add):
             sub = eds.objects[0x1016][k]
             if k < 1 or not sub.writable or sub.data_type not in (0x0005, 0x0006, 0x0007):
                 continue
-            v = sub.value(node["node_id"])
+            # An empty default is 0 (a free entry), as Lely reads it.
+            v = sub.value(node["node_id"]) if (sub.parameter or sub.default).strip() else 0
             if v is not None:
                 entries.append((k, v))
         master_entry = nj.get("heartbeat_consumer") is True and bool(master_hb)

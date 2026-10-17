@@ -155,14 +155,15 @@ def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings, switch_m
             else:
                 loc = parse_location(t)
                 where = "%s.iec_location" % p
-                want = size_for_bits(length or 1)
+                # A bad length was reported at `length`; no size to compare then.
+                want = size_for_bits(length) if length is not None else None
                 if loc is None or loc.area == "M":
                     errors.append("%s: '%s' is not a located address" % (where, t))
                 elif loc.area != area:
                     errors.append("%s: a %s signal needs %s" % (
                         where, "received" if area == "I" else "sent",
                         "an input (%I)" if area == "I" else "an output (%Q)"))
-                elif loc.size != want:
+                elif want is not None and loc.size != want:
                     errors.append("%s: signal %s of %d bits needs %s" % (where, label, length, _SIZE_WORD[want]))
         valid = None
         if area == "I":
@@ -199,9 +200,12 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
         return errors, warnings, overrides
     if not isinstance(raw, dict):
         return ["%s: must be an object" % path], warnings, overrides
-    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "rx", "tx"))
+    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "scan_watchdog_ms", "rx", "tx"))
     top.text("dbc")
     top.flag("program_override_protocol")
+    wd = top.uint("scan_watchdog_ms", 0, 60000)
+    if wd is not None and 0 < wd < 10:
+        errors.append("%s.scan_watchdog_ms: must be 0 or 10-60000: %d" % (path, wd))
     rx = raw.get("rx")
     if rx is not None and not isinstance(rx, list):
         errors.append("%s.rx: must be a list" % path)

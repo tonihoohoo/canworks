@@ -1,0 +1,137 @@
+{
+  "description": "A J1939 source_name 9223372036854775809 as a JSON number: the plugin would filter on 2^63.",
+  "config": {
+    "schema_version": 2,
+    "networks": [
+      {
+        "name": "io",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan0",
+          "bitrate": 125000
+        },
+        "master": {
+          "node_id": 1,
+          "sync_period_us": 100000
+        },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX10.0",
+            "tx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%ID100"
+                  }
+                ]
+              }
+            ],
+            "rx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4000",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%QD100"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "machine",
+        "protocol": "j1939",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan1",
+          "bitrate": 250000
+        },
+        "j1939": {
+          "ecu": {
+            "name": {
+              "identity_number": 1234,
+              "manufacturer_code": 0,
+              "function": 130,
+              "industry_group": 0,
+              "arbitrary_address_capable": true
+            },
+            "address": 128,
+            "address_range": [
+              128,
+              135
+            ],
+            "state_location": "%IB200",
+            "address_location": "%IB201"
+          },
+          "rx": [
+            {
+              "pgn": 65280,
+              "name": "Pressures",
+              "timeout_ms": 300,
+              "status_location": "%IX202.0",
+              "signals": [
+                {
+                  "name": "Pressure",
+                  "start_bit": 0,
+                  "length": 16,
+                  "scale": 0.1,
+                  "unit": "bar",
+                  "iec_location": "%IW210",
+                  "valid_location": "%IX202.1"
+                },
+                {
+                  "name": "Temp",
+                  "start_bit": 16,
+                  "length": 8,
+                  "signed": true,
+                  "iec_location": "%IB204"
+                }
+              ],
+              "source_name": 9223372036854775809
+            }
+          ],
+          "tx": [
+            {
+              "pgn": 65281,
+              "name": "Setpoints",
+              "priority": 6,
+              "period_ms": 100,
+              "signals": [
+                {
+                  "name": "Setpoint",
+                  "start_bit": 0,
+                  "length": 16,
+                  "iec_location": "%QW210"
+                },
+                {
+                  "name": "Run",
+                  "start_bit": 16,
+                  "length": 1,
+                  "iec_location": "%QX202.0"
+                }
+              ]
+            }
+          ],
+          "requests": [
+            {
+              "pgn": 65282,
+              "destination": 0,
+              "period_ms": 1000
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "message": "networks[1].j1939.rx[0].source_name: a JSON number of 2^53"
+}

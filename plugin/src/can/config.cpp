@@ -53,6 +53,16 @@ bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent) {
   return false;
 }
 
+// Store (0x1010) and restore (0x1011) write the device's non-volatile
+// memory: never as a startup write, which runs at every boot
+// (canopen-config-contract "Store and restore are never startup writes").
+const char* const kNvmStartupMessage =
+    "a startup SDO to 0x1010 (store) or 0x1011 (restore) would write the device's non-volatile memory at every "
+    "boot; use 'store_configuration' or 'restore_configuration'";
+const char* const kNvmVariableMessage =
+    "a write SDO variable on 0x1010 (store) or 0x1011 (restore) without 'trigger_location' is written after every "
+    "boot; give it a 'trigger_location', or use 'store_configuration' or 'restore_configuration'";
+
 const char* plugin_owned_object(uint16_t index) {
   if (index >= 0x1400 && index <= 0x1BFF) return "the PDO settings";
   switch (index) {
@@ -93,6 +103,22 @@ uint32_t NodeConfig::emcy_cob_id() const {
 bool restricted_can_id(uint32_t id) {
   return id <= 0x07F || (id >= 0x101 && id <= 0x180) || (id >= 0x581 && id <= 0x5FF) ||
          (id >= 0x601 && id <= 0x67F) || (id >= 0x6E0 && id <= 0x6FF) || (id >= 0x701 && id <= 0x7FF);
+}
+
+std::string reserved_cob_service(const Config& cfg, uint32_t id, bool time) {
+  if (id == 0x000) return "NMT";
+  if (id == 0x080) return "SYNC";
+  if (time && id == (cfg.master.time_producer_cob_id() & 0x7FF)) return "TIME";
+  if (id == 0x80 + cfg.master.node_id) return "the master's EMCY";
+  for (const auto& n : cfg.nodes)
+    if (n.emcy_cob != NodeConfig::EmcyCob::Number && !n.emcy_cob_from_sdo && id == 0x80 + n.node_id)
+      return "node " + std::to_string(n.node_id) + "'s EMCY";
+  if (id >= 0x581 && id <= 0x5FF) return "node " + std::to_string(id - 0x580) + "'s SDO response";
+  if (id >= 0x601 && id <= 0x67F) return "node " + std::to_string(id - 0x600) + "'s SDO request";
+  if (id >= 0x701 && id <= 0x77F) return "node " + std::to_string(id - 0x700) + "'s heartbeat";
+  if (id == 0x7E4 || id == 0x7E5) return "LSS";
+  if (restricted_can_id(id)) return "a restricted CAN-ID (CiA 301)";
+  return "";
 }
 
 std::string emcy_cob_clash(const Config& cfg, const NodeConfig& n, uint32_t id,
@@ -1151,6 +1177,10 @@ class Parser {
         errors_.push_back(path_ + ": " + l.second + ": " + l.first.str() +
                           " lies outside the runtime I/O image (index must be below " +
                           std::to_string(limits_.buffer_size) + ")");
+    if (cfg.raw.has_scan_watchdog && !cfg.is_plain())
+      errors_.push_back(path_ + ": " + at + ".scan_watchdog_ms: only a plain CAN network takes it; " +
+                        (cfg.is_j1939() ? "a J1939 network has j1939.scan_watchdog_ms"
+                                        : "a CANopen master has master.scan_watchdog_ms"));
     if (cfg.is_plain() && cfg.raw.empty())
       cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
   }
@@ -1343,11 +1373,17 @@ class Parser {
       error("", "field 'j1939' must be an object");
       return;
     }
-    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics"});
+    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics", "scan_watchdog_ms"});
     J1939Config& jc = cfg.j1939;
     parse_j1939_ecu(j, jc.ecu);
     get_string(j, "dbc", "j1939", false, jc.dbc);
     uint64_t v;
+    if (j_uint(j, "scan_watchdog_ms", "j1939", v)) {
+      if (v != 0 && (v < 10 || v > 60000))
+        error("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
+      else
+        jc.scan_watchdog_ms = (unsigned)v;
+    }
     for (const char* list : {"rx", "tx", "requests"}) {
       const cJSON* arr = cJSON_GetObjectItemCaseSensitive(j, list);
       if (arr && !cJSON_IsArray(arr)) {
@@ -1614,6 +1650,7 @@ class Parser {
         for (const auto& t : p->tx_pdos)
           if (t.number == l.tpdo) l.cob_id = p->tpdo_cob_id(t);
     check_emcy_cob_ids(cfg);
+    check_pdo_cob_ids(cfg);
     // A version 2 file checks the locations of all networks at once.
     if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
@@ -2571,6 +2608,12 @@ class Parser {
         error(sw, std::string(obj) + ": value " + sdo.value_text + " " + why);
         continue;
       }
+      if (sdo.index == 0x1010 || sdo.index == 0x1011) {
+        char obj[64];
+        std::snprintf(obj, sizeof(obj), "node %u, index 0x%04X, subindex %u", n.node_id, sdo.index, sdo.subindex);
+        error(sw, std::string(obj) + ": " + kNvmStartupMessage);
+        continue;
+      }
       n.sdos.push_back(sdo);
     }
   }
@@ -2673,6 +2716,10 @@ class Parser {
                                        "an input byte (%IB...)", sv.status_location);
       sv.has_abort_code = sdo_var_location(item, "abort_code_location", vw, n, sv, IecArea::Input, 'D',
                                            "an input double word (%ID...)", sv.abort_code_location);
+      if (ok && !sv.is_read() && !sv.has_trigger && (sv.index == 0x1010 || sv.index == 0x1011)) {
+        error(vw, n.label() + ", " + sv.label() + ": " + kNvmVariableMessage);
+        ok = false;
+      }
       if (ok) n.sdo_variables.push_back(sv);
     }
   }
@@ -3167,19 +3214,39 @@ class Parser {
       if (++seen[n.node_id] == 2)
         error("nodes", "node ID " + std::to_string(n.node_id) + " is used by more than one slave");
     }
-    // Two PDOs on the same COB-ID would collide on the bus.
-    // A link's COB-ID belongs to its producer TPDO; its consumer RPDOs
-    // receive on it and are not registered (canopen-pdo-links "Link COB-ID
-    // rules"), so any other use clashes with the TPDO, named with the link.
+  }
+
+  // The PDO COB-IDs, once the "auto" ones are resolved and the EMCY
+  // COB-IDs are known. Two PDOs on the same COB-ID would collide on the
+  // bus, and a PDO on a service's COB-ID (SYNC, TIME, an EMCY, SDO,
+  // heartbeat, LSS or another restricted CAN-ID) would be taken for that
+  // service (canopen-config-contract "PDO identifiers stay off service
+  // identifiers"). A link's COB-ID belongs to its producer TPDO; its consumer
+  // RPDOs receive on it and are not registered (canopen-pdo-links "Link
+  // COB-ID rules"), so any other use clashes with the TPDO, named with the link.
+  void check_pdo_cob_ids(const Config& cfg) {
+    char hex[16];
+    if (cfg.master.has_time_cob_id) {
+      uint32_t t = cfg.master.time_producer_cob_id() & 0x7FF;
+      std::string what = reserved_cob_service(cfg, t, false);
+      std::snprintf(hex, sizeof(hex), "0x%03X", t);
+      if (!what.empty()) error("master", std::string("TIME COB-ID ") + hex + " is " + what);
+    }
     std::map<uint32_t, std::string> cobs;
+    auto add = [&](uint32_t cob, const std::string& who) {
+      std::string what = reserved_cob_service(cfg, cob);
+      std::snprintf(hex, sizeof(hex), "0x%03X", cob);
+      if (!what.empty()) error("nodes", who + ": COB-ID " + hex + " is " + what);
+      add_cob(cobs, cob, who);
+    };
     for (const auto& n : cfg.nodes) {
       for (const auto& p : n.tx_pdos) {
         std::string who = n.label() + " TPDO " + std::to_string(p.number);
         for (const auto& l : cfg.links)
           if (l.producer == n.node_id && l.tpdo == p.number) who += " (" + l.label() + ")";
-        add_cob(cobs, n.tpdo_cob_id(p), who);
+        add(n.tpdo_cob_id(p), who);
       }
-      for (const auto& p : n.rx_pdos) add_cob(cobs, n.rpdo_cob_id(p), n.label() + " RPDO " + std::to_string(p.number));
+      for (const auto& p : n.rx_pdos) add(n.rpdo_cob_id(p), n.label() + " RPDO " + std::to_string(p.number));
     }
   }
 
@@ -3633,6 +3700,27 @@ void repeated_keys(const cJSON* item, const std::string& where, std::vector<std:
   }
 }
 
+// Numbers whose magnitude is 2^53 or more: cJSON keeps them as a double,
+// which rounds them (canopen-config-contract "64-bit values as JSON
+// numbers"); the same rule as contract.inexact_numbers.
+void inexact_numbers(const cJSON* item, const std::string& where, std::vector<std::string>& out) {
+  if (cJSON_IsObject(item)) {
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) {
+      std::string key = c->string ? c->string : "";
+      inexact_numbers(c, where.empty() ? key : where + "." + key, out);
+    }
+  } else if (cJSON_IsArray(item)) {
+    int i = 0;
+    const cJSON* c;
+    cJSON_ArrayForEach(c, item) inexact_numbers(c, where + "[" + std::to_string(i++) + "]", out);
+  } else if (cJSON_IsNumber(item) && std::fabs(item->valuedouble) >= 9007199254740992.0) {
+    out.push_back((where.empty() ? "the top level" : where) +
+                  ": a JSON number of 2^53 (9007199254740992) or more cannot be read exactly; write it as a string "
+                  "(\"0x...\")");
+  }
+}
+
 }  // namespace
 
 bool parse_config_set(const std::string& json, const std::string& path, const ImageLimits& limits,
@@ -3650,6 +3738,7 @@ bool parse_config_set(const std::string& json, const std::string& path, const Im
   }
   std::vector<std::string> repeated;
   repeated_keys(root, "", repeated);
+  inexact_numbers(root, "", repeated);
   if (!repeated.empty()) {
     for (const auto& r : repeated) errors.push_back(path + ": " + r);
     cJSON_Delete(root);

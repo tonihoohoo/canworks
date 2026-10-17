@@ -37,7 +37,8 @@ struct ClientInfo {
   std::string address;
   uint64_t requests = 0;
   bool writer = false;
-  size_t queued = 0;  // unsent reply bytes
+  size_t queued = 0;    // unsent reply bytes
+  size_t buffered = 0;  // received request bytes not yet answered
 };
 
 class ModbusServer {

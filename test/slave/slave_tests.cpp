@@ -265,6 +265,7 @@ class SlaveSim {
     for (auto& n : nets_) {
       n->net.reset();
       n->dev.reset();
+      n->run.end_run();  // as MasterRuntime::stop
     }
     PlcRequests::instance().close();
   }
@@ -709,6 +710,7 @@ TEST(slave_store_survives_restart) {
 }
 
 TEST(slave_lss_assigned_node_id) {
+  clear_logs();
   char tmpl[] = "/tmp/canopen-slave-state-XXXXXX";
   std::string state = mkdtemp(tmpl);
   // The other PLC assigns node 12 over LSS and stores it.
@@ -726,6 +728,9 @@ TEST(slave_lss_assigned_node_id) {
     sim->Start();
     CHECK(sim->RunUntil([&] { return slave_up(*sim); }, seconds(8)));
     CHECK(sim->dev(1).node_id() == 12);
+    // The node ID conflict guard follows the assigned node ID.
+    sim->Send("line", 0x70C, {0x05});
+    CHECK(sim->RunUntil([&] { return logged("uses node ID 12"); }, seconds(1)));
     CHECK(read(state + "/line.json").find("\"lss_node_id\":\t12") != std::string::npos ||
           read(state + "/line.json").find("\"lss_node_id\": 12") != std::string::npos);
   }
@@ -1086,6 +1091,130 @@ TEST(gateway_upper_loss_session_restart) {
   clear_logs();
   sim->StartMaster(0);
   CHECK(sim->RunUntil([&] { return logged("held by the gateway") && sim->plc().byte_in[40] == 4; }, seconds(5)));
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->plc().byte_in[40] == 4, std::to_string(sim->plc().byte_in[40]));
+}
+
+// A new bus session of the field network while the upper master keeps
+// sending the same value: the field node gets that value, not 0
+// (canopen-gateway "Routes are read at network start").
+TEST(gateway_field_restart_keeps_route) {
+  clear_logs();
+  auto sim = start_gateway_sim(gateway_json());
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->plc().dint_out[20] = 55;
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  sim->StopMaster(0);
+  sim->StartMaster(0);
+  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 5; }, seconds(8)));
+  sim->RunFor(milliseconds(1000));
+  CHECK_MSG(sim->plc().dint_in[40] == 55, "field node got " + std::to_string(sim->plc().dint_in[40]) + " after a field session restart, upper still sends 55");
+}
+
+// "hold" (the default): the upper master is lost and the gateway gets NMT
+// RESET NODE, which brings back the EDS values of its route objects; the
+// field output keeps its last value (canopen-gateway "Hold keeps values
+// through a gateway reset").
+TEST(gateway_hold_upper_reset_node) {
+  clear_logs();
+  auto sim = start_gateway_sim(gateway_json());
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Sniff("field");
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->plc().dint_out[20] = 55;
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  sim->Unplug(1);  // the upper master goes quiet (so it does not boot the gateway again)
+  sim->Send("top", 0x000, {0x81, 20});  // NMT RESET NODE of the gateway (from another tool on the upper bus)
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->plc().dint_in[40] == 55, "hold broken: field output became " + std::to_string(sim->plc().dint_in[40]) + " while the upper master is lost");
+}
+
+// CO_NETWORK_STOP while the gateway holds the field node: when the upper
+// master is back, the node gets the network stop's command, not START
+// (canopen-plc-nmt "Network stop survives resets and gateway release").
+TEST(gateway_release_during_network_stop) {
+  clear_logs();
+  auto sim = start_gateway_sim(gateway_json(R"(, "on_upper_loss": "stop_nodes")",
+                                            R"(, "heartbeat_consumer": true, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150)"));
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->Unplug(1);
+  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 4; }, seconds(2)));
+  canopen_plc_nmt_request req{};
+  req.network = 0;
+  req.op = CANOPEN_PLC_NMT_STOP;
+  req.command = CANOPEN_PLC_NMT_CS_STOP;
+  uint16_t err = 0;
+  uint32_t h = PlcRequests::instance().start_nmt(req, err);
+  CHECK(h != 0);
+  int rc = 0;
+  CHECK(sim->RunUntil([&] { return (rc = PlcRequests::instance().poll_nmt(h, err)) != 0; }, seconds(2)));
+  CHECK_MSG(rc == 1, "CO_NETWORK_STOP rc " + std::to_string(rc) + " err " + std::to_string(err));
+  sim->Replug(1);
+  sim->RunFor(milliseconds(3000));
+  CHECK_MSG(sim->plc().byte_in[40] == 4, "field node state " + std::to_string(sim->plc().byte_in[40]) + " while CO_NETWORK_STOP holds the network");
+}
+
+// The same through a new bus session of the gateway slave: its route
+// objects start from the EDS values, which do not go down.
+TEST(gateway_hold_slave_session_restart) {
+  clear_logs();
+  auto sim = start_gateway_sim(gateway_json());
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->plc().dint_out[20] = 55;
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  sim->Unplug(1);  // the upper master goes quiet
+  sim->Restart(2);
+  sim->RunFor(milliseconds(500));
+  CHECK_MSG(sim->plc().dint_in[40] == 55, "field output " + std::to_string(sim->plc().dint_in[40]));
+  // Back: the upper master boots the gateway again and its value goes down,
+  // also one equal to the EDS value.
+  sim->plc().dint_out[20] = 0;
+  sim->Replug(1);
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim) && sim->plc().dint_in[40] == 0; }, seconds(8)));
+}
+
+// The gateway's stop_nodes hold is kept the same way on every path: the
+// program's command byte does not start the node and a CO_NMT reset is
+// refused (canopen-plc-nmt "Gateway hold on every NMT path").
+TEST(gateway_hold_every_nmt_path) {
+  clear_logs();
+  std::string json = gateway_json(R"(, "on_upper_loss": "stop_nodes")",
+                                  R"(, "heartbeat_consumer": true, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150)");
+  const std::string at = R"("state_location": "%IB40",)";
+  json.replace(json.find(at), at.size(), at + R"( "nmt_command_location": "%QB41",)");
+  auto sim = start_gateway_sim(json);
+  if (!sim->ok()) return;
+  sim->AddPingPong("field", 2);
+  sim->Start();
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
+  sim->Unplug(1);
+  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 4; }, seconds(2)));
+  sim->plc().byte_out[41] = 1;  // the command byte asks to run it
+  sim->RunFor(milliseconds(800));
+  CHECK_MSG(sim->plc().byte_in[40] == 4, "command byte started the held node: " + std::to_string(sim->plc().byte_in[40]));
+  CHECK(logged("the gateway holds the node STOPPED"));
+  canopen_plc_nmt_request req{};
+  req.network = 0;
+  req.op = CANOPEN_PLC_NMT_NODE;
+  req.node = 2;
+  req.command = CANOPEN_PLC_NMT_CS_RESET_NODE;
+  uint16_t err = 0;
+  uint32_t h = PlcRequests::instance().start_nmt(req, err);
+  CHECK(h != 0);
+  int rc = 0;
+  CHECK(sim->RunUntil([&] { return (rc = PlcRequests::instance().poll_nmt(h, err)) != 0; }, seconds(2)));
+  CHECK_MSG(rc != 1 && err == CANOPEN_PLC_ERR_REFUSED, "CO_NMT reset rc " + std::to_string(rc) + " err " + std::to_string(err));
   sim->RunFor(milliseconds(500));
   CHECK_MSG(sim->plc().byte_in[40] == 4, std::to_string(sim->plc().byte_in[40]));
 }

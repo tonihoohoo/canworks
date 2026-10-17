@@ -61,7 +61,14 @@ _TYPE_RANGE = {
 _SECTION = re.compile(r"^\s*\[([^\]]*)\]")
 _ENTRY = re.compile(r"^(\s*([A-Za-z_0-9]+)\s*=\s*)(.*?)(\s*([;#].*)?)$")
 _NODEID_SUFFIX = re.compile(r"^(0x[0-9a-f]+|[0-9]+)\s*\+\s*\$NODEID$", re.IGNORECASE)
-_DECIMAL_REAL = re.compile(r"^[+-]?(\d+\.\d*|\.\d+|\d+(?=[eE]))([eE][+-]?\d+)?$")
+_BARE_NODEID = re.compile(r"^\$NODEID$", re.IGNORECASE)
+# A decimal REAL: with a "." or an exponent, or a plain integer ("100"),
+# which Lely would read as a bit pattern.
+_DECIMAL_REAL = re.compile(r"^[+-]?(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?$")
+# More objects than an object dictionary can hold (its indices are 16 bits):
+# refused before the lint loops over them.
+MAX_SUPPORTED_OBJECTS = 0xFFFF
+_OBJECT_LISTS = ("mandatoryobjects", "optionalobjects", "manufacturerobjects")
 _VALUE = re.compile(r"^(\$NODEID\s*\+\s*)?(-?0x[0-9a-f]+|-?[0-9]+)$", re.IGNORECASE)
 
 
@@ -166,6 +173,7 @@ def prepare(data):
     if converted:
         utf8.items.append({})
     nodeid = Correction("nodeid", "\"<number>+$NODEID\" rewritten as \"$NODEID+<number>\"")
+    bare = Correction("nodeid_bare", "a bare \"$NODEID\" rewritten as \"$NODEID+0\"")
     real = Correction("real", "decimal REAL values rewritten as Lely's hexadecimal bit pattern")
     octets = Correction("string", "OCTET_STRING/DOMAIN values Lely cannot read cleared")
     types = _data_types(text)
@@ -184,6 +192,10 @@ def prepare(data):
             if key in _NUMBER_KEYS and _NODEID_SUFFIX.match(value):
                 new = "$NODEID+" + _NODEID_SUFFIX.match(value).group(1)
                 nodeid.items.append(dict(where, new=new))
+            elif key in _NUMBER_KEYS and _BARE_NODEID.match(value):
+                # Lely cannot parse a bare "$NODEID" ("unable to parse DefaultValue").
+                new = "$NODEID+0"
+                bare.items.append(dict(where, new=new))
             elif key in _NUMBER_KEYS and data_type in (_REAL32, _REAL64) and _DECIMAL_REAL.match(value):
                 new = _real_hex(value, data_type)
                 if new is not None:
@@ -197,7 +209,7 @@ def prepare(data):
             if new is not None:
                 line = head + new + tail
         out.append(line + end)
-    corrections = [c for c in (utf8, nodeid, real, octets) if c.items]
+    corrections = [c for c in (utf8, nodeid, bare, real, octets) if c.items]
     return ("".join(out) if corrections else text), corrections
 
 
@@ -311,12 +323,34 @@ def lint_text(text, node_id=1):
         os.remove(path)
 
 
+def too_many_objects(cfg):
+    """The refusal of an object list whose SupportedObjects is above
+    MAX_SUPPORTED_OBJECTS, or None. `cfg`: section name -> {key: value}."""
+    for name in cfg:
+        if str(name).lower() not in _OBJECT_LISTS:
+            continue
+        for key, value in cfg[name].items():
+            if key.lower() != "supportedobjects":
+                continue
+            try:
+                count = int(str(value).strip(), 0)
+            except ValueError:
+                continue
+            if count > MAX_SUPPORTED_OBJECTS:
+                return "[%s] SupportedObjects=%s is above %d (0x%X), more objects than an object dictionary holds" % (
+                    name, str(value).strip(), MAX_SUPPORTED_OBJECTS, MAX_SUPPORTED_OBJECTS)
+    return None
+
+
 def lint_file(path, node_id=1):
     """Result of dcfgen's lint and read on a prepared EDS file."""
     try:
         cfg = _parse_file(path)
     except Exception as e:  # configparser errors, a file dcfgen cannot read
         return Result("dcfgen cannot read the file: %s" % str(e).splitlines()[0], [])
+    too_many = too_many_objects(cfg)
+    if too_many:
+        return Result(too_many, [])
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         try:

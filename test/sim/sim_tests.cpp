@@ -446,6 +446,7 @@ class Sim {
       loop_.stop();
     }
     net_.reset();
+    run_.end_run();  // as MasterRuntime::stop
   }
 
   bool ok() const { return ok_; }
@@ -713,7 +714,7 @@ class Sim {
   // Boot-up messages seen from a node ID, and NMT commands sent to it (0 =
   // to all nodes) with command specifier `cs`.
   int bootups(uint8_t id) { return bootups_[id]; }
-  // 6-byte frames seen on COB-ID 0x100 or 0x180 (TIME), with when they came.
+  // 6-byte frames seen on COB-ID 0x100 or 0x190 (TIME), with when they came.
   struct Stamped {
     std::chrono::steady_clock::time_point at;
     can_msg msg;
@@ -852,7 +853,7 @@ class Sim {
       if (result == 1 && m.id > 0x700 && m.id < 0x780 && m.len == 1 && m.data[0] == 0)
         ++bootups_[static_cast<uint8_t>(m.id - 0x700)];
       if (result == 1 && m.id == 0 && m.len == 2) ++nmt_[m.data[1] * 256 + m.data[0]];
-      if (result == 1 && (m.id == 0x100 || m.id == 0x180)) time_frames_.push_back({std::chrono::steady_clock::now(), m});
+      if (result == 1 && (m.id == 0x100 || m.id == 0x190)) time_frames_.push_back({std::chrono::steady_clock::now(), m});
       Sniff();
     });
   }
@@ -1698,7 +1699,7 @@ TEST(sim_time_producer) {
   CHECK(logged("no configured node is set to consume it"));
 
   clear_logs();
-  res = run(", \"time_period_ms\": 500, \"time_cob_id\": \"0x180\"", 0x180, 600);
+  res = run(", \"time_period_ms\": 500, \"time_cob_id\": \"0x190\"", 0x190, 600);
   CHECK(!res.first.empty());
 
   clear_logs();
@@ -5464,6 +5465,195 @@ TEST(sim_gantry_demo) {
 #endif
 }
 
+// SDO abort rules and the OPERATIONAL write refusal apply to SDO transfers of
+// objects the PDOs map too; the PDOs keep carrying them.
+TEST(sim_sdo_faults_on_pdo_mapped_objects) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->EnableDiag();
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  // 0x4001 is in node 2's TPDO, 0x4000 in its RPDO.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x4001","code":"0x08000020","on":"read"}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  cJSON* a = sim->Ask(diag_req("sdo_read", 2, 0x4001, 0));
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000020, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"sdo_abort":{"object":"0x4000","code":"0x08000021","on":"write"}}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  DiagRequest w = diag_req("sdo_write", 2, 0x4000, 0);
+  w.data = {1, 2, 3, 4};
+  w.force = true;
+  a = sim->Ask(w);
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000021, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  // The TPDO reads 0x4001 and the RPDO writes 0x4000 as before.
+  uint32_t before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() >= before + 3; }, seconds(3)));
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"sdo_abort"})");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"refuse_write_operational":true}})");
+  cJSON_Delete(r);
+  a = sim->Ask(w);
+  CHECK_MSG(ok(a) && num(result(a), "abort_code") == 0x08000022, a ? cJSON_PrintUnformatted(a) : "null");
+  cJSON_Delete(a);
+  a = sim->Ask(diag_req("sdo_read", 2, 0x4001, 0));
+  CHECK(ok(a) && cJSON_IsTrue(field(result(a), "success")));
+  cJSON_Delete(a);
+  before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() >= before + 3; }, seconds(3)));
+  delete sim;
+}
+
+// A set on a powered-off device is refused and leaves no hold behind: the
+// device's own value comes through after power on.
+TEST(sim_set_while_powered_off) {
+  clear_logs();
+  std::string dir = make_dir(pingpong_json(), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":1234}})");  // a hold while on
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"off"}})");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_set","node":2,"values":{"0x4001":1234}})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "node 2 is powered off", str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"power":"on"}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  r = sim->SimAsk(R"({"op":"sim_get","items":[{"node":2,"object":"0x4001"}]})");
+  const cJSON* v = cJSON_GetArrayItem(field(result(r), "values"), 0);
+  CHECK_MSG(str(v, "writer") != "set", r ? cJSON_PrintUnformatted(r) : "null");
+  cJSON_Delete(r);
+  uint32_t before = sim->in();
+  CHECK(sim->RunUntil([before] { return sim->in() > before && sim->in() != 1234; }, seconds(3)));
+  delete sim;
+}
+
+// A node ID stored over LSS that a real device uses now is taken too: the
+// spare device does not boot with it. A damaged state file's ID outside
+// 1-127 is ignored.
+TEST(sim_stored_lss_id_taken) {
+  clear_logs();
+  std::string sim_json = R"({"extra_devices": [{"node": 0, "name": "spare", "eds": "rtd8.eds"}]})";
+  std::vector<std::pair<std::string, std::string>> files{{"cpp-slave.eds", slave_eds()},
+                                                         {"rtd8.eds", read(std::string(RTD_DIR) + "/rtd8.eds")}};
+  canopen_sim::SimOptions opt;
+  opt.store = std::make_shared<canopen_sim::StoreMap>();
+  static Sim* sim;
+  {
+    sim = new Sim(make_dir(pingpong_json(), files));
+    CHECK(sim->ok());
+    if (!sim->ok()) return;
+    CHECK(sim->StartSimulator(sim_json, {}, opt));
+    delete sim;
+  }
+  CHECK(opt.store->size() == 2);
+  for (auto& kv : *opt.store)
+    if (kv.first.compare(0, 11, "name-spare-") == 0) kv.second->lss_id = 70;  // given by an earlier session's master
+  opt.taken = {70};
+  sim = new Sim(make_dir(pingpong_json(), files));
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(sim_json, {}, opt));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(sim->frames(0x700 + 70) == 0, std::to_string(sim->frames(0x700 + 70)));
+  CHECK(logged("spare: node ID 70 (stored by an LSS master) is taken by a device on"));
+  cJSON* r = sim->SimAsk(R"({"op":"sim_clear","node":"spare","fault":"all"})");
+  CHECK_MSG(!ok(r) && str(r, "error") == "spare is taken by a real device", str(r, "error"));
+  cJSON_Delete(r);
+  delete sim;
+
+  // canworks-sim --state-dir: "lss_id 300" is no node ID (not 300 % 256 = 44).
+  clear_logs();
+  char tmpl[] = "/tmp/canworks-sim-state-XXXXXX";
+  canopen_sim::SimOptions opt2;
+  opt2.state_dir = mkdtemp(tmpl);
+  for (auto& kv : *opt.store)
+    if (kv.first.compare(0, 11, "name-spare-") == 0) {
+      std::ofstream out(opt2.state_dir + "/" + kv.first + ".state");
+      out << "lss_id 300\n";
+    }
+  sim = new Sim(make_dir(pingpong_json(), files));
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(sim_json, {}, opt2));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  sim->RunFor(milliseconds(300));
+  CHECK_MSG(sim->frames(0x700 + 44) == 0, std::to_string(sim->frames(0x700 + 44)));
+  CHECK(logged("spare: powered on (rtd8.eds, no node ID, waiting for LSS)"));
+  delete sim;
+}
+
+// NMT reset node restarts a simulated drive as a power on does: a drive in
+// Fault comes back in Switch on disabled without a fault reset.
+TEST(sim_drive_reset_node) {
+  clear_logs();
+  // The device's EDS with a following error window and time out.
+  std::string eds = servo_device_eds();
+  auto put = [&eds](const std::string& a, const std::string& b) {
+    size_t at = eds.find(a);
+    CHECK(at != std::string::npos);
+    if (at != std::string::npos) eds.replace(at, a.size(), b);
+  };
+  put("SupportedObjects=36", "SupportedObjects=38");
+  put("36=0x60FF\n", "36=0x60FF\n37=0x6065\n38=0x6066\n");
+  eds += "\n[6065]\nParameterName=Following error window\nObjectType=0x7\nDataType=0x0007\nAccessType=rw\n"
+         "DefaultValue=100\nPDOMapping=0\n\n[6066]\nParameterName=Following error time out\nObjectType=0x7\n"
+         "DataType=0x0006\nAccessType=rw\nDefaultValue=10\nPDOMapping=0\n";
+  std::string dir = make_dir(servo_json(), {{"servo-drive.eds", drive_eds(kServoEds)}, {"device.eds", eds}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->SetProgram([](fake_runtime::Image& plc) {  // enables the drive, never resets a fault
+    uint16_t sw = plc.int_in[40];
+    uint16_t cw = 0;
+    if ((sw & 0x4F) == 0x40) cw = 0x06;
+    else if ((sw & 0x6F) == 0x21) cw = 0x07;
+    else if ((sw & 0x6F) == 0x23 || (sw & 0x6F) == 0x27) cw = 0x0F;
+    plc.int_out[40] = cw;
+  });
+  canopen_sim::DeviceSpec d;
+  d.node = 3;
+  d.eds_path = dir + "/device.eds";
+  CHECK(sim->StartSimulator("", {d}));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(10)));
+  CHECK_MSG(sim->RunUntil([] { return (sim->uw(40) & 0x6F) == 0x27; }, seconds(3)), std::to_string(sim->uw(40)));
+  // Cyclic synchronous position against a blocked axis: following error, Fault.
+  cJSON* r = sim->SimAsk(R"({"op":"sim_set","node":3,"values":{"0x6060":8}})");
+  CHECK_MSG(ok(r), str(r, "error"));
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_fault","node":3,"fault":{"drive_input":{"blocked":true}}})");
+  cJSON_Delete(r);
+  r = sim->SimAsk(R"({"op":"sim_set","node":3,"values":{"0x607A":50000}})");
+  cJSON_Delete(r);
+  CHECK_MSG(sim->RunUntil([] { return (sim->uw(40) & 0x4F) == 0x08; }, seconds(3)), std::to_string(sim->uw(40)));
+  r = sim->SimAsk(R"({"op":"sim_fault","node":3,"fault":{"reset":"node"}})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK_MSG(sim->RunUntil([] { return sim->status() && !(sim->uw(40) & 0x08); }, seconds(5)), std::to_string(sim->uw(40)));
+  delete sim;
+}
+
 int main(int argc, char** argv) {
   set_log_sink(capture);
   route_lely_diagnostics();
@@ -6510,6 +6700,49 @@ TEST(sim_plc_nmt_network_stop_restart) {
   nmt_end(sim);
 }
 
+
+// A lost mandatory node with stop_all_nodes stopped the master and every
+// node: a new bus session keeps them stopped and sends no output PDO
+// (canopen-plc-nmt "Master stop by stop_all_nodes lasts for the run").
+TEST(sim_stop_all_nodes_restart) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json("\"stop_all_nodes\": true, ", "\"mandatory\": true, "));
+  if (!sim->ok()) return;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  sim->KillSlave(2);
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(3)));
+  sim->StartSlave(2, sim->cfg().config_dir + "/cpp-slave.eds");
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->ib(21) == 4, "master " + std::to_string(sim->ib(21)) + " before restart");
+  int rpdos = sim->frames(0x202) + sim->frames(0x203);
+  sim->RestartSession();
+  sim->RunFor(milliseconds(3000));
+  CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)) + " after a session restart; node 2 " + std::to_string(sim->ib(20)) + ", node 3 " + std::to_string(sim->ib(22)) + "; master RPDO frames since: " + std::to_string(sim->frames(0x202) + sim->frames(0x203) - rpdos));
+  nmt_end(sim);
+}
+
+// CO_NETWORK_STOP stopped the nodes, then the program resets node 2: it is
+// configured and stopped again, not started (canopen-plc-nmt "Network stop
+// survives resets and gateway release").
+TEST(sim_plc_nmt_reset_during_network_stop) {
+  static Sim* sim;
+  sim = nmt_sim(two_nodes_json(""));
+  if (!sim->ok()) return;
+  NmtBlocks& b = *nmt_blk;
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return all_running(sim); }, seconds(5)));
+  b.stop.NODE_COMMAND = 2;
+  CHECK(run_block(sim, b.stop));
+  CHECK(sim->RunUntil([] { return sim->ib(21) == 127 && sim->ib(20) == 4 && sim->ib(22) == 4; }, seconds(2)));
+  int boots2 = sim->bootups(2);
+  CHECK(run_nmt(sim, b.nmt, 2, 129));
+  CHECK(sim->RunUntil([boots2] { return sim->bootups(2) > boots2; }, seconds(5)));
+  sim->RunFor(milliseconds(1500));
+  CHECK_MSG(sim->ib(20) != 5, "node 2 state " + std::to_string(sim->ib(20)) + " (OPERATIONAL) while CO_NETWORK_STOP holds the network, master " + std::to_string(sim->ib(21)));
+  nmt_end(sim);
+}
+
 // A node held by CO_NMT, and a reset its command byte asked for earlier:
 // after a new session the held node is configured and sent STOP, the other
 // node runs, and the earlier reset is not sent again.
@@ -6742,6 +6975,38 @@ TEST(sim_scan_watchdog_restart) {
   CHECK_MSG(sim->frames(0x202) == rpdos, std::to_string(sim->frames(0x202) - rpdos));
   sim->StopPlc(false);
   CHECK(sim->RunUntil([rpdos] { return outputs_enabled() && sim->frames(0x202) > rpdos + 5; }, seconds(2)));
+  delete sim;
+  CHECK(outputs_enabled());
+}
+
+// The interface of the network whose watchdog tripped goes down while the
+// scan is still hung: the gate stays closed for every other network until
+// the scan moves (canopen-pdo-io "Scan watchdog trip lasts until the scan
+// moves").
+TEST(sim_scan_watchdog_interface_down) {
+  clear_logs();
+  std::string dir = make_dir(with_master(pingpong_json(), "\"scan_watchdog_ms\": 200, "),
+                             {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  sim->StartSlave(2, dir + "/cpp-slave.eds");
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->in() > 3; }, seconds(5)));
+  sim->StopPlc(true);  // the scan hangs
+  CHECK(sim->RunUntil([] { return !outputs_enabled(); }, seconds(2)));
+  sim->net().Stop();  // the session ends: no session while the interface is down
+  sim->RunFor(milliseconds(200));
+  CHECK(!outputs_enabled());
+  sim->RestartSession();
+  CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
+  CHECK(!outputs_enabled());
+  sim->StopPlc(false);
+  CHECK(sim->RunUntil([] { return outputs_enabled(); }, seconds(2)));
+  // A trip when the run ends (the PLC stops) opens the gate again.
+  sim->StopPlc(true);
+  CHECK(sim->RunUntil([] { return !outputs_enabled(); }, seconds(2)));
   delete sim;
   CHECK(outputs_enabled());
 }

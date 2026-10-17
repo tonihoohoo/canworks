@@ -100,3 +100,10 @@ With several networks, the export of all nodes SHALL write each network's DCF fi
 #### Scenario: One network of two
 - **WHEN** the user exports with `--network drives` to `out/`
 - **THEN** only `out/node_2.dcf` from `drives` is written
+
+### Requirement: CiA 306 check on written lines only
+The DCF export SHALL check only the lines it writes against CiA 306, not the vendor EDS text it copies.
+
+#### Scenario: Vendor text
+- **WHEN** a vendor EDS has a non-conforming comment line
+- **THEN** the export does not report it

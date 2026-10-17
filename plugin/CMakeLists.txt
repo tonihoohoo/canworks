@@ -65,6 +65,7 @@ set(CANWORKS_CORE_SOURCES
     src/can/frame_tx.cpp
     src/can/iface_lock.cpp
     src/can/engine.cpp
+    src/can/scan_watchdog.cpp
     src/can/sha256.cpp
     src/can/secure_channel.cpp
     src/can/can_adapter.cpp

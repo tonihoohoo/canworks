@@ -105,7 +105,11 @@ def upload(core, node, index, sub, timeout_s):
                 if seg[0] & 0x01:
                     break
                 toggle ^= 1
-            return bytes(out[:size] if size is not None else out)
+            if size is not None and len(out) != size:
+                # The data does not match the size the server indicated.
+                _abort(core, node, index, sub, 0x06070010)
+                raise SdoAbort(0x06070010, "the device sent %d bytes for an indicated size of %d" % (len(out), size))
+            return bytes(out)
 
 
 def download(core, node, index, sub, payload, timeout_s):

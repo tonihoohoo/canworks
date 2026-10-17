@@ -295,3 +295,10 @@ When "Add to a config…" adds a node from "Commission a device" to a config, th
 #### Scenario: Config already has notes
 - **WHEN** the config already has a notes file for that EDS
 - **THEN** that file is unchanged and a message says the commissioning notes can be imported on the Notes tab
+
+### Requirement: Skeleton keeps existing notes
+`notes skeleton -o FILE` SHALL refuse an existing FILE unless `--force` is given.
+
+#### Scenario: Filled-in notes
+- **WHEN** the notes file already exists
+- **THEN** the command refuses and leaves it unchanged

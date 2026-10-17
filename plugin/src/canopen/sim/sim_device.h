@@ -10,7 +10,9 @@
 // - a send hook on the device's CAN network, through which faults drop
 //   frames (heartbeat stop, TPDO stop) or hold them (SDO answer delay);
 // - SDO indications chained in front of Lely's own, for SDO abort rules and
-//   refusing writes while OPERATIONAL;
+//   refusing writes while OPERATIONAL; a receiver in front of Lely's SDO
+//   server marks its processing, so the rules apply to SDO access only (PDOs
+//   read and write their objects through the same indications);
 // - identity / device type overrides, applied after every reset.
 // Everything runs on the engine's event loop thread.
 
@@ -86,6 +88,9 @@ class SimDevice : public canopen_plugin::SlaveDevice {
   std::function<void()> on_sync;
   // Called after an RPDO wrote the dictionary.
   std::function<void()> on_rpdo;
+  // Called on NMT reset node, after Lely restored the application objects
+  // (a drive model starts over, as its firmware would).
+  std::function<void()> on_reset_node;
   // False: the device sends nothing (powered off until it is recreated).
   bool powered = true;
 
@@ -99,16 +104,22 @@ class SimDevice : public canopen_plugin::SlaveDevice {
   bool DropLelyReset(uint32_t id, const uint8_t* data, uint8_t len);
   // The SDO abort code a rule (or the OPERATIONAL refusal) gives a transfer, 0: none.
   uint32_t Rule(uint16_t index, uint8_t subindex, bool write);
+  // A request frame to the default SDO server is about to be processed; its
+  // processing ends with the next frame the device sends.
+  void SdoBegin(const uint8_t* data, uint8_t len);
+  void SdoEnd() { in_sdo_ = false; }
 
   struct IndCtx;
 
  protected:
   void OnRestored() override;
+  void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
   void OnSync(uint8_t cnt, const time_point& t) noexcept override;
   void OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept override;
 
  private:
   void InstallIndications();
+  void InstallSdoMark();
 
   std::vector<std::unique_ptr<IndCtx>> inds_;
   void* send_func_ = nullptr;  // can_send_func_t*
@@ -119,6 +130,9 @@ class SimDevice : public canopen_plugin::SlaveDevice {
   };
   std::deque<Held> held_;
   bool drop_reset_ = false;
+  void* sdo_begin_ = nullptr;  // can_recv_t*, before Lely's SDO server
+  bool in_sdo_ = false, sdo_write_ = false, sdo_block_dn_ = false;
+  unsigned sdo_gen_ = 0;
 };
 
 }  // namespace canopen_sim

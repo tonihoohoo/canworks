@@ -23,6 +23,8 @@
 #include "config.h"
 #include "fake_runtime.hpp"
 #include "log.h"
+#include "outputs_gate.h"
+#include "scan_watchdog.h"
 #include "dm.h"
 #include "j1939_network.h"
 #include "j1939_plc_api.h"
@@ -123,6 +125,32 @@ TEST(j1939_signal_sign_and_validity) {
   CHECK(j1939_from_plc(u, 0x1FF) == 0xFF);
   J1939Signal l = sig("l", 0, 64);
   CHECK(j1939_from_plc(l, ~uint64_t(0)) == ~uint64_t(0));
+}
+
+// test/fixtures/j1939_not_available.json (the PC simulator runs the same
+// vectors): signed signals are never not available or error; unsigned 8, 16
+// and 32-bit ones use the J1939-71 ranges.
+TEST(j1939_not_available_vectors) {
+  std::ifstream in(FIXTURES_DIR "/j1939_not_available.json");
+  std::stringstream ss;
+  ss << in.rdbuf();
+  cJSON* root = cJSON_Parse(ss.str().c_str());
+  CHECK(root != nullptr);
+  int n = 0;
+  const cJSON* c;
+  cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(root, "cases")) {
+    unsigned length = static_cast<unsigned>(cJSON_GetObjectItemCaseSensitive(c, "length")->valuedouble);
+    bool is_signed = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(c, "signed"));
+    uint64_t raw = std::stoull(cJSON_GetObjectItemCaseSensitive(c, "raw")->valuestring, nullptr, 16);
+    std::string state = cJSON_GetObjectItemCaseSensitive(c, "state")->valuestring;
+    J1939Signal s = sig("s", 0, length, false, is_signed);
+    std::string got = j1939_not_valid(s, raw) ? "invalid" : "valid";
+    CHECK_MSG(got == (state == "valid" ? "valid" : "invalid"),
+              std::to_string(length) + (is_signed ? " signed " : " ") + cJSON_GetObjectItemCaseSensitive(c, "raw")->valuestring);
+    ++n;
+  }
+  CHECK(n >= 30);
+  cJSON_Delete(root);
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +629,94 @@ TEST(j1939_engine_request_reply_is_not_the_on_change_send) {
   r.engine.tick(r.at(901));
   s = r.socket.of(0xD000);
   CHECK(s.size() == 4 && s[3].destination == 0x20 && s[3].data[0] == 9);
+}
+
+// J1939-21: a global Request of a PDU1 PGN is answered to the global
+// address; one to us, to the requester.
+TEST(j1939_engine_answers_a_global_request_globally) {
+  Config cfg = engine_config();
+  J1939Tx t;
+  t.pgn = 0xD000;
+  t.has_destination = true;
+  t.destination = 0x20;
+  t.min_gap_ms = 50;
+  t.signals.push_back(sig("cmd", 0, 8));
+  t.signals.back().location = loc("%QB6");
+  cfg.j1939.tx.push_back(t);
+  Rig r(cfg);
+  r.claim();
+  r.img.byte_out[6] = 7;
+  r.image.copy_from_plc(r.rt);
+  r.engine.tick(r.at(600));
+  CHECK(r.socket.of(0xD000).size() == 1);
+  r.request(0xD000, 0x30, 255, 700);
+  auto s = r.socket.of(0xD000);
+  CHECK_MSG(s.size() == 2 && s[1].destination == 255, s.size() > 1 ? std::to_string(s[1].destination) : "none");
+  r.request(0xD000, 0x31, 128, 800);
+  s = r.socket.of(0xD000);
+  CHECK(s.size() == 3 && s[2].destination == 0x31);
+}
+
+// The bus goes away: the signal valid bits go FALSE with the status bits.
+TEST(j1939_engine_bus_lost_clears_valid_bits) {
+  Rig r;
+  r.claim();
+  r.message(0xFF00, 0x10, 255, {0x10, 0x27, 0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 510);
+  r.engine.tick(r.at(511));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[10][0] == 1 && r.img.bool_in[10][1] == 1);
+  r.engine.bus_lost("CAN interface vcan0 is down");
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[10][1] == 0);
+  CHECK(r.img.bool_in[10][0] == 0);
+  CHECK(r.img.int_in[0] == 0x2710);  // the value holds
+}
+
+// A J1939_REQUEST completes only on an answer to the PLC's address (or
+// global), not on one the destination sent to a third ECU.
+TEST(j1939_program_request_answer_destination) {
+  Rig r;
+  J1939PlcMsgs& m = J1939PlcMsgs::instance();
+  m.open({true});
+  m.set_attached(0, true);
+  r.claim();
+  uint16_t e = 0;
+  uint32_t h = m.request_start(0, 0xEF00, 0x30, 1000, e);
+  CHECK(h && !e);
+  r.engine.serve_plc_msgs(r.at(510));
+  CHECK(r.socket.of(kPgnRequest).back().destination == 0x30);
+  canworks_j1939_msg out;
+  r.message(0xEF00, 0x30, 0x40, {1}, 520);
+  CHECK(m.poll(h, J1939PlcMsgs::Kind::Request, &out, e, r.at(521)) == 0);
+  r.message(0xEF00, 0x30, 128, {2}, 530);
+  CHECK(m.poll(h, J1939PlcMsgs::Kind::Request, &out, e, r.at(531)) == 1 && out.data[0] == 2 && out.length == 1);
+  m.close();
+  m.set_attached(0, false);
+}
+
+// A J1939-only project: its scan watchdog trips after 1 s without a
+// finished scan and the periodic PGN stops until the scan runs again.
+TEST(j1939_scan_watchdog_stops_periodic_sends) {
+  Rig r;
+  r.claim();
+  ScanWatchdog w(r.cfg.j1939.scan_watchdog_ms, "j1939.scan_watchdog_ms", "");
+  CHECK(own_scan_watchdog_ms(r.cfg) == 1000);
+  r.img.int_out[0] = 0x0102;
+  r.image.copy_from_plc(r.rt);
+  w.scan_done();
+  w.check(r.at(500));
+  r.engine.tick(r.at(510));
+  size_t n = r.socket.of(0xFF01).size();
+  CHECK(n == 1);
+  w.check(r.at(1500));  // the scan hangs
+  CHECK(w.hung());
+  for (int ms = 1510; ms < 2000; ms += 50) r.engine.tick(r.at(ms));
+  CHECK(r.socket.of(0xFF01).size() == n);
+  w.scan_done();
+  w.check(r.at(2000));
+  r.engine.tick(r.at(2010));
+  CHECK(r.socket.of(0xFF01).size() == n + 1);
+  w.release();
 }
 
 // Requests for the same PGN from the same requester are answered at most

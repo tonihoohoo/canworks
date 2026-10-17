@@ -41,7 +41,7 @@ ON_PLC_STOP = ("preop", "stop", "keep")
 
 def interface_message(name):
     """The plugin's refusal of an interface name, or None when it is fine."""
-    if not isinstance(name, str) or not name or INTERFACE_NAME.match(name):
+    if not isinstance(name, str) or not name or INTERFACE_NAME.fullmatch(name):
         return None
     return ("interface \"%s\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character "
             "limit of Linux interface names)" % name)
@@ -106,6 +106,19 @@ def schema(version=1):
     return _schemas[version]
 
 
+def _pattern(validator, patrn, instance, schema):
+    """The schema's "pattern" as ECMA-262 reads it: a final "$" ends the
+    string, so "3\\n" does not pass "^[0-9]+$" (Python's "$" also matches
+    before a final newline; the plugin refuses such a string)."""
+    full = patrn[:-1] + r"\Z" if patrn.endswith("$") and not patrn.endswith("\\$") else patrn
+    if validator.is_type(instance, "string") and not re.search(full, instance):
+        yield jsonschema.ValidationError("%r does not match %r" % (instance, patrn))
+
+
+# The validator for the config and simulation schemas.
+Validator = jsonschema.validators.extend(jsonschema.Draft202012Validator, {"pattern": _pattern})
+
+
 class _Pairs(dict):
     """A parsed JSON object that remembers the keys it was given twice."""
     repeated = ()
@@ -133,12 +146,51 @@ def _plain(value, path, problems):
     return value
 
 
+# A JSON number the plugin's cJSON (a double) cannot hold exactly (canopen-
+# config-contract "64-bit values as JSON numbers").
+INEXACT_NUMBER = 2 ** 53
+INEXACT_NUMBER_MESSAGE = ("a JSON number of 2^53 (9007199254740992) or more cannot be read exactly; write it as a "
+                          "string (\"0x...\")")
+
+
+def inexact_numbers(value, path=()):
+    """The places (json_path) of numbers in `value` whose magnitude is 2^53 or
+    more, which the plugin would round (plugin: inexact_numbers)."""
+    out = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            out += inexact_numbers(v, path + (k,))
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            out += inexact_numbers(v, path + (i,))
+    elif isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) >= INEXACT_NUMBER:
+        out.append(json_path(path) or "the top level")
+    return out
+
+
+def _nonfinite(value, path=()):
+    """The places of NaN and Infinity in `value` (a dict given to
+    check_config without loads())."""
+    if isinstance(value, dict):
+        return [w for k, v in value.items() for w in _nonfinite(v, path + (k,))]
+    if isinstance(value, list):
+        return [w for i, v in enumerate(value) for w in _nonfinite(v, path + (i,))]
+    if isinstance(value, float) and not math.isfinite(value):
+        return [json_path(path) or "the top level"]
+    return []
+
+
+def _no_constant(name):
+    raise ValueError("not valid JSON: %s is not a JSON number" % name)
+
+
 def loads(text):
     """A config's JSON text parsed, refusing an object that has the same key
     twice (json keeps the last, the plugin's cJSON the first; plugin:
-    repeated_keys). Raises ValueError, which names the key and its object."""
+    repeated_keys) and NaN or Infinity (not JSON; cJSON refuses them).
+    Raises ValueError, which names the key and its object."""
     problems = []
-    doc = _plain(json.loads(text, object_pairs_hook=_pairs), [], problems)
+    doc = _plain(json.loads(text, object_pairs_hook=_pairs, parse_constant=_no_constant), [], problems)
     if problems:
         raise ValueError("; ".join(problems))
     return doc
@@ -190,7 +242,7 @@ def _networks(cfg):
         name = net.get("name")
         if not isinstance(name, str) or not name:
             iface = adapter.get("interface")
-            name = iface if isinstance(iface, str) and NETWORK_NAME.match(iface) else ""
+            name = iface if isinstance(iface, str) and NETWORK_NAME.fullmatch(iface) else ""
         if net.get("protocol") == "none":
             out.append({"name": name, "index": i, "path": "networks[%d]" % i, "role": "plain", "protocol": "none",
                         "adapter": adapter, "master": {}, "nodes": [], "slave": {}, "j1939": {}, "json": net})
@@ -306,7 +358,7 @@ def leading_zero_message(text):
     """The refusal of a number string with a leading zero ("012"), or None.
     Octal is never meant in a config, so neither the tools nor the plugin
     read it either way (plugin: leading_zero_message)."""
-    if not isinstance(text, str) or not _LEADING_ZERO.match(text):
+    if not isinstance(text, str) or not _LEADING_ZERO.fullmatch(text):
         return None
     sign = "-" if text.startswith("-") else ""
     n = int(text.lstrip("-"), 10)
@@ -323,7 +375,7 @@ def _uint(value):
         return value if value >= 0 else None
     if isinstance(value, float):
         return int(value) if value >= 0 and value == math.floor(value) else None
-    if isinstance(value, str) and re.match(UINT_PATTERN, value):
+    if isinstance(value, str) and re.fullmatch(UINT_PATTERN, value):
         return int(value, 16) if value[:2].lower() == "0x" else int(value, 10)
     return None
 
@@ -356,7 +408,17 @@ def parse_numbers(value, node, root):
         return n if n is not None and _takes_number_string(node, root) else value
     if isinstance(value, dict):
         props = _properties(node, root)
-        return {k: parse_numbers(v, props[k], root) if k in props else v for k, v in value.items()}
+        resolved = _resolve(node, root)
+        out = {}
+        for k, v in value.items():
+            sub = props.get(k)
+            if sub is None:
+                # A map's values (error_behavior): patternProperties, else
+                # additionalProperties, as the schema applies them.
+                sub = next((p for pat, p in resolved.get("patternProperties", {}).items() if re.search(pat, k)),
+                           resolved.get("additionalProperties"))
+            out[k] = parse_numbers(v, sub, root) if isinstance(sub, dict) else v
+        return out
     if isinstance(value, list):
         items = _items(node, root)
         return [parse_numbers(v, items, root) for v in value] if items is not None else value
@@ -607,6 +669,7 @@ def sdo_value(value, type_name):
                 return None, "does not fit REAL32"
             return struct.pack("<f", value), None
         return struct.pack("<d", value), None
+    neg = False
     if isinstance(value, bool):
         n = int(value)
     elif isinstance(value, (int, float)):
@@ -618,7 +681,7 @@ def sdo_value(value, type_name):
         body = value[1:] if neg else value
         if leading_zero_message(value):
             return None, "is not a valid integer (%s)" % leading_zero_message(value)
-        if not re.match(UINT_PATTERN, body):
+        if not re.fullmatch(UINT_PATTERN, body):
             return None, "is not a valid integer"
         mag = int(body, 16) if body[:2].lower() == "0x" else int(body, 10)
         if mag >= 1 << 64:
@@ -626,7 +689,9 @@ def sdo_value(value, type_name):
         n = -mag if neg else mag
     else:
         return None, "must be a number"
-    if type_name == "BOOLEAN":
+    if neg and not type_name.startswith("INTEGER"):
+        fits = False  # "-0" too, as the plugin reads it
+    elif type_name == "BOOLEAN":
         fits = 0 <= n <= 1
     elif type_name.startswith("INTEGER"):
         fits = -(1 << (bits - 1)) <= n <= (1 << (bits - 1)) - 1
@@ -734,6 +799,32 @@ EMCY_COB_ID_KINDS = ("device", "eds")
 
 def restricted_can_id(cob):
     return any(lo <= cob <= hi for lo, hi in RESTRICTED_CAN_IDS)
+
+
+def reserved_cob_service(cob, master, master_id, default_emcy, time=True):
+    """The service a PDO or TIME COB-ID would clash with, or None (plugin:
+    reserved_cob_service): NMT, SYNC, TIME, the master's EMCY, a node's EMCY
+    (`default_emcy`: the node IDs whose EMCY is not configured, so it is
+    0x80 + node ID), a node's SDO or heartbeat, LSS or another restricted
+    CAN-ID. `time` False leaves out TIME (for the TIME COB-ID itself)."""
+    if cob == 0x000:
+        return "NMT"
+    if cob == 0x080:
+        return "SYNC"
+    if time and cob == (_uint(master.get("time_cob_id", 0x100)) or 0) & 0x7FF:
+        return "TIME"
+    if master_id is not None and cob == 0x80 + master_id:
+        return "the master's EMCY"
+    if cob - 0x80 in default_emcy:
+        return "node %d's EMCY" % (cob - 0x80)
+    for lo, what in ((0x580, "SDO response"), (0x600, "SDO request"), (0x700, "heartbeat")):
+        if lo < cob <= lo + 0x7F:
+            return "node %d's %s" % (cob - lo, what)
+    if cob in (0x7E4, 0x7E5):
+        return "LSS"
+    if restricted_can_id(cob):
+        return "a restricted CAN-ID (CiA 301)"
+    return None
 
 
 def configured_emcy_cob_id(n, sdo_entries=None):
@@ -862,6 +953,15 @@ def sdo_override(node, entry, data, linked_rpdos=()):
     return None
 
 
+# Store (0x1010) and restore (0x1011) write the device's non-volatile memory:
+# never as a startup write (plugin: kNvmStartupMessage, kNvmVariableMessage).
+NVM_STARTUP_MESSAGE = ("a startup SDO to 0x1010 (store) or 0x1011 (restore) would write the device's non-volatile "
+                       "memory at every boot; use 'store_configuration' or 'restore_configuration'")
+NVM_VARIABLE_MESSAGE = ("a write SDO variable on 0x1010 (store) or 0x1011 (restore) without 'trigger_location' is "
+                        "written after every boot; give it a 'trigger_location', or use 'store_configuration' or "
+                        "'restore_configuration'")
+
+
 def plugin_owned_object(index):
     """What the plugin itself configures in this object of a node, or None
     (plugin: plugin_owned_object in config.cpp)."""
@@ -941,6 +1041,18 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         err("", "top level must be a JSON object")
         return r
 
+    # Numbers the plugin cannot read exactly, and NaN or Infinity (which the
+    # plugin's JSON parser refuses), before anything else (plugin:
+    # parse_config_set).
+    bad = inexact_numbers(cfg)
+    for where in bad:
+        err(where, INEXACT_NUMBER_MESSAGE, [where])
+    nonfinite = _nonfinite(cfg)
+    for where in nonfinite:
+        err(where, "NaN and Infinity are not JSON numbers", [where])
+    if bad or nonfinite:
+        return r
+
     # schema_version first: a newer format is not guessed at.
     version = 1
     if "schema_version" in cfg:
@@ -955,7 +1067,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         version = v
 
     s = schema(version)
-    validator = jsonschema.Draft202012Validator(s)
+    validator = Validator(s)
     # Numbers written as strings are parsed first, so "0x80" meets the same
     # range check as 128.
     schema_errors = sorted(validator.iter_errors(parse_numbers(cfg, s, s)),
@@ -987,6 +1099,10 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
                 err("", "field '%s' needs schema_version 2" % key, [key])
         found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge",)]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
+        if r.ok:
+            # Two uses of one location (plugin: check_overlaps), as a
+            # version 2 file checks them across its networks.
+            _report_overlaps(location_uses(networks(cfg)[0]), "nodes", err)
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
     check_cia309(cfg, version, err)
@@ -1229,7 +1345,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             if key in net:
                 err(prefix, "field '%s' belongs in 'adapter' in schema_version 2" % key, [prefix + "." + key])
         name = net.get("name")
-        if "name" in net and not (isinstance(name, str) and NETWORK_NAME.match(name)):
+        if "name" in net and not (isinstance(name, str) and NETWORK_NAME.fullmatch(name)):
             err(prefix, 'network name "%s" must start with a letter and hold only letters, digits and \'_\', at '
                         "most 16 characters" % name, [prefix + ".name"])
         master = net.get("master")
@@ -1256,12 +1372,16 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
                        net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i, **args)
         raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
                                                              adapter.get("listen_only") is True)
+        if not plain and isinstance(net.get("raw"), dict) and "scan_watchdog_ms" in net["raw"]:
+            raw_errors.append("%s.raw.scan_watchdog_ms: only a plain CAN network takes it; %s" % (
+                prefix, "a J1939 network has j1939.scan_watchdog_ms" if j1939
+                else "a CANopen master has master.scan_watchdog_ms"))
         for m in raw_errors:
             r.add("error", "%s: %s" % (args["path"], m), [_raw_path(m)])
         for m in raw_warnings:
             r.add("warning", "%s: %s" % (args["path"], m), [_raw_path(m)])
         iface = adapter.get("interface")
-        if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.match(iface):
+        if "name" not in net and isinstance(iface, str) and iface and not NETWORK_NAME.fullmatch(iface):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None
@@ -1374,10 +1494,15 @@ def _check_across_networks(r, cfg, err, bridge_uses=None):
         located = [(parse_location(text), who, at, None) for _, who, at, text in uses] + bridge_uses
         bridgecheck.report_byte_overlaps(located, "networks", err)
         return
+    _report_overlaps(uses, "networks", err)
+
+
+def _report_overlaps(uses, where, err):
+    """Two location_uses() entries on one location (plugin: report_overlaps)."""
     for i, a in enumerate(uses):
         for b in uses[i + 1:]:
             if a[0] == b[0]:
-                err("networks", "%s and %s both map to %s" % (a[1], b[1], a[3]), [a[2], b[2]])
+                err(where, "%s and %s both map to %s" % (a[1], b[1], a[3]), [a[2], b[2]])
 
 
 def location_uses(net, prefix=""):
@@ -1845,6 +1970,10 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     % (node["node_id"], entry["index"], entry["subindex"], _value_text(sdo["value"]), problem),
                     ["%s.sdo[%d].value" % (w, j)])
             entry["value"] = data
+            if not problem and entry["index"] in (0x1010, 0x1011):
+                err("%s: sdo[%d]" % (w, j), "node %d, index 0x%04X, subindex %d: %s"
+                    % (node["node_id"], entry["index"], entry["subindex"], NVM_STARTUP_MESSAGE),
+                    ["%s.sdo[%d].index" % (w, j)])
             node["sdo"].append(entry)
             over = None if problem else sdo_override(n, entry, data, linked_rx.get(node["node_id"], ()))
             if over:
@@ -1859,6 +1988,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 err("%s: sdo_variables[%d]" % (w, j), "%s, %s: type %s (%d bit) does not fit location %s (%d bit)"
                     % (label, vlabel, v["type"], CO_TYPES[v["type"]][1], loc, SIZE_BITS[loc.size]),
                     ["%s.sdo_variables[%d].iec_location" % (w, j)])
+            if entry["direction"] == "write" and entry["index"] in (0x1010, 0x1011) and "trigger_location" not in v:
+                err("%s: sdo_variables[%d]" % (w, j), "%s, %s: %s" % (label, vlabel, NVM_VARIABLE_MESSAGE),
+                    ["%s.sdo_variables[%d]" % (w, j)])
             what = plugin_owned_object(entry["index"]) if entry["direction"] == "write" else None
             if what:
                 warn(label, "%s writes an object the plugin configures itself; the program can override %s"
@@ -1881,7 +2013,14 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             l["cob_id"] = t["cob_id"] if isinstance(t.get("cob_id"), int) else t["default_cob_id"]
 
     # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
-    # the COB-ID is set, "auto" or the default.
+    # the COB-ID is set, "auto" or the default, and a PDO on a service's
+    # COB-ID is taken for that service (plugin: check_pdo_cob_ids).
+    default_emcy = {node["node_id"] for n, node in zip(cfg["nodes"], nodes) if not configured_emcy_cob_id(n, node["sdo"])}
+    if "time_cob_id" in master:
+        t = (_uint(master["time_cob_id"]) or 0) & 0x7FF
+        what = reserved_cob_service(t, master, master_id, default_emcy, time=False)
+        if what:
+            err("master", "TIME COB-ID 0x%03X is %s" % (t, what), ["master.time_cob_id"])
     cobs = {}
     for i, node in enumerate(nodes):
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node["name"] else "")
@@ -1895,6 +2034,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 if key == "tx_pdos":
                     who += "".join(" (%s)" % l["label"] for l in links
                                    if l["producer"] == node["node_id"] and l["tpdo"] == pdo["number"])
+                what = reserved_cob_service(cob, master, master_id, default_emcy)
+                if what:
+                    err("nodes", "%s: COB-ID 0x%03X is %s" % (who, cob, what), [at])
                 if cob in cobs:
                     err("nodes", "%s and %s both use COB-ID 0x%03X" % (who, cobs[cob][0], cob), [at, cobs[cob][1]])
                 else:
@@ -1974,6 +2116,26 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         for msg, sub in zip(messages, where):
             add("error", msg, [w + sub])
         eds_warnings += [(msg, w + sub) for msg, sub in warnings]
+    # A node's EMCY COB-ID from its EDS default (0x1014), when the EDS moves it
+    # off 0x80 + node ID (plugin: check_eds_emcy_cob_ids).
+    for m in nodes:
+        sub = eds_by_id[m["node_id"]].find(0x1014, 0) if m["node_id"] in eds_by_id else None
+        if m["node_id"] not in default_emcy or sub is None:
+            continue
+        try:
+            emcy = sub.value(m["node_id"])
+        except (ValueError, eds_mod.EdsError):
+            emcy = None
+        if not emcy or emcy & 0x80000000 or emcy > 0x7FF or emcy == 0x80 + m["node_id"]:
+            continue
+        for i, node in enumerate(nodes):
+            label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node.get("name") else "")
+            for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
+                for j, pdo in enumerate(node[key]):
+                    cob = pdo.get("cob_id")
+                    if (cob if isinstance(cob, int) else pdo["default_cob_id"]) == emcy:
+                        add("error", "%s %s %d: COB-ID 0x%03X is node %d's EMCY (its EDS's 0x1014)"
+                            % (label, kind, pdo["number"], emcy, m["node_id"]), ["nodes[%d].%s[%d].cob_id" % (i, key, j)])
     # Two nodes with lss.assign must not name the same device.
     lss_nodes = [(i, n) for i, n in enumerate(nodes) if "vendor_id" in n.get("lss", {})]
     for a in range(len(lss_nodes)):
@@ -2483,6 +2645,9 @@ class _J1939Parser:
         out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": [], "diagnostics": None}
         out["ecu"] = self.ecu(j)
         out["dbc"] = self.string(j, "dbc", "j1939", "j1939")
+        wd = self.uint(j, "scan_watchdog_ms", "j1939", "j1939")
+        if wd is not None and wd != 0 and not 10 <= wd <= 60000:
+            self.err("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % wd, ["j1939.scan_watchdog_ms"])
         for key in ("rx", "tx", "requests"):
             arr = j.get(key)
             if key in j and not isinstance(arr, list):

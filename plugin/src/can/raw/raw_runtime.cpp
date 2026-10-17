@@ -6,6 +6,7 @@
 #include "../diag.h"
 #include "../frame_tx.h"
 #include "../log.h"
+#include <algorithm>
 #include <cstring>
 
 #include "cJSON.h"
@@ -54,11 +55,27 @@ bool RawRuntime::make(const ConfigSet& set, std::vector<std::string>& errors) {
   // (checked on the scan thread, so looked up, never computed there).
   owned_std_.assign(0x800, 0);
   for (uint32_t id = 0; id < 0x800; ++id) owned_std_[id] = protocol_id_use(cfg_, id, false).empty() ? 0 : 1;
+  // On a CANopen network, the PDOs with a 29-bit COB-ID.
+  owned_ext_.clear();
+  if (cfg_.is_canopen()) {
+    auto take = [this](uint32_t cob) {
+      if (!(cob & 0x20000000u)) return;
+      uint32_t id = cob & 0x1FFFFFFFu;
+      if (!protocol_id_use(cfg_, id, true).empty()) owned_ext_.push_back(id);
+    };
+    for (const auto& n : cfg_.nodes) {
+      for (const auto& p : n.tx_pdos) take(n.tpdo_cob_id(p));
+      for (const auto& p : n.rx_pdos) take(n.rpdo_cob_id(p));
+    }
+    std::sort(owned_ext_.begin(), owned_ext_.end());
+    owned_ext_.erase(std::unique(owned_ext_.begin(), owned_ext_.end()), owned_ext_.end());
+  }
   port_.reset(new PlcPort(index_));
   PortRules rules;
   rules.listen_only = cfg_.adapter.listen_only;
   rules.override_protocol = cfg_.raw.program_override_protocol;
   const std::vector<uint8_t>* owned = &owned_std_;
+  const std::vector<uint32_t>* owned_ext = &owned_ext_;
   bool j1939 = cfg_.is_j1939();
   unsigned sa = cfg_.j1939.ecu.address, lo = 0, hi = 0;
   if (j1939 && cfg_.j1939.ecu.has_range) {
@@ -66,9 +83,9 @@ bool RawRuntime::make(const ConfigSet& set, std::vector<std::string>& errors) {
     hi = cfg_.j1939.ecu.range_high;
   }
   bool has_range = j1939 && cfg_.j1939.ecu.has_range;
-  rules.owned = [owned, j1939, sa, has_range, lo, hi](uint32_t id, bool ext) {
+  rules.owned = [owned, owned_ext, j1939, sa, has_range, lo, hi](uint32_t id, bool ext) {
     if (!ext) return id < owned->size() && (*owned)[id] != 0;
-    if (!j1939) return false;
+    if (!j1939) return std::binary_search(owned_ext->begin(), owned_ext->end(), id);
     unsigned s = id & 0xFF;
     return s == sa || (has_range && s >= lo && s <= hi);
   };

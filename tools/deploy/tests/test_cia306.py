@@ -68,6 +68,12 @@ class Rules(unittest.TestCase):
         text = good().replace("1=0x1000\r\n2=0x1001", "1=0x1001\r\n2=0x1000", 1)
         self.assertEqual(messages(text), ["[MandatoryObjects]: objects are not in ascending order"])
 
+    def test_supported_objects_cap(self):
+        # A huge count is refused before the list is walked.
+        text = good().replace("[MandatoryObjects]\r\nSupportedObjects=3", "[MandatoryObjects]\r\nSupportedObjects=50000000")
+        self.assertIn("[MandatoryObjects] SupportedObjects: 50000000 is above 65535, more objects than an object "
+                      "dictionary holds", messages(text))
+
     def test_real_values_decimal(self):
         text, _ = slaveeds.generate({"date": "2026-10-16",
                                      "objects": [{"name": "t", "type": "REAL32", "direction": "to_master",

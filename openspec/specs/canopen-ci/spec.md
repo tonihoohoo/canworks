@@ -210,3 +210,10 @@ CI SHALL run the PC tools' CiA 306 check on every slave EDS that canworks genera
 #### Scenario: Vendor EDS without OrderCode
 - **WHEN** a fixture vendor EDS has no `OrderCode`
 - **THEN** the CiA 306 check does not run on it and CI does not fail for it
+
+### Requirement: Least-privilege workflows
+Every workflow SHALL declare a top-level read-only token permission and widen it only in jobs that need it. Every action SHALL be pinned by full commit SHA, kept current by automated update requests for actions only. The repository SHALL have a security policy.
+
+#### Scenario: New workflow
+- **WHEN** a workflow file is added without `permissions:`
+- **THEN** review finds it missing against this rule

@@ -76,7 +76,7 @@ function j1939NameFields(text) {
 function protocolField() {
   return el("fieldset", null, el("legend", null, "Protocol"),
     el("div", { class: "grid" }, choice("This network runs", "protocol", [
-      { value: undefined, label: "CANopen", help: "Default. A CANopen master with its nodes, or a CANopen slave device." },
+      { value: undefined, literal: "canopen", label: "CANopen", help: "Default. A CANopen master with its nodes, or a CANopen slave device." },
       { value: "j1939", label: "J1939", help: "The PLC is an ECU on a J1939 network: it claims an address, receives and sends parameter groups (PGNs), usually from a DBC file." },
       { value: "none", label: "Plain CAN", help: "No protocol: only the network's CAN messages (raw frames) run on it, for devices that speak neither CANopen nor J1939." },
     ], { onChange: switchProtocol, dataset: { j1939: "protocol" } })));
@@ -140,11 +140,15 @@ async function switchProtocol(protocol) {
 function renderJ1939(view) {
   const j = j1939Of(S.config);
   view.append(
-    el("h2", null, "Bus and ECU" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "Bus and ECU" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     el("span", { class: "field-msg", dataset: { for: "j1939" } }),
     protocolField(),
     adapterFieldset(),
     j1939Ecu(),
+    el("fieldset", { dataset: { section: "watchdog" } }, el("legend", null, "PLC scan"),
+      el("div", { class: "grid" },
+        field("Scan watchdog (ms)", "j1939.scan_watchdog_ms", "intstr", { placeholder: "1000",
+          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (J1939 and raw sends; inputs and address claim go on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }))),
     j1939Dbc(j),
     j1939Messages("rx"),
     j1939Messages("tx"),

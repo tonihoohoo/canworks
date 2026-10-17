@@ -228,3 +228,29 @@ TEST(sim_csv_path_rules) {
   std::string rm = "rm -rf '" + top + "'";
   CHECK(std::system(rm.c_str()) == 0);
 }
+
+// A CSV source looks up its row from the one it found last while time runs
+// forward; going back in time, wrapping in a loop or restarting finds the
+// same values as a search from the first row.
+TEST(sim_csv_rows_forward_back_and_loop) {
+  char tmpl[] = "/tmp/canworks-csv-XXXXXX";
+  std::string dir = mkdtemp(tmpl);
+  std::string text = "t,v\n";
+  for (int i = 0; i <= 1000; ++i) text += std::to_string(i) + "," + std::to_string(2 * i) + "\n";
+  write_file(dir + "/ramp.csv", text);
+  cJSON* j = cJSON_Parse(R"({"csv": {"file": "ramp.csv", "loop": true}})");
+  std::string err;
+  auto s = Source::parse(j, dir, err);
+  cJSON_Delete(j);
+  CHECK_MSG(s != nullptr, err);
+  if (!s) return;
+  NoCtx ctx;
+  for (double t : {0.5, 10.25, 999.5, 3.0, 3.5, 1000.5, 1999.75, 400.0}) {
+    double tt = std::fmod(t, 1000.0);
+    CHECK_MSG(std::fabs(s->eval(t, ctx).num - 2 * tt) < 1e-9, std::to_string(t));
+  }
+  s->restart();
+  CHECK(std::fabs(s->eval(1.5, ctx).num - 3) < 1e-9);
+  std::string rm = "rm -rf '" + dir + "'";
+  CHECK(std::system(rm.c_str()) == 0);
+}

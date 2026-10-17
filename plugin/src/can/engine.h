@@ -7,15 +7,19 @@
 #ifndef CANWORKS_ENGINE_H
 #define CANWORKS_ENGINE_H
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "config.h"
 #include "diag.h"
 #include "network_runtime.h"
 #include "plugin_types.h"
+#include "scan_watchdog.h"
 
 namespace canworks_raw {
 class RawRuntime;
@@ -73,6 +77,13 @@ class Engine {
   std::unique_ptr<Cia309Server> cia309_;  // with a `cia309` object only
 #endif
   DiagHost diag_host_;
+  // The scan watchdogs of the J1939 and plain CAN networks, and the thread
+  // that checks them while the PLC runs.
+  std::vector<std::unique_ptr<ScanWatchdog>> watchdogs_;
+  std::thread watchdog_thread_;
+  std::mutex watchdog_mutex_;
+  std::condition_variable watchdog_cv_;
+  bool watchdog_stop_ = false;
   bool started_ = false;
 };
 

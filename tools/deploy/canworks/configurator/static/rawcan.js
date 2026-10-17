@@ -257,7 +257,8 @@ function rawRemove(kind, i) {
   if (S.rawOpen && S.rawOpen.kind === kind) S.rawOpen = null;
   // The DBC file names where the messages came from: none left, no file.
   if (!getPath("raw.rx") && !getPath("raw.tx")) setPath("raw.dbc", undefined);
-  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol")) {
+  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol") &&
+      getPath("raw.scan_watchdog_ms") === undefined) {
     setPath("raw", undefined);
   }
   changed(true);
@@ -267,7 +268,7 @@ function renderCanMessages(view) {
   const none = getPath("protocol") === "none";
   const listenOnly = getPath("adapter.listen_only") === true;
   view.append(
-    el("h2", null, "CAN messages" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "CAN messages" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     el("p", { class: "muted" }, none
       ? "A plain CAN network: only the messages below run on it."
       : "Plain CAN messages next to the network's protocol, for devices that speak neither CANopen nor J1939. " +
@@ -276,6 +277,8 @@ function renderCanMessages(view) {
       el("div", { class: "grid" },
         none ? checkbox("Listen only", "adapter.listen_only", false,
           "The PLC only watches the bus: it never acknowledges or sends a frame. Sent messages are not allowed then.") : null,
+        none ? field("Scan watchdog (ms)", "raw.scan_watchdog_ms", "intstr", { placeholder: "1000",
+          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (sent messages and the program's frames; received messages go on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }) : null,
         none ? null : checkbox("Program may send protocol identifiers", "raw.program_override_protocol", false,
           "On: CAN_SEND and CAN_SEND_CYCLIC may use identifiers the protocol owns (ERROR_ID 4 otherwise)."))),
     rawDbc());
@@ -548,7 +551,7 @@ const isPlain = (net) => !!net && net.protocol === "none";
 
 function renderPlainBus(view) {
   view.append(
-    el("h2", null, "Bus" + (several() ? `: network ${netLabel(S.config, S.net)}` : "")),
+    el("h2", null, "Bus" + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     protocolField(),
     el("fieldset", { dataset: { section: "network" } }, el("legend", null, "Network"),
       el("div", { class: "grid" },
@@ -563,7 +566,7 @@ function renderPlainBus(view) {
         } }))),
     adapterFieldset(),
     el("p", { class: "muted" }, "Only plain CAN messages run on this network. Set them up under ",
-      el("button", { type: "button", class: "link", dataset: { go: "raw" }, onclick: () => showView("raw") }, "CAN messages"), "."),
+      el("button", { type: "button", class: "link target", dataset: { go: "raw" }, onclick: () => showView("raw") }, "CAN messages"), "."),
     onlineAccessSettings());
 }
 

@@ -11,7 +11,7 @@ from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
 from .helpers import REPO, add_network, net_action, tree_view
-from .test_configurator_layout import CONTRAST
+from .test_configurator_layout import CONTRAST, TARGETS
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -81,10 +81,17 @@ class RawPage(OnlineBase):
         self.assertIn("0x18FF1020 ext", pg.inner_text('[data-raw-table="rx"]'))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        # The network's own scan watchdog; a bad value shows at the field.
+        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "5")
+        pg.wait_for_selector('input[data-path="raw.scan_watchdog_ms"].invalid')
+        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "250")
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
         net = saved["networks"][0]
+        self.assertEqual(net["raw"]["scan_watchdog_ms"], 250)
         self.assertEqual(len(saved["networks"]), 1)
         self.assertEqual(net["protocol"], "none")
         self.assertEqual(net["adapter"]["interface"], "can1")
@@ -226,6 +233,43 @@ class RawPage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('Imported 1 message from cab.dbc')")
         self.assertEqual(self.draft("S.config.raw.rx.map((m) => m.name)"), ["Joystick", "Pedal"])
 
+    def test_cleared_signal_length(self):
+        """A cleared signal length is a field problem, not a failed check."""
+        pg = self.page
+        self.joystick_config()
+        self.open()
+        tree_view(pg, "raw")
+        pg.click('tr[data-raw="rx:0"]')
+        length = 'input[data-path="raw.rx[0].signals[0].length"]'
+        pg.fill(length, "")
+        pg.press(length, "Tab")
+        pg.wait_for_selector(length + ".invalid")
+        self.assertIn("Received Joystick, signal X: missing", pg.inner_text("#problem-list"))
+        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertNotIn("hit an error", pg.inner_text("#banner"))
+
+    def test_trace_and_frame_lab_without_canopen(self):
+        """A plain network's Trace offers no CANopen kinds, and the Frame
+        lab's examples are its own messages."""
+        pg = self.page
+        self.joystick_config()
+        self.open()
+        pg.click('#tool-tabs button[data-view="trace"]')
+        pg.click("[data-trace=filters] > summary")
+        kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
+        self.assertEqual(kinds, ["error", "gap", "other", "raw"])
+        self.assertEqual(pg.locator('[data-trace-tab="sequences"]').count(), 0)
+        pg.click('[data-trace-tab="trigger"]')
+        conds = pg.eval_on_selector_all('[data-trace-cond="0.type"] option', "es => es.map(e => e.value)")
+        self.assertEqual(conds, ["frame", "signal", "bus", "error_frame"])
+        pg.click('button[data-view="framelab"]')
+        pg.wait_for_selector("[data-fx=examples] .chip")
+        chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
+        self.assertEqual(chips, ["Joystick"])
+        self.assertEqual(pg.locator("[data-fx-mode=build]").count(), 0)
+        pg.click('[data-fx-example="Joystick"]')
+        pg.wait_for_selector("#fx-lab-inspector:has-text('Raw message Joystick')")
+
     def test_missing_dbc_file(self):
         pg = self.page
         self.joystick_config("old.dbc")
@@ -308,7 +352,11 @@ class RawPage(OnlineBase):
         shutil.copy(os.path.join(EXAMPLE, "cab.sim.json"), os.path.join(self.project, "canworks", "simulation.json"))
         self.write_config()
         self.open()
+        # The links in running text are 24 px targets: Bus's CAN messages, Simulation's Online access.
+        self.assertEqual(pg.evaluate(TARGETS), [])
         pg.click('#tool-tabs button[data-view="simulation"]')
+        pg.wait_for_selector("#view a:has-text('Online access')")
+        self.assertEqual(pg.evaluate(TARGETS), [])
         pg.click('button[data-sim-tab="file"]')
         devices = pg.inner_text('[data-sim="raw-devices"]')
         self.assertIn("0x181 every 20 ms (X, Y)", devices)

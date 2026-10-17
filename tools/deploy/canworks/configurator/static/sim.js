@@ -530,7 +530,7 @@ function simLiveTab() {
     if (simCanConnect()) return notice("info", "The live values show once the simulated devices answer. The simulation file and the scenarios can be edited meanwhile.", { live: false });
     if (!diagConfig()) {
       return notice("info", ["Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+        el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
         " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile."],
       { live: false, dataset: { sim: "access-off" } });
     }

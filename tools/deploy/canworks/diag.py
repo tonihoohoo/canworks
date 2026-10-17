@@ -43,6 +43,7 @@ DEFAULT_PORT = 7531
 GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
 GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
 GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
+FORWARD_MAX = 4  # local connections at a time on a forwarding port (gateway --listen, link open)
 GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
@@ -701,11 +702,14 @@ class Client:
         lists each with its "sent" count and "reason"."""
         return self.request("send_frame_stop", **({} if job is None else {"job": job}))
 
-    def replay(self, frames, more=False, loop=False, force=False):
+    def replay(self, frames, more=False, loop=False, force=False, loop_gap_us=None):
         """One batch of a replay (raw.replay.batches): the first starts it,
-        `more` says another follows. The answer has "running", "sent" and
+        `more` says another follows; `loop_gap_us` is the least gap between
+        loop rounds (from --rate). The answer has "running", "sent" and
         "queued"."""
         fields = {"frames": frames}
+        if loop and loop_gap_us:
+            fields["loop_gap_us"] = int(loop_gap_us)
         for key, v in (("more", more), ("loop", loop), ("force", force)):
             if v:
                 fields[key] = True
@@ -843,6 +847,13 @@ def _int_range(what, lo, hi):
     return parse
 
 
+def _sync_counter(t):
+    v = _uint(t, "SYNC counter", 240)
+    if v == 1:
+        raise argparse.ArgumentTypeError("SYNC counter must be 0 (none) or 2-240")
+    return v
+
+
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-diag",
@@ -963,7 +974,9 @@ def parser():
     rp.add_argument("file", metavar="FILE", help="the trace to replay")
     rp.add_argument("--rate", type=float, metavar="FPS",
                     help="send the frames evenly at this many frames per second instead (at most 1000)")
-    rp.add_argument("--loop", action="store_true", help="start again at the end, until Ctrl-C")
+    rp.add_argument("--loop", action="store_true",
+                    help="start again one frame period after the end, until Ctrl-C; a trace shorter than 1 s "
+                         "needs --rate")
     rp.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
                     help="send even when the network uses an identifier or a node is OPERATIONAL")
     rp.add_argument("--config", metavar="canworks.json",
@@ -1094,8 +1107,8 @@ def parser():
                     help="send event-driven RPDOs again every MS (default: once per --set)")
     pt.add_argument("--sync", type=_int_range("SYNC period", 1, 10000), metavar="MS",
                     help="send SYNC every MS (synchronous TPDOs answer it, synchronous RPDOs go with it)")
-    pt.add_argument("--sync-counter", type=_int_range("SYNC counter", 0, 240), default=0, metavar="N",
-                    help="SYNC counter overflow value (2-240; default 0: no counter)")
+    pt.add_argument("--sync-counter", type=_sync_counter, default=0, metavar="N",
+                    help="SYNC counter overflow value: 0 (no counter, the default) or 2-240")
     pt.add_argument("--start", action="store_true", help="send NMT start to the node first")
     pt.add_argument("--duration", type=float, metavar="S", help="stop after S seconds (default: Ctrl-C)")
     pt.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
@@ -2006,7 +2019,8 @@ def _pdo_test(client, args, out):
     else:
         layout = pdotest.from_device(client, args.node, ctx.eds)
     if not layout["tpdos"] and not layout["rpdos"]:
-        raise DiagError("refused", "node %d has no valid PDO" % args.node)
+        raise DiagError("refused", "node %d has no valid PDO%s" % (args.node, "".join(
+            "; " + n for n in layout["notes"])))
     sets = {}
     for item in args.set:
         key, eq, value = item.partition("=")
@@ -2034,6 +2048,8 @@ def _pdo_test(client, args, out):
         out.write("PDO test of node %d (%s): %s\n" % (args.node, "configuration" if ctx.configured else "read from "
                                                      "the device", ", ".join(p["name"] for p in
                                                                              layout["tpdos"] + layout["rpdos"])))
+        for note in layout["notes"]:
+            out.write("  %s\n" % note)
         out.flush()
     started = time.monotonic()
     st = {}
@@ -2110,7 +2126,8 @@ def _adapters(args, out):
         elif a.get("description"):
             line += "  %s" % a["description"]
         if a.get("usb_id"):
-            line += " [USB %s]" % a["usb_id"]
+            line += " [USB %s%s]" % (a["usb_id"], ", bus %s address %s" % (a["usb_bus"], a["usb_address"])
+                                    if a.get("usb_bus") is not None else "")
         out.write(line + "\n")
     return 0
 
@@ -2221,7 +2238,7 @@ def _replay(client, args, out):
     straight onto the PC's adapter."""
     from .raw import replay as rp
     try:
-        p = rp.plan(rp.load(args.file), args.rate)
+        p = rp.plan(rp.load(args.file), args.rate, loop=args.loop)
     except (OSError, rp.ReplayError) as e:
         raise DiagError("usage", "cannot replay %s: %s" % (args.file, e))
     force = bool(getattr(args, "force", False))
@@ -2233,7 +2250,8 @@ def _replay(client, args, out):
     batches = rp.batches(p)
     try:
         for i, b in enumerate(batches):
-            res = client.replay(b["frames"], more=i + 1 < len(batches), loop=args.loop, force=force)
+            res = client.replay(b["frames"], more=i + 1 < len(batches), loop=args.loop, force=force,
+                                loop_gap_us=1e6 / args.rate if args.rate else None)
     except DiagError as e:
         if i:
             client.replay_stop()
@@ -2285,7 +2303,7 @@ def _replay_local(client, args, p, force, out):
     reason = "done"
     sent = 0
     try:
-        sent = rp.play(send, p, loop=args.loop)
+        sent = rp.play(send, p, loop=args.loop, gap_us=rp.loop_gap_us(p, args.rate))
     except KeyboardInterrupt:
         reason = "stopped"
     except Exception as e:  # the adapter went away
@@ -2718,16 +2736,10 @@ def _link_open(args, entry, out):
     out.write("forwarding to %s until Ctrl-C\n" % entry["name"])
     out.flush()
 
-    def serve(srv, target, remote):
-        while True:
-            try:
-                local, _ = srv.accept()
-            except OSError:
-                return
-            threading.Thread(target=_link_pipe, args=(linkpc, entry, target, remote, local), daemon=True).start()
-
     for srv, target, remote in listeners:
-        threading.Thread(target=serve, args=(srv, target, remote), daemon=True).start()
+        # More connections wait unaccepted (a browser opens several at once).
+        threading.Thread(target=_serve_local, daemon=True, args=(
+            srv, lambda local, t=target, r=remote: _link_pipe(linkpc, entry, t, r, local), None)).start()
     try:
         while True:
             time.sleep(3600)
@@ -2737,6 +2749,36 @@ def _link_open(args, entry, out):
         for srv, _, _ in listeners:
             srv.close()
     return 0
+
+
+def _serve_local(srv, handle, refuse):
+    """Accepts the local connections of `srv` and runs `handle(sock)` for
+    each in its own thread, FORWARD_MAX at a time. One more is passed to
+    `refuse(sock)` and closed, or with `refuse` None waits in the listen
+    queue until one ends."""
+    slots = threading.BoundedSemaphore(FORWARD_MAX)
+
+    def run(local):
+        try:
+            handle(local)
+        finally:
+            slots.release()
+
+    while True:
+        if refuse is None:
+            slots.acquire()
+        try:
+            local, _ = srv.accept()
+        except OSError:
+            return
+        if refuse is not None and not slots.acquire(blocking=False):
+            try:
+                refuse(local)
+            except OSError:
+                pass
+            local.close()
+            continue
+        threading.Thread(target=run, args=(local,), daemon=True).start()
 
 
 def _link_pipe(linkpc, entry, target, remote, local):
@@ -2931,15 +2973,12 @@ def _gateway_listen(args, host, port, token, lhost, lport, out):
               % (args.runtime, lhost, srv.getsockname()[1], gateway_nets_text(info)))
     out.flush()
 
-    def serve():
-        while True:
-            try:
-                local, peer = srv.accept()
-            except OSError:
-                return
-            threading.Thread(target=_gateway_pipe, args=(args, host, port, token, local), daemon=True).start()
+    def refuse(local):
+        print("canworks-diag gateway: refused a local connection: %d are open" % FORWARD_MAX, file=sys.stderr)
+        local.sendall(b"ERROR: 102 (too many local connections, at most %d)\r\n" % FORWARD_MAX)
 
-    threading.Thread(target=serve, daemon=True).start()
+    threading.Thread(target=_serve_local, daemon=True, args=(
+        srv, lambda local: _gateway_pipe(args, host, port, token, local), refuse)).start()
     try:
         while True:
             time.sleep(3600)
@@ -3265,11 +3304,15 @@ def _record(args, out, fmt, filters, spec, connect, names):
         except OSError as e:
             raise DiagError("usage", "cannot write %s: %s" % (args.output, e.strerror or e))
         summary = session.analysis.summary(info["lost"], info["kernel_drops"])
+        dropped, limit = session.trace.dropped, session.trace.limit
     seconds = ((summary["last_us"] or 0) - (summary["first_us"] or 0)) / 1e6
     rate = summary["frames"] / seconds if seconds > 0 else 0.0
     out.write("%d frames in %.1f s (%.0f frames/s), %d lost, %d dropped by the PLC's kernel%s -> %s\n" % (
         summary["frames"], seconds, rate, summary["lost"], summary["kernel_drops"],
         ", %d error frames" % summary["error_frames"] if summary["error_frames"] else "", args.output))
+    if dropped:
+        out.write("warning: the oldest %d frames were dropped past the %d-frame limit; the file holds the last "
+                  "%.1f s of the recording (record shorter or with --filter)\n" % (dropped, limit, seconds))
     if spec:
         hits = info["hits"]
         out.write("trigger %s: %s\n" % (triggers.describe(rec.engine.spec),

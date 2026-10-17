@@ -62,7 +62,11 @@ class J1939Page(OnlineBase):
         pg.wait_for_selector('input[data-path="j1939.ecu.address"].invalid')
         self.assertIn("ECU identity", pg.inner_text("#problem-list"))
         pg.fill('input[data-path="j1939.ecu.address"]', "128")
+        pg.fill('input[data-path="j1939.scan_watchdog_ms"]', "9")
+        pg.wait_for_selector('input[data-path="j1939.scan_watchdog_ms"].invalid')
+        pg.fill('input[data-path="j1939.scan_watchdog_ms"]', "250")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
@@ -74,6 +78,7 @@ class J1939Page(OnlineBase):
         self.assertEqual([m["name"] for m in net["j1939"]["tx"]], ["Setpoints"])
         self.assertEqual(net["j1939"]["dbc"], "machine.dbc")
         self.assertEqual(net["j1939"]["ecu"]["name"], {"identity_number": 77, "function": 130})
+        self.assertEqual(net["j1939"]["scan_watchdog_ms"], 250)
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "machine.dbc")))
 
     def test_multiplexed_send_pgn(self):

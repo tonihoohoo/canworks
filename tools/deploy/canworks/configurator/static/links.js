@@ -358,7 +358,7 @@ function linkBox(l, i) {
       el("label", null, "COB-ID", el("output", { dataset: { linkCob: String(i) } }, cob === null ? "?" : "0x" + cob.toString(16).toUpperCase()),
         hint("The producer TPDO's; set it on the producer.")),
       choice("On PLC stop", lp + ".on_plc_stop", [
-        { value: undefined, label: "Follow the master", help: "The link's nodes get the master's on_plc_stop command like every node." },
+        { value: undefined, literal: "follow", label: "Follow the master", help: "The link's nodes get the master's on_plc_stop command like every node." },
         { value: "keep", label: "Keep running", help: "The master sends the link's nodes no NMT command on PLC stop, so the link runs on (event-driven types only: SYNC stops)." },
       ])),
     el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Producer"), linkLiveCell((l.from || {}).node),

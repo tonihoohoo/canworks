@@ -41,7 +41,7 @@ A simulated master network and a simulated [slave network](slave.md#simulated-bu
 
 #### Simulated devices on a real network
 
-Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. Extra devices of the simulation file go through the same check. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line. Such a device is taken for the rest of the session (until the PLC starts again): a power on, a `clear`, a fault or a scenario step for it is refused with "node N is taken by a real device", so it never boots next to the real one. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
+Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. Extra devices of the simulation file go through the same check, and so does a node ID a device stored over LSS in an earlier session: a device whose stored node ID is in use now is not started either. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line; the guard follows a node ID an LSS master gives the device. Such a device is taken for the rest of the session (until the PLC starts again): a power on, a `clear`, a fault or a scenario step for it is refused with "node N is taken by a real device", so it never boots next to the real one. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
 
 The simulated devices run in the plugin's bus thread on their own sockets on the same interface. The kernel's local loopback hands their frames to the master and puts them on the wire, so the bus trace shows them too.
 
@@ -224,7 +224,7 @@ A value source writes one object of a simulated device every tick. Each source i
 | `csv` | `file`, `column` (1), `interpolate`: `linear` (default) or `step`, `loop` (false), `time_scale` (1) | A time series: column 0 is the time in seconds, `column` the value; a first line that is not numeric is a header. After the last row the value holds, or the series starts again with `loop`. |
 | `expr` | the text | An [expression](#expressions). |
 
-Time counts from when the source was given, or from the device's power-on for sources in the file. Values are converted to the object's data type: rounded for integer types, clamped to the type's range, BOOLEAN is `value != 0`. A value given with `set` or `override` that does not fit the data type (text for a number, a number for text, or a number outside the type's range) is refused with a message naming the type, also while the device is powered off. A source on an object the master writes (an RPDO entry, or an object the configuration or an SDO variable writes) is refused, naming the RPDO or the writer; use an override to make a device ignore its master. An object a [PDO link](config.md#pdo-links) consumer's RPDO writes counts as written by the bus the same way: a source on it is refused naming the link, and expressions may read it.
+Time counts from when the source was given, or from the device's power-on for sources in the file. Values are converted to the object's data type: rounded for integer types, clamped to the type's range, BOOLEAN is `value != 0`. A value given with `set` or `override` that does not fit the data type (text for a number, a number for text, or a number outside the type's range) is refused with a message naming the type, also while the device is powered off. A `set` on a powered-off device is refused ("node N is powered off"), as the value would go with the dictionary at power on; an `override` is kept and written from power on. A source on an object the master writes (an RPDO entry, or an object the configuration or an SDO variable writes) is refused, naming the RPDO or the writer; use an override to make a device ignore its master. An object a [PDO link](config.md#pdo-links) consumer's RPDO writes counts as written by the bus the same way: a source on it is refused naming the link, and expressions may read it.
 
 Simulated devices receive each other's PDOs on the simulated bus as real devices do, so a link between simulated nodes carries data once the master has configured them: a counter on the producer's TPDO object and the expression `[0x6411:1]` on the consumer's own TPDO object show the value pass through ([`examples/pdo-link`](../examples/pdo-link/README.md)). A simulated consumer with a `heartbeat_watch` notices its producer's heartbeat stop or a power off (`sim_fault` `heartbeat` or `power`) like a real device: it sends EMCY 0x8130 within the watch timeout and enters the state its 0x1029 sub 1 gives.
 
@@ -239,20 +239,22 @@ An expression computes a value every tick. It has numbers (`12`, `-3.5`, `0x1F`,
 | `[0x6200:1]` | Object 0x6200 subindex 1 of the same device (`[0x6200]` is subindex 0). |
 | `[7/0x6200:1]` | The same object of simulated node 7 (or of the extra device named `spare`: `[spare/0x6200:1]`). |
 
-Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!=`, `<` `<=` `>` `>=`, `<<` `>>`, `+` `-`, `*` `/` `%`, `**` (power, right to left), unary `-` `!` `~`. Bit operators work on the integer part. Comparisons and `!` give 1 or 0.
+A subindex is decimal (`:1`, `:01`) or hex with `0x` (`:0x01`); a node ID is written without leading zeros (`[7/…]`, not `[07/…]`). The configurator's check and the plugin read expressions alike and give the same values (the shared cases are in `test/fixtures/sim/expressions.json`).
+
+Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!=`, `<` `<=` `>` `>=`, `<<` `>>`, `+` `-`, `*` `/` `%`, `**` (power, right to left), unary `-` `!` `~`. Bit operators work on the integer part as a signed 64-bit integer; a shift by less than 0 or more than 63 gives 0. Comparisons and `!` give 1 or 0. `&&` and `||` evaluate both sides.
 
 | Function | Value |
 |---|---|
 | `abs(x)`, `floor(x)`, `ceil(x)`, `round(x)`, `sqrt(x)`, `exp(x)`, `log(x)`, `sin(x)`, `cos(x)` | As usual (radians). |
 | `min(a, b, ...)`, `max(a, b, ...)`, `clamp(x, lo, hi)` | Limits. |
-| `if(c, a, b)` | `a` when `c` is not 0, else `b`. |
+| `if(c, a, b)` | `a` when `c` is not 0, else `b`. All three are evaluated every tick, so `lag`, `integrate`, `edge` and the like in the branch not taken keep running. |
 | `bit(x, n)`, `setbit(x, n, v)` | Bit `n` of `x`; `x` with bit `n` set to `v`. |
 | `noise(a)` | A new random value between -a and a every tick. |
-| `lag(x, tau)` | First-order lag of `x` with time constant `tau` seconds (a temperature following its heater). |
-| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s; a delay that is not a finite number counts as 0). It keeps at most 10,000 samples, so at a short tick a long delay gets shorter, and it starts over when time goes back. |
+| `lag(x, tau)` | First-order lag of `x` with time constant `tau` seconds (a temperature following its heater): it starts at `x` and moves by (x − value) × (1 − e^(−dt/tau)) each tick. |
+| `delay(x, s)` | `x` as it was `s` seconds ago (dead time, at most 600 s: a number above it is refused, a computed one is limited to 0-600 s; a delay that is not a finite number counts as 0). It keeps at most 10,000 samples, so at a short tick a long delay gets shorter, and it starts over when time goes back. |
 | `rate_limit(x, r)` | Follows `x`, changing by at most `r` per second. |
 | `integrate(x)` | The integral of `x` over time since power-on. |
-| `hold(x, c)` | Takes `x` when `c` rises, keeps it otherwise. |
+| `hold(x, c)` | Takes `x` on the first tick and when `c` rises, keeps it otherwise. |
 | `edge(c)` | 1 in the tick `c` rises, else 0. |
 
 An expression is checked when it is loaded: an unknown name, function, object or device, a wrong number of arguments, text longer than 4096 characters, nesting deeper than 128 levels (parentheses, calls, operators), or a reference cycle through objects whose sources are expressions without `lag`, `delay` or `integrate` on the way is refused with its position in the text. While running, a division by zero or a result that is not a finite number keeps the object's previous value; the device reports it once.
@@ -290,11 +292,11 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 | `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. Code 0x0000 is the CiA 301 error reset: one EMCY 0000 with the given register and bytes, which also empties the device's error history (0x1003) and stops a periodic EMCY; it takes no `period_ms`. Refused for a device whose EDS has no 0x1014 (COB-ID EMCY): it has no EMCY producer. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000) when an EMCY was sent. |
 | `heartbeat` | `"stop"` | The device stops its heartbeat but goes on working (a firmware hang the master notices). | `heartbeat` |
 | `power` | `"off"`, `"on"` or `"cycle"` (with `off_ms`, default 1000) | Off: the device sends and answers nothing. On: it boots again with the values from its file and its stored values. | `power` (powers on) |
-| `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. | - |
+| `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. A reset node (also the master's NMT reset node) starts a simulated CiA 402 drive over as a power on does: a drive in Fault comes back in Switch on disabled. | - |
 | `nmt_state` | `"stopped"`, `"preop"` or `"operational"` | The device changes its state by itself. | - |
-| `sdo_abort` | `object`, `code`, `on`: `read`, `write` or `both` (default), `count` (until cleared) | Transfers of that object abort with the code. | `sdo_abort` (all), or with the object |
+| `sdo_abort` | `object`, `code`, `on`: `read`, `write` or `both` (default), `count` (until cleared) | SDO transfers of that object abort with the code, also of an object in a PDO (the statusword, the controlword); the PDOs carry it as before. | `sdo_abort` (all), or with the object |
 | `sdo_delay` | `ms`, `object` (all) | SDO answers come `ms` later. | `sdo_delay` |
-| `refuse_write_operational` | `true` | Writes abort with 0x08000022 while the device is OPERATIONAL. | `refuse_write_operational` |
+| `refuse_write_operational` | `true` | SDO writes abort with 0x08000022 while the device is OPERATIONAL; RPDOs still write. | `refuse_write_operational` |
 | `tpdo_stop` | the TPDO number (1-512) | The device stops sending that TPDO. | `tpdo_stop` (all), or with the number |
 | `identity` | `vendor_id`, `product_code`, `revision_number`, `serial_number` | 0x1018 reads these values from now on, also after a reset. | `identity` |
 | `device_type` | the value | 0x1000 reads it. | `device_type` |
@@ -322,7 +324,7 @@ A scenario is a named list of steps, run in order. A step has one action, option
 | `wait` | a condition, and `timeout_ms` on the step | Waits until it holds; a timeout fails the scenario. |
 | `expect` | a condition, and `within_ms` or `for_ms` on the step | Checks it: now, until it holds within the time, or that it holds the whole time. |
 | `log` | text | Prints the text. |
-| `repeat` | `count` (0: forever), `steps` | Runs the steps again and again. A pass in which no step waited ends the scenario's steps for that tick, so a repeat of instant steps runs one pass per tick. |
+| `repeat` | `count` (0 or none: forever), `steps` | Runs the steps again and again. A pass in which no step waited ends the scenario's steps for that tick, so a repeat of instant steps runs one pass per tick (on a plain CAN network too). |
 
 A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `ne`, `lt`, `le`, `gt`, `ge` and optionally `bit` (compares that bit), or `{"expr": "[7/0x6200:1] > 5 && [5/0x7130:1] < 300"}`.
 

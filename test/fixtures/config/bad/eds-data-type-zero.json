@@ -1,0 +1,72 @@
+{
+  "description": "An unused EDS object 0x4002 of DataType 0x0000.",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "probe.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100"
+              }
+            ]
+          }
+        ],
+        "sdo": [
+          {
+            "index": "0x1017",
+            "subindex": 0,
+            "type": "UNSIGNED16",
+            "value": 100
+          }
+        ]
+      }
+    ]
+  },
+  "eds_files": {
+    "probe.eds": {
+      "from": "cpp-slave.eds",
+      "replace": [
+        [
+          "SupportedObjects=2\n1=0x4000\n2=0x4001\n",
+          "SupportedObjects=3\n1=0x4000\n2=0x4001\n3=0x4002\n"
+        ],
+        [
+          "PDOMapping=1\n",
+          "PDOMapping=1\n\n[4002]\nParameterName=probe\nDataType=0x0000\nAccessType=rw\nDefaultValue=0\nPDOMapping=0\n"
+        ]
+      ]
+    }
+  },
+  "message": "DataType not specified"
+}

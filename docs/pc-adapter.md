@@ -14,7 +14,7 @@ The PC is a guest on the bus, not its master. It sends nothing until you act, an
 
 Other interfaces python-can knows (`pcan`, `kvaser`, `ixxat`, `vector`, ...) are passed through untested: `--adapter pcan:PCAN_USBBUS1` works when python-can and the vendor's driver do, and the tools say the type is untested. Their options go in `--adapter-option KEY=VALUE` (repeatable).
 
-`canworks-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, gs_usb adapters by USB ID on macOS and Windows (numbered from 0 in USB order), and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
+`canworks-diag adapters` lists what is plugged in: serial ports with USB IDs (recognised slcan adapters named), SocketCAN interfaces on Linux, gs_usb adapters on macOS and Windows (every USB ID the gs_usb driver knows, numbered from 0 in the order `gs_usb:N` opens them, each with its USB bus and address), and what python-can finds for the other types. Each line starts with the `--adapter` value to use.
 
 A SocketCAN interface that is already up is used at its own bit rate. One that is down is brought up at the given bit rate when the user may; otherwise the message gives the `sudo ip link set ...` command to run first.
 
@@ -67,7 +67,7 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 - LSS commands are refused while another master is active, because LSS addresses every device at once and the master may be using LSS itself. `--force` (in the configurator, **Run anyway** in the question) runs them anyway.
 - `lss-set-id` refuses a node ID the bus already shows (by heartbeat) unless forced.
 - NMT goes to one node at a time; the other master may start the node again.
-- `sdo-write`, `nmt` other than `start`, and `scan` need `--force` while a node's heartbeat in the last 30 s said OPERATIONAL, as on a runtime (see [diagnostics.md](diagnostics.md#changes-to-a-running-network)).
+- `sdo-write`, `nmt` other than `start`, `scan`, and the writes of `configure` and `restore` need `--force` while another master is active or any node's heartbeat in the last 30 s said OPERATIONAL (see [diagnostics.md](diagnostics.md#changes-to-a-running-network)). The tools listen only a second first, so a node with a slow heartbeat or node guarding may not have shown its own state yet; the refusal says what was seen. The PC sends no node-guarding requests, which would disturb the other master's guarding.
 
 ## Limits
 
@@ -109,4 +109,4 @@ $D --bitrate 250 backup 12 -o node12.dcf --config canworks/canworks.json  # 8. b
 
 On a runtime, `configure` refuses a node the runtime configures itself: the plugin writes its configuration at every boot, so change the runtime's configuration and reset the node instead. For other nodes the runtime cannot hold the node in PRE-OPERATIONAL (it sends NMT only to the nodes it configures), and the result says so.
 
-**PDO test** (`pdo-test`, in the configurator the node's **PDO test** tab in Commission a CANopen device) shows the node's TPDOs with their decoded values, periods and counts, and sends its RPDOs with the values you set (`--set NAME=VALUE`, by entry name, `0xIIII:SS` or `RPDO1.name`; `--repeat-ms` for an event-driven RPDO). The layout comes from the configuration when the node is in it, otherwise from the device. `--start` sends NMT Start to the node; `--sync MS` sends SYNC from the PC, so RPDOs and TPDOs with synchronous transmission run. The test needs `--allow-changes` and `--force` while another master is active, ends when another master appears unless forced, and ends with the command or when the configurator leaves the tab. It is not offered on a runtime: there the PLC runs the PDOs.
+**PDO test** (`pdo-test`, in the configurator the node's **PDO test** tab in Commission a CANopen device) shows the node's TPDOs with their decoded values, periods and counts, and sends its RPDOs with the values you set (`--set NAME=VALUE`, by entry name, `0xIIII:SS` or `RPDO1.name`; `--repeat-ms` for an event-driven RPDO). The layout comes from the configuration when the node is in it, otherwise from the device; a PDO whose mapping entries cannot all be read is left out, with a note naming the entry. `--start` sends NMT Start to the node; `--sync MS` sends SYNC from the PC, so RPDOs and TPDOs with synchronous transmission run. The test needs `--allow-changes` and `--force` while another master is active, ends when another master appears unless forced, and ends with the command or when the configurator leaves the tab. It is not offered on a runtime: there the PLC runs the PDOs.

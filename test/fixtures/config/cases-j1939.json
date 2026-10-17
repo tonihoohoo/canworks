@@ -630,6 +630,32 @@
       "messages": ["networks[1]: j1939: diagnostics: lamps_location %IB231 must be a byte output (%QB)"]
     },
     {
+      "name": "j1939: scan watchdog of a J1939-only project",
+      "patch": [["delete", "networks/0"], ["set", "networks/0/j1939/scan_watchdog_ms", 250]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: scan watchdog off",
+      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", 0]],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "j1939: scan watchdog too short",
+      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", 9]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: field 'scan_watchdog_ms' must be 0 or 10-60000: 9"]
+    },
+    {
+      "name": "j1939: scan watchdog not a number",
+      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", "1000"]],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": ["networks[1]: j1939: field 'scan_watchdog_ms' must be a non-negative integer"]
+    },
+    {
       "name": "j1939: diagnostics accept_clear not a boolean",
       "patch": [["set", "networks/1/j1939/diagnostics", {"accept_clear": "no"}]],
       "schema": "invalid",

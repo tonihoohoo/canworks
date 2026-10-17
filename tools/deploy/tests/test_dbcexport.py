@@ -276,6 +276,27 @@ class FixedFrames(unittest.TestCase):
         cfg["nodes"][0]["emcy_cob_id"] = "eds"
         self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0x82)
 
+    def test_emcy_cob_id_from_the_eds(self):
+        # The plugin listens on the EDS default of 0x1014 for "eds", and for
+        # "device" until the read (canopen-dbc-export "EMCY identifier from the EDS").
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        folder = os.path.join(tmp, "eds")
+        shutil.copytree(EDS_DIR, folder)
+        path = os.path.join(folder, "emcy-slave.eds")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace("DefaultValue=$NODEID+0x80", "DefaultValue=$NODEID+0xC0"))
+        cfg = base_config()
+        cfg["nodes"][0]["eds"] = "emcy-slave.eds"
+        config = os.path.join(folder, "canworks.json")
+        self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC2)
+        cfg["nodes"][0]["emcy_cob_id"] = "eds"
+        self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC2)
+        cfg["nodes"][0]["emcy_cob_id"] = "0xC5"
+        self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC5)
+
     def test_no_sync_message_without_sync_period(self):
         cfg = base_config()
         del cfg["master"]["sync_period_us"]

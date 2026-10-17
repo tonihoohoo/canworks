@@ -266,6 +266,14 @@ bool parse_raw(const cJSON* raw, const std::string& path, bool listen_only, RawC
   Obj top{raw, path, errors, warnings, {}};
   top.text("dbc", out.dbc);
   top.flag("program_override_protocol", out.program_override_protocol);
+  uint64_t wd = 0;
+  if (top.uint("scan_watchdog_ms", 0, 60000, wd)) {
+    out.has_scan_watchdog = true;
+    if (wd != 0 && wd < 10)
+      errors.push_back(at(path, "scan_watchdog_ms") + ": must be 0 or 10-60000: " + std::to_string(wd));
+    else
+      out.scan_watchdog_ms = static_cast<unsigned>(wd);
+  }
 
   const cJSON* rx = top.get("rx");
   if (rx && !cJSON_IsArray(rx)) errors.push_back(at(path, "rx") + ": must be a list");

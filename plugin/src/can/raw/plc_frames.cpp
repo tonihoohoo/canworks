@@ -381,6 +381,12 @@ void PlcPort::tx_failed(uint32_t tag, uint16_t error_id) {
   finish(s, kQueued, kFailed);
 }
 
+void PlcPort::drop_queued() {
+  canworks_can_frame f;
+  uint32_t tag;
+  while (next_tx(f, tag)) tx_failed(tag, CANWORKS_CAN_ERR_NOT_RUNNING);
+}
+
 bool PlcPort::own_echo(const canworks_can_frame& frame) {
   for (uint32_t k = echo_tail_; k != echo_head_; ++k) {
     uint8_t i = echo_[k % kTx];
@@ -478,7 +484,7 @@ void PlcPort::cyc_stop(uint32_t handle) {
   jobs_[slot].state.compare_exchange_strong(open, kSlotFree, std::memory_order_acq_rel);
 }
 
-int PlcPort::cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs, int max) {
+int PlcPort::cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs, int max, bool send) {
   int n = 0;
   for (unsigned i = 0; i < kJobs && n < max; ++i) {
     Job& j = jobs_[i];
@@ -500,6 +506,7 @@ int PlcPort::cyclic_due(uint64_t now_us, canworks_can_frame* out, uint8_t* jobs,
     // Keep the phase; after a long stall, restart from now instead of bursting.
     j.next_due += period;
     if (j.next_due <= now_us) j.next_due = now_us + period;
+    if (!send) continue;
     out[n] = f;
     jobs[n] = static_cast<uint8_t>(i);
     ++n;

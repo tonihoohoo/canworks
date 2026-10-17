@@ -1,0 +1,66 @@
+{
+  "description": "A write SDO variable on 0x1010 sub 1 without trigger_location (written after every boot and on change).",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "config-check.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100"
+              }
+            ]
+          }
+        ],
+        "sdo": [
+          {
+            "index": "0x1017",
+            "subindex": 0,
+            "type": "UNSIGNED16",
+            "value": 100
+          }
+        ],
+        "sdo_variables": [
+          {
+            "index": "0x1010",
+            "subindex": 1,
+            "type": "UNSIGNED32",
+            "direction": "write",
+            "iec_location": "%QD200"
+          }
+        ]
+      }
+    ]
+  },
+  "message": "without 'trigger_location' is written after every boot"
+}

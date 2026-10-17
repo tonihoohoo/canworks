@@ -61,7 +61,7 @@ def parse_location(text):
     """Returns a Location, or None if `text` is not a located address."""
     if not isinstance(text, str):
         return None
-    m = _LOCATION.match(text.strip())
+    m = _LOCATION.fullmatch(text)
     if not m:
         return None
     area, size, index, bit = m.group(1).upper(), m.group(2).upper(), int(m.group(3)), m.group(4)

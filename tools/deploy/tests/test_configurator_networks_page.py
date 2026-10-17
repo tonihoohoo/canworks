@@ -159,7 +159,8 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(pg.inner_text('#tree [data-key="1:empty"]'), "No nodes yet")
         self.assertEqual(pg.get_attribute('#tree [data-key="1:bus"]', "aria-selected"), "true")
         self.settled()
-        self.assertIn("Network network 2", pg.inner_text("#problem-list"))
+        self.assertIn("Network 2, CAN adapter", pg.inner_text("#problem-list"))
+        self.assertNotIn("etwork network", pg.inner_text("#problem-list"))
         pg.fill('input[data-path="adapter.interface"]', "vcan1")
         self.assertEqual(self.tabs(), ["vcan0", "vcan1"])
         # Rename: refused names are said, a good one is kept.

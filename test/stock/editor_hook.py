@@ -221,7 +221,10 @@ def child_uploads(args):
             env = dict(os.environ, CANWORKS_GENERATED_CONF=results[name]["generated_conf"])
             r = subprocess.run([args.canopen_check, "--no-dcfgen", e["config"]], env=env,
                                capture_output=True, text=True)
-            results[name]["check"] = {"code": r.returncode, "out": r.stdout + r.stderr}
+            # The EDS also next to the config would hide where it was read from.
+            results[name]["check"] = {"code": r.returncode, "out": r.stdout + r.stderr,
+                                      "eds_next_to_config": os.path.exists(os.path.join(
+                                          os.path.dirname(e["config"]), "canworks", "eds", EDS))}
     print(json.dumps(results))
     return 0
 
@@ -316,7 +319,12 @@ def main():
                "%s: config next to the library names canworks/eds/%s" % (name, EDS))
     if "check" in r["a"]:
         c = r["a"]["check"]
-        expect(c["code"] == 0 and os.path.join(r["a"]["generated_conf"], "canworks", "eds") in c["out"],
+        # rtd8.eds has integer REAL defaults, so the lint reads it through a
+        # prepared copy and the check names the copy, not core/generated/conf.
+        found = (os.path.join(r["a"]["generated_conf"], "canworks", "eds") in c["out"] or
+                 ("EDS canworks/eds/%s read through a prepared copy" % EDS in c["out"]
+                  and not c["eds_next_to_config"]))
+        expect(c["code"] == 0 and found,
                "a: canopen_check loads the config with its EDS from core/generated/conf")
         if c["code"] != 0:
             print(c["out"])

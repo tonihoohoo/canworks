@@ -316,6 +316,120 @@ class Limits(unittest.TestCase):
             self.run_async(go())
         self.assertEqual((len(running), len(finished)), (device.UNPAIRED_STREAMS, 5 - device.UNPAIRED_STREAMS))
 
+    def test_unpaired_connections_time_out(self):
+        async def go():
+            conns = [_FakeConn("pc%d" % i, "192.168.1.%d:%d" % (10 + i % 4, 4000 + i)) for i in range(8)]
+            tasks = [asyncio.ensure_future(self.svc._accept(_FakeIncoming(c))) for c in conns]
+            await asyncio.sleep(0.02)
+            refused = _FakeConn("pc9", "192.168.1.20:4000")
+            await self.svc._accept(_FakeIncoming(refused))
+            self.assertEqual(refused.closed, b"too many unpaired")
+            await asyncio.sleep(0.15)
+            self.assertTrue(all(c.closed == b"not paired in time" for c in conns), [c.closed for c in conns])
+            await asyncio.gather(*tasks)
+            self.assertEqual(self.svc.unpaired, {})
+            again = _FakeConn("pc10", "192.168.1.20:4000")
+            task = asyncio.ensure_future(self.svc._accept(_FakeIncoming(again)))
+            await asyncio.sleep(0.02)
+            self.assertIn(again, self.svc.unpaired)
+            again.close(0, b"bye")
+            await task
+        with mock.patch.object(device, "UNPAIRED_S", 0.1):
+            self.run_async(go())
+        self.assertIn("not paired within", self.out.getvalue())
+
+    def test_a_finished_pair_stream_closes_the_connection(self):
+        class Bi:
+            def __init__(self):
+                self.lines, self.data = [], [b'{"t": "pair", "nonce": "x"}\n']
+
+            def send(self):
+                return self
+
+            def recv(self):
+                return self
+
+            async def read(self, n):
+                return self.data.pop(0) if self.data else b""
+
+            async def write_all(self, b):
+                self.lines.append(json.loads(b))
+
+            async def finish(self):
+                pass
+
+            async def stopped(self):
+                pass
+
+        async def login(conn, pc, head, reader, send, **kw):
+            await send.write_all(b'{"ok": false, "error": "wrong token"}')
+            return False
+
+        async def go():
+            conn = _FakeConn("pc1", "192.168.1.5:4000")
+            task = asyncio.ensure_future(self.svc._accept(_FakeIncoming(conn)))
+            bi = Bi()
+            conn.streams.put_nowait(bi)
+            await asyncio.wait_for(task, 1)
+            return conn, bi
+        with mock.patch.object(self.svc, "_login", login):
+            conn, bi = self.run_async(go())
+        self.assertEqual(bi.lines, [{"ok": False, "error": "wrong token"}])
+        self.assertEqual(conn.closed, b"pairing failed")
+        self.assertEqual(self.svc.unpaired, {})
+
+    def test_failed_pairings_are_counted_per_address(self):
+        async def login(conn, pc, head, reader, send, **kw):
+            return False
+
+        class Send:
+            def __init__(self):
+                self.lines = []
+
+            async def write_all(self, b):
+                self.lines.append(json.loads(b))
+
+        async def go():
+            out = []
+            for i in range(device.PAIR_FAILS_PER_ADDR_PER_MIN + 1):   # one host, new PC IDs
+                send = Send()
+                await self.svc._pair(_FakeConn("pc%d" % i, "192.168.1.5:%d" % (4000 + i)), "pc%d" % i,
+                                     {"t": "pair"}, None, send)
+                out.append(send.lines)
+            other = Send()
+            await self.svc._pair(_FakeConn("other", "192.168.1.6:4000"), "other", {"t": "pair"}, None, other)
+            return out, other.lines
+        with mock.patch.object(self.svc, "_login", login):
+            out, other = self.run_async(go())
+        self.assertTrue(all(lines == [] for lines in out[:-1]), out)
+        self.assertIn("try again in a minute", out[-1][0]["error"])
+        self.assertEqual(other, [])   # another address still gets to log in
+
+    def test_manage_login_has_the_pairing_delay(self):
+        logins = []
+
+        async def login(conn, pc, head, reader, send, **kw):
+            logins.append(pc)
+            return False
+
+        class Send:
+            def __init__(self):
+                self.lines = []
+
+            async def write_all(self, b):
+                self.lines.append(json.loads(b))
+
+        async def go():
+            self.svc.paired.add("known", "office", "lan")
+            sends = [Send() for _ in range(3)]
+            conn = _FakeConn("known", "192.168.1.5:4000")
+            await asyncio.gather(*[self.svc._manage(conn, "known", {"t": "manage"}, None, s) for s in sends])
+            return sends
+        with mock.patch.object(self.svc, "_login", login):
+            sends = self.run_async(go())
+        self.assertEqual(logins, ["known"])
+        self.assertEqual([s.lines[0]["error"] for s in sends[1:]], ["too many tries; wait a second"] * 2)
+
     def test_concurrent_pairing_attempts_are_counted_before_the_login(self):
         started = []
 

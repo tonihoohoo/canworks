@@ -320,8 +320,11 @@ def _running(c, node):
 
 
 def _check_force(c, f, what, node=None):
-    """The plugin's rule: changes to an OPERATIONAL node, and a scan while a
-    node is OPERATIONAL, need force (--force, or force: true)."""
+    """The plugin's rule, stricter on an adapter: changes to a node, and a
+    scan, need force (--force, or force: true) while another master is active
+    on the bus or any node was heard OPERATIONAL. The adapter has listened
+    only a short time, so a slow heartbeat (or node guarding) can hide the
+    node's own state; the refusal names what was seen."""
     if "force" in f and not isinstance(f["force"], bool):
         raise DiagError("refused", "field 'force' must be true or false")
     if c._force(f):
@@ -331,13 +334,21 @@ def _check_force(c, f, what, node=None):
     c.core.wait_listened()
     if node is not None:
         busy = _running(c, node)
-    else:
-        now = time.monotonic()
-        with c.core.lock:
-            heard = sorted(n for n, h in c.core.heard.items() if h["state"] == 5 and now - h["at"] <= OPERATIONAL_S)
-        busy = _label(c, heard[0]) if heard else ""
-    if busy:
-        raise DiagError("refused", "%s is OPERATIONAL; %s; %s" % (busy, what, FORCE_NEEDED))
+        if busy:
+            raise DiagError("refused", "%s is OPERATIONAL; %s; %s" % (busy, what, FORCE_NEEDED))
+    # Another master, or another node running: a program may drive this one
+    # too (or, for a scan, any of them).
+    of = "node %d may be under its control" % node if node is not None else what
+    other = c.core.other_master()
+    if other:
+        raise DiagError("refused", "another master is active on this bus (%s, last at %s); %s; %s" % (
+            other["what"], other["last_at"], of, FORCE_NEEDED))
+    now = time.monotonic()
+    with c.core.lock:
+        heard = sorted(n for n, h in c.core.heard.items() if h["state"] == 5 and now - h["at"] <= OPERATIONAL_S)
+    if heard:
+        of = "a program may drive node %d too" % node if node is not None else what
+        raise DiagError("refused", "%s is OPERATIONAL; %s; %s" % (_label(c, heard[0]), of, FORCE_NEEDED))
 
 
 def _sdo(c, f, write):

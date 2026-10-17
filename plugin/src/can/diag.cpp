@@ -1949,9 +1949,10 @@ bool replay_frame(const cJSON* o, uint64_t& t_us, RawFrame& f, std::string& why)
 
 // The gap a looping replay leaves between its last frame and the next
 // round's first: the gap of its last two frames, at least 1 ms.
-uint64_t loop_gap_us(const std::vector<std::pair<uint64_t, RawFrame>>& frames) {
+// The client's own gap (field 'loop_gap_us', from its --rate) when longer.
+uint64_t loop_gap_us(const std::vector<std::pair<uint64_t, RawFrame>>& frames, uint64_t least = 0) {
   const size_t n = frames.size();
-  return std::max<uint64_t>(n > 1 ? frames[n - 1].first - frames[n - 2].first : 0, 1000);
+  return std::max<uint64_t>({n > 1 ? frames[n - 1].first - frames[n - 2].first : 0, least, 1000});
 }
 
 // The most frames a looping replay of `frames` (times from 0) sends in any
@@ -2013,7 +2014,9 @@ void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, con
   const Config& cfg = hub.config();
   std::string why;
   bool force = false, more = false, loop = false;
-  if (!get_bool(req, "force", force, why) || !get_bool(req, "more", more, why) || !get_bool(req, "loop", loop, why)) {
+  uint64_t loop_gap = 0;
+  if (!get_bool(req, "force", force, why) || !get_bool(req, "more", more, why) || !get_bool(req, "loop", loop, why) ||
+      (cJSON_HasObjectItem(req, "loop_gap_us") && !get_uint(req, "loop_gap_us", 60000000, loop_gap, why))) {
     c.out += diag_error(id, why);
     return;
   }
@@ -2099,7 +2102,7 @@ void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, con
     if (mine) all = mine->frames;
     uint64_t t0 = all.empty() ? batch.front().first : 0;
     for (const auto& b : batch) all.emplace_back(b.first - t0, b.second);
-    const uint64_t most = loop_max_per_second(all, all.back().first + loop_gap_us(all));
+    const uint64_t most = loop_max_per_second(all, all.back().first + loop_gap_us(all, mine ? mine->loop_gap : loop_gap));
     if (most > kReplayMaxRate) {
       c.out += diag_error(id, "looping, these frames repeat at " + std::to_string(most) + " frames in one second; the limit is " +
                                   std::to_string(kReplayMaxRate) + " frames per second");
@@ -2114,6 +2117,7 @@ void DiagServer::handle_replay(Client& c, size_t net, const std::string& op, con
     r.peer = c.peer;
     r.forced = force;
     r.loop = loop;
+    r.loop_gap = loop_gap;
     r.started = r.round_start = now;
     // Times count from the first frame.
     uint64_t t0 = batch.front().first;
@@ -2151,7 +2155,7 @@ std::chrono::milliseconds DiagServer::service_replays(std::chrono::steady_clock:
           break;
         }
         // The next round keeps the recorded gap of the last two frames.
-        r.round_start += microseconds(r.frames.back().first + loop_gap_us(r.frames));
+        r.round_start += microseconds(r.frames.back().first + loop_gap_us(r.frames, r.loop_gap));
         r.pos = 0;
         ++r.rounds;
       }

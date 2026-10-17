@@ -271,6 +271,18 @@ class Editing(Base):
         count, text = self.problems()
         self.assertEqual(count, "none", text)
 
+    def test_remove_a_node_a_route_reads(self):
+        pg = self.page
+        self.open(self.folder)
+        tree_node(pg, 0, "general")
+        pg.click('button[data-remove-node="0"]')
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("used by gateway route temperature", pg.inner_text("#modal-text"))
+        self.answer("remove")
+        self.assertEqual([r["name"] for r in self.draft("S.model.top.gateway.routes")], ["analog_out"])
+        count, text = self.problems()
+        self.assertEqual(count, "none", text)
+
     def test_remove_the_upper_network_asks_about_the_gateway(self):
         pg = self.page
         self.open(self.folder)
@@ -296,6 +308,7 @@ class Editing(Base):
         self.assertNotIn("network network", pg.inner_text("#view h2"))
         count, text = self.problems(False)
         self.assertNotIn('network ""', text)
+        self.assertNotIn("etwork network", text)
 
     def test_remove_pdo_and_startup_sdo_twice(self):
         pg = self.page

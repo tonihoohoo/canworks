@@ -117,3 +117,10 @@ The configurator's J1939 network page SHALL offer "Copy as ST call" on each `rx`
 #### Scenario: Copy a received PGN
 - **WHEN** the user picks "Copy as ST call" on `rx` entry Pressures (PGN 65280, source 0, signal Pressure at bit 0, 16 bits) of network 1 "machine"
 - **THEN** the clipboard holds a `J1939_RECEIVE` instance with `NETWORK := 1`, `PGN := 65280`, `SOURCE := 0`, a `J1939_GET_BITS` line for Pressure and a `J1939_REQUEST` call to address 0
+
+### Requirement: ST calls for big-endian signals
+The ST call generator SHALL refuse big-endian signals with a message instead of emitting little-endian bit access.
+
+#### Scenario: Motorola signal
+- **WHEN** a DBC signal is big-endian
+- **THEN** the generator names the signal and emits no call for it

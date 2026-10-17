@@ -181,3 +181,17 @@ An NMT command from the bridge's control block SHALL be refused while the target
 #### Scenario: Command during an outage
 - **WHEN** the CAN interface is down and a Modbus client writes a STOP command for node 5
 - **THEN** the command is refused, and nothing is sent to node 5 when the interface comes back
+
+### Requirement: Request buffer limit
+The Modbus server SHALL read from a connection only while less than one frame is waiting, so a client that pipelines requests cannot grow memory or slow other clients.
+
+#### Scenario: Pipelined reads
+- **WHEN** one client sends read requests faster than replies drain
+- **THEN** the bridge's memory stays flat and other clients keep their reply rate
+
+### Requirement: Bridge builds against the pinned runtime
+The bridge install and image SHALL build against the runtime release the project pins, with a checked archive hash.
+
+#### Scenario: Hash mismatch
+- **WHEN** the downloaded runtime archive's hash differs
+- **THEN** the install stops with a message

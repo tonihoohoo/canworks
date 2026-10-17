@@ -1,6 +1,7 @@
 name: Build the plugin
 description: >
-  Upstream runtime checkout (plugin headers, stock install test), build
+  Upstream runtime checkout at the pinned release (plugin headers, stock
+  install test; docker/local-runtime/runtime-version), build
   dependencies, Lely CANopen from the cache (or built), the deploy tool in the
   plugin venv (the plugin's EDS lint) and the cmake build in ./build (every
   target, or the ones named in `targets`) through ccache. The compiler cache is
@@ -19,6 +20,11 @@ inputs:
       Path of the STruC++ command (scripts/fetch-strucpp.sh). Set: the build
       also compiles the CiA 402 demo program into sim_tests.
     default: ""
+  runtime-ref:
+    description: >
+      The upstream runtime ref to check out. Empty: the pinned release
+      (docker/local-runtime/runtime-version), whose archive sha256 is checked.
+    default: ""
   targets:
     description: >
       CMake targets to build, space separated. Empty: every target (the plugin,
@@ -28,12 +34,30 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: The pinned upstream runtime release
+      id: runtime
+      shell: bash
+      env:
+        RUNTIME_REF: ${{ inputs.runtime-ref }}
+      run: echo "ref=${RUNTIME_REF:-$(cat docker/local-runtime/runtime-version)}" >> "$GITHUB_OUTPUT"
+
     - name: Check out the upstream OpenPLC runtime (plugin headers, stock install test)
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
         repository: Autonomy-Logic/openplc-runtime
-        ref: development
+        ref: ${{ steps.runtime.outputs.ref }}
         path: upstream-runtime
+
+    - name: The pinned release's archive sha256 (scripts/install-bridge.sh checks it) matches the checkout
+      if: inputs.runtime-ref == ''
+      shell: bash
+      env:
+        REF: ${{ steps.runtime.outputs.ref }}
+      run: |
+        # GitHub's archive of a tag is git archive with the tag's name less a leading v as the folder, gzip -n.
+        got=$(git -C upstream-runtime archive --format=tar --prefix="openplc-runtime-${REF#v}/" HEAD | gzip -cn | sha256sum | cut -d' ' -f1)
+        want=$(cat docker/local-runtime/runtime-sha256)
+        [ "$got" = "$want" ] || { echo "the $REF archive has sha256 $got, docker/local-runtime/runtime-sha256 says $want" >&2; exit 1; }
 
     - name: Package cache key (runner image, kernel, package set)
       id: apt-key
@@ -43,7 +67,7 @@ runs:
       run: echo "key=apt-build-${ImageOS:-os}-${ImageVersion:-image}-$(uname -r)-modules-${KERNEL_MODULES}-${{ hashFiles('.github/actions/build-plugin/action.yml') }}" >> "$GITHUB_OUTPUT"
 
     - name: Cache the build dependency packages
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.cache/canworks/apt-build
         key: ${{ steps.apt-key.outputs.key }}
@@ -70,7 +94,7 @@ runs:
 
     - name: Cache Lely CANopen
       id: lely-cache
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: /opt/canworks
         key: lely-${{ runner.os }}-${{ hashFiles('scripts/build-lely.sh') }}
@@ -110,7 +134,7 @@ runs:
 
     - name: Restore the compiler cache (this pull request's, else the newest with this key prefix)
       id: ccache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.cache/canworks/ccache
         key: ${{ steps.ccache-key.outputs.key }}
@@ -135,7 +159,7 @@ runs:
 
     - name: Save the compiler cache (each main commit; a pull request once)
       if: steps.ccache.outputs.cache-hit != 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.cache/canworks/ccache
         key: ${{ steps.ccache-key.outputs.key }}

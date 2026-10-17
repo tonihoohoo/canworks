@@ -310,6 +310,38 @@ TEST(client_that_never_reads) {
   EXPECT(other.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
 }
 
+// A client that reads its replies but pipelines requests faster than they are
+// answered: the server holds at most about one read of its requests (the rest
+// waits in the socket), and another client is still answered at once.
+TEST(pipelining_client_is_not_buffered) {
+  Fixture fx(open_config(), 250, 16);
+  Client fast(fx.server.port());
+  fast.set_nonblocking();
+  Bytes burst;
+  for (int i = 0; i < 256; ++i) {
+    Bytes f = fast.frame(read_req(kReadInputRegisters, 0, 125));  // 12 bytes in, 264 out
+    burst.insert(burst.end(), f.begin(), f.end());
+  }
+  Client other(fx.server.port());
+  size_t worst = 0, replies = 0;
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+  while (std::chrono::steady_clock::now() < end) {
+    fast.send_raw(burst);
+    replies += fast.drain();
+    for (const ClientInfo& c : fx.server.client_list()) worst = std::max(worst, c.buffered);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  auto t0 = std::chrono::steady_clock::now();
+  bool other_ok = other.request(read_req(kReadInputRegisters, 0, 1)).size() == 4;
+  auto took = std::chrono::steady_clock::now() - t0;
+  std::printf("  most buffered request bytes: %zu, reply bytes read: %zu\n", worst, replies);
+  EXPECT(worst <= 260 + 1024);
+  EXPECT(replies >= 264 * 100);
+  EXPECT(other_ok);
+  EXPECT(took < std::chrono::milliseconds(200));
+  EXPECT(fx.server.clients() == 2);
+}
+
 // The idle timer counts complete requests only; a partial request is closed
 // after 5 s (here 300 ms).
 TEST(idle_needs_complete_requests) {

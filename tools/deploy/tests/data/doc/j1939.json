@@ -824,7 +824,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.80.0"
+  "version": "0.81.0"
  },
  "warnings": []
 }

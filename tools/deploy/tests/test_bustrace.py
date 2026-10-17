@@ -158,6 +158,90 @@ class Formats(unittest.TestCase):
         self.assertEqual(list(t), [Frame(T0 + 100, 0x123, b"\x11\x22"),
                                    Frame(T0 + 200, 0x18FF0017, b"", ext=True, rtr=True)])
 
+    def test_asc_base_and_timestamps(self):
+        # "base dec" and "timestamps relative" (bug hunt PC-M3).
+        head = "date Wed Oct 07 10:00:00.000 am 2026\nbase %s  timestamps %s\n"
+        body = "   0.100000 1  385             Rx   d 2 16 32\n   0.050000 1  1000x           Tx   d 1 255\n"
+        t = formats.read((head % ("dec", "relative") + body).encode())
+        start = list(t)[0].time_us - 100000
+        self.assertEqual([(f.time_us - start, f.can_id, f.ext, f.data, f.tx) for f in t],
+                         [(100000, 0x181, False, b"\x10\x20", False), (150000, 1000, True, b"\xff", True)])
+        t = formats.read((head % ("hex", "absolute") + body.replace("255", "FF")).encode())
+        self.assertEqual([(f.time_us - start, f.can_id, f.data) for f in t],
+                         [(100000, 0x385, b"\x16\x32"), (50000, 0x1000, b"\xff")])
+        with self.assertRaisesRegex(formats.FormatError, "line 3: .*1 data bytes for DLC 2"):
+            formats.read((head % ("hex", "absolute") + "   0.1 1  181  Rx   d 2 16\n").encode())
+
+    def test_damaged_files_are_format_errors(self):
+        # The bug hunt's fuzz findings: each one a FormatError naming where,
+        # not a traceback (bug hunt PC lows).
+        import random
+        import struct
+        good = {"x.pcapng": written(sample_trace(), "pcapng"), "x.log": written(sample_trace(), "candump"),
+                "x.asc": written(sample_trace(), "asc")}
+        idb = struct.pack("<HHI", 227, 0, 16)
+        shb = struct.pack("<II", 0x0A0D0D0A, 28) + struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1) + struct.pack("<I", 28)
+
+        def block(btype, body):
+            return struct.pack("<II", btype, 12 + len(body)) + body + struct.pack("<I", 12 + len(body))
+        cases = [
+            (b"\xd4\xc3\xb2\xa1" + bytes(6), "x.pcap", "shorter than its 24-byte header"),
+            (b"(1791181200.000100) can0 123#112\n", "x.log", "line 1"),
+            (b"date Wed Oct 07 10:00:00.000 am 2026\n   0.1 1  181  Rx   d 2 1G 22\n", "x.asc", "line 2"),
+            (shb + block(1, b"\xe3"), "x.pcapng", "byte 28"),
+            (shb + block(1, idb + struct.pack("<HH", 9, 0) + bytes(4)), "x.pcapng", "byte 28"),
+            (shb + block(1, idb) + block(6, bytes(10)), "x.pcapng", "byte 48"),
+        ]
+        meta = json.dumps({"canworks_trace": 1, "lost": [[1, "x"]]}).encode()
+        opt = struct.pack("<HH", 1, len(meta)) + meta + b"\0" * (-len(meta) % 4) + bytes(4)
+        cases.append((block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1) + opt) + block(1, idb),
+                      "x.pcapng", "canworks metadata"))
+        for data, name, where in cases:
+            with self.assertRaisesRegex(formats.FormatError, where, msg=name):
+                formats.read(data, name)
+        # A short mutation run over the good files.
+        rnd = random.Random(1)
+        for k in range(300):
+            name = rnd.choice(sorted(good))
+            b = bytearray(good[name])
+            for _ in range(rnd.randrange(1, 6)):
+                at = rnd.randrange(len(b))
+                op = rnd.randrange(3)
+                if op == 0:
+                    b[at] = rnd.randrange(256)
+                elif op == 1:
+                    del b[at:at + rnd.randrange(1, 20)]
+                else:
+                    del b[at:]
+                if not b:
+                    break
+            try:
+                formats.read(bytes(b), name)
+            except formats.FormatError:
+                pass
+
+    def test_pcapng_needs_a_socketcan_interface(self):
+        import struct
+        data = written(sample_trace(), "pcapng")
+        cooked = data.replace(struct.pack("<HHI", 227, 0, 16), struct.pack("<HHI", 113, 0, 16), 1)
+        with self.assertRaisesRegex(formats.FormatError, "no SocketCAN interface.*only link type 113"):
+            formats.read(cooked)
+
+    def test_pcapng_tsoffset(self):
+        import struct
+        t = Trace()
+        t.append(Frame(5, 0x181, b"\x01"))
+        data = written(t, "pcapng")
+        idb = struct.pack("<HHI", 227, 0, 16)
+        at = data.index(idb)
+        blen = struct.unpack_from("<I", data, at - 4)[0]
+        tso = struct.pack("<HHq", 14, 8, 1000)
+        new_len = blen + len(tso)
+        body = data[at:at - 8 + blen - 4 - 4]  # without the end-of-options
+        block = struct.pack("<II", 1, new_len) + body + tso + struct.pack("<HH", 0, 0) + struct.pack("<I", new_len)
+        data = data[:at - 8] + block + data[at - 8 + blen:]
+        self.assertEqual([f.time_us for f in formats.read(data)], [1000 * 1000000 + 5])
+
     def test_format_by_extension_and_errors(self):
         self.assertEqual(formats.format_of("a.LOG"), "candump")
         self.assertEqual(formats.format_of("a.x", "blf"), "blf")
@@ -658,6 +742,33 @@ class Recording(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
+    def test_trace_reports_dropped_frames(self):
+        # More frames than the trace keeps: the summary says so (bug hunt PC lows).
+        import functools
+        from unittest import mock
+        from canworks.bustrace import recorder
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        with FakePlugin() as fake, mock.patch.object(recorder, "Trace", functools.partial(Trace, 20)):
+            stop = threading.Event()
+            self.addCleanup(stop.set)
+
+            def feed():
+                while not stop.is_set():
+                    now = int(time.time() * 1e6)
+                    fake.push([Frame(now + i * 100, 0x182, bytes([i])) for i in range(10)])
+                    time.sleep(0.02)
+            threading.Thread(target=feed, daemon=True).start()
+            out = io.StringIO()
+            path = os.path.join(tmp, "run.log")
+            rc = diag.run(diag.parser().parse_args(["--runtime", fake.runtime, "--token", TOKEN, "trace", "-o", path,
+                                                    "--duration", "0.6", "--config", PINGPONG]), out)
+            stop.set()
+        self.assertEqual(rc, 0)
+        self.assertRegex(out.getvalue(), r"warning: the oldest \d+ frames were dropped past the 20-frame limit; "
+                                         r"the file holds the last [\d.]+ s")
+        self.assertLessEqual(len(formats.read_file(path)), 20)
+
     def test_trace_and_convert(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
