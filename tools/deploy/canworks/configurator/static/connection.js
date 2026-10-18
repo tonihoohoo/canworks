@@ -16,7 +16,10 @@
 
 const CONN = { timer: null, seq: 0, error: null, entered: false, target: null };
 
-function connAdapter() { return !!(S.state && S.state.commission); }
+// A USB adapter on this PC: Commission a device, and a saved CODESYS config,
+// whose bus no canworks runtime runs (canopen-configurator "Commission in a
+// CODESYS project").
+function connAdapter() { return !!(S.state && (S.state.commission || (S.state.config && targetOf(S.state.config) === "codesys"))); }
 
 // The target is set up: an adapter and its bit rate, or a runtime host
 // and this PC's token for the config.

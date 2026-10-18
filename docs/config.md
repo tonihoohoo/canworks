@@ -60,6 +60,23 @@ canopen_check /etc/canworks/canopen_config.json
 | `master` | yes | The master's settings (below). |
 | `nodes` | yes | The slave nodes (below), at least one. An empty list is allowed only together with [`master.diagnostics`](#online-diagnostics), as a scan-only config for commissioning. |
 
+A version 2 file can name its target: a top-level `bridge` object makes it a [Modbus bridge](modbus-bridge.md) config, a `codesys` object a [CODESYS](#codesys-target) config, and neither an OpenPLC config. Both at once is an error. The checks warn about every set value the target does not use, naming the field and why ([configurator.md](configurator.md#project-target) lists them).
+
+### CODESYS target
+
+A config with a top-level `codesys` object is built into a CODESYS project ([codesys.md](codesys.md)); the OpenPLC plugin and `canworks-bridge` refuse it. It needs `schema_version` 2.
+
+| Field | Meaning |
+|---|---|
+| `codesys.project` | The CODESYS project file `canworks-deploy --codesys-import` and the configurator's Build use. |
+| `codesys.device` | The device in the project that gets the bus. Default: the active application's device, or the only device. |
+| `codesys.create` | `TYPE:ID:VERSION` of the PLC device for a project file that does not exist yet, for example `"4096:0000 0004:3.5.22.40"`. |
+| `codesys.variables` | `false`: the I/O channels get no variable names. Default `true`. |
+| network `codesys.net_id` | The CANbus's network number, 0 to 255. Default: the number the interface name ends in, else 0. |
+| network `codesys.interface` | The CAN interface object of the device that gets this network's bus. |
+
+In a CODESYS config the PDO entries need no `iec_location` (CODESYS assigns the addresses) and the adapter needs only `bitrate`; `type` and `interface` are optional.
+
 ## Several networks (`schema_version` 2)
 
 One PLC can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. A network with `"protocol": "j1939"` is a J1939 ECU instead of a CANopen master or slave, with a `j1939` object in place of `master` and `nodes` ([j1939.md](j1939.md)). A network with `"protocol": "none"` is a plain CAN network that carries only raw CAN messages, and any network can have a `raw` object with plain frames received into `%I` and sent from `%Q` ([raw-can.md](raw-can.md)). Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
@@ -513,7 +530,8 @@ For a module whose TPDO 1 maps 0x6000:1 and 0x6000:2 and whose RPDO 1 maps 0x620
 | `index` | yes | Object index, as a number or a string (`"0x6000"`). |
 | `subindex` | no | Default 0. |
 | `type` | yes | `BOOLEAN`, `INTEGER8`, `INTEGER16`, `INTEGER32`, `INTEGER64`, `UNSIGNED8`, `UNSIGNED16`, `UNSIGNED32`, `UNSIGNED64`, `REAL32` or `REAL64`. It must equal the object's `DataType` in the EDS. |
-| `iec_location` | yes | The PLC address. Left out only for an entry of a TPDO that feeds a [PDO link](#pdo-links) (the master receives it, the PLC does not), or one a gateway route uses. |
+| `iec_location` | yes | The PLC address. Left out only for an entry of a TPDO that feeds a [PDO link](#pdo-links) (the master receives it, the PLC does not), one a gateway route uses, or any entry of a [CODESYS config](#codesys-target). |
+| `name` | no | The variable name part of the entry: its declaration is `<node>_<name>` (`<network>_<node>_<name>` with several networks) instead of the name from the EDS, the CODESYS channel and the Modbus register row get it too. An identifier of up to 64 characters, unique within the node (ignoring case). |
 
 The type must fit the location exactly:
 

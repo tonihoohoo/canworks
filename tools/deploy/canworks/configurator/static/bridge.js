@@ -1,14 +1,13 @@
-// Modbus bridge target and page (canopen-configurator "Modbus bridge
-// target", "Bridge settings panel", "Register map preview and export";
-// docs/modbus-bridge.md): the project target switch, the bridge object's
-// settings, Suggest for its blocks, the register map with its client
-// channels, Pack for Modbus and the map exports. Paths "bridge…" live at the
+// Modbus bridge page (canopen-configurator "Bridge settings panel",
+// "Register map preview and export"; docs/modbus-bridge.md; the project
+// target switch is target.js): the bridge object's settings, Suggest for
+// its blocks, the register map with its client channels, Pack for Modbus
+// and the map exports. Paths "bridge…" live at the
 // top of the draft. Loaded after app.js and uses its helpers (el, api,
 // banner, modal, busy, field, checkbox, choice, getPath, setPath, changed,
 // render, fileConfig, toModel, S, ...).
 "use strict";
 
-const BRIDGE_LISTEN = "0.0.0.0:502";
 const BRIDGE_TABLES = { "input register": "Input registers", "discrete input": "Discrete inputs",
   "holding register": "Holding registers", "coil": "Coils" };
 
@@ -19,75 +18,14 @@ function bridgeMasters() {
   return S.model.networks.filter((n) => !isSlave(n) && !isJ1939(n) && !isPlain(n)).map(netName).filter(Boolean);
 }
 
-// The draft replaced by a config the server sent back (a pack), keeping the
-// unsaved notes and the open network. The caller calls changed(true), so
-// the whole switch is one undo step.
+// The draft replaced by a config the server sent back (a pack, a target
+// switch), keeping the unsaved notes and the open network. The caller calls
+// changed(true), so the whole switch is one undo step.
 function bridgeReplaceDraft(cfg) {
   const notes = S.model.notes;
   S.model = toModel(cfg);
   if (notes !== undefined) S.model.notes = notes;
   openNet(Math.min(S.net, S.model.networks.length - 1));
-}
-
-// -- project target ---------------------------------------------------------
-
-function bridgeTargetField() {
-  return el("fieldset", { dataset: { bridgeTarget: "1" } }, el("legend", null, "Project target"),
-    el("div", { class: "grid" }, choice("Target", "", [
-      { value: "openplc", label: "OpenPLC",
-        help: "The OpenPLC plugin runs the networks. Each location size is its own table: %IW100 and %ID100 are different variables." },
-      { value: "bridge", label: "Modbus bridge",
-        help: "canworks-bridge runs the networks and serves the values as Modbus TCP registers, with no PLC. Locations are byte addresses: %IW0 is bytes 0 and 1, input register 0." },
-    ], { noPath: true, dataset: { target: "1" }, current: bridgeOn() ? "bridge" : "openplc", onChange: switchTarget })));
-}
-
-// Switches the project target: adds or removes the bridge object and offers
-// to repack every location for the new addressing.
-async function switchTarget(target) {
-  if ((target === "bridge") === bridgeOn()) return;
-  const top = S.model.top;
-  if (target === "bridge") {
-    const v1 = fileVersion(fileConfig()) === 1;
-    const v = await modal((v1 ? "The bridge needs a version 2 config: the file becomes version 2 (a list of networks) when saved. " : "") +
-      "A bridge config is byte-addressed, so OpenPLC's per-type locations usually overlap there. Pack every location for Modbus?",
-      [["cancel", "Cancel"], ["keep", "Switch, keep the locations"], ["pack", "Switch and pack for Modbus", true]]);
-    if (v !== "keep" && v !== "pack") { render(); return; }
-    // writers is required: none until the user lists the addresses that may write.
-    top.bridge = { listen: BRIDGE_LISTEN, writers: [] };
-    if (v === "pack") {
-      try {
-        bridgeReplaceDraft((await api("POST", "/api/bridge/pack", { config: fileConfig() })).config);
-      } catch (e) {
-        delete top.bridge;
-        banner(`Pack for Modbus failed: ${e.message}. The target is still OpenPLC.`, true);
-        render();
-        return;
-      }
-    }
-    changed(true);
-    banner(v === "pack" ? "The project is a Modbus bridge now, every location packed for Modbus. See the Modbus bridge page."
-      : "The project is a Modbus bridge now. See the Modbus bridge page.");
-    return;
-  }
-  const v = await modal("Switch the project to OpenPLC? The Modbus bridge settings (listen address, blocks, live lists) are removed. " +
-    "OpenPLC keeps each location size in its own table: repack every location per type?",
-    [["cancel", "Cancel"], ["keep", "Switch, keep the locations"], ["pack", "Switch and repack per type", true]]);
-  if (v !== "keep" && v !== "pack") { render(); return; }
-  const kept = top.bridge;
-  delete top.bridge;
-  if (v === "pack") {
-    try {
-      bridgeReplaceDraft((await api("POST", "/api/pack_openplc", { config: fileConfig() })).config);
-    } catch (e) {
-      top.bridge = kept;
-      banner(`Repacking failed: ${e.message}. The target is still Modbus bridge.`, true);
-      render();
-      return;
-    }
-  }
-  if (S.view === "bridge") S.view = "bus";
-  changed(true);
-  banner(v === "pack" ? "The project targets OpenPLC now, every location repacked per type." : "The project targets OpenPLC now.");
 }
 
 // -- the page ----------------------------------------------------------------
@@ -153,7 +91,7 @@ function renderBridge(view) {
   view.append(el("h2", null, "Modbus bridge"),
     el("p", { class: "muted" }, "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
       "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way."),
-    bridgeTargetField(),
+    targetField(),
     el("fieldset", null, el("legend", null, "Server"),
       el("div", { class: "grid" },
         ...bridgeListenFields(),

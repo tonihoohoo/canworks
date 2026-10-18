@@ -388,9 +388,14 @@
   ],
   "notes": [
     {
-      "where": "motion/master",
-      "setting": "state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "where": "motion",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "motion",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
     },
     {
       "where": "motion/master",
@@ -398,6 +403,16 @@
       "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"
     },
     {
+      "where": "motion/master",
+      "setting": "state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "motion/x",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
       "where": "motion/x",
       "setting": "status_location",
       "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
@@ -409,13 +424,18 @@
     },
     {
       "where": "motion/x",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "axis",
+      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
     },
     {
       "where": "motion/x",
-      "setting": "axis",
-      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "motion/y",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "motion/y",
@@ -429,13 +449,18 @@
     },
     {
       "where": "motion/y",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "axis",
+      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
     },
     {
       "where": "motion/y",
-      "setting": "axis",
-      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "motion/z",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "motion/z",
@@ -449,13 +474,18 @@
     },
     {
       "where": "motion/z",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "axis",
+      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
     },
     {
       "where": "motion/z",
-      "setting": "axis",
-      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "motion/io",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "motion/io",
@@ -464,8 +494,13 @@
     },
     {
       "where": "motion/io",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "config",
+      "setting": "diagnostics",
+      "note": "the canworks diagnostics channel of the plugin or bridge"
     },
     {
       "where": "every node",

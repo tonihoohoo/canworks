@@ -27,8 +27,10 @@ function homeView(ws = workspace()) {
 
 function toolsOf(ws = workspace()) {
   if (S.state && S.state.commission) return ["trace", "framelab"];
-  const sim = !isJ1939(S.config);
-  if (ws === "configure") return ["declarations"].concat(sim ? ["simulation"] : [], ["trace", "framelab"]);
+  // A target that does not run canworks has no simulated devices or located declarations (target.js).
+  const sim = !isJ1939(S.config) && (!S.model || simulationShown());
+  const decl = !S.model || usedBy("ui:declarations");
+  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim ? ["simulation"] : [], ["trace", "framelab"]);
   return (sim ? ["simulation"] : []).concat(["trace", "framelab"]);
 }
 

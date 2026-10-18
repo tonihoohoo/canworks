@@ -253,8 +253,8 @@ def tree_entry(page, key):
 
 def tree_view(page, view):
     """Opens a page of the open network (bus, raw, links) or of the config
-    (access, gateway, bridge) from the tree."""
-    if view in ("access", "gateway", "bridge"):
+    (access, gateway, bridge, codesys) from the tree."""
+    if view in ("access", "gateway", "bridge", "codesys"):
         page.click('#tree > [data-view="%s"] > .tree-row' % view)
     else:
         page.click('#tree .open-net [data-view="%s"] > .tree-row' % view)

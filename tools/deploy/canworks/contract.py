@@ -16,6 +16,7 @@ from . import axis as axis_mod
 from . import bridgecheck
 from . import eds as eds_mod
 from . import edslint
+from . import targets
 from . import links as links_mod
 from .eds import sync_needed_message, transmission_needs_sync
 from .iec import CO_TYPES, parse_location, type_fits, SIZE_BITS
@@ -348,9 +349,11 @@ class Result:
         self.warnings = []
         self.items = []
 
-    def add(self, level, message, paths):
+    def add(self, level, message, paths, **extra):
         (self.errors if level == "error" else self.warnings).append(message)
-        self.items.append({"level": level, "message": message, "paths": [p for p in paths if p is not None]})
+        item = {"level": level, "message": message, "paths": [p for p in paths if p is not None]}
+        item.update(extra)
+        self.items.append(item)
 
     @property
     def ok(self):
@@ -1108,10 +1111,11 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
             if key in cfg:
                 err("", "field '%s' needs schema_version 2: slave networks are entries of 'networks' with "
                         "\"role\": \"slave\"" % key, [key])
-        for key in J1939_V2_KEYS + ("bridge",):
+        for key in J1939_V2_KEYS + ("bridge", "codesys"):
             if key in cfg:
                 err("", "field '%s' needs schema_version 2" % key, [key])
-        found = [(where, key) for where, key in found if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge",)]
+        found = [(where, key) for where, key in found
+                 if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge", "codesys")]
         _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
         if r.ok:
             # Two uses of one location (plugin: check_overlaps), as a
@@ -1120,11 +1124,19 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
     else:
         _check_v2(r, cfg, schema_errors, err, warn, args)
     check_cia309(cfg, version, err)
-    if r.ok:
+    if isinstance(cfg.get("bridge"), dict) and isinstance(cfg.get("codesys"), dict):
+        err("", targets.BOTH_MESSAGE, ["bridge", "codesys"])
+    if r.ok and targets.target(cfg) != targets.CODESYS:
         _check_image(cfg, err)
     for where, key in found:
         parent = where[: -len(key)].rstrip(".")
         warn(parent, "unknown field '%s' (%s) ignored" % (key, where), [where])
+    # Settings the config's target does not use (canopen-config-contract
+    # "Settings the target does not use"), with the path to remove.
+    tgt = targets.target(cfg)
+    for at, key, why in targets.unused(cfg):
+        r.add("warning", "%s: %s: %s" % (path, at, targets.message(at, key, why, tgt)), [at],
+              unused=tgt, removable=targets.removable(key))
     return r
 
 
@@ -1318,6 +1330,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
         err(where, plain_schema_message(e, schema(2)))
     diag = isinstance(cfg.get("diagnostics"), dict)
     routed = routed_entries(cfg)
+    codesys = targets.target(cfg) == targets.CODESYS
     slaves = {}
     for i, net in enumerate(nets):
         prefix = "networks[%d]" % i
@@ -1382,8 +1395,13 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             (not j1939 and p[:1] == ["j1939"]))]
         adapter = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
         name = net.get("name") if isinstance(net.get("name"), str) and net.get("name") else adapter.get("interface")
+        if codesys:
+            # CODESYS chooses the interface by its network number: the
+            # adapter needs only the bit rate.
+            errors = [(p, e) for p, e in errors if not (p == ["adapter"] and e.validator in ("required", "if"))]
         _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
-                       net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i, **args)
+                       net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i,
+                       codesys=codesys, **args)
         raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
                                                              adapter.get("listen_only") is True)
         if not plain and isinstance(net.get("raw"), dict) and "scan_watchdog_ms" in net["raw"]:
@@ -1399,7 +1417,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             err(prefix, 'interface "%s" is not usable as a network name; give the network a \'name\'' % iface,
                 [prefix + ".adapter.interface"])
     bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None
-    _check_across_networks(r, cfg, err, bridge_uses)
+    _check_across_networks(r, cfg, err, bridge_uses, locations=not codesys)
     # Sent raw messages on identifiers the protocol uses (after the checks
     # across networks, as in the plugin).
     for n in networks(cfg):
@@ -1439,7 +1457,7 @@ def routed_entries(cfg):
     return out
 
 
-def _check_across_networks(r, cfg, err, bridge_uses=None):
+def _check_across_networks(r, cfg, err, bridge_uses=None, locations=True):
     nets = networks(cfg)
     names, ifaces, devices, simulated = {}, {}, {}, {}
     label = {n["index"]: "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "") for n in nets}
@@ -1499,6 +1517,8 @@ def _check_across_networks(r, cfg, err, bridge_uses=None):
                     err("networks", '%s node %d is %s on simulated bus %s; set "simulate": false on the node, or the '
                                     'simulator answers in its place' % (label[m["index"]], nid, label[sl["index"]], iface),
                         ["networks[%d].nodes[%d].simulate" % (m["index"], j)])
+    if not locations:
+        return  # a CODESYS config: CODESYS assigns the I/O addresses
     uses = []
     for n in nets:
         who = "networks[%d]" % n["index"] + (" (%s)" % n["name"] if n["name"] else "")
@@ -1635,7 +1655,7 @@ def _j1939_location_uses(j, add, dword_step=1):
 
 
 def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, diag=False, before=None,
-                   role="master", routed=(), net_name="", slaves=None, net_index=0):
+                   role="master", routed=(), net_name="", slaves=None, net_index=0, codesys=False):
     """One network: the version 1 top level, or one networks[] entry of a
     version 2 file (`prefix` "networks[i]", in front of every message's
     place and every path). `schema_errors`: (path inside the network,
@@ -1687,11 +1707,13 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     if f in a:
                         err("adapter", "field '%s' does not apply to adapter type %s" % (f, kind), ["adapter." + f])
             for f in ("interface", "bitrate") + (("device",) if kind == "slcan" else ()):
-                if f not in a or a[f] == "":
+                if (f not in a or a[f] == "") and not (codesys and f != "bitrate"):
                     err("adapter", "the %s is missing" % field_name(f), ["adapter." + f])
             if kind == "slcan":
                 if isinstance(a.get("device"), str) and a["device"] and not a["device"].startswith("/"):
                     err("adapter", "field 'device' must be an absolute path such as /dev/ttyACM0", ["adapter.device"])
+        if codesys and kind is None and isinstance(a, dict) and a.get("bitrate") in (None, ""):
+            err("adapter", "the %s is missing" % field_name("bitrate"), ["adapter.bitrate"])
     iface_msg = interface_message((cfg["adapter"] if has_adapter and isinstance(cfg["adapter"], dict) else
                                    {} if has_adapter else cfg).get("interface"))
     if iface_msg:
@@ -1904,6 +1926,21 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                        "on a communication reset" % label, [w + ".lss.assign", w + ".reset_communication"])
             node["lss"] = {"serial_number": _uint(n.get("serial_number", 0)),
                            "revision_number": _uint(n.get("revision_number", 0)) or 0}
+        # Entry names name the node's variables after its prefix, so two
+        # equal ones would name two values alike.
+        named = {}
+        for key in ("tx_pdos", "rx_pdos"):
+            for j, p in enumerate(n.get(key) or []):
+                for k, e in enumerate((p.get("entries") or []) if isinstance(p, dict) else []):
+                    nm = e.get("name") if isinstance(e, dict) else None
+                    if not isinstance(nm, str) or not nm:
+                        continue
+                    at = "%s.%s[%d].entries[%d].name" % (w, key, j, k)
+                    if nm.lower() in named:
+                        err(w, "%s: two PDO entries are named \"%s\" (entry names must differ, ignoring case)"
+                            % (label, nm), [named[nm.lower()], at])
+                    else:
+                        named[nm.lower()] = at
         if node["node_id"] == master_id:
             err("nodes", "node ID %d is the master's node ID" % node["node_id"], [w + ".node_id", "master.node_id"])
         seen.setdefault(node["node_id"], []).append(i)
@@ -1959,7 +1996,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                             % (label, entry["index"], entry["subindex"], route, entry["index"], entry["subindex"]),
                             ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
                     elif loc is None:
-                        if (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
+                        if codesys:
+                            pass  # CODESYS assigns the address; the name names the channel
+                        elif (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
                                 key == "tx_pdos" and (node["node_id"], pdo["number"]) in linked_tx):
                             err("%s: entries[%d]" % (pw, k),
                                 "%s, object 0x%04X:%d: missing 'iec_location' (only an entry a gateway route or a PDO "

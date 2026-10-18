@@ -78,7 +78,7 @@ def scaling_text(scale, offset, unit):
     return ("x %s + %s %s" % (number_text(scale), number_text(offset), unit or "")).strip()
 
 
-def declarations(cfg, object_name, declared, slave_object=None):
+def declarations(cfg, object_name, declared, slave_object=None, unlocated=False):
     """[{name, location, type, path, declared_as, node, kind, description}]
     for every mapped entry,
     node diagnostic input and NMT command byte, SDO variable (value, trigger,
@@ -108,7 +108,11 @@ def declarations(cfg, object_name, declared, slave_object=None):
     `<network>_dm<source>_status`, `_lamps`, `_flash`, `_count` and one
     UDINT per code slot `_dtc0`, `_dtc1`, ... (an ECU watched by NAME is
     `dm_rx<i>`), per own code `<network>_dtc_<spn>_<fmi>`, and
-    `<network>_dm_lamps` and `<network>_dm_clears`."""
+    `<network>_dm_lamps` and `<network>_dm_clears`.
+
+    A PDO entry's `name` replaces the EDS part of its name. With `unlocated`
+    (the CODESYS export) a PDO entry without a location is named too, with
+    location None."""
     out, names = [], set()
 
     def unique(base):
@@ -149,18 +153,24 @@ def declarations(cfg, object_name, declared, slave_object=None):
             for key in ("tx_pdos", "rx_pdos"):
                 for j, p in enumerate(n.get(key) or []):
                     for k, e in enumerate(p.get("entries") or []):
-                        if not parse_location(e.get("iec_location")) or e.get("type") not in IEC_TYPE:
+                        located = parse_location(e.get("iec_location"))
+                        if not (located or unlocated) or e.get("type") not in IEC_TYPE:
                             continue
                         index = e["index"] if isinstance(e["index"], int) else int(str(e["index"]), 0)
                         sub = e.get("subindex", 0)
                         sub = sub if isinstance(sub, int) else int(str(sub), 0)
                         eds_name = object_name(i, index, sub)
-                        label = eds_name or "x%04X_%d" % (index, sub)
+                        label = (e.get("name") if isinstance(e.get("name"), str) and e.get("name") else None) \
+                            or eds_name or "x%04X_%d" % (index, sub)
                         path = at + "nodes[%d].%s[%d].entries[%d].iec_location" % (i - first, key, j, k)
                         pdo = "%s%s" % ("TPDO" if key == "tx_pdos" else "RPDO", p.get("number") or j + 1)
                         text = "%s %s 0x%04X:%d %s" % (who, pdo, index, sub, eds_name or "")
-                        out.append({"name": unique("%s_%s" % (prefix, identifier(label))),
-                                    "location": e["iec_location"].strip(), "type": IEC_TYPE[e["type"]],
+                        name = unique("%s_%s" % (prefix, identifier(label)))
+                        # `entry_name`: the part after the prefixes, which an
+                        # entry's `name` gives (a switch to CODESYS keeps it).
+                        out.append({"name": name, "entry_name": name[len(prefix) + 1:],
+                                    "location": e["iec_location"].strip() if located else None,
+                                    "type": IEC_TYPE[e["type"]],
                                     "path": path, "declared_as": declared.get(path), "node": i, "kind": "pdo",
                                     "description": text.strip()})
             for j, v in enumerate(n.get("sdo_variables") or []):
@@ -361,7 +371,7 @@ def editor_block(decls, indent="  "):
 def st_block(decls):
     """A VAR ... END_VAR block of the declarations not yet in the project,
     with a J1939 signal's scaling in a comment."""
-    rows = [d for d in decls if not d["declared_as"]]
+    rows = [d for d in decls if not d["declared_as"] and d.get("location")]
     if not rows:
         return ""
     width = max(len(d["name"]) for d in rows)

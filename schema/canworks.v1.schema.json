@@ -1071,12 +1071,21 @@
         },
         "type": {
           "$ref": "#/$defs/co_type"
+        },
+        "name": {
+          "$ref": "#/$defs/entry_name"
         }
       },
       "required": [
         "index",
         "type"
       ]
+    },
+    "entry_name": {
+      "description": "The variable name of the entry's value, after the network and node prefixes the declarations add (docs/config.md): an IEC 61131-3 identifier. Default: the object's ParameterName in the EDS.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "maxLength": 64
     },
     "tx_entry": {
       "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the plugin checks that.",

@@ -5,15 +5,15 @@ The plan holds every setting the CODESYS script applies, already worked out
 here, so the script (script/import_canworks.py) knows nothing about the
 config: CODESYS parameters by their numeric id (and English name, for the
 report), node DCFs by path, I/O channels by PDO mapping object, index and
-sub-index. Settings CODESYS has no counterpart for go into `notes`."""
+sub-index. Settings CODESYS has no counterpart for go into `notes`, from
+the same table the check warns with (targets.py)."""
 
 import json
 import os
 import re
 
-from .. import __version__, bundle, contract, dcfexport
+from .. import __version__, bundle, contract, dcfexport, targets
 from ..configurator import declare
-from ..configurator.layout import MASTER_LOCATIONS, NODE_LOCATIONS
 from ..eds import Eds, EdsError
 
 FORMAT = 1
@@ -46,39 +46,6 @@ DEV_OPTIONS = (2, "General Options")
 DEV_SDO_TIMEOUT = (17, "SDO Timeout")
 DEV_RESET_SUB = (16846848, "SubIndex for reset node")
 
-# Config settings without a CODESYS counterpart: (key, why).
-MASTER_NOTES = [(k, "plugin status location for the PLC program; CODESYS has its own diagnostics "
-                    "(CANopen Manager status, CiA 405 blocks)") for k, _, _, _ in MASTER_LOCATIONS] + [
-    ("on_plc_stop", "CODESYS decides what the nodes get when the application stops"),
-    ("scan_watchdog_ms", "plugin scan watchdog"),
-    ("diagnostics", "canworks online diagnostics channel of the plugin"),
-    ("heartbeat_multiplier", "CODESYS sets the nodes' heartbeat consumer times itself"),
-    ("error_behavior", "master 0x1029: set the manager's NMT error behaviour in CODESYS"),
-    ("reset_all_nodes", "set the manager's NMT error behaviour in CODESYS"),
-    ("stop_all_nodes", "set the manager's NMT error behaviour in CODESYS"),
-    ("boot_time_ms", "master 0x1F89 boot time"),
-    ("vendor_id", "the master's own identity"),
-    ("product_code", "the master's own identity"),
-    ("revision_number", "the master's own identity"),
-    ("serial_number", "the master's own identity"),
-    ("sync_counter_overflow", "SYNC counter: set it on the manager's SYNC settings in CODESYS"),
-    ("emcy_inhibit_time_us", "the master's own EMCY"),
-    ("sync_cycles", "SYNC from the PLC cycle: pick the bus cycle task in CODESYS instead"),
-]
-NODE_NOTES = [(k, "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 "
-                  "blocks in CODESYS") for k, _, _, _ in NODE_LOCATIONS] + [
-    ("sdo_variables", "plugin SDO variables; use the CiA 405 SDO blocks in CODESYS"),
-    ("heartbeat_timeout_ms", "CODESYS supervises the node's heartbeat with its own consumer time"),
-    ("lss", "LSS node ID assignment: use CODESYS's own LSS settings"),
-    ("axis", "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"),
-    ("config_check", "configuration check: CODESYS downloads the configuration at every boot"),
-    ("store_configuration", "plugin store after the configuration check"),
-    ("emcy_cob_id", "where the plugin listens for EMCY"),
-    ("revision_number", "identity check: tick the device's startup checks in CODESYS"),
-    ("serial_number", "identity check: tick the device's startup checks in CODESYS"),
-    ("retry_factor", "node guarding retries"),
-    ("simulate", "simulated devices run in canworks, not in CODESYS"),
-]
 
 
 class ExportFailed(Exception):
@@ -119,15 +86,20 @@ def folder_name(net):
 
 
 def network_number(net, overrides):
-    """(CODESYS network number, note or None)."""
+    """(CODESYS network number, note or None): the override, else the
+    network's codesys.net_id, else the interface's trailing number, else 0."""
     if net["name"] in overrides:
         return overrides[net["name"]], None
+    own = net["json"].get("codesys") if isinstance(net["json"].get("codesys"), dict) else {}
+    if _int(own.get("net_id")) is not None:
+        return _int(own.get("net_id")), None
     iface = (net.get("adapter") or {}).get("interface")
     m = re.search(r"(\d+)$", iface) if isinstance(iface, str) else None
     if m:
         return int(m.group(1)), None
-    return 0, "the interface %r ends in no number, so the CODESYS network number is 0; give " \
-              "--codesys-net %s=N if the device's CAN interface has another number" % (iface, net["name"] or "NAME")
+    return 0, "the interface %r ends in no number, so the CODESYS network number is 0; set the network's CODESYS " \
+              "network number (codesys.net_id, or --codesys-net %s=N) if the device's CAN interface has another " \
+              "number" % (iface, net["name"] or "NAME")
 
 
 def manager_params(master):
@@ -190,6 +162,7 @@ def _eds_object_names(cfg, eds_paths):
 
 _ENTRY_PATH = re.compile(r"^(?:networks\[(\d+)\]\.)?nodes\[(\d+)\]\.(tx_pdos|rx_pdos)\[(\d+)\]\.entries\[(\d+)\]"
                          r"\.iec_location$")
+_UNUSED_PATH = re.compile(r"^(?:networks\[(\d+)\])?\.?(?:nodes\[(\d+)\]\.)?(.*)$")
 
 
 def channels(cfg, eds_paths):
@@ -207,7 +180,7 @@ def channels(cfg, eds_paths):
         return (o.name, o.type_name) if o else None
 
     out = {}
-    for d in declare.declarations(cfg, object_name, {}, slave_object):
+    for d in declare.declarations(cfg, object_name, {}, slave_object, unlocated=True):
         if d.get("kind") != "pdo":
             continue
         m = _ENTRY_PATH.match(d["path"])
@@ -236,11 +209,40 @@ def channels(cfg, eds_paths):
     return out
 
 
-def _notes_for(obj, table, where):
-    return [{"where": where, "setting": k, "note": why} for k, why in table if obj.get(k) not in (None, False, [], {})]
+def _unused_notes(cfg):
+    """The table's CODESYS notes (targets.unused) as {where, setting, note}:
+    where "field/rtd", "field/master", "field" or "config"."""
+    nets = {n["index"]: n for n in contract.networks(cfg)} if isinstance(cfg.get("networks"), list) else \
+        {0: contract.networks(cfg)[0]}
+    out = []
+    for path, key, why in targets.unused(cfg, targets.CODESYS):
+        m = _UNUSED_PATH.match(path)
+        if not (m.group(1) is not None or not isinstance(cfg.get("networks"), list)) or path in (
+                "gateway", "cia309", "diagnostics"):
+            out.append({"where": "config", "setting": path, "note": why})
+            continue
+        net = nets.get(int(m.group(1) or 0))
+        label = (net["name"] if net else "") or "the network"
+        rest = m.group(3)
+        if m.group(2) is not None and net:
+            node = net["nodes"][int(m.group(2))]
+            where = "%s/%s" % (label, node.get("name") or "node %s" % _int(node.get("node_id")))
+        elif rest.startswith("master."):
+            where, rest = label + "/master", rest[len("master."):]
+        else:
+            where = label
+        if key in targets.NETWORK_KINDS:
+            rest, why = "network", "not exported: " + why
+        if rest.endswith("].iec_location") and ".entries[" in rest:
+            # One note per node for its PDO entry locations.
+            rest = "PDO entry locations"
+            if out and out[-1]["where"] == where and out[-1]["setting"] == rest:
+                continue
+        out.append({"where": where, "setting": rest, "note": why})
+    return out
 
 
-def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=True, project=None, create=None,
+def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=None, project=None, create=None,
           network=None, interfaces=None):
     """(plan dict, {file name: DCF text}). Raises ExportFailed with every
     problem when the config or a DCF fails, or an override names no master
@@ -248,6 +250,17 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
     overrides = dict(overrides or {})
     interfaces = dict(interfaces or {})
     eds_paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
+    flag_interfaces = set(interfaces)
+    # The config's own CODESYS settings; the arguments override them.
+    own = cfg.get("codesys") if isinstance(cfg.get("codesys"), dict) else {}
+    if plc is None:
+        plc = own.get("device") or None
+    if variables is None:
+        variables = own.get("variables") is not False
+    for n in contract.networks(cfg):
+        nc = n["json"].get("codesys") if isinstance(n["json"].get("codesys"), dict) else {}
+        if n["name"] not in interfaces and isinstance(nc.get("interface"), str) and nc["interface"]:
+            interfaces[n["name"]] = nc["interface"]
     nets = contract.networks(cfg)
     if network is not None:
         nets = [n for n in nets if n["name"] == network]
@@ -260,7 +273,7 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
         raise ExportFailed([("--codesys-net names %s, which %s no CANopen master network in the config (%s)"
                              % (", ".join(unknown), "is" if len(unknown) == 1 else "are",
                                 ", ".join(n["name"] for n in masters) or "none"), ["networks"])])
-    unknown = sorted(set(interfaces) - {n["name"] for n in masters})
+    unknown = sorted(flag_interfaces - {n["name"] for n in masters})
     if unknown:
         raise ExportFailed([("--codesys-can names %s, which %s no CANopen master network in the config (%s)"
                              % (", ".join(unknown), "is" if len(unknown) == 1 else "are",
@@ -275,20 +288,17 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
         chans = channels(cfg, eds_paths) if variables else {}
     except (KeyError, IndexError, TypeError, ValueError) as e:
         chans, channels_failed = {}, e
-    files, problems, notes = {}, [], []
+    files, problems = {}, []
+    labels = {n["name"] or "the network" for n in nets}
+    notes = [x for x in _unused_notes(cfg) if x["where"] == "config" or x["where"].split("/")[0] in labels]
     plan_nets, device_names = [], set()
     for net in nets:
         label = net["name"] or "the network"
         if net["role"] != "master":
-            what = {"slave": "a slave network: use `canworks-deploy slave-eds` for the other master's tool",
-                    "j1939": "a J1939 network", "plain": "a plain CAN network"}.get(net["role"], net["role"])
-            notes.append({"where": label, "setting": "network", "note": "not exported: %s" % what})
-            continue
+            continue  # the table's note says why
         if not net["nodes"]:
             notes.append({"where": label, "setting": "network", "note": "not exported: no nodes"})
             continue
-        if isinstance(net["json"].get("raw"), dict):
-            notes.append({"where": label, "setting": "raw", "note": "raw CAN messages stay with canworks"})
         if net["json"].get("links"):
             notes.append({"where": label, "setting": "links",
                           "note": "PDO links come through the consumers' DCFs; CODESYS shows them as the consumers' "
@@ -306,11 +316,6 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
             notes.append({"where": label, "setting": "adapter.interface", "note": note})
         master = net["master"]
         bitrate = _int((net.get("adapter") or {}).get("bitrate"), 0) // 1000
-        notes += _notes_for(master, MASTER_NOTES, label + "/master")
-        if master.get("sync_source") == "plc_cycle":
-            notes.append({"where": label + "/master", "setting": "sync_source",
-                          "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle "
-                                  "task in CODESYS"})
         if master.get("time_period_ms") is not None:
             notes.append({"where": label + "/master", "setting": "time_period_ms",
                           "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the "
@@ -324,13 +329,6 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
                 name = "%s_%d" % (base, n)
                 n += 1
             device_names.add(name.lower())
-            where = "%s/%s" % (label, node.get("name") or "node %s" % node_id)
-            notes += _notes_for(node, NODE_NOTES, where)
-            for j, p in enumerate(node.get("tx_pdos") or []):
-                for key in ("timeout_location", "timeout_ms"):
-                    if p.get(key) is not None:
-                        notes.append({"where": where, "setting": "tx_pdos[%d].%s" % (j, key),
-                                      "note": "plugin receive timeout of a TPDO"})
             plan_nodes.append({"node_id": node_id, "name": name,
                                "dcf": folder + "/" + dcfexport.dcf_name(node_id),
                                "params": node_params(node, master),
@@ -346,9 +344,8 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
     if channels_failed is not None:
         raise ExportFailed([("cannot name the I/O channels (%s); export with variables off to leave them out"
                              % channels_failed, ["networks"])])
-    for key in ("bridge", "gateway"):
-        if isinstance(cfg.get(key), dict):
-            notes.append({"where": "config", "setting": key, "note": "stays with canworks"})
+    if isinstance(cfg.get("bridge"), dict):
+        notes.append({"where": "config", "setting": "bridge", "note": "stays with canworks"})
     notes.append({"where": "every node", "setting": "identity check",
                   "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); "
                           "set them on each device in CODESYS if wanted"})

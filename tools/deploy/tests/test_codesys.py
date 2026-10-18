@@ -105,8 +105,8 @@ class Plan(unittest.TestCase):
         plan, files = cplan.build(load(PLANT), PLANT)
         self.assertEqual([n["name"] for n in plan["networks"]], ["io", "motion", "host"])
         self.assertIn({"where": "cell", "setting": "network",
-                       "note": "not exported: a slave network: use `canworks-deploy slave-eds` for the other "
-                               "master's tool"}, plan["notes"])
+                       "note": "not exported: a slave network stays with canworks: give the other master the "
+                               "slave's EDS (canworks-deploy slave-eds)"}, plan["notes"])
         self.assertTrue(all(name.split("/")[0] in ("io", "motion", "host") for name in files))
         names = [n["name"] for net in plan["networks"] for n in net["nodes"]]
         self.assertEqual(len(names), len({n.lower() for n in names}))

@@ -7,7 +7,7 @@ File...), or headless:
   CODESYS.exe --profile="<profile>" --noUI --runscript="<folder>\\import_canworks.py"
 
 It reads canworks-codesys.json next to itself (written by canworks-deploy
---export-codesys or the configurator's Export > CODESYS), and writes
+--export-codesys or the configurator's Download for CODESYS), and writes
 import_report.txt next to itself. With a project open in the IDE it changes
 that project and does not save it; without one it opens or creates the
 project the plan names and saves it when nothing failed.

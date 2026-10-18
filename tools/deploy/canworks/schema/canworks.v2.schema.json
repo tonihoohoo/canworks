@@ -23,6 +23,7 @@
     },
     "gateway": { "$ref": "#/$defs/gateway" },
     "bridge": { "$ref": "#/$defs/bridge" },
+    "codesys": { "$ref": "#/$defs/codesys" },
     "cia309": {
       "description": "The CiA 309-3 ASCII gateway for all networks (docs/cia309-gateway.md). In version 1 this is master.cia309.",
       "$ref": "canworks.v1.schema.json#/$defs/master/properties/cia309"
@@ -45,6 +46,24 @@
     "properties": { "networks": { "items": { "properties": { "nodes": { "minItems": 1 } } } } }
   },
   "$defs": {
+    "codesys": {
+      "description": "Makes this a CODESYS config, built into a CODESYS project with CODESYS's own CANopen Manager instead of run by the OpenPLC plugin (docs/codesys.md). PDO entries need no iec_location then: CODESYS assigns the I/O addresses and each entry's channel is named by its 'name' or the generated name. canworks-deploy's --codesys-* options override these settings.",
+      "type": "object",
+      "properties": {
+        "project": { "description": "The CODESYS project file the bus is built into (--codesys-import).", "type": "string", "minLength": 1 },
+        "device": { "description": "The device in the project that gets the bus. Default: the device of the project's active application, else its only device.", "type": "string", "minLength": 1 },
+        "create": { "description": "Creates the project when it does not exist, with this PLC device from CODESYS's device repository: TYPE:ID:VERSION.", "type": "string", "pattern": "^[^:]+:[^:]+:[^:]+$" },
+        "variables": { "description": "Name the I/O channels after the entries (default true).", "type": "boolean" }
+      }
+    },
+    "network_codesys": {
+      "description": "A CANopen master network's CODESYS settings (CODESYS configs only).",
+      "type": "object",
+      "properties": {
+        "net_id": { "description": "The CODESYS network number of the network's CANbus. Default: the interface's trailing number, else 0.", "type": "integer", "minimum": 0, "maximum": 255 },
+        "interface": { "description": "The device's CAN interface object that gets the network's bus, such as CAN or CAN2. Default: found by name.", "type": "string", "minLength": 1 }
+      }
+    },
     "bridge": {
       "description": "Makes this a Modbus bridge config, run by canworks-bridge instead of the OpenPLC plugin (docs/modbus-bridge.md). Locations are byte addresses then: %IWn covers input bytes n and n+1, word and larger locations start at an even byte, and no two locations share a byte (bits of one byte with different bit numbers excepted). Input byte n is input register n/2, %IXn.b discrete input n*8+b; outputs map to holding registers and coils the same way.",
       "type": "object",
@@ -116,7 +135,8 @@
         "links": { "$ref": "canworks.v1.schema.json#/$defs/links" },
         "slave": { "$ref": "#/$defs/slave" },
         "j1939": { "$ref": "#/$defs/j1939" },
-        "raw": { "$ref": "#/$defs/raw" }
+        "raw": { "$ref": "#/$defs/raw" },
+        "codesys": { "$ref": "#/$defs/network_codesys" }
       },
       "allOf": [
         { "not": { "anyOf": [ { "required": [ "interface" ] }, { "required": [ "bitrate" ] } ] } },
@@ -459,7 +479,8 @@
       "properties": {
         "index": { "$ref": "canworks.v1.schema.json#/$defs/index" },
         "subindex": { "$ref": "canworks.v1.schema.json#/$defs/subindex" },
-        "type": { "$ref": "canworks.v1.schema.json#/$defs/co_type" }
+        "type": { "$ref": "canworks.v1.schema.json#/$defs/co_type" },
+        "name": { "$ref": "canworks.v1.schema.json#/$defs/entry_name" }
       },
       "required": [ "index", "type" ]
     },

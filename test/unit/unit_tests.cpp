@@ -986,6 +986,35 @@ TEST(bridge_config_hosts) {
   set_log_sink(nullptr);
 }
 
+// The OpenPLC plugin and canworks-bridge refuse a CODESYS config
+// (canopen-config-contract "CODESYS configs are for CODESYS").
+TEST(codesys_config_refused) {
+  std::string fixtures = FIXTURES_DIR;
+  cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases-bridge.json").c_str());
+  cJSON* cfg = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(doc, "base"), true);
+  cJSON_DeleteItemFromObjectCaseSensitive(cfg, "bridge");
+  cJSON_AddItemToObject(cfg, "codesys", cJSON_CreateObject());
+  char* text = cJSON_Print(cfg);
+  set_log_sink(silent);
+  const char* msg = "this is a CODESYS config (it has a 'codesys' object): build it into a CODESYS project with "
+                    "canworks-deploy --codesys-import, not the OpenPLC plugin or canworks-bridge";
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, msg), join(errors));
+  ImageLimits bridge;
+  bridge.bridge_host = true;
+  bridge.buffer_size = 8192;
+  ConfigSet set2;
+  errors.clear();
+  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", bridge, set2, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, msg), join(errors));
+  std::free(text);
+  cJSON_Delete(cfg);
+  cJSON_Delete(doc);
+  set_log_sink(nullptr);
+}
+
 // ---------------------------------------------------------------------------
 // SocketCAN link setup on a mocked rtnetlink layer (canopen-master-bringup)
 
