@@ -1502,13 +1502,6 @@ While an export runs, the page SHALL show that it is running. The findings of a 
 - **WHEN** the user runs a failing DBC export three times
 - **THEN** Problems lists its findings once
 
-### Requirement: Modbus bridge target
-A project SHALL have a target, "OpenPLC" (default) or "Modbus bridge". Switching the target SHALL offer to repack all locations for the new addressing (per-type for OpenPLC, Pack for Modbus for the bridge), and SHALL add or remove the `bridge` object. The settings that make no sense for the target (`sync_source: plc_cycle` for the bridge) SHALL be marked as problems.
-
-#### Scenario: Switch to the bridge
-- **WHEN** the user switches an OpenPLC project with two nodes to "Modbus bridge" and accepts repacking
-- **THEN** the file gets a `bridge` object with `listen` `0.0.0.0:502`, every location is byte-addressed and packed, and Check reports no problems
-
 ### Requirement: Bridge settings panel
 A bridge project SHALL have a "Modbus bridge" page with:
 - listen address and port, unit ID, word order, maximum clients
@@ -2933,17 +2926,6 @@ The Commission log SHALL add "Booted" for a node whenever the runtime's boot cou
 - **WHEN** the user resets node 6 from its Status tab and the master boots it again before the next status answer
 - **THEN** the log has the NMT reset and then "Booted" for node 6
 
-### Requirement: Export for CODESYS
-The header's Export menu SHALL offer "CODESYS", which runs the `codesys-export` export on the config as shown on the page, saved or not, with every master network, and offers the folder as a browser download `<config folder name>_codesys.zip`. When the config has errors or a DCF fails validation, it SHALL download nothing and show the messages in the Problems panel, as the DCF export does. It SHALL NOT write any file in the project or config folder.
-
-#### Scenario: Download
-- **WHEN** the config is valid and the user picks Export > CODESYS
-- **THEN** the browser downloads `<folder>_codesys.zip` holding the network folders with their DCFs, `canworks-codesys.json`, `import_canworks.py` and `README.txt`
-
-#### Scenario: Config with errors
-- **WHEN** the config has errors and the user picks Export > CODESYS
-- **THEN** nothing is downloaded and the Problems panel lists the errors
-
 ### Requirement: New editor project in standalone mode
 In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to enable the canworks function blocks (unchecked by default), create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
 
@@ -3341,3 +3323,86 @@ While the runtime does not answer, the online status SHALL be reported without a
 #### Scenario: Runtime stopped
 - **WHEN** the connected runtime stops answering
 - **THEN** the page shows the connection state and the console has no repeated errors
+
+### Requirement: Project target
+A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESYS", chosen in a "Project target" field at the top of every Bus page and shown in the header. The target SHALL come from the config: a `bridge` object makes it Modbus bridge, a `codesys` object CODESYS.
+
+#### Scenario: Target shown
+- **WHEN** the user opens a config with a `codesys` object
+- **THEN** the Project target field and the header show CODESYS
+
+### Requirement: Only what the target uses is shown
+The page SHALL hide every field, choice option, tree entry, menu item and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them. A setting the target does not use that still has a value SHALL stay shown, marked "not used by <target>", with a Remove action. The same rules SHALL apply to all three targets.
+
+#### Scenario: CODESYS project
+- **WHEN** the project's target is CODESYS
+- **THEN** the page shows no IEC location fields, status locations, SDO variables, CiA 402 axis, scan watchdog, EDS lint, simulated devices, raw CAN messages, gateway, Online access or OpenPLC Editor project actions, and the protocol choice offers only CANopen master
+
+#### Scenario: Bridge project
+- **WHEN** the project's target is Modbus bridge
+- **THEN** the SYNC source offers no "PLC cycle", no scan watchdog field is shown, and the Project menu has no editor project actions
+
+#### Scenario: OpenPLC project
+- **WHEN** the project's target is OpenPLC
+- **THEN** no Modbus bridge or CODESYS page, field or action is shown
+
+#### Scenario: Leftover value
+- **WHEN** a CODESYS project still has `on_plc_stop` set to `keep`
+- **THEN** the field is shown marked "not used by CODESYS" with Remove, and Problems lists the same warning
+
+### Requirement: Switching the target
+Switching the target SHALL show one dialog naming what the new target does not use, and SHALL apply the switch as one undo step:
+- to CODESYS: every PDO entry without a `name` gets its current generated name, and the dialog offers **Remove them** (default) or **Keep them** for the unused values; `bridge` is removed;
+- from CODESYS: `codesys` objects are removed and the dialog offers to give every entry without a location one, per type for OpenPLC or packed for Modbus for the bridge; entry names stay;
+- between OpenPLC and Modbus bridge: the repack choice as before, and Remove or Keep for the values the new target does not use.
+
+#### Scenario: OpenPLC to CODESYS
+- **WHEN** the user switches an OpenPLC project with node `dio` mapping 0x6000 sub 1 to `%IB8` to CODESYS and picks Remove them
+- **THEN** the entry has `name` `Read_input_8_bit_1` and no `iec_location`, the config has a `codesys` object, Check reports no problems, and one Undo restores the OpenPLC project
+
+#### Scenario: CODESYS to bridge
+- **WHEN** the user switches that CODESYS project to Modbus bridge and accepts packing
+- **THEN** every entry has a byte-addressed location, the `codesys` objects are gone and the register map row of the entry is named after `Read_input_8_bit_1`
+
+### Requirement: Variable names of PDO entries
+The PDO table SHALL have a Variable column for every target, editing the entry's `name`, with the generated name as placeholder. The Location column SHALL be shown only for targets that use locations.
+
+#### Scenario: Rename a channel
+- **WHEN** the user types `door_open` as the variable of an entry in a CODESYS project
+- **THEN** the entry gets `name` `door_open` and the CODESYS export names that channel `<node>_door_open`
+
+### Requirement: CODESYS settings
+A CODESYS project SHALL have a "CODESYS" page in the tree with the project file, the device that gets the bus, the PLC device for a new project and variable names on or off, and each CANopen master network's Bus page SHALL have the CODESYS network number and CAN interface object, all stored in the config's `codesys` objects.
+
+#### Scenario: Network number
+- **WHEN** the user sets the CODESYS network number of network `field` to 0
+- **THEN** the config's network `field` gets `codesys.net_id` 0 and the next CODESYS build uses network number 0
+
+### Requirement: CODESYS actions
+A CODESYS project SHALL have **Build into CODESYS project…** and **Download for CODESYS** in the header. Build SHALL require a saved config and a project file, run the `--codesys-import` route of `canopen-deploy` with the config's settings, and show CODESYS's report; when CODESYS is not found on this PC it SHALL say so and point to Download. Download SHALL offer the `codesys-export` folder as `<config folder name>_codesys.zip` and write no file in the project or config folder; on errors it SHALL download nothing and list them in Problems.
+
+#### Scenario: Build
+- **WHEN** a saved CODESYS project names `C:\Projects\cell.project` and the user clicks Build into CODESYS project on a PC with CODESYS
+- **THEN** the project gets the bus and the page shows CODESYS's report with its result
+
+#### Scenario: Project open in CODESYS
+- **WHEN** the build fails because the project is open in the CODESYS window
+- **THEN** the page shows the failure with the hint to close the project in CODESYS first
+
+#### Scenario: No CODESYS
+- **WHEN** the user clicks Build on a PC without CODESYS
+- **THEN** the page says CODESYS was not found and offers Download for CODESYS
+
+### Requirement: Target of a new config
+"New standalone config" on the start page SHALL ask for the target, and the start page's intro SHALL name the three targets.
+
+#### Scenario: New CODESYS config
+- **WHEN** the user creates a new standalone config with target CODESYS
+- **THEN** the config is version 2 with a `codesys` object and the page shows the CODESYS target
+
+### Requirement: Commission in a CODESYS project
+In a CODESYS project, Commission SHALL connect through a USB adapter only, since no canworks runtime runs the bus.
+
+#### Scenario: Connect
+- **WHEN** the user opens Commission in a CODESYS project
+- **THEN** the connect dialog offers the USB adapter and no runtime
