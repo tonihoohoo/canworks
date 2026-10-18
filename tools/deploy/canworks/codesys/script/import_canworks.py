@@ -521,8 +521,14 @@ def open_project(plan, base, report):
             path = os.path.join(base, path)
         if not os.path.isfile(path):
             raise Stop("the project %s does not exist" % path)
+        try:
+            proj = projects.open(path)
+        except Exception as e:
+            if "in use" not in str(e):
+                raise
+            raise Stop("the project %s is open in CODESYS (%s); close it there first" % (path, str(e).strip()))
         report.add("project", "opened %s" % path)
-        return projects.open(path), True
+        return proj, True
     create = plan.get("create")
     if create:
         path = create["path"]

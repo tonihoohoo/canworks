@@ -174,6 +174,8 @@ class Projects:
         self.primary = None
 
     def open(self, path):
+        if path in self.world.in_use:
+            raise Exception("The selected project is currently in use by 'someone' on 'another-pc'.")
         p = self.world.stored[path]
         self.primary = p
         return p
@@ -231,6 +233,7 @@ class World:
         self.log, self.stored, self.descriptions = [], {}, {}
         self.fail_add, self.globals, self.names_taken = {}, [], set()
         self.builds = 0
+        self.in_use = set()  # projects another CODESYS holds open
         self.missing_manager_ids = set(missing_manager_ids)
         self.system = System()
         self.projects = Projects(self)
