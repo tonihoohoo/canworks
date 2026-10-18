@@ -3,20 +3,47 @@
   <img alt="canworks" src="docs/images/logo-light.svg" height="120">
 </picture></h1>
 
-An open CAN toolkit: configure, commission, diagnose, trace and simulate **CANopen**, **J1939** and plain **CAN** networks, from a PC on its own or with an [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime) PLC driving the bus.
+An open CAN toolkit: configure, commission, diagnose, trace and simulate **CANopen**, **J1939** and plain **CAN** networks, from a PC on its own or with the bus run by an [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime) PLC, by a Modbus TCP bridge that any PLC or program can use, or by a CODESYS controller.
 
 > **Experimental.** All code, tests and documentation in this repository were written by Claude (Anthropic's AI model), directed and tested by a person. Treat everything here as experimental: it has run on a test bench, not in production, and comes with no warranty (see [LICENSE](LICENSE)). Do not use it to control machinery where a fault could hurt people or damage equipment.
 
 canworks has two halves:
 
-- **A runtime plugin for OpenPLC v4** that makes the PLC a CANopen master, slave or gateway, or a J1939 ECU, with plain CAN messages on any network, over SocketCAN. It is built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) and the Linux kernel's J1939 stack, and installs next to an unmodified upstream runtime.
+- **Something that runs the bus**, picked per project as its [target](#targets): a runtime plugin for OpenPLC v4 that makes the PLC a CANopen master, slave or gateway, or a J1939 ECU, with plain CAN messages on any network, over SocketCAN; the same engine as a Modbus TCP bridge with no PLC; or CODESYS's own CANopen Manager, which canworks configures. The plugin and the bridge are built on [Lely CANopen](https://gitlab.com/lely_industries/lely-core) and the Linux kernel's J1939 stack, and the plugin installs next to an unmodified upstream runtime.
 - **PC tools for Windows, macOS and Linux**: a configurator in the browser, a deploy tool, command-line diagnostics, a bus trace, device simulators and a local runtime in a container. They work through the PLC or straight through a USB CAN adapter on the PC, with no PLC at all.
+
+## Targets
+
+Every config has one target: the system that runs its networks. The configurator shows it on every Bus page and next to the project name, hides every setting the target does not use, and switches a config to another target in one undo step, removing or keeping what the new target does not use ([docs/configurator.md](docs/configurator.md#project-target)). A new config picks its target on the start page.
+
+| | OpenPLC | Modbus bridge | CODESYS |
+|---|---|---|---|
+| **Who runs the bus** | The canworks plugin inside OpenPLC Runtime v4 | `canworks-bridge`, the same engine with no PLC | CODESYS's own CANopen Manager |
+| **Where it runs** | Linux with SocketCAN | Linux with SocketCAN, as a service or a container | A CODESYS controller or display with CAN |
+| **How the program sees the bus** | `%I`/`%Q` locations, plus the `canworks` function block library | Modbus TCP registers and coils, made from the `%I`/`%Q` locations | I/O channels, named after each PDO entry's variable name |
+| **Networks** | CANopen master, slave and gateway, J1939, plain CAN | Same as OpenPLC | CANopen master |
+| **How the config gets there** | The editor's **Build and upload**, or `canworks-deploy` | `canworks-deploy --bridge HOST` | **Build into CODESYS project…** or **Download for CODESYS** |
+| **Marked in `canworks.json` by** | Nothing (the default) | A top-level `bridge` object | A top-level `codesys` object |
+
+The PC tools work next to all three: the trace, commissioning and simulated devices. With CODESYS they reach the bus through a USB CAN adapter on the PC.
+
+### OpenPLC
+
+The plugin runs every network of the config inside the OpenPLC runtime and exchanges PDOs with the PLC image once per scan. The program reads and writes the bus on `%I`/`%Q` locations, and the blocks of the `canworks` library send SDOs, NMT commands, J1939 messages and raw frames when the program decides. Everything under [Features](#features) applies. Install it with the plugin lines in [Quick start](#quick-start).
+
+### Modbus bridge
+
+`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object that lists which addresses may write (`writers`); its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. There is no PLC scan: a watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers stand in for the function blocks. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
+
+### CODESYS
+
+canworks configures the bus, and CODESYS runs it: the CANopen master networks of a config go into a CODESYS project for a CODESYS controller or display with CAN, running CODESYS's own CANopen Manager ([docs/codesys.md](docs/codesys.md)). There are no PLC locations; each PDO entry has a variable name instead, and the config keeps the CODESYS project file, device, network numbers and CAN interfaces. **Build into CODESYS project…** runs CODESYS headless on this PC, and **Download for CODESYS** gives each node's DCF and a script that CODESYS runs on the open project, on its active device, under the device's own CAN interface when it has one. `canworks-deploy --export-codesys` and `--codesys-import` do the same from the command line. The nodes arrive with their PDOs, COB-IDs, timers, heartbeat and startup SDOs, the CANbus and manager with their settings, and every mapped I/O channel with the same variable name the OpenPLC editor uses; running it again replaces the nodes it manages. Slave, gateway, J1939 and plain CAN networks, the plugin's status locations, SDO variables and diagnostics channel stay with the other two targets; the import report lists the few settings left to set by hand in CODESYS, such as the nodes' identity checks.
 
 ## How it works
 
-You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents). The file travels with the PLC program, either in the editor project's `canworks/` folder or through `canworks-deploy`. Numbers in it are plain decimal or `0x` hex (a leading zero such as `"012"` is refused, never read as octal), and a key given twice in one object is refused.
+You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which PLC address (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents), or for CODESYS which variable name. For OpenPLC the file travels with the PLC program, either in the editor project's `canworks/` folder or through `canworks-deploy`. Numbers in it are plain decimal or `0x` hex (a leading zero such as `"012"` is refused, never read as octal), and a key given twice in one object is refused.
 
-At every PLC start the plugin checks the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every node over SDO, and then exchanges PDOs with the PLC image once per scan. A node that is missing or drops off the bus never stops the PLC: its status bit goes FALSE and the master keeps trying to bring it back. A config with errors is logged and leaves the plugin inactive; the PLC still runs.
+On OpenPLC, at every PLC start the plugin checks the file against the EDS files, generates the device configuration with Lely's `dcfgen`, boots and configures every node over SDO, and then exchanges PDOs with the PLC image once per scan. A node that is missing or drops off the bus never stops the PLC: its status bit goes FALSE and the master keeps trying to bring it back. A config with errors is logged and leaves the plugin inactive; the PLC still runs. The Modbus bridge does the same at its own start, and for CODESYS the same checks run on the PC before anything goes into the project.
 
 ## Quick start
 
@@ -40,13 +67,15 @@ sudo systemctl restart openplc-runtime    # native installs: once, so the runtim
 
 From Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.ps1))) -Ssh pi@rpi.local`. Running the line again updates. Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). From a git checkout: `sudo scripts/install-stock.sh`.
 
+**Other targets.** For the Modbus bridge, run `sudo scripts/install-bridge.sh` on the Linux device or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md)). For CODESYS nothing is installed on the controller: pick CODESYS when you make the config, and build into the project from the Windows PC with CODESYS, or download the files for it from any PC ([docs/codesys.md](docs/codesys.md)).
+
 **Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); it writes the editor project's `canworks/` folder, and the editor's own **Build and upload** carries it to the PLC. `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
 
 ## Features
 
 ### CANopen on the PLC
 
-Every field is described in [docs/config.md](docs/config.md).
+On OpenPLC, and on the Modbus bridge with registers in place of the program's blocks; CODESYS gets the master network settings it can take ([CODESYS](#codesys)). Every field is described in [docs/config.md](docs/config.md).
 
 - **Networks and adapters:** up to 8 CAN networks from one PLC, each with its own adapter, master, bit rate, SYNC and nodes; a network that fails does not stop the others. Any SocketCAN interface works (CAN HAT, candleLight/gs_usb, PEAK, vcan), as do serial `slcan` adapters such as a CANable, driven directly without `slcand` and picked up again after a replug.
 - **PDOs:** mapping from the config, or the device's own fixed or default mapping. Transmission type, inhibit time, event timer and SYNC start value default to the EDS's own values.
@@ -68,19 +97,11 @@ Every field is described in [docs/config.md](docs/config.md).
 
 ### J1939 on the PLC
 
-A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available (J1939-71 ranges) and timeout bits that drop when the bus is lost, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Trouble codes work both ways: other ECUs' DM1 codes and lamps reach `%I` locations and the `J1939_DM_READ` block, the PLC broadcasts its own codes switched by `%Q` bits, answers DM2, DM3 and DM11 from service tools, follows DM13, and clears other ECUs with `J1939_DM_CLEAR`. From the program, `J1939_SEND`, `J1939_RECEIVE` and `J1939_REQUEST` send, receive and request any PGN up to 1785 bytes from the claimed address, `J1939_ECU_INFO` and `J1939_FIND_ECU` give the claim state and find ECUs by NAME, and ST functions pack signals and NAMEs; the configurator copies the calls for a PGN. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config, and a J1939 network has its own scan watchdog (`j1939.scan_watchdog_ms`).
+On OpenPLC and the Modbus bridge. A network with `"protocol": "j1939"` makes the PLC an ECU ([docs/j1939.md](docs/j1939.md)): its own NAME and address claim, received PGNs on `%I` locations with not-available (J1939-71 ranges) and timeout bits that drop when the bus is lost, sent PGNs from `%Q` locations periodically or on change, request handling, and messages up to 1785 bytes through the kernel's transport protocol. Trouble codes work both ways: other ECUs' DM1 codes and lamps reach `%I` locations and the `J1939_DM_READ` block, the PLC broadcasts its own codes switched by `%Q` bits, answers DM2, DM3 and DM11 from service tools, follows DM13, and clears other ECUs with `J1939_DM_CLEAR`. From the program, `J1939_SEND`, `J1939_RECEIVE` and `J1939_REQUEST` send, receive and request any PGN up to 1785 bytes from the claimed address, `J1939_ECU_INFO` and `J1939_FIND_ECU` give the claim state and find ECUs by NAME, and ST functions pack signals and NAMEs; the configurator copies the calls for a PGN. Signal scaling lives in a DBC file the tools use. J1939 and CANopen networks run side by side in one config, and a J1939 network has its own scan watchdog (`j1939.scan_watchdog_ms`).
 
 ### Raw CAN on the PLC
 
-Plain CAN messages run on any network, next to CANopen or J1939, or on a plain CAN network (`"protocol": "none"`, optionally listen-only) that carries nothing else ([docs/raw-can.md](docs/raw-can.md)). Received messages put DBC-style signals on `%I` locations with a timeout bit, counter and last frame; sent ones come from `%Q` locations periodically, on change or on a trigger bit. Multiplexed messages (simple and extended DBC multiplexing) work on raw and J1939 networks: received pages update their own signals with a valid bit each, and sent pages are picked by the program, sent all each period or in turn. Identifiers the protocol uses need an explicit override. Inputs go invalid at once when the adapter is gone, and program frames stop with the outputs (a plain CAN network has its own `raw.scan_watchdog_ms`). From the program, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO` and ST bit and byte helpers in the `canworks` library send and receive any frame when the program decides. [`examples/raw-can`](examples/raw-can/canworks.json) is a plain network with its DBC file and simulated devices.
-
-### Modbus TCP bridge for any PLC or program
-
-`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object that lists which addresses may write (`writers`); its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers come along. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
-
-### CODESYS
-
-CODESYS is a project target next to OpenPLC and the Modbus bridge: the CANopen networks of a config go into a CODESYS project for a CODESYS controller or display with CAN, running CODESYS's own CANopen Manager ([docs/codesys.md](docs/codesys.md)). In a CODESYS project the configurator shows only what CODESYS uses (no PLC locations: each PDO entry has a variable name), keeps the CODESYS project file, device, network numbers and CAN interfaces in the config, and has **Build into CODESYS project…** (CODESYS headless on this PC) and **Download for CODESYS** (each node's DCF and a script that CODESYS runs on the open project, on its active device, under the device's own CAN interface when it has one). `canworks-deploy --export-codesys` and `--codesys-import` do the same from the command line. The nodes arrive with their PDOs, COB-IDs, timers, heartbeat and startup SDOs, the CANbus and manager with their settings, and every mapped I/O channel with the same variable name the OpenPLC editor uses; running it again replaces the nodes it manages. The PC tools trace, commission and simulate next to a CODESYS-run bus as with any other master.
+On OpenPLC and the Modbus bridge. Plain CAN messages run on any network, next to CANopen or J1939, or on a plain CAN network (`"protocol": "none"`, optionally listen-only) that carries nothing else ([docs/raw-can.md](docs/raw-can.md)). Received messages put DBC-style signals on `%I` locations with a timeout bit, counter and last frame; sent ones come from `%Q` locations periodically, on change or on a trigger bit. Multiplexed messages (simple and extended DBC multiplexing) work on raw and J1939 networks: received pages update their own signals with a valid bit each, and sent pages are picked by the program, sent all each period or in turn. Identifiers the protocol uses need an explicit override. Inputs go invalid at once when the adapter is gone, and program frames stop with the outputs (a plain CAN network has its own `raw.scan_watchdog_ms`). From the program, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE` and `CAN_BUS_INFO` and ST bit and byte helpers in the `canworks` library send and receive any frame when the program decides. [`examples/raw-can`](examples/raw-can/canworks.json) is a plain network with its DBC file and simulated devices.
 
 ### Simulation
 
