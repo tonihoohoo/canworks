@@ -64,8 +64,9 @@
 # scripts/install-link.sh).
 #
 # Uninstall: stops and disables every canworks-bridge@ instance, removes the
-# unit and the binary (and the remote link); the configs in /etc/canworks-bridge
-# stay. --purge also removes them.
+# unit and the binary (and the remote link when it serves a bridge config, not
+# one the runtime installed); the configs in /etc/canworks-bridge stay.
+# --purge also removes them.
 #
 # The one-line forms only install released code, never main. The newest
 # release is found from GitHub's releases/latest redirect, so no API token is
@@ -106,6 +107,7 @@ CONF_DIR=${CANWORKS_BRIDGE_CONF_DIR:-/etc/canworks-bridge}
 SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
 MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.conf
 MODPROBE=${CANWORKS_MODPROBE:-modprobe}
+LINK_DIR=${CANWORKS_LINK_DIR:-/etc/canworks-link}
 LINK_NAME=""
 INSTANCE=""
 CONFIG_DIR=""
@@ -305,6 +307,12 @@ foreign_venv() {
     [ -n "$made" ] && [ "$made" != "$runs" ]
 }
 
+# The remote link is the bridge's when it serves a config of a bridge instance.
+link_is_ours() {
+    local f=$LINK_DIR/link.json
+    [ -f "$f" ] && grep -q "\"config\": \"$CONF_DIR/" "$f"
+}
+
 cleanup() {
     [ -z "$BUILD_DIR" ] || rm -rf "$BUILD_DIR"
     [ -z "$UPLOAD_DIR" ] || rm -rf "$UPLOAD_DIR"
@@ -321,12 +329,18 @@ PINNED_SHA256=$(cat "$REPO/docker/local-runtime/runtime-sha256")
 [ -n "$RUNTIME_REF" ] || RUNTIME_REF=$PINNED_REF
 
 if [ "$PREFIX_GIVEN" -eq 0 ]; then
-    if [ ! -e "$PREFIX/bin/canworks-bridge" ] && [ -e "$FALLBACK_PREFIX/bin/canworks-bridge" ]; then
+    # The runtime's Docker container decides first: a bridge binary left in
+    # its prefix by an older install does not make the prefix the bridge's.
+    if foreign_venv "$PREFIX"; then
+        if [ -e "$FALLBACK_PREFIX/bin/canworks-bridge" ]; then
+            say "Using the bridge installed in $FALLBACK_PREFIX ($PREFIX belongs to the OpenPLC runtime's Docker container)"
+        else
+            say "$PREFIX belongs to the OpenPLC runtime's Docker container; installing the bridge into $FALLBACK_PREFIX"
+        fi
+        PREFIX=$FALLBACK_PREFIX
+    elif [ ! -e "$PREFIX/bin/canworks-bridge" ] && [ -e "$FALLBACK_PREFIX/bin/canworks-bridge" ]; then
         PREFIX=$FALLBACK_PREFIX
         say "Using the bridge installed in $PREFIX"
-    elif [ ! -e "$PREFIX/bin/canworks-bridge" ] && foreign_venv "$PREFIX"; then
-        say "$PREFIX belongs to the OpenPLC runtime's Docker container; installing the bridge into $FALLBACK_PREFIX"
-        PREFIX=$FALLBACK_PREFIX
     fi
 fi
 
@@ -341,7 +355,10 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f "$UNIT" "$BIN"
     "$SYSTEMCTL" daemon-reload || true
     rm -f "$MODULES_LOAD"
-    if [ -f "$UNIT_DIR/canworks-link.service" ]; then
+    if [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
+        # Installed for the runtime (install-stock.sh --with-link) or another config.
+        say "The remote link serves another config and stays"
+    elif [ -f "$UNIT_DIR/canworks-link.service" ]; then
         if [ "$PURGE" -eq 1 ]; then
             "$REPO/scripts/install-link.sh" --uninstall --purge
         else
