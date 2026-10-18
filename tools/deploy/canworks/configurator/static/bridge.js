@@ -289,10 +289,7 @@ async function bridgePack() {
 async function bridgeExport(fmt) {
   try {
     const r = await api("POST", "/api/bridge/export", { config: fileConfig(), format: fmt });
-    if (r.errors) {
-      banner(`Register map export stopped: ${r.items.map((i) => i.message).join("; ")}. Nothing was downloaded.`, true);
-      return;
-    }
+    if (r.errors) { exportStopped(fmt === "nodered" ? "Node-RED flow" : "Register map", r, fileConfig()); return; }
     downloadBase64(r.data, r.name, r.content_type);
     const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
     banner(fmt === "nodered" ? `Exported ${r.name} (${r.rows} values). Import it in Node-RED.${notes}`

@@ -42,7 +42,12 @@ WORD_ORDERS = ("high_first", "low_first")
 
 
 class MapError(ValueError):
-    """The config is not a bridge config, or its locations break the byte rules."""
+    """The config is not a bridge config, or its locations break the byte rules.
+    `problems`: each problem on its own."""
+
+    def __init__(self, message, problems=None):
+        super().__init__(message)
+        self.problems = list(problems) if problems else [message]
 
 
 def is_bridge_config(cfg):
@@ -279,7 +284,7 @@ def register_map(cfg):
     items = collect(cfg)
     problems = check(items)
     if problems:
-        raise MapError("; ".join(problems))
+        raise MapError("; ".join(problems), problems)
     word_order = cfg["bridge"].get("word_order", "high_first")
     if word_order not in WORD_ORDERS:
         raise MapError("bridge.word_order must be high_first or low_first, not %r" % word_order)
