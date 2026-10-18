@@ -51,7 +51,7 @@ canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes lss-set-id 0x36
 canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng --duration 60
 ```
 
-The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, press **Commission a CANopen device** on the start page (see [configurator.md](configurator.md#commission-a-canopen-device)); a config's own online view works through the runtime only.
+The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, press **Commission a device without a config** on the start page (see [configurator.md](configurator.md#commission-a-canopen-device)); a config's own online view works through the runtime only.
 
 ## Changes are off until you allow them
 

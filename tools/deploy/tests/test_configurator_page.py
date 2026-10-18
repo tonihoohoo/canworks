@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, node_tab, show_path, tmpdir, tree_node, tree_view
+from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view
 
 try:
     from playwright.sync_api import sync_playwright
@@ -77,9 +77,12 @@ class Page(unittest.TestCase):
     # -- helpers ------------------------------------------------------------
     def open_from_start(self, choice, path):
         pg = self.page
-        pg.click(choice)
-        pg.fill("#browser-path", path)
-        pg.click("#browser-open")
+        if choice == "#start-new":
+            new_config(pg, path)
+        else:
+            pg.click(choice)
+            pg.fill("[data-folder=path]", path)
+            pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
 
     def add_node(self, eds, heartbeat="100"):
@@ -152,27 +155,86 @@ class Page(unittest.TestCase):
 
     # -- tests --------------------------------------------------------------
     def test_start_page(self):
+        """simplify-start-page: Open…, New config…, the Commission link and
+        Recent; three starting points while Recent is empty."""
         pg = self.page
         pg.set_viewport_size({"width": 1280, "height": 900})
-        pg.wait_for_selector("#start-project")
-        self.assertIn("OpenPLC Runtime v4", pg.inner_text("#start-intro"))
-        titles = [pg.inner_text("#%s strong" % i) for i in ("start-project", "start-standalone", "start-new",
-                                                           "start-commission")]
-        self.assertEqual(titles, ["Open OpenPLC Editor project", "Open standalone config", "New standalone config",
-                                  "Commission a CANopen device"])
-        # Two rows of two: no card alone on a row.
-        tops = pg.eval_on_selector_all(".start-choices .choice", "cs => cs.map(c => Math.round(c.getBoundingClientRect().top))")
-        self.assertEqual(len(set(tops)), 2, tops)
-        self.assertEqual(tops[0], tops[1])
-        self.assertEqual(tops[2], tops[3])
-        pg.click("#start-project")
-        self.assertEqual(pg.inner_text("#browser-title"), "Choose the OpenPLC Editor project folder")
+        pg.wait_for_selector("#start-open")
+        self.assertIn("PLC", pg.inner_text("#start-intro"))
+        self.assertEqual([pg.inner_text(i) for i in ("#start-open", "#start-new", "#start-commission")],
+                         ["Open…", "New config…", "Commission a device without a config"])
+        self.assertTrue(pg.is_visible("#start-first"))
+        self.assertFalse(pg.is_visible("#start-recent"))
+        tops = pg.eval_on_selector_all("#start-first .choice", "cs => cs.map(c => Math.round(c.getBoundingClientRect().top))")
+        self.assertEqual(len(tops), 3)
+        self.assertEqual(len(set(tops)), 1, tops)
+        text = pg.inner_text("#start")
+        for word in ("standalone", "canworks.json", "LSS", "object dictionary"):
+            self.assertNotIn(word, text)
+        self.open_from_start("#start-open", self.project)
+        pg.click("#btn-close")
+        pg.wait_for_selector("#start-recent:not([hidden])")
+        self.assertFalse(pg.is_visible("#start-first"))
+        row = pg.inner_text("#recent li")
+        for part in ("rtd-monitor", "OpenPLC", "editor project", "today", self.project):
+            self.assertIn(part, row)
+
+    def test_open_folder_with_nothing(self):
+        """Open… of a folder with neither project.json nor canworks.json offers New config there."""
+        pg = self.page
+        empty = os.path.join(self.dir, "empty")
+        os.makedirs(empty)
+        pg.wait_for_selector("#start-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", empty)
+        pg.click("[data-folder=dialog] [data-value=use]")
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("has no config yet. Start a new config there?", pg.inner_text("#modal-text"))
+        pg.click("#modal-buttons button[data-value=new]")
+        pg.wait_for_selector("[data-new-config=form]")
+        self.assertEqual(pg.input_value("[data-new-config=name]"), "empty")
+        self.assertEqual(pg.input_value("[data-new-config=location]"), self.dir)
+        pg.click("#modal-buttons button[data-value=create]")
+        pg.wait_for_selector("#editor:not([hidden])")
+        self.assertIn("standalone " + empty, pg.inner_text("#mode"))
+
+    def test_new_config_with_editor_project(self):
+        pg = self.page
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        pg.reload()
+        pg.wait_for_selector("#start-new")
+        pg.click("#start-new")
+        pg.wait_for_selector("[data-new-config=form]")
+        self.assertTrue(pg.is_checked("[data-new-config=project]"))
+        pg.click('label:has([data-new-target="bridge"])')
+        self.assertFalse(pg.is_visible("[data-new-config=project]"))
+        pg.click('label:has([data-new-target="openplc"])')
+        pg.fill("[data-new-config=location]", self.dir)
+        pg.fill("[data-new-config=name]", "new-machine")
+        pg.click("#modal-buttons button[data-value=create]")
+        pg.wait_for_selector("#mode:has-text('project new-machine')")
+        machine = os.path.join(self.dir, "new-machine")
+        self.assertTrue(os.path.isfile(os.path.join(machine, "project.json")))
+        self.assertIn("Created the OpenPLC Editor project", pg.inner_text("#banner"))
+
+    def test_new_config_without_editor_cli(self):
+        pg = self.page
+        os.environ["OPENPLC_CLI"] = os.path.join(self.dir, "no-such-cli")
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        pg.reload()
+        pg.wait_for_selector("#start-new")
+        pg.click("#start-new")
+        pg.wait_for_selector("[data-new-config=form]")
+        self.assertTrue(pg.is_disabled("[data-new-config=project]"))
+        self.assertFalse(pg.is_checked("[data-new-config=project]"))
+        self.assertIn("was not found", pg.inner_text("[data-new-config=project-hint]"))
 
     def test_rtd_node_in_a_project(self):
         pg = self.page
-        pg.wait_for_selector("#start-project")  # the start page renders after its first fetch
-        self.assertTrue(pg.is_visible("#start-project"))
-        self.open_from_start("#start-project", self.project)
+        pg.wait_for_selector("#start-open")  # the start page renders after its first fetch
+        self.assertTrue(pg.is_visible("#start-open"))
+        self.open_from_start("#start-open", self.project)
         self.assertIn("project rtd-monitor", pg.inner_text("#mode"))
         # Bus: SocketCAN and SYNC.
         self.fill("adapter.interface", "can0")
@@ -257,7 +319,7 @@ class Page(unittest.TestCase):
 
     def test_export_dcf(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat="200")
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
@@ -289,7 +351,7 @@ class Page(unittest.TestCase):
 
     def test_export_dbc(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
@@ -329,7 +391,7 @@ class Page(unittest.TestCase):
 
     def test_bus_diagnostics(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
@@ -351,7 +413,7 @@ class Page(unittest.TestCase):
 
     def test_eds_lint_import_report(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
 
@@ -392,7 +454,7 @@ class Page(unittest.TestCase):
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         pg.wait_for_selector("#banner:has-text(\"old 'strict_eds'\")")
         tree_view(pg, "bus")
         sel = 'select[data-path="master.eds_lint"]'
@@ -418,7 +480,7 @@ class Page(unittest.TestCase):
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         tree_view(pg, "bus")
         sel = 'input[data-path="master.sync_period_us"]'
         self.assertEqual(pg.input_value(sel), "10")
@@ -437,7 +499,7 @@ class Page(unittest.TestCase):
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
             json.dump(cfg, f)
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         tree_view(pg, "bus")
         sel = 'select[data-path="master.sync_source"]'
         self.assertEqual(pg.input_value(sel), "")
@@ -460,7 +522,7 @@ class Page(unittest.TestCase):
 
     def test_slcan_adapter(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         pg.select_option('select[data-path="adapter.bitrate"]', "500000")
         pg.uncheck('input[data-path="adapter.configure_link"]')
@@ -498,7 +560,7 @@ class Page(unittest.TestCase):
     def test_network_start_copy_as_st_call(self):
         # add-plc-network-control 5.2: the corrected hint and a CO_NETWORK_START call.
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         tree_view(pg, "bus")
         pg.click('details[data-advanced="master"] > summary')
         box = pg.locator('input[data-path="master.start"]').locator("xpath=ancestor::div[1]")
@@ -517,7 +579,7 @@ class Page(unittest.TestCase):
 
     def test_advanced_settings(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "node-options.eds"))
@@ -579,7 +641,7 @@ class Page(unittest.TestCase):
 
     def test_config_check_settings(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "config-check.eds"))
@@ -620,7 +682,7 @@ class Page(unittest.TestCase):
 
     def test_lss_settings(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "lss-slave.eds"))
@@ -672,7 +734,7 @@ class Page(unittest.TestCase):
 
     def test_cia402_axis(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(CIA402, "servo402.eds"))
         self.fill("nodes[0].node_id", "4")
@@ -735,7 +797,7 @@ class Page(unittest.TestCase):
         # add-cia402-cyclic-modes: the switch, the SYNC fix button, the cyclic
         # layout and the cycle time line with its task interval.
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(CIA402, "servo402.eds"))
         self.fill("nodes[0].node_id", "4")
@@ -786,7 +848,7 @@ class Page(unittest.TestCase):
         # built-in note, a note written on the Notes tab, a value picked by
         # name; Save writes the notes file next to the EDS.
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -838,7 +900,7 @@ class Page(unittest.TestCase):
         # needs a sideways scroll at 1000 px.
         pg = self.page
         pg.set_viewport_size({"width": 1000, "height": 800})
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -887,7 +949,7 @@ class Page(unittest.TestCase):
         # Emptying a built-in field in the Note editor hides it (null in the
         # notes file); Use built-in brings it back (clear-builtin-note-fields).
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -930,7 +992,7 @@ class Page(unittest.TestCase):
         from .test_configurator_layout import audit
         pg = self.page
         pg.on("filechooser", lambda _: None)
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -985,7 +1047,7 @@ class Page(unittest.TestCase):
 
     def test_pdo_timing_and_sdo_picker(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
@@ -1028,7 +1090,7 @@ class Page(unittest.TestCase):
 
     def test_input_pdo_receive_timeout(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
@@ -1068,7 +1130,7 @@ class Page(unittest.TestCase):
 
     def test_device_pdo_mapping(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"))
@@ -1094,7 +1156,7 @@ class Page(unittest.TestCase):
 
     def test_device_mapping_on_a_writable_pdo(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
@@ -1110,7 +1172,7 @@ class Page(unittest.TestCase):
 
     def test_inhibit_time_in_ms(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
@@ -1126,7 +1188,7 @@ class Page(unittest.TestCase):
 
     def test_read_only_sdo_refused(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         node_tab(pg, "sdos")
         self.open_sections()
@@ -1138,7 +1200,7 @@ class Page(unittest.TestCase):
 
     def test_sdo_variables_and_nmt_command(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -1189,7 +1251,7 @@ class Page(unittest.TestCase):
         # through a re-render, cleared by Escape; the pickers' resize bars keep
         # their height per kind of box; whole notes on the pickers.
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.fill("adapter.interface", "can0")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.fill("nodes[0].node_id", "5")
@@ -1280,7 +1342,7 @@ class Page(unittest.TestCase):
 
     def test_supervision_method_switch(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat=None)
         # The EDS heartbeat is 0: with "EDS default" the node would never be
         # seen lost, which is refused under Method.
@@ -1302,7 +1364,7 @@ class Page(unittest.TestCase):
 
     def test_clash_with_ethercat(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
         self.pick("0x4001:0")
         loc = 'input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]'
@@ -1386,7 +1448,7 @@ class Page(unittest.TestCase):
 
     def test_changed_on_disk(self):
         pg = self.page
-        self.open_from_start("#start-project", self.project)
+        self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')

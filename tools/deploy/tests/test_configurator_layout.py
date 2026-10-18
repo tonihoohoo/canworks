@@ -38,7 +38,7 @@ FIT_CHECK = r"""() => {
   for (const e of document.querySelectorAll("button, .file-button")) {
     if (!shown(e)) continue;
     if (e.scrollWidth > e.clientWidth + 1) out.push(["button clipped", name(e)]);
-    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list")) out.push(["button wraps", name(e)]);
+    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list") && !e.closest("#recent")) out.push(["button wraps", name(e)]);
     if (e.getBoundingClientRect().right > document.documentElement.clientWidth + 1) out.push(["button off screen", name(e)]);
   }
   for (const id of ["view", "side", "problems"]) {
@@ -238,9 +238,9 @@ class Layout(OnlineBase):
                 pg.set_viewport_size({"width": width, "height": 800})
                 pg.goto(self.server.url)
                 self.fits("start page at %d" % width)
-                pg.click("#start-project")
-                pg.fill("#browser-path", self.project)
-                pg.click("#browser-open")
+                pg.click("#start-open")
+                pg.fill("[data-folder=path]", self.project)
+                pg.click("[data-folder=dialog] [data-value=use]")
                 pg.wait_for_selector("#editor:not([hidden])")
                 open_tree(pg)
                 tree_view(pg, "bus")
@@ -303,9 +303,9 @@ class Layout(OnlineBase):
             self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
             self.remember(fp.runtime)
             pg.goto(self.server.url)
-            pg.click("#start-project")
-            pg.fill("#browser-path", self.project)
-            pg.click("#browser-open")
+            pg.click("#start-open")
+            pg.fill("[data-folder=path]", self.project)
+            pg.click("[data-folder=dialog] [data-value=use]")
             pg.wait_for_selector("#editor:not([hidden])")
             pg.click('button[data-view="online"]')
             pg.wait_for_selector('tr[data-online-node="2"] .state-mark svg.st')
@@ -336,9 +336,9 @@ class Layout(OnlineBase):
         for width in (1000, 1280, 1440):
             pg.set_viewport_size({"width": width, "height": 800})
             pg.goto(self.server.url)
-            pg.click("#start-standalone")
-            pg.fill("#browser-path", folder)
-            pg.click("#browser-open")
+            pg.click("#start-open")
+            pg.fill("[data-folder=path]", folder)
+            pg.click("[data-folder=dialog] [data-value=use]")
             pg.wait_for_selector("#menu-project:not([hidden])")
             self.fits("standalone header at %d" % width)
             # The header's actions are on one line.
@@ -600,9 +600,9 @@ class Examples(OnlineBase):
         shutil.copytree(os.path.join(REPO, "examples", name), folder)
         pg = self.page
         pg.goto(self.server.url)
-        pg.click("#start-project" if os.path.exists(os.path.join(folder, "project.json")) else "#start-standalone")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", folder)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
 

@@ -14,7 +14,7 @@ canworks has two halves:
 
 ## Targets
 
-Every config has one target: the system that runs its networks. The configurator shows it on every Bus page and next to the project name, hides every setting the target does not use, and switches a config to another target in one undo step, removing or keeping what the new target does not use ([docs/configurator.md](docs/configurator.md#project-target)). A new config picks its target on the start page.
+Every config has one target: the system that runs its networks. The configurator shows it on every Bus page and next to the project name, hides every setting the target does not use, and switches a config to another target in one undo step, removing or keeping what the new target does not use ([docs/configurator.md](docs/configurator.md#project-target)). A new config picks its target first in **New config…** on the start page, and an OpenPLC config can start as a new OpenPLC Editor project in the same step.
 
 | | OpenPLC | Modbus bridge | CODESYS |
 |---|---|---|---|

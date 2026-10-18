@@ -13,7 +13,7 @@ import shutil
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tree_node, tree_view
+from .helpers import REPO, tree_node, tree_view, new_config
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -180,13 +180,8 @@ class NewCodesysConfig(OnlineBase):
         pg = self.page
         folder = os.path.join(self.dir, "cell")
         pg.goto(self.server.url)
-        self.assertIn("CODESYS", pg.inner_text("#start-intro"))
-        self.assertFalse(pg.is_visible("#new-target-row"))
-        pg.click("#start-new")
-        pg.click('#new-target [data-new-target="codesys"]')
-        self.assertEqual(pg.get_attribute('#new-target [data-new-target="codesys"]', "aria-pressed"), "true")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
+        pg.wait_for_selector("#start-new")
+        new_config(pg, folder, "codesys")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.wait_for_selector("#tree #nav-codesys")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "codesys")

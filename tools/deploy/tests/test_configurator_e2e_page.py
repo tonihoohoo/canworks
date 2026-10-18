@@ -173,10 +173,10 @@ class EndToEnd(OnlineBase):
             pg.emulate_media(color_scheme="light")
             pg.goto(self.server.url)
             self.check("start page")
-            self.press_on("#start-project")
-            pg.wait_for_selector("#browser-path")
-            pg.fill("#browser-path", self.project)  # the path field completes what is typed
-            self.press_on("#browser-open")
+            self.press_on("#start-open")
+            pg.wait_for_selector("[data-folder=path]")
+            pg.fill("[data-folder=path]", self.project)  # the path field completes what is typed
+            self.press_on("[data-folder=dialog] [data-value=use]")
             pg.wait_for_selector("#editor:not([hidden])")
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             self.assertEqual(pg.inner_text("#problem-count").strip(), "none")

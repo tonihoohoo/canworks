@@ -63,14 +63,14 @@ class TaskBase(AdapterPage):
         pg = self.page
         pg.goto(self.server.url)
         with kb.step("open the project folder"):
-            kb.tab_to("#start-project")
+            kb.tab_to("#start-open")
             kb.press("Enter")
-            pg.wait_for_selector("#browser-path")
-            kb.tab_to("#browser-path")
+            pg.wait_for_selector("[data-folder=path]")
+            kb.tab_to("[data-folder=path]")
             kb.press("Control+A")
             kb.type(self.project)
             kb.press("Enter")
-            kb.tab_to("#browser-open")
+            kb.tab_to("[data-folder=dialog] [data-value=use]")
             kb.press("Enter")
             pg.wait_for_selector("#editor:not([hidden])")
 

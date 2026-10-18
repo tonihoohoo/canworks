@@ -14,7 +14,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir, tree_node
+from .helpers import REPO, tmpdir, tree_node, new_config
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 PLANT = os.path.join(REPO, "examples", "virtual-plant")
@@ -72,11 +72,11 @@ class Base(unittest.TestCase):
         pg = self.page
         pg.goto(self.server.url)
         pg.click(choice)
-        pg.fill("#browser-path", path)
-        pg.click("#browser-open")
+        pg.fill("[data-folder=path]", path)
+        pg.click("[data-folder=dialog] [data-value=use]")
 
     def open(self, folder):
-        self.start("#start-standalone", folder)
+        self.start("#start-open", folder)
         self.page.wait_for_selector("#editor:not([hidden])")
         self.settled()
 
@@ -123,43 +123,41 @@ class StartPage(Base):
     def test_open_existing_or_new(self):
         pg = self.page
         missing = os.path.join(self.dir, "typo-standalone")
-        self.start("#start-standalone", missing)
+        self.start("#start-open", missing)
         pg.wait_for_selector("#banner:has-text('does not exist')")
         self.assertTrue(pg.is_visible("#start"))
-        self.assertEqual(pg.get_attribute("#start-standalone", "aria-pressed"), "true")
-        self.assertEqual(pg.get_attribute("#start-new", "aria-pressed"), "false")
-        self.assertIn("Nothing opened yet", pg.inner_text("#recent"))
+        self.assertTrue(pg.is_visible("#start-first"))
         self.assertFalse(os.path.exists(missing))
         # New on a folder with a config: offered to open it instead.
         folder = self.copy(os.path.join(PLANT, "canworks"))
-        pg.click("#start-new")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
-        pg.wait_for_selector("#modal[open]")
+        new_config(pg, folder)
+        pg.wait_for_selector("#modal-text:has-text('Open it instead?')")
         self.assertIn("already has a canworks.json. Open it instead?", pg.inner_text("#modal-text"))
         self.answer("open")
         pg.wait_for_selector("#editor:not([hidden])")
         self.assertIn("standalone " + folder, pg.inner_text("#mode"))
 
-    def test_folder_browser_and_recent(self):
+    def test_folder_dialog_and_recent(self):
         pg = self.page
         folder = self.copy(os.path.join(PLANT, "canworks"))
         self.open(folder)
         pg.click("#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
         pg.wait_for_selector("#recent [data-forget]")
-        # Go on a missing path drops the old list; a good Go clears the error.
-        pg.fill("#browser-path", os.path.join(self.dir, "missing"))
-        pg.click("#browser-go")
-        pg.wait_for_selector("#banner:has-text('is not a folder')")
-        self.assertEqual(pg.inner_text("#browser-list"), "No folder listed")
-        pg.fill("#browser-path", self.dir)
-        pg.click("#browser-go")
-        pg.wait_for_selector("#browser-list li:has-text('plant')")
-        self.assertNotIn("is not a folder", pg.inner_text("#banner"))
+        self.assertIn("config folder", pg.inner_text("#recent"))
+        # Go on a missing path says so in the dialog; a good Go lists the folder.
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", os.path.join(self.dir, "missing"))
+        pg.click("[data-folder=go]")
+        pg.wait_for_selector("[data-folder=dialog]:has-text('is not a folder')")
+        pg.fill("[data-folder=path]", self.dir)
+        pg.click("[data-folder=go]")
+        pg.wait_for_selector("[data-folder=list] li:has-text('plant')")
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("[data-folder=dialog]", state="detached")
         # Remove from Recent: the folder stays.
         pg.click('#recent [data-forget="%s"]' % folder)
-        pg.wait_for_selector("#recent li:has-text('Nothing opened yet')")
+        pg.wait_for_selector("#start-first:not([hidden])")
         self.assertTrue(os.path.isfile(os.path.join(folder, "canworks.json")))
 
     def test_favicon(self):
@@ -167,7 +165,7 @@ class StartPage(Base):
         failed = []
         pg.on("response", lambda r: failed.append(r.url) if r.status >= 400 else None)
         pg.goto(self.server.url)
-        pg.wait_for_selector("#start-project")
+        pg.wait_for_selector("#start-open")
         pg.wait_for_timeout(300)
         self.assertEqual(failed, [])
         self.assertEqual(pg.evaluate("async () => (await fetch('favicon.svg')).status"), 200)
@@ -178,13 +176,13 @@ class StartPage(Base):
         folder = self.copy(os.path.join(PLANT, "canworks"))
         os.chmod(folder, 0)
         self.addCleanup(os.chmod, folder, 0o755)
-        self.start("#start-standalone", folder)
+        self.start("#start-open", folder)
         pg.wait_for_selector("#banner:has-text('cannot read the folder')")
         self.assertIn("permission denied", pg.inner_text("#banner"))
         self.assertTrue(pg.is_visible("#start"))
-        self.assertIn("Nothing opened yet", pg.inner_text("#recent"))
+        self.assertTrue(pg.is_visible("#start-first"))
         pg.reload()
-        pg.wait_for_selector("#start-project")
+        pg.wait_for_selector("#start-open")
         os.chmod(folder, 0o755)
         self.open(folder)
 

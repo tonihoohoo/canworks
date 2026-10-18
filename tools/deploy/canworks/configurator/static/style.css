@@ -125,14 +125,34 @@ input.warned { border-color: var(--st-warn); }
 .joined select { width: auto; border-radius: 6px 0 0 6px; }
 .joined button { border-radius: 0 6px 6px 0; margin-left: -1px; }
 main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid; gap: 20px; }
-.start-intro { margin: 0 0 12px; color: var(--muted); }
-.start-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 640px) { .start-choices { grid-template-columns: minmax(0, 1fr); } }
+.start-intro { margin: 0; color: var(--muted); }
+.start-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.start-actions .spacer { flex: 1; }
+.start-actions button.link { min-height: 28px; padding: 4px 0; }
+.start-first { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 720px) { .start-first { grid-template-columns: minmax(0, 1fr); } }
 .choice { display: flex; flex-direction: column; text-align: left; gap: 4px; padding: 14px; white-space: normal; }
 .choice span { color: var(--muted); font-size: 13px; }
 .choice.selected { outline: 2px solid var(--accent); }
-.browser .row { display: flex; gap: 6px; }
-.browser .row input { flex: 1; }
+ul.recent { max-height: none; }
+ul.recent button.folder { flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 8px 12px; }
+ul.recent .recent-name { font-weight: 600; }
+ul.recent .recent-path { flex-basis: 100%; order: 3; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+ul.recent .recent-when { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* New config…: the target as three radio cards, then where. */
+.new-config { display: grid; gap: 12px; }
+dialog#modal:has(.new-config) { max-width: none; width: min(720px, calc(100vw - 32px)); }
+.new-config > label, .new-config > .field { display: grid; gap: 4px; }
+.new-config fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.new-config legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.target-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 720px) { .target-choices { grid-template-columns: minmax(0, 1fr); } }
+.target-choices label.choice { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; padding: 10px 12px; }
+.target-choices label.choice:has(input:checked) { outline: 2px solid var(--accent); }
+.target-choices label.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.target-choices input { position: absolute; opacity: 0; pointer-events: none; }
+.new-config .row { display: flex; gap: 6px; }
+.new-config .row input { flex: 1; min-width: 0; }
 ul.folders { list-style: none; padding: 0; margin: 8px 0 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); max-height: 320px; overflow: auto; }
 ul.folders li { padding: 5px 10px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 8px; }
 ul.folders li:last-child { border-bottom: 0; }

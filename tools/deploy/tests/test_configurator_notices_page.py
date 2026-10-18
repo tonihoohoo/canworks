@@ -134,9 +134,9 @@ class MessageBars(OnlineBase):
         folder = os.path.join(self.dir, "virtual-plant")
         shutil.copytree(os.path.join(REPO, "examples", "virtual-plant"), folder)
         pg.goto(self.server.url)
-        pg.click("#start-project")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", folder)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         for theme in ("dark", "light"):

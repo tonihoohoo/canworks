@@ -83,9 +83,9 @@ class Sweep:
     def open(self):
         pg = self.page
         standalone = not os.path.isfile(os.path.join(self.project, "project.json"))
-        pg.click("#start-standalone" if standalone else "#start-project")
-        pg.fill("#browser-path", self.project)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", self.project)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
 
     def settle(self, view):

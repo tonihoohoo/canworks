@@ -576,11 +576,25 @@ class Session:
         except (OSError, ValueError):
             return []
 
+    def recent_listed(self):
+        """Recent for the start page: each entry with its config's target
+        (None when the config is missing or cannot be read)."""
+        out = []
+        for r in self.recent():
+            folder = os.path.join(r["path"], project_mod.DIR) if r.get("mode") == "project" else r["path"]
+            try:
+                with open(os.path.join(folder, CONFIG), encoding="utf-8") as f:
+                    target = targets.target(json.load(f))
+            except (OSError, ValueError):
+                target = None
+            out.append(dict(r, target=target))
+        return out
+
     def remember(self):
         if os.path.dirname(self.folder) == os.path.abspath(config_dir()):
             return  # the "Commission a device" scratch folder
         items = [r for r in self.recent() if r["path"] != self.folder]
-        items.insert(0, {"path": self.folder, "mode": self.mode})
+        items.insert(0, {"path": self.folder, "mode": self.mode, "opened": int(time.time())})
         self._write_recent(items)
 
     def forget(self, path):
@@ -599,8 +613,8 @@ class Session:
 
     # -- open / close -------------------------------------------------------
     def open(self, path, mode="auto", new=None):
-        """Opens a folder. `new` False ("Open standalone config") wants an
-        existing canworks.json, True ("New standalone config") refuses one;
+        """Opens a folder. `new` False (Open… on the start page) wants an
+        existing canworks.json, True (New config…) refuses one;
         None (Recent, the command line) takes either."""
         path = os.path.abspath(os.path.expanduser(path or ""))
         try:
@@ -625,8 +639,7 @@ class Session:
             if new is False and not os.path.isdir(path):
                 raise ApiError(404, "%s does not exist" % path)
             if new is False and not os.path.isfile(os.path.join(path, CONFIG)):
-                raise ApiError(404, "%s has no %s; pick New standalone config to start one there" % (path, CONFIG),
-                               no_config=True)
+                raise ApiError(404, "%s has no config yet" % path, no_config=True, path=path)
             if new is True and os.path.isfile(os.path.join(path, CONFIG)):
                 raise ApiError(409, "%s already has a %s" % (path, CONFIG), has_config=True, path=path)
         else:
@@ -653,6 +666,23 @@ class Session:
             self.close()
             raise folder_error(e, "read", folder)
         self.remember()
+
+    def new_config(self, path, editor_project=False):
+        """New config… on the start page: a config folder, or with
+        `editor_project` a new OpenPLC Editor project with no config yet,
+        opened as a project. The target is set on the draft afterwards."""
+        if not editor_project:
+            return self.open(path, "standalone", new=True)
+        path = os.path.abspath(os.path.expanduser(path or ""))
+        if os.path.isfile(os.path.join(path, "project.json")):
+            raise ApiError(409, "%s is already an editor project" % path, is_project=True, path=path)
+        if os.path.isfile(os.path.join(path, CONFIG)):
+            raise ApiError(409, "%s already has a %s" % (path, CONFIG), has_config=True, path=path)
+        try:
+            editorproject.create(None, None, path)
+        except editorproject.NewProjectError as e:
+            raise ApiError(422, str(e))
+        self.open(path, "project")
 
     def commission_device(self):
         """"Commission a device": a scratch standalone folder in the settings
@@ -954,7 +984,8 @@ class Session:
         return list(dict.fromkeys(names))
 
     def state(self):
-        base = {"version": __version__, "recent": self.recent(), "home": home_folder(),
+        base = {"version": __version__, "recent": self.recent_listed(), "home": home_folder(),
+                "openplc_cli": bool(editorproject.cli_command(editorproject.cli_program())),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
                 "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS,
                 "targets": targets.table(), "codesys_found": codesys_found()}
@@ -2447,7 +2478,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         out["carried_eds"] = carried
                 elif route == ("POST", "/api/recent/forget"):
                     s.forget(body.get("path"))
-                    out = {"recent": s.recent()}
+                    out = {"recent": s.recent_listed()}
                 elif route == ("POST", "/api/commission"):
                     s.commission_device()
                     self.server.adapter_allow = False
@@ -2572,6 +2603,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._need_open(s)
                     out = s.move(body.get("project"), bool(body.get("replace")))
                     out["state"] = s.state()
+                elif route == ("POST", "/api/new"):
+                    self._leave_commission(s)
+                    s.new_config(body.get("path"), bool(body.get("editor_project")))
+                    out = s.state()
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
                     out = s.new_project(body.get("parent"), body.get("name"), body.get("interval"),

@@ -7,5 +7,5 @@ see it arrive (`%IW102` follows `%IW100`). Node 20 watches node 10's heartbeat i
 (`heartbeat_watch`). The link runs on while the PLC is stopped (`"on_plc_stop": "keep"`); node 30 is
 in no link and goes PRE-OPERATIONAL on PLC stop.
 
-Open the folder in the configurator (Open standalone config) and look at the PDO links page, or check
+Open the folder in the configurator (Open…) and look at the PDO links page, or check
 it with `canworks-deploy check examples/pdo-link/canworks.json`.
