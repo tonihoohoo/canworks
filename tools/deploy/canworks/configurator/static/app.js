@@ -6993,12 +6993,7 @@ async function exportDcf(nodeId, network) {
     if (one) body.node = nodeId;
     if (network) body.network = network;
     const r = await api("POST", "/api/export_dcf", body);
-    if (r.errors) {
-      S.check = exportProblems(r, cfg);
-      applyCheck();
-      banner(`DCF export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
-      return;
-    }
+    if (r.errors) { exportStopped("DCF", r, cfg); return; }
     const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
     const a = el("a", { href: url, download: r.name });
@@ -7019,11 +7014,8 @@ async function exportHtml() {
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/export_html", { config: cfg, notes: S.model.notes });
+    if (r.errors) { exportStopped("Documentation", r, cfg); return; }
     exportCheck(r, cfg);
-    if (r.errors) {
-      banner(`Documentation export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
-      return;
-    }
     const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
     const a = el("a", { href: url, download: r.name });
@@ -7031,7 +7023,7 @@ async function exportHtml() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    banner(`Exported ${r.name}${r.items.length ? ` with ${r.items.length} warning${r.items.length === 1 ? "" : "s"} (see Problems)` : ""}.`);
+    banner(`Exported ${r.name}${warnedText(r)}.`);
   } catch (e) {
     banner(e.message, true);
   }
@@ -7045,12 +7037,7 @@ async function exportCodesys() {
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/export_codesys", { config: cfg });
-    if (r.errors) {
-      S.check = exportProblems(r, cfg);
-      applyCheck();
-      banner(`CODESYS export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
-      return;
-    }
+    if (r.errors) { exportStopped("CODESYS", r, cfg); return; }
     const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
     const a = el("a", { href: url, download: r.name });
@@ -7092,11 +7079,8 @@ async function exportDbc() {
     const body = { config: cfg, sdo: $("#dbc-sdo").value, notes: S.model.notes };
     if (several()) body.network = netName(S.config);
     const r = await api("POST", "/api/export_dbc", body);
+    if (r.errors) { exportStopped("DBC", r, cfg); return; }
     exportCheck(r, cfg);
-    if (r.errors) {
-      banner(`DBC export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"} (see Problems). Nothing was downloaded.`, true);
-      return;
-    }
     const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: r.content_type }));
     const a = el("a", { href: url, download: r.name });
@@ -7104,7 +7088,7 @@ async function exportDbc() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    banner(`Exported ${r.name}${r.items.length ? ` with ${r.items.length} warning${r.items.length === 1 ? "" : "s"} (see Problems)` : ""}.`);
+    banner(`Exported ${r.name}${warnedText(r)}.`);
   } catch (e) {
     banner(e.message, true);
   }
@@ -7140,9 +7124,54 @@ function exportCheck(r, cfg) {
   if (items.length || r.errors) {
     S.check = exportProblems(r, cfg);
     applyCheck();
+    if (items.length) openProblems();
   } else if (prevErrors) {
     scheduleCheck();
   }
+}
+
+// " with 2 warnings" for a successful export's message; Problems lists them.
+function warnedText(r) {
+  const n = (r.items || []).length;
+  return n ? ` with ${n} warning${n === 1 ? "" : "s"}` : "";
+}
+
+// A stopped export reports in Problems only (export-problems-one-place):
+// its findings join the list under a summary bar at the top of the panel,
+// the panel opens and comes into view, and the page's message bar stays
+// empty. Focus stays where it is; the summary is an alert. Where Problems is
+// not shown, the message bar says it instead.
+function exportStopped(label, r, cfg) {
+  S.check = exportProblems(r, cfg);
+  S.check.export = label;
+  applyCheck();
+  const panel = $("#problems");
+  if (!panel || panel.hidden || $("#bottom").hidden) {
+    banner(`${label} export stopped: ${r.errors} problem${r.errors === 1 ? "" : "s"}. Nothing was downloaded.`, true);
+    return;
+  }
+  banner("");
+  openProblems();
+}
+
+// Opens the Problems panel and brings it into view.
+function openProblems() {
+  const box = $("#problems-box");
+  if (!box || $("#problems").hidden) return;
+  box.open = true;
+  box.scrollIntoView({ block: "nearest" });
+}
+
+// The summary bar of a stopped export at the top of Problems, while its findings are listed.
+function problemsSummary() {
+  const slot = $("#problems-bars");
+  if (!slot) return;
+  const label = S.check && S.check.export;
+  if (slot.dataset.export === (label || "")) return;
+  slot.dataset.export = label || "";
+  slot.replaceChildren(...(label ? [notice("error",
+    `${label} export stopped. Nothing was downloaded. Fix the problems below and export again.`,
+    { dataset: { exportStopped: label } })] : []));
 }
 
 // The SDO choice for the DBC export, kept with the theme in the settings folder.
@@ -7166,6 +7195,7 @@ function applyCheck() {
     const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
     for (const x of entries) x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
   }
+  problemsSummary();
   const list = $("#problem-list");
   const focused = document.activeElement && document.activeElement.closest("#problem-list li");
   const focusedAt = focused ? [...list.children].indexOf(focused) : -1;

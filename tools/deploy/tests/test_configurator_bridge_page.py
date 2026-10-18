@@ -131,6 +131,23 @@ class BridgePage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_node-red.json')")
         self.assertIn("no loopback address", pg.inner_text("#banner"))
 
+        # A stopped register map export: each finding its own Problems row, no message bar.
+        pg.evaluate("""() => {
+          const f = window.fetch;
+          window.fetch = (u, o) => String(u).endsWith('/api/bridge/export')
+            ? Promise.resolve(new Response(JSON.stringify({ errors: 2, items: [
+                { level: 'error', message: 'map finding A', paths: [] }, { level: 'error', message: 'map finding B', paths: [] }] }),
+                { headers: { 'Content-Type': 'application/json' } }))
+            : f(u, o);
+        }""")
+        pg.click('button[data-bridge-export="csv"]')
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('Register map export stopped')")
+        self.assertTrue(pg.is_hidden("#banner"))
+        texts = pg.eval_on_selector_all("#problem-list li", "ls => ls.map((l) => l.textContent)")
+        self.assertEqual([t for t in texts if "map finding" in t], ["map finding A", "map finding B"], texts)
+        tree_view(pg, "bridge")
+        pg.wait_for_selector('#bridge-map tr[data-bridge-row]')
+
         # Fits and is accessible, in the dark theme too.
         pg.emulate_media(color_scheme="dark")
         pg.set_viewport_size({"width": 1000, "height": 800})

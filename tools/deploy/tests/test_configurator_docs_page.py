@@ -210,7 +210,8 @@ class Configurator(Browser):
         pg.on("download", lambda d: downloads.append(d))
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-html")
-        pg.wait_for_selector("#banner.error:has-text('Documentation export stopped')")
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('Documentation export stopped')")
+        self.assertTrue(pg.is_hidden("#banner"))
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))
         self.assertEqual(downloads, [])
 

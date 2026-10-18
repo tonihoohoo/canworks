@@ -345,7 +345,8 @@ class Page(unittest.TestCase):
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
         pg.click('button[data-export-dcf="0"]')
-        pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('DCF export stopped')")
+        self.assertTrue(pg.is_hidden("#banner"))
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))
         self.assertEqual(downloads, [])
 
@@ -385,7 +386,8 @@ class Page(unittest.TestCase):
         pg.on("download", lambda d: downloads.append(d))
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-dbc")
-        pg.wait_for_selector("#banner.error:has-text('DBC export stopped')")
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('DBC export stopped')")
+        self.assertTrue(pg.is_hidden("#banner"))
         self.assertIn("master's node ID", pg.inner_text("#problem-list"))
         self.assertEqual(downloads, [])
 

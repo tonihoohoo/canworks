@@ -83,8 +83,9 @@ class Probes(Layout):
                                    ("export", "#btn-export-html", "Documentation export stopped")):
             pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click(button)
-            pg.wait_for_selector("#banner.error:has-text('%s')" % text)
-            self.assertEqual(pg.get_attribute("#banner", "role"), "alert")
+            pg.wait_for_selector("#problems-bars .notice-error:has-text('%s')" % text)
+            self.assertEqual(pg.get_attribute("#problems-bars .notice-error", "role"), "alert")
+            self.assertTrue(pg.is_hidden("#banner"))
             self.assertNotIn("8 problems", self.problems())
             self.assertTrue(pg.is_disabled("#btn-save"))
             self.assertIn("in Problems", pg.get_attribute("#btn-save", "title"))
@@ -92,6 +93,39 @@ class Probes(Layout):
         self.assertEqual(downloads, [])
         self.node(0)
         pg.wait_for_selector("#problem-count:has-text('5 problems')")
+
+    def test_failed_export_reports_in_problems_only(self):
+        """export-problems-one-place: no message bar, Problems opens with a
+        summary on top, and the summary goes with the next edit's check."""
+        pg = self.page
+        self.open()
+        pg.wait_for_selector("#problem-count:has-text('5 problems')")
+        pg.click("#problems-box > summary")
+        self.assertFalse(pg.evaluate("() => document.querySelector('#problems-box').open"))
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+        pg.click("#btn-export-all")
+        bar = pg.wait_for_selector("#problems-bars .notice-error:has-text('DCF export stopped')")
+        self.assertIn("Nothing was downloaded. Fix the problems below and export again.", bar.inner_text())
+        self.assertTrue(pg.evaluate("() => document.querySelector('#problems-box').open"))
+        self.assertTrue(pg.is_hidden("#banner"))
+        # The summary sits above the list, inside the panel.
+        self.assertTrue(pg.evaluate("""() => { const b = document.querySelector('#problems-bars');
+          const l = document.querySelector('#problem-list');
+          return b.getBoundingClientRect().bottom <= l.getBoundingClientRect().top + 1; }"""))
+        # An edit's check replaces the export's findings and its summary.
+        self.node(0)
+        name = 'input[data-path="nodes[0].name"]'
+        pg.fill(name, pg.input_value(name) + "x")
+        pg.wait_for_selector("#problems-bars:empty", state="attached")
+
+    def test_failed_export_without_problems_panel_uses_the_bar(self):
+        pg = self.page
+        self.open()
+        pg.wait_for_selector("#problem-count:has-text('5 problems')")
+        pg.evaluate("() => { document.querySelector('#problems').hidden = true; }")
+        pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
+        pg.click("#btn-export-all")
+        pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
 
     # -- 1.3 no "null" anywhere ----------------------------------------------
     def test_no_null_text_on_any_view(self):
@@ -444,7 +478,8 @@ class Probes(Layout):
             pg.click("#btn-export-dbc")
             pg.wait_for_selector("#menu-export > summary:has-text('Exporting…')")
             self.assertEqual(pg.get_attribute("#menu-export > summary", "aria-busy"), "true")
-            pg.wait_for_selector("#banner.error:has-text('DBC export stopped')")
+            pg.wait_for_selector("#problems-bars .notice-error:has-text('DBC export stopped')")
+            self.assertTrue(pg.is_hidden("#banner"))
             pg.wait_for_selector("#menu-export > summary:text-is('Export')")
             texts = pg.eval_on_selector_all("#problem-list li", "ls => ls.map((l) => l.textContent)")
             self.assertEqual([t for t in texts if "DBC finding" in t], ["DBC finding %d" % (k + 1)], texts)
@@ -452,7 +487,8 @@ class Probes(Layout):
         # A failing DCF export replaces the DBC export's finding too.
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         pg.click("#btn-export-all")
-        pg.wait_for_selector("#banner.error:has-text('DCF export stopped')")
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('DCF export stopped')")
+        self.assertTrue(pg.is_hidden("#banner"))
         self.assertNotIn("DBC finding", pg.inner_text("#problem-list"))
 
     # -- 4.2 node page sections, now node tabs (network-tree-and-node-tabs) --

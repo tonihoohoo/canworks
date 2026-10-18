@@ -1801,19 +1801,33 @@ class Session:
             try:
                 nodes, notes, sp = nodered.flow(cfg, folder)
             except nodered.FlowError as e:
-                return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
+                return self._map_problems(cfg, [str(e)])
             return {"items": [], "errors": 0, "name": "%s_node-red.json" % folder,
                     "content_type": "application/json", "rows": len(sp["inputs"]) + len(sp["outputs"]),
                     "notes": notes, "data": base64.b64encode(nodered.to_json(nodes).encode("utf-8")).decode("ascii")}
         try:
             rows = modbusmap.register_map(cfg)
         except modbusmap.MapError as e:
-            return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
+            return self._map_problems(cfg, e.problems)
         text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
             else modbusmap.to_st(cfg, rows)
         return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
                 "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
                 "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+
+    def _map_problems(self, cfg, problems):
+        """A stopped register map or Node-RED export in the /api/check shape:
+        the config check's errors, which say where (the same byte rules, with
+        their paths), or else the export's own problems, one item each."""
+        items = []
+        try:
+            items = [it for it in contract.check_config(cfg, self.config_path, eds_paths=self.eds_paths(cfg)).items
+                     if it.get("level") == "error"]
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            pass
+        if not items:
+            items = [{"level": "error", "message": m, "paths": []} for m in problems]
+        return {"items": items, "errors": len(items)}
 
     def pack_openplc(self, cfg, start=None):
         """The draft with every location repacked for OpenPLC's per-type

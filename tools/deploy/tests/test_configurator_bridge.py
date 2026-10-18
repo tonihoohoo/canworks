@@ -227,9 +227,21 @@ class Export(Base):
         self.open()
         self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW1"
         r = self.ok("/api/bridge/export", {"config": self.cfg, "format": "st"})
-        self.assertEqual(r["errors"], 1)
+        # The odd start, and the overlap with the next entry it causes.
+        self.assertEqual(r["errors"], 2)
         self.assertNotIn("data", r)
         self.assertIn("must start at an even byte", r["items"][0]["message"])
+        # The config check's item, so the Problems row opens the field.
+        self.assertEqual(r["items"][0]["paths"], ["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"])
+
+    def test_problems_one_item_each(self):
+        self.open()
+        entries = self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]
+        entries[0]["iec_location"] = "%IW1"
+        r = self.ok("/api/bridge/export", {"config": self.cfg, "format": "nodered"})
+        self.assertGreaterEqual(r["errors"], 1)
+        self.assertEqual(r["errors"], len(r["items"]))
+        self.assertTrue(all("; " not in it["message"] for it in r["items"]), r["items"])
 
     def test_unknown_format(self):
         self.open()
