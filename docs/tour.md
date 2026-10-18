@@ -44,6 +44,7 @@ The page opens in **Configure** on the project, with its four networks in the ne
 - `cell` → **Bus**: the slave network's page (Bus and slave device) with the objects the program reads and writes ([slave.md](slave.md)).
 - **Gateway**, the tree entry after the networks: its two routes, the field status, EMCY forwarding, the SDO bridge and **When the upper master is lost**: **Zero** ([gateway.md](gateway.md)).
 - `host` → node `cell` (node 20) is the cell itself, not simulated: the plugin's own slave answers.
+- **Project target** at the top of each Bus page says who runs the config: **OpenPLC** here. Pick **CODESYS** and the dialog lists what CODESYS does not use (the slave and J1939 networks, the status locations, the simulated devices); press Cancel to keep the project as it is ([configurator.md](configurator.md#project-target)).
 
 ![The cell's gateway page with its two routes](images/tour-gateway.png)
 

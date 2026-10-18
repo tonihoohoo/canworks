@@ -531,11 +531,14 @@ function sameObject(a, ai, b, bi) { return num(a) === num(b) && num(ai || 0) ===
 // The object a page path starts in, and the path's parts: the open network,
 // or for "master.diagnostics…" the draft's one diagnostics object, which
 // every network shares (master.diagnostics in a version 1 file), or for
-// "gateway…" and "bridge…" the top of the draft.
+// "gateway…", "bridge…" and the project's "codesys.project|device|create|
+// variables" the top of the draft (a network's own "codesys…" is its
+// net_id and interface).
 function pathRoot(path) {
   const parts = path.match(/[^.[\]]+/g);
   if (parts[0] === "master" && (parts[1] === "diagnostics" || parts[1] === "cia309")) return [S.model, parts.slice(1)];
   if (parts[0] === "gateway" || parts[0] === "bridge") return [S.model.top, parts];
+  if (parts[0] === "codesys" && CODESYS_TOP_KEYS.includes(parts[1])) return [S.model.top, parts];
   return [S.config, parts];
 }
 
@@ -808,7 +811,7 @@ function customName(net) {
 }
 
 // The draft as a file: version 1 when it holds one network without a name
-// of its own, else version 2 (always for a Modbus bridge project).
+// of its own, else version 2 (always for a Modbus bridge or CODESYS project).
 function fileConfig() {
   const m = S.model;
   const out = {};
@@ -818,7 +821,7 @@ function fileConfig() {
     }
   };
   const net = m.networks[0];
-  if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k)) && !("bridge" in m.top)) {
+  if (m.networks.length === 1 && !customName(net) && Object.keys(net).every((k) => NETWORK_KEYS.includes(k)) && !("bridge" in m.top) && !("codesys" in m.top)) {
     for (const [k, v] of Object.entries(m.top)) out[k] = k === "schema_version" && v === 2 ? 1 : v;
     for (const k of ["adapter", "master", "nodes", "links"]) if (k in net) out[k] = net[k];
     if (m.diagnostics !== undefined) out.master = Object.assign({}, net.master, { diagnostics: m.diagnostics });
@@ -1134,6 +1137,10 @@ function renderStart() {
     $(id).classList.toggle("selected", S.startMode === mode);
     $(id).setAttribute("aria-pressed", String(S.startMode === mode));
   }
+  // A new config asks for its target (canopen-configurator "Target of a new config").
+  $("#new-target-row").hidden = S.startMode !== "new";
+  S.newTarget = S.newTarget || "openplc";
+  for (const b of document.querySelectorAll("#new-target [data-new-target]")) b.setAttribute("aria-pressed", String(b.dataset.newTarget === S.newTarget));
   $("#browser-title").textContent = {
     project: "Choose the OpenPLC Editor project folder",
     standalone: "Choose the standalone config folder",
@@ -1278,12 +1285,17 @@ async function chooseFolder({ title, start, note }) {
   return shown && !shown.drive_list ? shown.path : null;
 }
 
-async function openFolder(path, mode, isNew) {
+async function openFolder(path, mode, isNew, target) {
   try {
     banner("");
     await api("POST", "/api/open", { path, mode, new: isNew });
     S.view = "bus";
     await loadState();
+    // A new config for the bridge or CODESYS starts as that target's empty config.
+    if (target && target !== "openplc" && S.model) {
+      bridgeReplaceDraft((await api("POST", "/api/switch_target", { config: fileConfig(), target })).config);
+      changed(true);
+    }
     // The start page is gone: keyboard focus goes to the network tree, not the page body.
     const a = document.activeElement;
     if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
@@ -1311,7 +1323,7 @@ function startOpen() {
   if (!path) return;
   // Open standalone wants an existing config, New refuses one.
   if (S.startMode === "project") openFolder(path, "project");
-  else openFolder(path, "standalone", S.startMode === "new");
+  else openFolder(path, "standalone", S.startMode === "new", S.startMode === "new" ? S.newTarget : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -1332,19 +1344,23 @@ function render() {
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
     : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
+  if (!S.state.commission && S.model) badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · " + TARGET_TITLE[projectTarget()]));
   if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
   const commission = !!S.state.commission;
   document.body.classList.toggle("commission", commission);
   $("#editor").classList.toggle("commission", commission);
-  $("#menu-project").hidden = S.state.mode !== "standalone" || commission;
+  // The editor project actions are OpenPLC's (canopen-configurator "Only what the target uses is shown").
+  $("#menu-project").hidden = S.state.mode !== "standalone" || commission || (!!S.model && !usedBy("ui:editor_project"));
+  const codesys = !commission && !!S.model && codesysOn();
+  $("#btn-codesys-build").hidden = !codesys;
+  $("#btn-codesys-download").hidden = !codesys;
   Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
   // network (none at all, and no CODESYS export, without a CANopen master
   // network), no DBC of a slave.
   if (S.model) {
     $("#btn-export-all").hidden = !S.model.networks.some(dcfNetwork);
-    $("#btn-export-codesys").hidden = !S.model.networks.some(dcfNetwork);
     $("#btn-export-node").hidden = !dcfNetwork(S.config);
     $("#btn-export-dbc").closest(".menu-row").hidden = isSlave(S.config);
   }
@@ -1353,6 +1369,8 @@ function render() {
     if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation")) S.view = "bus";
     if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
     if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
+    if (S.view === "codesys" && !codesysOn()) S.view = "bus";
+    if (S.view === "access" && !usedBy("ui:runtime") && S.model.diagnostics === undefined && S.model.cia309 === undefined) S.view = "bus";
     if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   }
   // The view belongs to the workspace shown (shell.js).
@@ -1370,9 +1388,9 @@ function render() {
   view.replaceChildren();
   if (S.view === "bus") {
     (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
-    // The project target (bridge.js) leads every bus page: it is the whole project's.
+    // The project target (target.js) leads every bus page: it is the whole project's.
     const h = view.querySelector("h2");
-    if (h) h.after(bridgeTargetField());
+    if (h) h.after(targetField());
   }
   else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
@@ -1382,10 +1400,12 @@ function render() {
   else if (S.view === "gateway") renderGateway(view);
   else if (S.view === "access") renderAccess(view);
   else if (S.view === "bridge") renderBridge(view);
+  else if (S.view === "codesys") renderCodesys(view);
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
   else if (S.view === "links") renderLinks(view);
   else renderNode(view, Number(S.view.slice(5)));
+  if (workspace() === "configure") applyTarget(view);
   applyCheck();
   if (TRACE_WINDOW) traceWinBar();
   else traceWinSendConn();
@@ -1592,9 +1612,16 @@ function slaveNetworkSettings() {
       } })));
 }
 
+// Whether the page offers simulated devices: the target runs canworks, or
+// the network still simulates something (shown, so it can be switched off).
+function simulationShown(net = S.config) {
+  return usedBy("ui:simulation") || simNetwork(net) || (net.nodes || []).some((n) => n.simulate !== undefined);
+}
+
 // The node page's Simulated switch.
 function simSwitch(i) {
   const n = S.config.nodes[i];
+  if (!simulationShown()) return null;
   const on = nodeSimulated(n);
   const input = el("input", { type: "checkbox", dataset: { sim: "node" } });
   input.checked = on;
@@ -1640,7 +1667,8 @@ function adapterFieldset() {
         slcan ? field("Serial device", a + ".device", "text", { placeholder: "/dev/serial/by-id/usb-…",
           hint: "Required. The adapter's device on the PLC (the Pi). Use the /dev/serial/by-id/… path (ls /dev/serial/by-id/): /dev/ttyACM0 can change number when the adapter is plugged in again." }) : null,
         field("Interface", a + ".interface", "text", { list: "ifaces", placeholder: "can0",
-          hint: slcan ? "Required. The name the plugin gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."
+          hint: codesysOn() ? "Optional. The bus's name in canworks; a name ending in a number (can1) gives the CODESYS network number when it is not set below."
+            : slcan ? "Required. The name the plugin gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."
             : "Required. The interface on the PLC (the Pi), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus." }),
         el("label", null, "Bit rate", rateSel, hint("Required. Every node on the bus must use the same rate."),
           el("span", { class: "field-msg", dataset: { for: "adapter.bitrate" } })),
@@ -1662,8 +1690,9 @@ function renderBus(view) {
     el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
     protocolField(),
     roleField(),
-    slave ? slaveNetworkSettings() : networkSettings(),
+    ...(simulationShown() ? [slave ? slaveNetworkSettings() : networkSettings()] : []),
     adapterFieldset(),
+    ...(!slave && usedBy("ui:codesys") ? [codesysNetworkFieldset()] : []),
     ...(slave ? slaveFieldsets() : [el("fieldset", null, el("legend", null, "Master"),
       el("div", { class: "grid" },
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
@@ -2709,6 +2738,15 @@ function supervisionFields(i) {
   return out;
 }
 
+// The generated variable name part of a PDO entry (the part its `name`
+// replaces), from the last check's declarations; "" without one.
+function entryVariable(ep, prefix) {
+  const decls = (S.check && S.check.declarations) || [];
+  const want = prefix + ep + ".iec_location";
+  const d = decls.find((x) => x.kind === "pdo" && x.path === want);
+  return d ? d.entry_name || "" : "";
+}
+
 function declNote(path) {
   return el("span", { class: "muted decl", dataset: { declFor: path } });
 }
@@ -2719,6 +2757,9 @@ function renderPdos(i, key, dir, title, eds) {
   const fs = el("fieldset", { dataset: { path: `nodes[${i}].${key}` } }, el("legend", null, title));
   const count = eds && eds.pdo_count ? eds.pdo_count[dir] : 0;
   fs.append(el("p", { class: "muted" }, `${pdos.length} of ${count} PDOs defined in the EDS used. Add entries with "Add entry…" (a new PDO is started when the open ones are full).`));
+  // The Location column is the target's: CODESYS assigns the addresses itself
+  // (shown while an entry still has one, so it can be removed).
+  const locations = usedBy(`nodes.${key}.entries.iec_location`) || pdos.some((p) => (p.entries || []).some((e) => e.iec_location));
   pdos.forEach((p, j) => {
     const pb = `nodes[${i}].${key}[${j}]`;
     const bits = (p.entries || []).reduce((s, e) => s + (S.state.type_bits[e.type] || 0), 0);
@@ -2753,16 +2794,25 @@ function renderPdos(i, key, dir, title, eds) {
         pdos.length < count ? el("option", { value: "new" }, "new PDO") : null);
       move.value = String(j);
       move.addEventListener("change", () => moveEntry(i, key, j, k, move.value));
+      // The placeholder is the generated name, filled in by applyCheck.
+      const variable = el("input", { type: "text", spellcheck: "false", dataset: { path: ep + ".name", entryVariable: ep },
+        "aria-label": "Variable name of " + (info ? info.name : e.index) });
+      variable.value = typeof e.name === "string" ? e.name : "";
+      variable.addEventListener("input", () => setPath(ep + ".name", variable.value.trim()));
       return el("tr", { dataset: { path: ep } },
         el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", null, e.type),
-        el("td", null, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
+        el("td", null, variable, el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
+          locations ? null : el("span", { class: "field-msg", dataset: { for: ep } }),
+          locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
+        locations ? el("td", null, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
           el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } }),
-          declNote(ep + ".iec_location")),
+          declNote(ep + ".iec_location")) : null,
         el("td", null, move),
         el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove ${e.index}:${e.subindex ?? 0} from the PDO`,
           onclick: () => removeEntry(i, key, j, k) }, "✕")));
     });
-    box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "PLC location", "PDO", ""]))),
+    box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Variable"]
+      .concat(locations ? ["PLC location"] : [], ["PDO", ""])))),
       el("tbody", null, rows)));
     fs.append(box);
   });
@@ -6917,8 +6967,9 @@ async function exportHtml() {
   }
 }
 
-// Exports the draft's CANopen master networks for CODESYS: node DCFs, the plan
-// and import_canworks.py in one zip. Problems go to the Problems pane, and
+// Download for CODESYS (a CODESYS project's header and CODESYS page): the
+// draft's CANopen master networks as node DCFs, the plan and
+// import_canworks.py in one zip. Problems go to the Problems pane, and
 // nothing is downloaded.
 async function exportCodesys() {
   try {
@@ -6937,7 +6988,9 @@ async function exportCodesys() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project. The bus goes to the project's active device.`);
+    const device = getPath("codesys.device");
+    banner(`Exported ${r.name}: unzip it and run import_canworks.py in CODESYS (Tools > Scripting > Execute Script File) on your project. ` +
+      (device ? `The bus goes to device ${device}.` : "The bus goes to the project's active device."));
   } catch (e) {
     banner(e.message, true);
   }
@@ -7038,6 +7091,11 @@ function applyCheck() {
     const name = declaredAs(x.dataset.declFor);
     x.textContent = name ? ` declared as ${name}` : "";
   }
+  const entries = document.querySelectorAll("input[data-entry-variable]");
+  if (entries.length) {
+    const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
+    for (const x of entries) x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
+  }
   const list = $("#problem-list");
   const focused = document.activeElement && document.activeElement.closest("#problem-list li");
   const focusedAt = focused ? [...list.children].indexOf(focused) : -1;
@@ -7046,7 +7104,10 @@ function applyCheck() {
   for (const it of items) {
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
-      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
+      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])),
+      // A setting the target does not use goes with one click (target.js).
+      it.unused && it.removable && where[0] ? el("button", { type: "button", class: "small", dataset: { problemRemove: where[0].path },
+        title: "Remove this setting from the config", onclick: () => removeUnused(where[0]) }, "Remove") : null);
     list.append(li);
     for (const w of where) {
       // Fields of another network's tab are not on the page.
@@ -7177,6 +7238,7 @@ function placeOf(w) {
     const rt = r && ((S.model.top.gateway || {}).routes || [])[Number(r[1])];
     return ["Gateway"].concat(rt ? [`route ${rt.name || Number(r[1]) + 1}`] : []);
   }
+  if (path.startsWith("codesys")) return w.net === null || w.net === undefined ? ["CODESYS"] : lead.concat(["CODESYS"]);
   if (path.startsWith("bridge")) {
     const r = /^bridge\.live_lists\[(\d+)\]/.exec(path);
     const e = r && ((S.model.top.bridge || {}).live_lists || [])[Number(r[1])];
@@ -7242,9 +7304,9 @@ function focusPath(w) {
   const m = /^nodes\[(\d+)\]/.exec(path);
   if (m && tab) { const have = nodeTabs(Number(m[1])).map(([k]) => k); setNodeTab(have.includes(tab) ? tab : "general"); }
   const want = m ? "node:" + m[1] : entry === "access" ? "access" : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
-    : path.startsWith("links") ? "links"
+    : entry === "codesys" ? "codesys" : path.startsWith("links") ? "links"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
-      path === "role" || path === "protocol" ? "bus" : S.view);
+      path.startsWith("codesys") || path === "role" || path === "protocol" ? "bus" : S.view);
   if (workspace() !== "configure" && !isTool(want)) switchWorkspace("configure");
   // A CAN message's field is in its editor, which opens for it.
   const raw = /^raw\.(rx|tx)\[(\d+)\]/.exec(path);
@@ -7514,7 +7576,9 @@ function wire() {
   });
   exporting("#btn-export-dbc", exportDbc);
   exporting("#btn-export-html", exportHtml);
-  exporting("#btn-export-codesys", exportCodesys);
+  $("#btn-codesys-build").onclick = () => busy($("#btn-codesys-build"), "Building…", codesysBuild);
+  $("#btn-codesys-download").onclick = () => busy($("#btn-codesys-download"), "Exporting…", exportCodesys);
+  for (const b of document.querySelectorAll("#new-target [data-new-target]")) b.onclick = () => { S.newTarget = b.dataset.newTarget; renderStart(); };
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);

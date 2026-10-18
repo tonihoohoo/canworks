@@ -55,15 +55,15 @@ A CODESYS project SHALL have a "CODESYS" page in the tree with the project file,
 - **THEN** the config's network `field` gets `codesys.net_id` 0 and the next CODESYS build uses network number 0
 
 ### Requirement: CODESYS actions
-A CODESYS project SHALL have **Build into CODESYS project…** and **Download for CODESYS** in the header. Build SHALL require a saved config and a project file, run the `--codesys-import` route of `canopen-deploy` with the config's settings as a job, and show CODESYS's report in the log; when CODESYS is not found on this PC it SHALL say so and point to Download. Download SHALL offer the `codesys-export` folder as `<config folder name>_codesys.zip` and write no file in the project or config folder; on errors it SHALL download nothing and list them in Problems.
+A CODESYS project SHALL have **Build into CODESYS project…** and **Download for CODESYS** in the header. Build SHALL require a saved config and a project file, run the `--codesys-import` route of `canopen-deploy` with the config's settings, and show CODESYS's report; when CODESYS is not found on this PC it SHALL say so and point to Download. Download SHALL offer the `codesys-export` folder as `<config folder name>_codesys.zip` and write no file in the project or config folder; on errors it SHALL download nothing and list them in Problems.
 
 #### Scenario: Build
 - **WHEN** a saved CODESYS project names `C:\Projects\cell.project` and the user clicks Build into CODESYS project on a PC with CODESYS
-- **THEN** the project gets the bus, the log shows the report, and the job ends with the report's result
+- **THEN** the project gets the bus and the page shows CODESYS's report with its result
 
 #### Scenario: Project open in CODESYS
 - **WHEN** the build fails because the project is open in the CODESYS window
-- **THEN** the log shows the failure with the hint to close the project in CODESYS first
+- **THEN** the page shows the failure with the hint to close the project in CODESYS first
 
 #### Scenario: No CODESYS
 - **WHEN** the user clicks Build on a PC without CODESYS

@@ -14,8 +14,11 @@ from canworks.codesys import plan as cplan
 from canworks.codesys import run as crun
 from canworks.configurator import declare
 
+from canworks.configurator import server as srv
+
 from .helpers import tmpdir
 from .test_codesys import BRIDGE, deploy, load
+from .test_configurator_server import Running
 
 
 def codesys_config(test, change=None, remove_unused=True):
@@ -150,6 +153,13 @@ class EntryName(unittest.TestCase):
         entries[0]["name"] = entries[1]["name"] = "Door"
         self.assertIn('two PDO entries are named "Door"', "\n".join(check(cfg).errors))
 
+    def test_name_names_the_register_row(self):
+        from canworks import modbusmap
+        cfg = load(BRIDGE)
+        cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][0]["name"] = "door_open"
+        names = [r["name"] for r in modbusmap.register_map(cfg)]
+        self.assertIn("dio.door_open", names)
+
     def test_name_must_be_an_identifier(self):
         cfg = load(BRIDGE)
         cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][0]["name"] = "door open"
@@ -244,6 +254,155 @@ class Deploy(unittest.TestCase):
         with mock.patch.object(crun, "find_codesys", return_value=exe):
             self.assertEqual(cli._codesys(args, cfg, None, lambda m: None, runner=runner), 0)
         self.assertEqual(seen[0]["create"]["device"]["id"], "0000 0004")
+
+
+def openplc_example():
+    """The bridge example as an OpenPLC config, packed per type."""
+    cfg = load(BRIDGE)
+    del cfg["bridge"]
+    return srv.Session().pack_openplc(cfg)["config"]
+
+
+def entries(cfg):
+    return [e for n in cfg["networks"][0]["nodes"] for k in ("tx_pdos", "rx_pdos") for p in n.get(k, [])
+            for e in p["entries"]]
+
+
+class Server(Running):
+    """/api/switch_target and /api/codesys/build (canopen-configurator
+    "Switching the target", "CODESYS actions")."""
+
+    def setUp(self):
+        super().setUp()
+        self.folder = os.path.join(self.dir, "cell")
+        os.makedirs(self.folder)
+        for name in ("rtd8.eds", "dio16.eds"):
+            shutil.copy(os.path.join(os.path.dirname(BRIDGE), name), self.folder)
+        self.cfg = openplc_example()
+        self.cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
+        self.cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW90"
+        with open(os.path.join(self.folder, "canworks.json"), "w", encoding="utf-8") as f:
+            json.dump(self.cfg, f)
+        self.ok("POST", "/api/open", {"path": self.folder, "mode": "standalone"})
+
+    def switch(self, cfg, target, **kw):
+        return self.ok("POST", "/api/switch_target", dict({"config": cfg, "target": target}, **kw))
+
+    def test_state_has_the_table(self):
+        state = self.ok("GET", "/api/state")
+        self.assertIn("codesys_found", state)
+        self.assertIn("ui:codesys", [r["key"] for r in state["targets"]])
+
+    def test_openplc_to_codesys_and_back(self):
+        preview = self.switch(self.cfg, "codesys", preview=True)
+        self.assertNotIn("config", preview)
+        paths = [u["path"] for u in preview["unused"]]
+        self.assertIn("networks[0].nodes[0].emcy_code_location", paths)
+        self.assertIn("networks[0].master.scan_watchdog_ms", paths)
+        r = self.switch(self.cfg, "codesys")
+        cfg = r["config"]
+        self.assertEqual((cfg["codesys"], targets.target(cfg)), ({}, "codesys"))
+        self.assertEqual(r["removed"], len(r["unused"]))
+        self.assertTrue(all("name" in e and "iec_location" not in e for e in entries(cfg)))
+        self.assertNotIn("scan_watchdog_ms", cfg["networks"][0]["master"])
+        self.assertEqual(check(cfg).errors, [])
+        # The names are the generated declaration names (EDS names).
+        after = {d["name"] for d in declare.declarations(cfg, lambda *a: None, {}, unlocated=True) if d["kind"] == "pdo"}
+        self.assertIn("dio_Read_input_8_bit_1", after)
+        self.assertIn("rtd_AI0_Input_PV", after)
+        # Back to OpenPLC: every entry is placed per type, the names stay.
+        back = self.switch(cfg, "openplc", preview=True)
+        self.assertEqual(back["locations"], len(entries(cfg)))
+        out = self.switch(cfg, "openplc")["config"]
+        self.assertNotIn("codesys", out)
+        self.assertTrue(all(e.get("iec_location") and e.get("name") for e in entries(out)))
+        self.assertEqual(check(out).errors, [])
+
+    def test_keep_leaves_the_values(self):
+        cfg = self.switch(self.cfg, "codesys", keep=True)["config"]
+        self.assertEqual(cfg["networks"][0]["master"]["scan_watchdog_ms"], 500)
+        self.assertTrue(all("iec_location" in e for e in entries(cfg)))
+        self.assertTrue(check(cfg).warnings)
+
+    def test_codesys_to_bridge_packs(self):
+        cfg = self.switch(self.cfg, "codesys")["config"]
+        out = self.switch(cfg, "bridge")["config"]
+        self.assertEqual(targets.target(out), "bridge")
+        self.assertNotIn("codesys", out)
+        self.assertTrue(all(e.get("iec_location") for e in entries(out)))
+        self.assertEqual(check(out).errors, [])
+
+    def test_openplc_and_bridge(self):
+        r = self.switch(self.cfg, "bridge")
+        self.assertIn("networks[0].master.scan_watchdog_ms", [u["path"] for u in r["unused"]])
+        self.assertEqual(r["config"]["bridge"], {"listen": "0.0.0.0:502", "writers": []})
+        self.assertNotIn("scan_watchdog_ms", r["config"]["networks"][0]["master"])
+        out = self.switch(r["config"], "openplc")["config"]
+        self.assertNotIn("bridge", out)
+        r = self.switch(self.cfg, "bridge", pack=False, keep=True)
+        self.assertEqual(entries(r["config"]), entries(self.cfg))
+
+    def test_bridge_to_codesys(self):
+        cfg = self.switch(self.cfg, "bridge")["config"]
+        out = self.switch(cfg, "codesys")["config"]
+        self.assertNotIn("bridge", out)
+        self.assertEqual(targets.target(out), "codesys")
+
+    def test_bad_target(self):
+        status, data, _ = self.request("POST", "/api/switch_target", {"config": self.cfg, "target": "s7"})
+        self.assertEqual(status, 400, data)
+
+    def test_build_needs_a_saved_config(self):
+        cfg = self.switch(self.cfg, "codesys")["config"]
+        self.ok("POST", "/api/save", {"config": cfg})
+        self.server.session.pending["new.eds"] = b""
+        status, data, _ = self.request("POST", "/api/codesys/build", {})
+        self.assertEqual(status, 409, data)
+        self.assertTrue(data.get("unsaved"))
+
+    def test_build_reports_codesys_missing(self):
+        cfg = self.switch(self.cfg, "codesys")["config"]
+        cfg["codesys"] = {"project": os.path.join(self.dir, "missing.project")}
+        self.ok("POST", "/api/save", {"config": cfg})
+        r = self.ok("POST", "/api/codesys/build", {})
+        self.assertFalse(r["ok"])
+        self.assertIn("does not exist", r["output"])
+
+    def test_build_runs_codesys(self):
+        root = os.path.join(self.dir, "pf")
+        common = os.path.join(root, "CODESYS 3.5.22.40", "CODESYS", "Common")
+        profiles = os.path.join(root, "CODESYS 3.5.22.40", "CODESYS", "Profiles")
+        os.makedirs(common)
+        os.makedirs(profiles)
+        open(os.path.join(common, "CODESYS.exe"), "w").close()
+        open(os.path.join(profiles, "CODESYS V3.5 SP22.profile.xml"), "w").close()
+        project = os.path.join(self.dir, "cell.project")
+        open(project, "w").close()
+        cfg = self.switch(self.cfg, "codesys")["config"]
+        cfg["codesys"] = {"project": project}
+        self.ok("POST", "/api/save", {"config": cfg})
+        lines = []
+
+        def runner(line, report="result: ok\nnodes: 2\n"):
+            lines.append(line)
+            folder = os.path.dirname(line.split('--runscript="')[1].rstrip('"'))
+            with open(os.path.join(folder, cplan.REPORT_NAME), "w", encoding="utf-8") as f:
+                f.write(report)
+        self.server.codesys_runner = runner
+        with mock.patch.dict(os.environ, {"PROGRAMFILES": root}):
+            self.assertTrue(self.ok("GET", "/api/state")["codesys_found"])
+            r = self.ok("POST", "/api/codesys/build", {})
+        self.assertTrue(r["ok"], r)
+        self.assertIn("result: ok", r["output"])
+        self.assertIn("SP22", lines[0])
+
+        def locked(line):
+            runner(line, "result: error\nthe project is opened by another user (locked)\n")
+        self.server.codesys_runner = locked
+        with mock.patch.dict(os.environ, {"PROGRAMFILES": root}):
+            r = self.ok("POST", "/api/codesys/build", {})
+        self.assertFalse(r["ok"])
+        self.assertIn("Close the project in CODESYS first", r["hint"])
 
 
 if __name__ == "__main__":

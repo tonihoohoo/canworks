@@ -694,6 +694,17 @@ class Session:
         return not exists or sha256(self.config_path) != self.loaded[1]
 
     # -- state --------------------------------------------------------------
+    def adapter_online(self):
+        """Whether online access goes through a USB adapter on this PC: in
+        Commission a device, and in a saved CODESYS config, whose bus no
+        canworks runtime runs."""
+        if self.commission:
+            return True
+        if not self.mode or not os.path.isfile(self.config_path):
+            return False
+        cfg, _, error = self.read_config()
+        return not error and targets.target(cfg) == targets.CODESYS
+
     def read_config(self):
         """(config, notices, error)."""
         if not os.path.isfile(self.config_path):
@@ -1285,9 +1296,14 @@ class Session:
             self._name_entries(out)
         out.pop("bridge", None)
         out.pop("codesys", None)
-        for net in out.get("networks") or []:
+        for k, net in enumerate(out.get("networks") or []):
             if isinstance(net, dict) and old == targets.CODESYS:
                 net.pop("codesys", None)
+                # A runtime needs the adapter's type and interface, which CODESYS does not.
+                adapter = net.get("adapter")
+                if isinstance(adapter, dict):
+                    adapter.setdefault("type", "socketcan")
+                    adapter.setdefault("interface", "can%d" % k)
         if target == targets.BRIDGE:
             out["bridge"] = {"listen": "0.0.0.0:502", "writers": []}
         elif target == targets.CODESYS:
@@ -2623,6 +2639,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with s.lock:
             self._need_open(s)
             folder, config_path, canopen_dir = s.folder, s.config_path, s.canopen_dir
+            adapter = s.adapter_online()
         proj = settings.project(folder)
 
         def view():
@@ -2631,7 +2648,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             count, capped = online.count_eds(lib)
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": lib,
                     "eds_count": count, "eds_count_capped": capped,
-                    "connected": conn.connected, "target": "adapter" if s.commission else "runtime",
+                    "connected": conn.connected, "target": "adapter" if adapter else "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
                     "check_node": p.get("check_node"),
                     "allow_changes": self.server.adapter_allow, "commission": bool(s.commission),
@@ -2650,9 +2667,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             from .. import localbus
             return {"adapters": localbus.list_adapters()}
         if route == ("POST", "/api/online/settings"):
-            if not s.commission and any(k in body for k in ("adapter", "adapter_bitrate", "check_node", "allow_changes")):
-                raise ApiError(422, "a USB adapter on this PC is used in Commission a device; here online access goes "
-                                    "through the runtime")
+            if not adapter and any(k in body for k in ("adapter", "adapter_bitrate", "check_node", "allow_changes")):
+                raise ApiError(422, "a USB adapter on this PC is used in Commission a device and in a CODESYS "
+                                    "project; here online access goes through the runtime")
             if "adapter" in body:
                 text = (body.get("adapter") or "").strip()
                 if text:
@@ -3058,8 +3075,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _online_target(self, proj, config_path, network, body):
         """(host, port, token) for the kept-open connection: the runtime of the
         online access settings, or in Commission a device an
-        online.AdapterTarget for the USB adapter on this PC (no token)."""
-        if self.server.session.commission:
+        online.AdapterTarget for the USB adapter on this PC (no token), also
+        in a CODESYS project."""
+        if self.server.session.adapter_online():
             from ..localbus import configinfo
             adapter = proj.get("adapter")
             if not adapter:
@@ -3585,10 +3603,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if spec and spec.get("autosave") and spec["autosave"].get("folder"):
                     spec["autosave"]["folder"] = tracing.check_folder(spec["autosave"]["folder"], canopen_dir)
             proj = online.Settings(config_dir()).project(folder)
-            if s.commission and not self.server.connection.connected:
+            on_adapter = s.adapter_online()
+            if on_adapter and not self.server.connection.connected:
                 raise ApiError(409, "connect to the USB adapter on Bus and master to record a trace; opening trace "
                                     "files works without it", need="online")
-            if not s.commission and (not proj.get("host") or not proj.get("token")):
+            if not on_adapter and (not proj.get("host") or not proj.get("token")):
                 raise ApiError(409, "set up online access (runtime host and access token) in the Online view to "
                                     "record a trace; opening trace files works without it", need="online")
             hostname, port, token = self._online_target(proj, s.config_path, network, body)

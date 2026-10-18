@@ -211,7 +211,7 @@ dialog#conn-dialog h2 { margin-top: 0; }
 .node-tabs { margin-bottom: 12px; }
 .node-tabs .tree-badge { margin-left: 2px; }
 .pdo-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; }
-@media (min-width: 1400px) { .pdo-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (min-width: 1800px) { .pdo-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 details.pdo-settings { margin: 4px 0 8px; }
 details.pdo-settings > summary { cursor: pointer; font-size: 13px; }
 details.pdo-settings[open] > summary { margin-bottom: 6px; }
@@ -997,3 +997,13 @@ table > tbody > tr.row-selected > td:first-child, table.od-tree tbody tr.od-sele
 }
 /* A list box with a resize bar under it: the bar sits right under the box. */
 [data-box] + .size-bar { margin-top: 2px; }
+
+/* Project targets (target.js): a setting the target does not use, the switch dialog's list, CODESYS's report. */
+.unused-mark { display: inline-flex; gap: 6px; align-items: center; margin-top: 2px; }
+td .unused-mark { display: flex; }
+ul.switch-unused { margin: 4px 0 8px; padding-left: 20px; max-height: 40vh; overflow: auto; }
+pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--hover); padding: 8px; border-radius: 4px; }
+#new-target-row { align-items: center; gap: 8px; margin-bottom: 8px; }
+/* A PDO entry's variable name grows with its name or the generated one. */
+.pdo td input[data-entry-variable] { field-sizing: content; min-width: 9ch; max-width: 100%; }
+.pdo td input[data-path$=".iec_location"] { min-width: 10ch; }

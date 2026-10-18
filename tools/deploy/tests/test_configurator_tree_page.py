@@ -143,9 +143,15 @@ class Tree(unittest.TestCase):
         self.assertGreater(settings.count(), 0)
         self.assertFalse(pg.evaluate("() => document.querySelector('details[data-pdo-settings]').open"))
         self.assertIn("COB-ID 0x", pg.inner_text("[data-pdo-summary]"))
-        cols = pg.evaluate("() => getComputedStyle(document.querySelector('.pdo-columns')).gridTemplateColumns.split(' ').length")
-        self.assertEqual(cols, 2)
+        cols = "() => getComputedStyle(document.querySelector('.pdo-columns')).gridTemplateColumns.split(' ').length"
+        # Inputs and outputs side by side on a wide window; under each other below 1800 px, where
+        # the Variable and PLC location columns need the width.
+        self.assertEqual(pg.evaluate(cols), 1)
         audit(pg, "node PDOs tab")
+        pg.set_viewport_size({"width": 1920, "height": 900})
+        self.assertEqual(pg.evaluate(cols), 2)
+        audit(pg, "node PDOs tab, 1920 px")
+        pg.set_viewport_size({"width": 1440, "height": 900})
         # SDOs: both lists, even when empty.
         node_tab(pg, "sdos")
         self.assertEqual(pg.locator('[data-node-tab-panel="sdos"] details.section').count(), 2)

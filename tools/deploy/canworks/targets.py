@@ -109,6 +109,7 @@ ROWS = [
     ("ui:editor_project", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: ""}, ()),
     ("ui:runtime", _RUNTIME, {CODESYS: ""}, ()),
     ("ui:simulation", _RUNTIME, {CODESYS: ""}, ()),
+    ("ui:declarations", _RUNTIME, {CODESYS: ""}, ()),
     ("ui:bridge", frozenset((BRIDGE,)), {OPENPLC: "", CODESYS: ""}, ()),
     ("ui:codesys", frozenset((CODESYS,)), {OPENPLC: "", BRIDGE: ""}, ()),
 ]

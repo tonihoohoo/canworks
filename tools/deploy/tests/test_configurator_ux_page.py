@@ -80,8 +80,7 @@ class Probes(Layout):
         downloads = []
         pg.on("download", lambda d: downloads.append(d))
         for menu, button, text in (("export", "#btn-export-all", "DCF export stopped"), ("export", "#btn-export-dbc", "DBC export stopped"),
-                                   ("export", "#btn-export-html", "Documentation export stopped"),
-                                   ("export", "#btn-export-codesys", "CODESYS export stopped")):
+                                   ("export", "#btn-export-html", "Documentation export stopped")):
             pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             pg.click(button)
             pg.wait_for_selector("#banner.error:has-text('%s')" % text)
@@ -598,14 +597,16 @@ class CleanProject(OnlineBase):
         self.open()
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         names = []
-        for button in ("#btn-export-all", "#btn-export-dbc", "#btn-export-html", "#btn-export-codesys"):
+        for button in ("#btn-export-all", "#btn-export-dbc", "#btn-export-html"):
             pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
             with pg.expect_download() as dl:
                 pg.click(button)
             names.append(dl.value.suggested_filename)
             pg.wait_for_function("() => !document.querySelector('#menu-export').open")  # a pick closes the menu
-        self.assertEqual(names, ["rtd-monitor_dcf.zip", "rtd-monitor.dbc", "rtd-monitor.html",
-                                 "rtd-monitor_codesys.zip"])
+        self.assertEqual(names, ["rtd-monitor_dcf.zip", "rtd-monitor.dbc", "rtd-monitor.html"])
+        # CODESYS is a project target, not an export of an OpenPLC project.
+        self.assertEqual(pg.locator("#btn-export-codesys").count(), 0)
+        self.assertFalse(pg.is_visible("#btn-codesys-download"))
         tree_node(pg, 0)
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         with pg.expect_download() as dl:

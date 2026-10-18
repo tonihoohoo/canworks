@@ -177,7 +177,7 @@ A request starts when its counter changes and goes through the same queue and ti
 
 ## Deploying and checking a config
 
-The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check-only --bridge HOST` checks it, the configurator's Check does too, and its **Target** switch turns a project into a bridge project ([configurator.md](configurator.md#modbus-bridge)).
+The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check-only --bridge HOST` checks it, the configurator's Check does too, and its **Project target** switch turns a project into a bridge project ([configurator.md](configurator.md#project-target)). In a bridge project the configurator hides what the bridge does without: SYNC from the PLC cycle, the scan watchdogs (the bridge's own output watchdog is `bridge.watchdog_ms`) and the OpenPLC Editor project actions. A scan watchdog the config still has is a warning with **Remove**.
 
 To replace the config of a running bridge from the PC, its running config needs the diagnostics channel with changes and uploads allowed:
 

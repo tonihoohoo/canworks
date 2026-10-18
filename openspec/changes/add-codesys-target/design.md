@@ -72,7 +72,7 @@ A field with a value that the target does not use is still shown (marked "not us
 
 ### D7. CODESYS actions
 
-`/api/codesys/build {config}` saves nothing itself: it requires a saved config (like New editor project), runs `cli`'s `--codesys-import` path in a job with the config's `codesys` settings, and streams the report into the log. It is offered when `codesys.run.find_codesys()` finds an install on this PC; otherwise the button explains that CODESYS was not found and Download for CODESYS is the route. A failure mentioning the project lock gets the hint "close the project in CODESYS first". Download for CODESYS is today's `/api/export_codesys` with the plan settings from the config.
+`/api/codesys/build {config}` saves nothing itself: it requires a saved config (like New editor project), runs `cli`'s `--codesys-import` path with the config's `codesys` settings outside the server lock, and returns the report, which the page shows in a dialog. It is offered when `codesys.run.find_codesys()` finds an install on this PC; otherwise the button explains that CODESYS was not found and Download for CODESYS is the route. A failure mentioning the project lock gets the hint "close the project in CODESYS first". Download for CODESYS is today's `/api/export_codesys` with the plan settings from the config.
 
 ### D8. Refusals
 

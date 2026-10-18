@@ -3,6 +3,8 @@
  "tests.test_configurator_checks_page.ChecksPage": 9.5,
  "tests.test_configurator_checks_page.SimulationFile": 2.4,
  "tests.test_configurator_checks_page.SimulationLive": 2.5,
+ "tests.test_configurator_codesys_page.CodesysPage": 14.0,
+ "tests.test_configurator_codesys_page.NewCodesysConfig": 2.0,
  "tests.test_configurator_commissioning_page.LogPage": 8.0,
  "tests.test_configurator_commissioning_page.PdoTestPage": 5.7,
  "tests.test_configurator_commissioning_page.WriteConfigurationPage": 5.3,
