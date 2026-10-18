@@ -9,10 +9,8 @@ to it.
 import json
 import math
 import os
+import functools
 import re
-
-import jsonschema
-from jsonschema.exceptions import best_match
 
 from . import axis as axis_mod
 from . import bridgecheck
@@ -112,11 +110,27 @@ def _pattern(validator, patrn, instance, schema):
     before a final newline; the plugin refuses such a string)."""
     full = patrn[:-1] + r"\Z" if patrn.endswith("$") and not patrn.endswith("\\$") else patrn
     if validator.is_type(instance, "string") and not re.search(full, instance):
-        yield jsonschema.ValidationError("%r does not match %r" % (instance, patrn))
+        from jsonschema import ValidationError
+        yield ValidationError("%r does not match %r" % (instance, patrn))
 
 
-# The validator for the config and simulation schemas.
-Validator = jsonschema.validators.extend(jsonschema.Draft202012Validator, {"pattern": _pattern})
+# jsonschema is imported on first use, not at start (canopen-pc-install "Fast start").
+@functools.lru_cache(maxsize=None)
+def validator_class():
+    """The validator for the config and simulation schemas."""
+    import jsonschema
+    return jsonschema.validators.extend(jsonschema.Draft202012Validator, {"pattern": _pattern})
+
+
+def draft_validator(schema_doc):
+    """A plain Draft 2020-12 validator for schema_doc."""
+    import jsonschema
+    return jsonschema.Draft202012Validator(schema_doc)
+
+
+def best_match(errors):
+    from jsonschema.exceptions import best_match as match
+    return match(errors)
 
 
 class _Pairs(dict):
@@ -1067,7 +1081,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         version = v
 
     s = schema(version)
-    validator = Validator(s)
+    validator = validator_class()(s)
     # Numbers written as strings are parsed first, so "0x80" meets the same
     # range check as 128.
     schema_errors = sorted(validator.iter_errors(parse_numbers(cfg, s, s)),

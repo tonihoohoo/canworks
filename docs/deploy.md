@@ -8,7 +8,7 @@ The runtime needs the plugin installed once: see [install-stock.md](install-stoc
 
 ## Install (on the engineering PC)
 
-No Python needed: install uv, then the release wheel with `uv tool install --python 3.12 <wheel>`. Steps for Windows, macOS and Linux, updating, and the pip route: [install-pc.md](install-pc.md).
+No Python needed: one line installs uv and the newest release (`curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh`, or `install-pc.ps1` on Windows), or install the release wheel by hand with `uv tool install --compile-bytecode --python 3.12 <wheel>`. Steps for Windows, macOS and Linux, updating, and the pip route: [install-pc.md](install-pc.md).
 
 ## Deploy
 

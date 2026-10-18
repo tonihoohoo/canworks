@@ -22,23 +22,23 @@ At every PLC start the plugin checks the file against the EDS files, generates t
 
 **Try it without hardware.** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md): one editor project with four simulated networks that shows the features working together on a PC. You need a container engine, the PC tools and the OpenPLC Editor; no CAN hardware.
 
-**Install the PC tools** with [uv](https://docs.astral.sh/uv/), which brings its own Python ([docs/install-pc.md](docs/install-pc.md)):
+**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update; [docs/install-pc.md](docs/install-pc.md)):
 
 ```sh
-uv tool install --python 3.12 canworks-<version>-py3-none-any.whl   # from the Releases page
-canworks-config                                                      # opens the configurator
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh                                                  # macOS, Linux
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1 | iex"             # Windows
+canworks-config                                                                    # opens the configurator
 ```
 
 **Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)):
 
 ```sh
-git clone https://github.com/tonihoohoo/canworks
-cd canworks
-sudo scripts/install-stock.sh             # CANopen and J1939; --without-canopen or --without-j1939 builds one
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | sudo bash                       # on the PLC: newest release, no git needed
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | bash -s -- --ssh pi@rpi.local   # or from a macOS/Linux PC over SSH
 sudo systemctl restart openplc-runtime    # native installs: once, so the runtime loads the plugin
 ```
 
-Add `--with-link` to reach the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)).
+From Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.ps1))) -Ssh pi@rpi.local`. Running the line again updates. Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). From a git checkout: `sudo scripts/install-stock.sh`.
 
 **Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); it writes the editor project's `canworks/` folder, and the editor's own **Build and upload** carries it to the PLC. `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
 
@@ -168,10 +168,10 @@ Security issues: see [SECURITY.md](SECURITY.md). [docs/development.md](docs/deve
 
 ### PC tools on Windows, macOS and Linux
 
-`.github/workflows/pc-tools.yml` installs the PC tools with uv on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
+`.github/workflows/pc-tools.yml` installs the PC tools with the one-line installer (`scripts/install-pc.sh`, `install-pc.ps1`; uv underneath) on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
 
 ```sh
-uv build --wheel --out-dir dist tools/deploy && uv tool install --force --python 3.12 dist/*.whl
+uv build --wheel --out-dir dist tools/deploy && sh scripts/install-pc.sh --wheel dist/*.whl
 uv run --no-project --python 3.12 --with jsonschema --with cantools python -m unittest discover -s tools/deploy/tests -t tools/deploy
 uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```

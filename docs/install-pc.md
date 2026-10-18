@@ -4,6 +4,22 @@
 
 The tools call the editor's `openplc-cli` for **Build only** and **New editor project**; it comes with the OpenPLC Editor (`openplc-cli install-cli`, or set `OPENPLC_CLI` to it).
 
+## One line: install or update
+
+This installs uv if the PC has none, then the newest release of the tools, and on a second run updates them. Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1 | iex"
+```
+
+macOS and Linux (Terminal):
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh
+```
+
+Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows run the script as a script block: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0` (`-Uninstall`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels, never the code on `main`, and find the newest release without the GitHub API. To pin the script to a release, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-pc.sh`). To read it before running it, download it first (`curl -LsSfO .../install-pc.sh`, then `sh install-pc.sh`). Then check as in step 2 below. The manual steps follow.
+
 ## 1. Install uv (once per PC)
 
 Windows (PowerShell):
@@ -25,10 +41,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Download `canworks-<version>-py3-none-any.whl` from the repository's **Releases** page (the newest `deploy-v<version>` release; or use `gh release download deploy-v<version>`). The same file is for every operating system. Then, in the folder you downloaded it to:
 
 ```sh
-uv tool install --python 3.12 canworks-<version>-py3-none-any.whl
+uv tool install --compile-bytecode --python 3.12 canworks-<version>-py3-none-any.whl
 ```
 
-Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.10 or newer that is already installed instead.
+`--compile-bytecode` compiles the tools at install, so the first start is as fast as later ones.
+
+Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force --compile-bytecode "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.10 or newer that is already installed instead.
 
 uv downloads Python 3.12 if the PC has none, puts the tools in their own environment, and links the five commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
 
@@ -45,8 +63,10 @@ The first install needs internet access to github.com (Python) and pypi.org (the
 
 ## Update and uninstall
 
+The one-line installer above updates when run again (and uninstalls with `--uninstall`). By hand:
+
 ```sh
-uv tool install --force --python 3.12 canworks-<new version>-py3-none-any.whl
+uv tool install --force --compile-bytecode --python 3.12 canworks-<new version>-py3-none-any.whl
 uv tool uninstall canworks
 ```
 
@@ -99,4 +119,4 @@ Old releases: only the newest four `deploy-v` releases (by version) are kept. Af
 
 ### Older versions
 
-A version whose release was removed still installs from its commit, without a release file: `uv tool install --force "canworks @ https://github.com/tonihoohoo/canworks/archive/<commit>.zip#subdirectory=tools/deploy"`, where `<commit>` is the commit that raised the version (`git log -S 'version = "<version>"' -- tools/deploy/pyproject.toml`). Its container images stay on ghcr.io, so `canworks-sim-runtime` of that version still finds its image.
+A version whose release was removed still installs from its commit, without a release file: `uv tool install --force --compile-bytecode "canworks @ https://github.com/tonihoohoo/canworks/archive/<commit>.zip#subdirectory=tools/deploy"`, where `<commit>` is the commit that raised the version (`git log -S 'version = "<version>"' -- tools/deploy/pyproject.toml`). Its container images stay on ghcr.io, so `canworks-sim-runtime` of that version still finds its image.

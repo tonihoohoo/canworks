@@ -197,6 +197,7 @@ test/local-runtime/ canworks-sim-runtime against the image with a compiled PLC p
 test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
 test/pc-tools/     the release tag check; test/ci/: the CI change classification and areas
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh, install-bridge.sh,
+                   install-pc.sh/.ps1 and install-runtime.sh/.ps1 (the one-line installers, run from GitHub),
                    fetch-strucpp.sh (the editor's ST compiler, for the CiA 402 tests)
 docs/              tour.md (the guided tour of the virtual example), config.md (the config format), cia402.md, configurator.md, deploy.md, diagnostics.md,
                    frame-inspector.md, gateway.md, install-pc.md, install-stock.md, j1939.md, local-runtime.md, modbus-bridge.md, network-docs.md, plc-library.md, plc-sdo.md, raw-can.md, simulator.md, slave.md,
