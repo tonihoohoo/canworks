@@ -1,9 +1,9 @@
 """The Modbus bridge target and page in a real browser (spec
 canopen-configurator, "Project target", "Only what the target uses is
 shown", "Switching the target", "Bridge settings panel",
-"Register map preview and export"): an OpenPLC project with two nodes
+"Register map preview and export", "Node-RED flow export on the bridge page"): an OpenPLC project with two nodes
 switched to the bridge and packed, a live list added and suggested, the map
-filtered and exported as the ST list canworks-deploy writes, the plc_cycle
+filtered and exported as the ST list and Node-RED flow canworks-deploy writes, the plc_cycle
 problem, and the switch back with the per-type repack. Needs Playwright,
 like test_configurator_page.py."""
 
@@ -11,7 +11,7 @@ import json
 import os
 import shutil
 
-from canworks import modbusmap
+from canworks import modbusmap, nodered
 from canworks.configurator import server as srv
 
 from .helpers import REPO, tree_view
@@ -120,6 +120,16 @@ class BridgePage(OnlineBase):
         with open(dl.value.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), modbusmap.to_st(saved, modbusmap.register_map(saved)))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_modbus.st')")
+
+        # Export Node-RED flow: the file canworks-deploy --export-nodered rtd-monitor_node-red.json writes,
+        # with the note that the writers have no loopback address.
+        with pg.expect_download() as dl:
+            pg.click('button[data-bridge-export="nodered"]')
+        self.assertEqual(dl.value.suggested_filename, "rtd-monitor_node-red.json")
+        with open(dl.value.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), nodered.to_json(nodered.flow(saved, "rtd-monitor")[0]))
+        pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_node-red.json')")
+        self.assertIn("no loopback address", pg.inner_text("#banner"))
 
         # Fits and is accessible, in the dark theme too.
         pg.emulate_media(color_scheme="dark")

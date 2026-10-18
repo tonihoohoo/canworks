@@ -33,7 +33,7 @@ The plugin runs every network of the config inside the OpenPLC runtime and excha
 
 ### Modbus bridge
 
-`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object that lists which addresses may write (`writers`); its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. There is no PLC scan: a watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers stand in for the function blocks. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
+`canworks-bridge` runs the same CANopen, J1939 and raw CAN networks without OpenPLC and serves their values as Modbus TCP registers, so any PLC, SCADA or program with a Modbus client can use them ([docs/modbus-bridge.md](docs/modbus-bridge.md)). The config is a normal `canworks.json` with a `bridge` object that lists which addresses may write (`writers`); its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. There is no PLC scan: a watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers stand in for the function blocks. `canworks-deploy --export-modbus-map` writes the register map as CSV, JSON or IEC 61131-3 ST for the client side, `--export-nodered` writes a [Node-RED](docs/node-red.md) flow that reads and writes the values by name, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge. It installs as a systemd service (`scripts/install-bridge.sh`) or runs from the `canworks-bridge` container image; [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
 
 ### CODESYS
 
@@ -122,7 +122,7 @@ Every connection checks the bit rate first and refuses a wrong one, so a single 
 | Command | What it does |
 | --- | --- |
 | `canworks-config` | The configurator, a local web page: build the network, commission devices, trace the bus, run simulations ([docs/configurator.md](docs/configurator.md)). |
-| `canworks-deploy` | Adds the config to an editor build and uploads it, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects and Modbus register maps ([docs/deploy.md](docs/deploy.md)). |
+| `canworks-deploy` | Adds the config to an editor build and uploads it, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects, Modbus register maps and Node-RED flows ([docs/deploy.md](docs/deploy.md)). |
 | `canworks-diag` | The online functions from a terminal: parameter backup, compare and restore, LSS, raw frames, trace and replay, simulator control, `explain` for a frame bit by bit, the CiA 309-3 `gateway`, and `discover` and `link` for runtimes on other networks ([docs/diagnostics.md](docs/diagnostics.md)). |
 | `canworks-sim-runtime` | The local simulator runtime in a container (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). |
 | `canworks-j1939-sim` | Plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
@@ -179,6 +179,7 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 | J1939 | [j1939.md](docs/j1939.md) |
 | Raw CAN messages and frame blocks | [raw-can.md](docs/raw-can.md) |
 | Modbus TCP bridge for any PLC or program | [modbus-bridge.md](docs/modbus-bridge.md) |
+| Node-RED through the Modbus bridge | [node-red.md](docs/node-red.md) |
 | CANopen networks in CODESYS | [codesys.md](docs/codesys.md) |
 | Simulation and the local runtime | [simulator.md](docs/simulator.md), [local-runtime.md](docs/local-runtime.md) |
 | CANopen standards: what canworks follows, where it departs, how it is checked | [standards.md](docs/standards.md) |

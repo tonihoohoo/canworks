@@ -128,7 +128,10 @@ function renderBridge(view) {
       el("button", { type: "button", dataset: { bridge: "pack" }, title: "Every location packed densely from byte 0: data, then status, then the bridge blocks",
         onclick: (e) => busy(e.currentTarget, "Packing…", bridgePack) }, "Pack for Modbus"),
       ...[["csv", "Export CSV"], ["json", "Export JSON"], ["st", "Export ST variables"]].map(([fmt, label]) =>
-        el("button", { type: "button", dataset: { bridgeExport: fmt }, onclick: (e) => busy(e.currentTarget, "Exporting…", () => bridgeExport(fmt)) }, label))),
+        el("button", { type: "button", dataset: { bridgeExport: fmt }, onclick: (e) => busy(e.currentTarget, "Exporting…", () => bridgeExport(fmt)) }, label)),
+      el("button", { type: "button", dataset: { bridgeExport: "nodered" },
+        title: "A Node-RED flow (needs node-red-contrib-modbus) that reads and writes these values by name through the bridge",
+        onclick: (e) => busy(e.currentTarget, "Exporting…", () => bridgeExport("nodered")) }, "Export Node-RED flow")),
     el("div", { id: "bridge-map" }, el("p", { class: "muted" }, "Loading the register map…")));
   bridgeRefreshMap();
 }
@@ -281,7 +284,8 @@ async function bridgePack() {
   }
 }
 
-// Downloads the file `canworks-deploy --export-modbus-map map.<fmt>` writes for the draft.
+// Downloads the file `canworks-deploy --export-modbus-map map.<fmt>` writes for the draft
+// (`--export-nodered <folder>_node-red.json` for "nodered").
 async function bridgeExport(fmt) {
   try {
     const r = await api("POST", "/api/bridge/export", { config: fileConfig(), format: fmt });
@@ -290,7 +294,9 @@ async function bridgeExport(fmt) {
       return;
     }
     downloadBase64(r.data, r.name, r.content_type);
-    banner(`Exported ${r.name} (${r.rows} entries).`);
+    const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
+    banner(fmt === "nodered" ? `Exported ${r.name} (${r.rows} values). Import it in Node-RED.${notes}`
+      : `Exported ${r.name} (${r.rows} entries).`, notes ? "warning" : "done");
   } catch (e) {
     banner(e.message, true);
   }

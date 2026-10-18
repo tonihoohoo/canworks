@@ -210,7 +210,7 @@ An empty config, such as the zero-byte `conf/ethercat.json` the editor writes in
 
 ## A Modbus bridge
 
-A config with a top-level `bridge` object runs on [canworks-bridge](modbus-bridge.md), not in OpenPLC: the tool refuses to upload it to a runtime and says so. `--bridge HOST[:PORT]` uploads it to a running bridge over its diagnostics channel (`--token` or `--token-file`), and `--export-modbus-map FILE.csv|.json|.st` writes its register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)).
+A config with a top-level `bridge` object runs on [canworks-bridge](modbus-bridge.md), not in OpenPLC: the tool refuses to upload it to a runtime and says so. `--bridge HOST[:PORT]` uploads it to a running bridge over its diagnostics channel (`--token` or `--token-file`), `--export-modbus-map FILE.csv|.json|.st` writes its register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)).
 
 ## The local simulator runtime
 

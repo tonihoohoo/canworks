@@ -37,7 +37,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, targets
+from .. import bundle, nodered, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -1762,15 +1762,24 @@ class Session:
         base64 in `data`. When the locations break the byte rules: the
         /api/check shape, and no file."""
         self._bridge_config(cfg)
-        if fmt not in self.MAP_TYPES:
-            raise ApiError(400, "format must be csv, json or st")
+        if fmt != "nodered" and fmt not in self.MAP_TYPES:
+            raise ApiError(400, "format must be csv, json, st or nodered")
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        if fmt == "nodered":
+            # The flow `canworks-deploy --export-nodered <folder>_node-red.json` writes.
+            try:
+                nodes, notes, sp = nodered.flow(cfg, folder)
+            except nodered.FlowError as e:
+                return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
+            return {"items": [], "errors": 0, "name": "%s_node-red.json" % folder,
+                    "content_type": "application/json", "rows": len(sp["inputs"]) + len(sp["outputs"]),
+                    "notes": notes, "data": base64.b64encode(nodered.to_json(nodes).encode("utf-8")).decode("ascii")}
         try:
             rows = modbusmap.register_map(cfg)
         except modbusmap.MapError as e:
             return {"items": [{"level": "error", "message": str(e), "paths": []}], "errors": 1}
         text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
             else modbusmap.to_st(cfg, rows)
-        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
         return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
                 "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
                 "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}

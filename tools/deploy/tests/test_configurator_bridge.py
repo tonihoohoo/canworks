@@ -235,7 +235,7 @@ class Export(Base):
         self.open()
         status, data = self.request("/api/bridge/export", {"config": self.cfg, "format": "xlsx"})
         self.assertEqual(status, 400)
-        self.assertIn("csv, json or st", data["error"])
+        self.assertIn("csv, json, st or nodered", data["error"])
 
 
 class Target(Base):

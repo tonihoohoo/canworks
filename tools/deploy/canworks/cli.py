@@ -90,7 +90,7 @@ import tempfile
 import time
 
 from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
-               editorproject, localruntime, modbusmap, notes, project, runtime, plclibrary, simfile, slaveeds,
+               editorproject, localruntime, modbusmap, nodered, notes, project, runtime, plclibrary, simfile, slaveeds,
                targets)
 
 EDITOR_WARNING = (
@@ -144,6 +144,10 @@ def parser():
                      help="write the Modbus register map of a bridge config (one with a \"bridge\" object) as CSV, "
                           "JSON or an ST variable list, chosen by the extension (.csv, .json, .st), instead of "
                           "deploying; nothing is built or uploaded")
+    src.add_argument("--export-nodered", metavar="FILE",
+                     help="write a Node-RED flow (for node-red-contrib-modbus) that reads and writes a bridge config's "
+                          "values by name through the bridge, instead of deploying; nothing is built or uploaded "
+                          "(docs/node-red.md)")
     src.add_argument("--export-codesys", metavar="DIR",
                      help="write the CANopen networks for CODESYS into DIR (node DCFs, canworks-codesys.json and "
                           "the script import_canworks.py to run in CODESYS) instead of deploying")
@@ -159,6 +163,12 @@ def parser():
                         "CAN and J1939 blocks for the program) in the project, and install it into the editor if it is missing or older")
     p.add_argument("--task-interval", metavar="T#...",
                    help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
+    p.add_argument("--nodered-host", metavar="HOST[:PORT]",
+                   help="with --export-nodered: the bridge address the flow connects to (default: the bridge's "
+                        "listen address, 127.0.0.1 when it listens on all addresses)")
+    p.add_argument("--nodered-poll-ms", metavar="MS", type=int,
+                   help="with --export-nodered: how often the flow reads the inputs (default %d ms, at most a third "
+                        "of the bridge's watchdog_ms)" % nodered.DEFAULT_POLL_MS)
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
                    help="with --export-dbc: SDO frames to include: none (default), config (the config's SDO "
                         "variables and startup SDOs) or all (every EDS object up to 32 bits)")
@@ -284,6 +294,27 @@ def _export_modbus_map(config, path, out):
     except OSError as e:
         raise Failure("cannot write %s: %s" % (path, e))
     out("wrote %s: %d register map entries" % (path, len(rows)))
+    return 0
+
+
+def _export_nodered(config, path, host, poll_ms, out):
+    try:
+        with open(config, encoding="utf-8") as f:
+            cfg = contract.load(f)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (config, e))
+    except ValueError as e:
+        raise Failure("%s: not valid JSON (%s)" % (config, e))
+    try:
+        inputs, outputs, notes = nodered.export(cfg, path, host=host, poll_ms=poll_ms)
+    except nodered.FlowError as e:
+        raise Failure("%s: %s" % (config, e))
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (path, e))
+    for note in notes:
+        out("note: " + note)
+    out("wrote %s: Node-RED flow with %d values in, %d out (import it in Node-RED; needs node-red-contrib-modbus)"
+        % (path, inputs, outputs))
     return 0
 
 
@@ -444,6 +475,9 @@ def _codesys(args, cfg, network, out, runner=None):
 def run(args, out=print, err=None, password_source=None, confirm_source=None):
     err = err or (lambda m: print(m, file=sys.stderr))
 
+    if not getattr(args, "export_nodered", None) and (getattr(args, "nodered_host", None)
+                                                     or getattr(args, "nodered_poll_ms", None) is not None):
+        raise Failure("--nodered-host and --nodered-poll-ms go with --export-nodered")
     map_file = getattr(args, "export_modbus_map", None)
     if map_file:
         if args.runtime or args.output or args.check_only:
@@ -451,6 +485,12 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
                           "--check-only")
         return _export_modbus_map(args.config, map_file, out)
 
+    flow_file = getattr(args, "export_nodered", None)
+    if flow_file:
+        if args.runtime or args.output or args.check_only:
+            raise Failure("--export-nodered only writes the Node-RED flow; leave out --runtime, --output and "
+                          "--check-only")
+        return _export_nodered(args.config, flow_file, args.nodered_host, args.nodered_poll_ms, out)
     into = getattr(args, "into_project", None)
     export_dir = getattr(args, "export_dcf", None)
     if export_dir and (args.runtime or args.output or args.check_only):

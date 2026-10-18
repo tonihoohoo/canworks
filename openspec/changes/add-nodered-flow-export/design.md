@@ -48,11 +48,11 @@ Only generated when the config locates the control block or SDO blocks. "canwork
 
 ### D6. Host and period
 
-`--nodered-host` default: the bridge's `listen` host, or `127.0.0.1` when it is `0.0.0.0`/`::`; port from `listen`. `--nodered-poll-ms` default 100, clamped to `[10, watchdog_ms / 3]` with a note when clamped. In the configurator the export uses the defaults; the docs say to edit the client node for another host.
+`--nodered-host` default: the bridge's `listen` host, or `127.0.0.1` when it is `0.0.0.0`/`::`; port from `listen`. `--nodered-poll-ms` default 100, clamped to `[10, watchdog_ms / 3]` with a note when clamped. In the configurator the export uses the defaults; the docs say to edit the client node for another host. 64-bit integers beyond 2^53 are decimal strings (BigInt does not survive the debug sidebar or file-backed context stores).
 
 ### D7. Testing without Node-RED in CI
 
-The function bodies are plain JS strings produced by `nodered.py`. Tests run them under `node` with a stub `node`/`flow` context: decode of a register array built from the map, encode back to registers, keepalive period, counters. A small Python Modbus server stub (the one the bridge map tests already use, or a minimal FC3/4/16 one) plus a JS driver checks a round trip. Node-RED itself is exercised in the hardware task only, so CI time stays flat.
+The function bodies are plain JS strings produced by `nodered.py`. Tests run them under `node` with a stub `node`/`flow` context: decode of a register array built from the map, encode back to registers, keepalive period, counters. Register images packed independently in Python (struct) check decode and encode both ways. Node-RED itself (with `node-red-contrib-modbus` 5.60.2) was run once against a real `canworks-bridge` with the simulated example while applying, and is exercised again in the hardware task, so CI time stays flat. 
 
 ## Risks
 
