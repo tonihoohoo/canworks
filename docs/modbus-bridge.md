@@ -226,6 +226,8 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 **A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations.
 
+**Node-RED:** `canworks-deploy --export-nodered flow.json` (or **Export Node-RED flow** on the configurator's bridge page) writes a flow for `node-red-contrib-modbus` that reads and writes every value by name, keeps the watchdog fed and wraps the control and SDO registers ([node-red.md](node-red.md)).
+
 **Python** with the standard library only:
 
 ```python
