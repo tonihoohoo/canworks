@@ -22,14 +22,25 @@
 
 namespace canopen_plugin {
 
+// One bit of an integer PDO entry bound to its own %IX/%QX location
+// (canopen-pdo-io "Bit channels of a PDO entry"). Bit 0 is the value's
+// least significant bit. A bridge config gives bits no location.
+struct PdoBit {
+  uint8_t bit = 0;
+  bool has_location = false;
+  IecLocation location;
+};
+
 struct PdoEntry {
   uint16_t index = 0;
   uint8_t subindex = 0;
   CoType type = CoType::UNSIGNED8;
-  // False only for an entry a gateway route reads or writes and the PLC does
-  // not (canopen-gateway spec); such an entry has no place in the image.
+  // False for an entry a gateway route reads or writes and the PLC does
+  // not (canopen-gateway spec), and for an entry that reaches the PLC only
+  // through its bits; such an entry has no place of its own in the image.
   bool has_location = true;
   IecLocation location;
+  std::vector<PdoBit> bits;
 };
 
 struct PdoConfig {

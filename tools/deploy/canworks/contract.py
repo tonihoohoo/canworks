@@ -1401,7 +1401,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             errors = [(p, e) for p, e in errors if not (p == ["adapter"] and e.validator in ("required", "if"))]
         _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
                        net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i,
-                       codesys=codesys, **args)
+                       codesys=codesys, byte_mode="bridge" in cfg, **args)
         raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
                                                              adapter.get("listen_only") is True)
         if not plain and isinstance(net.get("raw"), dict) and "scan_watchdog_ms" in net["raw"]:
@@ -1602,9 +1602,13 @@ def location_uses(net, prefix=""):
             for j, p in enumerate(n.get(key, [])):
                 number = _uint(p.get("number", j + 1))
                 for k, e in enumerate(p.get("entries", [])):
-                    add(e.get("iec_location"), "%s %s %s object 0x%04X:%d" % (
-                        label, kind, number, _uint(e.get("index")) or 0, _uint(e.get("subindex", 0)) or 0),
-                        "%s.%s[%d].entries[%d].iec_location" % (w, key, j, k))
+                    who = "%s %s %s object 0x%04X:%d" % (
+                        label, kind, number, _uint(e.get("index")) or 0, _uint(e.get("subindex", 0)) or 0)
+                    add(e.get("iec_location"), who, "%s.%s[%d].entries[%d].iec_location" % (w, key, j, k))
+                    for m, b in enumerate(e.get("bits") or [] if isinstance(e.get("bits"), list) else []):
+                        if isinstance(b, dict):
+                            add(b.get("iec_location"), "%s bit %s" % (who, _uint(b.get("bit"))),
+                                "%s.%s[%d].entries[%d].bits[%d].iec_location" % (w, key, j, k, m))
     return out
 
 
@@ -1654,8 +1658,54 @@ def _j1939_location_uses(j, add, dword_step=1):
             add(d[key], "diagnostics " + key, "j1939.diagnostics." + key)
 
 
+def _check_bits(e, loc, is_tx, unlocated, where, at, what, err):
+    """An entry's bit channels (canopen-pdo-io "Bit channels of a PDO
+    entry"), in the plugin's words (Parser::parse_bits). `unlocated`:
+    "bridge" or "CODESYS" for a config whose bits have no location."""
+    bits = e["bits"]
+    if not isinstance(bits, list) or not bits:
+        err(where, "field 'bits' must be a non-empty array", [at + ".bits"])
+        return
+    if e["type"] in ("BOOLEAN", "REAL32", "REAL64"):
+        err(where, "%s: bits need an integer entry, not %s" % (what, e["type"]), [at + ".bits"])
+        return
+    # On the bridge the bits only name parts of the entry's own location.
+    if not is_tx and loc is not None and unlocated != "bridge":
+        err(where, "%s: an RPDO entry with bits has no iec_location of its own (both would write the same bits; "
+                   "remove the iec_location or the bits)" % what, [at + ".iec_location", at + ".bits"])
+        return
+    size = CO_TYPES[e["type"]][1]
+    seen = set()
+    for m, b in enumerate(bits):
+        bw, ba = "%s: bits[%d]" % (where, m), "%s.bits[%d]" % (at, m)
+        if not isinstance(b, dict) or _uint(b.get("bit")) is None:
+            continue  # the schema reports it
+        v = _uint(b["bit"])
+        me = "%s bit %d" % (what, v)
+        if v >= size:
+            err(bw, "%s: the entry has only %d bits (0-%d)" % (me, size, size - 1), [ba + ".bit"])
+            continue
+        if v in seen:
+            err(bw, "%s is listed twice" % me, [ba + ".bit"])
+            continue
+        seen.add(v)
+        if unlocated:
+            if "iec_location" in b:
+                err(bw, "%s: a bit has no iec_location in a %s config (%s)"
+                    % (me, unlocated, "the bridge serves it in the entry's own location" if unlocated == "bridge"
+                       else "CODESYS assigns the address"), [ba + ".iec_location"])
+            continue
+        bl = parse_location(b.get("iec_location"))
+        if "iec_location" not in b:
+            err(bw, "missing required field 'iec_location'", [ba + ".iec_location"])
+        elif bl is not None and (bl.area != ("I" if is_tx else "Q") or bl.size != "X"):
+            err(bw, "%s: needs %s, not %s" % (me, "an input bit location (%IX...)" if is_tx
+                                             else "an output bit location (%QX...)", bl), [ba + ".iec_location"])
+
+
 def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, diag=False, before=None,
-                   role="master", routed=(), net_name="", slaves=None, net_index=0, codesys=False):
+                   role="master", routed=(), net_name="", slaves=None, net_index=0, codesys=False,
+                   byte_mode=False):
     """One network: the version 1 top level, or one networks[] entry of a
     version 2 file (`prefix` "networks[i]", in front of every message's
     place and every path). `schema_errors`: (path inside the network,
@@ -1996,7 +2046,13 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                             % (label, entry["index"], entry["subindex"], route, entry["index"], entry["subindex"]),
                             ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
                     elif loc is None:
-                        if codesys:
+                        if "bits" in e:
+                            if byte_mode:
+                                err("%s: entries[%d]" % (pw, k),
+                                    "%s, object 0x%04X:%d: the bridge serves an entry's bits in its own location; give "
+                                    "the entry an iec_location" % (label, entry["index"], entry["subindex"]),
+                                    ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
+                        elif codesys:
                             pass  # CODESYS assigns the address; the name names the channel
                         elif (net_name, node["node_id"], entry["index"], entry["subindex"]) not in routed and not (
                                 key == "tx_pdos" and (node["node_id"], pdo["number"]) in linked_tx):
@@ -2010,6 +2066,11 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                             % (label, entry["index"], entry["subindex"], e["type"], CO_TYPES[e["type"]][1],
                                loc, SIZE_BITS[loc.size]),
                             ["%s.%s[%d].entries[%d].iec_location" % (w, key, j, k)])
+                    if "bits" in e:
+                        target = "bridge" if byte_mode else "CODESYS" if codesys else None
+                        _check_bits(e, loc, key == "tx_pdos", target,
+                                    "%s: entries[%d]" % (pw, k), "%s.%s[%d].entries[%d]" % (w, key, j, k),
+                                    "%s, object 0x%04X:%d" % (label, entry["index"], entry["subindex"]), err)
                     bits += CO_TYPES[e["type"]][1]
                     pdo["entries"].append(entry)
                 if bits > 64:

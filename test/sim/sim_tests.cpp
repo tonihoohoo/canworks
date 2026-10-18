@@ -1751,8 +1751,9 @@ TEST(sim_rtd_sensor_blank_mapping) {
 
 // A device with a fixed PDO mapping and read-only COB-IDs (any write to them
 // aborts) comes up with the device mapping, and a subset of each PDO
-// reaches the PLC: %QB40 -> 0x6200:1, 0x6000:2 (= that + 100) -> %IB40. The
-// output the config leaves out (0x6200:2) goes out as 0.
+// reaches the PLC: bit channels %QX42.0-2 -> 0x6200:1, 0x6000:2 (= that +
+// 100) -> %IB40 and its bit channels %IX41.0-2. The output the config leaves
+// out (0x6200:2) goes out as 0.
 TEST(sim_fixed_pdo_mapping) {
   clear_logs();
   std::string json = R"({
@@ -1764,8 +1765,12 @@ TEST(sim_fixed_pdo_mapping) {
       "node_id": 4, "name": "io", "eds": "fixed-io.eds",
       "heartbeat_ms": 50, "heartbeat_timeout_ms": 200,
       "status_location": "%IX10.0",
-      "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
-      "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40" } ] } ]
+      "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40",
+        "bits": [ { "bit": 0, "iec_location": "%IX41.0" }, { "bit": 1, "iec_location": "%IX41.1" },
+                  { "bit": 2, "iec_location": "%IX41.2" } ] } ] } ],
+      "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8",
+        "bits": [ { "bit": 0, "iec_location": "%QX42.0" }, { "bit": 1, "iec_location": "%QX42.1" },
+                  { "bit": 2, "iec_location": "%QX42.2" } ] } ] } ]
     }
   ]
 })";
@@ -1774,12 +1779,15 @@ TEST(sim_fixed_pdo_mapping) {
   sim = new Sim(dir);
   CHECK(sim->ok());
   if (!sim->ok()) return;
-  sim->SetProgram([](fake_runtime::Image& plc) { plc.byte_out[40] = 7; });
+  sim->SetProgram([](fake_runtime::Image& plc) {
+    for (int b = 0; b < 3; ++b) plc.bool_out[42][b] = 1;  // 7
+  });
   FixedIoSlave* io = sim->StartFixedIoSlave(4, dir + "/fixed-io.eds");
   sim->net().Start();
   CHECK(sim->RunUntil([] { return sim->status(); }, seconds(5)));
   CHECK(logged("node 4 (io) is operational"));
   CHECK_MSG(sim->RunUntil([] { return sim->ib(40) == 107; }, seconds(2)), "%IB40 = " + std::to_string(sim->ib(40)));
+  CHECK(sim->plc().bool_in[41][0] == 1 && sim->plc().bool_in[41][1] == 1 && sim->plc().bool_in[41][2] == 0);  // 0b1101011
   CHECK(sim->RunUntil([io] { return io->out2 == 0; }, seconds(1)));
   CHECK(!logged("aborted"));
   delete sim;
@@ -4240,7 +4248,9 @@ TEST(sim_simulated_io_loopback) {
     sim = new Sim(dir);
     CHECK(sim->ok());
     if (!sim->ok()) return;
-    sim->SetProgram([](fake_runtime::Image& plc) { plc.byte_out[40] = 7; });
+    sim->SetProgram([](fake_runtime::Image& plc) {
+    for (int b = 0; b < 3; ++b) plc.bool_out[42][b] = 1;  // 7
+  });
     // The fixture says device type 0; the simulation file makes it a CiA 401 module.
     CHECK(sim->StartSimulator(std::string(R"({"nodes": {"4": {"device_type": "0x00000191")") +
                               (defaults ? "" : R"(, "default_behaviour": false)") + "}}}"));

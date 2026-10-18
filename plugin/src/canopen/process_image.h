@@ -32,7 +32,13 @@ struct Binding {
   uint16_t index = 0;
   uint8_t subindex = 0;
   CoType type = CoType::UNSIGNED8;
+  // False for an entry that reaches the PLC only through its bits.
+  bool has_location = true;
   IecLocation location;
+  // The entry's bit channels with a location (canopen-pdo-io "Bit channels
+  // exchanged with the scan"): inputs write each bit of the value, outputs
+  // build the value from them.
+  std::vector<PdoBit> bits;
 };
 
 // A node TPDO's receive timeout bit (timeout_location), config order.
