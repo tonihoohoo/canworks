@@ -25,6 +25,8 @@
 
 ## 4. Hardware
 
+Run after the 0.84.0 release: the device side fetches the script of the release it installs.
+
 - [ ] 4.1 From the Windows PC, `install-bridge.ps1 -Ssh` onto the Pi with `-Instance` and a config on the Pi's CAN interface: installs under `/opt/canworks-bridge` (Docker runtime there), `canworks-bridge --version` prints the release, the instance runs, logs that the interface is owned by the runtime's plugin and leaves that network off, and its Modbus port answers from the PC.
 - [ ] 4.2 Re-run the same line (update): the instance is restarted. Then `-Options --uninstall,--purge`; nothing of the bridge is left and `/opt/canworks` is unchanged. Clean PLC start afterwards.
 - [ ] 4.3 From the Mac, `install-bridge.sh --ssh ... --dry-run` prints the expected command lines (no second install on the Pi).
