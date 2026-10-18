@@ -9,6 +9,7 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -198,8 +199,9 @@ class Shellcheck(unittest.TestCase):
     def test_scripts(self):
         tool = shutil.which("shellcheck")
         if not tool:
-            if IN_CI:
-                self.fail("shellcheck is missing on the CI runner")
+            # Linux runners ship shellcheck; macOS and Windows runners do not.
+            if IN_CI and sys.platform.startswith("linux"):
+                self.fail("shellcheck is missing on the Linux CI runner")
             self.skipTest("shellcheck is not installed")
         r = subprocess.run([tool, os.path.join(SCRIPTS, "install-pc.sh"), os.path.join(SCRIPTS, "install-runtime.sh")],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
