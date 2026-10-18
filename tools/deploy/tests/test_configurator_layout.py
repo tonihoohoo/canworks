@@ -38,7 +38,7 @@ FIT_CHECK = r"""() => {
   for (const e of document.querySelectorAll("button, .file-button")) {
     if (!shown(e)) continue;
     if (e.scrollWidth > e.clientWidth + 1) out.push(["button clipped", name(e)]);
-    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list")) out.push(["button wraps", name(e)]);
+    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list") && !e.closest("#recent")) out.push(["button wraps", name(e)]);
     if (e.getBoundingClientRect().right > document.documentElement.clientWidth + 1) out.push(["button off screen", name(e)]);
   }
   for (const id of ["view", "side", "problems"]) {

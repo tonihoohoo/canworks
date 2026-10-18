@@ -128,6 +128,7 @@ main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid
 .start-intro { margin: 0; color: var(--muted); }
 .start-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .start-actions .spacer { flex: 1; }
+.start-actions button.link { min-height: 28px; padding: 4px 0; }
 .start-first { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 720px) { .start-first { grid-template-columns: minmax(0, 1fr); } }
 .choice { display: flex; flex-direction: column; text-align: left; gap: 4px; padding: 14px; white-space: normal; }
