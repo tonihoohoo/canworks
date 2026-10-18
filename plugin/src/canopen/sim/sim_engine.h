@@ -202,6 +202,7 @@ class Simulator {
   Clock::time_point machine_next_, machine_last_;
   uint64_t machine_seq_ = 0;
   double machine_step_us_ = 0, machine_step_max_us_ = 0;
+  MachineModel::Relay machine_relay_ = MachineModel::Relay::Closed;
 };
 
 }  // namespace canopen_sim

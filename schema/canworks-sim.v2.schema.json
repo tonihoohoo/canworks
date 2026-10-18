@@ -957,7 +957,7 @@
         "machine": {
           "type": "string",
           "minLength": 1,
-          "description": "A machine counter (fed, picked, placed, misplaced, dropped, pallets), sensor, fixture or joint."
+          "description": "A machine counter (fed, picked, placed, misplaced, dropped, pallets), sensor, fixture or joint; relay (0 closed, 1 stopping, 2 open), a panel button or lamp (0/1), or SCANNER.warning / SCANNER.protective (0/1)."
         }
       },
       "oneOf": [
@@ -1202,6 +1202,35 @@
         "log": {
           "type": "string"
         },
+        "panel": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Panel buttons of the machine by name: true presses, false releases. A button a scenario presses stays pressed until the scenario releases it."
+        },
+        "person": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ],
+          "description": "Places the machine's person at [x, y] (mm) on the floor, or removes them (null)."
+        },
         "repeat": {
           "type": "object",
           "additionalProperties": false,
@@ -1272,6 +1301,16 @@
         },
         {
           "required": [
+            "panel"
+          ]
+        },
+        {
+          "required": [
+            "person"
+          ]
+        },
+        {
+          "required": [
             "repeat"
           ]
         }
@@ -1312,6 +1351,43 @@
             "required": [
               "node"
             ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "panel"
+                ]
+              },
+              {
+                "required": [
+                  "person"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "node"
+                  ]
+                },
+                {
+                  "required": [
+                    "machine"
+                  ]
+                },
+                {
+                  "required": [
+                    "device"
+                  ]
+                }
+              ]
+            }
           }
         },
         {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -38,6 +39,20 @@ double smooth(double t) {
 double overlap(double alo, double ahi, double blo, double bhi) { return std::min(ahi, bhi) - std::max(alo, blo); }
 
 double round_to(double v, double step) { return std::round(v / step) * step; }
+
+// A panel button's key as the view names it (KeyboardEvent.key, letters upper case).
+bool valid_key(const std::string& k) {
+  if (k.size() == 1) return (k[0] >= 'A' && k[0] <= 'Z') || (k[0] >= '0' && k[0] <= '9');
+  static const char* names[] = {"Space", "Enter", "Shift", "Backspace", "Delete", "Insert", "Home", "End", "PageUp",
+                                "PageDown", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"};
+  for (const char* n : names)
+    if (k == n) return true;
+  if (k.size() >= 2 && k[0] == 'F') {
+    int n = std::atoi(k.c_str() + 1);
+    return n >= 1 && n <= 12 && k == "F" + std::to_string(n);
+  }
+  return false;
+}
 
 // Reads one JSON object, collecting errors with their JSON path.
 class Reader {
@@ -165,6 +180,7 @@ std::vector<std::pair<IoBit, std::string>> MachineSpec::outputs() const {
   for (const auto& c : conveyors) v.emplace_back(c.run, "conveyor " + c.name + " run");
   for (const auto& f : fixtures)
     if (f.has_change) v.emplace_back(f.change_request, "fixture " + f.name + " change request");
+  for (const auto& l : lamps) v.emplace_back(l.output, "panel lamp " + l.name);
   return v;
 }
 
@@ -174,6 +190,10 @@ std::vector<std::pair<IoBit, std::string>> MachineSpec::inputs() const {
   for (const auto& s : sensors) v.emplace_back(s.output, "sensor " + s.name);
   for (const auto& f : fixtures)
     if (f.has_change) v.emplace_back(f.change_ready, "fixture " + f.name + " ready");
+  for (const auto& b : buttons) v.emplace_back(b.input, "panel button " + b.name);
+  if (safety.present && safety.has_feedback) v.emplace_back(safety.feedback, "safety relay feedback");
+  for (const auto& sc : safety.scanners)
+    if (sc.has_warning_output) v.emplace_back(sc.warning_output, "scanner " + sc.name + " warning");
   return v;
 }
 
@@ -191,7 +211,7 @@ bool parse_machine_file(const std::string& json, const std::string& path, Machin
   Reader r(path, errors);
   if (!r.object(root, "")) return false;
   r.keys(root, "", {"schema_version", "name", "kind", "units", "tick_ms", "seed", "joints", "tool", "parts",
-                    "conveyors", "sensors", "fixtures", "visual"});
+                    "conveyors", "sensors", "fixtures", "panel", "safety", "visual"});
   unsigned ver = 0;
   if (!r.uint(root, "schema_version", "", 1, 1000, ver, true)) return false;
   if (ver > kMachineSchemaVersion) {
@@ -223,7 +243,7 @@ bool parse_machine_file(const std::string& json, const std::string& path, Machin
       }
       if (!r.object(c, at)) continue;
       r.keys(c, at, {"node", "travel", "counts_per_mm", "offset_mm", "direction", "down", "home_flag", "limits",
-                     "hard_stops", "load"});
+                     "hard_stops", "load", "brake"});
       MachineJoint j;
       j.name = c->string;
       r.uint(c, "node", at, 1, 127, j.node, true);
@@ -259,6 +279,13 @@ bool parse_machine_file(const std::string& json, const std::string& path, Machin
       if (j.has_stops && (j.hard_stops[0] > j.travel[0] || j.hard_stops[1] < j.travel[1]))
         r.fail(at + ".hard_stops", "must lie outside the travel (" + Reader::fmt(j.travel[0]) + ", " +
                                        Reader::fmt(j.travel[1]) + ")");
+      const cJSON* br = cJSON_GetObjectItemCaseSensitive(c, "brake");
+      if (br) {
+        if (!cJSON_IsBool(br))
+          r.fail(at + ".brake", "must be true or false");
+        else
+          j.brake = cJSON_IsTrue(br);
+      }
       const cJSON* ld = cJSON_GetObjectItemCaseSensitive(c, "load");
       if (ld && r.object(ld, at + ".load")) {
         r.keys(ld, at + ".load", {"hold_permille", "per_kg_permille", "per_m_s2_permille"});
@@ -414,6 +441,171 @@ bool parse_machine_file(const std::string& json, const std::string& path, Machin
     out.fixtures.push_back(v);
   });
 
+  // Operator panel.
+  const cJSON* pn = cJSON_GetObjectItemCaseSensitive(root, "panel");
+  if (pn && r.object(pn, "panel")) {
+    out.has_panel = true;
+    r.keys(pn, "panel", {"buttons", "lamps"});
+    auto sub = [&](const char* key, const std::function<void(const cJSON*, const std::string&)>& each) {
+      const cJSON* a = cJSON_GetObjectItemCaseSensitive(pn, key);
+      if (!a) return;
+      std::string where = std::string("panel.") + key;
+      if (!cJSON_IsArray(a)) {
+        r.fail(where, "must be a list");
+        return;
+      }
+      int i = 0;
+      for (const cJSON* c = a->child; c; c = c->next, ++i) {
+        std::string at = where + "[" + std::to_string(i) + "]";
+        if (r.object(c, at)) each(c, at);
+      }
+    };
+    std::map<std::string, std::string> keys_seen;
+    sub("buttons", [&](const cJSON* c, const std::string& at) {
+      r.keys(c, at, {"name", "label", "key", "kind", "input"});
+      MachinePanelButton b;
+      r.text(c, "name", at, b.name, true);
+      unique(at, b.name);
+      b.label = b.name;
+      r.text(c, "label", at, b.label);
+      if (r.text(c, "key", at, b.key, true)) {
+        if (!valid_key(b.key)) {
+          r.fail(at + ".key", "\"" + b.key + "\" is not a key name (A-Z, 0-9, Space, Enter, Shift, the arrows, PageUp, ...)");
+        } else {
+          auto ins = keys_seen.emplace(b.key, b.name);
+          if (!ins.second) r.fail(at + ".key", "key \"" + b.key + "\" is used by button " + ins.first->second + " too");
+        }
+      }
+      std::string kind = "momentary";
+      r.text(c, "kind", at, kind);
+      if (kind == "momentary") b.kind = MachinePanelButton::Kind::Momentary;
+      else if (kind == "switch") b.kind = MachinePanelButton::Kind::Switch;
+      else if (kind == "latching") b.kind = MachinePanelButton::Kind::Latching;
+      else r.fail(at + ".kind", "must be \"momentary\", \"switch\" or \"latching\"");
+      r.bit(c, "input", at, b.input);
+      out.buttons.push_back(b);
+    });
+    sub("lamps", [&](const cJSON* c, const std::string& at) {
+      r.keys(c, at, {"name", "label", "output"});
+      MachinePanelLamp l;
+      r.text(c, "name", at, l.name, true);
+      unique(at, l.name);
+      l.label = l.name;
+      r.text(c, "label", at, l.label);
+      r.bit(c, "output", at, l.output);
+      out.lamps.push_back(l);
+    });
+  }
+
+  // Safety relay and scanners.
+  const cJSON* sf = cJSON_GetObjectItemCaseSensitive(root, "safety");
+  if (sf && r.object(sf, "safety")) {
+    MachineSafety& v = out.safety;
+    v.present = true;
+    r.keys(sf, "safety", {"relay", "scanners"});
+    auto areas = [&](const cJSON* c, const char* key, const std::string& at, std::vector<MachineArea>& to) {
+      const cJSON* a = cJSON_GetObjectItemCaseSensitive(c, key);
+      std::string where = at + "." + key;
+      if (!a) {
+        r.fail(at, std::string("\"") + key + "\" is required");
+        return;
+      }
+      if (!cJSON_IsArray(a) || !a->child) {
+        r.fail(where, "must be a list of boxes {\"origin\": [x, y], \"size\": [w, h]}");
+        return;
+      }
+      int i = 0;
+      for (const cJSON* b = a->child; b; b = b->next, ++i) {
+        std::string bat = where + "[" + std::to_string(i) + "]";
+        if (!r.object(b, bat) || !r.keys(b, bat, {"origin", "size"})) continue;
+        MachineArea m;
+        r.numbers(b, "origin", bat, 2, m.origin, true);
+        r.numbers(b, "size", bat, 2, m.size, true, 1, 1e6);
+        to.push_back(m);
+      }
+    };
+    const cJSON* sa = cJSON_GetObjectItemCaseSensitive(sf, "scanners");
+    if (sa) {
+      if (!cJSON_IsArray(sa)) {
+        r.fail("safety.scanners", "must be a list");
+      } else {
+        int i = 0;
+        for (const cJSON* c = sa->child; c; c = c->next, ++i) {
+          std::string at = "safety.scanners[" + std::to_string(i) + "]";
+          if (!r.object(c, at)) continue;
+          r.keys(c, at, {"name", "at", "warning", "protective", "warning_output"});
+          MachineScanner sc;
+          r.text(c, "name", at, sc.name, true);
+          unique(at, sc.name);
+          r.numbers(c, "at", at, 2, sc.at, true);
+          areas(c, "warning", at, sc.warning);
+          areas(c, "protective", at, sc.protective);
+          sc.has_warning_output = r.bit(c, "warning_output", at, sc.warning_output, false);
+          for (size_t k = 0; k < sc.protective.size(); ++k) {
+            const MachineArea& p = sc.protective[k];
+            bool inside = false;
+            for (const MachineArea& w : sc.warning)
+              inside = inside || (p.origin[0] >= w.origin[0] - kEps && p.origin[1] >= w.origin[1] - kEps &&
+                                  p.origin[0] + p.size[0] <= w.origin[0] + w.size[0] + kEps &&
+                                  p.origin[1] + p.size[1] <= w.origin[1] + w.size[1] + kEps);
+            if (!inside) r.fail(at + ".protective[" + std::to_string(k) + "]", "must lie inside one of the scanner's warning boxes");
+          }
+          v.scanners.push_back(sc);
+        }
+      }
+    }
+    const cJSON* rl = cJSON_GetObjectItemCaseSensitive(sf, "relay");
+    if (!rl) {
+      r.fail("safety", "\"relay\" is required");
+    } else if (r.object(rl, "safety.relay")) {
+      const std::string at = "safety.relay";
+      r.keys(rl, at, {"inputs", "reset", "stop_delay_ms", "joints", "conveyors", "feedback"});
+      auto names_of = [&](const char* key, std::vector<std::string>& to, bool required) {
+        const cJSON* a = cJSON_GetObjectItemCaseSensitive(rl, key);
+        if (!a) {
+          if (required) r.fail(at, std::string("\"") + key + "\" is required");
+          return false;
+        }
+        bool ok = cJSON_IsArray(a) && (!required || a->child);
+        for (const cJSON* c = ok ? a->child : nullptr; c; c = c->next) ok = ok && cJSON_IsString(c) && *c->valuestring;
+        if (!ok) {
+          r.fail(at + "." + key, required ? "must be a list of names, at least one" : "must be a list of names");
+          return false;
+        }
+        for (const cJSON* c = a->child; c; c = c->next) to.push_back(c->valuestring);
+        return true;
+      };
+      names_of("inputs", v.inputs, true);
+      for (const auto& n : v.inputs) {
+        auto b = std::find_if(out.buttons.begin(), out.buttons.end(), [&](const MachinePanelButton& x) { return x.name == n; });
+        auto sc = std::find_if(v.scanners.begin(), v.scanners.end(), [&](const MachineScanner& x) { return x.name == n; });
+        if (b == out.buttons.end() && sc == v.scanners.end())
+          r.fail(at + ".inputs", "\"" + n + "\" is not a panel button or a scanner");
+        else if (b != out.buttons.end() && b->kind != MachinePanelButton::Kind::Latching)
+          r.fail(at + ".inputs", "button \"" + n + "\" is " +
+                                     (b->kind == MachinePanelButton::Kind::Switch ? "a switch" : "momentary") +
+                                     ": an emergency stop must be latching");
+      }
+      if (r.text(rl, "reset", at, v.reset, true)) {
+        auto b = std::find_if(out.buttons.begin(), out.buttons.end(), [&](const MachinePanelButton& x) { return x.name == v.reset; });
+        if (b == out.buttons.end() || b->kind != MachinePanelButton::Kind::Momentary)
+          r.fail(at + ".reset", "\"" + v.reset + "\" must name a momentary panel button");
+      }
+      r.number(rl, "stop_delay_ms", at, 0, 10000, v.stop_delay_ms);
+      if (!names_of("joints", v.joints, false))
+        for (const auto& j : out.joints) v.joints.push_back(j.name);
+      for (const auto& n : v.joints)
+        if (std::none_of(out.joints.begin(), out.joints.end(), [&](const MachineJoint& j) { return j.name == n; }))
+          r.fail(at + ".joints", "the machine has no joint \"" + n + "\"");
+      if (!names_of("conveyors", v.conveyors, false))
+        for (const auto& c : out.conveyors) v.conveyors.push_back(c.name);
+      for (const auto& n : v.conveyors)
+        if (std::none_of(out.conveyors.begin(), out.conveyors.end(), [&](const MachineConveyor& c) { return c.name == n; }))
+          r.fail(at + ".conveyors", "the machine has no conveyor \"" + n + "\"");
+      v.has_feedback = r.bit(rl, "feedback", at, v.feedback, false);
+    }
+  }
+
   // No input bit bound twice, and no bit both read and written.
   std::map<std::string, std::string> seen;
   for (const auto& b : out.inputs()) {
@@ -520,6 +712,16 @@ void MachineModel::Reset() {
   request_prev_.assign(nf, false);
   emptied_.assign(nf, false);
   for (size_t i = 0; i < nj; ++i) jp_[i] = spec_.joints[i].travel[0];
+  pressed_.assign(spec_.buttons.size(), false);
+  lease_.assign(spec_.buttons.size(), -1);
+  relay_ = Relay::Closed;
+  trip_time_ = 0;
+  reset_prev_ = false;
+  person_ = false;
+  warning_on_.assign(spec_.safety.scanners.size(), false);
+  protective_on_.assign(spec_.safety.scanners.size(), false);
+  sto_joint_.assign(nj, false);
+  cut_conveyor_.assign(nc, false);
   UpdateTool();
 }
 
@@ -542,6 +744,21 @@ int MachineModel::ConveyorIndex(const std::string& n) const {
 int MachineModel::SensorIndex(const std::string& n) const {
   for (size_t i = 0; i < spec_.sensors.size(); ++i)
     if (spec_.sensors[i].name == n) return static_cast<int>(i);
+  return -1;
+}
+int MachineModel::ButtonIndex(const std::string& n) const {
+  for (size_t i = 0; i < spec_.buttons.size(); ++i)
+    if (spec_.buttons[i].name == n) return static_cast<int>(i);
+  return -1;
+}
+int MachineModel::LampIndex(const std::string& n) const {
+  for (size_t i = 0; i < spec_.lamps.size(); ++i)
+    if (spec_.lamps[i].name == n) return static_cast<int>(i);
+  return -1;
+}
+int MachineModel::ScannerIndex(const std::string& n) const {
+  for (size_t i = 0; i < spec_.safety.scanners.size(); ++i)
+    if (spec_.safety.scanners[i].name == n) return static_cast<int>(i);
   return -1;
 }
 int MachineModel::FixtureIndex(const std::string& n) const {
@@ -762,7 +979,7 @@ void MachineModel::StepConveyors(double dt) {
     int a = along_x ? 0 : 1;
     double len = std::fabs(along_x ? c.to[0] - c.from[0] : c.to[1] - c.from[1]);
     double dir = (along_x ? c.to[0] - c.from[0] : c.to[1] - c.from[1]) > 0 ? 1 : -1;
-    bool run = io_.output(c.run);
+    bool run = io_.output(c.run) && !cut_conveyor_[ci];
     // Parts on this belt, front first.
     std::vector<size_t> on;
     for (size_t i = 0; i < parts_.size(); ++i)
@@ -966,6 +1183,98 @@ void MachineModel::WriteInputs() {
   }
   for (size_t i = 0; i < spec_.fixtures.size(); ++i)
     if (spec_.fixtures[i].has_change) io_.set_input(spec_.fixtures[i].change_ready, ready_[i]);
+  for (size_t i = 0; i < spec_.buttons.size(); ++i) io_.set_input(spec_.buttons[i].input, pressed_[i]);
+  const MachineSafety& sf = spec_.safety;
+  if (sf.present && sf.has_feedback) io_.set_input(sf.feedback, relay_ == Relay::Closed);
+  for (size_t i = 0; i < sf.scanners.size(); ++i)
+    if (sf.scanners[i].has_warning_output) io_.set_input(sf.scanners[i].warning_output, warning_on_[i]);
+}
+
+// ---- panel and safety ----
+
+bool MachineModel::Press(const std::string& name, bool pressed, bool lease, std::string& err) {
+  if (spec_.buttons.empty()) {
+    err = "the machine has no panel";
+    return false;
+  }
+  int b = ButtonIndex(name);
+  if (b < 0) {
+    std::string names;
+    for (const auto& x : spec_.buttons) names += (names.empty() ? "" : ", ") + x.name;
+    err = "the machine has no panel button \"" + name + "\" (" + names + ")";
+    return false;
+  }
+  pressed_[b] = pressed;
+  bool momentary = spec_.buttons[b].kind == MachinePanelButton::Kind::Momentary;
+  lease_[b] = momentary && pressed && lease ? kPanelLeaseS : -1;
+  return true;
+}
+
+bool MachineModel::SetPerson(bool present, double x, double y, std::string& err) {
+  if (spec_.safety.scanners.empty()) {
+    err = "the machine has no safety scanner";
+    return false;
+  }
+  person_ = present;
+  person_pos_[0] = x;
+  person_pos_[1] = y;
+  return true;
+}
+
+bool MachineModel::InputsClear() const {
+  for (const auto& n : spec_.safety.inputs) {
+    int b = ButtonIndex(n), s = ScannerIndex(n);
+    if (b >= 0 && pressed_[b]) return false;
+    if (s >= 0 && protective_on_[s]) return false;
+  }
+  return true;
+}
+
+void MachineModel::StepSafety(double dt) {
+  for (size_t i = 0; i < lease_.size(); ++i) {
+    if (lease_[i] < 0) continue;
+    lease_[i] -= dt;
+    if (lease_[i] <= 1e-9) {
+      lease_[i] = -1;
+      pressed_[i] = false;
+    }
+  }
+  const MachineSafety& sf = spec_.safety;
+  // Fields: the person's circle overlaps a box.
+  auto occupied = [&](const std::vector<MachineArea>& as) {
+    if (!person_) return false;
+    for (const MachineArea& a : as) {
+      double cx = std::min(std::max(person_pos_[0], a.origin[0]), a.origin[0] + a.size[0]);
+      double cy = std::min(std::max(person_pos_[1], a.origin[1]), a.origin[1] + a.size[1]);
+      double dx = person_pos_[0] - cx, dy = person_pos_[1] - cy;
+      if (dx * dx + dy * dy < kPersonRadiusMm * kPersonRadiusMm) return true;
+    }
+    return false;
+  };
+  for (size_t i = 0; i < sf.scanners.size(); ++i) {
+    warning_on_[i] = occupied(sf.scanners[i].warning);
+    protective_on_[i] = occupied(sf.scanners[i].protective);
+  }
+  if (!sf.present) return;
+  bool clear = InputsClear();
+  int rb = ButtonIndex(sf.reset);
+  bool reset = rb >= 0 && pressed_[rb];
+  bool reset_edge = reset && !reset_prev_;
+  reset_prev_ = reset;
+  if (relay_ == Relay::Closed && !clear) {
+    relay_ = Relay::Stopping;
+    trip_time_ = 0;
+  } else if (relay_ != Relay::Closed) {
+    trip_time_ += dt;
+    if (relay_ == Relay::Stopping && trip_time_ * 1000.0 + 1e-9 >= sf.stop_delay_ms) relay_ = Relay::Open;
+    if (clear && reset_edge) relay_ = Relay::Closed;
+  }
+  bool off = relay_ == Relay::Open;
+  for (size_t i = 0; i < spec_.joints.size(); ++i)
+    sto_joint_[i] = off && std::find(sf.joints.begin(), sf.joints.end(), spec_.joints[i].name) != sf.joints.end();
+  for (size_t i = 0; i < spec_.conveyors.size(); ++i)
+    cut_conveyor_[i] =
+        off && std::find(sf.conveyors.begin(), sf.conveyors.end(), spec_.conveyors[i].name) != sf.conveyors.end();
 }
 
 void MachineModel::Step(double dt) {
@@ -989,6 +1298,7 @@ void MachineModel::Step(double dt) {
                                                                                              : 0;
   }
   UpdateTool();
+  StepSafety(dt);
   StepGripper(dt);
   StepConveyors(dt);
   StepFalling(dt);
@@ -1008,7 +1318,8 @@ void MachineModel::Step(double dt) {
     in.home_switch = j.has_home && p <= j.home_flag;
     int push = jpush_[i];
     bool stop = j.has_stops && ((push > 0 && p >= j.hard_stops[1] - 1e-3) || (push < 0 && p <= j.hard_stops[0] + 1e-3));
-    in.blocked = jam_[i] || stop || Blocks(i, push);
+    in.safe_torque_off = sto_joint_[i];
+    in.blocked = jam_[i] || stop || Blocks(i, push) || (j.brake && sto_joint_[i]);
     double load = j.hold_permille + j.per_kg_permille * payload + j.per_m_s2_permille * ja_[i] / 1000.0;
     io_.set_drive(j.node, in, load);
   }
@@ -1133,8 +1444,18 @@ bool MachineModel::Value(const std::string& n, double& out) const {
       if (p.state == PartState::Placed && p.fixture == f) out += 1;
   } else if (JointIndex(n) >= 0) {
     out = jp_[JointIndex(n)];
+  } else if (ButtonIndex(n) >= 0) {
+    out = pressed_[ButtonIndex(n)] ? 1 : 0;
+  } else if (LampIndex(n) >= 0) {
+    out = io_.output(spec_.lamps[LampIndex(n)].output) ? 1 : 0;
+  } else if (n == "relay" && spec_.safety.present) {
+    out = relay_ == Relay::Closed ? 0 : relay_ == Relay::Stopping ? 1 : 2;
   } else {
-    return false;
+    size_t dot = n.rfind('.');
+    int sc = dot == std::string::npos ? -1 : ScannerIndex(n.substr(0, dot));
+    std::string field = dot == std::string::npos ? "" : n.substr(dot + 1);
+    if (sc < 0 || (field != "warning" && field != "protective")) return false;
+    out = (field == "warning" ? warning_on_[sc] : protective_on_[sc]) ? 1 : 0;
   }
   return true;
 }
@@ -1144,6 +1465,13 @@ std::vector<std::string> MachineModel::Names() const {
   for (const auto& j : spec_.joints) v.push_back(j.name);
   for (const auto& s : spec_.sensors) v.push_back(s.name);
   for (const auto& f : spec_.fixtures) v.push_back(f.name);
+  if (spec_.safety.present) v.push_back("relay");
+  for (const auto& b : spec_.buttons) v.push_back(b.name);
+  for (const auto& l : spec_.lamps) v.push_back(l.name);
+  for (const auto& sc : spec_.safety.scanners) {
+    v.push_back(sc.name + ".warning");
+    v.push_back(sc.name + ".protective");
+  }
   return v;
 }
 
@@ -1168,6 +1496,7 @@ cJSON* MachineModel::Snapshot() const {
     cJSON_AddBoolToObject(x, "fault", d.fault);
     if (d.error_code) cJSON_AddNumberToObject(x, "error_code", d.error_code);
     cJSON_AddNumberToObject(x, "torque", std::round(d.torque));
+    cJSON_AddBoolToObject(x, "sto", d.safe_torque_off);
   }
   cJSON* t = cJSON_AddObjectToObject(o, "tool");
   cJSON* tp = cJSON_AddArrayToObject(t, "position");
@@ -1197,7 +1526,7 @@ cJSON* MachineModel::Snapshot() const {
   cJSON* cs = cJSON_AddObjectToObject(o, "conveyors");
   for (size_t i = 0; i < spec_.conveyors.size(); ++i) {
     cJSON* x = cJSON_AddObjectToObject(cs, spec_.conveyors[i].name.c_str());
-    cJSON_AddBoolToObject(x, "running", io_.output(spec_.conveyors[i].run));
+    cJSON_AddBoolToObject(x, "running", io_.output(spec_.conveyors[i].run) && !cut_conveyor_[i]);
     num(x, "travel", std::fmod(belt_travel_[i], 100000.0), 0.1);
   }
   cJSON* fs = cJSON_AddObjectToObject(o, "fixtures");
@@ -1219,6 +1548,31 @@ cJSON* MachineModel::Snapshot() const {
   cJSON_AddNumberToObject(c, "misplaced", counters_.misplaced);
   cJSON_AddNumberToObject(c, "dropped", counters_.dropped);
   cJSON_AddNumberToObject(c, "pallets", counters_.pallets);
+  if (spec_.has_panel) {
+    cJSON* pn = cJSON_AddObjectToObject(o, "panel");
+    cJSON* bs = cJSON_AddObjectToObject(pn, "buttons");
+    for (size_t i = 0; i < spec_.buttons.size(); ++i) cJSON_AddBoolToObject(bs, spec_.buttons[i].name.c_str(), pressed_[i]);
+    cJSON* ls = cJSON_AddObjectToObject(pn, "lamps");
+    for (const auto& l : spec_.lamps) cJSON_AddBoolToObject(ls, l.name.c_str(), io_.output(l.output));
+  }
+  if (spec_.safety.present) {
+    cJSON* sf = cJSON_AddObjectToObject(o, "safety");
+    cJSON_AddStringToObject(sf, "relay", relay_ == Relay::Closed ? "closed" : relay_ == Relay::Stopping ? "stopping" : "open");
+    cJSON_AddBoolToObject(sf, "reset_ready", relay_ != Relay::Closed && InputsClear());
+    cJSON* scs = cJSON_AddObjectToObject(sf, "scanners");
+    for (size_t i = 0; i < spec_.safety.scanners.size(); ++i) {
+      cJSON* x = cJSON_AddObjectToObject(scs, spec_.safety.scanners[i].name.c_str());
+      cJSON_AddBoolToObject(x, "warning", warning_on_[i]);
+      cJSON_AddBoolToObject(x, "protective", protective_on_[i]);
+    }
+    if (person_) {
+      cJSON* pp = cJSON_AddArrayToObject(sf, "person");
+      cJSON_AddItemToArray(pp, cJSON_CreateNumber(round_to(person_pos_[0], 1)));
+      cJSON_AddItemToArray(pp, cJSON_CreateNumber(round_to(person_pos_[1], 1)));
+    } else {
+      cJSON_AddNullToObject(sf, "person");
+    }
+  }
   cJSON_AddItemToObject(o, "faults", FaultsJson());
   return o;
 }

@@ -7,8 +7,8 @@ one plain lines, on 127.0.0.1, and records every request.
 
 With machine=FakeMachine(...) (fake_sim_machine.py) it answers sim_machine with
 the machine's snapshot at its clock (seconds since start, or fake.clock =
-lambda: t) and takes sim_fault / sim_clear with "machine"; without one
-sim_machine answers "no machine"."""
+lambda: t) and takes sim_fault / sim_clear with "machine", sim_panel and
+sim_person; without one sim_machine answers "no machine"."""
 
 import copy
 import json
@@ -20,7 +20,7 @@ from . import fake_sim_machine, fake_tls
 
 TOKEN = "test-token"
 CHANGE_OPS = ("sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear", "sim_scenario_start",
-              "sim_scenario_stop")
+              "sim_scenario_stop", "sim_panel", "sim_person")
 
 
 class FakeSim:
@@ -160,6 +160,17 @@ class FakeSim:
                     self.machine.fault(req["machine"], req.get("fault"), self.clock())
                 else:
                     self.machine.clear(req["machine"], req.get("fault"), self.clock())
+            except fake_sim_machine.FakeMachineError as e:
+                return err(str(e))
+            return ok()
+        if op in ("sim_panel", "sim_person"):
+            if self.machine is None:
+                return err("this network has no machine")
+            try:
+                if op == "sim_panel":
+                    self.machine.panel(req.get("button"), req.get("pressed"), self.clock())
+                else:
+                    self.machine.person(req.get("at"), self.clock())
             except fake_sim_machine.FakeMachineError as e:
                 return err(str(e))
             return ok()

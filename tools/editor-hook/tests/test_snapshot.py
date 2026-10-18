@@ -337,7 +337,7 @@ class MachineFile(Base):
 
     def project(self, sim=None, machine=None):
         gantry = os.path.join(REPO, "examples", "gantry-cell", "canworks")
-        project = {"canworks/" + n: read(os.path.join(gantry, n)) for n in ("servo402.eds", "dio16.eds", "machine.json")}
+        project = {"canworks/" + n: read(os.path.join(gantry, n)) for n in ("servo402.eds", "dio16.eds", "panel.eds", "machine.json")}
         with open(os.path.join(gantry, "canworks.json"), encoding="utf-8") as f:
             net = json.load(f)["networks"][0]
         cfg = {"schema_version": 1, "adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}

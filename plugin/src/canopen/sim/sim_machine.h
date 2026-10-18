@@ -5,7 +5,12 @@
 // feeders, presence sensors and fixtures with slots. The model reads the
 // drives' actual positions and the master's output bits, and writes the
 // drives' inputs (home switch, limit switches, blocked), their load and the
-// input bits the sensors and the gripper report. It is kinematic: joints
+// input bits the sensors and the gripper report. An operator panel's
+// buttons are input bits a client presses (sim_panel) and its lamps output
+// bits; a safety relay fed by latching emergency stops and safety scanners
+// switches the drives' power stages off (safe torque off) and stops
+// conveyors, a simulation for trying a program's reaction and no safety
+// function. It is kinematic: joints
 // follow their drives, parts move through a small state machine (on a belt,
 // held, falling, placed, on the table), contacts are axis-aligned boxes, and
 // only gravity acts on a falling part. It is deterministic for a given input
@@ -33,6 +38,8 @@ namespace canopen_sim {
 constexpr unsigned kMachineSchemaVersion = 1;
 constexpr unsigned kDefaultMachineTickMs = 2;
 constexpr size_t kMaxMachineParts = 50;
+constexpr double kPanelLeaseS = 0.5;
+constexpr double kPersonRadiusMm = 300;
 
 // One bit of an object of a node: an output the master writes, or an input
 // the machine sets.
@@ -58,6 +65,7 @@ struct MachineJoint {
   bool has_stops = false;
   double hard_stops[2] = {0, 0};  // the joint cannot pass these
   double hold_permille = 0, per_kg_permille = 0, per_m_s2_permille = 0;
+  bool brake = false;  // holds the joint while its drive is in safe torque off
 };
 
 struct MachinePartKind {
@@ -113,6 +121,42 @@ struct MachineFixture {
   double change_move[2] = {0, 400};  // where the pallet goes during a change
 };
 
+struct MachinePanelButton {
+  enum class Kind { Momentary, Switch, Latching };
+  std::string name, label, key;
+  Kind kind = Kind::Momentary;
+  IoBit input;
+};
+
+struct MachinePanelLamp {
+  std::string name, label;
+  IoBit output;
+};
+
+// A box on the floor: origin and size in x and y.
+struct MachineArea {
+  double origin[2] = {0, 0}, size[2] = {0, 0};
+};
+
+struct MachineScanner {
+  std::string name;
+  double at[2] = {0, 0};
+  std::vector<MachineArea> warning, protective;
+  bool has_warning_output = false;
+  IoBit warning_output;
+};
+
+struct MachineSafety {
+  bool present = false;
+  std::vector<std::string> inputs;  // latching buttons and scanners
+  std::string reset;                // a momentary button
+  double stop_delay_ms = 300;
+  std::vector<std::string> joints, conveyors;  // switched off on a trip
+  bool has_feedback = false;
+  IoBit feedback;  // on while the relay is closed
+  std::vector<MachineScanner> scanners;
+};
+
 struct MachineSpec {
   std::string path;
   std::string name;
@@ -125,6 +169,10 @@ struct MachineSpec {
   std::vector<MachineConveyor> conveyors;
   std::vector<MachineSensor> sensors;
   std::vector<MachineFixture> fixtures;
+  std::vector<MachinePanelButton> buttons;
+  std::vector<MachinePanelLamp> lamps;
+  bool has_panel = false;
+  MachineSafety safety;
 
   // Every I/O bit the model reads (outputs) and writes (inputs), with the element that names it.
   std::vector<std::pair<IoBit, std::string>> outputs() const;
@@ -157,6 +205,7 @@ class MachineIo {
     bool fault = false;
     uint16_t error_code = 0;  // 0x603F
     double torque = 0;        // 0x6077, per mille
+    bool safe_torque_off = false;
   };
   virtual ~MachineIo() = default;
   virtual Drive drive(unsigned node) = 0;
@@ -206,6 +255,17 @@ class MachineModel {
   bool Value(const std::string& name, double& out) const;
   // The element names, for messages.
   std::vector<std::string> Names() const;
+
+  // Presses or releases a panel button. `lease`: a momentary button lets go
+  // by itself after kPanelLeaseS unless pressed again (sim_panel); a
+  // scenario holds it until it releases it. A switch or latching button
+  // takes `pressed` as its position.
+  bool Press(const std::string& button, bool pressed, bool lease, std::string& err);
+  // Places the person at (x, y), or removes them.
+  bool SetPerson(bool present, double x, double y, std::string& err);
+  enum class Relay { Closed, Stopping, Open };
+  Relay relay() const { return relay_; }
+  bool person() const { return person_; }
 
   // The sim_machine answer's state (time stamp and sequence number added by the caller).
   cJSON* Snapshot() const;
@@ -272,6 +332,22 @@ class MachineModel {
   // Sensors: 0 normal, 1 stuck on, 2 stuck off.
   std::vector<int> stuck_;
   std::vector<bool> sensor_on_;
+  // Panel: button states and lease time left (< 0: none).
+  std::vector<bool> pressed_;
+  std::vector<double> lease_;
+  // Safety: relay, time since the trip, reset seen, person, fields.
+  Relay relay_ = Relay::Closed;
+  double trip_time_ = 0;
+  bool reset_prev_ = false;
+  bool person_ = false;
+  double person_pos_[2] = {0, 0};
+  std::vector<bool> warning_on_, protective_on_;
+  std::vector<bool> sto_joint_, cut_conveyor_;
+  bool InputsClear() const;
+  void StepSafety(double dt);
+  int ButtonIndex(const std::string& name) const;
+  int ScannerIndex(const std::string& name) const;
+  int LampIndex(const std::string& name) const;
   // Fixtures: change phase 0..1 (< 0: not changing), offset, ready, request seen.
   std::vector<double> change_;
   std::vector<double> offset_x_, offset_y_;

@@ -8,6 +8,8 @@ sim_machine from one (fake_sim.py).
     m.snapshot(1.25)                     # the answer at 1.25 s simulator time
     m.fault("z", {"jam": True})          # z stops where it is, its state "fault"
     m.clear("z", "jam")
+    m.panel("jog_x_plus", True)          # sim_panel: a momentary press held 500 ms
+    m.person([300, 1200])                # sim_person; None removes the person
 
 The cycle (period_s, default 8 s): from home over the belt's end, down,
 close, up, over the pallet's next slot, down, open, up, back home. Each move
@@ -15,7 +17,15 @@ eases in and out, so positions are smooth in time. The next part rides the
 belt to the end stop while the gantry places the last one. A jam stops the
 whole cycle until it is cleared (the PLC would stop too), and the cycle
 then goes on from where it stopped. Faults and clears act at the time of
-the last snapshot unless given one."""
+the last snapshot unless given one.
+
+The panel and the safety relay follow the simulator's rules without moving
+anything: a momentary button pressed with panel() lets go 500 ms later
+unless pressed again, switches and latching buttons keep their state, a
+latched input or an occupied protective field opens the relay (stopping for
+the stop delay, then open with the listed joints in safe torque off), and
+the reset button's press closes it once every input is clear. Lamps are lit
+by setting fake.lamps[name] (the PLC's outputs)."""
 
 import json
 import math
@@ -25,6 +35,9 @@ from canworks import simmachine as machine_mod
 
 STATUS_ENABLED = 0x0237
 STATUS_FAULT = 0x0218
+STATUS_STO = 0x0250  # switch on disabled, voltage off
+LEASE_S = 0.5
+PERSON_MM = 300
 # The cycle's moves as (start, end) fractions of the period.
 _TO_PICK = (0.0, 0.19)
 _DOWN_PICK = (0.19, 0.275)
@@ -79,6 +92,18 @@ class FakeMachine:
         self.slipped = {}    # cycle -> (x, y) where its part fell
         self.paused = 0.0    # seconds the cycle stood still for jams
         self.pause_from = None
+        panel = machine.get("panel") if isinstance(machine.get("panel"), dict) else None
+        self.has_panel = panel is not None
+        self.kinds_of = {b["name"]: b.get("kind", "momentary") for b in (panel or {}).get("buttons") or []}
+        self.buttons = {n: False for n in self.kinds_of}
+        self.lease = {}      # momentary button -> simulator time it lets go
+        self.lamps = {lamp["name"]: False for lamp in (panel or {}).get("lamps") or []}
+        safety = machine.get("safety") if isinstance(machine.get("safety"), dict) else None
+        self.safety = safety
+        self.scanners = (safety or {}).get("scanners") or []
+        self.person_at = None
+        self.relay = "closed"
+        self.trip_t = None
         self._geometry()
 
     # -- geometry -----------------------------------------------------------
@@ -230,6 +255,78 @@ class FakeMachine:
                     if every or c == element:
                         del faults[c]
 
+    # -- panel and safety -------------------------------------------------------
+    def panel(self, button, pressed, t_seconds=None):
+        """As sim_panel: FakeMachineError with the simulator's message when
+        it refuses."""
+        problem = machine_mod.panel_problem(self.m, button)
+        if problem:
+            raise FakeMachineError(problem)
+        if not isinstance(pressed, bool):
+            raise FakeMachineError("\"pressed\" must be true or false")
+        t = self.last_t if t_seconds is None else t_seconds
+        self._expire(t)
+        was = self.buttons[button]
+        self.buttons[button] = pressed
+        if self.kinds_of[button] == "momentary":
+            if pressed:
+                self.lease[button] = t + LEASE_S
+            else:
+                self.lease.pop(button, None)
+        self._relay(t)
+        relay = (self.safety or {}).get("relay") or {}
+        if pressed and not was and button == relay.get("reset") and self.relay != "closed" and not self._tripped():
+            self.relay, self.trip_t = "closed", None
+
+    def person(self, at, t_seconds=None):
+        """As sim_person: at [x, y] in mm, or None to remove the person."""
+        if not self.scanners:
+            raise FakeMachineError("the machine has no safety scanner")
+        ok = at is None or (isinstance(at, list) and len(at) == 2 and
+                            all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in at))
+        if not ok:
+            raise FakeMachineError("\"at\" must be [x, y] in mm, or null")
+        self.person_at = None if at is None else [float(at[0]), float(at[1])]
+        self._relay(self.last_t if t_seconds is None else t_seconds)
+
+    def _expire(self, t):
+        for b, until in list(self.lease.items()):
+            if t >= until:
+                self.buttons[b] = False
+                del self.lease[b]
+
+    def _fields(self):
+        """{scanner: {"warning": bool, "protective": bool}} for the person."""
+        def hit(boxes):
+            if self.person_at is None:
+                return False
+            px, py = self.person_at
+            for b in boxes:
+                (x0, y0), (w, h) = b["origin"], b["size"]
+                dx = px - min(max(px, x0), x0 + w)
+                dy = py - min(max(py, y0), y0 + h)
+                if dx * dx + dy * dy < PERSON_MM * PERSON_MM:
+                    return True
+            return False
+        return {sc["name"]: {"warning": hit(sc["warning"]), "protective": hit(sc["protective"])} for sc in self.scanners}
+
+    def _tripped(self):
+        if not self.safety:
+            return False
+        fields = self._fields()
+        for name in self.safety["relay"]["inputs"]:
+            if self.buttons.get(name) or (fields.get(name) or {}).get("protective"):
+                return True
+        return False
+
+    def _relay(self, t):
+        if not self.safety:
+            return
+        if self.relay == "closed" and self._tripped():
+            self.relay, self.trip_t = "stopping", t
+        if self.relay == "stopping" and t - self.trip_t >= self.safety["relay"].get("stop_delay_ms", 300) / 1000.0:
+            self.relay = "open"
+
     def faults(self):
         """The active faults as sim_status and sim_machine list them."""
         out = [{"machine": j, "fault": {"jam": True}} for j in machine_mod.JOINTS if j in self.jams]
@@ -323,6 +420,10 @@ class FakeMachine:
         pose = self._pose(mt)
         before = self._pose(max(0.0, mt - 0.001))
         moving = self.pause_from is None
+        self._expire(t_seconds)
+        self._relay(t_seconds)
+        relay = (self.safety or {}).get("relay") or {}
+        sto_joints = set(relay.get("joints") or machine_mod.JOINTS) if self.relay == "open" else set()
         joints = {}
         for name in machine_mod.JOINTS:
             j = self.joints.get(name)
@@ -341,6 +442,9 @@ class FakeMachine:
                             "fault": jammed, "torque": 0 if jammed else round(j.get("load", {}).get("hold_permille", 0))}
             if jammed:
                 joints[name]["error_code"] = 0x8611
+            joints[name]["sto"] = name in sto_joints
+            if name in sto_joints and not jammed:
+                joints[name].update(state="switch_on_disabled", statusword=STATUS_STO, velocity=0.0, torque=0)
         tp = self._tool_point(pose)
         parts, holding, counters = self._parts(mt, tp)
         n, c = self._cycle(mt)
@@ -361,10 +465,16 @@ class FakeMachine:
         for i, f in enumerate(self.fixtures):
             filled = sum(1 for p in parts if p["state"] == "placed") if i == 0 else 0
             fixtures[f["name"]] = {"offset": [0, 0], "ready": True, "changing": False, "filled": filled}
-        return {"name": self.m.get("name", ""), "kind": self.m.get("kind", "gantry_xyz"), "joints": joints,
-                "tool": {"position": [_r(v, 0.01) for v in tp], "opening": _r(opening, 0.01), "closed": closed,
-                         "holding": holding},
-                "parts": parts, "sensors": sensors, "conveyors": conveyors, "fixtures": fixtures,
-                "counters": counters, "faults": self.faults(),
-                "t_us": int(math.floor(t_seconds * 1e6)), "seq": self.seq, "network": self.network,
-                "step_us": 12.5, "step_max_us": 41.0}
+        out = {"name": self.m.get("name", ""), "kind": self.m.get("kind", "gantry_xyz"), "joints": joints,
+               "tool": {"position": [_r(v, 0.01) for v in tp], "opening": _r(opening, 0.01), "closed": closed,
+                        "holding": holding},
+               "parts": parts, "sensors": sensors, "conveyors": conveyors, "fixtures": fixtures,
+               "counters": counters, "faults": self.faults(),
+               "t_us": int(math.floor(t_seconds * 1e6)), "seq": self.seq, "network": self.network,
+               "step_us": 12.5, "step_max_us": 41.0}
+        if self.has_panel:
+            out["panel"] = {"buttons": dict(self.buttons), "lamps": dict(self.lamps)}
+        if self.safety:
+            out["safety"] = {"relay": self.relay, "reset_ready": self.relay != "closed" and not self._tripped(),
+                             "scanners": self._fields(), "person": list(self.person_at) if self.person_at else None}
+        return out

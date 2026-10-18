@@ -304,7 +304,7 @@ class Script(unittest.TestCase):
         self.assertEqual((fake_codesys.param(bus, 2).value, fake_codesys.param(bus, 0).value), ("1", "500"))
         mgr = bus.find("CANopen_Manager")[0]
         self.assertEqual(fake_codesys.param(mgr, 288).value, "1")
-        self.assertEqual([c.get_name() for c in mgr.get_children()], ["x", "y", "z", "io"])
+        self.assertEqual([c.get_name() for c in mgr.get_children()], ["x", "y", "z", "io", "panel"])
         x = mgr.find("x")[0]
         self.assertEqual(fake_codesys.param(x, 1).value, "4")
         self.assertEqual(fake_codesys.channels_of(x)[0x11A00010], "x_Statusword")
@@ -316,7 +316,7 @@ class Script(unittest.TestCase):
         adds = [e for e in w.log if e[0] in ("import", "add")]
         # every node is added right after its own DCF is installed
         self.assertEqual([a[0] for a in adds[-8:]], ["import", "add"] * 4)
-        self.assertEqual(imports, ["node_4.dcf", "node_5.dcf", "node_6.dcf", "node_10.dcf"])
+        self.assertEqual(imports, ["node_4.dcf", "node_5.dcf", "node_6.dcf", "node_10.dcf", "node_11.dcf"])
 
     def test_no_project_open(self):
         folder, _ = export(self, GANTRY)

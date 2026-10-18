@@ -32,9 +32,11 @@ struct DriveSettings {
 bool parse_drive_settings(const cJSON* json, DriveSettings& out, std::string& err);
 
 // Inputs of the model, set as the `drive_input` fault and by a machine model
-// (the engine ORs the two).
+// (the engine ORs the two). `safe_torque_off` is a machine's safety relay
+// taking the power stage away.
 struct DriveInputs {
   bool blocked = false, positive_limit = false, negative_limit = false, home_switch = false;
+  bool safe_torque_off = false;
 };
 
 // The device's object dictionary, as the engine gives it.

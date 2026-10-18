@@ -433,6 +433,7 @@
             {
               "number": 1,
               "transmission": 255,
+              "event_timer_ms": 100,
               "entries": [
                 {
                   "index": "0x6000",
@@ -453,6 +454,50 @@
                   "subindex": 1,
                   "type": "UNSIGNED8",
                   "iec_location": "%QB130"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "node_id": 11,
+          "name": "panel",
+          "eds": "panel.eds",
+          "mandatory": true,
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX10.4",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 255,
+              "event_timer_ms": 100,
+              "entries": [
+                {
+                  "index": "0x6000",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB131"
+                },
+                {
+                  "index": "0x6000",
+                  "subindex": 2,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB132"
+                }
+              ]
+            }
+          ],
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 255,
+              "entries": [
+                {
+                  "index": "0x6200",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB131"
                 }
               ]
             }

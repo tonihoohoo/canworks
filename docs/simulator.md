@@ -421,15 +421,76 @@ The deploy tool carries it into the upload with the simulation file. Its JSON Sc
 | `name`, `kind` | A name for messages and the view; `kind` is `gantry_xyz`. |
 | `units` | `mm` (the only unit). |
 | `tick_ms`, `seed` | Model step (1 to 100 ms, default 2) and the feeder's random seed (default 1). |
-| `joints` | `x`, `y` and `z`: `node` (a simulated CiA 402 node with an `axis` in the config), `travel` [min, max], `counts_per_mm` (default 1000), `offset_mm`, `direction` (1 or −1), `down` (z: a positive position lowers the tool), `home_flag`, `limits` [negative, positive], `hard_stops` [negative, positive], `load` (`hold_permille`, `per_kg_permille`, `per_m_s2_permille`). |
+| `joints` | `x`, `y` and `z`: `node` (a simulated CiA 402 node with an `axis` in the config), `travel` [min, max], `counts_per_mm` (default 1000), `offset_mm`, `direction` (1 or −1), `down` (z: a positive position lowers the tool), `home_flag`, `limits` [negative, positive], `hard_stops` [negative, positive], `load` (`hold_permille`, `per_kg_permille`, `per_m_s2_permille`), `brake` (the joint holds still while its drive is in safe torque off, as a holding brake does). |
 | `tool` | `type` `gripper`, `close` (output), `gripped` (input), `stroke_ms`, `open_mm`, `closed_mm`, `axis` (`x` or `y`), `offset` [x, y, height] of the tool point at joint positions 0, `pick_tolerance_mm`, `finger` [thickness, width, height]. |
 | `parts` | Part kinds by name: `size` [x, y, height], `mass_kg`. |
 | `conveyors` | `name`, `from` and `to` [x, y] of the belt's centre line, `width`, `height` (belt top), `speed_mm_s`, `gap_mm`, `run` (output), `feed` (`part`, `every_s` [min, max]). |
 | `sensors` | `name`, `at` [x, y, height] and `size` of the box, `detects` (`part` or `tool`), `output` (input bit). |
 | `fixtures` | `name`, `slots` (`origin` [x, y] of the first slot's centre, `pitch`, `count` [columns, rows]), `height` (pallet top), `margin`, `place_tolerance_mm`, `change` (`request` output, `ready` input, `time_s`, `move` [x, y]). |
+| `panel` | The operator panel: `buttons` (`name`, `label`, `key`, `kind` `momentary`, `switch` or `latching`, `input`) and `lamps` (`name`, `label`, `output`). See [Operator panel and safety](#operator-panel-and-safety). |
+| `safety` | The virtual safety relay (`relay`) and safety scanners (`scanners`). See [Operator panel and safety](#operator-panel-and-safety). |
 | `visual` | For the Machine tab only: floor, table, frame, fence, stack light, colours. The simulator does not read it. |
 
-Element names (conveyors, sensors, fixtures) are unique and not `x`, `y`, `z` or `tool`. The deploy tool's check, the configurator's problems and the plugin check what the schema cannot: joints on simulated nodes with an axis, bound objects in the node's EDS with room for the bit, outputs written by the master and inputs not, no input bound twice, travel, limits and hard stops in order, part kinds defined. Each message names the network and the element.
+Element names (conveyors, sensors, fixtures, panel buttons and lamps, scanners) are unique and not `x`, `y`, `z` or `tool`. The deploy tool's check, the configurator's problems and the plugin check what the schema cannot: joints on simulated nodes with an axis, bound objects in the node's EDS with room for the bit, outputs written by the master and inputs not, no input bound twice, travel, limits and hard stops in order, part kinds defined. Each message names the network and the element.
+
+### Operator panel and safety
+
+A machine can have an operator panel and a virtual safety relay, so a program can be written and tried the way a real cell is run: a mode switch, jog buttons, Start, Stop, Reset, an emergency stop and a safety scanner. **They are not a safety function.** The relay is a model in the simulator, with no safety rating, so a program tried against it says nothing about a real cell's safety. It is there so the program's side of a safety stop (holding the sequence, ramping down, resetting the drives, starting again) can be written and tested.
+
+**The panel** is a set of buttons and lamps bound to the bits of a simulated CiA 401 device, typically a node of its own (the gantry example's node 11, with its own EDS), so the program reads it through PDOs like any I/O module. A `momentary` button is on while it is pressed; a `switch` (a mode selector) and a `latching` button (an emergency stop) stay where they were put. Each button has a `key`: an upper-case letter or digit, `Space`, `Enter`, `Shift`, `Backspace`, `Delete`, `Insert`, `Home`, `End`, `PageUp`, `PageDown`, an arrow (`ArrowUp`, ...) or `F1` to `F12`; no two buttons share one. Lamps are output bits the program writes; the view shows them.
+
+```json
+"panel": {
+  "buttons": [
+    { "name": "manual", "label": "Manual", "key": "M", "kind": "switch", "input": { "node": 11, "object": "0x6000:1", "bit": 0 } },
+    { "name": "jog_x_plus", "label": "X+", "key": "ArrowRight", "input": { "node": 11, "object": "0x6000:1", "bit": 1 } },
+    { "name": "estop", "label": "Emergency stop", "key": "E", "kind": "latching", "input": { "node": 11, "object": "0x6000:2", "bit": 7 } }
+  ],
+  "lamps": [ { "name": "manual_lamp", "label": "Manual", "output": { "node": 11, "object": "0x6200:1", "bit": 0 } } ]
+}
+```
+
+A press from the view holds a momentary button for 500 ms; the view repeats it while the key or the button is held, so a lost connection releases a jog button within half a second instead of leaving the axis running.
+
+**The safety relay** (`safety.relay`) is a stop category 1 relay: when any of its `inputs` trips it, it waits `stop_delay_ms` (0 to 10000, default 300) for the program to stop the axes, then takes the power stage away from the drives of its `joints` (safe torque off) and stops its `conveyors` (both default to all). Its inputs are latching panel buttons (pressed trips it) and scanners (someone in a protective field trips it). It closes again on a rising edge of its `reset` button (a momentary one) once every input is clear. `feedback` is an input bit that is on while the relay is closed, so the program knows.
+
+```json
+"safety": {
+  "relay": { "inputs": ["estop", "scanner"], "reset": "reset", "stop_delay_ms": 300,
+             "feedback": { "node": 10, "object": "0x6000:1", "bit": 6 } },
+  "scanners": [ {
+    "name": "scanner", "at": [1250, 900],
+    "warning": [ { "origin": [-700, 300], "size": [2550, 1200] } ],
+    "protective": [ { "origin": [-700, 300], "size": [1950, 600] } ],
+    "warning_output": { "node": 10, "object": "0x6000:1", "bit": 7 }
+  } ]
+}
+```
+
+**Safe torque off** in the drive model: the drive drops to "switch on disabled", refuses "shutdown" while it lasts, clears "voltage enabled" (statusword bit 4) and the axis coasts to a stop at the drive's `max_acceleration`. A joint with `brake` holds still instead. A drive in fault stays in fault.
+
+**Scanners** watch the floor around the machine: `warning` and `protective` are lists of boxes on the floor (`origin` [x, y] is a corner, `size` [w, h]), each protective box inside one of the warning boxes. A simulated person stands in the cell as a circle of 300 mm radius; the warning field's `warning_output` is on while the person is in a warning box, and a person in a protective box trips the relay. The person is placed from the view or with `sim_person`.
+
+Panel presses and the person go through the diagnostics channel and need `allow_changes`:
+
+```json
+{ "op": "sim_panel", "button": "jog_x_plus", "pressed": true }
+{ "op": "sim_person", "at": [1700, 1300] }
+{ "op": "sim_person", "at": null }
+```
+
+In a scenario a `panel` step sets one or more buttons (without the 500 ms hold: they stay until set again) and a `person` step places or removes the person:
+
+```json
+{ "panel": { "manual": true } },
+{ "after_ms": 200, "panel": { "jog_x_plus": true, "fast": true } },
+{ "after_ms": 1000, "panel": { "jog_x_plus": false, "fast": false } },
+{ "person": [1000, 800] },
+{ "expect": { "machine": "relay", "eq": 2 }, "within_ms": 500 },
+{ "person": null }
+```
+
+The simulator logs each press and release, a person placed or removed, and each trip and reset of the relay.
 
 ### Faults and conditions
 
@@ -451,16 +512,18 @@ Machine faults go through the same calls as device faults, with `machine` naming
 { "expect": { "machine": "placed", "ge": 4 }, "within_ms": 40000 }
 ```
 
-A condition's `machine` names a counter (`fed`, `picked`, `placed`, `misplaced`, `dropped`, `pallets`), a sensor (0 or 1), a fixture (parts in its slots) or a joint (position in mm). The Machine tab has a button for each; on the diagnostics channel they are `sim_fault` and `sim_clear` with `machine` in place of `node` (`{"op": "sim_fault", "machine": "z", "fault": {"jam": true}}`), and `sim_machine` returns the whole state (below). Faults need `allow_changes`, as device faults do.
+A condition's `machine` names a counter (`fed`, `picked`, `placed`, `misplaced`, `dropped`, `pallets`), a sensor (0 or 1), a fixture (parts in its slots), a joint (position in mm), a panel button or lamp (0 or 1), `relay` (0 closed, 1 stopping, 2 open) or a scanner's `NAME.warning` or `NAME.protective` (0 or 1). The Machine tab has a button for each; on the diagnostics channel they are `sim_fault` and `sim_clear` with `machine` in place of `node` (`{"op": "sim_fault", "machine": "z", "fault": {"jam": true}}`), and `sim_machine` returns the whole state (below). Faults need `allow_changes`, as device faults do.
 
 ### State
 
 `sim_machine` (read only) answers with the network, a time stamp `t_us`, a sequence number `seq`, the model's step time (`step_us`, `step_max_us`) and:
 
-- `joints`: per joint `node`, `position` (mm), `velocity`, `demand`, `actual_counts`, the drive's `state`, `mode`, `statusword`, `fault`, `error_code` (0x603F, while it is not 0) and `torque` (0x6077, per mille);
+- `joints`: per joint `node`, `position` (mm), `velocity`, `demand`, `actual_counts`, the drive's `state`, `mode`, `statusword`, `fault`, `error_code` (0x603F, while it is not 0) `torque` (0x6077, per mille) and `sto` (the drive is in safe torque off);
 - `tool`: `position` [x, y, height], `opening`, `closed`, `holding`;
 - `parts`: `id`, `kind`, `position` [centre x, centre y, bottom height], `yaw`, `state`;
-- `sensors`, `conveyors` (`running`, `travel`), `fixtures` (`offset`, `ready`, `changing`, `filled`), `counters` and the `faults` in force.
+- `sensors`, `conveyors` (`running`, `travel`), `fixtures` (`offset`, `ready`, `changing`, `filled`), `counters` and the `faults` in force;
+- with a panel, `panel`: `buttons` and `lamps`, each name on or off;
+- with safety, `safety`: `relay` (`closed`, `stopping` inside the stop delay, `open`), `reset_ready` (every input is clear, so Reset would close it), per scanner `warning` and `protective`, and `person` ([x, y], or null).
 
 The snapshot of a machine with 50 parts is about 4 KB. `sim_status` carries the counters and faults too.
 
@@ -472,6 +535,8 @@ The snapshot of a machine with 50 parts is about 4 KB. `sim_status` carries the 
 - **Labels** on the drives (node, position, mode or EMCY code), sensors and fixtures, the **tool path** (the last few seconds of the tool point) and the current set-point as a marker; an axis in fault turns red, the stack light shows the cell's state and each drive has a lamp.
 - **Camera**: **Overview**, **Top** and **Follow tool**; orbit, pan and zoom with mouse or touch. Click a motor or carriage, an axis row of the panel or an axis label to open that node in the Commission workspace.
 - **Side panel**: per axis its state, mode, statusword, position in mm and counts, following error against the window (0x6065) and torque; the machine's I/O bits, the counters, the last faults, and buttons for the faults above and **Clear all** (disabled, with the reason, without **Allow changes**).
+- **Panel** (a machine with a `panel`): the emergency stop as a large red button (Latched or Released), switches, momentary buttons with their key, the lamps and the relay (Closed, Stopping, Open, or Waiting for reset when it is open and every input is clear). Hold a momentary button with the mouse or touch; a switch or latching button flips on a click. Click the scene to give it the keyboard ("Keyboard on"): a held key repeats its press every 200 ms, and keyup, Escape, a click outside, a hidden page, leaving the tab or a failed poll releases every button. The buttons are disabled, with the reason, without **Allow changes** or offline.
+- **Person** (a machine with a scanner): click on the floor to place a person, drag to walk them, click **Person** again to take them out. The scanner's warning (yellow) and protective (red) fields show on the floor, brighter while someone is in them, and the stack light stays red while the relay is not closed.
 - Offline, it shows the machine at its home positions as a preview; with no answer for 1 s it holds the last pose and says "no data". It polls only while it is open and the browser tab is visible.
 
 The 3D library, three.js 0.169, ships with the PC tools, so the view needs no internet.
