@@ -396,6 +396,36 @@ class InstallBridgeCheckout(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
 
+    def test_docker_runtime_prefix_with_an_old_bridge_in_it(self):
+        self.docker_runtime_prefix()
+        os.makedirs(os.path.join(self.default, "bin"))
+        old = self.stub(os.path.join("opt-canworks", "bin", "canworks-bridge"), "echo old")
+        r = self.install()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("installing the bridge into %s" % self.fallback, r.stdout)
+        self.assertTrue(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
+        r = self.install("--uninstall")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
+        self.assertTrue(os.path.exists(old), "the runtime's prefix is not touched")
+
+    def test_uninstall_keeps_the_runtimes_link(self):
+        units = os.path.join(self.tmp, "units")
+        link = os.path.join(self.tmp, "link")
+        os.makedirs(units)
+        os.makedirs(link)
+        open(os.path.join(units, "canworks-link.service"), "w").close()
+        with open(os.path.join(link, "link.json"), "w") as f:
+            f.write('{\n  "config": "/opt/canworks/lib/canworks.json",\n  "port": 7533\n}\n')
+        self.assertEqual(self.install().returncode, 0)
+        os.environ["CANWORKS_LINK_DIR"] = link
+        self.addCleanup(os.environ.pop, "CANWORKS_LINK_DIR")
+        r = self.install("--uninstall", "--purge")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("remote link serves another config and stays", r.stdout)
+        self.assertTrue(os.path.exists(os.path.join(units, "canworks-link.service")))
+        self.assertTrue(os.path.exists(os.path.join(link, "link.json")))
+
     def test_explicit_prefix_still_refused(self):
         self.docker_runtime_prefix()
         r = self.install("--prefix", self.default)
