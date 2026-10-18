@@ -8,24 +8,16 @@ canworks-sim on 127.0.0.1. For the CLI and configurator tests.
     with FakeSimServer(sim) as srv: ...  # srv.address -> "127.0.0.1:PORT"
 
 Scenarios move on by polls: every sim_status or sim_scenario_list moves each
-running scenario one poll closer to its outcome (FakeSim.add_scenario).
-
-With a machine (FakeSim(machine=FakeMachine(...)), fake_sim_machine.py, or
-sim.set_machine(machine file dict)) sim_machine answers its snapshot at the
-sim's clock (seconds since it was made, or sim.clock = lambda: t), and
-sim_fault / sim_clear with "machine", sim_panel and sim_person reach it;
-without one sim_machine answers "no machine"."""
+running scenario one poll closer to its outcome (FakeSim.add_scenario)."""
 
 import copy
 import json
 import socketserver
 import threading
-import time
 
 from canworks import simfile
 from canworks.simclient import READ_OPS
 
-from . import fake_sim_machine
 from . import fake_tls
 
 FAULT_KINDS = ("emcy", "heartbeat", "power", "reset", "nmt_state", "sdo_abort", "sdo_delay",
@@ -43,13 +35,9 @@ class SimRefused(Exception):
 
 
 class FakeSim:
-    def __init__(self, simulated_network=True, interface="simulated", machine=None):
+    def __init__(self, simulated_network=True, interface="simulated"):
         self.simulated_network = simulated_network
         self.interface = interface
-        self.machine = machine  # a fake_sim_machine.FakeMachine, or None
-        self.machine_file = "machine.json"
-        start = time.monotonic()
-        self.clock = lambda: time.monotonic() - start
         self.devices = []  # dicts, see add_device
         self.scenarios = {}  # name -> dict
         self.requests = []
@@ -74,12 +62,6 @@ class FakeSim:
                                 "test": test, "autostart": autostart, "outcome": outcome,
                                 "outcome_message": message, "polls": polls, "left": 0}
         return self.scenarios[name]
-
-    def set_machine(self, machine, network="motion", file="machine.json", **kw):
-        """Runs a FakeMachine of a machine file (a dict) on this sim."""
-        self.machine = fake_sim_machine.FakeMachine(machine, network, **kw)
-        self.machine_file = file
-        return self.machine
 
     @classmethod
     def example(cls, simulated_network=True):
@@ -166,51 +148,7 @@ class FakeSim:
         self._tick()
         res = {"simulated_network": self.simulated_network, "interface": self.interface,
                "devices": [self._public(d) for d in self.devices], "scenarios": self._scenario_list()}
-        if self.machine is not None:
-            res["machine"] = {"name": self.machine.m.get("name", ""), "file": self.machine_file,
-                              "faults": self.machine.faults()}
         return res
-
-    def _sim_machine(self, req):
-        if self.machine is None:
-            raise SimRefused("no machine")
-        return self.machine.snapshot(self.clock())
-
-    def _machine_request(self, req, op):
-        """sim_fault / sim_clear on a machine element (sim_engine.cpp)."""
-        el = req["machine"]
-        if not isinstance(el, str) or not el:
-            raise SimRefused("\"machine\" must name a machine element")
-        if self.machine is None:
-            raise SimRefused("this network has no machine")
-        try:
-            if op == "fault":
-                self.machine.fault(el, req.get("fault"), self.clock())
-            else:
-                if not isinstance(req.get("fault"), str):
-                    raise SimRefused("\"fault\" must be a machine fault name or \"all\"")
-                self.machine.clear(el, req["fault"], self.clock())
-        except fake_sim_machine.FakeMachineError as e:
-            raise SimRefused(str(e))
-        return {}
-
-    def _sim_panel(self, req):
-        if self.machine is None:
-            raise SimRefused("this network has no machine")
-        try:
-            self.machine.panel(req.get("button"), req.get("pressed"), self.clock())
-        except fake_sim_machine.FakeMachineError as e:
-            raise SimRefused(str(e))
-        return {}
-
-    def _sim_person(self, req):
-        if self.machine is None:
-            raise SimRefused("this network has no machine")
-        try:
-            self.machine.person(req.get("at"), self.clock())
-        except fake_sim_machine.FakeMachineError as e:
-            raise SimRefused(str(e))
-        return {}
 
     def _sim_scenario_list(self, req):
         self._tick()
@@ -294,8 +232,6 @@ class FakeSim:
         return {}
 
     def _sim_fault(self, req):
-        if "machine" in req:
-            return self._machine_request(req, "fault")
         d = self.device(req["node"])
         f = req["fault"]
         kinds = [k for k in f if k in FAULT_KINDS] if isinstance(f, dict) else []
@@ -319,8 +255,6 @@ class FakeSim:
         return {}
 
     def _sim_clear(self, req):
-        if "machine" in req:
-            return self._machine_request(req, "clear")
         d = self.device(req["node"])
         kind = req["fault"]
         if kind == "all":

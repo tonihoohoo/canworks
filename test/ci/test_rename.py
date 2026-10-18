@@ -33,7 +33,7 @@ class Mapping(unittest.TestCase):
             r"m.replace(/^[^:]*canopen\.json: /, '')": r"m.replace(/^[^:]*canworks\.json: /, '')",
             'open("canopen.v%d.schema.json" % v)': 'open("canworks.v%d.schema.json" % v)',
             "`canopen.v${from}.schema.json`": "`canworks.v${from}.schema.json`",
-            "schema/canopen-machine.v1.schema.json": "schema/canworks-machine.v1.schema.json",
+            "schema/canopen-sim.v2.schema.json": "schema/canworks-sim.v2.schema.json",
             "library/openplc_canopen.stlib": "library/canworks.stlib",
             'getenv("CANOPEN_STATE_DIR")': 'getenv("CANWORKS_STATE_DIR")',
             "-DCANOPEN_BUILD_TESTS=OFF": "-DCANWORKS_BUILD_TESTS=OFF",
@@ -55,8 +55,8 @@ class Mapping(unittest.TestCase):
             self.assertEqual(rn.rename_text(text), text, text)
 
     def test_project_folder_path(self):
-        self.assertEqual(rn.rename_path("examples/gantry-cell/canopen/servo402.eds"),
-                         "examples/gantry-cell/canworks/servo402.eds")
+        self.assertEqual(rn.rename_path("examples/virtual-plant/canopen/servo402.eds"),
+                         "examples/virtual-plant/canworks/servo402.eds")
         self.assertEqual(rn.rename_path("plugin/src/canopen/master.cpp"), "plugin/src/canopen/master.cpp")
         self.assertEqual(rn.rename_path("canopen/x.json"), "canworks/x.json")
 

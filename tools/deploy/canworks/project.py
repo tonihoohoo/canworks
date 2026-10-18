@@ -8,8 +8,6 @@ runtime's editor hook (tools/editor-hook):
                                        extra device's eds and each CSV
                                        file -> "<name>")
     <project>/canworks/<name>.csv      (the simulation file's CSV files)
-    <project>/canworks/<name>.json     (the machine files its sections name,
-                                       machine -> "<name>")
     <project>/canworks/<name>.dbc      (each network's j1939.dbc and raw.dbc
                                        -> "<name>")
     <project>/canworks/<eds>.notes.json (each EDS file's device notes)
@@ -94,38 +92,34 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None, report=None
                 bundle.merge_by_name(dbcs, {obj["dbc"]: src}, "DBC files")
             except bundle.BundleError as e:
                 raise ProjectError(str(e))
-    sim_out, csv, machines = None, {}, {}
+    sim_out, csv = None, {}
     if sim_path:
         try:
             sim_data = simfile.load(sim_path)
             files = simfile.referenced_files(sim_data, sim_path)
             bundle.merge_by_name(by_name, bundle._by_name(files["eds"], "EDS files"), "EDS files")
             csv = bundle._by_name(files["csv"], "CSV files")
-            machines = bundle._by_name(files["machine"], "machine files")
         except (simfile.SimFileError, bundle.BundleError) as e:
             raise ProjectError(str(e))
-        sim_out = simfile.rewrite(sim_data, sim_path, os.path.basename, os.path.basename,
-                                  lambda value, p: os.path.basename(p))
+        sim_out = simfile.rewrite(sim_data, sim_path, os.path.basename, os.path.basename)
     for reserved in (CONFIG, SIM):
-        if reserved in by_name or reserved in csv or reserved in machines:
-            raise ProjectError("an EDS, CSV or machine file may not be named %s" % reserved)
-    for name in set(dbcs) & (set(by_name) | set(csv) | set(machines) | set(notes_by_name)):
+        if reserved in by_name or reserved in csv:
+            raise ProjectError("an EDS or CSV file may not be named %s" % reserved)
+    for name in set(dbcs) & (set(by_name) | set(csv) | set(notes_by_name)):
         raise ProjectError("a DBC file and another file are both named %s; rename one" % name)
-    for name in set(notes_by_name) & (set(csv) | set(machines)):
-        raise ProjectError("a CSV or machine file and a notes file are both named %s; rename one" % name)
-    for name in set(machines) & (set(by_name) | set(csv)):
-        raise ProjectError("a machine file of the simulation and another file are both named %s; rename one" % name)
+    for name in set(notes_by_name) & set(csv):
+        raise ProjectError("a CSV file and a notes file are both named %s; rename one" % name)
     for name in set(csv) & set(by_name):
         raise ProjectError("a CSV file of the simulation and an EDS file are both named %s; rename one" % name)
     csv_data = {}
-    for name, src in sorted(list(csv.items()) + list(machines.items())):
+    for name, src in sorted(csv.items()):
         with open(src, "rb") as f:
             csv_data[name] = f.read()
         try:
             csv_data[name].decode("utf-8")
         except UnicodeDecodeError:
-            raise ProjectError("%s file %s is not UTF-8 text: the editor's project upload would corrupt it"
-                               % ("machine" if name in machines else "CSV", src))
+            raise ProjectError("CSV file %s is not UTF-8 text: the editor's project upload would corrupt it"
+                               % src)
 
     staged = target + ".new"
     shutil.rmtree(staged, ignore_errors=True)
@@ -178,6 +172,6 @@ def write(cfg, config_path, project_dir, force=False, sim_path=None, report=None
     finally:
         shutil.rmtree(staged, ignore_errors=True)
     written = [os.path.join(target, CONFIG)] + ([os.path.join(target, SIM)] if sim_out is not None else []) + [
-        os.path.join(target, n) for n in sorted(set(by_name) | set(csv) | set(machines) | set(dbcs)
+        os.path.join(target, n) for n in sorted(set(by_name) | set(csv) | set(dbcs)
                                                 | set(notes_by_name))]
     return written, converted

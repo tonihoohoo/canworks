@@ -102,6 +102,13 @@ TEST(sim_file_errors) {
         errors[1].find("extra_devices[1]: node ID 1 is the master's node ID") != std::string::npos);
 }
 
+// A section's "machine" key (the removed machine file) is an unknown key.
+TEST(sim_file_no_machine) {
+  std::string e;
+  CHECK(!loads(R"({"schema_version": 2, "networks": {"motion": {"machine": "machine.json"}}})", e));
+  CHECK_MSG(e.find("networks.motion") != std::string::npos && e.find("unknown key \"machine\"") != std::string::npos, e);
+}
+
 TEST(sim_file_version_2_sections) {
   SimFile f;
   std::vector<std::string> errors;

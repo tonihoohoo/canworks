@@ -20,9 +20,11 @@ from .test_contract import REPO
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "codesys")
 EXAMPLES = os.path.join(REPO, "examples")
-GANTRY = os.path.join(EXAMPLES, "gantry-cell", "canworks", "canworks.json")
 BRIDGE = os.path.join(EXAMPLES, "modbus-bridge", "canworks.json")
 PLANT = os.path.join(EXAMPLES, "virtual-plant", "canworks", "canworks.json")
+# Three CiA 402 drives and an I/O module on network "motion" (sim1), with
+# the virtual-plant EDS files.
+MOTION = os.path.join(os.path.dirname(__file__), "data", "codesys-motion", "canworks.json")
 
 
 def load(path):
@@ -65,9 +67,6 @@ class Plan(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             self.assertEqual(json.loads(f.read()), json.loads(text))
 
-    def test_golden_gantry_cell(self):
-        self.check_golden("gantry-cell.json", GANTRY)
-
     def test_golden_modbus_bridge(self):
         self.check_golden("modbus-bridge.json", BRIDGE)
 
@@ -75,12 +74,12 @@ class Plan(unittest.TestCase):
         self.check_golden("virtual-plant.json", PLANT)
 
     def test_network_number_from_interface_and_override(self):
-        plan, _ = cplan.build(load(GANTRY), GANTRY)
+        plan, _ = cplan.build(load(MOTION), MOTION)
         self.assertEqual(plan["networks"][0]["net_id"], 1)  # can1
-        plan, _ = cplan.build(load(GANTRY), GANTRY, overrides={"motion": 0})
+        plan, _ = cplan.build(load(MOTION), MOTION, overrides={"motion": 0})
         self.assertEqual(plan["networks"][0]["net_id"], 0)
         with self.assertRaises(cplan.ExportFailed) as e:
-            cplan.build(load(GANTRY), GANTRY, overrides={"drives": 1})
+            cplan.build(load(MOTION), MOTION, overrides={"drives": 1})
         self.assertIn("drives", str(e.exception))
 
     def test_channels_use_the_editor_names(self):
@@ -304,7 +303,7 @@ class Script(unittest.TestCase):
         return world.project_with_plc(path)
 
     def test_open_project_new_canbus_and_nodes(self):
-        folder, _ = export(self, GANTRY)
+        folder, _ = export(self, MOTION)
         w = fake_codesys.World()
         proj = self.project(w)
         report = w.run(folder, primary=proj)
@@ -314,7 +313,7 @@ class Script(unittest.TestCase):
         self.assertEqual((fake_codesys.param(bus, 2).value, fake_codesys.param(bus, 0).value), ("1", "500"))
         mgr = bus.find("CANopen_Manager")[0]
         self.assertEqual(fake_codesys.param(mgr, 288).value, "1")
-        self.assertEqual([c.get_name() for c in mgr.get_children()], ["x", "y", "z", "io", "panel"])
+        self.assertEqual([c.get_name() for c in mgr.get_children()], ["x", "y", "z", "io"])
         x = mgr.find("x")[0]
         self.assertEqual(fake_codesys.param(x, 1).value, "4")
         self.assertEqual(fake_codesys.channels_of(x)[0x11A00010], "x_Statusword")
@@ -326,10 +325,29 @@ class Script(unittest.TestCase):
         adds = [e for e in w.log if e[0] in ("import", "add")]
         # every node is added right after its own DCF is installed
         self.assertEqual([a[0] for a in adds[-8:]], ["import", "add"] * 4)
-        self.assertEqual(imports, ["node_4.dcf", "node_5.dcf", "node_6.dcf", "node_10.dcf", "node_11.dcf"])
+        self.assertEqual(imports, ["node_4.dcf", "node_5.dcf", "node_6.dcf", "node_10.dcf"])
+
+    def test_virtual_plant_plan(self):
+        """The example's plan, every master network on its own CANbus (codesys-export: CI)."""
+        folder, _ = export(self, PLANT)
+        w = fake_codesys.World()
+        proj = self.project(w)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("built    0 errors, 0 warnings", report)
+        plc = proj.find("PLC")[0]
+        buses = [plc.find(name)[0] for name in ("CANbus", "CANbus_2", "CANbus_3")]
+        self.assertEqual([(fake_codesys.param(b, 2).value, fake_codesys.param(b, 0).value) for b in buses],
+                         [("0", "250"), ("1", "500"), ("2", "250")])
+        self.assertEqual([[c.get_name() for c in b.get_children()[0].get_children()] for b in buses],
+                         [["rtd", "dio", "new_io"], ["drive"], ["cell"]])
+        drive = buses[1].get_children()[0].find("drive")[0]
+        self.assertEqual(fake_codesys.channels_of(drive)[0x11A00010], "motion_drive_Statusword")
+        self.assertEqual([e[1] for e in w.log if e[0] == "import"],
+                         ["node_5.dcf", "node_6.dcf", "node_7.dcf", "node_4.dcf", "node_20.dcf"])
 
     def test_no_project_open(self):
-        folder, _ = export(self, GANTRY)
+        folder, _ = export(self, MOTION)
         w = fake_codesys.World()
         report = w.run(folder)
         self.assertIn("open a project in CODESYS first", report)
@@ -373,7 +391,7 @@ class Script(unittest.TestCase):
                          ["CANopen_Manager"])
 
     def test_device_with_its_own_can_interfaces(self):
-        folder, _ = export(self, GANTRY)  # network number 1
+        folder, _ = export(self, MOTION)  # network number 1
         w = fake_codesys.World(canbus_version="4.2.0.0", manager_versions=("4.2.0.0", "4.4.0.0"))
         proj = self.project(w)
         plc = proj.find("PLC")[0]
@@ -415,7 +433,7 @@ class Script(unittest.TestCase):
         self.assertIn("by_hand (node 20) is not in the canworks config", report)
 
     def test_missing_parameter_is_reported(self):
-        folder, _ = export(self, GANTRY)
+        folder, _ = export(self, MOTION)
         w = fake_codesys.World(missing_manager_ids=(288,))
         report = w.run(folder, primary=self.project(w))
         self.assertTrue(report.startswith("result: ok"), report)
@@ -566,7 +584,7 @@ class Script(unittest.TestCase):
         self.assertEqual(len(mgr.get_children()), 2)
 
     def test_network_number_on_a_can_interface_bus(self):
-        folder, _ = export(self, GANTRY)  # network number 1
+        folder, _ = export(self, MOTION)  # network number 1
         w = fake_codesys.World()
         proj, dev, (can,) = self.display(w, accepts_canbus=False)
         can.connectors = [fake_codesys.Connector([]), fake_codesys.Connector(
@@ -576,7 +594,7 @@ class Script(unittest.TestCase):
         self.assertEqual((fake_codesys.param(can, 2).value, fake_codesys.param(can, 0).value), ("1", "500"))
 
     def test_several_can_interfaces(self):
-        folder, _ = export(self, GANTRY)  # network number 1
+        folder, _ = export(self, MOTION)  # network number 1
         w = fake_codesys.World()
         proj, dev, (can0, can1) = self.display(w, names=("CAN0", "CAN1"))
         report = w.run(folder, primary=proj)
@@ -585,7 +603,7 @@ class Script(unittest.TestCase):
         self.assertEqual(len(can1.find("CANbus")), 1)
 
     def test_several_can_interfaces_without_a_match(self):
-        folder, _ = export(self, GANTRY)
+        folder, _ = export(self, MOTION)
         w = fake_codesys.World()
         proj, dev, cans = self.display(w, names=("CAN_A", "CAN_B"))
         report = w.run(folder, primary=proj)

@@ -31,30 +31,6 @@ std::string fmt_value(const Value& v) {
 
 cJSON* json_value(const Value& v) { return v.is_string ? cJSON_CreateString(v.str.c_str()) : cJSON_CreateNumber(v.num); }
 
-DriveInputs merged(const DriveInputs& a, const DriveInputs& b) {
-  DriveInputs m;
-  m.blocked = a.blocked || b.blocked;
-  m.positive_limit = a.positive_limit || b.positive_limit;
-  m.negative_limit = a.negative_limit || b.negative_limit;
-  m.home_switch = a.home_switch || b.home_switch;
-  m.safe_torque_off = a.safe_torque_off || b.safe_torque_off;
-  return m;
-}
-
-const char* drive_state_name(DriveModel::State s) {
-  switch (s) {
-    case DriveModel::State::NotReadyToSwitchOn: return "not_ready_to_switch_on";
-    case DriveModel::State::SwitchOnDisabled: return "switch_on_disabled";
-    case DriveModel::State::ReadyToSwitchOn: return "ready_to_switch_on";
-    case DriveModel::State::SwitchedOn: return "switched_on";
-    case DriveModel::State::OperationEnabled: return "operation_enabled";
-    case DriveModel::State::QuickStopActive: return "quick_stop_active";
-    case DriveModel::State::FaultReactionActive: return "fault_reaction_active";
-    case DriveModel::State::Fault: return "fault";
-  }
-  return "";
-}
-
 std::string answer(const std::string& id, cJSON* result, const std::string& error) {
   cJSON* o = cJSON_CreateObject();
   if (!id.empty()) {
@@ -195,11 +171,6 @@ struct Simulator::Dev {
   std::unique_ptr<DriveModel> drive;
   std::set<ObjKey> drive_outputs;
   DriveInputs inputs;
-  // The machine model's inputs and load (OR-ed with the fault's inputs), and
-  // the I/O objects it writes.
-  DriveInputs machine_inputs;
-  double machine_load = 0;
-  std::set<ObjKey> machine_objects;
 
   // Fault settings; they last across power cycles until cleared.
   std::vector<SdoRule> rules;
@@ -243,62 +214,6 @@ class Simulator::DriveIoImpl : public DriveIo {
  private:
   Simulator& s_;
   Dev& d_;
-};
-
-class Simulator::MachineIoImpl : public MachineIo {
- public:
-  explicit MachineIoImpl(Simulator& s) : s_(s) {}
-  Dev* dev(unsigned node) {
-    for (auto& d : s_.devs_)
-      if (d->spec.node == node && !d->taken) return d.get();
-    return nullptr;
-  }
-  Drive drive(unsigned node) override {
-    Drive v;
-    Dev* d = dev(node);
-    if (!d || !d->powered || !d->drive) return v;
-    const DriveModel& m = *d->drive;
-    v.present = true;
-    v.actual = m.actual_position();
-    v.demand = m.demand_position();
-    v.velocity = m.actual_velocity();
-    v.demand_velocity = m.demand_velocity();
-    v.state = drive_state_name(m.state());
-    v.mode = m.mode();
-    v.statusword = m.statusword();
-    v.fault = m.state() == DriveModel::State::Fault || m.state() == DriveModel::State::FaultReactionActive;
-    v.error_code = m.error_code();
-    v.torque = m.actual_torque();
-    v.safe_torque_off = m.inputs.safe_torque_off;
-    return v;
-  }
-  void set_drive(unsigned node, const DriveInputs& in, double load) override {
-    Dev* d = dev(node);
-    if (!d) return;
-    d->machine_inputs = in;
-    d->machine_load = load;
-    if (d->drive) {
-      d->drive->inputs = merged(d->inputs, in);
-      d->drive->load_permille = load;
-    }
-  }
-  bool output(const IoBit& b) override {
-    Dev* d = dev(b.node);
-    if (!d || !d->dev) return false;
-    double v = std::floor(std::fabs(od_number(d->dev->od(), b.object.index, b.object.subindex)));
-    return std::fmod(std::floor(v / std::ldexp(1.0, b.bit)), 2.0) != 0;
-  }
-  void set_input(const IoBit& b, bool on) override {
-    Dev* d = dev(b.node);
-    if (!d || !d->dev) return;
-    uint64_t v = static_cast<uint64_t>(std::fabs(od_number(d->dev->od(), b.object.index, b.object.subindex)));
-    uint64_t m = uint64_t(1) << b.bit;
-    uint64_t n = on ? v | m : v & ~m;
-    if (n != v) s_.Write(*d, b.object, Value::number(static_cast<double>(n)), 1);
-  }
-
- private:
-  Simulator& s_;
 };
 
 class Simulator::Resolver : public ExprResolver {
@@ -376,8 +291,7 @@ Simulator::Simulator(Host& host, std::vector<DeviceSpec> devices, SimFile file, 
 Simulator::~Simulator() { Stop(); }
 
 bool Simulator::ReadOnlyOp(const std::string& op) {
-  return op == "sim_status" || op == "sim_get" || op == "sim_scenario_list" || op == "sim_check_expr" ||
-         op == "sim_machine";
+  return op == "sim_status" || op == "sim_get" || op == "sim_scenario_list" || op == "sim_check_expr";
 }
 
 void Simulator::Log(Host::Level l, const std::string& m) { host_.log(l, m); }
@@ -546,11 +460,6 @@ bool Simulator::Start(std::vector<std::string>& errors) {
     return false;
   }
 
-  if (!StartMachine(errors)) {
-    Stop();
-    return false;
-  }
-
   timer_ = host_.make_timer();
   wait_.reset(new lely::io::TimerWait(host_.exec(), [this](int, std::error_code ec) {
     if (ec || stopped_) return;
@@ -677,8 +586,7 @@ void Simulator::PowerOn(Dev& d) {
   if (d.has_drive) {
     d.drive_io.reset(new DriveIoImpl(*this, d));
     d.drive.reset(new DriveModel(*d.drive_io, d.drive_settings));
-    d.drive->inputs = merged(d.inputs, d.machine_inputs);
-    d.drive->load_permille = d.machine_load;
+    d.drive->inputs = d.inputs;
     for (const auto& o : d.drive->outputs()) d.drive_outputs.insert(ObjKey{o.first, o.second});
     DriveModel* dm = d.drive.get();
     dev.on_sync = [dm]() { dm->sync(); };
@@ -752,7 +660,6 @@ int Simulator::Owner(const Dev& d, const ObjKey& k) const {
   if (d.overrides.count(k)) return 4;
   if (d.sources.count(k)) return 2;
   if (d.drive && d.drive_outputs.count(k)) return 1;
-  if (d.machine_objects.count(k)) return 1;
   return 0;
 }
 
@@ -924,95 +831,6 @@ Simulator::Dev* Simulator::FindJson(const cJSON* node, std::string& err) {
   return d;
 }
 
-bool Simulator::StartMachine(std::vector<std::string>& errors) {
-  if (file_.machine_path.empty()) return true;
-  std::string where = file_.section.empty() ? std::string("machine") : "network " + file_.section + ": machine";
-  if (host_.real_network()) {
-    Log(Host::Level::Warn, where + " " + file_.machine + " is not used: a machine only runs on a simulated network");
-    return true;
-  }
-  MachineSpec spec;
-  std::vector<std::string> errs;
-  if (!load_machine_file(file_.machine_path, spec, errs)) {
-    for (const auto& e : errs) errors.push_back(where + ": " + e);
-    return false;
-  }
-  MachineIoImpl probe(*this);
-  size_t before = errors.size();
-  for (const auto& j : spec.joints) {
-    Dev* d = probe.dev(j.node);
-    if (!d)
-      errors.push_back(where + ": joint " + j.name + ": node " + std::to_string(j.node) + " is not simulated");
-    else if (!d->drive)
-      errors.push_back(where + ": joint " + j.name + ": node " + std::to_string(j.node) +
-                       " has no drive model (a CiA 402 axis)");
-  }
-  auto check_bit = [&](const IoBit& b, const std::string& what, bool input) {
-    Dev* d = probe.dev(b.node);
-    if (!d) {
-      errors.push_back(where + ": " + what + ": node " + std::to_string(b.node) + " is not simulated");
-      return;
-    }
-    if (!d->objects.count(b.object)) {
-      errors.push_back(where + ": " + what + ": node " + std::to_string(b.node) + " has no object " + b.object.str());
-      return;
-    }
-    auto mw = d->spec.master_written.find(b.object);
-    if (input && mw != d->spec.master_written.end())
-      errors.push_back(where + ": " + what + ": the master writes " + b.object.str() + " of node " +
-                       std::to_string(b.node) + " (" + mw->second + "); an input must be an object the device sends");
-    // (A device whose master-written objects are not known, as a test
-    // gives it, is not checked for outputs.)
-    if (!input && !d->spec.master_written.empty() && mw == d->spec.master_written.end())
-      errors.push_back(where + ": " + what + ": the master does not write " + b.object.str() + " of node " +
-                       std::to_string(b.node) + "; an output must be an object the master writes (an RPDO)");
-    if (input) d->machine_objects.insert(b.object);
-  };
-  for (const auto& b : spec.inputs()) check_bit(b.first, b.second, true);
-  for (const auto& b : spec.outputs()) check_bit(b.first, b.second, false);
-  if (errors.size() != before) {
-    for (auto& d : devs_) d->machine_objects.clear();
-    return false;
-  }
-  machine_io_.reset(new MachineIoImpl(*this));
-  machine_.reset(new MachineModel(spec, *machine_io_));
-  tick_ms_ = std::min(tick_ms_, spec.tick_ms);
-  machine_last_ = machine_next_ = Clock::now();
-  machine_relay_ = MachineModel::Relay::Closed;
-  Log(Host::Level::Info, where + " \"" + spec.name + "\" (" + file_.machine + "): " + std::to_string(spec.joints.size()) +
-                             " joints, " + std::to_string(spec.conveyors.size()) + " conveyors, " +
-                             std::to_string(spec.sensors.size()) + " sensors, " + std::to_string(spec.fixtures.size()) +
-                             " fixtures, step " + std::to_string(spec.tick_ms) + " ms");
-  return true;
-}
-
-void Simulator::StepMachine(Clock::time_point now) {
-  if (!machine_ || now < machine_next_) return;
-  auto tick = std::chrono::milliseconds(machine_->spec().tick_ms);
-  double dt = seconds(now - machine_last_);
-  machine_last_ = now;
-  machine_next_ += tick;
-  if (machine_next_ < now) machine_next_ = now + tick;
-  Clock::time_point t0 = Clock::now();
-  // A late tick is stepped in parts, so a falling part or a moving belt never jumps far.
-  dt = std::min(dt, 0.25);
-  while (dt > 1e-9) {
-    double h = std::min(dt, 0.005);
-    machine_->Step(h);
-    dt -= h;
-  }
-  double us = seconds(Clock::now() - t0) * 1e6;
-  machine_step_us_ = machine_step_us_ ? machine_step_us_ * 0.99 + us * 0.01 : us;
-  machine_step_max_us_ = std::max(machine_step_max_us_, us);
-  if (machine_->relay() != machine_relay_) {
-    machine_relay_ = machine_->relay();
-    static const char* what[] = {"closed", "tripped: the drives have the stop delay to stop",
-                                 "open: the drives are in safe torque off"};
-    Log(Host::Level::Info, (file_.section.empty() ? std::string("machine") : "network " + file_.section + ": machine") +
-                               ": safety relay " + what[static_cast<int>(machine_relay_)]);
-  }
-}
-
 bool Simulator::AllOperational() const {
   for (const auto& d : devs_) {
     if (d->taken || !d->powered) continue;
@@ -1047,7 +865,6 @@ void Simulator::Tick() {
       TickDevice(d, now, dt);
     }
   }
-  StepMachine(now);
   RunSources(now);
   for (auto& dp : devs_) {
     Dev& d = *dp;
@@ -1189,7 +1006,7 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
       if (kv.first == "negative_limit") d.inputs.negative_limit = kv.second;
       if (kv.first == "home_switch") d.inputs.home_switch = kv.second;
     }
-    if (d.drive) d.drive->inputs = merged(d.inputs, d.machine_inputs);
+    if (d.drive) d.drive->inputs = d.inputs;
   }
   bool setting = k == "heartbeat" || k == "sdo_abort" || k == "sdo_delay" || k == "refuse_write_operational" ||
                  k == "tpdo_stop" || k == "identity" || k == "device_type" || k == "drive_input";
@@ -1306,7 +1123,7 @@ bool Simulator::ClearFault(Dev& d, const std::string& name, const cJSON* req, st
   }
   if (all || name == "drive_input") {
     d.inputs = DriveInputs();
-    if (d.drive) d.drive->inputs = merged(d.inputs, d.machine_inputs);
+    if (d.drive) d.drive->inputs = d.inputs;
     d.active.erase("drive_input");
   }
   if (d.dev) {
@@ -1397,30 +1214,6 @@ bool Simulator::EvalCondition(const Condition& c, const std::string& self, bool&
                               std::string& err) {
   holds = false;
   if (c.is_expr) return false;  // handled by the caller (compiled per step)
-  if (!c.machine.empty()) {
-    if (!machine_) {
-      err = "this network has no machine";
-      return false;
-    }
-    double v = 0;
-    if (!machine_->Value(c.machine, v)) {
-      std::string names;
-      for (const auto& n : machine_->Names()) names += (names.empty() ? "" : ", ") + n;
-      err = "the machine has no value \"" + c.machine + "\" (" + names + ")";
-      return false;
-    }
-    char b[32];
-    std::snprintf(b, sizeof b, "%.10g", v);
-    seen = b;
-    double w = c.value.num;
-    if (c.op == "eq") holds = v == w;
-    else if (c.op == "ne") holds = v != w;
-    else if (c.op == "lt") holds = v < w;
-    else if (c.op == "le") holds = v <= w;
-    else if (c.op == "gt") holds = v > w;
-    else if (c.op == "ge") holds = v >= w;
-    return true;
-  }
   Dev* d = Find(c.node);
   if (!d) {
     err = "node " + c.node + " is not simulated";
@@ -1521,17 +1314,6 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     Log(Host::Level::Info, "scenario " + r.sc.name + ": " + s.log);
     return advance();
   }
-  if (a == "panel" || a == "person") {
-    if (!machine_) return fail("this network has no machine");
-    std::string err;
-    if (a == "panel") {
-      for (const auto& kv : s.panel)
-        if (!machine_->Press(kv.first, kv.second, false, err)) return fail(err);
-    } else if (!machine_->SetPerson(s.person, s.person_at[0], s.person_at[1], err)) {
-      return fail(err);
-    }
-    return advance();
-  }
   if (a == "repeat") {
     Run::Frame nf;
     nf.steps = &s.steps;
@@ -1577,20 +1359,6 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     if (!raw_device_action(s.device, a, a == "fault" ? s.device_fault : s.clear, s.device_dlc, err)) return fail(err);
     Log(Host::Level::Info, "scenario " + r.sc.name + ": " + a + " " + (a == "fault" ? s.device_fault : s.clear) +
                                " on plain CAN device " + s.device);
-    return advance();
-  }
-  if ((a == "fault" || a == "clear") && !s.machine.empty()) {
-    if (!machine_) return fail("this network has no machine");
-    std::string err;
-    if (a == "fault") {
-      cJSON* fj = cJSON_Parse(s.machine_fault.c_str());
-      bool ok = machine_->Fault(s.machine, fj, err);
-      cJSON_Delete(fj);
-      if (!ok) return fail(err);
-      Log(Host::Level::Info, "scenario " + r.sc.name + ": machine " + s.machine + ": fault " + s.machine_fault);
-    } else if (!machine_->Clear(s.machine, s.clear, err)) {
-      return fail(err);
-    }
     return advance();
   }
   if (a == "fault") {
@@ -1705,7 +1473,6 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddBoolToObject(o, "conflict", d.taken);
       cJSON_AddBoolToObject(o, "drive", d.drive != nullptr);
       if (d.drive) cJSON_AddNumberToObject(o, "oversized_steps", static_cast<double>(d.drive->oversized_steps()));
-      if (d.drive && d.drive->inputs.safe_torque_off) cJSON_AddBoolToObject(o, "safe_torque_off", true);
       cJSON* fa = cJSON_AddArrayToObject(o, "faults");
       for (const auto& kv : d.active) {
         cJSON* j = cJSON_Parse(kv.second.c_str());
@@ -1721,26 +1488,6 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddItemToArray(devs, o);
     }
     scenario_json(cJSON_AddArrayToObject(res, "scenarios"));
-    if (machine_) {
-      cJSON* m = cJSON_AddObjectToObject(res, "machine");
-      cJSON_AddStringToObject(m, "name", machine_->spec().name.c_str());
-      cJSON_AddStringToObject(m, "file", file_.machine.c_str());
-      cJSON_AddItemToObject(m, "faults", machine_->FaultsJson());
-    }
-    return answer(id, res, "");
-  }
-  if (op == "sim_machine") {
-    if (!machine_)
-      return answer(id, nullptr, file_.machine.empty() || !host_.real_network()
-                                     ? "no machine"
-                                     : "no machine: " + file_.machine + " only runs on a simulated network");
-    cJSON* res = machine_->Snapshot();
-    Clock::time_point now = Clock::now();
-    cJSON_AddNumberToObject(res, "t_us", std::floor(seconds(now - start_) * 1e6));
-    cJSON_AddNumberToObject(res, "seq", static_cast<double>(++machine_seq_));
-    if (!file_.section.empty()) cJSON_AddStringToObject(res, "network", file_.section.c_str());
-    cJSON_AddNumberToObject(res, "step_us", std::round(machine_step_us_ * 10) / 10);
-    cJSON_AddNumberToObject(res, "step_max_us", std::round(machine_step_max_us_ * 10) / 10);
     return answer(id, res, "");
   }
   if (op == "sim_scenario_list") {
@@ -1767,7 +1514,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
         cJSON_AddStringToObject(o, "type", od_type_name(d->dev->od(), k.index, k.subindex).c_str());
         cJSON_AddStringToObject(o, "access", od_access(d->dev->od(), k.index, k.subindex).c_str());
         int owner = Owner(*d, k);
-        const char* w = owner == 4 ? "override" : owner == 2 ? "source" : owner == 1 ? (d->machine_objects.count(k) ? "machine" : "drive") : nullptr;
+        const char* w = owner == 4 ? "override" : owner == 2 ? "source" : owner == 1 ? "drive" : nullptr;
         if (d->sets.count(k) && owner < 4) w = "set";
         if (w) cJSON_AddStringToObject(o, "writer", w);
       }
@@ -1834,56 +1581,10 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
     return answer(id, nullptr, "");
   }
 
-  if (op == "sim_panel" || op == "sim_person") {
-    if (!machine_) return answer(id, nullptr, "this network has no machine");
-    if (op == "sim_panel") {
-      const cJSON* bj = cJSON_GetObjectItemCaseSensitive(req, "button");
-      const cJSON* pj = cJSON_GetObjectItemCaseSensitive(req, "pressed");
-      if (!cJSON_IsString(bj)) return answer(id, nullptr, "\"button\" must name a panel button");
-      if (!cJSON_IsBool(pj)) return answer(id, nullptr, "\"pressed\" must be true or false");
-      double was = 0;
-      machine_->Value(bj->valuestring, was);
-      if (!machine_->Press(bj->valuestring, cJSON_IsTrue(pj), true, err)) return answer(id, nullptr, err);
-      // Presses repeat every 200 ms while a key is held: only the changes are logged.
-      if ((was != 0) != cJSON_IsTrue(pj))
-        logchange("panel " + std::string(bj->valuestring) + (cJSON_IsTrue(pj) ? " pressed" : " released"));
-      return answer(id, nullptr, "");
-    }
-    const cJSON* aj = cJSON_GetObjectItemCaseSensitive(req, "at");
-    bool place = aj && !cJSON_IsNull(aj);
-    if (place && (!cJSON_IsArray(aj) || cJSON_GetArraySize(aj) != 2 || !cJSON_IsNumber(aj->child) ||
-                  !cJSON_IsNumber(aj->child->next) || !std::isfinite(aj->child->valuedouble) ||
-                  !std::isfinite(aj->child->next->valuedouble)))
-      return answer(id, nullptr, "\"at\" must be [x, y] in mm, or null");
-    if (!aj) return answer(id, nullptr, "\"at\" must be [x, y] in mm, or null");
-    bool was = machine_->person();
-    if (!machine_->SetPerson(place, place ? aj->child->valuedouble : 0, place ? aj->child->next->valuedouble : 0, err))
-      return answer(id, nullptr, err);
-    // A drag moves the person every 100 ms: only placing and removing are logged.
-    if (was != place) logchange(place ? "person placed in the cell" : "person removed");
-    return answer(id, nullptr, "");
-  }
-
   // Requests on one device.
   bool known = op == "sim_set" || op == "sim_override" || op == "sim_release" || op == "sim_source" ||
                op == "sim_fault" || op == "sim_clear";
   if (!known) return answer(id, nullptr, "unknown op \"" + op + "\"");
-  const cJSON* mj = cJSON_GetObjectItemCaseSensitive(req, "machine");
-  if (mj && (op == "sim_fault" || op == "sim_clear")) {
-    if (!cJSON_IsString(mj) || !*mj->valuestring) return answer(id, nullptr, "\"machine\" must name a machine element");
-    if (!machine_) return answer(id, nullptr, "this network has no machine");
-    std::string el = mj->valuestring;
-    const cJSON* fj = cJSON_GetObjectItemCaseSensitive(req, "fault");
-    if (op == "sim_fault") {
-      if (!machine_->Fault(el, fj, err)) return answer(id, nullptr, "fault: " + err);
-      logchange("machine " + el + ": fault " + sim_json_text(fj));
-      return answer(id, nullptr, "");
-    }
-    if (!cJSON_IsString(fj)) return answer(id, nullptr, "\"fault\" must be a machine fault name or \"all\"");
-    if (!machine_->Clear(el, fj->valuestring, err)) return answer(id, nullptr, err);
-    logchange("machine " + el + ": cleared " + std::string(fj->valuestring));
-    return answer(id, nullptr, "");
-  }
   Dev* d = FindJson(cJSON_GetObjectItemCaseSensitive(req, "node"), err);
   if (!d) return answer(id, nullptr, err);
   if (op == "sim_set" || op == "sim_override") {

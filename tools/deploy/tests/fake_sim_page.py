@@ -3,12 +3,7 @@
 plugin's diagnostics channel with its simulated devices (hello with
 allow_changes) or a standalone canworks-sim (hello with simulator:
 true). With a token it speaks TLS and the SCRAM login (fake_tls.py), without
-one plain lines, on 127.0.0.1, and records every request.
-
-With machine=FakeMachine(...) (fake_sim_machine.py) it answers sim_machine with
-the machine's snapshot at its clock (seconds since start, or fake.clock =
-lambda: t) and takes sim_fault / sim_clear with "machine", sim_panel and
-sim_person; without one sim_machine answers "no machine"."""
+one plain lines, on 127.0.0.1, and records every request."""
 
 import copy
 import json
@@ -16,20 +11,16 @@ import socketserver
 import threading
 import time
 
-from . import fake_sim_machine, fake_tls
+from . import fake_tls
 
 TOKEN = "test-token"
 CHANGE_OPS = ("sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear", "sim_scenario_start",
-              "sim_scenario_stop", "sim_panel", "sim_person")
+              "sim_scenario_stop")
 
 
 class FakeSim:
-    def __init__(self, token=TOKEN, allow_changes=True, standalone=False, simulated_network=False, interface="can0",
-                 machine=None):
+    def __init__(self, token=TOKEN, allow_changes=True, standalone=False, simulated_network=False, interface="can0"):
         self.token = token
-        self.machine = machine
-        start = time.monotonic()
-        self.clock = lambda: time.monotonic() - start
         self.allow_changes = allow_changes
         self.standalone = standalone
         self.simulated_network = simulated_network
@@ -148,32 +139,6 @@ class FakeSim:
             return err("unknown op '%s'" % op)
         if op in CHANGE_OPS and not self.standalone and not self.allow_changes:
             return err("changes not allowed")
-        if op == "sim_machine":
-            if self.machine is None:
-                return err("no machine")
-            return ok(self.machine.snapshot(self.clock()))
-        if op in ("sim_fault", "sim_clear") and "machine" in req:
-            if self.machine is None:
-                return err("this network has no machine")
-            try:
-                if op == "sim_fault":
-                    self.machine.fault(req["machine"], req.get("fault"), self.clock())
-                else:
-                    self.machine.clear(req["machine"], req.get("fault"), self.clock())
-            except fake_sim_machine.FakeMachineError as e:
-                return err(str(e))
-            return ok()
-        if op in ("sim_panel", "sim_person"):
-            if self.machine is None:
-                return err("this network has no machine")
-            try:
-                if op == "sim_panel":
-                    self.machine.panel(req.get("button"), req.get("pressed"), self.clock())
-                else:
-                    self.machine.person(req.get("at"), self.clock())
-            except fake_sim_machine.FakeMachineError as e:
-                return err(str(e))
-            return ok()
         node = req.get("node")
         if op not in ("sim_status", "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop") \
                 and "items" not in req and node not in self.devices:
@@ -182,9 +147,6 @@ class FakeSim:
             res = {"simulated_network": self.simulated_network, "interface": self.interface,
                    "devices": copy.deepcopy(list(self.devices.values())),
                    "scenarios": copy.deepcopy(list(self.scenarios.values()))}
-            if self.machine is not None:
-                res["machine"] = {"name": self.machine.m.get("name", ""), "file": "machine.json",
-                                  "faults": self.machine.faults()}
             return ok(res)
         if op == "sim_scenario_list":
             return ok({"scenarios": copy.deepcopy(list(self.scenarios.values()))})

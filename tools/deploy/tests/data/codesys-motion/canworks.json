@@ -19,7 +19,7 @@
         {
           "node_id": 4,
           "name": "x",
-          "eds": "servo402.eds",
+          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
@@ -154,7 +154,7 @@
         {
           "node_id": 5,
           "name": "y",
-          "eds": "servo402.eds",
+          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
@@ -289,7 +289,7 @@
         {
           "node_id": 6,
           "name": "z",
-          "eds": "servo402.eds",
+          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
@@ -424,7 +424,7 @@
         {
           "node_id": 10,
           "name": "io",
-          "eds": "dio16.eds",
+          "eds": "../../../../../examples/virtual-plant/canworks/dio16.eds",
           "mandatory": true,
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
@@ -458,56 +458,8 @@
               ]
             }
           ]
-        },
-        {
-          "node_id": 11,
-          "name": "panel",
-          "eds": "panel.eds",
-          "mandatory": true,
-          "heartbeat_ms": 100,
-          "heartbeat_timeout_ms": 300,
-          "status_location": "%IX10.4",
-          "tx_pdos": [
-            {
-              "number": 1,
-              "transmission": 255,
-              "event_timer_ms": 100,
-              "entries": [
-                {
-                  "index": "0x6000",
-                  "subindex": 1,
-                  "type": "UNSIGNED8",
-                  "iec_location": "%IB131"
-                },
-                {
-                  "index": "0x6000",
-                  "subindex": 2,
-                  "type": "UNSIGNED8",
-                  "iec_location": "%IB132"
-                }
-              ]
-            }
-          ],
-          "rx_pdos": [
-            {
-              "number": 1,
-              "transmission": 255,
-              "entries": [
-                {
-                  "index": "0x6200",
-                  "subindex": 1,
-                  "type": "UNSIGNED8",
-                  "iec_location": "%QB131"
-                }
-              ]
-            }
-          ]
         }
       ]
     }
-  ],
-  "diagnostics": {
-    "token_verifier": "SCRAM-SHA-256$4096:oT01WTwrBkgtyPJzbVdb5g==$xzgdUqEcL4OH2F2VhrFS9VLzKSX8VsYBUVkKkFevxKU=:v5KfG3P2R2M/5ZnIl4OGZt4C1uEUpEMoLoZZN8VD/a8=",
-    "allow_changes": true
-  }
+  ]
 }

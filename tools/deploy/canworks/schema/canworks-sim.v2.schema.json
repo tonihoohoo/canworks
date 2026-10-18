@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-sim.v2.schema.json",
   "title": "canworks simulation file, version 2",
-  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds, and may name a machine file (schema/canworks-sim-machine.v1.schema.json). Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network, the machine file and the machine elements steps and conditions name) are run by the plugin, the simulator and the deploy tool's check.",
+  "description": "Behaviour of simulated CANopen devices, one section per network of the config (docs/simulator.md). Each section holds what a version 1 file holds. Checks the schema cannot express (section names that are networks of the config, objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the network) are run by the plugin, the simulator and the deploy tool's check.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -953,11 +953,6 @@
         "expr": {
           "type": "string",
           "minLength": 1
-        },
-        "machine": {
-          "type": "string",
-          "minLength": 1,
-          "description": "A machine counter (fed, picked, placed, misplaced, dropped, pallets), sensor, fixture or joint; relay (0 closed, 1 stopping, 2 open), a panel button or lamp (0/1), or SCANNER.warning / SCANNER.protective (0/1)."
         }
       },
       "oneOf": [
@@ -976,11 +971,6 @@
                 "required": [
                   "node"
                 ]
-              },
-              {
-                "required": [
-                  "machine"
-                ]
               }
             ]
           }
@@ -991,93 +981,9 @@
             "object"
           ],
           "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "expr"
-                ]
-              },
-              {
-                "required": [
-                  "machine"
-                ]
-              }
+            "required": [
+              "expr"
             ]
-          },
-          "oneOf": [
-            {
-              "required": [
-                "eq"
-              ]
-            },
-            {
-              "required": [
-                "ne"
-              ]
-            },
-            {
-              "required": [
-                "lt"
-              ]
-            },
-            {
-              "required": [
-                "le"
-              ]
-            },
-            {
-              "required": [
-                "gt"
-              ]
-            },
-            {
-              "required": [
-                "ge"
-              ]
-            }
-          ]
-        },
-        {
-          "required": [
-            "machine"
-          ],
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "expr"
-                ]
-              },
-              {
-                "required": [
-                  "node"
-                ]
-              },
-              {
-                "required": [
-                  "object"
-                ]
-              },
-              {
-                "required": [
-                  "bit"
-                ]
-              }
-            ]
-          },
-          "properties": {
-            "eq": {
-              "type": [
-                "number",
-                "boolean"
-              ]
-            },
-            "ne": {
-              "type": [
-                "number",
-                "boolean"
-              ]
-            }
           },
           "oneOf": [
             {
@@ -1120,11 +1026,6 @@
       "properties": {
         "node": {
           "$ref": "#/$defs/device_ref"
-        },
-        "machine": {
-          "type": "string",
-          "minLength": 1,
-          "description": "A machine element, for a \"fault\" or \"clear\" step instead of \"node\"."
         },
         "at_ms": {
           "type": "integer",
@@ -1202,35 +1103,6 @@
         "log": {
           "type": "string"
         },
-        "panel": {
-          "type": "object",
-          "minProperties": 1,
-          "propertyNames": {
-            "minLength": 1
-          },
-          "additionalProperties": {
-            "type": "boolean"
-          },
-          "description": "Panel buttons of the machine by name: true presses, false releases. A button a scenario presses stays pressed until the scenario releases it."
-        },
-        "person": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "number",
-                "minimum": -1000000,
-                "maximum": 1000000
-              },
-              "minItems": 2,
-              "maxItems": 2
-            }
-          ],
-          "description": "Places the machine's person at [x, y] (mm) on the floor, or removes them (null)."
-        },
         "repeat": {
           "type": "object",
           "additionalProperties": false,
@@ -1301,16 +1173,6 @@
         },
         {
           "required": [
-            "panel"
-          ]
-        },
-        {
-          "required": [
-            "person"
-          ]
-        },
-        {
-          "required": [
             "repeat"
           ]
         }
@@ -1355,45 +1217,8 @@
         },
         {
           "if": {
-            "anyOf": [
-              {
-                "required": [
-                  "panel"
-                ]
-              },
-              {
-                "required": [
-                  "person"
-                ]
-              }
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "node"
-                  ]
-                },
-                {
-                  "required": [
-                    "machine"
-                  ]
-                },
-                {
-                  "required": [
-                    "device"
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "if": {
             "required": [
-              "machine"
+              "device"
             ]
           },
           "then": {
@@ -1416,26 +1241,40 @@
             },
             "properties": {
               "fault": {
-                "$ref": "#/$defs/machine_fault"
+                "$ref": "#/$defs/raw_fault"
               },
               "clear": {
                 "enum": [
-                  "jam",
-                  "stuck",
-                  "feeder",
-                  "misaligned_mm",
+                  "stop",
+                  "wrong_dlc",
                   "all"
                 ]
               }
             }
           },
           "else": {
-            "if": {
-              "required": [
-                "device"
-              ]
+            "properties": {
+              "fault": {
+                "$ref": "#/$defs/fault"
+              },
+              "clear": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "emcy",
+                  "heartbeat",
+                  "power",
+                  "sdo_abort",
+                  "sdo_delay",
+                  "refuse_write_operational",
+                  "tpdo_stop",
+                  "identity",
+                  "device_type",
+                  "drive_input"
+                ]
+              }
             },
-            "then": {
+            "if": {
               "anyOf": [
                 {
                   "required": [
@@ -1447,75 +1286,12 @@
                     "clear"
                   ]
                 }
-              ],
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "node"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "machine"
-                    ]
-                  }
-                ]
-              },
-              "properties": {
-                "fault": {
-                  "$ref": "#/$defs/raw_fault"
-                },
-                "clear": {
-                  "enum": [
-                    "stop",
-                    "wrong_dlc",
-                    "all"
-                  ]
-                }
-              }
+              ]
             },
-            "else": {
-              "properties": {
-                "fault": {
-                  "$ref": "#/$defs/fault"
-                },
-                "clear": {
-                  "type": "string",
-                  "enum": [
-                    "all",
-                    "emcy",
-                    "heartbeat",
-                    "power",
-                    "sdo_abort",
-                    "sdo_delay",
-                    "refuse_write_operational",
-                    "tpdo_stop",
-                    "identity",
-                    "device_type",
-                    "drive_input"
-                  ]
-                }
-              },
-              "if": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "fault"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "clear"
-                    ]
-                  }
-                ]
-              },
-              "then": {
-                "required": [
-                  "node"
-                ]
-              }
+            "then": {
+              "required": [
+                "node"
+              ]
             }
           }
         },
@@ -1615,43 +1391,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/scenario"
           }
-        },
-        "machine": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The machine file of this network, relative to this file (docs/simulator.md, Simulated machine)."
-        }
-      }
-    },
-    "machine_fault": {
-      "type": "object",
-      "description": "A fault of a machine element: jam (a joint), stuck (a sensor), slip (the tool), feeder and misaligned_mm (a conveyor with a feeder).",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "maxProperties": 1,
-      "properties": {
-        "jam": {
-          "const": true
-        },
-        "stuck": {
-          "enum": [
-            "on",
-            "off"
-          ]
-        },
-        "slip": {
-          "const": true
-        },
-        "feeder": {
-          "enum": [
-            "stop",
-            "empty"
-          ]
-        },
-        "misaligned_mm": {
-          "type": "number",
-          "minimum": -1000,
-          "maximum": 1000
         }
       }
     },

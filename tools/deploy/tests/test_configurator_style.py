@@ -72,8 +72,8 @@ class StateColours(unittest.TestCase):
     def test_no_raw_colours_outside_the_tokens(self):
         """A rule colours with tokens only: hex, rgb() or a colour word in a
         declaration (not a token's definition) fails. Not state colours, so
-        allowed: shadows, the bit-field series colours (.raw-cN), the plot's
-        selection, and the 3D machine stage's overlay (always dark)."""
+        allowed: shadows, the bit-field series colours (.raw-cN) and the plot's
+        selection."""
         static = CSS.parent
         raw = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|\b(?:red|green|orange|yellow|lime|blue)\b")
         bad = []
@@ -81,7 +81,7 @@ class StateColours(unittest.TestCase):
             css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
             for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
                 selector = " ".join(selector.split())
-                if selector.startswith((".machine-", ".uplot")) or re.fullmatch(r"\.raw-c\d+", selector):
+                if selector.startswith(".uplot") or re.fullmatch(r"\.raw-c\d+", selector):
                     continue
                 for decl in body.split(";"):
                     prop, _, value = decl.partition(":")

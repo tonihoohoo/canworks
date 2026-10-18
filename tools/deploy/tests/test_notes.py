@@ -18,7 +18,7 @@ from .helpers import REPO, tmpdir
 
 SERVO = os.path.join(REPO, "config", "cia402-drive", "servo402.eds")
 RTD = os.path.join(REPO, "config", "rtd-sensor", "rtd8.eds")
-DIO = os.path.join(REPO, "examples", "gantry-cell", "canworks", "dio16.eds")
+DIO = os.path.join(REPO, "examples", "virtual-plant", "canworks", "dio16.eds")
 BUILTIN = os.path.join(REPO, "tools", "deploy", "canworks", "builtin_notes")
 
 # A small valve: two VARs, a RECORD, a bit field, an array of pressures.
