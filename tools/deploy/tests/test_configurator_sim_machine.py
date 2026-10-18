@@ -113,6 +113,8 @@ class Offline(Machine):
 
     def test_sim_machine_is_a_page_request(self):
         self.assertIn("sim_machine", simulation.OPS)
+        self.assertIn("sim_panel", simulation.OPS)
+        self.assertIn("sim_person", simulation.OPS)
 
 
 class Live(Machine):
@@ -156,6 +158,27 @@ class Live(Machine):
             self.assertEqual(fake.sent("sim_clear")[0]["fault"], "jam")
             self.assertFalse(self.ok("POST", "/api/sim/machine", {})["machine"]["joints"]["z"]["fault"])
 
+    def test_panel_and_person_through_request(self):
+        with fake_sim_page.FakeSim(machine=FakeMachine(self.machine)) as fake:
+            fake.clock = lambda: 2.0
+            self.use(fake)
+            self.ok("POST", "/api/sim/request", {"op": "sim_panel", "button": "estop", "pressed": True, "network": "motion"})
+            sent = fake.sent("sim_panel")[0]
+            self.assertEqual((sent["button"], sent["pressed"]), ("estop", True))
+            self.ok("POST", "/api/sim/request", {"op": "sim_person", "at": [300, 1300], "network": "motion"})
+            self.assertEqual(fake.sent("sim_person")[0]["at"], [300, 1300])
+            m = self.ok("POST", "/api/sim/machine", {})["machine"]
+            self.assertTrue(m["panel"]["buttons"]["estop"])
+            self.assertEqual(m["safety"]["relay"], "stopping")
+            self.assertEqual(m["safety"]["scanners"]["scanner"], {"warning": True, "protective": False})
+            self.assertIn("sto", m["joints"]["x"])
+            status, data, _ = self.request("POST", "/api/sim/request", {"op": "sim_panel", "button": "jog", "pressed": True})
+            self.assertEqual(status, 422)
+            self.assertIn("the machine has no panel button \"jog\"", data["error"])
+            status, data, _ = self.request("POST", "/api/sim/request", {"op": "sim_person", "at": "here"})
+            self.assertEqual(status, 422)
+            self.assertIn("\"at\" must be [x, y] in mm, or null", data["error"])
+
     def test_read_only_runtime_refuses_machine_faults(self):
         with fake_sim_page.FakeSim(allow_changes=False, machine=FakeMachine(self.machine)) as fake:
             self.use(fake)
@@ -166,6 +189,10 @@ class Live(Machine):
             self.assertEqual(status, 422)
             self.assertIn("changes not allowed", data["error"])
             self.assertFalse(self.ok("POST", "/api/sim/machine", {})["machine"]["joints"]["z"]["fault"])
+            for req in ({"op": "sim_panel", "button": "estop", "pressed": True}, {"op": "sim_person", "at": None}):
+                status, data, _ = self.request("POST", "/api/sim/request", req)
+                self.assertEqual(status, 422)
+                self.assertIn("changes not allowed", data["error"])
 
     def test_standalone_simulator(self):
         with fake_sim_page.FakeSim(token="", standalone=True, machine=FakeMachine(self.machine)) as fake:

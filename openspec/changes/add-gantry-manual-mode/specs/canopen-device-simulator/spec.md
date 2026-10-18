@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Safe torque off input of the drive model
-The CiA 402 drive model SHALL have a safe torque off input, which a machine's safety relay sets. While it is on, the drive SHALL be in "switch on disabled" with "voltage enabled" off, SHALL refuse to go further in the power state machine, SHALL stop following the demand, and its actual velocity SHALL fall to 0 at a coast deceleration that a drive setting gives. It SHALL send no EMCY for it, and the device's simulator status SHALL show it. When the input goes off, the drive SHALL stay in "switch on disabled" until the master runs the enable sequence again.
+The CiA 402 drive model SHALL have a safe torque off input, which a machine's safety relay sets. While it is on, the drive SHALL be in "switch on disabled" with "voltage enabled" off, SHALL refuse to go further in the power state machine, SHALL stop following the demand, and its actual velocity SHALL fall to 0 at the drive model's maximum acceleration. It SHALL send no EMCY for it, and the device's simulator status SHALL show it. When the input goes off, the drive SHALL stay in "switch on disabled" until the master runs the enable sequence again.
 
 #### Scenario: Power stage off while enabled
 - **WHEN** the drive is in operation enabled and the safe torque off input turns on

@@ -8,8 +8,8 @@ A machine file SHALL be able to have an operator panel of buttons and lamps. Eac
 - **THEN** node 11 sends its TPDO with bit 1 of 0x6000:1 on, and the PLC's input for that bit turns on
 
 #### Scenario: Lamp lit by the PLC
-- **WHEN** the PLC sets node 11 0x6200:1 bit 0, the `manual` lamp's output
-- **THEN** `sim_machine` reports the `manual` lamp as lit
+- **WHEN** the PLC sets node 11 0x6200:1 bit 0, the `manual_lamp` lamp's output
+- **THEN** `sim_machine` reports the `manual_lamp` lamp as lit
 
 ### Requirement: Pressing panel buttons
 The simulator SHALL answer a `sim_panel` request with `network`, `button` and `pressed`, which needs `allow_changes`. A momentary button pressed with `sim_panel` SHALL stay pressed for 500 ms and SHALL then release by itself unless another press arrives first; a release SHALL end it at once. A switch and a latching button SHALL keep the state the last request gave them. An unknown button SHALL be refused naming it.
@@ -64,7 +64,7 @@ Scenario steps SHALL be able to set panel buttons (`"panel": {"jog_x_plus": true
 
 #### Scenario: Jog in a test
 - **WHEN** a test scenario sets `manual` and `jog_x_plus` on, waits 2 s and sets `jog_x_plus` off
-- **THEN** joint `x` has moved in the positive direction and stopped, and the scenario can expect the `manual` lamp lit
+- **THEN** joint `x` has moved in the positive direction and stopped, and the scenario can expect the `manual_lamp` lamp lit
 
 ## MODIFIED Requirements
 

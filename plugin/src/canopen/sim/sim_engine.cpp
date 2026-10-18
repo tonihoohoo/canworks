@@ -37,6 +37,7 @@ DriveInputs merged(const DriveInputs& a, const DriveInputs& b) {
   m.positive_limit = a.positive_limit || b.positive_limit;
   m.negative_limit = a.negative_limit || b.negative_limit;
   m.home_switch = a.home_switch || b.home_switch;
+  m.safe_torque_off = a.safe_torque_off || b.safe_torque_off;
   return m;
 }
 
@@ -268,6 +269,7 @@ class Simulator::MachineIoImpl : public MachineIo {
     v.fault = m.state() == DriveModel::State::Fault || m.state() == DriveModel::State::FaultReactionActive;
     v.error_code = m.error_code();
     v.torque = m.actual_torque();
+    v.safe_torque_off = m.inputs.safe_torque_off;
     return v;
   }
   void set_drive(unsigned node, const DriveInputs& in, double load) override {
@@ -976,6 +978,7 @@ bool Simulator::StartMachine(std::vector<std::string>& errors) {
   machine_.reset(new MachineModel(spec, *machine_io_));
   tick_ms_ = std::min(tick_ms_, spec.tick_ms);
   machine_last_ = machine_next_ = Clock::now();
+  machine_relay_ = MachineModel::Relay::Closed;
   Log(Host::Level::Info, where + " \"" + spec.name + "\" (" + file_.machine + "): " + std::to_string(spec.joints.size()) +
                              " joints, " + std::to_string(spec.conveyors.size()) + " conveyors, " +
                              std::to_string(spec.sensors.size()) + " sensors, " + std::to_string(spec.fixtures.size()) +
@@ -1001,6 +1004,13 @@ void Simulator::StepMachine(Clock::time_point now) {
   double us = seconds(Clock::now() - t0) * 1e6;
   machine_step_us_ = machine_step_us_ ? machine_step_us_ * 0.99 + us * 0.01 : us;
   machine_step_max_us_ = std::max(machine_step_max_us_, us);
+  if (machine_->relay() != machine_relay_) {
+    machine_relay_ = machine_->relay();
+    static const char* what[] = {"closed", "tripped: the drives have the stop delay to stop",
+                                 "open: the drives are in safe torque off"};
+    Log(Host::Level::Info, (file_.section.empty() ? std::string("machine") : "network " + file_.section + ": machine") +
+                               ": safety relay " + what[static_cast<int>(machine_relay_)]);
+  }
 }
 
 bool Simulator::AllOperational() const {
@@ -1511,6 +1521,17 @@ bool Simulator::StepRun(Run& r, Clock::time_point now) {
     Log(Host::Level::Info, "scenario " + r.sc.name + ": " + s.log);
     return advance();
   }
+  if (a == "panel" || a == "person") {
+    if (!machine_) return fail("this network has no machine");
+    std::string err;
+    if (a == "panel") {
+      for (const auto& kv : s.panel)
+        if (!machine_->Press(kv.first, kv.second, false, err)) return fail(err);
+    } else if (!machine_->SetPerson(s.person, s.person_at[0], s.person_at[1], err)) {
+      return fail(err);
+    }
+    return advance();
+  }
   if (a == "repeat") {
     Run::Frame nf;
     nf.steps = &s.steps;
@@ -1684,6 +1705,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddBoolToObject(o, "conflict", d.taken);
       cJSON_AddBoolToObject(o, "drive", d.drive != nullptr);
       if (d.drive) cJSON_AddNumberToObject(o, "oversized_steps", static_cast<double>(d.drive->oversized_steps()));
+      if (d.drive && d.drive->inputs.safe_torque_off) cJSON_AddBoolToObject(o, "safe_torque_off", true);
       cJSON* fa = cJSON_AddArrayToObject(o, "faults");
       for (const auto& kv : d.active) {
         cJSON* j = cJSON_Parse(kv.second.c_str());
@@ -1809,6 +1831,36 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
     for (const auto& r : runs_) running = running || (r->sc.name == nj->valuestring && !r->done);
     if (!running) return answer(id, nullptr, std::string("scenario ") + nj->valuestring + " is not running");
     StopScenario(nj->valuestring);
+    return answer(id, nullptr, "");
+  }
+
+  if (op == "sim_panel" || op == "sim_person") {
+    if (!machine_) return answer(id, nullptr, "this network has no machine");
+    if (op == "sim_panel") {
+      const cJSON* bj = cJSON_GetObjectItemCaseSensitive(req, "button");
+      const cJSON* pj = cJSON_GetObjectItemCaseSensitive(req, "pressed");
+      if (!cJSON_IsString(bj)) return answer(id, nullptr, "\"button\" must name a panel button");
+      if (!cJSON_IsBool(pj)) return answer(id, nullptr, "\"pressed\" must be true or false");
+      double was = 0;
+      machine_->Value(bj->valuestring, was);
+      if (!machine_->Press(bj->valuestring, cJSON_IsTrue(pj), true, err)) return answer(id, nullptr, err);
+      // Presses repeat every 200 ms while a key is held: only the changes are logged.
+      if ((was != 0) != cJSON_IsTrue(pj))
+        logchange("panel " + std::string(bj->valuestring) + (cJSON_IsTrue(pj) ? " pressed" : " released"));
+      return answer(id, nullptr, "");
+    }
+    const cJSON* aj = cJSON_GetObjectItemCaseSensitive(req, "at");
+    bool place = aj && !cJSON_IsNull(aj);
+    if (place && (!cJSON_IsArray(aj) || cJSON_GetArraySize(aj) != 2 || !cJSON_IsNumber(aj->child) ||
+                  !cJSON_IsNumber(aj->child->next) || !std::isfinite(aj->child->valuedouble) ||
+                  !std::isfinite(aj->child->next->valuedouble)))
+      return answer(id, nullptr, "\"at\" must be [x, y] in mm, or null");
+    if (!aj) return answer(id, nullptr, "\"at\" must be [x, y] in mm, or null");
+    bool was = machine_->person();
+    if (!machine_->SetPerson(place, place ? aj->child->valuedouble : 0, place ? aj->child->next->valuedouble : 0, err))
+      return answer(id, nullptr, err);
+    // A drag moves the person every 100 ms: only placing and removing are logged.
+    if (was != place) logchange(place ? "person placed in the cell" : "person removed");
     return answer(id, nullptr, "");
   }
 

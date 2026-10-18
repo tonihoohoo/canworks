@@ -16,11 +16,11 @@ What is there today (main at f3701ba):
 ## Decisions
 
 ### The panel is an ordinary I/O module on the bus
-Node 11 `panel` is the same made-up 16-in / 16-out CiA 401 device as node 10, shipped under its own file name `panel.eds` so it gets its own notes file (`panel.eds.notes.json`, device notes are per EDS file) naming each bit. On real cells, panel buttons are usually wired to a generic I/O module, and the button names live in the program. The notes and bit channels (`add-bit-channels`) give the same names in the configurator, the trace and the generated declarations.
+Node 11 `panel` is the same made-up 16-in / 16-out CiA 401 device as node 10, shipped under its own file name `panel.eds` so it gets its own notes file (`panel.eds.notes.json`, device notes are per EDS file) naming each bit. On real cells, panel buttons are usually wired to a generic I/O module, and the button names live in the program. The notes give the same names in the configurator and the trace; the program decodes the input bytes into BOOLs itself, and bit channels (`add-bit-channels`) can later give the names in the generated declarations.
 
 The other ways considered: writing PLC variables directly skips the bus and would not work the same on a real machine. A plain CAN joystick device would make the program decode frames, and is left for analogue jog later. Using node 10's second byte mixes machine wiring with panel wiring.
 
-Panel bits (TPDO1 maps both input bytes, event-driven; RPDO1 maps output byte 1):
+Panel bits (TPDO1 maps both input bytes, event-driven with a 100 ms event timer; RPDO1 maps output byte 1):
 
 | Object | Bit | Name | Kind | Key |
 |---|---|---|---|---|
@@ -37,9 +37,9 @@ Panel bits (TPDO1 maps both input bytes, event-driven; RPDO1 maps output byte 1)
 | 0x6000:2 | 5 | `reset` | momentary | R |
 | 0x6000:2 | 6 | `enable` | momentary | Space |
 | 0x6000:2 | 7 | `estop` (auxiliary contact, on while pressed) | latching | E |
-| 0x6200:1 | 0-3 | lamps `manual`, `homed`, `fault`, `auto` | lamp | |
+| 0x6200:1 | 0-3 | lamps `manual_lamp`, `homed_lamp`, `fault_lamp`, `auto_lamp` | lamp | |
 
-The safety relay's feedback and the scanner's warning field come in on node 10, the machine's I/O module, which has free bits: 0x6000:1 bit 6 `safety_ok` (on while the relay is closed) and bit 7 `scanner_warning` (on while someone is in the warning field). With 16 inputs used, the panel has no separate relay reset button. `reset` is wired to both the relay's reset input and the PLC, as on many small cells: one press resets the relay and the drives.
+The safety relay's feedback and the scanner's warning field come in on node 10, the machine's I/O module, which has free bits: 0x6000:1 bit 6 `safety_ok` (on while the relay is closed) and bit 7 `scanner_warning` (on while someone is in the warning field). Node 10's TPDO gets a 100 ms event timer too: the feedback is already on when the module starts, and a TPDO sent only on change would never carry it. With 16 inputs used, the panel has no separate relay reset button. `reset` is wired to both the relay's reset input and the PLC, as on many small cells: one press resets the relay and the drives.
 
 The keys live in the machine file, so another machine can use another map. A key the view needs for itself (Tab, Escape) is refused by the check.
 
@@ -52,29 +52,29 @@ Alternative: plain `sim_override` from the view, with no plugin change. It was r
 
 ### A virtual safety relay in the machine model, not in the PLC
 On a real cell the emergency stop and the scanner do not go through the standard PLC. They are wired to a safety relay that removes the drives' power, and the PLC only reads the relay's feedback to react properly. The machine model copies that. A `safety` section has:
-- `relay`: its inputs (emergency stop buttons and scanner protective fields, by name), the reset button, `stop_delay_ms` (stop category 1, default 300), the joints it switches off (safe torque off on their drives) and the conveyors it cuts, and the feedback input binding;
+- `relay`: its inputs (emergency stop buttons and scanner protective fields, by name), the reset button, `stop_delay_ms` (stop category 1, default 300), the joints it switches off (safe torque off on their drives) and the conveyors it cuts (both default to all), and the feedback input binding;
 - `scanners`: per scanner, a name, a mounting point, and a warning field and a protective field as boxes on the floor, plus the warning output binding;
 - a joint's `brake: true` (here on Z), so the joint holds when its drive's power stage is off.
 
-Sequence on a trip: feedback off at once; the PLC has `stop_delay_ms` to stop the axes; then safe torque off on every listed drive and the conveyor stops. A braked joint holds, and the others coast down at the drive model's coast deceleration. A part on the belt stops with it, and the gripper keeps its state (a pneumatic valve holds its position). The relay closes on a rising edge of its reset button only while every emergency stop is released and every protective field is clear. There is no automatic restart, as for a scanner guarding an opening a person can walk through.
+Sequence on a trip: feedback off at once; the PLC has `stop_delay_ms` to stop the axes; then safe torque off on every listed drive and the conveyor stops. A braked joint holds, and the others coast down at the drive model's maximum acceleration. A part on the belt stops with it, and the gripper keeps its state (a pneumatic valve holds its position). The relay closes on a rising edge of its reset button only while every emergency stop is released and every protective field is clear. There is no automatic restart, as for a scanner guarding an opening a person can walk through.
 
 The gantry's scanner sits at the front right corner of the frame and covers the open front and right sides of the fence. Its warning field is 1200 mm deep and its protective field 600 mm.
 
 The person is a point on the floor with a 300 mm radius. `sim_person {network, at: [x, y] | null}` places or removes them (`allow_changes`), and a scenario step `person` does the same. Several people are not modelled.
 
-The drive model's new safe torque off input sits next to the existing switch inputs. While it is on, operation is impossible: the statusword drops to "switch on disabled" with "voltage enabled" off, the demand stops, and the actual velocity falls at the coast deceleration (a drive setting, default 2000 units/s² scaled by counts). There is no EMCY, as many drives only report safe torque off in a status. `sim_status` shows it. When the input goes off, the drive stays in "switch on disabled" until the master runs the enable sequence.
+The drive model's new safe torque off input sits next to the existing switch inputs. While it is on, operation is impossible: the statusword drops to "switch on disabled" with "voltage enabled" off, the demand stops, and the actual velocity falls at the drive model's `max_acceleration` (no new setting). There is no EMCY, as many drives only report safe torque off in a status. `sim_status` shows it. When the input goes off, the drive stays in "switch on disabled" until the master runs the enable sequence.
 
 ### Enabling is the program's choice
 `enable` (Space) is a panel button like the others. The example program has `needEnable : BOOL := FALSE`. When it is TRUE, the jog buttons only act while `enable` is held as well, as with a real enabling switch. When FALSE, jogging needs only the jog keys, which is easier on a keyboard.
 
 ### The example program in MANUAL
 - **Entering MANUAL** from any step: every axis goes to the jog logic with its jog velocity starting from the axis's actual velocity, so a running move ramps down to a stop (deceleration 1000 mm/s²) instead of the set-point freezing. The conveyor stops. The gripper keeps its state.
-- **Jog:** per axis, the target velocity is ±20 mm/s (±150 mm/s with `fast`) while exactly one of its two buttons is held, and 0 otherwise. The velocity ramps at 1000 mm/s². The set-point advances by velocity × cycle time and goes to `CO402_CyclicPosition` with `MaxVelocity` 200 mm/s. Several axes can jog at once.
+- **Jog:** per axis, the target velocity is ±20 mm/s (±150 mm/s with `fast`) while exactly one of its two buttons is held, and 0 otherwise. The velocity ramps at 1000 mm/s². The set-point advances by velocity × cycle time and goes to `CO402_CyclicPosition` with `MaxVelocity` 700 mm/s, so a move that is still running when MANUAL comes can ramp down from its speed. Several axes can jog at once.
 - **Soft limits:** once homed, the set-point stays inside the joint's travel (0-900, 0-600, 0-300 mm), and the ramp starts slowing early enough to stop at the limit. Before homing, jogging is limited to 20 mm/s with no soft limits; the limit switches and hard stops still stop and fault the drive as on a real machine.
 - **Buttons:** `gripper` and `conveyor` toggle on a rising edge. `home` runs the homing sequence (Z, then X and Y). `reset` resets faulted drives (no automatic reset in MANUAL).
-- **Back to AUTO:** the program waits with the `auto` lamp off until `start`. Then, if not homed, it homes; otherwise it goes to step 95 (recover). `stop` in AUTO clears `start`, so the cell stops after the part in hand. A part placed by hand is not counted; the pallet slot count stays the program's.
-- **Lamps:** `manual` in MANUAL, `homed` once homed, `fault` while any drive is in FAULT or the relay is open (blinking at 1 Hz while waiting for reset), `auto` while the sequence runs.
-- **Safety stop:** when `safety_ok` drops, in any mode, every axis goes to the jog logic with target velocity 0 and the quick-stop deceleration of 4000 mm/s², so the axes stop within the 300 ms delay from 600 mm/s. The conveyor output goes off and the sequence remembers where it was. When `safety_ok` comes back, the program powers the drives again (MC_Power off and on) and stays stopped. AUTO needs Start (then step 95, recover); MANUAL jogs at once. The homing is kept, because the drives keep their position with the power stage off.
+- **Back to AUTO:** the program waits with the `auto` lamp off until `start`. Then, if not homed, it homes; otherwise it goes to step 95 (recover), except in the part release (65) and the pallet change (80, 85), which go on where they were. `stop` in AUTO clears `start`, so the cell stops after the part in hand. A part placed by hand is not counted; the pallet slot count stays the program's.
+- **Lamps:** `manual_lamp` in MANUAL, `homed_lamp` once homed, `fault_lamp` while any drive is in FAULT and blinking at 1 Hz while the relay is not closed, `auto_lamp` while the sequence runs.
+- **Safety stop:** when `safety_ok` drops, in any mode, every axis goes to the jog logic with target velocity 0 and the quick-stop deceleration of 4000 mm/s², so the axes stop within the 300 ms delay from 600 mm/s. The conveyor output goes off and the sequence remembers where it was. The program keeps MC_Power enabled for 250 ms for that ramp, then disables it. When `safety_ok` comes back, it enables MC_Power again and stays stopped. AUTO needs Start (then step 95, recover); MANUAL jogs at once. The homing is kept, because the drives keep their position with the power stage off.
 - **Warning field:** while `scanner_warning` is on in AUTO, the XY and Z velocities are cut to 25 % for new moves.
 
 ### The Machine view
@@ -90,7 +90,7 @@ The drive model's new safe torque off input sits next to the existing switch inp
 - **Latency:** key → configurator → diagnostics channel → panel TPDO → PLC scan (10 ms) → RPDO → drive on SYNC. Expected tens of milliseconds, which is enough for a jog. A manual task measures it on the local simulator runtime.
 - **The drawing delay:** the view draws a fixed delay behind the newest snapshot, so on screen the response looks a little slower than the PLC's. That is accepted.
 - **Safety wording:** the relay, scanner and emergency stop are models for trying a program. The docs say plainly that nothing in canworks is a safety function and that a real cell needs certified safety devices.
-- **Dependency:** the example's BOOL names come from bit channels. If `add-bit-channels` changes shape, only the example's declarations change.
+- **Bit channels:** the example decodes its bytes with masks. When `add-bit-channels` lands, the example can move to named bit channels; only its declarations change.
 
 ## Migration Plan
 

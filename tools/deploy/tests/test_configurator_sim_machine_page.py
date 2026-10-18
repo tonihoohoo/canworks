@@ -12,6 +12,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 
 from canworks import diag
@@ -204,6 +205,51 @@ class Offline(Base):
         dx = (jammed["joints"]["x"]["position"] - moving["joints"]["x"]["position"]) / 1000
         self.assertAlmostEqual(r[1]["bend"] - r[0]["bend"], dx / 2, delta=1e-6)
 
+    def test_scanner_fields_person_and_stack_light(self):
+        fm = FakeMachine(self.machine)
+        clear = fm.snapshot(1.0)
+        fm.person([300, 1300], 1.0)
+        warning = fm.snapshot(1.1)
+        fm.person([300, 1000], 1.1)
+        fm.snapshot(1.2)
+        tripped = fm.snapshot(1.6)
+        r = self.scene("""
+          const ms = S.buildMachine(m);
+          const out = { names: Object.keys(ms.named).filter((n) => /^(scanner|field|person)/.test(n)) };
+          const v = new S.THREE.Vector3();
+          ms.named['scanner:scanner'].getWorldPosition(v);
+          out.scanner = ms.toMachine(v);
+          out.poses = arg.map((s) => {
+            ms.pose(s);
+            ms.named.person.getWorldPosition(v);
+            const f = (n) => ms.named[n].userData.on;
+            return { person: ms.named.person.visible ? ms.toMachine(v).slice(0, 2) : null,
+              warning: f('field:scanner:warning:0'), protective: f('field:scanner:protective:0'),
+              opacity: [ms.named['field:scanner:warning:0'].material.opacity, ms.named['field:scanner:protective:0'].material.opacity],
+              stack: ['green', 'amber', 'red'].map((n) => ms.lamps.stack[n].userData.on) };
+          });
+          // The floor under a ray straight down at machine (500, 1200).
+          const ray = new S.THREE.Ray(ms.fromMachine(500, 1200, 3000), new S.THREE.Vector3(0, -1, 0));
+          out.floor = ms.floorPoint(ray);
+          out.sky = ms.floorPoint(new S.THREE.Ray(ms.fromMachine(0, 0, 3000), new S.THREE.Vector3(0, 1, 0)));
+          return out;""", [clear, warning, tripped])
+        self.assertEqual(sorted(r["names"]), sorted(
+            ["scanner:scanner", "person", "person-footprint"] +
+            ["field:scanner:%s:%d" % (f, i) for f in ("warning", "protective") for i in (0, 1)]))
+        for a, b in zip(r["scanner"][:2], self.machine["safety"]["scanners"][0]["at"]):
+            self.assertAlmostEqual(a, b, delta=0.01)
+        c, w, t = r["poses"]
+        self.assertEqual((c["person"], c["warning"], c["protective"]), (None, False, False))
+        self.assertEqual((w["warning"], w["protective"]), (True, False))
+        self.assertGreater(w["opacity"][0], c["opacity"][0])  # brighter while occupied
+        for a, b in zip(w["person"], [300, 1300]):
+            self.assertAlmostEqual(a, b, delta=0.01)
+        self.assertEqual((t["warning"], t["protective"]), (True, True))
+        self.assertEqual(c["stack"], [True, False, False])
+        self.assertEqual(t["stack"], [False, False, True])  # red while the relay is open
+        self.assertEqual(r["floor"], [500, 1200])
+        self.assertIsNone(r["sky"])
+
     def test_interpolation_over_uneven_answers(self):
         # Answers 20 ms and 50 ms apart in turn, each 5-25 ms late; the tool
         # moves at 200 mm/s; drawn at 60 frames a second for 3 s.
@@ -277,10 +323,15 @@ class Offline(Base):
             self.assertIn("No drive", self.text(row + ' [data-k="state"]'))
             self.assertEqual(self.text(row + ' [data-k="position"]'), "0.00 mm · 0 counts")
         self.assertEqual(pg.eval_on_selector_all("[data-machine-io]", "els => els.map(e => e.dataset.machineIo + ':' + e.dataset.on)"),
-                         ["Gripper close:0", "Part gripped:0", "infeed run:0", "part_at_pick:0", "pallet change:0", "pallet ready:0"])
+                         ["Gripper close:0", "Part gripped:0", "infeed run:0", "part_at_pick:0", "pallet change:0", "pallet ready:0",
+                          "Safety relay closed:0", "scanner warning:0"])
         self.assertEqual(self.text('[data-machine-counter="placed"]'), "0")
         self.assertTrue(pg.is_disabled('[data-machine-fault="z:jam"]'))
         self.assertIn("offline", self.text('[data-machine="fault-reason"]'))
+        self.assertTrue(pg.is_disabled('[data-machine-button="estop"]'))
+        self.assertEqual(self.text('[data-machine="panel-reason"]'), "The machine is offline: the panel needs the running machine.")
+        self.assertEqual(self.text('[data-machine="relay"]'), "–")
+        self.assertEqual(pg.locator("[data-machine-button]").count(), len(self.machine["panel"]["buttons"]))
         # Machine is the fourth tab of Simulation, not a sidebar item.
         self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.innerText)"),
                          ["Live values", "Simulation file", "Scenarios", "Machine"])
@@ -388,6 +439,238 @@ class ReadOnly(Base):
         buttons = pg.eval_on_selector_all("[data-machine-fault], [data-machine-clear]", "els => els.map(e => [e.disabled, e.title])")
         self.assertGreater(len(buttons), 8)
         self.assertTrue(all(d and "changes are not allowed" in t for d, t in buttons), buttons)
+
+
+class RunningClock(Base):
+    """The fake's clock runs from 3 s, so every answer is a new snapshot and
+    momentary presses let go 500 ms after the last repeat."""
+
+    fake = True
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        start = time.monotonic()
+        cls.sim.clock = lambda: 3.0 + time.monotonic() - start
+
+
+class Panel(RunningClock):
+    """add-gantry-manual-mode: the Panel block, keys on the stage, the
+    emergency stop and relay, the Person tool."""
+
+    def setUp(self):
+        self.wait_state("live")
+        self.blur()
+        self.page.evaluate("() => window.machineView.releaseAll()")
+        self.page.wait_for_timeout(100)
+
+    def blur(self):
+        self.page.click('[data-machine="panel"] h3')
+
+    def focus_stage(self):
+        self.page.click('[data-machine="stage"]', position={"x": 30, "y": 30})
+        self.page.wait_for_selector('[data-machine="keyboard"]:visible')
+
+    def presses(self, button, since=0):
+        return [r["pressed"] for r in self.sim.sent("sim_panel")[since:] if r.get("button") == button]
+
+    def wait_for(self, fn, ms=3000):
+        for _ in range(ms // 20):
+            if fn():
+                return True
+            self.page.wait_for_timeout(20)
+        return fn()
+
+    def test_a_block_from_the_machine_file(self):
+        pg = self.page
+        buttons = pg.eval_on_selector_all("[data-machine-button]", "els => els.map(e => [e.dataset.machineButton, e.dataset.kind, "
+                                          "e.querySelector('.machine-btn-label').innerText, (e.querySelector('kbd') || {}).innerText || ''])")
+        file_buttons = self.machine["panel"]["buttons"]
+        self.assertEqual(sorted(b[0] for b in buttons), sorted(b["name"] for b in file_buttons))
+        self.assertEqual(buttons[0], ["estop", "latching", "Emergency stop", "E"])  # first and large
+        self.assertEqual(buttons[1], ["manual", "switch", "Manual", "M"])
+        by = {b[0]: b for b in buttons}
+        self.assertEqual(by["jog_x_plus"][2:], ["Jog X+", "→"])
+        self.assertEqual(by["jog_z_up"][2:], ["Jog Z up", "Page Up"])
+        self.assertEqual(by["enable"][3], "Space")
+        self.assertIn("machine-estop", pg.get_attribute('[data-machine-button="estop"]', "class"))
+        self.assertEqual(self.text('[data-machine-button="estop"] [data-k="state"]'), "Released")
+        self.assertEqual(pg.eval_on_selector_all("[data-machine-lamp]", "els => els.map(e => e.dataset.machineLamp)"),
+                         ["manual_lamp", "homed_lamp", "fault_lamp", "auto_lamp"])
+        self.assertEqual(self.text('[data-machine="relay"]'), "Closed")
+        self.assertEqual(self.text('[data-machine="panel-reason"]'), "")
+        self.assertFalse(pg.is_disabled('[data-machine-button="jog_x_plus"]'))
+        self.assertTrue(pg.is_hidden('[data-machine-tool="person"]'))  # no WebGL: no floor to click
+        self.assertIn("Click the 3D view", self.text('[data-machine="keys-hint"]'))
+        self.assertTrue(pg.is_hidden('[data-machine="keyboard"]'))
+
+    def test_held_key_repeats_and_releases_on_blur(self):
+        pg = self.page
+        self.focus_stage()
+        self.assertIn("kbd-on", pg.get_attribute('[data-machine="stage"]', "class"))
+        n = len(self.sim.sent("sim_panel"))
+        for _ in range(6):  # the browser's own repeat: ignored
+            pg.keyboard.down("ArrowRight")
+        pg.wait_for_timeout(900)
+        got = self.presses("jog_x_plus", n)
+        self.assertTrue(all(got), got)
+        self.assertTrue(4 <= len(got) <= 7, got)  # at once, then every 200 ms
+        self.assertTrue(self.sim.machine.buttons["jog_x_plus"])  # held past the 500 ms lease
+        pg.wait_for_selector('[data-machine-button="jog_x_plus"].on')
+        self.blur()
+        self.assertTrue(pg.is_hidden('[data-machine="keyboard"]'))
+        self.assertTrue(self.wait_for(lambda: self.presses("jog_x_plus", n)[-1:] == [False]))
+        count = len(self.presses("jog_x_plus", n))
+        pg.wait_for_timeout(450)
+        self.assertEqual(len(self.presses("jog_x_plus", n)), count)  # no more repeats
+        self.assertFalse(self.sim.machine.buttons["jog_x_plus"])
+        pg.keyboard.up("ArrowRight")
+
+    def test_key_up_and_page_hidden_release(self):
+        pg = self.page
+        self.focus_stage()
+        n = len(self.sim.sent("sim_panel"))
+        pg.keyboard.down("g")
+        pg.wait_for_timeout(250)
+        pg.keyboard.up("g")
+        self.assertTrue(self.wait_for(lambda: self.presses("gripper", n)[-1:] == [False]))
+        self.assertEqual(self.presses("gripper", n)[0], True)
+        n = len(self.sim.sent("sim_panel"))
+        pg.keyboard.down("Shift")
+        pg.wait_for_timeout(250)
+        pg.evaluate("() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });"
+                    " document.dispatchEvent(new Event('visibilitychange')); }")
+        try:
+            self.assertTrue(self.wait_for(lambda: self.presses("fast", n)[-1:] == [False]))
+            count = len(self.presses("fast", n))
+            pg.wait_for_timeout(450)
+            self.assertEqual(len(self.presses("fast", n)), count)
+        finally:
+            pg.evaluate("() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); }")
+            pg.keyboard.up("Shift")
+        self.wait_state("live")
+
+    def test_keys_ignored_without_stage_focus(self):
+        pg = self.page
+        n = len(self.sim.sent("sim_panel"))
+        for key in ("g", "ArrowRight", "m", "e", " "):
+            pg.keyboard.press(key)
+        pg.wait_for_timeout(300)
+        self.assertEqual(self.sim.sent("sim_panel")[n:], [])
+
+    def test_release_when_a_poll_fails(self):
+        pg = self.page
+        self.focus_stage()
+        n = len(self.sim.sent("sim_panel"))
+        pg.keyboard.down("ArrowUp")
+        self.assertTrue(self.wait_for(lambda: self.presses("jog_y_plus", n)[:1] == [True]))
+        machine, self.sim.machine = self.sim.machine, None
+        try:
+            self.assertTrue(self.wait_for(lambda: self.presses("jog_y_plus", n)[-1:] == [False]))
+        finally:
+            self.sim.machine = machine
+            pg.keyboard.up("ArrowUp")
+        self.wait_state("live")
+
+    def test_mouse_hold(self):
+        pg = self.page
+        n = len(self.sim.sent("sim_panel"))
+        box = pg.locator('[data-machine-button="jog_z_down"]').bounding_box()
+        pg.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        pg.mouse.down()
+        pg.wait_for_timeout(800)
+        self.assertTrue(self.sim.machine.buttons["jog_z_down"])
+        self.assertIn("on", pg.get_attribute('[data-machine-button="jog_z_down"]', "class"))
+        pg.mouse.up()
+        self.assertTrue(self.wait_for(lambda: self.presses("jog_z_down", n)[-1:] == [False]))
+        self.assertFalse(self.sim.machine.buttons["jog_z_down"])
+        got = self.presses("jog_z_down", n)
+        self.assertTrue(len(got) >= 4 and all(got[:-1]), got)
+
+    def test_switch_by_key_and_emergency_stop_with_the_relay(self):
+        pg = self.page
+        self.focus_stage()
+        n = len(self.sim.sent("sim_panel"))
+        y = pg.evaluate("() => document.scrollingElement.scrollTop")
+        pg.keyboard.press("PageDown")  # a mapped key: the page does not scroll
+        pg.keyboard.press(" ")
+        self.assertEqual(pg.evaluate("() => document.scrollingElement.scrollTop"), y)
+        pg.keyboard.press("m")
+        self.assertTrue(self.wait_for(lambda: self.presses("manual", n) == [True]))
+        pg.wait_for_selector('[data-machine-button="manual"][aria-pressed="true"]')
+        pg.keyboard.press("m")
+        self.assertTrue(self.wait_for(lambda: self.presses("manual", n) == [True, False]))
+        pg.wait_for_selector('[data-machine-button="manual"][aria-pressed="false"]')
+        self.blur()
+        # The emergency stop: a click latches it, the relay stops and opens.
+        pg.click('[data-machine-button="estop"]')
+        pg.wait_for_selector('[data-machine-button="estop"][aria-pressed="true"]')
+        self.assertEqual(self.presses("estop", n), [True])
+        pg.wait_for_selector('[data-machine="relay"][data-relay="open"]')
+        self.assertEqual(self.text('[data-machine="relay"]'), "Open")
+        self.assertEqual(self.text('[data-machine-button="estop"] [data-k="state"]'), "Latched")
+        pg.wait_for_selector('[data-machine-axis="x"] [data-k="state"]:has-text("Safe torque off")')
+        pg.click('[data-machine-button="estop"]')
+        pg.wait_for_selector('[data-machine="relay"][data-relay="reset"]')
+        self.assertEqual(self.text('[data-machine="relay"]'), "Waiting for reset")
+        pg.click('[data-machine-button="reset"]')
+        pg.wait_for_selector('[data-machine="relay"][data-relay="closed"]')
+        self.assertEqual(self.text('[data-machine="relay"]'), "Closed")
+
+    def test_lamps_follow_the_machine(self):
+        self.sim.machine.lamps["homed_lamp"] = True
+        try:
+            self.page.wait_for_selector('[data-machine-lamp="homed_lamp"][data-on="1"]')
+            self.assertEqual(self.page.get_attribute('[data-machine-lamp="manual_lamp"]', "data-on"), "0")
+        finally:
+            self.sim.machine.lamps["homed_lamp"] = False
+
+    def test_person_drag_is_throttled(self):
+        pg = self.page
+        n = len(self.sim.sent("sim_person"))
+        pg.evaluate("""async () => {
+          const v = window.machineView;
+          v.togglePerson();
+          for (let i = 0; i <= 50; i++) { v.movePerson([300, 1900 - i * 18]); await new Promise((r) => setTimeout(r, 10)); }
+          v.endPerson();
+        }""")
+        self.assertTrue(self.wait_for(lambda: (self.sim.sent("sim_person")[n:][-1:] or [{}])[0].get("at") == [300, 1000]))
+        ats = [r["at"] for r in self.sim.sent("sim_person")[n:]]
+        self.assertEqual(ats[0], [300, 1900])
+        self.assertTrue(4 <= len(ats) <= 9, ats)  # about every 100 ms over 0.6 s, plus the last one
+        self.assertEqual(self.sim.machine.person_at, [300.0, 1000.0])
+        self.assertEqual(pg.get_attribute('[data-machine-tool="person"]', "aria-pressed"), "true")
+        pg.wait_for_selector('[data-machine="relay"][data-relay="open"]')  # in the protective field
+        pg.evaluate("() => window.machineView.togglePerson()")
+        self.assertTrue(self.wait_for(lambda: self.sim.sent("sim_person")[-1].get("at", 0) is None))
+        self.assertIsNone(self.sim.machine.person_at)
+        self.assertEqual(pg.get_attribute('[data-machine-tool="person"]', "aria-pressed"), "false")
+        pg.wait_for_selector('[data-machine="relay"][data-relay="reset"]')
+        pg.click('[data-machine-button="reset"]')
+        pg.wait_for_selector('[data-machine="relay"][data-relay="closed"]')
+
+
+class PanelReadOnly(RunningClock):
+    """The panel without allow_changes: disabled with the reason, lamps live."""
+
+    allow = False
+
+    def test_buttons_disabled_and_keys_do_nothing(self):
+        pg = self.page
+        self.wait_state("live")
+        self.assertIn("changes are not allowed", self.text('[data-machine="panel-reason"]'))
+        buttons = pg.eval_on_selector_all("[data-machine-button], [data-machine-tool]", "els => els.map(e => [e.disabled, e.title])")
+        self.assertEqual(len(buttons), len(self.machine["panel"]["buttons"]) + 1)
+        self.assertTrue(all(d and "changes are not allowed" in t for d, t in buttons), buttons)
+        pg.click('[data-machine="stage"]', position={"x": 30, "y": 30})
+        pg.keyboard.press("g")
+        pg.keyboard.press("e")
+        pg.evaluate("() => window.machineView.press('jog_x_plus', 'pointer')")
+        pg.wait_for_timeout(300)
+        self.assertEqual(self.sim.sent("sim_panel"), [])
+        self.sim.machine.lamps["manual_lamp"] = True
+        pg.wait_for_selector('[data-machine-lamp="manual_lamp"][data-on="1"]')
+        self.assertEqual(self.text('[data-machine="relay"]'), "Closed")
 
 
 if __name__ == "__main__":

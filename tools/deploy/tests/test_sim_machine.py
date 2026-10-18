@@ -239,7 +239,7 @@ class Checks(Gantry, unittest.TestCase):
                          "RPDO 1", "an input must be an object the device sends")
 
     def test_output_not_written_by_the_master(self):
-        self.machine["conveyors"][0]["run"] = {"node": 10, "object": "0x6000:1", "bit": 7}
+        self.machine["conveyors"][0]["run"] = {"node": 10, "object": "0x6000:1", "bit": 2}
         self.assertFails("conveyor infeed run", "the master does not write 0x6000:1 of node 10",
                          "an output must be an object the master writes (an RPDO)")
 
@@ -323,7 +323,8 @@ class Checks(Gantry, unittest.TestCase):
             "steps[1].machine: \"jam\" is a fault of a joint, not of part_at_pick",
             "steps[2].machine: \"feeder\" is a fault of a conveyor with a feeder, not of tool",
             "steps[3].wait.machine: the machine has no value \"plcaed\" (fed, picked, placed, misplaced, dropped, "
-            "pallets, x, y, z, part_at_pick, pallet)")
+            "pallets, x, y, z, part_at_pick, pallet, relay, manual, jog_x_plus, ", "auto_lamp, scanner.warning, "
+            "scanner.protective)")
         self.assertIn("networks.motion.scenarios.t", errors)
 
     def test_machine_step_without_a_machine(self):
@@ -405,11 +406,12 @@ class Doubles(unittest.TestCase):
         m = FakeMachine.example()
         s = m.snapshot(1.0)
         self.assertEqual(set(s), {"name", "kind", "joints", "tool", "parts", "sensors", "conveyors", "fixtures",
-                                  "counters", "faults", "t_us", "seq", "network", "step_us", "step_max_us"})
+                                  "counters", "faults", "t_us", "seq", "network", "step_us", "step_max_us", "panel",
+                                  "safety"})
         self.assertEqual((s["t_us"], s["seq"], s["network"]), (1000000, 1, "motion"))
         self.assertEqual(set(s["joints"]), {"x", "y", "z"})
         self.assertEqual(set(s["joints"]["x"]), {"node", "position", "velocity", "demand", "actual_counts", "state",
-                                                 "mode", "statusword", "fault", "torque"})
+                                                 "mode", "statusword", "fault", "torque", "sto"})
         self.assertEqual([s["joints"][j]["node"] for j in "xyz"], [4, 5, 6])
         self.assertEqual(set(s["tool"]), {"position", "opening", "closed", "holding"})
         self.assertEqual(set(s["parts"][0]), {"id", "kind", "position", "yaw", "state"})
@@ -490,6 +492,299 @@ class Doubles(unittest.TestCase):
         r = sim.handle({"op": "sim_clear", "machine": "z", "fault": "slip"})
         self.assertIn("is not a machine fault", r["error"])
         self.assertTrue(sim.handle({"op": "sim_clear", "machine": "z", "fault": "jam"})["ok"])
+
+
+def button(m, name):
+    return next(b for b in m["panel"]["buttons"] if b["name"] == name)
+
+
+class PanelAndSafety(unittest.TestCase):
+    """add-gantry-manual-mode: the machine file's panel, safety and brake
+    (canopen-config-contract "Machine file checks")."""
+
+    def problems(self, change):
+        m = example_machine()
+        change(m)
+        self.assertEqual(simmachine.schema_problems(m), [])
+        return "\n".join("%s: %s" % p for p in simmachine.structure_problems(m))
+
+    def test_example_has_every_new_key(self):
+        m = example_machine()
+        self.assertTrue(m["joints"]["z"]["brake"])
+        self.assertEqual(simmachine.schema_problems(m), [])
+        self.assertEqual(simmachine.structure_problems(m), [])
+        els = simmachine.elements(m)
+        self.assertEqual((els["estop"], els["manual_lamp"], els["scanner"]), ("button", "lamp", "scanner"))
+
+    def test_schema_refuses(self):
+        def bad(change):
+            m = example_machine()
+            change(m)
+            return simmachine.schema_problems(m)
+
+        cases = {
+            "kind toggle": lambda m: button(m, "manual").update(kind="toggle"),
+            "key Tab": lambda m: button(m, "manual").update(key="Tab"),
+            "key Escape": lambda m: button(m, "manual").update(key="Escape"),
+            "key lower case": lambda m: button(m, "manual").update(key="m"),
+            "key F13": lambda m: button(m, "manual").update(key="F13"),
+            "button without input": lambda m: button(m, "manual").pop("input"),
+            "lamp without output": lambda m: m["panel"]["lamps"][0].pop("output"),
+            "panel key": lambda m: m["panel"].update(switches=[]),
+            "safety without relay": lambda m: m["safety"].pop("relay"),
+            "relay without inputs": lambda m: m["safety"]["relay"].update(inputs=[]),
+            "stop delay": lambda m: m["safety"]["relay"].update(stop_delay_ms=10001),
+            "box size": lambda m: m["safety"]["scanners"][0]["warning"][0].update(size=[0, 100]),
+            "no protective box": lambda m: m["safety"]["scanners"][0].update(protective=[]),
+            "scanner at": lambda m: m["safety"]["scanners"][0].update(at=[1, 2, 3]),
+            "brake": lambda m: m["joints"]["z"].update(brake="yes"),
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                self.assertTrue(bad(change), name)
+        m = example_machine()
+        for b in m["panel"]["buttons"]:
+            b.pop("kind")
+            b.pop("label")
+        for k in ("stop_delay_ms", "joints", "conveyors", "feedback"):
+            m["safety"]["relay"].pop(k)
+        self.assertEqual(simmachine.schema_problems(m), [])
+
+    def test_names_unique(self):
+        self.assertIn("panel.buttons[8].name: the name \"part_at_pick\" is used by another element (sensor part_at_pick)",
+                      self.problems(lambda m: button(m, "gripper").update(name="part_at_pick")))
+        self.assertIn("panel.lamps[0].name: the name \"manual\" is used by another element (button manual)",
+                      self.problems(lambda m: m["panel"]["lamps"][0].update(name="manual")))
+        self.assertIn("safety.scanners[0].name: the name \"x\" is used by another element (the joint)",
+                      self.problems(lambda m: m["safety"]["scanners"][0].update(name="x")))
+
+    def test_key_used_twice(self):
+        self.assertIn("panel.buttons[9].key: key \"G\" is used by button gripper too",
+                      self.problems(lambda m: button(m, "conveyor").update(key="G")))
+
+    def test_relay_inputs_and_reset(self):
+        def inputs(*names):
+            return lambda m: m["safety"]["relay"].update(inputs=list(names))
+        self.assertIn("safety.relay.inputs: \"foo\" is not a panel button or a scanner", self.problems(inputs("foo")))
+        self.assertIn("safety.relay.inputs: button \"stop\" is momentary: an emergency stop must be latching",
+                      self.problems(inputs("estop", "stop")))
+        self.assertIn("safety.relay.inputs: button \"manual\" is a switch: an emergency stop must be latching",
+                      self.problems(inputs("manual")))
+        self.assertIn("safety.relay.inputs: \"auto_lamp\" is not a panel button or a scanner", self.problems(inputs("auto_lamp")))
+        self.assertEqual(self.problems(inputs("scanner")), "")
+        for reset in ("estop", "manual", "nothing"):
+            self.assertIn("safety.relay.reset: \"%s\" must name a momentary panel button" % reset,
+                          self.problems(lambda m: m["safety"]["relay"].update(reset=reset)))
+
+    def test_relay_joints_and_conveyors(self):
+        self.assertIn("safety.relay.joints: the machine has no joint \"q\"",
+                      self.problems(lambda m: m["safety"]["relay"].update(joints=["x", "q"])))
+        self.assertIn("safety.relay.conveyors: the machine has no conveyor \"q\"",
+                      self.problems(lambda m: m["safety"]["relay"].update(conveyors=["q"])))
+
+    def test_protective_inside_a_warning_box(self):
+        self.assertIn("safety.scanners[0].protective[1]: must lie inside one of the scanner's warning boxes",
+                      self.problems(lambda m: m["safety"]["scanners"][0]["protective"][1].update(size=[600, 2300])))
+        # Inside the union of two boxes but in neither is outside.
+        self.assertIn("safety.scanners[0].protective[0]",
+                      self.problems(lambda m: m["safety"]["scanners"][0]["protective"][0].update(origin=[-700, -700],
+                                                                                                    size=[1900, 1700])))
+
+    def test_input_bits(self):
+        def feedback_on_estop(m):
+            m["safety"]["relay"]["feedback"] = dict(button(m, "estop")["input"])
+        self.assertIn("safety.relay.feedback: node 11 0x6000:2 bit 7 is bound twice: panel button estop and safety relay "
+                      "feedback", self.problems(feedback_on_estop))
+
+        def warning_on_sensor(m):
+            m["safety"]["scanners"][0]["warning_output"]["bit"] = 3
+        self.assertIn("node 10 0x6000:1 bit 3 is bound twice: sensor part_at_pick and scanner scanner warning",
+                      self.problems(warning_on_sensor))
+
+        def lamp_on_button(m):
+            m["panel"]["lamps"][0]["output"] = dict(button(m, "manual")["input"])
+        self.assertIn("panel.lamps[0].output: node 11 0x6000:1 bit 0 is both an output (panel lamp manual_lamp) and an "
+                      "input (panel button manual)", self.problems(lamp_on_button))
+
+    def test_value_names(self):
+        names = simmachine.value_names(example_machine())
+        for n in ("relay", "jog_x_plus", "estop", "fault_lamp", "scanner.warning", "scanner.protective"):
+            self.assertIn(n, names)
+        m = example_machine()
+        m.pop("safety")
+        m.pop("panel")
+        self.assertNotIn("relay", simmachine.value_names(m))
+        self.assertEqual(simmachine.value_names(m)[-1], "pallet")
+
+    def test_panel_and_person_problems(self):
+        m = example_machine()
+        self.assertIsNone(simmachine.panel_problem(m, "estop"))
+        self.assertTrue(simmachine.panel_problem(m, "jog").startswith(
+            "the machine has no panel button \"jog\" (manual, jog_x_plus, "))
+        self.assertIsNone(simmachine.person_step_problem(m))
+        m.pop("panel")
+        m.pop("safety")
+        self.assertEqual(simmachine.panel_problem(m, "estop"), "the machine has no panel")
+        self.assertEqual(simmachine.person_step_problem(m), "the machine has no safety scanner")
+
+
+class PanelChecks(Gantry, unittest.TestCase):
+    def test_button_written_by_the_master(self):
+        button(self.machine, "estop")["input"] = {"node": 11, "object": "0x6200:1", "bit": 7}
+        self.assertFails("network motion", "panel button estop: the master writes 0x6200:1 of node 11",
+                         "an input must be an object the device sends")
+
+    def test_lamp_not_written_by_the_master(self):
+        self.machine["panel"]["lamps"][1]["output"] = {"node": 10, "object": "0x6000:1", "bit": 0}
+        self.assertFails("panel lamp homed_lamp: the master does not write 0x6000:1 of node 10")
+
+    def test_feedback_beyond_the_data_type(self):
+        self.machine["safety"]["relay"]["feedback"]["bit"] = 8
+        self.assertFails("safety relay feedback: bit 8 does not fit object 0x6000:1 of node 10")
+
+    def test_panel_node_missing(self):
+        cfg = copy.deepcopy(self.cfg)
+        cfg["networks"][0]["nodes"] = [n for n in cfg["networks"][0]["nodes"] if n["node_id"] != 11]
+        self.assertFails("panel button manual: node 11 is neither a node of the network nor an extra device", cfg=cfg)
+
+    def test_panel_and_person_steps(self):
+        steps = [{"panel": {"manual": True, "jog_x_plus": True}}, {"panel": {"jog_x_plus": False}, "after_ms": 2000},
+                 {"person": [300, 1200]}, {"person": None, "at_ms": 9000},
+                 {"wait": {"machine": "relay", "eq": 2}, "timeout_ms": 1000},
+                 {"expect": {"machine": "manual_lamp", "eq": 1}},
+                 {"wait": {"machine": "scanner.warning", "eq": 1}},
+                 {"expect": {"machine": "scanner.protective", "eq": 0}, "for_ms": 100},
+                 {"wait": {"machine": "estop", "eq": 0}}]
+        self.sim["networks"]["motion"]["scenarios"] = {"t": {"test": True, "steps": steps}}
+        ok, errors, _ = self.check()
+        self.assertTrue(ok, errors)
+        steps[:] = [{"panel": {"jog": True}}, {"wait": {"machine": "scanner.muted", "eq": 1}},
+                    {"wait": {"machine": "relays", "eq": 1}}]
+        self.assertFails("steps[0].panel: the machine has no panel button \"jog\" (manual, jog_x_plus, ",
+                         "steps[1].wait.machine: the machine has no value \"scanner.muted\"",
+                         "steps[2].wait.machine: the machine has no value \"relays\"")
+
+    def test_steps_without_panel_or_scanner(self):
+        self.machine.pop("panel")
+        self.machine.pop("safety")
+        self.sim["networks"]["motion"]["scenarios"] = {"t": {"steps": [{"panel": {"estop": True}},
+                                                                       {"person": [0, 0]}]}}
+        self.assertFails("steps[0].panel: the machine has no panel", "steps[1].person: the machine has no safety scanner")
+
+    def test_steps_without_a_machine(self):
+        sim = {"schema_version": 2, "networks": {"motion": {"scenarios": {"t": {"steps": [
+            {"panel": {"estop": True}}, {"person": None}]}}}}}
+        errors = self.assertFails("steps[0].panel: network motion has no machine", sim=sim)
+        self.assertIn("steps[1].person: network motion has no machine", errors)
+
+    def test_step_schema(self):
+        v = jsonschema.Draft202012Validator(simfile.schema(2))
+
+        def valid(step):
+            return v.is_valid({"schema_version": 2, "networks": {"motion": {"scenarios": {"s": {"steps": [step]}}}}})
+
+        for step in ({"panel": {"a": True}}, {"panel": {"a": False, "b": True}, "at_ms": 10}, {"person": [1.5, -2]},
+                     {"person": None, "after_ms": 5}):
+            self.assertTrue(valid(step), step)
+        for step in ({"panel": {}}, {"panel": {"a": 1}}, {"panel": ["a"]}, {"person": [1]}, {"person": "here"},
+                     {"panel": {"a": True}, "node": 11}, {"person": None, "machine": "z"},
+                     {"panel": {"a": True}, "device": "d"}, {"panel": {"a": True}, "log": "x"},
+                     {"panel": {"a": True}, "person": None}):
+            self.assertFalse(valid(step), step)
+
+
+class PanelDoubles(unittest.TestCase):
+    """FakeMachine's panel, relay and person follow the simulator's rules."""
+
+    def test_momentary_lease_and_switch(self):
+        m = FakeMachine.example()
+        m.snapshot(1.0)
+        m.panel("jog_x_plus", True, 1.0)
+        m.panel("manual", True, 1.0)
+        self.assertTrue(m.snapshot(1.4)["panel"]["buttons"]["jog_x_plus"])
+        self.assertFalse(m.snapshot(1.5)["panel"]["buttons"]["jog_x_plus"])  # 500 ms without a repeat
+        for t in (2.0, 2.2, 2.4, 2.6):
+            m.panel("jog_x_plus", True, t)
+        self.assertTrue(m.snapshot(3.0)["panel"]["buttons"]["jog_x_plus"])
+        m.panel("jog_x_plus", False, 3.0)
+        s = m.snapshot(3.0)
+        self.assertFalse(s["panel"]["buttons"]["jog_x_plus"])
+        self.assertTrue(s["panel"]["buttons"]["manual"])  # a switch keeps its position
+        self.assertEqual(set(s["panel"]["lamps"]), {"manual_lamp", "homed_lamp", "fault_lamp", "auto_lamp"})
+        with self.assertRaises(FakeMachineError) as e:
+            m.panel("jog", True)
+        self.assertIn("the machine has no panel button \"jog\"", str(e.exception))
+        with self.assertRaises(FakeMachineError) as e:
+            m.panel("estop", 1)
+        self.assertEqual(str(e.exception), "\"pressed\" must be true or false")
+
+    def test_emergency_stop_and_reset(self):
+        m = FakeMachine.example()
+        s = m.snapshot(1.0)
+        self.assertEqual(s["safety"], {"relay": "closed", "reset_ready": False,
+                                       "scanners": {"scanner": {"warning": False, "protective": False}}, "person": None})
+        self.assertFalse(any(j["sto"] for j in s["joints"].values()))
+        m.panel("estop", True, 1.0)
+        self.assertEqual(m.snapshot(1.1)["safety"]["relay"], "stopping")
+        s = m.snapshot(1.4)
+        self.assertEqual((s["safety"]["relay"], s["safety"]["reset_ready"]), ("open", False))
+        self.assertTrue(all(j["sto"] and j["state"] == "switch_on_disabled" for j in s["joints"].values()))
+        m.panel("reset", True, 1.5)
+        self.assertEqual(m.snapshot(1.6)["safety"]["relay"], "open")  # still latched
+        m.panel("reset", False, 1.6)
+        m.panel("estop", False, 1.7)
+        self.assertTrue(m.snapshot(1.8)["safety"]["reset_ready"])
+        m.panel("reset", True, 1.9)
+        s = m.snapshot(2.0)
+        self.assertEqual((s["safety"]["relay"], s["safety"]["reset_ready"]), ("closed", False))
+        self.assertFalse(s["joints"]["x"]["sto"])
+
+    def test_person_in_the_fields(self):
+        m = FakeMachine.example()
+        m.snapshot(1.0)
+        m.person([300, 1900], 1.0)  # in front of the fence, outside the warning field
+        self.assertEqual(m.snapshot(1.1)["safety"]["scanners"]["scanner"], {"warning": False, "protective": False})
+        m.person([300, 1300], 1.1)
+        s = m.snapshot(1.2)
+        self.assertEqual(s["safety"]["scanners"]["scanner"], {"warning": True, "protective": False})
+        self.assertEqual((s["safety"]["relay"], s["safety"]["person"]), ("closed", [300.0, 1300.0]))
+        m.person([300, 1000], 1.2)
+        self.assertEqual(m.snapshot(1.3)["safety"]["scanners"]["scanner"], {"warning": True, "protective": True})
+        self.assertEqual(m.snapshot(1.6)["safety"]["relay"], "open")
+        m.person(None, 1.6)
+        s = m.snapshot(1.7)
+        self.assertEqual((s["safety"]["relay"], s["safety"]["reset_ready"], s["safety"]["person"]), ("open", True, None))
+        with self.assertRaises(FakeMachineError) as e:
+            m.person([1, 2, 3])
+        self.assertEqual(str(e.exception), "\"at\" must be [x, y] in mm, or null")
+
+    def test_fake_sim_answers_panel_and_person(self):
+        sim = FakeSim.example()
+        self.assertEqual(sim.handle({"op": "sim_panel", "button": "estop", "pressed": True}),
+                         {"ok": False, "error": "this network has no machine"})
+        sim.set_machine(example_machine())
+        sim.clock = lambda: 1.0
+        self.assertEqual(sim.handle({"op": "sim_panel", "button": "estop", "pressed": True}, allow_changes=False),
+                         {"ok": False, "error": "changes not allowed"})
+        self.assertEqual(sim.handle({"op": "sim_person", "at": [0, 0]}, allow_changes=False),
+                         {"ok": False, "error": "changes not allowed"})
+        self.assertTrue(sim.handle({"op": "sim_panel", "button": "estop", "pressed": True})["ok"])
+        self.assertTrue(sim.handle({"op": "sim_person", "at": [300, 1300]})["ok"])
+        r = sim.handle({"op": "sim_machine"}, allow_changes=False)["result"]
+        self.assertTrue(r["panel"]["buttons"]["estop"])
+        self.assertEqual(r["safety"]["person"], [300.0, 1300.0])
+        self.assertIn("the machine has no panel button \"jog\"",
+                      sim.handle({"op": "sim_panel", "button": "jog", "pressed": True})["error"])
+        m = example_machine()
+        m.pop("panel")
+        m.pop("safety")
+        sim.set_machine(m)
+        self.assertEqual(sim.handle({"op": "sim_panel", "button": "estop", "pressed": True})["error"],
+                         "the machine has no panel")
+        self.assertEqual(sim.handle({"op": "sim_person", "at": None})["error"], "the machine has no safety scanner")
+        s = sim.handle({"op": "sim_machine"})["result"]
+        self.assertNotIn("panel", s)
+        self.assertNotIn("safety", s)
 
 
 if __name__ == "__main__":

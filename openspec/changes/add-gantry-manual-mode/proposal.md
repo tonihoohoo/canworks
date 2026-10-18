@@ -25,12 +25,13 @@ The gantry cell example only runs in automatic: the PLC program homes, picks and
   - without `allow_changes`, or offline, the panel is shown disabled with the reason.
 - **Gantry example with manual mode:**
   - a new node 11 `panel` on the `motion` network. It is an ordinary 16-in / 16-out I/O module, the same made-up CiA 401 device as node 10, shipped as `panel.eds` with a notes file naming its bits;
-  - its inputs come into the program as named BOOLs through bit channels (change `add-bit-channels`);
+  - its input bytes come into the program through PDOs, and the program decodes them into named BOOLs (bit channels, change `add-bit-channels`, can name them in the declarations later); both I/O nodes send their inputs on change and every 100 ms;
   - the program's manual mode: the sequence stops with a ramp, each axis jogs while its button is held (slow 20 mm/s, fast 150 mm/s, ramped), soft limits apply once homed, jogging is slow and limit-free before homing, and there are gripper, conveyor, home and reset buttons;
   - back in AUTO, Start runs the existing recovery: Z up, then carry on with the part in hand or go back to the conveyor;
   - lamps for MANUAL, homed, fault and auto running;
   - safety in the program: when the relay feedback drops, the program stops every axis with a quick ramp inside the stop delay and halts the sequence. After the relay's reset it powers the drives again and waits for Start (AUTO) or the operator (MANUAL). While a person is in the scanner's warning field, AUTO runs at reduced speed;
-  - CI cases in `sim_tests`. The first switches to MANUAL from a scenario, jogs, checks the soft limit and the lease release, returns to AUTO and places a part. The second presses the emergency stop during a move and checks that the axes stopped before the power went off and that Z held, then resets and places a part. The third walks a person into the warning field and then the protective field.
+  - the existing `sim_gantry_demo` case in `sim_tests` goes on after its jam: it switches to MANUAL during a move, jogs, checks the soft limit and the lease release, returns to AUTO and places a part; presses the emergency stop during a move and checks that the axes stopped before the power went off and that Z held, then resets and places a part; and walks a person into the warning field and then the protective field;
+  - an `emergency-stop` test scenario and a `person-in-cell` scenario in the example's simulation file.
 - **Docs:** `docs/simulator.md` (the panel section and `sim_panel`), the gantry example README, a manual mode step in the tour's Simulated machine chapter, and the README feature list.
 
 ## Capabilities
@@ -60,5 +61,5 @@ None.
 - Schema `schema/canworks-sim-machine.v1.schema.json` (`panel`, `safety`, `brake`), deploy tool and configurator checks.
 - Configurator: `machine_view.js` and `machine_scene.js` (Panel block, keyboard, emergency stop, scanner fields, person), `/api/sim/request` passes `sim_panel` and `sim_person`, page tests.
 - `examples/gantry-cell/`: `canworks.json` (node 11), `panel.eds`, `panel.eds.notes.json`, `machine.json`, `pous/programs/main.st`, README.
-- Depends on `add-bit-channels` (proposed in its own thread), and is applied after it merges.
-- CI: one more `sim_tests` case and a few page tests in existing jobs; no new job.
+- No dependency on `add-bit-channels`: the program decodes the panel's bytes itself.
+- CI: the `sim_gantry_demo` case grows from about 24 s to about 52 s, and a few page tests in existing jobs; no new job.

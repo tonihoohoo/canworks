@@ -91,8 +91,11 @@ struct Step {
   int device_dlc = -1;        // wrong_dlc: the DLC its frames carry
   bool has_at = false, has_after = false;
   unsigned at_ms = 0, after_ms = 0;
-  // set, override, release, source, fault, clear, wait, expect, log, repeat
+  // set, override, release, source, fault, clear, wait, expect, log, repeat, panel, person
   std::string action;
+  std::vector<std::pair<std::string, bool>> panel;  // panel: button -> pressed
+  bool person = false;                              // person: placed (else removed)
+  double person_at[2] = {0, 0};
   std::vector<std::pair<ObjKey, Value>> values;  // set, override
   bool release_all = false;
   std::vector<ObjKey> release;

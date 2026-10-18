@@ -1462,6 +1462,16 @@ def _check_condition(cond, at, step_dev, devices, err, machine=None):
 def _check_step(step, at, devices, err, warn, base, machine=None, csv_roots=None):
     w = _where(at)
     dev = None
+    for key in ("panel", "person"):
+        if key not in step:
+            continue
+        problem = machine.missing() if machine else "this network has no machine"
+        if not problem and machine.data is not None:
+            problem = machine_mod.panel_step_problem(machine.data, step[key]) if key == "panel" \
+                else machine_mod.person_step_problem(machine.data)
+        if problem:
+            err(w + "." + key, problem)
+        return
     if "machine" in step:
         problem = machine.missing() if machine else "this network has no machine"
         if not problem and machine.data is not None:
