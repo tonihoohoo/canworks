@@ -47,7 +47,7 @@ Each release's notes SHALL be made as described in Requirement: Release notes.
 
 ### Requirement: Install on a PC without Python
 
-The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. After these commands the user's shell SHALL find `canworks-config`, `canworks-deploy` and `canworks-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder. It SHALL say that the tools reach the CAN bus through a runtime, or directly through a USB CAN adapter on the PC (canopen-local-bus), and SHALL give per operating system what an slcan adapter needs: no driver on Windows 10 and 11, macOS and Linux, and the port name pattern on each, plus on Linux the `dialout` group for serial ports.
+The documentation SHALL give, for Windows, for macOS and for Linux, the commands that install the tools on a PC with no Python and no admin rights: install uv with its official installer, then install the release wheel with uv using a uv-managed Python. Every documented `uv tool install` command SHALL compile the package's bytecode at install time (`--compile-bytecode`), so the first start after an install is as fast as later ones. After these commands the user's shell SHALL find `canworks-config`, `canworks-deploy` and `canworks-diag`, and they SHALL behave as when installed with pip. The documentation SHALL name, per operating system, the folder uv links the commands into and the configurator's settings folder. It SHALL say that the tools reach the CAN bus through a runtime, or directly through a USB CAN adapter on the PC (canopen-local-bus), and SHALL give per operating system what an slcan adapter needs: no driver on Windows 10 and 11, macOS and Linux, and the port name pattern on each, plus on Linux the `dialout` group for serial ports.
 
 #### Scenario: Fresh Windows PC
 - **WHEN** a Windows user with no Python installed runs the documented uv install command and then the documented `uv tool install` command on the downloaded wheel, and opens a new terminal
@@ -60,6 +60,10 @@ The documentation SHALL give, for Windows, for macOS and for Linux, the commands
 #### Scenario: Fresh Linux desktop
 - **WHEN** a Linux user (x86_64 or ARM64, glibc) runs the documented uv install command and the documented `uv tool install` command, and opens a new terminal
 - **THEN** the three commands are in `~/.local/bin` and on PATH, `canworks-deploy --version` prints the wheel's version, and `canworks-config` opens the configurator in the default browser
+
+#### Scenario: First start after install
+- **WHEN** a user installs the wheel with the documented command and runs `canworks-config --version` for the first time
+- **THEN** no module of the package is compiled at that start, because its bytecode was written at install
 
 #### Scenario: Linux without a browser
 - **WHEN** `canworks-config` starts on a Linux machine with no browser to open (for example over SSH)
@@ -79,7 +83,7 @@ The documentation SHALL give, for Windows, for macOS and for Linux, the commands
 
 ### Requirement: Update and uninstall
 
-The documentation SHALL give one command to replace an installed version with a newer wheel and one command to remove the tools, both working without Python on the PC.
+The documentation SHALL give one command to replace an installed version with a newer wheel and one command to remove the tools, both working without Python on the PC. The update command SHALL compile bytecode at install time like the install command.
 
 #### Scenario: Update
 - **WHEN** the user runs the documented update command on a newer wheel
@@ -198,3 +202,41 @@ The PC tools SHALL require Python 3.10 or newer and dependency versions without 
 #### Scenario: Fresh install
 - **WHEN** the PC tools are installed into an environment with zeroconf 0.148
 - **THEN** zeroconf is upgraded to a fixed version
+
+### Requirement: Fast start
+
+The configurator and the deploy tool SHALL start without importing the libraries that only some of their work needs: `jsonschema` until a config, simulation file, machine file or notes file is validated, and `python-can`, `cantools`, `can-j1939`, `zeroconf` and `iroh` until an adapter, DBC, J1939, discovery or remote-link feature is used. A unit test in CI SHALL import the entry modules of `canworks-config`, `canworks-deploy` and `canworks-diag` in a fresh interpreter and fail when any of these libraries was imported.
+
+#### Scenario: Configurator start
+- **WHEN** a fresh Python process imports `canworks.configurator.server`
+- **THEN** none of `jsonschema`, `can`, `cantools`, `j1939`, `zeroconf` or `iroh` is in `sys.modules`
+
+#### Scenario: Validation still works
+- **WHEN** the configurator then opens a project and checks its `canworks.json`
+- **THEN** the config is validated against its schema exactly as before, with the same messages
+
+### Requirement: One-line installer
+
+The repository SHALL provide `scripts/install-pc.sh` (macOS and Linux, POSIX `sh`) and `scripts/install-pc.ps1` (Windows, PowerShell 5.1), and the documentation SHALL give, first among the install routes, the one line per operating system that runs them straight from the repository on GitHub. Each script SHALL install uv with its official installer when uv is not found, use it in the same session, and install the wheel of the newest `deploy-v` release (or of `--version <version>`) from its release download URL with `uv tool install --force --compile-bytecode --python 3.12`, so running the same line again updates to the newest release. The script SHALL find the newest release from the `releases/latest` redirect without the GitHub API, SHALL install only released wheels (never the code on `main`), and with `--wheel <file>` SHALL install that local wheel instead. `--uninstall` SHALL remove the tools and leave uv and the settings folder. When uv's bin folder is not on PATH, the script SHALL add it (`uv tool update-shell`) and say to open a new terminal. The script SHALL print the installed version at the end and exit non-zero, saying why, when any step fails. The documentation SHALL also show the same scripts pinned to a release and how to download and read a script before running it.
+
+CI SHALL run `shellcheck` on `install-pc.sh` and test both scripts' release lookup and argument handling without network access, and the PC tools job SHALL install through the scripts (with `--wheel`) on each of its runners.
+
+#### Scenario: Fresh PC
+- **WHEN** a Windows user with neither uv nor Python pastes the documented PowerShell line
+- **THEN** uv is installed, the newest release's wheel is installed, `canworks-deploy --version` in a new terminal prints that release's version, and `canworks-config` opens the configurator
+
+#### Scenario: Update with the same line
+- **WHEN** a Mac user who has 0.82.0 installed pastes the documented line after 0.83.0 was released
+- **THEN** 0.83.0 is installed over it, uv is not reinstalled, and the configurator's saved settings are kept
+
+#### Scenario: Given version
+- **WHEN** the user runs the script with `--version 0.82.0`
+- **THEN** the wheel of `deploy-v0.82.0` is installed, also when a newer release exists
+
+#### Scenario: Uninstall
+- **WHEN** the user runs the script with `--uninstall`
+- **THEN** the tools' commands are no longer on PATH and uv is still installed
+
+#### Scenario: No release reachable
+- **WHEN** the script cannot reach github.com
+- **THEN** it exits non-zero, names the URL it could not reach and the proxy setting the docs describe, and changes nothing that was installed
