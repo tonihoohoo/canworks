@@ -217,6 +217,10 @@ std::string leading_zero_message(const char* s) {
   return buf;
 }
 
+// A CODESYS config (canopen-config-contract "CODESYS configs are for CODESYS").
+const char* const kCodesysConfig =
+    "this is a CODESYS config (it has a 'codesys' object): build it into a CODESYS project with "
+    "canworks-deploy --codesys-import, not the OpenPLC plugin or canworks-bridge";
 const char* const kNotBridgeConfig =
     "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' object";
 
@@ -564,7 +568,7 @@ class Parser {
             ++j;
             continue;
           }
-          check_known(e, ew, {"index", "subindex", "type", "iec_location"});
+          check_known(e, ew, {"index", "subindex", "type", "iec_location", "name"});
           if (get_uint(e, "index", ew, true, 0xFFFF, v)) entry.index = (uint16_t)v; else ok = false;
           if (get_uint(e, "subindex", ew, false, 0xFF, v)) entry.subindex = (uint8_t)v;
           std::string type;
@@ -643,7 +647,7 @@ class Parser {
                     "\"role\": \"slave\")");
       if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
         error("", "field 'gateway' needs schema_version: 2");
-      for (const char* key : {"protocol", "j1939", "raw", "bridge"})
+      for (const char* key : {"protocol", "j1939", "raw", "bridge", "codesys"})
         if (cJSON_GetObjectItemCaseSensitive(root, key))
           error("", std::string("field '") + key + "' needs schema_version 2");
       if (limits_.bridge_host && !cJSON_GetObjectItemCaseSensitive(root, "bridge"))
@@ -663,7 +667,9 @@ class Parser {
     }
 
     // Version 2: networks[] and one diagnostics object for all of them.
-    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge", "cia309"});
+    check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge", "cia309",
+                           "codesys"});
+    if (cJSON_GetObjectItemCaseSensitive(root, "codesys")) error("", kCodesysConfig);
     // A bridge config's locations are byte-addressed from the first one on.
     byte_mode_ = cJSON_GetObjectItemCaseSensitive(root, "bridge") != nullptr;
     if (byte_mode_ && !limits_.bridge_host)
@@ -703,7 +709,7 @@ class Parser {
         error("", "must be an object");
       } else {
         check_known(net, "", {"name", "protocol", "role", "adapter", "master", "nodes", "links", "slave", "j1939",
-                              "raw"});
+                              "raw", "codesys"});
         for (const char* old_key : {"interface", "bitrate"})
           if (cJSON_GetObjectItemCaseSensitive(net, old_key))
             error("", std::string("field '") + old_key + "' belongs in 'adapter' in schema_version 2");

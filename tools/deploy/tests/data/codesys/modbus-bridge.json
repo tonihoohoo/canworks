@@ -210,14 +210,29 @@
   ],
   "notes": [
     {
-      "where": "field/master",
-      "setting": "bus_state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "where": "field",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "field",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
     },
     {
       "where": "field/master",
       "setting": "state_location",
       "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "field/master",
+      "setting": "bus_state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "field/rtd",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "field/rtd",
@@ -236,8 +251,8 @@
     },
     {
       "where": "field/rtd",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "tx_pdos[0].timeout_ms",
+      "note": "plugin receive timeout of a TPDO"
     },
     {
       "where": "field/rtd",
@@ -246,8 +261,13 @@
     },
     {
       "where": "field/rtd",
-      "setting": "tx_pdos[0].timeout_ms",
-      "note": "plugin receive timeout of a TPDO"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "field/dio",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "field/dio",
@@ -266,8 +286,8 @@
     },
     {
       "where": "field/dio",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
     },
     {
       "where": "config",

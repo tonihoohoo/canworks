@@ -42,13 +42,14 @@ project also enables the canworks function block library (CANopen, CiA 402,
 CAN and J1939 blocks).
 
   canworks-deploy --config canworks.json --export-codesys <dir> [--codesys-net NAME=N]
-  canworks-deploy --config canworks.json --codesys-import <project.project> [--codesys-new TYPE:ID:VERSION]
+  canworks-deploy --config canworks.json --codesys-import [<project.project>] [--codesys-new TYPE:ID:VERSION]
 
 writes the CANopen networks for CODESYS: node DCFs, a plan and the script
 import_canworks.py that builds the CANbus, CANopen Manager, nodes and
 variable names in a CODESYS project (in the IDE, or headless). With
 --codesys-import the tool runs CODESYS headless on the project itself
-(docs/codesys.md).
+(docs/codesys.md). A CODESYS config (one with a "codesys" object) holds
+these settings itself; the options override them.
 
 A simulation file (simulation.json next to the config, or --sim FILE) is
 checked and travels with the config (docs/simulator.md). A config that
@@ -89,7 +90,8 @@ import tempfile
 import time
 
 from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
-               editorproject, localruntime, modbusmap, notes, project, runtime, plclibrary, simfile, slaveeds)
+               editorproject, localruntime, modbusmap, notes, project, runtime, plclibrary, simfile, slaveeds,
+               targets)
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -145,9 +147,10 @@ def parser():
     src.add_argument("--export-codesys", metavar="DIR",
                      help="write the CANopen networks for CODESYS into DIR (node DCFs, canworks-codesys.json and "
                           "the script import_canworks.py to run in CODESYS) instead of deploying")
-    src.add_argument("--codesys-import", metavar="PROJECT",
-                     help="write the CODESYS export and run CODESYS headless on this .project file, which gets "
-                          "the CANbus, CANopen Manager, nodes and variable names (Windows, CODESYS installed)")
+    src.add_argument("--codesys-import", metavar="PROJECT", nargs="?", const="",
+                     help="write the CODESYS export and run CODESYS headless on this .project file (default: the "
+                          "config's codesys.project), which gets the CANbus, CANopen Manager, nodes and variable "
+                          "names (Windows, CODESYS installed)")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and declares its I/O in the program main")
@@ -373,15 +376,24 @@ def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0):
 
 
 def _codesys(args, cfg, network, out, runner=None):
-    """--export-codesys DIR and --codesys-import PROJECT."""
+    """--export-codesys DIR and --codesys-import [PROJECT]. The project and
+    the device for a new one come from the config's `codesys` object when
+    the options leave them out."""
     from .codesys import plan as codesys_plan, run as codesys_run
+    own = cfg.get("codesys") if isinstance(cfg.get("codesys"), dict) else {}
     project = getattr(args, "codesys_import", None)
+    if project == "":
+        project = own.get("project") if isinstance(own.get("project"), str) else ""
+        if not project:
+            raise Failure("--codesys-import needs a project: give --codesys-import PROJECT, or set the project file "
+                          "in the config (codesys.project)")
+    new_device = getattr(args, "codesys_new", None) or (own.get("create") if project else None)
     create = None
     try:
         overrides = codesys_run.parse_net(getattr(args, "codesys_net", None))
         interfaces = codesys_run.parse_can(getattr(args, "codesys_can", None))
-        if project and getattr(args, "codesys_new", None):
-            create = {"path": os.path.abspath(project), "device": codesys_run.parse_device(args.codesys_new)}
+        if project and new_device and (getattr(args, "codesys_new", None) or not os.path.exists(project)):
+            create = {"path": os.path.abspath(project), "device": codesys_run.parse_device(new_device)}
     except ValueError as e:
         raise Failure(str(e))
     if project and not create and not os.path.isfile(project):
@@ -400,7 +412,7 @@ def _codesys(args, cfg, network, out, runner=None):
     try:
         files, _ = codesys_plan.export_files(
             cfg, args.config, overrides=overrides, interfaces=interfaces, plc=getattr(args, "codesys_plc", None),
-            variables=not getattr(args, "codesys_no_variables", False), network=network,
+            variables=False if getattr(args, "codesys_no_variables", False) else None, network=network,
             project=os.path.abspath(project) if project and not create else None, create=create)
     except codesys_plan.ExportFailed as e:
         raise Failure("\n".join(m for m, _ in e.problems) + "\nnothing was written")
@@ -461,8 +473,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     if cycle is not None and not cycle > 0:
         raise Failure("--doc-cycle-ms must be a positive number of milliseconds")
     codesys_dir = getattr(args, "export_codesys", None)
-    codesys_project = getattr(args, "codesys_import", None)
-    codesys = codesys_dir or codesys_project
+    importing = getattr(args, "codesys_import", None) is not None
+    codesys = bool(codesys_dir) or importing
     for opt, key in (("--codesys-net", "codesys_net"), ("--codesys-plc", "codesys_plc"),
                      ("--codesys-can", "codesys_can"),
                      ("--codesys-no-variables", "codesys_no_variables")):
@@ -470,7 +482,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
             raise Failure("%s needs --export-codesys or --codesys-import" % opt)
     for opt, key in (("--codesys-dir", "codesys_dir"), ("--codesys-new", "codesys_new"),
                      ("--codesys-exe", "codesys_exe"), ("--codesys-profile", "codesys_profile")):
-        if getattr(args, key, None) and not codesys_project:
+        if getattr(args, key, None) and not importing:
             raise Failure("%s needs --codesys-import" % opt)
     if codesys and (args.runtime or args.output or args.check_only):
         raise Failure("the CODESYS export uploads nothing; leave out --runtime, --output and --check-only")
@@ -518,6 +530,10 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     if not result.ok:
         raise Failure("\n".join(result.errors))
     out("ok: %s passes the schema and EDS checks" % args.config)
+    if targets.target(cfg) == targets.CODESYS and (args.runtime or args.bundle or args.project or into or new_project
+                                                   or bridge_target):
+        raise Failure("%s is a CODESYS config (it has a 'codesys' object): CODESYS runs it, not the OpenPLC plugin "
+                      "or canworks-bridge; build it into a CODESYS project with --codesys-import" % args.config)
     is_bridge = bridgecheck.is_bridge_config(cfg)
     if bridge_target and not is_bridge:
         raise Failure("%s has no top-level \"bridge\" object, so canworks-bridge does not run it: upload it to an "

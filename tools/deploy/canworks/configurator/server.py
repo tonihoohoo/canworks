@@ -37,6 +37,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
+from .. import bundle, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -287,15 +288,75 @@ def empty_config():
 SCHEMA_FILE = "canworks.v%d.schema.json"
 
 
+def codesys_found():
+    """Whether this PC has CODESYS (Build into CODESYS project runs it)."""
+    from ..codesys import run as codesys_run
+    return bool(codesys_run.find_codesys())
+
+
+def version2(cfg):
+    """The config as a version 2 file (the reverse of lowest_version)."""
+    if not isinstance(cfg, dict) or contract.version_of(cfg) == 2:
+        return cfg
+    net, out = {}, {}
+    for k, v in cfg.items():
+        if k in ("adapter", "master", "nodes", "links", "interface", "bitrate"):
+            net[k] = copy.deepcopy(v)
+        elif k == "schema_version":
+            continue
+        else:
+            out[k] = v
+    master = net.get("master")
+    for key in ("diagnostics", "cia309"):
+        if isinstance(master, dict) and key in master:
+            out[key] = master.pop(key)
+    ref = out.get("$schema")
+    if isinstance(ref, str) and ref.endswith(SCHEMA_FILE % 1):
+        out["$schema"] = ref[:-len(SCHEMA_FILE % 1)] + SCHEMA_FILE % 2
+    return dict({"$schema": out.pop("$schema")} if "$schema" in out else {}, schema_version=2, networks=[net], **out)
+
+
+def _at(cfg, path):
+    """The value at a JSON path ("networks[0].nodes[1].tx_pdos[0].entries[2]"), or None."""
+    obj = cfg
+    for part in re.findall(r"[^.[\]]+", path):
+        try:
+            obj = obj[int(part)] if part.isdigit() else obj[part]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return obj
+
+
+def place_entries(cfg):
+    """Gives every PDO entry of a master network that has no location a
+    stand-in one of its type's size (%IB0, %QW0, ...), for a pack to place
+    it; returns how many."""
+    n = 0
+    for net in contract.networks(cfg):
+        for node in net["nodes"]:
+            if not isinstance(node, dict):
+                continue
+            for key, direction in (("tx_pdos", "input"), ("rx_pdos", "output")):
+                for p in node.get(key) or []:
+                    for e in (p.get("entries") or []) if isinstance(p, dict) else []:
+                        if not isinstance(e, dict) or e.get("iec_location") or e.get("type") not in CO_TYPES:
+                            continue
+                        area, size = layout.area_size(direction, e["type"])
+                        e["iec_location"] = element_str(area, size, 0)
+                        n += 1
+    return n
+
+
 def lowest_version(cfg):
     """The config in the lowest schema version that holds it (canopen-config-
     contract): a version 2 file with one network that has no name of its own
     (none, or its interface's) becomes version 1, its diagnostics and CiA
     309-3 gateway back in the master. Anything else comes back as it is, also a file the checks will
-    refuse, so they report it as the user wrote it. A bridge config stays
-    version 2: the bridge object needs it."""
+    refuse, so they report it as the user wrote it. A bridge or CODESYS
+    config stays version 2: their objects need it."""
     if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
-            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict) or "bridge" in cfg:
+            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict) or "bridge" in cfg \
+            or "codesys" in cfg:
         return cfg
     net = cfg["networks"][0]
     adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
@@ -884,7 +945,8 @@ class Session:
     def state(self):
         base = {"version": __version__, "recent": self.recent(), "home": home_folder(),
                 "mode": self.mode, "type_bits": {k: v[1] for k, v in CO_TYPES.items()},
-                "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS}
+                "default_start": layout.DEFAULT_START, "commission": self.commission, "j1939_dm": J1939_DM_TEXTS,
+                "targets": targets.table(), "codesys_found": codesys_found()}
         if not self.mode:
             return base
         try:
@@ -1124,9 +1186,9 @@ class Session:
             items += self.notes_problems(cfg, notes)
         except (OSError, ValueError, TypeError, AttributeError):
             pass  # notes are documentation: they never stop a check
-        # A bridge config does not run in OpenPLC: the project's addresses are not its addresses.
-        extra, declared = layout.project_checks(cfg, [] if modbusmap.is_bridge_config(cfg) else self.uses,
-                                                allow_overlap)
+        # A bridge or CODESYS config does not run in OpenPLC: the project's addresses are not its addresses.
+        tgt = targets.target(cfg)
+        extra, declared = layout.project_checks(cfg, self.uses if tgt == targets.OPENPLC else [], allow_overlap)
         items += extra
         # A cyclic axis's fCycleTime line: the task interval the page gives.
         cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
@@ -1152,7 +1214,8 @@ class Session:
                 return (names[(value, ix, sub)], types[(value, ix, sub)]) if (value, ix, sub) in names else None
 
             decls = declare.declarations(
-                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object)
+                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object,
+                unlocated=tgt == targets.CODESYS)
             block = declare.st_block(decls)
             axes = axis.text_block(cfg, decls, cycle_s)
             if axes:
@@ -1198,6 +1261,104 @@ class Session:
             name, data, ctype = folder + "_dcf.zip", buf.getvalue(), "application/zip"
         return {"items": [], "errors": 0, "name": name, "content_type": ctype,
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
+
+    # -- project target (canopen-configurator "Switching the target") --------
+    def switch_target(self, cfg, target, keep=False, pack=True, preview=False):
+        """The draft switched to `target`: the target's marker added and the
+        old one removed; to CODESYS every PDO entry without a name gets its
+        generated name; from CODESYS every entry gets a location, packed for
+        the new target; with `pack` (OpenPLC and bridge alike) every location
+        is repacked. `unused` lists what the new target does not use; unless
+        `keep`, the removable ones are removed. With `preview` only `unused`
+        and `locations` (entries that will get a location) come back."""
+        if not isinstance(cfg, dict):
+            raise ApiError(400, "config must be a JSON object")
+        if target not in targets.TARGETS:
+            raise ApiError(400, "target must be one of: " + ", ".join(targets.TARGETS))
+        out = copy.deepcopy(cfg)
+        old = targets.target(out)
+        if old == target:
+            return {"config": out, "unused": [], "removed": 0, "target": target}
+        if target != targets.OPENPLC:
+            out = version2(out)
+        if target == targets.CODESYS:
+            self._name_entries(out)
+        out.pop("bridge", None)
+        out.pop("codesys", None)
+        for net in out.get("networks") or []:
+            if isinstance(net, dict) and old == targets.CODESYS:
+                net.pop("codesys", None)
+        if target == targets.BRIDGE:
+            out["bridge"] = {"listen": "0.0.0.0:502", "writers": []}
+        elif target == targets.CODESYS:
+            out["codesys"] = {}
+        located = 0
+        if old == targets.CODESYS:
+            located = place_entries(out)
+        unused = [{"path": p, "key": k, "reason": why, "removable": targets.removable(k),
+                   "message": targets.message(p, k, why, target)} for p, k, why in targets.unused(out, target)]
+        if preview:
+            return {"unused": unused, "locations": located, "target": target}
+        if not keep:
+            targets.remove(out, [u["path"] for u in unused if u["removable"]])
+        if target != targets.CODESYS and (pack or located):
+            try:
+                out = modbusmap.pack(out) if target == targets.BRIDGE else self.pack_openplc(out)["config"]
+            except modbusmap.MapError as e:
+                raise ApiError(400, str(e))
+        if target == targets.OPENPLC:
+            out = lowest_version(out)
+        return {"config": out, "unused": unused, "removed": 0 if keep else sum(u["removable"] for u in unused),
+                "target": target}
+
+    def _name_entries(self, cfg):
+        """Gives every PDO entry without a `name` the name part of its
+        generated name, so its CODESYS channel keeps the name it had."""
+        eds_paths = self.eds_paths(cfg)
+        try:
+            summaries = self.eds_info(list(eds_paths))
+        except (OSError, ValueError):
+            summaries = {}
+        names = {(name, int(o["index"], 16), o["subindex"]): o["name"]
+                 for name, info in summaries.items() for o in info.get("objects", [])}
+        nodes = contract.all_nodes(cfg)
+        try:
+            decls = declare.declarations(cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), {},
+                                         unlocated=True)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return  # the check says what is wrong with the entries
+        for d in decls:
+            if d.get("kind") != "pdo":
+                continue
+            entry = _at(cfg, d["path"][: -len(".iec_location")])
+            if isinstance(entry, dict) and not entry.get("name"):
+                entry["name"] = d["entry_name"]
+
+    def codesys_build(self, cfg_path, runner=None):
+        """Builds the saved CODESYS config into its CODESYS project
+        (canworks-deploy --codesys-import): {ok, report, output}. Runs
+        outside the server lock: CODESYS takes minutes."""
+        from .. import cli
+        from ..codesys import run as codesys_run
+        args = cli.parser().parse_args(["--config", cfg_path, "--codesys-import"])
+        lines = []
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = contract.load(f)
+            result = contract.check_config(cfg, cfg_path, eds_paths=bundle.eds_files(cfg, cfg_path))
+            if not result.ok:
+                return {"ok": False, "output": "\n".join(result.errors), "report": ""}
+            cli._codesys(args, cfg, None, lines.append, runner=runner)
+            return {"ok": True, "output": "\n".join(lines), "report": "\n".join(lines)}
+        except cli.Failure as e:
+            text = str(e)
+            hint = None
+            if re.search(r"lock|in use|opened by|being used", "\n".join(lines) + text, re.I):
+                hint = "Close the project in CODESYS first: a project open in the CODESYS window cannot be built " \
+                       "from here."
+            return {"ok": False, "output": "\n".join(lines + [text]), "report": "\n".join(lines), "hint": hint}
+        except (OSError, ValueError, codesys_run.CodesysError) as e:
+            return {"ok": False, "output": "\n".join(lines + [str(e)]), "report": ""}
 
     # -- CODESYS export -----------------------------------------------------
     def export_codesys(self, cfg):
@@ -2214,6 +2375,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(200, self._trace((method, url.path), body))
                 except tracing.Refused as e:
                     raise ApiError(e.status, str(e), **e.extra)
+            if url.path == "/api/codesys/build" and method == "POST":
+                # Outside the lock: CODESYS takes minutes, the page goes on.
+                self._body()
+                with s.lock:
+                    self._need_open(s)
+                    if s.pending or s.pending_dbc or s.changed_on_disk() or not os.path.isfile(s.config_path):
+                        raise ApiError(409, "save the config before building it into the CODESYS project",
+                                       unsaved=True)
+                    cfg_path = s.config_path
+                return self._send(200, s.codesys_build(cfg_path, runner=self.server.codesys_runner))
             if url.path in ("/api/explain", "/api/explain/build"):
                 body = self._body() if method == "POST" else {}
                 return self._send(200, self._explain((method, url.path), body))
@@ -2317,6 +2488,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_codesys"):
                     self._need_open(s)
                     out = s.export_codesys(body.get("config"))
+                elif route == ("POST", "/api/switch_target"):
+                    self._need_open(s)
+                    out = s.switch_target(body.get("config"), body.get("target"), body.get("keep") is True,
+                                          body.get("pack") is not False, body.get("preview") is True)
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))
@@ -3677,6 +3852,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.verbose = verbose
         self.connection = online.Connection()
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
+        self.codesys_runner = None  # tests: runs the CODESYS command line instead of CODESYS
         self.sender = online.Sender()
         self.sim_connection = online.Connection()  # the Simulation view's standalone simulator
         self.eds_index = online.EdsIndex()

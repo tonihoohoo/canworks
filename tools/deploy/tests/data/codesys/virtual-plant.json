@@ -205,6 +205,13 @@
               "dir": "out",
               "mapping": 5632,
               "index": 25617,
+              "sub": 1,
+              "variable": "io_dio_Write_analogue_output_1"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25617,
               "sub": 2,
               "variable": "io_dio_Write_analogue_output_2"
             }
@@ -566,9 +573,14 @@
   ],
   "notes": [
     {
-      "where": "io/master",
-      "setting": "bus_state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "where": "io",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "io",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
     },
     {
       "where": "io/master",
@@ -577,8 +589,13 @@
     },
     {
       "where": "io/master",
-      "setting": "time_period_ms",
-      "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the manager in CODESYS"
+      "setting": "bus_state_location",
+      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "io/rtd",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "io/rtd",
@@ -597,8 +614,8 @@
     },
     {
       "where": "io/rtd",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "tx_pdos[0].timeout_ms",
+      "note": "plugin receive timeout of a TPDO"
     },
     {
       "where": "io/rtd",
@@ -607,8 +624,23 @@
     },
     {
       "where": "io/rtd",
-      "setting": "tx_pdos[0].timeout_ms",
-      "note": "plugin receive timeout of a TPDO"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "io/dio",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "io/dio",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
+    },
+    {
+      "where": "io/dio",
+      "setting": "store_configuration",
+      "note": "plugin store after the configuration check"
     },
     {
       "where": "io/dio",
@@ -632,33 +664,18 @@
     },
     {
       "where": "io/dio",
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "io/dio",
       "setting": "sdo_variables",
       "note": "plugin SDO variables; use the CiA 405 SDO blocks in CODESYS"
     },
     {
-      "where": "io/dio",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
-    },
-    {
-      "where": "io/dio",
-      "setting": "config_check",
-      "note": "configuration check: CODESYS downloads the configuration at every boot"
-    },
-    {
-      "where": "io/dio",
-      "setting": "store_configuration",
-      "note": "plugin store after the configuration check"
-    },
-    {
       "where": "io/new_io",
-      "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
-    },
-    {
-      "where": "io/new_io",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "serial_number",
+      "note": "identity check: tick the device's startup checks in CODESYS"
     },
     {
       "where": "io/new_io",
@@ -667,8 +684,33 @@
     },
     {
       "where": "io/new_io",
-      "setting": "serial_number",
-      "note": "identity check: tick the device's startup checks in CODESYS"
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "io/new_io",
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "motion",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "motion",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
+    },
+    {
+      "where": "motion/master",
+      "setting": "sync_source",
+      "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"
     },
     {
       "where": "motion/master",
@@ -676,9 +718,9 @@
       "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
-      "where": "motion/master",
-      "setting": "sync_source",
-      "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"
+      "where": "motion/drive",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
       "where": "motion/drive",
@@ -697,18 +739,38 @@
     },
     {
       "where": "motion/drive",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
-    },
-    {
-      "where": "motion/drive",
       "setting": "axis",
       "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
     },
     {
+      "where": "motion/drive",
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
       "where": "cell",
       "setting": "network",
-      "note": "not exported: a slave network: use `canworks-deploy slave-eds` for the other master's tool"
+      "note": "not exported: a slave network stays with canworks: give the other master the slave's EDS (canworks-deploy slave-eds)"
+    },
+    {
+      "where": "cell",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "cell",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
+    },
+    {
+      "where": "host",
+      "setting": "adapter.type",
+      "note": "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+    },
+    {
+      "where": "host",
+      "setting": "adapter.simulate",
+      "note": "simulated devices run in canworks, not in CODESYS"
     },
     {
       "where": "host/master",
@@ -717,6 +779,11 @@
     },
     {
       "where": "host/cell",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "host/cell",
       "setting": "status_location",
       "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
@@ -732,13 +799,23 @@
     },
     {
       "where": "host/cell",
-      "setting": "heartbeat_timeout_ms",
-      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
     },
     {
       "where": "config",
       "setting": "gateway",
-      "note": "stays with canworks"
+      "note": "the gateway between networks stays with canworks"
+    },
+    {
+      "where": "config",
+      "setting": "diagnostics",
+      "note": "the canworks diagnostics channel of the plugin or bridge"
+    },
+    {
+      "where": "io/master",
+      "setting": "time_period_ms",
+      "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the manager in CODESYS"
     },
     {
       "where": "every node",
