@@ -14,7 +14,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view
+from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -354,27 +354,24 @@ class Probes(Layout):
         self.open()
         pg.click("#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
-        # Folder entries and Recent are buttons in the Tab order; Enter on Recent opens it.
-        pg.wait_for_function("() => S.browserPath !== null")  # the home folder's listing is in
-        pg.fill("#browser-path", self.dir)
-        pg.click("#browser-go")
-        pg.wait_for_selector("#browser-list button.folder:has-text('rtd-monitor')")
-        pg.focus("#browser-list li:last-child button")
+        # Open…, New config…, the Commission link and Recent are in the Tab order; Enter on Recent opens it.
+        pg.wait_for_selector("#recent button.folder")
+        pg.focus("#start-open")
+        for want in ("start-new", "start-commission"):
+            pg.keyboard.press("Tab")
+            self.assertEqual(self.active(), want)
         pg.keyboard.press("Tab")
         self.assertEqual(pg.evaluate("() => document.activeElement.closest('#recent') !== null"), True)
         self.assertIn(self.project, pg.evaluate("() => document.activeElement.textContent"))
-        # ↑ reaching "/" is disabled: the focus moves to the path field.
-        pg.fill("#browser-path", os.path.dirname(self.dir))
-        pg.click("#browser-go")
-        pg.wait_for_function("(p) => document.querySelector('#browser-path').value === p", arg=os.path.dirname(self.dir))
-        for _ in range(12):
-            if pg.is_disabled("#browser-up"):
-                break
-            pg.focus("#browser-up")
-            pg.keyboard.press("Enter")
-            pg.wait_for_timeout(150)
-        self.assertEqual(pg.input_value("#browser-path"), "/")
-        self.assertEqual(self.active(), "browser-path")
+        # The folder dialog's entries are buttons, and Escape gives the focus back to Open….
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", self.dir)
+        pg.click("[data-folder=go]")
+        pg.wait_for_selector("[data-folder=list] button.folder:has-text('rtd-monitor')")
+        pg.focus("[data-folder=list] li:last-child button")
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("[data-folder=dialog]", state="detached")
+        self.assertEqual(self.active(), "start-open")
         pg.focus("#recent button.folder")
         pg.keyboard.press("Enter")
         pg.wait_for_selector("#editor:not([hidden])")
@@ -533,9 +530,8 @@ class Probes(Layout):
         folder = os.path.join(self.dir, "empty")
         os.makedirs(folder)
         pg.goto(self.server.url)
-        pg.click("#start-new")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
+        pg.wait_for_selector("#start-new")
+        new_config(pg, folder)
         pg.wait_for_selector("#problem-list li")
         self.assertEqual(pg.inner_text("#problem-list").strip(), NO_NODES)
         self.assertEqual(pg.inner_text("#problem-count"), "1 problem")
@@ -672,9 +668,9 @@ class CleanProject(OnlineBase):
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
         shutil.copy(self.config_path, os.path.join(folder, "canworks.json"))
         pg.goto(self.server.url)
-        pg.click("#start-standalone")
-        pg.fill("#browser-path", folder)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", folder)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#menu-project:not([hidden])")
         pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
         pg.click("#btn-new-project")

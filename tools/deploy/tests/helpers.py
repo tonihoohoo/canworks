@@ -300,3 +300,17 @@ def net_action(page, k, action):
     """Rename, role or remove of network k from its tree menu."""
     page.click('#tree [data-net-menu="%d"]' % k)
     page.click('#modal-buttons [data-value="%s"]' % action)
+
+
+def new_config(pg, path, target="openplc", project=False):
+    """New config… on the start page: `path` as name and location, the
+    target picked, the editor-project tick set (simplify-start-page)."""
+    pg.click("#start-new")
+    pg.wait_for_selector("[data-new-config=form]")
+    pg.click('label:has([data-new-target="%s"])' % target)
+    pg.fill("[data-new-config=location]", os.path.dirname(path))
+    pg.fill("[data-new-config=name]", os.path.basename(path))
+    box = "[data-new-config=project]"
+    if target == "openplc" and not pg.is_disabled(box):
+        pg.set_checked(box, project)
+    pg.click("#modal-buttons button[data-value=create]")

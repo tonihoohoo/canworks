@@ -68,9 +68,9 @@ class Tree(unittest.TestCase):
     def open(self):
         pg = self.page
         pg.goto(self.server.url)
-        pg.click("#start-standalone")
-        pg.fill("#browser-path", self.folder)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", self.folder)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector('#tree [data-key="0:node:0"]')
 
     def settled(self):

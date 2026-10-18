@@ -91,9 +91,9 @@ class OnlineBase(unittest.TestCase):
 
     def open(self):
         self.page.goto(self.server.url)
-        self.page.click("#start-project")
-        self.page.fill("#browser-path", self.project)
-        self.page.click("#browser-open")
+        self.page.click("#start-open")
+        self.page.fill("[data-folder=path]", self.project)
+        self.page.click("[data-folder=dialog] [data-value=use]")
         self.page.wait_for_selector("#editor:not([hidden])")
 
     def online(self, fake, allow=False, **diag_fields):

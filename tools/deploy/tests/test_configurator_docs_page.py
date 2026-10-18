@@ -180,9 +180,9 @@ class Configurator(Browser):
     def test_export_documentation(self):
         pg = self.page(accept_downloads=True)
         pg.goto(self.server.url)
-        pg.click("#start-project")
-        pg.fill("#browser-path", self.project)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", self.project)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.set_input_files("#eds-input", os.path.join(RTD, "rtd8.eds"))
         pg.wait_for_selector('[data-node-heading="0"]')

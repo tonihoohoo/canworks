@@ -267,7 +267,8 @@ class OpenAndModes(Running):
         self.assertIn({"file": "devices/remote/ecat-bus.json", "kind": "device", "location": "%ID100",
                        "name": "drive1", "path": "ethercatConfig.devices[0].channelMappings[0].iecLocation"},
                       state["project_uses"])
-        self.assertEqual(state["recent"][0], {"path": self.project, "mode": "project"})
+        self.assertEqual({k: state["recent"][0][k] for k in ("path", "mode", "target")},
+                         {"path": self.project, "mode": "project", "target": None})
 
     def test_not_a_project(self):
         status, data, _ = self.request("POST", "/api/open", {"path": self.dir, "mode": "project"})
@@ -1338,8 +1339,70 @@ class Folders(Running):
         self.open_project()
         self.ok("POST", "/api/close")
         self.assertEqual([r["path"] for r in self.ok("GET", "/api/state")["recent"]], [self.project, folder])
-        self.assertEqual(self.ok("POST", "/api/recent/forget", {"path": folder})["recent"],
-                         [{"path": self.project, "mode": "project"}])
+        left = self.ok("POST", "/api/recent/forget", {"path": folder})["recent"]
+        self.assertEqual([(r["path"], r["mode"], r["target"]) for r in left], [(self.project, "project", None)])  # no canworks/ yet
+        self.assertIsInstance(left[0]["opened"], int)
+
+    def test_recent_target(self):
+        """simplify-start-page: Recent tags each folder with its config's target."""
+        bridge = os.path.join(self.dir, "pump")
+        os.makedirs(bridge)
+        with open(os.path.join(bridge, "canworks.json"), "w") as f:
+            json.dump({"schema_version": 2, "bridge": {}, "networks": []}, f)
+        broken = os.path.join(self.dir, "broken")
+        os.makedirs(broken)
+        with open(os.path.join(broken, "canworks.json"), "w") as f:
+            f.write("{")
+        for folder in (bridge, broken):
+            self.request("POST", "/api/open", {"path": folder, "mode": "standalone"})
+        self.request("POST", "/api/close")
+        # The broken one never opened; the bridge one did.
+        recent = self.ok("GET", "/api/state")["recent"]
+        by_path = {r["path"]: r["target"] for r in recent}
+        self.assertEqual(by_path[bridge], "bridge")
+        os.remove(os.path.join(bridge, "canworks.json"))
+        recent = self.ok("GET", "/api/state")["recent"]
+        self.assertIsNone({r["path"]: r["target"] for r in recent}[bridge])
+
+    def test_open_auto(self):
+        """simplify-start-page: Open… of a project, a config folder, and a folder with neither."""
+        self.assertEqual(self.ok("POST", "/api/open", {"path": self.project, "mode": "auto", "new": False})["mode"],
+                         "project")
+        folder = self.standalone()
+        self.assertEqual(self.ok("POST", "/api/open", {"path": folder, "mode": "auto", "new": False})["mode"],
+                         "standalone")
+        empty = os.path.join(self.dir, "empty")
+        os.makedirs(empty)
+        status, data, _ = self.request("POST", "/api/open", {"path": empty, "mode": "auto", "new": False})
+        self.assertEqual(status, 404)
+        self.assertTrue(data["no_config"])
+        self.assertEqual(data["path"], empty)
+
+    def test_new_config(self):
+        """simplify-start-page: New config… makes a config folder, or an editor project with no config yet."""
+        state = self.ok("GET", "/api/state")
+        self.assertIn("openplc_cli", state)
+        folder = os.path.join(self.dir, "fresh")
+        self.assertEqual(self.ok("POST", "/api/new", {"path": folder})["mode"], "standalone")
+        status, data, _ = self.request("POST", "/api/new", {"path": self.standalone()})
+        self.assertEqual(status, 409)
+        self.assertTrue(data["has_config"])
+        status, data, _ = self.request("POST", "/api/new", {"path": self.project, "editor_project": True})
+        self.assertEqual(status, 409)
+        self.assertTrue(data["is_project"])
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        self.assertTrue(self.ok("GET", "/api/state")["openplc_cli"])
+        machine = os.path.join(self.dir, "new-machine")
+        state = self.ok("POST", "/api/new", {"path": machine, "editor_project": True})
+        self.assertEqual(state["mode"], "project")
+        self.assertTrue(os.path.isfile(os.path.join(machine, "project.json")))
+        self.assertFalse(os.path.exists(os.path.join(machine, "canworks")))
+        status, data, _ = self.request("POST", "/api/new", {"path": machine + "-x", "editor_project": True})
+        self.assertEqual(status, 200)
+        status, data, _ = self.request("POST", "/api/new", {"path": self.dir, "editor_project": True})
+        self.assertEqual(status, 422)
+        self.assertIn("already exists", data["error"])
 
     def test_slave_description_and_move(self):
         folder = self.standalone()

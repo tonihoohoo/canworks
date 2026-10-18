@@ -87,9 +87,9 @@ class Base(unittest.TestCase):
         cls.page.on("console", lambda m: cls.console.append(m.text) if m.type == "error" else None)
         pg = cls.page
         pg.goto(cls.server.url)
-        pg.click("#start-project")
-        pg.fill("#browser-path", cls.project)
-        pg.click("#browser-open")
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", cls.project)
+        pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.click('button[data-view="simulation"]')
         pg.click('button[data-sim-tab="machine"]')

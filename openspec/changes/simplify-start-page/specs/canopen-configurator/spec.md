@@ -53,7 +53,7 @@ Opening a folder the configurator cannot read, or saving where it cannot write, 
 - **THEN** nothing is written and the page offers to open that config
 
 ### Requirement: Target of a new config
-New config… SHALL be one dialog that asks first what will run the networks, with three choices and one sentence each: OpenPLC Runtime (the canworks plugin runs the networks), Modbus bridge (no PLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and other Modbus TCP clients) and CODESYS (a CODESYS PLC runs the CANopen master). OpenPLC SHALL be preselected. The dialog SHALL then ask for the folder. For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here", ticked by default when the editor's `openplc-cli` is found and disabled with the reason when it is not; ticked, the folder SHALL become a new OpenPLC Editor project with the empty config in its `canworks/` folder, opened as a project. Otherwise the folder SHALL become a config folder with the target's empty config.
+New config… SHALL be one dialog that asks first what will run the networks, with three choices and one sentence each: OpenPLC Runtime (the canworks plugin runs the networks), Modbus bridge (no PLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and other Modbus TCP clients) and CODESYS (a CODESYS PLC runs the CANopen master). OpenPLC SHALL be preselected. The dialog SHALL then ask for a name (the new folder) and its location, with Choose… opening the folder dialog. For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here", ticked by default when the editor's `openplc-cli` is found and disabled with the reason when it is not; ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project with an empty config that is written to its `canworks/` folder on the first save. Otherwise the folder SHALL become a config folder with the target's empty config.
 
 #### Scenario: New CODESYS config
 - **WHEN** the user creates a new config with target CODESYS
@@ -65,7 +65,7 @@ New config… SHALL be one dialog that asks first what will run the networks, wi
 
 #### Scenario: New OpenPLC config with an editor project
 - **WHEN** `openplc-cli` is found and the user creates a new OpenPLC config in `~/plc/new-machine` with the editor-project tick on
-- **THEN** `~/plc/new-machine` is an OpenPLC Editor project with `canworks/canworks.json`, and the page shows it with the mode "project new-machine"
+- **THEN** `~/plc/new-machine` is an OpenPLC Editor project, and the page shows its empty config with the mode "project new-machine"
 
 #### Scenario: No editor command-line tool
 - **WHEN** `openplc-cli` is not found and the user picks OpenPLC

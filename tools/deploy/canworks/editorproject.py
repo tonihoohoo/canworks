@@ -177,7 +177,8 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
            blocks=False, sim_path=None):
     """Creates the project. Returns (project folder, located declarations). The config
     (and the simulation file sim_path, when given) must already have passed
-    the deploy tool's checks."""
+    the deploy tool's checks. With cfg None the project gets no canworks/
+    folder and an empty main (the start page's New config with a project)."""
     progress = progress or (lambda m: None)
     project_dir = os.path.abspath(os.path.expanduser(project_dir))
     parent, name = os.path.split(project_dir.rstrip(os.sep))
@@ -188,10 +189,13 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
         raise NewProjectError("%s already exists; pick a new folder for the project" % project_dir)
     if not os.path.isdir(parent):
         raise NewProjectError("%s is not a folder" % parent)
-    result = contract.check_config(cfg, config_path)
-    if not result.ok:
-        raise NewProjectError("\n".join(result.errors))
-    decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
+    if cfg is None:
+        decls, body = [], []
+    else:
+        result = contract.check_config(cfg, config_path)
+        if not result.ok:
+            raise NewProjectError("\n".join(result.errors))
+        decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
     cli = cli_program()
     start = cli_command(cli)
     if not start:
@@ -216,8 +220,9 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
     try:
         _patch(project_dir, decls, body, runtime_address)
-        project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
-        if blocks or uses_library(cfg):
+        if cfg is not None:
+            project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
+        if blocks or (cfg is not None and uses_library(cfg)):
             plclibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, plclibrary.LibraryError) as e:
         shutil.rmtree(project_dir, ignore_errors=True)

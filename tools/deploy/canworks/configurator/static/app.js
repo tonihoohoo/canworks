@@ -16,8 +16,6 @@ const S = {
   dirty: false,
   view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "nodes" (commissioning) | "trace" | "simulation"
   check: null,      // last /api/check
-  startMode: "project",
-  browserPath: null,
   objectFilter: "",
   sdoFilter: "",
   sdoShowAll: false,  // the startup SDO picker lists every writable object
@@ -1133,62 +1131,136 @@ function renderStart() {
   $("#actions").hidden = true;
   $("#mode").hidden = true;
   $("#sim-banner").hidden = true;
-  for (const [id, mode] of [["#start-project", "project"], ["#start-standalone", "standalone"], ["#start-new", "new"]]) {
-    $(id).classList.toggle("selected", S.startMode === mode);
-    $(id).setAttribute("aria-pressed", String(S.startMode === mode));
-  }
-  // A new config asks for its target (canopen-configurator "Target of a new config").
-  $("#new-target-row").hidden = S.startMode !== "new";
-  S.newTarget = S.newTarget || "openplc";
-  for (const b of document.querySelectorAll("#new-target [data-new-target]")) b.setAttribute("aria-pressed", String(b.dataset.newTarget === S.newTarget));
-  $("#browser-title").textContent = {
-    project: "Choose the OpenPLC Editor project folder",
-    standalone: "Choose the standalone config folder",
-    new: "Choose where the new config goes (a new or empty folder)",
-  }[S.startMode];
-  const recent = $("#recent");
-  recent.replaceChildren(...(S.state.recent.length ? S.state.recent.map((r) =>
-    el("li", null, el("button", { type: "button", class: "folder", onclick: () => openFolder(r.path, r.mode) }, r.path,
-      el("span", { class: "tag" }, r.mode === "project" ? "project" : "standalone")),
-      el("button", { type: "button", class: "small", dataset: { forget: r.path }, "aria-label": "Remove " + r.path + " from Recent",
-        title: "Remove from Recent (the folder stays)", onclick: () => forgetRecent(r.path) }, "Remove")))
-    : [el("li", { class: "muted" }, "Nothing opened yet")]));
-  if (!S.browserPath) browse(S.state.home);
+  // Recent is the page; with nothing in it, three starting points take its place.
+  const items = S.state.recent || [];
+  $("#start-first").hidden = items.length > 0;
+  $("#start-recent").hidden = items.length === 0;
+  $("#recent").replaceChildren(...items.map((r) => {
+    const target = r.target || (r.mode === "project" ? "openplc" : null);
+    return el("li", null, el("button", { type: "button", class: "folder", title: r.path, onclick: () => openFolder(r.path, r.mode) },
+      el("span", { class: "recent-name" }, folderName(r.path)),
+      target ? el("span", { class: "tag", dataset: { recentTarget: target } }, TARGET_TITLES[target]) : null,
+      el("span", { class: "tag" }, r.mode === "project" ? "editor project" : "config folder"),
+      r.opened ? el("span", { class: "recent-when" }, whenOpened(r.opened)) : null,
+      el("span", { class: "recent-path" }, r.path)),
+    el("button", { type: "button", class: "small", dataset: { forget: r.path }, "aria-label": "Remove " + r.path + " from Recent",
+      title: "Remove from Recent (the folder stays)", onclick: () => forgetRecent(r.path) }, "Remove"));
+  }));
+}
+
+const TARGET_TITLES = { openplc: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
+
+// The last part of a path, on Windows too.
+function folderName(path) {
+  const parts = String(path).replace(/[\\/]+$/, "").split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
+function splitPath(path) {
+  const p = String(path).replace(/[\\/]+$/, "");
+  const k = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return k < 0 ? ["", p] : [k === 0 || /^[A-Za-z]:$/.test(p.slice(0, k)) ? p.slice(0, k + 1) : p.slice(0, k), p.slice(k + 1)];
+}
+
+function joinPath(parent, name) {
+  if (!parent) return name;
+  const sep = parent.includes("\\") && !parent.includes("/") ? "\\" : "/";
+  return /[\\/]$/.test(parent) ? parent + name : parent + sep + name;
+}
+
+// "today", "yesterday", "3 days ago", or the date: seconds since 1970 of the last open.
+function whenOpened(seconds) {
+  const then = new Date(seconds * 1000), now = new Date();
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(then)) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return days + " days ago";
+  return then.toLocaleDateString();
 }
 
 async function forgetRecent(path) {
+  const list = $("#recent");
+  const rows = [...list.querySelectorAll("[data-forget]")];
+  const k = rows.findIndex((b) => b.dataset.forget === path);
   try {
     S.state.recent = (await api("POST", "/api/recent/forget", { path })).recent;
     renderStart();
+    // The focus goes to the next entry's Remove, or the one before, or Open….
+    const left = [...list.querySelectorAll("[data-forget]")];
+    (left[Math.min(k, left.length - 1)] || $("#start-open")).focus();
   } catch (e) {
     banner(e.message, true);
   }
 }
 
-async function browse(path) {
-  const typed = $("#browser-path").value;
-  try {
-    const r = await api("GET", "/api/folders?path=" + encodeURIComponent(path));
-    if (S.browseFailed) { S.browseFailed = false; banner(""); }
-    S.browserPath = r.path;
-    // A path typed while the listing loaded (the first one, of the home
-    // folder, starts with the page) stays: Open uses the field.
-    if ($("#browser-path").value === typed) $("#browser-path").value = r.path;
-    // ↑ at the top folder is disabled: its focus goes to the path field.
-    if (!r.parent && document.activeElement === $("#browser-up")) $("#browser-path").focus();
-    $("#browser-up").disabled = !r.parent;
-    $("#browser-up").onclick = () => browse(r.parent);
-    $("#browser-list").replaceChildren(...r.entries.map((e) => el("li", null, el("button", {
-      type: "button", class: "folder", onclick: () => browse(e.path), title: e.path,
-    }, "📁 " + e.name, e.project ? el("span", { class: "tag" }, "editor project") : null,
-    e.config ? el("span", { class: "tag" }, "canworks.json") : null))));
-    if (!r.entries.length) $("#browser-list").append(el("li", { class: "muted" }, "No subfolders"));
-  } catch (e) {
-    // The old list is not the typed folder's: drop it.
-    S.browseFailed = true;
-    $("#browser-list").replaceChildren(el("li", { class: "muted" }, "No folder listed"));
-    $("#browser-up").disabled = true;
-    banner(e.message, true);
+// Open…: an OpenPLC Editor project or a config folder, whichever the picked folder is.
+async function startOpen() {
+  const path = await chooseFolder({ title: "Open a project or config folder", start: S.lastFolder || S.state.home,
+    note: "An OpenPLC Editor project opens as a project; a folder with a canworks config opens as a config folder." });
+  if (path) await openFolder(path, "auto", false);
+}
+
+// New config…: what runs it first, then where; for OpenPLC optionally a new editor project around it.
+async function newConfig(folder) {
+  const cli = !!S.state.openplc_cli;
+  const pick = (value, title, text) => el("label", { class: "choice" },
+    el("input", { type: "radio", name: "new-target", value, dataset: { newTarget: value }, checked: value === "openplc" || null }),
+    el("strong", null, title), el("span", null, text));
+  const targets = el("fieldset", null, el("legend", null, "What will run the networks?"),
+    el("div", { class: "target-choices" },
+      pick("openplc", "OpenPLC Runtime", "The canworks plugin runs the networks; PLC variables map to PDOs and signals."),
+      pick("bridge", "Modbus bridge", "No PLC: the values are served as Modbus TCP registers, for Node-RED, an HMI or any Modbus client."),
+      pick("codesys", "CODESYS", "A CODESYS PLC runs the CANopen master; canworks builds it into your CODESYS project.")));
+  const [start, startName] = folder ? splitPath(folder) : [S.lastFolder || S.state.home, ""];
+  const name = el("input", { type: "text", spellcheck: "false", "aria-label": "Name", dataset: { newConfig: "name" }, placeholder: "new-machine" });
+  name.value = startName;
+  const where = el("input", { type: "text", spellcheck: "false", "aria-label": "Location", dataset: { newConfig: "location" } });
+  where.value = start;
+  const choose = el("button", { type: "button", dataset: { newConfig: "choose" }, onclick: async () => {
+    const p = await chooseFolder({ title: "Where the new config goes", start: where.value.trim() || S.state.home });
+    if (p) where.value = p;
+  } }, "Choose…");
+  const project = el("input", { type: "checkbox", dataset: { newConfig: "project" }, disabled: !cli || null,
+    checked: (cli && !folder) || null });
+  const projectRow = el("label", { class: "inline" }, project, " Also create an OpenPLC Editor project here, with the I/O declared in main");
+  const projectHint = el("p", { class: "hint", dataset: { newConfig: "project-hint" } }, cli
+    ? "Untick to keep just a config folder; Project → New editor project… makes one later."
+    : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so only a config folder can be made.");
+  const projectBox = el("div", null, projectRow, projectHint);
+  const form = el("div", { class: "new-config", dataset: { newConfig: "form" } }, targets,
+    el("label", null, "Name (the new folder)", name),
+    el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose)),
+    projectBox);
+  where.id = "new-config-location";
+  const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "openplc";
+  const sync = () => { projectBox.hidden = target() !== "openplc"; };
+  form.addEventListener("change", sync);
+  sync();
+  let text = "New config";
+  for (;;) {
+    const v = await modal(text, [["create", "Create", true], ["cancel", "Cancel"]], form);
+    if (v !== "create") return;
+    const nm = name.value.trim(), loc = where.value.trim();
+    if (!nm) { text = "Give the new config a name: it becomes its folder."; continue; }
+    if (/[\\/]/.test(nm)) { text = "The name is one folder name, without slashes."; continue; }
+    const path = joinPath(loc, nm);
+    const withProject = target() === "openplc" && project.checked && !project.disabled;
+    try {
+      banner("");
+      await api("POST", "/api/new", { path, editor_project: withProject });
+    } catch (e) {
+      if (e.body && (e.body.has_config || e.body.is_project)) {
+        const o = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
+        if (o === "open") await openFolder(e.body.path || path, "auto");
+        return;
+      }
+      text = "Not created: " + e.message;
+      continue;
+    }
+    await opened(target());
+    if (withProject) banner("Created the OpenPLC Editor project " + path + ". Add nodes, save, then open it in the editor with Open Project.", "info");
+    return;
   }
 }
 
@@ -1285,45 +1357,43 @@ async function chooseFolder({ title, start, note }) {
   return shown && !shown.drive_list ? shown.path : null;
 }
 
-async function openFolder(path, mode, isNew, target) {
+async function openFolder(path, mode, isNew) {
   try {
     banner("");
     await api("POST", "/api/open", { path, mode, new: isNew });
-    S.view = "bus";
-    await loadState();
-    // A new config for the bridge or CODESYS starts as that target's empty config.
-    if (target && target !== "openplc" && S.model) {
-      bridgeReplaceDraft((await api("POST", "/api/switch_target", { config: fileConfig(), target })).config);
-      changed(true);
-    }
-    // The start page is gone: keyboard focus goes to the network tree, not the page body.
-    const a = document.activeElement;
-    if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
-      const to = document.querySelector('#tree [role=treeitem][tabindex="0"]') || document.querySelector("#view h2");
-      if (to) { if (!to.hasAttribute("tabindex")) to.setAttribute("tabindex", "-1"); to.focus(); }
-    }
+    await opened(null);
   } catch (e) {
-    if (e.body && e.body.not_a_project) {
-      const v = await modal(e.message + ".", [["standalone", "Open as standalone config", true], ["cancel", "Cancel"]]);
+    if (e.body && e.body.no_config) {
+      const v = await modal(e.message + ". Start a new config there?", [["new", "New config…", true], ["cancel", "Cancel"]]);
+      if (v === "new") return newConfig(e.body.path || path);
+    } else if (e.body && e.body.not_a_project) {
+      const v = await modal(e.message + ".", [["standalone", "Open as config folder", true], ["cancel", "Cancel"]]);
       if (v === "standalone") return openFolder(path, "standalone");
     } else if (e.body && e.body.is_project) {
       const v = await modal(e.message + ".", [["project", "Open as project", true], ["cancel", "Cancel"]]);
       if (v === "project") return openFolder(path, "project");
-    } else if (e.body && e.body.has_config) {
-      const v = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
-      if (v === "open") return openFolder(path, "standalone", false);
     } else {
       banner(e.message, true);
     }
   }
 }
 
-function startOpen() {
-  const path = $("#browser-path").value.trim();
-  if (!path) return;
-  // Open standalone wants an existing config, New refuses one.
-  if (S.startMode === "project") openFolder(path, "project");
-  else openFolder(path, "standalone", S.startMode === "new", S.startMode === "new" ? S.newTarget : null);
+// After a folder opened: the page shows it; a new config for the bridge or
+// CODESYS starts as that target's empty config.
+async function opened(target) {
+  S.view = "bus";
+  await loadState();
+  if (S.state.folder) S.lastFolder = splitPath(S.state.folder)[0];
+  if (target && target !== "openplc" && S.model) {
+    bridgeReplaceDraft((await api("POST", "/api/switch_target", { config: fileConfig(), target })).config);
+    changed(true);
+  }
+  // The start page is gone: keyboard focus goes to the network tree, not the page body.
+  const a = document.activeElement;
+  if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
+    const to = document.querySelector('#tree [role=treeitem][tabindex="0"]') || document.querySelector("#view h2");
+    if (to) { if (!to.hasAttribute("tabindex")) to.setAttribute("tabindex", "-1"); to.focus(); }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -7441,7 +7511,6 @@ async function closeFolder() {
   stopOnline(false);
   stopSim(false);
   await api("POST", "/api/close");
-  S.browserPath = null;
   // The closed folder's scan and online picks are not the next one's: a
   // device commissioned next showed the project's nodes as configured.
   S.scanResult = null;
@@ -7554,13 +7623,9 @@ function wireTheme() {
 // ---------------------------------------------------------------------------
 
 function wire() {
-  $("#start-project").onclick = () => { S.startMode = "project"; renderStart(); };
-  $("#start-standalone").onclick = () => { S.startMode = "standalone"; renderStart(); };
-  $("#start-new").onclick = () => { S.startMode = "new"; renderStart(); };
-  $("#start-commission").onclick = commissionDevice;
-  $("#browser-go").onclick = () => browse($("#browser-path").value.trim());
-  $("#browser-path").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("#browser-path").value.trim()); });
-  $("#browser-open").onclick = startOpen;
+  $("#start-open").onclick = $("#start-first-open").onclick = () => startOpen();
+  $("#start-new").onclick = $("#start-first-new").onclick = () => newConfig();
+  $("#start-commission").onclick = $("#start-first-commission").onclick = commissionDevice;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
   $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(() => {
     const had = document.activeElement === $("#btn-save");
@@ -7578,7 +7643,6 @@ function wire() {
   exporting("#btn-export-html", exportHtml);
   $("#btn-codesys-build").onclick = () => busy($("#btn-codesys-build"), "Building…", codesysBuild);
   $("#btn-codesys-download").onclick = () => busy($("#btn-codesys-download"), "Exporting…", exportCodesys);
-  for (const b of document.querySelectorAll("#new-target [data-new-target]")) b.onclick = () => { S.newTarget = b.dataset.newTarget; renderStart(); };
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);
