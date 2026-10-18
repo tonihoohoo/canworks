@@ -253,11 +253,12 @@ release_install() {
 
 # Runs the release's install on another device over SSH.
 ssh_install() {
-    local ssh_opts=() scp_opts=() files=() remote_args remote a up
+    local ssh_opts=() scp_opts=() files=() remote_args remote a up f
     [ -z "$SSH_PORT" ] || { ssh_opts+=(-p "$SSH_PORT"); scp_opts+=(-P "$SSH_PORT"); }
     [ -z "$SSH_IDENTITY" ] || { ssh_opts+=(-i "$SSH_IDENTITY"); scp_opts+=(-i "$SSH_IDENTITY"); }
     if [ -n "$CONFIG_DIR" ]; then
-        mapfile -t files < <(config_files)
+        # A read loop, not mapfile: macOS has bash 3.2.
+        while IFS= read -r f; do files+=("$f"); done < <(config_files)
         [ "${#files[@]}" -gt 0 ] || die "--config $CONFIG_DIR has no canworks.json"
     fi
     [ "$DRY_RUN" -eq 1 ] || command -v ssh >/dev/null 2>&1 || die "ssh is needed to install on $SSH_TARGET"

@@ -469,8 +469,10 @@ class PowerShellScripts(_Base):
         self.assertIn("ssh -i /k/id pi@rpi.local", runs[0])
         self.assertIn("mktemp -d /tmp/canworks-bridge-upload.XXXXXX", runs[0])
         self.assertIn("scp -i /k/id", runs[1])
-        self.assertIn(os.path.join(cfg, "dio16.eds"), runs[1])
-        self.assertNotIn(os.path.join(cfg, "old"), runs[1])
+        # PowerShell gives the long form of a Windows path that Python may have in its short (8.3) form.
+        self.assertIn(os.sep + "dio16.eds", runs[1])
+        self.assertIn(os.sep + "canworks.json", runs[1])
+        self.assertNotIn(os.sep + "old", runs[1])
         self.assertIn("'--instance' 'line1' '--config'", runs[2])
         self.assertIn("'--remove-config-dir'", runs[2])
 
