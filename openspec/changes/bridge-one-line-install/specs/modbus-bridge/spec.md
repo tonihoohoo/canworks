@@ -22,7 +22,7 @@ CI SHALL run `shellcheck` on the script and test, without network access, its re
 
 ### Requirement: Bridge instance from the install line
 
-`install-bridge.sh` SHALL take `--instance NAME --config DIR` (`-Instance`, `-Config` in `install-bridge.ps1`), where `DIR` holds a `canworks.json` and the files it names. After installing, it SHALL copy the folder's files to `/etc/canworks-bridge/NAME/`, run the bridge's `--check-only` on it, and when the check passes enable and start (or restart) `canworks-bridge@NAME`. When the check fails it SHALL leave the instance's service stopped, print the check's messages and exit non-zero. `NAME` SHALL be a plain name (letters, digits, `-`, `_`), and either option without the other SHALL be refused before anything is installed. With `--ssh`, the PC side SHALL first copy `DIR` to a temporary folder on the device with `scp` (same port and key), pass that folder to the device side, and the device side SHALL remove it afterwards.
+`install-bridge.sh` SHALL take `--instance NAME --config DIR` (`-Instance`, `-Config` in `install-bridge.ps1`), where `DIR` holds a `canworks.json` and the files it names. After installing, it SHALL run the bridge's `--check-only` on `DIR/canworks.json`, and when the check passes copy the folder's regular files to `/etc/canworks-bridge/NAME/` and enable and start (or restart) `canworks-bridge@NAME`. When the check fails it SHALL leave the instance folder and its service as they were, print the check's messages and exit non-zero. `NAME` SHALL be a plain name (letters, digits, `-`, `_`), and either option without the other SHALL be refused before anything is installed. With `--ssh`, the PC side SHALL first copy `DIR` to a temporary folder on the device with `scp` (same port and key), pass that folder to the device side, and the device side SHALL remove it afterwards.
 
 #### Scenario: Bridge set up from a Mac
 - **WHEN** a Mac user runs `install-bridge.sh --ssh pi@rpi.local --instance line1 --config ./line1`
@@ -30,7 +30,7 @@ CI SHALL run `shellcheck` on the script and test, without network access, its re
 
 #### Scenario: Config that fails its check
 - **WHEN** the config in `DIR` names an EDS file the folder does not have
-- **THEN** the install line exits non-zero with the check's message and `canworks-bridge@NAME` is not started
+- **THEN** the install line exits non-zero with the check's message, nothing is copied and `canworks-bridge@NAME` is not started or restarted
 
 ### Requirement: Bridge update restarts running instances
 

@@ -177,8 +177,9 @@ target_compile_options(canworks_bridge_proto PRIVATE -Wall -Wextra -Wno-unused-p
 target_link_libraries(canworks_bridge_proto PUBLIC pthread)
 
 # The plugin version the diagnostics channel reports: $CANWORKS_PLUGIN_VERSION
-# when set (the local simulator runtime image, built without .git), else git.
-if(DEFINED ENV{CANWORKS_PLUGIN_VERSION})
+# when set and not empty (images and release installs, built without .git),
+# else git.
+if(NOT "$ENV{CANWORKS_PLUGIN_VERSION}" STREQUAL "")
   set(CANWORKS_PLUGIN_VERSION "$ENV{CANWORKS_PLUGIN_VERSION}")
 else()
 execute_process(COMMAND git describe --always --tags --dirty

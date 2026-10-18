@@ -205,6 +205,7 @@ build_in_image() {
     docker run --rm --network host \
         -v "$PREFIX:$CONTAINER_PREFIX" -v "$SRC_COPY:/src" \
         -e CANWORKS_IMAGE="$image" -e CANWORKS_IMAGE_ID="$image_id" \
+        -e CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION:-}" \
         --entrypoint bash "$image" /src/scripts/install-stock.sh "${args[@]}" ||
         die "the build in $image failed; the runtime container was not changed"
     rm -rf "${SRC_COPY:?}"

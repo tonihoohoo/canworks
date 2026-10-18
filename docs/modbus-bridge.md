@@ -16,15 +16,42 @@ The bridge is the same engine as the OpenPLC plugin: it boots and supervises CAN
 
 ## Install
 
-On the Linux device that has the CAN interfaces, from a checkout of this repository:
+### With one line
+
+On the Linux device that has the CAN interfaces, as root. It downloads the newest release (not `main`), builds the bridge and installs it, with no git checkout; running it again updates and restarts the bridges that were running:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash -s -- --instance line1 --config ./line1
+```
+
+`--instance NAME --config DIR` also sets up one bridge: it checks `DIR/canworks.json` with `canworks-bridge --check-only`, copies the files of `DIR` (the config and the EDS and DBC files next to it; not subfolders) to `/etc/canworks-bridge/NAME/`, and enables and starts `canworks-bridge@NAME`. A config that fails the check is not copied, and the instance stays as it was. Files already in the instance folder that `DIR` does not have stay.
+
+From a PC onto the device over SSH (the PC needs only `ssh` and `scp`; `sudo` on the device may ask for its password). macOS and Linux:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--instance line1 --config ./line1]
+```
+
+Windows (PowerShell, with the OpenSSH client built into Windows 10 and 11):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.ps1))) -Ssh pi@rpi.local -Instance line1 -Config .\line1    # -Port, -Identity, -Options --without-j1939
+```
+
+Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put the tag in place of `main` (`.../canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
+
+### From a checkout
+
+On the Linux device, from a checkout of this repository (this installs the checkout, not a release):
 
 ```sh
 sudo scripts/install-bridge.sh
 ```
 
-This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. `--without-canopen` builds J1939 only, `--without-j1939` CANopen only, as for the plugin ([install-stock.md](install-stock.md)). The build needs the OpenPLC runtime's plugin headers (not the runtime itself): the script downloads the runtime release the project pins (`docker/local-runtime/runtime-version`) and stops unless the archive's sha256 matches `docker/local-runtime/runtime-sha256`, or `--runtime-dir DIR` uses a checkout you have. Another release or commit takes `--runtime-ref REF --runtime-sha256 HASH`. `--uninstall` stops every bridge and removes the unit and the binary; the configs stay unless you add `--purge`.
+This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. Both routes take the same options: `--without-canopen` builds J1939 only, `--without-j1939` CANopen only, as for the plugin ([install-stock.md](install-stock.md)). The build needs the OpenPLC runtime's plugin headers (not the runtime itself): the script downloads the runtime release the project pins (`docker/local-runtime/runtime-version`) and stops unless the archive's sha256 matches `docker/local-runtime/runtime-sha256`, or `--runtime-dir DIR` uses a checkout you have. Another release or commit takes `--runtime-ref REF --runtime-sha256 HASH`. `--uninstall` stops every bridge and removes the unit and the binary; the configs stay unless you add `--purge`. An update restarts every `canworks-bridge@` instance that was running; stopped ones stay stopped.
 
-On a device whose OpenPLC runtime runs in Docker (upstream's managed install), `/opt/canworks` belongs to the runtime's container, which made its Python environment; install the bridge into a prefix of its own, `sudo scripts/install-bridge.sh --prefix /opt/canworks-bridge` (the script refuses the container's prefix and says so). The paths below then start with `/opt/canworks-bridge`.
+On a device whose OpenPLC runtime runs in Docker (upstream's managed install), `/opt/canworks` belongs to the runtime's container, which made its Python environment. Without `--prefix` the script then installs the bridge into `/opt/canworks-bridge` and says so, and later updates and `--uninstall` find it there; an explicit `--prefix /opt/canworks` is refused. The paths below then start with `/opt/canworks-bridge`.
 
 Each service instance runs one config:
 

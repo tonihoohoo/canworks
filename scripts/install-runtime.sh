@@ -105,7 +105,7 @@ say "installing canworks $VERSION"
 TARBALL="$REPO/archive/refs/tags/$TAG.tar.gz"
 if [ "$DRY_RUN" = 1 ]; then
     echo "would download: $TARBALL"
-    printf 'would run: bash <source>/scripts/install-stock.sh'; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
+    printf 'would run: CANWORKS_PLUGIN_VERSION=%s bash <source>/scripts/install-stock.sh' "$VERSION"; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
     exit 0
 fi
 
@@ -114,7 +114,8 @@ trap 'rm -rf "$SRC"' EXIT
 curl -fsSL "$TARBALL" | tar -xz -C "$SRC" --strip-components=1 ||
     die "could not download $TARBALL"
 [ -f "$SRC/scripts/install-stock.sh" ] || die "$TARBALL has no scripts/install-stock.sh"
-bash "$SRC/scripts/install-stock.sh" "${PASS[@]+"${PASS[@]}"}"
+# The source has no git history: the plugin reports the release's version.
+CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-stock.sh" "${PASS[@]+"${PASS[@]}"}"
 }
 
 main "$@"
