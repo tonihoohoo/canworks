@@ -2961,12 +2961,12 @@ function noteBitName(n, e, bit, taken) {
   return name;
 }
 
-// The names the node's entries and bits use.
+// The names the node's entries and bits use, lower case (they must differ ignoring case).
 function nodeNames(n) {
   const out = new Set();
   for (const key of ["tx_pdos", "rx_pdos"]) for (const p of n[key] || []) for (const e of p.entries || []) {
-    if (e.name) out.add(e.name);
-    for (const b of Array.isArray(e.bits) ? e.bits : []) if (b.name) out.add(b.name);
+    if (typeof e.name === "string" && e.name) out.add(e.name.toLowerCase());
+    for (const b of Array.isArray(e.bits) ? e.bits : []) if (typeof b.name === "string" && b.name) out.add(b.name.toLowerCase());
   }
   return out;
 }

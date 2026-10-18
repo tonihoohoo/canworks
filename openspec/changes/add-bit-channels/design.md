@@ -43,18 +43,18 @@ Declared name: `<node>_<name>` (network prefix with several networks). Without `
 
 ### Configurator
 
-In the PDOs tab, an integer entry's row gets **Bits…** (with a count when bits are mapped, "Bits 3/8"). It unfolds a table under the row: bit number, the note's bit name in grey, a tick, the name field (placeholder: the default name), the location with **Suggest**. **Map all bits** ticks all bits and places them on consecutive free `%IX`/`%QX` bytes, bit n at bit n mod 8 of the (n div 8)-th byte, which keeps the program readable; **Unmap all** clears them. On an RPDO entry, ticking the first bit asks before it clears the entry's whole-value location. Each change is one undo step. Problems name node, PDO, entry and bit. In the CODESYS target the location column is hidden, as for entries; in a bridge config it shows the computed coil or discrete input number read-only.
+In the PDOs tab, an integer entry's row gets **Bits…** (with a count when bits are mapped, "Bits… (3)"). It unfolds a table under the row: bit number, the note's bit name in grey, a tick, the name field (placeholder: the default name), the location with **Suggest**. **Map all bits** ticks all bits and places them on consecutive free `%IX`/`%QX` bytes, bit n at bit n mod 8 of the (n div 8)-th byte, which keeps the program readable; **Unmap all** clears them. On an RPDO entry, ticking the first bit asks before it clears the entry's whole-value location. Each change is one undo step. Problems name node, PDO, entry and bit. In the CODESYS target the location column is hidden, as for entries; in a bridge config it shows the computed coil or discrete input number read-only.
 
-Online, the entry's value cell gets the mapped bits under it, each with name and a lit or dim dot.
+Online, a node's **Object dictionary** shows the mapped bits under the object's read value, each with its name and on or off. The PDOs tab has no live values of its own, so the bits go where the value is read.
 
 ### Exports and trace
 
-- Declarations and new editor project: one `BOOL` per located bit, right after its entry (or where its entry would be), with a comment naming node, PDO, index:subindex, bit number and the note's bit text.
+- Declarations and new editor project: one `BOOL` per located bit, right after its entry (or where its entry would be), with a comment naming node, PDO, index:subindex and bit number (no note text, so a note edit never changes the declarations).
 - Bus trace: under the entry's decoded value, one line per bit channel with its name and 0/1. In editor-project mode the declared variable name is used, as for entries.
-- DBC: a one-bit signal per bit channel at the entry's start bit plus n, named by the bit channel's declared name; the entry's own signal stays (DBC signals may overlap).
+- DBC: a one-bit signal per bit channel at the entry's start bit plus n, named `<node>_<name>` (or `<node>_<entry signal>_bit<n>`). The written file drops the entry's own signal for an entry with bits, since cantools in strict mode (and some other tools) refuse overlapping signals; the trace's decoding model keeps both, so the trace still shows the value.
 - HTML documents: bit rows under the entry in the PDO details, and bit locations in the PLC I/O cross-reference.
 - CODESYS: the plan lists bit channels per channel (`bits: [{bit, variable}]`). The script maps each to the channel's bit sub-channel in the I/O mapping. The CODESYS scripting API's support for bit sub-channels is checked first in apply (task 5.1); if it cannot address them, the plan still lists them, the script maps only the channel and its report names the bits to map by hand, and the spec delta is adjusted before archive.
-- Modbus bridge: locations are byte addresses and a bit is already visible as discrete input or coil `n×8+b` of its byte, so a bit channel needs no location: the map adds a named discrete input or coil row at the entry's own byte and bit, and the Node-RED flow emits and accepts it by that name. A bit channel on an entry with no location is refused on the bridge (it would have no address).
+- Modbus bridge: locations are byte addresses and a bit is already visible as discrete input or coil `n×8+b` of its byte, so a bit channel needs no location and an RPDO entry keeps its own: the map adds a named discrete input or coil row at the entry's own byte and bit, and the Node-RED flow emits and accepts it by that name. A bit channel on an entry with no location is refused on the bridge (it would have no address).
 
 ## Risks / Trade-offs
 

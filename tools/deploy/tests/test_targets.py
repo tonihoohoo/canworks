@@ -153,6 +153,16 @@ class EntryName(unittest.TestCase):
         entries[0]["name"] = entries[1]["name"] = "Door"
         self.assertIn('two PDO entries are named "Door"', "\n".join(check(cfg).errors))
 
+    def test_duplicate_bit_names(self):
+        cfg = load(BRIDGE)
+        entries = cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"]
+        entries[0]["name"] = "Door"
+        entries[1]["bits"] = [{"bit": 0, "name": "lamp"}, {"bit": 1, "name": "door"}]
+        errors = "\n".join(check(cfg).errors)
+        self.assertIn('two PDO entries or bits are named "door"', errors)
+        entries[1]["bits"][1]["name"] = "LAMP"
+        self.assertIn('two PDO entries or bits are named "LAMP"', "\n".join(check(cfg).errors))
+
     def test_name_names_the_register_row(self):
         from canworks import modbusmap
         cfg = load(BRIDGE)

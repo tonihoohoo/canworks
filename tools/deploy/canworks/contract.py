@@ -1982,15 +1982,23 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         for key in ("tx_pdos", "rx_pdos"):
             for j, p in enumerate(n.get(key) or []):
                 for k, e in enumerate((p.get("entries") or []) if isinstance(p, dict) else []):
-                    nm = e.get("name") if isinstance(e, dict) else None
-                    if not isinstance(nm, str) or not nm:
+                    if not isinstance(e, dict):
                         continue
-                    at = "%s.%s[%d].entries[%d].name" % (w, key, j, k)
-                    if nm.lower() in named:
-                        err(w, "%s: two PDO entries are named \"%s\" (entry names must differ, ignoring case)"
-                            % (label, nm), [named[nm.lower()], at])
-                    else:
-                        named[nm.lower()] = at
+                    ep = "%s.%s[%d].entries[%d]" % (w, key, j, k)
+                    # A bit channel's name is a variable of the node too.
+                    bits = e.get("bits") if isinstance(e.get("bits"), list) else []
+                    for nm, at, what in [(e.get("name"), ep + ".name", "PDO entries")] + [
+                            (b.get("name"), "%s.bits[%d].name" % (ep, m), "PDO entries or bits")
+                            for m, b in enumerate(bits) if isinstance(b, dict)]:
+                        if not isinstance(nm, str) or not nm:
+                            continue
+                        if nm.lower() in named:
+                            if what == "PDO entries" and ".bits[" in named[nm.lower()]:
+                                what = "PDO entries or bits"
+                            err(w, "%s: two %s are named \"%s\" (entry names must differ, ignoring case)"
+                                % (label, what, nm), [named[nm.lower()], at])
+                        else:
+                            named[nm.lower()] = at
         if node["node_id"] == master_id:
             err("nodes", "node ID %d is the master's node ID" % node["node_id"], [w + ".node_id", "master.node_id"])
         seen.setdefault(node["node_id"], []).append(i)

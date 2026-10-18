@@ -16,7 +16,7 @@ An integer entry in a PDO mapping table SHALL have **Bits…**, which unfolds a 
 - **THEN** the page asks before removing `%QB40`, and after the answer bits 1 to 7 read "sent as 0"
 
 ### Requirement: Online bit values
-With online access, the PDOs tab's live value of an entry with bit channels SHALL show each mapped bit under it with its name and its state.
+With online access, a node's **Object dictionary** SHALL show, under the read value of an object that a PDO entry with bit channels maps, each mapped bit with its name and its state.
 
 #### Scenario: Button state
 - **WHEN** the panel's 0x6000:1 is 0x08 and bit 3 is named `jog_x_plus`
