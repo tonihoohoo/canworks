@@ -405,7 +405,7 @@ function msgBar(data, text) {
 // under the heading, before the first control.
 function noticeSlot(attrs) { return el("div", Object.assign({ class: "notice-slot" }, attrs || {})); }
 
-// A view's connection line (Nodes, Simulation, Trace, Machine view): the
+// A view's connection line (Nodes, Simulation, Trace): the
 // state as a bar of `kind` and its notes as bars, most severe first, in the
 // view's slot. The slot is a polite live region, rewritten only when the
 // bars change, so a screen reader hears each change once.
@@ -1452,7 +1452,6 @@ function render() {
   // the views only stop their own timers.
   stopOnline();
   stopSim(S.view === "simulation");
-  stopMachine();
   stopTrace();
   const view = $("#view");
   view.replaceChildren();

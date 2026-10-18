@@ -3,13 +3,10 @@
 
 The simulation file (canworks/simulation.json): reading it with the project,
 checking it against schema/canworks-sim.v1.schema.json (or v2, one section per
-network) and writing it with the
-configurator's save rules. The machine file a section names
-(canworks/machine.json) is read for the Machine tab of the Simulation view and checked with the
-simulation file's problems. The live requests go to the runtime's simulated
-devices through the online access settings, or to a standalone simulator by
-address; its address and token are kept on this PC (online.json), never in the
-project.
+network) and writing it with the configurator's save rules. The live requests
+go to the runtime's simulated devices through the online access settings, or
+to a standalone simulator by address; its address and token are kept on this
+PC (online.json), never in the project.
 """
 
 import hashlib
@@ -17,7 +14,7 @@ import json
 import os
 
 
-from .. import contract, diag, simclient, simmachine
+from .. import contract, diag, simclient
 from ..contract import best_match
 
 SIM_FILE = "simulation.json"
@@ -29,13 +26,12 @@ PINS_MAX = 64
 
 # Requests the page may send through /api/sim/request.
 OPS = ("sim_status", "sim_get", "sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear",
-       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr", "sim_machine", "sim_panel",
-       "sim_person")
+       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr")
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
     "": ["schema_version", "tick_ms", "nodes", "extra_devices", "scenarios", "networks"],
-    "section": ["machine", "nodes", "extra_devices", "scenarios"],
+    "section": ["nodes", "extra_devices", "scenarios"],
     "node": ["node", "name", "eds", "default_behaviour", "tick_ms", "identity", "device_type", "drive", "sources",
              "faults"],
     "scenario": ["description", "autostart", "test", "steps"],
@@ -109,23 +105,13 @@ def check(doc):
     return out
 
 
-def machine_file(doc, network):
-    """The machine file a version 2 file's section for `network` names, or
-    None (a version 1 file, no such section, or no machine)."""
-    if version(doc) < 2 or not isinstance(doc.get("networks"), dict):
-        return None
-    sec = doc["networks"].get(network or "")
-    value = sec.get("machine") if isinstance(sec, dict) else None
-    return value if isinstance(value, str) and value else None
-
-
 def config_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
     """The problems of a (schema-valid) simulation file against the config,
     as the plugin finds them when it loads the file (the deploy tool's
     simfile.check): value sources on objects the master writes, values that
-    do not fit an object, steps and faults on unknown devices or PDOs, the
-    machine file. In the shape of check(), with "level". Only the section of
-    `network` when given."""
+    do not fit an object, steps and faults on unknown devices or PDOs. In
+    the shape of check(), with "level". Only the section of `network` when
+    given."""
     from .. import simfile
     r = simfile.check(doc, sim_path, cfg if isinstance(cfg, dict) else None, config_path, eds_paths)
     out = []
@@ -139,33 +125,6 @@ def config_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
                 msg = msg[len(prefix):]
                 break
         out.append({"path": path, "message": msg, "level": item["level"]})
-    return out
-
-
-def machine_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
-    """The config_problems() of the machine files a simulation file names
-    and of the scenario steps and conditions on them."""
-    if version(doc) < 2 or '"machine"' not in json.dumps(doc):
-        return []  # nothing names a machine: spare the EDS reads
-    return [p for p in config_problems(doc, sim_path, cfg, config_path, eds_paths, network)
-            if p["path"] == "machine" or p["path"].endswith(".machine")]
-
-
-def read_machine(doc, sim_path, network):
-    """{"network", "file", "machine"} of the machine file the section of
-    `network` names: "machine" the parsed file, or None when there is none
-    or it cannot be read; "error" then says why."""
-    value = machine_file(doc, network)
-    out = {"network": network, "file": value, "machine": None}
-    if value is None:
-        return out
-    path = value if os.path.isabs(value) else os.path.join(os.path.dirname(os.path.abspath(sim_path)), value)
-    try:
-        m = simmachine.load(path)
-        if isinstance(m, dict):
-            out["machine"] = m
-    except simmachine.MachineFileError as e:
-        out["error"] = str(e)
     return out
 
 

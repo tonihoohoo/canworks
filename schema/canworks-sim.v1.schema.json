@@ -1251,11 +1251,6 @@
                   "required": [
                     "node"
                   ]
-                },
-                {
-                  "required": [
-                    "machine"
-                  ]
                 }
               ]
             },

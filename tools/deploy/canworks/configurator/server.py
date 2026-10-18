@@ -1973,16 +1973,15 @@ class Session:
             return exists
         return not exists or sha256(self.sim_path) != self.sim_loaded
 
-    def sim_problems(self, doc, network=None, machine=False):
+    def sim_problems(self, doc, network=None):
         """simulation.config_problems() of a schema-valid simulation file
-        against the saved config (only the machine file's with `machine`)."""
+        against the saved config."""
         if not os.path.isfile(self.config_path):
             return []  # nothing to check against yet
         cfg = self.read_config()[0]
-        fn = simulation.machine_problems if machine else simulation.config_problems
         try:
-            out = fn(doc, self.sim_path, cfg, self.config_path, self.eds_paths(cfg) if isinstance(cfg, dict) else {},
-                     network)
+            out = simulation.config_problems(doc, self.sim_path, cfg, self.config_path,
+                                             self.eds_paths(cfg) if isinstance(cfg, dict) else {}, network)
         except (KeyError, TypeError, ValueError, AttributeError):
             return []  # a config the contract check refuses: its problems show there
         # An extra device's EDS imported but not saved yet is written with the file.
@@ -3335,20 +3334,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 with s.lock:
                     problems = s.sim_problems(body.get("doc"))
             return {"problems": problems}
-        if route == ("GET", "/api/sim/machine"):
-            # The machine file of the network's section, for the Machine tab offline.
-            name = body.get("network") or ""
-            with s.lock:
-                doc = simulation.read(s.sim_path)["doc"]
-                out = simulation.read_machine(doc, s.sim_path, name)
-                problems = []
-                if out["file"] and not simulation.check(doc):
-                    problems = [{"path": p["path"], "message": p["message"]}
-                                for p in s.sim_problems(doc, name, machine=True)]
-            error = out.pop("error", None)
-            if error and not problems:
-                problems = [{"path": "networks.%s.machine" % name, "message": error}]
-            return dict(out, problems=problems)
         if route == ("POST", "/api/sim/save"):
             with s.lock:
                 out = s.save_simulation(body.get("doc"), bool(body.get("overwrite")))
@@ -3423,10 +3408,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             res, kind = call(poll)
             return dict(hello(kind), **res)
-        if route == ("POST", "/api/sim/machine"):
-            # One sim_machine answer per page poll, on the kept-open connection.
-            res, kind = call(lambda c: c.request("sim_machine"))
-            return dict(hello(kind), machine=res)
         if route == ("POST", "/api/sim/request"):
             op = body.get("op")
             if op not in simulation.OPS:
@@ -3967,7 +3948,7 @@ def frame_error(e):
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
-    # The page loads many modules at once (three.js for the Machine tab). On
+    # The page loads many modules at once. On
     # Windows a full listen backlog refuses connections instead of letting
     # them wait, so the default of 5 made imports fail now and then.
     request_queue_size = 128

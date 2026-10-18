@@ -1,5 +1,5 @@
 """The shipped examples in a real browser (fix-gui-test-findings task 8.1):
-every view of every network of examples/virtual-plant, gantry-cell and j1939
+every view of every network of examples/virtual-plant, j1939 and pdo-link
 at 1280 px, with nothing clipped or scrolling sideways (the layout test's
 FIT_CHECK, and scroll boxes), no console error, page error or HTTP error answer, and no
 "decoding without the config's PDOs" note. One configurator and one page
@@ -160,10 +160,6 @@ class Sweep:
 
 class VirtualPlant(Sweep, unittest.TestCase):
     example = "virtual-plant"
-
-
-class GantryCell(Sweep, unittest.TestCase):
-    example = "gantry-cell"
 
 
 class J1939(Sweep, unittest.TestCase):

@@ -261,7 +261,7 @@ void DriveModel::update_state(uint16_t cw, bool edge7) {
   bool enable = (cw & 0x0F) == 0x0F;
   switch (state_) {
     case State::SwitchOnDisabled:
-      if (shutdown && !inputs.safe_torque_off) state_ = State::ReadyToSwitchOn;
+      if (shutdown) state_ = State::ReadyToSwitchOn;
       break;
     case State::ReadyToSwitchOn:
       if (disable_voltage || quick_stop) state_ = State::SwitchOnDisabled;
@@ -319,13 +319,6 @@ void DriveModel::step(double dt) {
   bool fall4 = !(cw & 0x10) && (cw_prev_ & 0x10);
   bool edge7 = (cw & 0x80) && !(cw_prev_ & 0x80);
   update_state(cw, edge7);
-  if (inputs.safe_torque_off && state_ != State::Fault && state_ != State::FaultReactionActive &&
-      state_ != State::SwitchOnDisabled) {
-    // The power stage is gone: no torque, back to "switch on disabled".
-    state_ = State::SwitchOnDisabled;
-    pp_moving_ = pp_pending_ = ack_ = false;
-    if (hm_ == Homing::Search || hm_ == Homing::Back) hm_ = Homing::Idle;
-  }
   update_mode();
   if (state_ != State::OperationEnabled) cs_armed_ = false;
   // The SYNC came somewhere within the last tick: counting from the tick
@@ -509,7 +502,7 @@ void DriveModel::run_csv() {
 void DriveModel::run_cst(double dt) {
   double t = sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0);
   sw_limit_ = false;
-  double v = clampd(vd_ + (t - load_permille) * s_.torque_accel * dt, -s_.max_velocity, s_.max_velocity);
+  double v = clampd(vd_ + t * s_.torque_accel * dt, -s_.max_velocity, s_.max_velocity);
   vd_ = limit_velocity(v, s_.max_acceleration);
   v_target_ = vd_;
   pd_ = pa_;
@@ -649,8 +642,7 @@ uint16_t DriveModel::compose_statusword(uint16_t cw) const {
     case State::FaultReactionActive: sw = 0x000F; break;
     case State::Fault: sw = 0x0008; break;
   }
-  if (!inputs.safe_torque_off) sw |= 0x0010;  // voltage enabled
-  sw |= 0x0200;  // remote
+  sw |= 0x0210;  // voltage enabled, remote
   if (sw_limit_) sw |= 0x0080;  // warning
   if (sw_limit_ || inputs.positive_limit || inputs.negative_limit) sw |= 0x0800;  // internal limit active
   bool stopped = vd_ == 0 && std::fabs(va_) < kStopped;
@@ -709,7 +701,7 @@ void DriveModel::write_outputs() {
   wr(0x606C, 0, std::round(va_));
   wr(0x60F4, 0, std::round(pd_ - pa_));
   bool enabled = state_ == State::OperationEnabled;
-  double torque = enabled && mode_ == 10 ? (sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0)) : enabled ? load_permille : 0;
+  double torque = enabled && mode_ == 10 ? (sync_seen_ ? cs_torque_ : rd(0x6071, 0, 0)) : 0;
   wr(0x6077, 0, std::round(torque));
 }
 

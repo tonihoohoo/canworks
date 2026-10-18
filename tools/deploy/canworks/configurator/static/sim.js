@@ -364,11 +364,7 @@ async function renderSimulation(view) {
   if (!SIM.settings) await loadSimSettings();
   if (seq !== SIM.seq || S.view !== "simulation") return;
   if (!S.simOn) connEnsure();
-  // The Machine tab shows only when the shown network's section names a
-  // machine file; another network falls back to Live values.
   const pages = [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]];
-  if (machineName()) pages.push(["machine", "Machine"]);
-  else if (SIM.tab === "machine") SIM.tab = "live";
   const tabList = tabs(pages, SIM.tab,
     (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; clearErrorBanner(); render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
   view.append(
@@ -510,7 +506,6 @@ function simRenderTab() {
   if (!body) return;
   SIM.rowKeys = "";
   SIM.scenSig = "";
-  if (SIM.tab === "machine") { simMachineTab(body); return; }
   if (SIM.tab === "file") put(body, simFileTab());
   else if (SIM.tab === "scenarios") put(body, simScenariosTab());
   else put(body, simLiveTab());
@@ -1833,62 +1828,3 @@ function stepBody(st, action, changedFn) {
   return el("span");
 }
 
-// ---------------------------------------------------------------------------
-// Machine tab (canopen-machine-view): machine_view.js, loaded when the tab
-// first opens, draws the machine named by the shown network's section.
-
-const MACHINE = { seq: 0, view: null };
-
-// The machine file the shown network's section names ("" when none).
-function machineName() {
-  const file = SIM.file || (S.state && S.state.simulation && S.state.simulation.doc) || {};
-  const ver = Number.isInteger(file.schema_version) ? file.schema_version : 1;
-  const sec = ver >= 2 ? ((file.networks || {})[simSectionName()] || {}) : file;
-  return typeof sec.machine === "string" ? sec.machine : "";
-}
-
-function stopMachine() {
-  MACHINE.seq++;
-  if (MACHINE.view) MACHINE.view.stop();
-  MACHINE.view = null;
-}
-
-// A drive's following error window (0x6065) in counts: the config's SDO
-// write, else the EDS default.
-function machineFeWindow(node) {
-  const n = (S.config.nodes || []).find((x) => num(x.node_id) === node);
-  if (!n) return null;
-  const w = (n.sdo || []).find((s) => num(s.index) === 0x6065 && num(s.subindex || 0) === 0);
-  if (w && Number.isFinite(num(w.value))) return num(w.value);
-  const o = objectInfo(edsFor(n), 0x6065, 0);
-  const v = o ? num(String(o.default)) : NaN;
-  return Number.isFinite(v) ? v : null;
-}
-
-// The Machine tab of the Simulation view.
-async function simMachineTab(body) {
-  stopMachine();
-  const seq = MACHINE.seq;
-  const name = machineName();
-  const host = el("div", { id: "machine-view" }, el("p", { class: "muted" }, "Loading the machine view…"));
-  body.replaceChildren(host);
-  let mod;
-  try { mod = await import("./machine_view.js"); } catch (e) {
-    if (seq === MACHINE.seq) host.replaceChildren(notice("error", `The machine view did not load: ${e.message}`));
-    return;
-  }
-  if (seq !== MACHINE.seq || S.view !== "simulation" || SIM.tab !== "machine") return;
-  const can = simCanConnect();
-  MACHINE.view = mod.openMachineView(host, {
-    network: simSectionName(), port: diagPort(), file: name, canConnect: can,
-    notConnected: diagConfig() ? "To see it live, connect with Connect… in the connection bar above."
-        : "Online access is off for this config: turn it on in Configure → Online access to see the machine live.",
-    feWindow: machineFeWindow,
-    openNode: (node) => {
-      if (several()) S.onlineNet = simSectionName();
-      S.onlineNode = node;
-      if (workspace() !== "commission") switchWorkspace("commission");
-      else showView("online");
-    },
-  });
-}

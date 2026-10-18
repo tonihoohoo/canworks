@@ -11,7 +11,6 @@
 
 #include "cJSON.h"
 #include "sim_expr.h"
-#include "sim_machine.h"
 #include "sim_source.h"
 
 namespace canopen_sim {
@@ -94,7 +93,7 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
     err = "a condition must be an object";
     return false;
   }
-  if (!known_keys(o, {"node", "object", "bit", "eq", "ne", "lt", "le", "gt", "ge", "expr", "machine"}, err)) return false;
+  if (!known_keys(o, {"node", "object", "bit", "eq", "ne", "lt", "le", "gt", "ge", "expr"}, err)) return false;
   const cJSON* e = cJSON_GetObjectItemCaseSensitive(o, "expr");
   if (e) {
     if (!cJSON_IsString(e) || !*e->valuestring) {
@@ -111,26 +110,15 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
   }
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
   const cJSON* ob = cJSON_GetObjectItemCaseSensitive(o, "object");
-  const cJSON* m = cJSON_GetObjectItemCaseSensitive(o, "machine");
-  if (m) {
-    if (!cJSON_IsString(m) || !*m->valuestring) {
-      err = "\"machine\" must name a machine counter, sensor, fixture or joint";
-      return false;
-    }
-    if (n || ob || cJSON_GetObjectItemCaseSensitive(o, "bit")) {
-      err = "a machine condition has \"machine\" and a comparison, no node, object or bit";
-      return false;
-    }
-    c.machine = m->valuestring;
-  } else if (!n || !ob) {
+  if (!n || !ob) {
     err = "a condition needs \"node\" and \"object\" (or \"expr\")";
     return false;
   }
-  if (!m && !parse_device_ref(n, c.node)) {
+  if (!parse_device_ref(n, c.node)) {
     err = "\"node\" must be a node ID 1-127 or a device name";
     return false;
   }
-  if (!m && (!cJSON_IsString(ob) || !parse_obj_key(ob->valuestring, c.object))) {
+  if ((!cJSON_IsString(ob) || !parse_obj_key(ob->valuestring, c.object))) {
     err = "\"object\" must be \"0xIIII:S\"";
     return false;
   }
@@ -143,7 +131,7 @@ bool parse_condition(const cJSON* o, Condition& c, std::string& err) {
     if (!v) continue;
     ++ops;
     c.op = op;
-    bool string_ok = (c.op == "eq" || c.op == "ne") && !m;
+    bool string_ok = c.op == "eq" || c.op == "ne";
     if (!parse_value(v, c.value) || (c.value.is_string && !string_ok)) {
       err = std::string("\"") + op + "\" must be a number" + (string_ok ? ", string or boolean" : "");
       return false;
@@ -184,9 +172,8 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     err = "must be an object";
     return false;
   }
-  if (!known_keys(o, {"node", "machine", "device", "at_ms", "after_ms", "set", "override", "release", "source", "fault",
-                      "clear", "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat", "panel",
-                      "person"},
+  if (!known_keys(o, {"node", "device", "at_ms", "after_ms", "set", "override", "release", "source", "fault", "clear",
+                      "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
                   err))
     return false;
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
@@ -206,46 +193,17 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     return false;
   }
   int actions = 0;
-  for (const char* a : {"set", "override", "release", "source", "fault", "clear", "wait", "expect", "log", "repeat",
-                        "panel", "person"}) {
+  for (const char* a : {"set", "override", "release", "source", "fault", "clear", "wait", "expect", "log", "repeat"}) {
     if (cJSON_GetObjectItemCaseSensitive(o, a)) {
       ++actions;
       s.action = a;
     }
   }
   if (actions != 1) {
-    err = "a step needs exactly one action (set, override, release, source, fault, clear, wait, expect, log, repeat, "
-          "panel, person)";
+    err = "a step needs exactly one action (set, override, release, source, fault, clear, wait, expect, log, repeat)";
     return false;
   }
   const cJSON* a = cJSON_GetObjectItemCaseSensitive(o, s.action.c_str());
-  if (s.action == "panel" || s.action == "person") {
-    // The machine's operator panel and safety scanner person (docs/simulator.md, "Operator panel and safety").
-    if (!s.node.empty() || cJSON_GetObjectItemCaseSensitive(o, "machine") || cJSON_GetObjectItemCaseSensitive(o, "device")) {
-      err = "a \"" + s.action + "\" step has no \"node\", \"machine\" or \"device\"";
-      return false;
-    }
-    if (s.action == "panel") {
-      bool ok = cJSON_IsObject(a) && a->child;
-      for (const cJSON* c = ok ? a->child : nullptr; c; c = c->next) ok = ok && cJSON_IsBool(c);
-      if (!ok) {
-        err = "\"panel\" must be an object of panel button -> true or false";
-        return false;
-      }
-      for (const cJSON* c = a->child; c; c = c->next) s.panel.emplace_back(c->string, cJSON_IsTrue(c));
-      return true;
-    }
-    if (cJSON_IsNull(a)) return true;
-    if (!cJSON_IsArray(a) || cJSON_GetArraySize(a) != 2 || !cJSON_IsNumber(a->child) || !cJSON_IsNumber(a->child->next) ||
-        !std::isfinite(a->child->valuedouble) || !std::isfinite(a->child->next->valuedouble)) {
-      err = "\"person\" must be [x, y] in mm, or null";
-      return false;
-    }
-    s.person = true;
-    s.person_at[0] = a->child->valuedouble;
-    s.person_at[1] = a->child->next->valuedouble;
-    return true;
-  }
   const cJSON* dj = cJSON_GetObjectItemCaseSensitive(o, "device");
   if (dj) {
     // A plain CAN device of raw_devices (docs/simulator.md, "Plain CAN devices").
@@ -257,8 +215,8 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
       err = "\"device\" belongs to a \"fault\" or \"clear\" step";
       return false;
     }
-    if (!s.node.empty() || cJSON_GetObjectItemCaseSensitive(o, "machine")) {
-      err = "a step has one of \"node\", \"machine\" and \"device\"";
+    if (!s.node.empty()) {
+      err = "a step has \"node\" or \"device\", not both";
       return false;
     }
     s.device = dj->valuestring;
@@ -292,37 +250,6 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     }
     s.device_fault = "wrong_dlc";
     s.device_dlc = static_cast<int>(dlc->valuedouble);
-    return true;
-  }
-  const cJSON* mj = cJSON_GetObjectItemCaseSensitive(o, "machine");
-  if (mj) {
-    if (!cJSON_IsString(mj) || !*mj->valuestring) {
-      err = "\"machine\" must name a machine element";
-      return false;
-    }
-    if (s.action != "fault" && s.action != "clear") {
-      err = "\"machine\" belongs to a \"fault\" or \"clear\" step (a condition names its machine value itself)";
-      return false;
-    }
-    if (!s.node.empty()) {
-      err = "a step has \"node\" or \"machine\", not both";
-      return false;
-    }
-    s.machine = mj->valuestring;
-    std::string e;
-    if (s.action == "fault") {
-      if (!parse_machine_fault(a, e)) {
-        err = "\"fault\": " + e;
-        return false;
-      }
-      s.machine_fault = sim_json_text(a);
-      return true;
-    }
-    if (!cJSON_IsString(a) || !is_machine_clear_name(a->valuestring)) {
-      err = "\"clear\" must be a machine fault name (jam, stuck, feeder, misaligned_mm) or \"all\"";
-      return false;
-    }
-    s.clear = a->valuestring;
     return true;
   }
   bool needs_node = s.action == "set" || s.action == "override" || s.action == "release" || s.action == "source" ||
@@ -836,13 +763,6 @@ bool parse_fault(const cJSON* o, Fault& f, std::string& err) {
 
 std::string Condition::text() const {
   if (is_expr) return expr;
-  static const std::map<std::string, std::string> mops = {{"eq", "=="}, {"ne", "!="}, {"lt", "<"},
-                                                          {"le", "<="}, {"gt", ">"},  {"ge", ">="}};
-  if (!machine.empty()) {
-    char b[32];
-    std::snprintf(b, sizeof b, "%.10g", value.num);
-    return "machine " + machine + " " + mops.at(op) + " " + b;
-  }
   std::string s = "[" + node + "/" + object.str() + "]";
   if (bit >= 0) s = "bit(" + s + ", " + std::to_string(bit) + ")";
   static const std::map<std::string, std::string> ops = {{"eq", "=="}, {"ne", "!="}, {"lt", "<"},
@@ -1065,21 +985,12 @@ bool parse_sim_file(const std::string& json, const std::string& path, SimFile& o
         continue;
       }
       std::string e2;
-      if (!known_keys(c, {"nodes", "extra_devices", "scenarios", "machine"}, e2)) {
+      if (!known_keys(c, {"nodes", "extra_devices", "scenarios"}, e2)) {
         fail(at, e2);
         continue;
       }
       SimSection sec;
       sec.network = c->string;
-      const cJSON* mf = cJSON_GetObjectItemCaseSensitive(c, "machine");
-      if (mf) {
-        if (!cJSON_IsString(mf) || !*mf->valuestring) {
-          fail(at + ".machine", "must be the machine file's path, relative to this file");
-        } else {
-          sec.machine = mf->valuestring;
-          sec.machine_path = join_path(out.dir, sec.machine);
-        }
-      }
       parse_body(c, at + ".", out.dir, sec.nodes, sec.extra, sec.scenarios, fail);
       out.networks.push_back(std::move(sec));
     }
@@ -1109,8 +1020,6 @@ bool sim_file_section(const SimFile& file, const std::string& network, SimFile& 
       out.nodes = sec.nodes;
       out.extra = sec.extra;
       out.scenarios = sec.scenarios;
-      out.machine = sec.machine;
-      out.machine_path = sec.machine_path;
       return true;
     }
   return false;

@@ -105,8 +105,8 @@ class IntoProject(unittest.TestCase):
     def test_refresh_keeps_notes_and_a_backup(self):
         # The project's own config moved again with --force: device notes go
         # along and the old folder is kept (bug hunt PC-M4).
-        project = os.path.join(self.dir, "gantry-cell")
-        shutil.copytree(os.path.join(REPO, "examples", "gantry-cell"), project)
+        project = os.path.join(self.dir, "virtual-plant")
+        shutil.copytree(os.path.join(REPO, "examples", "virtual-plant"), project)
         canopen = os.path.join(project, "canworks")
         notes = '{"format": "canworks-notes.v1", "objects": {}}\n'
         with open(os.path.join(canopen, "dio16.eds.notes.json"), "w", encoding="utf-8") as f:

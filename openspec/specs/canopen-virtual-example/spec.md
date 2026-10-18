@@ -28,15 +28,15 @@ The example SHALL exercise at least: several networks; a master network with SYN
 - **THEN** node 6's status bit goes FALSE, the program's fault output switches on, and the field node status on `cell` shows node 6 lost
 
 ### Requirement: Guide
-The repository SHALL contain `docs/tour.md`, a step-by-step guide to the example for Windows, macOS and Linux, needing only a container engine, the PC tools and the editor. Each chapter SHALL say what to do, what the user sees, and which doc describes the feature. Each step in the configurator SHALL name where it happens in the order the user finds it (the workspace, the tree entry or tool tab, the node tab, then the control) with the labels the page shows, and SHALL describe the page as it is in the same commit. It SHALL cover installing, the configurator and its checks (with a deliberate mistake), the exports (DCF, DBC, HTML network document, slave EDS), the editor upload and debugger, connecting through the connection bar to the local simulator runtime, online diagnostics, device parameters, simulation control and fault injection, LSS, the drive, slave and gateway, trace with triggers, frame inspector and export, sending raw frames, and running the scenario tests. A step that needs an earlier step's effect (for example a boot in a trace) SHALL make that effect happen where it is needed. It SHALL have a Simulated machine chapter on the gantry example (`examples/gantry-cell/`): deploy it to the local simulator runtime, open the Machine tab of the Simulation view, watch a pallet fill, jam the Z axis, stop the PLC, make the pick sensor stick, and see how the program reacts and recovers. It SHALL end with a section naming the features that need hardware and why: bit rate detection, slcan adapters and hot-plug, bus error states, commissioning straight from the PC through a USB adapter, program download, real-time timing, and the install on a runtime host. Its screenshots SHALL show the current page. The README SHALL link the guide.
+The repository SHALL contain `docs/tour.md`, a step-by-step guide to the example for Windows, macOS and Linux, needing only a container engine, the PC tools and the editor. Each chapter SHALL say what to do, what the user sees, and which doc describes the feature. Each step in the configurator SHALL name where it happens in the order the user finds it (the workspace, the tree entry or tool tab, the node tab, then the control) with the labels the page shows, and SHALL describe the page as it is in the same commit. It SHALL cover installing, the configurator and its checks (with a deliberate mistake), the exports (DCF, DBC, HTML network document, slave EDS), the editor upload and debugger, connecting through the connection bar to the local simulator runtime, online diagnostics, device parameters, simulation control and fault injection, LSS, the drive, slave and gateway, trace with triggers, frame inspector and export, sending raw frames, and running the scenario tests. A step that needs an earlier step's effect (for example a boot in a trace) SHALL make that effect happen where it is needed. It SHALL end with a section naming the features that need hardware and why: bit rate detection, slcan adapters and hot-plug, bus error states, commissioning straight from the PC through a USB adapter, program download, real-time timing, and the install on a runtime host. Its screenshots SHALL show the current page. The README SHALL link the guide.
 
 #### Scenario: Commands in the guide work
 - **WHEN** the CI job runs the command-line steps of the guide against the example
 - **THEN** each step succeeds as the guide says
 
 #### Scenario: Machine chapter
-- **WHEN** a user follows the Simulated machine chapter on a PC with the local simulator runtime
-- **THEN** the Machine tab of Simulation shows the gantry filling the pallet, and each fault the chapter injects shows the reaction it describes
+- **WHEN** a user reads the guide's chapter list
+- **THEN** it ends with Scenario tests and the hardware section, and no chapter names a gantry or the Machine tab
 
 #### Scenario: Labels in the guide exist on the page
 - **WHEN** the docs tests run
@@ -56,25 +56,3 @@ CI SHALL check the example on pull requests that change it, the plugin, the PC t
 #### Scenario: A change breaks the example
 - **WHEN** a pull request renames a config field the example uses
 - **THEN** the example job fails naming the field
-
-### Requirement: Gantry example manual mode and safety
-The gantry example SHALL have an operator panel on node 11 `panel` of its `motion` network, an ordinary 16-in / 16-out CiA 401 module shipped as `panel.eds` with a notes file naming each bit, and its input bytes SHALL reach the program through PDOs, which the program decodes into named BOOLs. Its machine file SHALL bind the panel's buttons and lamps, an emergency stop, a safety scanner covering the fence's open sides and a safety relay, with joint `z` braked. Its program SHALL:
-- in MANUAL, stop the sequence with a ramp, jog each axis while its button is held (20 mm/s, 150 mm/s with `fast`, ramped), keep the travel as soft limits once homed and jog slowly without soft limits before homing, toggle the gripper and conveyor on their buttons, home on `home` and reset drives on `reset`;
-- back in AUTO, wait for `start`, then recover and carry on;
-- on the relay feedback dropping, in any mode, stop every axis inside the relay's stop delay, power the drives again after the relay's reset and wait for `start` (AUTO) or the operator (MANUAL);
-- in AUTO, run at reduced speed while the scanner's warning field is occupied;
-- light the `manual_lamp`, `homed_lamp`, `fault_lamp` and `auto_lamp` lamps.
-
-The example's README, the tour's Simulated machine chapter and `docs/simulator.md` SHALL describe manual mode, the emergency stop, the scanner and the relay, and SHALL say that the relay is a simulation and no safety function.
-
-#### Scenario: Manual jog in CI
-- **WHEN** `sim_tests` runs the example and switches to MANUAL during an XY move, jogs X to beyond its travel and goes back to AUTO with `start`
-- **THEN** the axes ramp down without a drive fault, X stops at 900 mm, and the program recovers and places the next part
-
-#### Scenario: Emergency stop in CI
-- **WHEN** `sim_tests` latches `estop` during an XY move faster than 500 mm/s, waits, releases it, presses `reset` and `start`
-- **THEN** the axes are at standstill before their drives go to safe torque off, Z keeps its position, no drive faults, and the program places the next part
-
-#### Scenario: Person in CI
-- **WHEN** `sim_tests` places the person in the warning field and then the protective field
-- **THEN** the program's moves slow down first, and the relay opens and the axes stop second

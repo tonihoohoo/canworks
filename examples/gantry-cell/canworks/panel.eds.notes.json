@@ -1,9 +1,0 @@
-{
-  "format": "canworks-notes.v1",
-  "eds": {"file": "panel.eds", "vendor_id": "0x00F0F0F0", "product_code": "0x00000401", "revision": "0x00010000"},
-  "objects": {
-    "0x6000:1": {"text": "Operator panel: mode switch, jog buttons and speed", "bits": {"0": "mode MANUAL", "1": "jog X+", "2": "jog X-", "3": "jog Y+", "4": "jog Y-", "5": "jog Z up", "6": "jog Z down", "7": "fast"}},
-    "0x6000:2": {"text": "Operator panel: function buttons and emergency stop", "bits": {"0": "gripper", "1": "conveyor", "2": "home", "3": "start", "4": "stop", "5": "reset", "6": "enable", "7": "emergency stop pressed"}},
-    "0x6200:1": {"text": "Operator panel lamps", "bits": {"0": "MANUAL lamp", "1": "homed lamp", "2": "fault lamp", "3": "auto lamp"}}
-  }
-}

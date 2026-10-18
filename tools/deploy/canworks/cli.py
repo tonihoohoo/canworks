@@ -325,9 +325,9 @@ def bridge_files(cfg, config_path, sim_path=None):
         deployed, eds_by_name = bundle.rewrite(cfg, config_path)
         sim = None
         if sim_path:
-            sim_data, sim_eds, sim_csv, sim_machines = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
+            sim_data, sim_eds, sim_csv = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
             bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
-            sim = (sim_data, sim_csv, sim_machines)
+            sim = (sim_data, sim_csv)
     except (bundle.BundleError, simfile.SimFileError) as e:
         raise Failure(str(e))
     work = bundle.temp_dir()
@@ -697,9 +697,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         deployed, eds_by_name = bundle.rewrite(cfg, args.config)
         sim = None
         if sim_path:
-            sim_data, sim_eds, sim_csv, sim_machines = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
+            sim_data, sim_eds, sim_csv = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
             bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
-            sim = (sim_data, sim_csv, sim_machines)
+            sim = (sim_data, sim_csv)
     except (bundle.BundleError, simfile.SimFileError) as e:
         raise Failure(str(e))
     work = bundle.temp_dir()
@@ -724,8 +724,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         names = bundle.make_zip(staged, zip_path)
         out("ok: bundle of %d files with conf/canworks.json and %d EDS file%s%s"
             % (len(names), len(eds_by_name), "" if len(eds_by_name) == 1 else "s",
-               ", conf/%s%s%s" % (bundle.SIM_FILE, " and %d CSV file%s" % (len(sim[1]), "" if len(sim[1]) == 1 else "s")
-                                  if sim[1] else "", "".join(", conf/canworks/%s" % n for n in sorted(sim[2])))
+               ", conf/%s%s" % (bundle.SIM_FILE, " and %d CSV file%s" % (len(sim[1]), "" if len(sim[1]) == 1 else "s")
+                                if sim[1] else "")
                if sim else ""))
         if args.output:
             shutil.copyfile(zip_path, args.output)

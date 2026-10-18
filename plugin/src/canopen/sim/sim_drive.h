@@ -31,12 +31,9 @@ struct DriveSettings {
 // ("drive: unknown key \"x\""). nullptr gives the defaults.
 bool parse_drive_settings(const cJSON* json, DriveSettings& out, std::string& err);
 
-// Inputs of the model, set as the `drive_input` fault and by a machine model
-// (the engine ORs the two). `safe_torque_off` is a machine's safety relay
-// taking the power stage away.
+// Inputs of the model, set as the `drive_input` fault.
 struct DriveInputs {
   bool blocked = false, positive_limit = false, negative_limit = false, home_switch = false;
-  bool safe_torque_off = false;
 };
 
 // The device's object dictionary, as the engine gives it.
@@ -83,10 +80,6 @@ class DriveModel {
   double interpolation_period() const;
 
   DriveInputs inputs;
-  // A machine's load on the axis, per mille of rated torque: shown in the
-  // actual torque (0x6077) while operation is enabled, and taken off the
-  // target torque in cyclic synchronous torque mode.
-  double load_permille = 0;
 
   // Objects the model writes (statusword 0x6041, 0x6061, 0x6064, 0x606C, ...)
   // that the device has, for the engine's precedence and status.

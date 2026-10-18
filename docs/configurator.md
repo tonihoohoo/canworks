@@ -535,7 +535,7 @@ Without a connection the view says once that live values need one; the simulatio
 
 The line under the heading says, once connected, whether the network is simulated or real (with its interface), how many devices are simulated, and whether changes are allowed. A connection problem is shown with its reason and retried; a runtime that simulates nothing says so. Without **Allow changes** on the runtime the view is read-only and says why: values still refresh, but the controls and buttons are disabled. A standalone simulator takes changes from anyone with its token.
 
-The view has three tabs, and a fourth, **Machine**, on a network that names a machine file ([Machine tab](#machine-tab)).
+The view has three tabs.
 
 **Live values** lists the simulated devices: node ID (or none, for an extra device waiting for LSS), name, network, NMT state, power, a node ID conflict (a real device with the same node ID on the bus, which powers the simulated one off), active faults, and how many objects have a source or an override. Click a device for its **Values** and **Faults**.
 
@@ -551,13 +551,9 @@ The view has three tabs, and a fourth, **Machine**, on a network that names a ma
 
 With several networks the view works on the section of the network picked at the top: sources, faults at start, extra devices and scenarios go into that network's section, the other sections are kept as they are, and a note over the editor names the section. A version 1 file opened with a config of several networks is put in the first network's section and saved as version 2; **Save to simulation file** asks before converting it ([simulator.md](simulator.md#version-2-a-section-per-network)).
 
-### Machine tab
-
-On a network whose simulation section names a [machine file](simulator.md#the-machine-file), **Machine** is the fourth tab of the Simulation view, after **Scenarios**, and takes the whole content area; other networks have no Machine tab. It draws the machine in 3D from the file: offline at its home positions, online moving as the runtime's simulator reports it, smoothed between answers. Beside the scene, a panel shows each axis (state, mode, statusword, position, following error, torque), the machine's I/O bits, counters and last faults, with buttons to inject and clear machine faults when **Allow changes** is on. A machine with an operator panel gets a **Panel** block: the emergency stop, the switches and buttons with their keys, the lamps and the safety relay's state; click the scene and the keyboard drives the panel ("Keyboard on"), and **Person** places someone in a safety scanner's fields. Click a drive in the scene or the panel to open its node in the Commission workspace. Quality presets High and Low, labels, tool path and camera presets are in the toolbar; [simulator.md](simulator.md#the-machine-tab) has the details.
-
 ## From standalone to project
 
-In a standalone config, **Move into project…** in the Project menu copies the saved config, its EDS files with their device notes and its DBC files, with `simulation.json` and the files it names (CSV and machine files) and a slave EDS's description, into an editor project's `canworks/` folder, after the same checks as `canworks-deploy --into-project`. It asks before replacing an existing `canworks/` folder, which is then kept as `canworks.bak-<time>`. The page then switches to the project, and the address checks run against it.
+In a standalone config, **Move into project…** in the Project menu copies the saved config, its EDS files with their device notes and its DBC files, with `simulation.json` and the CSV files it names and a slave EDS's description, into an editor project's `canworks/` folder, after the same checks as `canworks-deploy --into-project`. It asks before replacing an existing `canworks/` folder, which is then kept as `canworks.bak-<time>`. The page then switches to the project, and the address checks run against it.
 
 ## A new editor project from a standalone config
 

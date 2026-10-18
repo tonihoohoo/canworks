@@ -261,6 +261,21 @@ class Checks(unittest.TestCase):
         r = self.f.check({"schema_version": 2}, cfg=two)
         self.assertEqual(r.errors, [])
 
+    def test_version_2_machine_refused(self):
+        # The simulated machine is gone: "machine" is an unknown key of a
+        # section, as are the machine's scenario steps and conditions.
+        two = {"schema_version": 2, "networks": [dict(self.f.cfg, name="io"),
+                                                  dict(copy.deepcopy(self.f.cfg), name="drives")]}
+        errors = self.f.check({"schema_version": 2, "networks": {"drives": {"machine": "machine.json"}}},
+                              cfg=two).errors
+        self.assertTrue(any("networks.drives" in e and "unknown field" in e and "machine" in e for e in errors),
+                        errors)
+        for step in ({"machine": "x", "fault": {"jam": True}}, {"panel": {"start": True}}, {"person": None},
+                     {"wait": {"machine": "placed", "ge": 1}}):
+            sim = {"schema_version": 2, "networks": {"drives": {"scenarios": {"s": {"steps": [step]}}}}}
+            errors = self.f.check(sim, cfg=two).errors
+            self.assertTrue(any("networks.drives.scenarios.s.steps[0]" in e for e in errors), (step, errors))
+
     def test_version_2_files(self):
         # Extra devices' EDS files and CSV files of every section.
         data = {"schema_version": 2, "networks": {

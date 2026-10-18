@@ -48,7 +48,7 @@ CI (`.github/workflows/ci.yml`) runs all of these on every pull request and push
 
 Three kinds of test check the configurator in ways the small page-test fixtures do not:
 
-- **Example sweep.** `tools/deploy/tests/test_configurator_examples_page.py` opens `examples/virtual-plant`, `gantry-cell` and `j1939` and visits every view of every network at 1280 px. It fails on a clipped field or button, a table or view that scrolls sideways, a console or page error, an HTTP error answer, or a "decoding without the config's PDOs" note, and names the example, network and view of each. It runs in the configurator page jobs; a new page-test class goes into `.github/ci/page-test-times.json` so the shards stay balanced.
+- **Example sweep.** `tools/deploy/tests/test_configurator_examples_page.py` opens `examples/virtual-plant` and `j1939` and visits every view of every network at 1280 px. It fails on a clipped field or button, a table or view that scrolls sideways, a console or page error, an HTTP error answer, or a "decoding without the config's PDOs" note, and names the example, network and view of each. It runs in the configurator page jobs; a new page-test class goes into `.github/ci/page-test-times.json` so the shards stay balanced.
 - **Validation parity.** A corpus of bad configs under `test/fixtures/config/bad/` goes through both the configurator's check and the plugin's loader (`canopen_check`) in the tools job; both must refuse each one.
 - **Browser run against the real plugin.** `test/browser/run.py`, below.
 
@@ -122,16 +122,14 @@ plugin/            native plugin source: src/can/ the shared CAN core (config, a
                    kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
                    and the frame blocks' interface, src/canopen/sim/ the device simulator
                    engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
-                   scenarios, the machine model), used by the plugin and canworks-sim; src/bridge/
+                   scenarios), used by the plugin and canworks-sim; src/bridge/
                    canworks-bridge, the Modbus TCP bridge (Modbus server, byte image, bridge
                    registers, the host that runs the shared engine without OpenPLC)
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
                    canworks.v2.schema.json (several networks, slave networks, the gateway), and
-                   canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network),
-                   canworks-sim-machine.v1.schema.json for the machine file
+                   canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network)
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
-                   networks, a demo program, a simulation file with test scenarios); gantry-cell/: a
-                   simulated XYZ gantry with a pick-and-place program (docs/simulator.md); j1939/: a J1939
+                   networks, a demo program, a simulation file with test scenarios); j1939/: a J1939
                    ECU config and its DBC file (docs/j1939.md); raw-can/: a plain CAN network with
                    its DBC file and simulated devices (docs/raw-can.md); modbus-bridge/: a bridge
                    config with simulated devices (docs/modbus-bridge.md)
@@ -164,7 +162,7 @@ test/sim/          master against Lely slaves and simulated devices on an in-pro
 test/slave/        the plugin's master against its own slave and gateway on virtual buses, and
                    run.sh for a master on vcan0 and the slave on vcan1 joined by cangw, and
                    simulated.sh for both on one simulated bus (a ctest)
-test/sim_unit/     simulator unit tests: expressions (shared corpus), sources, file loader, drive model, machine model
+test/sim_unit/     simulator unit tests: expressions (shared corpus), sources, file loader, drive model
 test/drive/        a simulated CiA 402 drive (Lely slave) for the virtual bus
 test/cia402/       ST tests of the CiA 402 axis glue with STruC++ (run.sh) and its host for sim_tests
 test/pingpong/     the Lely tutorial ping-pong slave and run.sh for vcan0

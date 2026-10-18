@@ -270,7 +270,7 @@ class Live(View):
         # The bar says what is connected; the view only what is particular to simulation.
         self.assertEqual(pg.inner_text("#sim-conn"), "Real network can0, 1 simulated device, changes allowed.")
         self.assertTrue(pg.is_hidden('[data-sim="readonly"]'))
-        # No machine file in this network's section: no Machine tab.
+        # The three pages of the Simulation view.
         self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.dataset.simTab)"),
                          ["live", "file", "scenarios"])
         self.assertIn("AI0_Input_PV", pg.inner_text(self.row("0x7130:1")))

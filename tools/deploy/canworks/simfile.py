@@ -20,7 +20,6 @@ from . import contract
 from .contract import best_match
 from . import eds as eds_mod
 from . import links as links_mod
-from . import simmachine as machine_mod
 from .raw import mux as raw_mux
 from .raw import signals as raw_signals
 
@@ -778,18 +777,16 @@ def csv_problem(value, base, roots):
 
 
 def referenced_files(data, path):
-    """{"eds": {value: absolute path}, "csv": {...}, "machine": {...}} of the
-    files a (schema-valid) simulation file names, relative to the file."""
+    """{"eds": {value: absolute path}, "csv": {...}} of the files a
+    (schema-valid) simulation file names, relative to the file."""
     base = os.path.dirname(os.path.abspath(path))
-    out = {"eds": {}, "csv": {}, "machine": {}}
+    out = {"eds": {}, "csv": {}}
     if not isinstance(data, dict):
         return out
     for _, body in bodies(data):
         for d in body.get("extra_devices") or []:
             if isinstance(d, dict) and isinstance(d.get("eds"), str) and d["eds"]:
                 out["eds"][d["eds"]] = _resolve_path(d["eds"], base)
-        if version(data) >= 2 and isinstance(body.get("machine"), str) and body["machine"]:
-            out["machine"][body["machine"]] = _resolve_path(body["machine"], base)
     for _, src in _all_sources(data):
         csv = src.get("csv") if isinstance(src, dict) else None
         if isinstance(csv, dict) and isinstance(csv.get("file"), str) and csv["file"]:
@@ -846,18 +843,15 @@ def _steps(steps, at):
                 yield item
 
 
-def rewrite(data, path, eds_value, csv_value, machine_value=None):
+def rewrite(data, path, eds_value, csv_value):
     """A copy of the file with each extra device's eds and each CSV file
     renamed: eds_value(abs path) and csv_value(abs path) give the new
-    values; machine_value(value, abs path) a section's machine file (None:
-    kept)."""
+    values."""
     files = referenced_files(data, path)
     out = json.loads(json.dumps(data))
     for _, body in bodies(out):
         for d in body.get("extra_devices") or []:
             d["eds"] = eds_value(files["eds"][d["eds"]])
-        if machine_value is not None and version(out) >= 2 and body.get("machine") in files["machine"]:
-            body["machine"] = machine_value(body["machine"], files["machine"][body["machine"]])
     for _, src in _all_sources(out):
         csv = src.get("csv") if isinstance(src, dict) else None
         if isinstance(csv, dict):
@@ -988,7 +982,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
                 net = nets[names.index(name)]
                 net_cfg = {"adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"],
                            "protocol": net["protocol"], "links": net["json"].get("links", [])}
-            _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn, network=name,
+            _check_body(body, path, net_cfg, config_path, eds_paths, s_err, s_warn,
                         raw=raw_names.get(name, raw_names.get(None, set())))
         return r
     if several_networks(cfg):
@@ -1079,7 +1073,7 @@ def _check_raw_devices(data, path, cfg, err):
     return out
 
 
-def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None, raw=frozenset()):
+def _check_body(data, path, cfg, config_path, eds_paths, err, warn, raw=frozenset()):
     """The checks of one part (a version 1 file or a version 2 section)
     against one network's config (or None)."""
     base = os.path.dirname(os.path.abspath(path))
@@ -1194,9 +1188,6 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
     # Reference cycles among the devices' expression sources.
     _check_cycles(expr_sources, devices, err)
 
-    # The machine file.
-    machine = _check_machine(data, base, cfg, devices, network, err, warn)
-
     # Scenarios.
     plain = isinstance(cfg, dict) and cfg.get("protocol") == "none"
     for name, sc in (data.get("scenarios") or {}).items():
@@ -1210,58 +1201,7 @@ def _check_body(data, path, cfg, config_path, eds_paths, err, warn, network=None
                 err(_where(at), "on a plain CAN network a scenario step is a 'fault' or 'clear' on a 'device', "
                                 "a 'log' or a 'repeat'")
                 continue
-            _check_step(step, at, devices, err, warn, base, machine, csv_roots)
-
-
-class _Machine:
-    """The machine a section names, for its scenarios: `data` None when the
-    file did not pass its checks (its elements are then not checked)."""
-
-    def __init__(self, network, value=None, data=None):
-        self.network, self.value, self.data = network, value, data
-
-    def missing(self):
-        """The message for a machine step or condition without a machine."""
-        if self.value is None:
-            return "%s has no machine (its section names no machine file)" % (
-                "network %s" % self.network if self.network else "this network")
-        return None
-
-
-def _check_machine(data, base, cfg, devices, network, err, warn):
-    """Loads and checks the machine file a section names: the schema, the
-    checks the schema cannot express, and the machine against the network.
-    Returns a _Machine."""
-    value = data.get("machine")
-    if not isinstance(value, str) or not value:
-        return _Machine(network)
-    label = ("network %s: " % network if network else "") + "machine " + value
-    file = _resolve_path(value, base)
-    if not os.path.isfile(file):
-        err("machine", "%s: machine file %s not found (machine: \"%s\")" % (label, file, value))
-        return _Machine(network, value)
-    try:
-        m = machine_mod.load(file)
-    except machine_mod.MachineFileError as e:
-        err("machine", "%s: %s" % (label, e))
-        return _Machine(network, value)
-    problems = machine_mod.schema_problems(m)
-    if not problems:
-        problems = machine_mod.structure_problems(m)
-    for where, msg in problems:
-        err("machine", "%s: %s%s" % (label, where + ": " if where else "", msg))
-    if problems:
-        return _Machine(network, value)
-    ok = True
-    if isinstance(cfg, dict):
-        network_simulated, nodes = simulated(cfg)
-        for level, where, msg in machine_mod.config_problems(m, devices, network_simulated, set(nodes), label):
-            if level == "warning":
-                warn("machine", msg)
-            else:
-                ok = False
-                err("machine", "%s: %s" % (label, msg))
-    return _Machine(network, value, m if ok else None)
+            _check_step(step, at, devices, err, warn, base, csv_roots)
 
 
 def _where(parts):
@@ -1434,16 +1374,8 @@ def _check_fault(f, dev, at, err):
             % (dev.label, dev.eds_name))
 
 
-def _check_condition(cond, at, step_dev, devices, err, machine=None):
+def _check_condition(cond, at, step_dev, devices, err):
     w = _where(at)
-    if "machine" in cond:
-        problem = machine.missing() if machine else "this network has no machine"
-        if problem:
-            err(w + ".machine", problem)
-        elif machine.data is not None and cond["machine"] not in machine_mod.value_names(machine.data):
-            err(w + ".machine", "the machine has no value \"%s\" (%s)"
-                % (cond["machine"], ", ".join(machine_mod.value_names(machine.data))))
-        return
     if "expr" in cond:
         try:
             parse(cond["expr"], _resolver(devices, step_dev))
@@ -1459,29 +1391,9 @@ def _check_condition(cond, at, step_dev, devices, err, machine=None):
         err(w + ".object", problem)
 
 
-def _check_step(step, at, devices, err, warn, base, machine=None, csv_roots=None):
+def _check_step(step, at, devices, err, warn, base, csv_roots=None):
     w = _where(at)
     dev = None
-    for key in ("panel", "person"):
-        if key not in step:
-            continue
-        problem = machine.missing() if machine else "this network has no machine"
-        if not problem and machine.data is not None:
-            problem = machine_mod.panel_step_problem(machine.data, step[key]) if key == "panel" \
-                else machine_mod.person_step_problem(machine.data)
-        if problem:
-            err(w + "." + key, problem)
-        return
-    if "machine" in step:
-        problem = machine.missing() if machine else "this network has no machine"
-        if not problem and machine.data is not None:
-            if "fault" in step:
-                problem = machine_mod.fault_element_problem(machine.data, step["machine"], step["fault"])
-            else:
-                problem = machine_mod.clear_element_problem(machine.data, step["machine"], step["clear"])
-        if problem:
-            err(w + ".machine", problem)
-        return
     if "node" in step:
         dev = devices.get(step["node"])
         if dev is None:
@@ -1518,7 +1430,7 @@ def _check_step(step, at, devices, err, warn, base, machine=None, csv_roots=None
         _check_fault(step["fault"], dev, at + ["fault"], err)
     for key in ("wait", "expect"):
         if key in step:
-            _check_condition(step[key], at + [key], dev, devices, err, machine)
+            _check_condition(step[key], at + [key], dev, devices, err)
 
 
 def check_file(path, cfg=None, config_path=None, eds_paths=None):

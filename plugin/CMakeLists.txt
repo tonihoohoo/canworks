@@ -112,7 +112,6 @@ set(CANWORKS_CANOPEN_SOURCES
     src/canopen/sim/sim_file.cpp
     src/canopen/sim/sim_drive.cpp
     src/canopen/sim/sim_engine.cpp
-    src/canopen/sim/sim_machine.cpp
     src/canopen/sim/sim_host.cpp
 )
 set(CANWORKS_J1939_SOURCES

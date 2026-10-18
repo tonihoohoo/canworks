@@ -8,19 +8,19 @@ import json
 import os
 import shutil
 
-from .helpers import REPO, tree_node
+from .helpers import REPO, tree_net, tree_node
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
-EXAMPLE = os.path.join(REPO, "examples", "gantry-cell", "canworks")
+EXAMPLE = os.path.join(REPO, "examples", "virtual-plant", "canworks")
 
 
 class BitsPage(OnlineBase):
     def setUp(self):
         super().setUp()
         self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        for name in ("servo402.eds", "dio16.eds"):
+        for name in ("servo402.eds", "dio16.eds", "rtd8.eds", "cell.eds", "cell_eds.json"):
             shutil.copy(os.path.join(EXAMPLE, name), os.path.join(self.project, "canworks"))
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.cfg, f, indent=2)
@@ -40,6 +40,7 @@ class BitsPage(OnlineBase):
     def test_statusword_map_all_rename_and_unmap(self):
         pg = self.page
         self.open()
+        tree_net(pg, 1)  # motion: the drive
         tree_node(pg, 0, "pdos")
         ep = self.entry(0, "0x6041:0")
         pg.click('[data-bits-for="%s"]' % ep)
@@ -61,7 +62,7 @@ class BitsPage(OnlineBase):
         pg.fill(name, "drive_fault")
         self.checked()
         decls = pg.evaluate("() => S.check.declarations.filter((d) => d.bit === 3).map((d) => [d.name, d.type, d.location])")
-        self.assertIn(["x_drive_fault", "BOOL", bits[3]["iec_location"]], decls)
+        self.assertIn(["motion_drive_drive_fault", "BOOL", bits[3]["iec_location"]], decls)
         self.assertNotIn("bit", pg.inner_text("#problem-list"))  # the fixture project's EtherCAT overlaps stay
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         # Unmap all is one undo step.
@@ -73,16 +74,17 @@ class BitsPage(OnlineBase):
     def test_output_entry_asks_before_its_location_goes(self):
         pg = self.page
         self.open()
-        tree_node(pg, 3, "pdos")
-        ep = self.entry(3, "0x6200:1")
-        self.assertEqual(pg.evaluate("(p) => getPath(p).iec_location", ep), "%QB130")
+        tree_net(pg, 0)  # io: the DIO-16
+        tree_node(pg, 1, "pdos")
+        ep = self.entry(1, "0x6200:1")
+        self.assertEqual(pg.evaluate("(p) => getPath(p).iec_location", ep), "%QB110")
         pg.click('[data-bits-for="%s"]' % ep)
         table = '[data-bits-table="%s"]' % ep
         tick = '%s tr[data-bit-row="0"] input[type=checkbox]' % table
         # Keeping the location maps nothing.
         pg.click(tick)
         pg.wait_for_selector("#modal[open]")
-        self.assertIn("%QB130 is removed", pg.inner_text("#modal-text"))
+        self.assertIn("%QB110 is removed", pg.inner_text("#modal-text"))
         pg.click('#modal-buttons button[data-value="cancel"]')
         self.assertIsNone(self.bits(ep))
         self.assertFalse(pg.is_checked(tick))

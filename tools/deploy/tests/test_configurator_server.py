@@ -134,7 +134,7 @@ class Access(Running):
 
     def test_backlog_holds_a_module_burst(self):
         # Windows refuses connections over the listen backlog; the page's
-        # module imports (three.js) come in a burst.
+        # module imports come in a burst.
         self.assertGreaterEqual(self.server.request_queue_size, 64)
 
     def test_page_needs_the_cookie(self):
@@ -1432,8 +1432,8 @@ class Folders(Running):
         self.assertTrue(data["state"]["simulation"]["exists"])
         self.assertIn("cell.eds", data["state"]["slave_descriptions"])
 
-    def test_move_keeps_the_machine_file(self):
-        folder = self.standalone(os.path.join(REPO, "examples", "gantry-cell", "canworks"))
+    def test_move_replaces_the_canworks_folder(self):
+        folder = self.standalone()
         self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
         os.makedirs(os.path.join(self.project, "canworks"))
         status, data, _ = self.request("POST", "/api/move", {"project": self.project})
@@ -1456,7 +1456,7 @@ class Folders(Running):
             self.assertTrue(os.path.isfile(os.path.join(target, name)), name)
 
     def test_save_keeps_the_key_order(self):
-        folder = self.standalone(os.path.join(REPO, "examples", "gantry-cell", "canworks"))
+        folder = self.standalone()
         before = read(os.path.join(folder, "canworks.json"), "r")
         cfg = self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})["config"]
         cfg["networks"][0]["master"]["heartbeat_ms"] = 150
