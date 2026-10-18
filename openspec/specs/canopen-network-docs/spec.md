@@ -257,3 +257,10 @@ Each network with links SHALL have a Links table: name, COB-ID, producer node an
 #### Scenario: Value not used by the PLC
 - **WHEN** the producer's entries have no `iec_location`
 - **THEN** the Links table says the PLC does not read the link and the PLC I/O cross-reference has no entry for it
+
+### Requirement: Bit channels in the documents
+The PDO details SHALL list an entry's bit channels under it with bit number, name, location and the device note's bit text, and the PLC I/O cross-reference SHALL list every bit channel location.
+
+#### Scenario: Panel node sheet
+- **WHEN** node `panel` maps bits 0 and 3 of 0x6000:1
+- **THEN** its PDO details show two bit rows under 0x6000:1 and the cross-reference lists both `%IX` locations
