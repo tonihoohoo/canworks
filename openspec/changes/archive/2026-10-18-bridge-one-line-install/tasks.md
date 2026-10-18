@@ -16,7 +16,7 @@
 - [x] 2.4 Prefix fallback to `/opt/canworks-bridge` without `--prefix`; updates and `--uninstall` find it.
 - [x] 2.5 `scripts/install-bridge.ps1` (PowerShell 5.1, built-in OpenSSH and scp).
 - [x] 2.6 `scripts/install-runtime.sh`: export `CANWORKS_PLUGIN_VERSION`; `install-stock.sh` passes it into the managed Docker build (`docker run -e`); `plugin/CMakeLists.txt` treats an empty value as unset, so a build from a git checkout still uses `git describe`.
-- [ ] 2.7 `bridge-image.yml` still builds the image from the checkout (CI).
+- [x] 2.7 `bridge-image.yml` still builds the image from the checkout (CI).
 
 ## 3. Docs
 
@@ -27,11 +27,11 @@
 
 Run after the 0.84.0 release: the device side fetches the script of the release it installs.
 
-- [ ] 4.1 From the Windows PC, `install-bridge.ps1 -Ssh` onto the Pi with `-Instance` and a config on the Pi's CAN interface: installs under `/opt/canworks-bridge` (Docker runtime there), `canworks-bridge --version` prints the release, the instance runs, logs that the interface is owned by the runtime's plugin and leaves that network off, and its Modbus port answers from the PC.
-- [ ] 4.2 Re-run the same line (update): the instance is restarted. Then `-Options --uninstall,--purge`; nothing of the bridge is left and `/opt/canworks` is unchanged. Clean PLC start afterwards.
+- [ ] 4.1 From the Windows PC, `install-bridge.ps1 -Ssh` onto the Pi with `-Instance` and a config on the Pi's CAN interface: installs under `/opt/canworks-bridge` (Docker runtime there), `canworks-bridge --version` prints the release, the instance runs, logs that the interface is owned by the runtime's plugin and leaves that network off, and its Modbus port answers from the PC. Passed on 0.85.2 except the ownership log: installed under `/opt/canworks-bridge`, `--version` printed 0.85.2, the instance ran and its Modbus port answered from the PC. Not tested: the plugin-owned interface, because the runtime had no PLC program, so nothing owned it.
+- [x] 4.2 Re-run the same line (update): the instance is restarted. Then `-Options --uninstall,--purge`; nothing of the bridge is left and `/opt/canworks` is unchanged. Clean PLC start afterwards. Passed on 0.85.2 (after the fixes in #155): the update restarted the instance, `--uninstall --purge` removed the bridge and kept the runtime's remote link, `/opt/canworks` unchanged, clean PLC start.
 - [ ] 4.3 From the Mac, `install-bridge.sh --ssh ... --dry-run` prints the expected command lines (no second install on the Pi).
 
 ## 5. Release
 
 - [x] 5.1 Minor bump of the tools package.
-- [ ] 5.2 CI time: wall and summed job time against the baseline, stated in the PR.
+- [x] 5.2 CI time: wall and summed job time against the baseline, stated in the PR.
