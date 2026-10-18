@@ -288,7 +288,9 @@ class OpenAndModes(Running):
 
     def test_missing_home(self):
         # A HOME that does not exist: the start page starts in the current folder.
-        with unittest.mock.patch.dict(os.environ, {"HOME": os.path.join(self.dir, "nonexistent")}):
+        # Windows reads USERPROFILE for ~.
+        missing = os.path.join(self.dir, "nonexistent")
+        with unittest.mock.patch.dict(os.environ, {"HOME": missing, "USERPROFILE": missing}):
             home = self.ok("GET", "/api/state")["home"]
             self.assertEqual(home, os.getcwd())
             self.assertEqual(self.ok("GET", "/api/folders")["path"], os.getcwd())
