@@ -26,6 +26,8 @@ _IDENTITY = "identity check: tick the device's startup checks in CODESYS"
 _MASTER_IDENTITY = "the master's own identity"
 _NMT_BEHAVIOUR = "set the manager's NMT error behaviour in CODESYS"
 _ADAPTER = "CODESYS sets up its CAN interface itself, from the network number and bit rate"
+_BIT_CHANNEL = "CODESYS assigns the I/O addresses itself; the bit's name names its channel"
+_BIT_BRIDGE = "the bridge serves an entry's bits in the entry's own location"
 _NO_SCAN = "the bridge has no PLC scan; its output watchdog is bridge.watchdog_ms"
 
 # (key, targets that use it, {target that does not: why}, targets that
@@ -98,6 +100,8 @@ ROWS = [
      {CODESYS: "CODESYS assigns the I/O addresses itself; the entry's name names the channel"}, ()),
     ("nodes.rx_pdos.entries.iec_location", _RUNTIME,
      {CODESYS: "CODESYS assigns the I/O addresses itself; the entry's name names the channel"}, ()),
+    ("nodes.tx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)), {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE}, ()),
+    ("nodes.rx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)), {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE}, ()),
     ("j1939.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN}, ()),
     ("raw.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN}, ()),
     # Network kinds: CODESYS gets CANopen master networks only.
