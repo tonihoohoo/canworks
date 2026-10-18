@@ -22,8 +22,10 @@
 
 ## 4. CI
 
-- [ ] 4.1 Tests in the existing tools shard; no new job; CI time against the baseline in the PR.
+- [x] 4.1 Tests in the existing tools shard; no new job; CI time against the baseline in the PR.
+  Result (PR #153): CI wall about 301 s against a baseline of about 322 s.
 
 ## 5. Hardware
 
 - [ ] 5.1 On the Pi: bridge from the one-line installer on the bench CAN interface (after the 0.84.0 release), Node-RED in Docker with `node-red-contrib-modbus`; import the exported flow; the bench node's inputs arrive on "canworks in"; an output set from "canworks out" reaches the node; NMT stop/start of the node through "canworks nmt"; stop Node-RED and see outputs off by the watchdog. Then remove the Node-RED container, uninstall the bridge, clean PLC start.
+  Result 2026-10-18 (tools 0.85.2, Node-RED 4.1.12 in `nodered/node-red:4.1`, node-red-contrib-modbus 5.45.2): all four checks passed. Inputs (TPDO values, node and bus state, live list, bridge state) arrived on "canworks in" once each, then one message per change. Bits set on "canworks out" went out as one RPDO per change with the map's bit order. NMT stop and start through "canworks nmt" returned `bridge.command` ok and the node followed (heartbeat 04, then operational). `docker stop` turned outputs off by the watchdog within about 1 s; after `docker start` outputs restarted from zeros as documented. Container removed, bridge uninstalled with `--purge`, no store to the device. The runtime had no program loaded before the run, so the closing PLC start returned to empty and the node was not rechecked under the plugin.
