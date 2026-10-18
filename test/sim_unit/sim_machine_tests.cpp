@@ -558,3 +558,222 @@ TEST(machine_snapshot_size_and_step_time) {
   cJSON_Delete(s);
 }
 
+
+namespace {
+
+// kMachine with a panel, an emergency stop, a scanner and a braked Z.
+std::string safe_machine() {
+  std::string json = kMachine;
+  auto rep = [&](const std::string& a, const std::string& b) { json.replace(json.find(a), a.size(), b); };
+  rep("\"per_m_s2_permille\": 60 } }", "\"per_m_s2_permille\": 60 }, \"brake\": true }");
+  rep("\"visual\":", R"("panel": {
+    "buttons": [
+      { "name": "jog_x_plus", "key": "ArrowRight", "input": { "node": 11, "object": "0x6000:1", "bit": 1 } },
+      { "name": "manual", "key": "M", "kind": "switch", "input": { "node": 11, "object": "0x6000:1", "bit": 0 } },
+      { "name": "reset", "key": "R", "input": { "node": 11, "object": "0x6000:2", "bit": 5 } },
+      { "name": "estop", "label": "Emergency stop", "key": "E", "kind": "latching", "input": { "node": 11, "object": "0x6000:2", "bit": 7 } } ],
+    "lamps": [ { "name": "manual_lamp", "output": { "node": 11, "object": "0x6200:1", "bit": 0 } } ] },
+  "safety": {
+    "relay": { "inputs": ["estop", "scanner"], "reset": "reset", "stop_delay_ms": 300,
+               "feedback": { "node": 10, "object": "0x6000:1", "bit": 6 } },
+    "scanners": [ { "name": "scanner", "at": [1250, 900],
+                    "warning": [ { "origin": [-700, 300], "size": [2550, 1200] } ],
+                    "protective": [ { "origin": [-700, 300], "size": [1950, 600] } ],
+                    "warning_output": { "node": 10, "object": "0x6000:1", "bit": 7 } } ] },
+  "visual":)");
+  return json;
+}
+
+const IoBit kJogXPlus{11, ObjKey{0x6000, 1}, 1}, kEstop{11, ObjKey{0x6000, 2}, 7}, kLamp{11, ObjKey{0x6200, 1}, 0};
+const IoBit kSafetyOk{10, ObjKey{0x6000, 1}, 6}, kWarning{10, ObjKey{0x6000, 1}, 7};
+
+bool press(Rig& r, const std::string& b, bool on, bool lease = true) {
+  std::string err;
+  bool ok = r.machine->Press(b, on, lease, err);
+  if (!ok) std::printf("  %s\n", err.c_str());
+  return ok;
+}
+
+bool person(Rig& r, bool on, double x = 0, double y = 0) {
+  std::string err;
+  return r.machine->SetPerson(on, x, y, err);
+}
+
+}  // namespace
+
+TEST(machine_panel_file) {
+  MachineSpec s = spec_from(safe_machine());
+  CHECK(s.buttons.size() == 4 && s.lamps.size() == 1 && s.safety.present && s.safety.scanners.size() == 1);
+  CHECK(s.buttons[1].kind == MachinePanelButton::Kind::Switch && s.buttons[3].label == "Emergency stop");
+  CHECK(s.safety.joints.size() == 3 && s.safety.conveyors.size() == 1 && s.joints[2].brake);
+  // 3 machine inputs + 4 buttons + feedback + warning; 3 outputs + 1 lamp.
+  CHECK(s.inputs().size() == 9 && s.outputs().size() == 4);
+  struct Case {
+    std::string from, to, expect;
+  } cases[] = {
+      {"\"key\": \"R\"", "\"key\": \"M\"", "panel.buttons[2].key: key \"M\" is used by button manual too"},
+      {"\"key\": \"R\"", "\"key\": \"Tab\"", "is not a key name"},
+      {"\"kind\": \"latching\"", "\"kind\": \"momentary\"", "button \"estop\" is momentary: an emergency stop must be latching"},
+      {"\"inputs\": [\"estop\", \"scanner\"]", "\"inputs\": [\"estop\", \"curtain\"]", "\"curtain\" is not a panel button or a scanner"},
+      {"\"reset\": \"reset\"", "\"reset\": \"manual\"", "\"manual\" must name a momentary panel button"},
+      {"\"size\": [1950, 600]", "\"size\": [1950, 1300]", "safety.scanners[0].protective[0]: must lie inside one of the scanner's warning boxes"},
+      {"\"name\": \"manual_lamp\"", "\"name\": \"manual\"", "the name \"manual\" is used by another element"},
+      {"\"stop_delay_ms\": 300", "\"stop_delay_ms\": 300, \"joints\": [\"q\"]", "the machine has no joint \"q\""},
+      {"\"node\": 11, \"object\": \"0x6000:2\", \"bit\": 5", "\"node\": 11, \"object\": \"0x6000:2\", \"bit\": 7", "is bound twice"},
+  };
+  for (const auto& c : cases) {
+    std::string json = safe_machine();
+    size_t at = json.find(c.from);
+    CHECK(at != std::string::npos);
+    json.replace(at, c.from.size(), c.to);
+    MachineSpec bad;
+    std::vector<std::string> errors;
+    CHECK(!parse_machine_file(json, "machine.json", bad, errors));
+    bool found = false;
+    for (const auto& e : errors) found = found || e.find(c.expect) != std::string::npos;
+    if (!found) {
+      std::printf("  expected \"%s\", got:\n", c.expect.c_str());
+      for (const auto& e : errors) std::printf("    %s\n", e.c_str());
+    }
+    CHECK(found);
+  }
+}
+
+TEST(machine_panel_lease) {
+  Rig r(spec_from(safe_machine()));
+  std::string err;
+  CHECK(!r.machine->Press("jog_q", true, true, err) && err.find("no panel button \"jog_q\"") != std::string::npos);
+  // A press with nothing after it lets go after 500 ms.
+  CHECK(press(r, "jog_x_plus", true));
+  r.run(0.01);
+  CHECK(r.in(kJogXPlus));
+  r.run(0.48);
+  CHECK(r.in(kJogXPlus));
+  r.run(0.03);
+  CHECK(!r.in(kJogXPlus));
+  // Repeated every 200 ms for 3 s: on the whole time, off with the release.
+  CHECK(press(r, "jog_x_plus", true));
+  for (int i = 0; i < 15; ++i) {
+    r.run(0.2);
+    CHECK(r.in(kJogXPlus));
+    press(r, "jog_x_plus", true);
+  }
+  CHECK(press(r, "jog_x_plus", false));
+  r.run(0.01);
+  CHECK(!r.in(kJogXPlus));
+  // A scenario's press and a switch have no lease.
+  CHECK(press(r, "jog_x_plus", true, false) && press(r, "manual", true));
+  r.run(2);
+  CHECK(r.in(kJogXPlus));
+  double v = 0;
+  CHECK(r.machine->Value("manual", v) && v == 1);
+  // The lamp follows the output.
+  r.out(kLamp, true);
+  CHECK(r.machine->Value("manual_lamp", v) && v == 1);
+}
+
+TEST(machine_emergency_stop) {
+  Rig r(spec_from(safe_machine()));
+  r.enable_all();
+  r.move(2, 200);  // Z down 200 mm
+  r.run(0.05);
+  CHECK(r.in(kSafetyOk));
+  // X runs at 600 mm/s in profile velocity when the stop is latched.
+  r.io[0].set(0x60FF, 600000);
+  r.enable(0, 3);
+  r.run(0.3);
+  r.out(kRun, true);
+  CHECK(press(r, "estop", true));
+  r.run(0.004);
+  CHECK(!r.in(kSafetyOk) && r.machine->relay() == MachineModel::Relay::Stopping);
+  CHECK(r.ax[0]->state() == DriveModel::State::OperationEnabled);
+  r.run(0.3);
+  CHECK(r.machine->relay() == MachineModel::Relay::Open);
+  for (int a = 0; a < 3; ++a) CHECK(r.ax[a]->inputs.safe_torque_off && r.ax[a]->state() == DriveModel::State::SwitchOnDisabled);
+  // Z holds on its brake; X coasts down.
+  double z = r.pos(2);
+  r.run(0.5);
+  CHECK(std::fabs(r.pos(2) - z) < 0.01);
+  CHECK(std::fabs(r.ax[0]->actual_velocity()) < 1);
+  cJSON* snap = r.machine->Snapshot();
+  const cJSON* sf = cJSON_GetObjectItemCaseSensitive(snap, "safety");
+  CHECK(sf && std::strcmp(cJSON_GetObjectItemCaseSensitive(sf, "relay")->valuestring, "open") == 0);
+  CHECK(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(sf, "reset_ready")));
+  CHECK(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(snap, "panel"), "buttons"), "estop")));
+  cJSON_Delete(snap);
+  // The conveyor is cut: parts on it do not move.
+  double s0 = r.machine->parts().empty() ? 0 : r.machine->parts()[0].pos[0];
+  r.run(0.5);
+  CHECK(r.machine->parts().empty() || r.machine->parts()[0].pos[0] == s0);
+  // Reset while still latched: stays open.
+  CHECK(press(r, "reset", true));
+  r.run(0.1);
+  CHECK(r.machine->relay() == MachineModel::Relay::Open && !r.in(kSafetyOk));
+  CHECK(press(r, "reset", false));
+  // Released, then reset: closed, the drives leave safe torque off still disabled.
+  CHECK(press(r, "estop", false));
+  r.run(0.01);
+  CHECK(r.machine->relay() == MachineModel::Relay::Open);
+  CHECK(press(r, "reset", true));
+  r.run(0.01);
+  CHECK(r.machine->relay() == MachineModel::Relay::Closed && r.in(kSafetyOk));
+  for (int a = 0; a < 3; ++a) CHECK(!r.ax[a]->inputs.safe_torque_off && r.ax[a]->state() == DriveModel::State::SwitchOnDisabled);
+}
+
+TEST(machine_scanner_person) {
+  Rig r(spec_from(safe_machine()));
+  r.run(0.01);
+  double v = 0;
+  CHECK(person(r, true, 400, 2000));  // outside both fields
+  r.run(0.01);
+  CHECK(!r.in(kWarning) && r.machine->relay() == MachineModel::Relay::Closed);
+  CHECK(person(r, true, 400, 1300));  // warning field
+  r.run(0.01);
+  CHECK(r.in(kWarning) && r.machine->relay() == MachineModel::Relay::Closed);
+  CHECK(r.machine->Value("scanner.warning", v) && v == 1 && r.machine->Value("scanner.protective", v) && v == 0);
+  CHECK(person(r, true, 400, 1100));  // 200 mm from the protective field: the radius reaches it
+  r.run(0.01);
+  CHECK(r.machine->relay() != MachineModel::Relay::Closed && !r.in(kSafetyOk));
+  CHECK(r.machine->Value("relay", v) && v >= 1);
+  // Leaving does not restart.
+  CHECK(person(r, false));
+  r.run(1);
+  CHECK(r.machine->relay() == MachineModel::Relay::Open);
+  CHECK(press(r, "reset", true));
+  r.run(0.01);
+  CHECK(r.machine->relay() == MachineModel::Relay::Closed);
+  std::string err;
+  MachineModel plain_model(spec_from(kMachine), r);
+  CHECK(!plain_model.SetPerson(true, 0, 0, err) && err == "the machine has no safety scanner");
+  CHECK(!plain_model.Press("estop", true, true, err) && err == "the machine has no panel");
+}
+
+TEST(machine_panel_steps) {
+  const char* sim = R"({ "schema_version": 2, "networks": { "motion": { "machine": "machine.json",
+    "scenarios": { "t": { "steps": [
+      { "panel": { "manual": true, "jog_x_plus": true } },
+      { "after_ms": 2000, "panel": { "jog_x_plus": false } },
+      { "person": [400, 1300] },
+      { "person": null },
+      { "expect": { "machine": "relay", "eq": 0 } } ] } } } } })";
+  SimFile f, sec;
+  std::vector<std::string> errors;
+  CHECK(parse_sim_file(sim, "/p/canworks/simulation.json", f, errors));
+  for (const auto& e : errors) std::printf("  %s\n", e.c_str());
+  CHECK(sim_file_section(f, "motion", sec));
+  const auto& st = sec.scenarios[0].steps;
+  CHECK(st[0].action == "panel" && st[0].panel.size() == 2 && st[0].panel[1].first == "jog_x_plus" && st[0].panel[1].second);
+  CHECK(st[2].action == "person" && st[2].person && st[2].person_at[1] == 1300);
+  CHECK(st[3].action == "person" && !st[3].person);
+  const char* bad[] = {
+      R"({ "schema_version": 2, "networks": { "m": { "scenarios": { "t": { "steps": [ { "panel": { "manual": 1 } } ] } } } } })",
+      R"({ "schema_version": 2, "networks": { "m": { "scenarios": { "t": { "steps": [ { "panel": {} } ] } } } } })",
+      R"({ "schema_version": 2, "networks": { "m": { "scenarios": { "t": { "steps": [ { "person": [1] } ] } } } } })",
+      R"({ "schema_version": 2, "networks": { "m": { "scenarios": { "t": { "steps": [ { "node": 4, "panel": { "a": true } } ] } } } } })",
+  };
+  for (const char* b : bad) {
+    SimFile g;
+    std::vector<std::string> e2;
+    CHECK(!parse_sim_file(b, "s.json", g, e2));
+  }
+}

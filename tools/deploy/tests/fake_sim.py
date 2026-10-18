@@ -13,8 +13,8 @@ running scenario one poll closer to its outcome (FakeSim.add_scenario).
 With a machine (FakeSim(machine=FakeMachine(...)), fake_sim_machine.py, or
 sim.set_machine(machine file dict)) sim_machine answers its snapshot at the
 sim's clock (seconds since it was made, or sim.clock = lambda: t), and
-sim_fault / sim_clear with "machine" reach it; without one sim_machine
-answers "no machine"."""
+sim_fault / sim_clear with "machine", sim_panel and sim_person reach it;
+without one sim_machine answers "no machine"."""
 
 import copy
 import json
@@ -190,6 +190,24 @@ class FakeSim:
                 if not isinstance(req.get("fault"), str):
                     raise SimRefused("\"fault\" must be a machine fault name or \"all\"")
                 self.machine.clear(el, req["fault"], self.clock())
+        except fake_sim_machine.FakeMachineError as e:
+            raise SimRefused(str(e))
+        return {}
+
+    def _sim_panel(self, req):
+        if self.machine is None:
+            raise SimRefused("this network has no machine")
+        try:
+            self.machine.panel(req.get("button"), req.get("pressed"), self.clock())
+        except fake_sim_machine.FakeMachineError as e:
+            raise SimRefused(str(e))
+        return {}
+
+    def _sim_person(self, req):
+        if self.machine is None:
+            raise SimRefused("this network has no machine")
+        try:
+            self.machine.person(req.get("at"), self.clock())
         except fake_sim_machine.FakeMachineError as e:
             raise SimRefused(str(e))
         return {}

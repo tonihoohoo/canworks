@@ -5408,6 +5408,7 @@ TEST(sim_gantry_demo) {
   std::string ex = std::string(GANTRY_DIR) + "/canworks/";
   std::string dir = make_dir(read(ex + "canworks.json"), {{"servo402.eds", read(ex + "servo402.eds")},
                                                          {"dio16.eds", read(ex + "dio16.eds")},
+                                                         {"panel.eds", read(ex + "panel.eds")},
                                                          {"machine.json", read(ex + "machine.json")}});
   static Sim* sim;
   sim = new Sim(dir, 10000);  // the example's 10 ms task
@@ -5468,6 +5469,107 @@ TEST(sim_gantry_demo) {
   double placed = machine("placed");
   CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= placed + 1; }, seconds(20)), where());
   CHECK(machine("dropped") == 0);
+
+  // A joint's field, the safety relay, a panel press (momentary presses are
+  // repeated while waiting, like the view does).
+  auto joint = [](const char* name, const char* f) {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_machine"})");
+    double v = num(field(field(result(r), "joints"), name), f);
+    cJSON_Delete(r);
+    return v;
+  };
+  auto sto = [](const char* name) {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_machine"})");
+    bool v = cJSON_IsTrue(field(field(field(result(r), "joints"), name), "sto"));
+    cJSON_Delete(r);
+    return v;
+  };
+  auto relay = [] {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_machine"})");
+    const cJSON* v = field(field(result(r), "safety"), "relay");
+    std::string s = cJSON_IsString(v) ? v->valuestring : "";
+    cJSON_Delete(r);
+    return s;
+  };
+  auto press = [](const std::string& button, bool on) {
+    cJSON* r = sim->SimAsk(R"({"op":"sim_panel","button":")" + button + R"(","pressed":)" + (on ? "true" : "false") + "}");
+    CHECK_MSG(ok(r), button);
+    cJSON_Delete(r);
+  };
+  auto count = [](const std::string& needle) {
+    int n = 0;
+    for (const auto& l : logs()) n += l.find(needle) != std::string::npos;
+    return n;
+  };
+  auto speed = [&] { return std::hypot(joint("x", "velocity"), joint("y", "velocity")); };
+  auto click = [&](const std::string& button) {
+    press(button, true);
+    sim->RunFor(milliseconds(150));
+    press(button, false);
+    sim->RunFor(milliseconds(100));
+  };
+
+  // MANUAL during an XY move: the axes ramp down without a fault and jog;
+  // X stops at its soft limit. Start in AUTO goes on with the next part.
+  CHECK_MSG(sim->RunUntil([&] { return speed() > 400; }, seconds(15)), where());
+  press("manual", true);
+  CHECK_MSG(sim->RunUntil([&] { return speed() < 1; }, seconds(1)), where());
+  int faults = count("EMCY 0x8611");
+  int held = step();
+  for (int i = 0; i < 60 && joint("x", "position") < 899.5; ++i) {
+    press("fast", true);
+    press("jog_x_plus", true);
+    sim->RunFor(milliseconds(200));
+  }
+  CHECK_MSG(joint("x", "position") > 899.5 && joint("x", "position") < 900.5, where());
+  sim->RunFor(milliseconds(700));  // the lease runs out: the jog stops
+  CHECK_MSG(std::fabs(joint("x", "velocity")) < 1 && joint("x", "position") < 900.5, where());
+  CHECK(step() == held);
+  press("manual", false);
+  click("start");
+  placed = machine("placed");
+  CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= placed + 1; }, seconds(20)), where());
+
+  // The emergency stop during a fast move: the program stops the axes within
+  // the relay's stop delay, then the drives lose their power stage and Z
+  // holds on its brake. Release, Reset, Start: on it goes.
+  CHECK_MSG(sim->RunUntil([&] { return speed() > 500; }, seconds(15)), where());
+  press("estop", true);
+  CHECK_MSG(sim->RunUntil([&] { return relay() == "open"; }, milliseconds(500)), where());
+  CHECK(logged("sim: network motion: machine: safety relay open: the drives are in safe torque off"));
+  CHECK_MSG(speed() < 1, where() + ", speed " + std::to_string(speed()));
+  CHECK_MSG(sim->RunUntil([&] { return sto("x") && sto("z"); }, milliseconds(100)), where());  // the drives' next step
+  double zs = joint("z", "position");
+  sim->RunFor(seconds(1));
+  CHECK_MSG(std::fabs(joint("z", "position") - zs) < 0.01, where());
+  press("estop", false);
+  click("reset");
+  CHECK_MSG(relay() == "closed", relay());
+  click("start");
+  placed = machine("placed");
+  CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= placed + 1; }, seconds(20)), where());
+
+  // Someone in the warning field: the moves go at a quarter speed. Into the
+  // protective field: a safety stop.
+  r = sim->SimAsk(R"({"op":"sim_person","at":[1700,1300]})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  double top = 0;
+  sim->RunUntil([&] { return (top = std::max(top, speed())) < 0; }, seconds(4));
+  CHECK_MSG(top > 50 && top < 200, std::to_string(top));
+  r = sim->SimAsk(R"({"op":"sim_person","at":[1000,800]})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  CHECK_MSG(sim->RunUntil([&] { return relay() == "open"; }, milliseconds(500)), where());
+  r = sim->SimAsk(R"({"op":"sim_person","at":null})");
+  CHECK(ok(r));
+  cJSON_Delete(r);
+  click("reset");
+  click("start");
+  placed = machine("placed");
+  CHECK_MSG(sim->RunUntil([&] { return machine("placed") >= placed + 1; }, seconds(20)), where());
+  CHECK(machine("dropped") == 0);
+  CHECK_MSG(count("EMCY 0x8611") == faults, where());
   std::printf("    demo done: %s\n", where().c_str());
   delete sim;
 #endif

@@ -9,7 +9,7 @@
     "x": { "node": 4, "travel": [0, 900], "counts_per_mm": 1000, "home_flag": 0, "limits": [-5, 905], "hard_stops": [-12, 912] },
     "y": { "node": 5, "travel": [0, 600], "counts_per_mm": 1000, "home_flag": 0, "limits": [-5, 605], "hard_stops": [-12, 612] },
     "z": { "node": 6, "travel": [0, 300], "counts_per_mm": 1000, "home_flag": 0, "down": true, "limits": [-5, 305], "hard_stops": [-12, 312],
-           "load": { "hold_permille": 165, "per_kg_permille": 140, "per_m_s2_permille": 60 } }
+           "load": { "hold_permille": 165, "per_kg_permille": 140, "per_m_s2_permille": 60 }, "brake": true }
   },
   "tool": {
     "type": "gripper",
@@ -61,6 +61,51 @@
       }
     }
   ],
+  "panel": {
+    "buttons": [
+      { "name": "manual", "label": "Manual", "key": "M", "kind": "switch", "input": { "node": 11, "object": "0x6000:1", "bit": 0 } },
+      { "name": "jog_x_plus", "label": "Jog X+", "key": "ArrowRight", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 1 } },
+      { "name": "jog_x_minus", "label": "Jog X-", "key": "ArrowLeft", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 2 } },
+      { "name": "jog_y_plus", "label": "Jog Y+", "key": "ArrowUp", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 3 } },
+      { "name": "jog_y_minus", "label": "Jog Y-", "key": "ArrowDown", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 4 } },
+      { "name": "jog_z_up", "label": "Jog Z up", "key": "PageUp", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 5 } },
+      { "name": "jog_z_down", "label": "Jog Z down", "key": "PageDown", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 6 } },
+      { "name": "fast", "label": "Fast", "key": "Shift", "kind": "momentary", "input": { "node": 11, "object": "0x6000:1", "bit": 7 } },
+      { "name": "gripper", "label": "Gripper", "key": "G", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 0 } },
+      { "name": "conveyor", "label": "Conveyor", "key": "C", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 1 } },
+      { "name": "home", "label": "Home", "key": "H", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 2 } },
+      { "name": "start", "label": "Start", "key": "Enter", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 3 } },
+      { "name": "stop", "label": "Stop", "key": "S", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 4 } },
+      { "name": "reset", "label": "Reset", "key": "R", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 5 } },
+      { "name": "enable", "label": "Enable", "key": "Space", "kind": "momentary", "input": { "node": 11, "object": "0x6000:2", "bit": 6 } },
+      { "name": "estop", "label": "Emergency stop", "key": "E", "kind": "latching", "input": { "node": 11, "object": "0x6000:2", "bit": 7 } }
+    ],
+    "lamps": [
+      { "name": "manual_lamp", "label": "Manual", "output": { "node": 11, "object": "0x6200:1", "bit": 0 } },
+      { "name": "homed_lamp", "label": "Homed", "output": { "node": 11, "object": "0x6200:1", "bit": 1 } },
+      { "name": "fault_lamp", "label": "Fault", "output": { "node": 11, "object": "0x6200:1", "bit": 2 } },
+      { "name": "auto_lamp", "label": "Auto", "output": { "node": 11, "object": "0x6200:1", "bit": 3 } }
+    ]
+  },
+  "safety": {
+    "relay": {
+      "inputs": ["estop", "scanner"],
+      "reset": "reset",
+      "stop_delay_ms": 300,
+      "joints": ["x", "y", "z"],
+      "conveyors": ["infeed"],
+      "feedback": { "node": 10, "object": "0x6000:1", "bit": 6 }
+    },
+    "scanners": [
+      {
+        "name": "scanner",
+        "at": [1250, 900],
+        "warning": [ { "origin": [-700, 300], "size": [2550, 1200] }, { "origin": [650, -700], "size": [1200, 2200] } ],
+        "protective": [ { "origin": [-700, 300], "size": [1950, 600] }, { "origin": [650, -700], "size": [600, 1600] } ],
+        "warning_output": { "node": 10, "object": "0x6000:1", "bit": 7 }
+      }
+    ]
+  },
   "visual": {
     "floor": { "size": [4000, 3200] },
     "table": { "origin": [-480, -160], "size": [1500, 860], "height": 760 },

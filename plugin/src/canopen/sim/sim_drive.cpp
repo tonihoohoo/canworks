@@ -261,7 +261,7 @@ void DriveModel::update_state(uint16_t cw, bool edge7) {
   bool enable = (cw & 0x0F) == 0x0F;
   switch (state_) {
     case State::SwitchOnDisabled:
-      if (shutdown) state_ = State::ReadyToSwitchOn;
+      if (shutdown && !inputs.safe_torque_off) state_ = State::ReadyToSwitchOn;
       break;
     case State::ReadyToSwitchOn:
       if (disable_voltage || quick_stop) state_ = State::SwitchOnDisabled;
@@ -319,6 +319,13 @@ void DriveModel::step(double dt) {
   bool fall4 = !(cw & 0x10) && (cw_prev_ & 0x10);
   bool edge7 = (cw & 0x80) && !(cw_prev_ & 0x80);
   update_state(cw, edge7);
+  if (inputs.safe_torque_off && state_ != State::Fault && state_ != State::FaultReactionActive &&
+      state_ != State::SwitchOnDisabled) {
+    // The power stage is gone: no torque, back to "switch on disabled".
+    state_ = State::SwitchOnDisabled;
+    pp_moving_ = pp_pending_ = ack_ = false;
+    if (hm_ == Homing::Search || hm_ == Homing::Back) hm_ = Homing::Idle;
+  }
   update_mode();
   if (state_ != State::OperationEnabled) cs_armed_ = false;
   // The SYNC came somewhere within the last tick: counting from the tick
@@ -642,7 +649,7 @@ uint16_t DriveModel::compose_statusword(uint16_t cw) const {
     case State::FaultReactionActive: sw = 0x000F; break;
     case State::Fault: sw = 0x0008; break;
   }
-  sw |= 0x0010;  // voltage enabled
+  if (!inputs.safe_torque_off) sw |= 0x0010;  // voltage enabled
   sw |= 0x0200;  // remote
   if (sw_limit_) sw |= 0x0080;  // warning
   if (sw_limit_ || inputs.positive_limit || inputs.negative_limit) sw |= 0x0800;  // internal limit active

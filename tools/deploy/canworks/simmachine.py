@@ -52,7 +52,7 @@ def fault_problem(f):
 
 def elements(m):
     """{element name: kind} of a (schema-valid) machine file: joint, tool,
-    conveyor (feeder: with a feed), sensor, fixture."""
+    conveyor (feeder: with a feed), sensor, fixture, button, lamp, scanner."""
     out = {}
     for j in (m.get("joints") or {}):
         out[j] = "joint"
@@ -64,7 +64,30 @@ def elements(m):
         out[s["name"]] = "sensor"
     for f in m.get("fixtures") or []:
         out[f["name"]] = "fixture"
+    for b in _buttons(m):
+        out[b["name"]] = "button"
+    for lamp in _lamps(m):
+        out[lamp["name"]] = "lamp"
+    for sc in _scanners(m):
+        out[sc["name"]] = "scanner"
     return out
+
+
+def _section_list(m, section, key):
+    v = m.get(section)
+    return (v.get(key) or []) if isinstance(v, dict) else []
+
+
+def _buttons(m):
+    return _section_list(m, "panel", "buttons")
+
+
+def _lamps(m):
+    return _section_list(m, "panel", "lamps")
+
+
+def _scanners(m):
+    return _section_list(m, "safety", "scanners")
 
 
 def fault_element_problem(m, element, f):
@@ -91,11 +114,44 @@ def clear_element_problem(m, element, name):
     return None
 
 
+def panel_problem(m, button):
+    """None when machine file `m` has panel button `button`, else the
+    simulator's message (sim_panel, a scenario's panel step)."""
+    if not isinstance(m.get("panel"), dict):
+        return "the machine has no panel"
+    names = [b["name"] for b in _buttons(m)]
+    if button not in names:
+        return "the machine has no panel button \"%s\" (%s)" % (button, ", ".join(names))
+    return None
+
+
+def panel_step_problem(m, buttons):
+    """The first problem of a scenario's panel step {button: bool, ...}."""
+    for name in buttons:
+        problem = panel_problem(m, name)
+        if problem:
+            return problem
+    return None
+
+
+def person_step_problem(m):
+    """None when machine file `m` has a safety scanner (a person step, sim_person)."""
+    return None if _scanners(m) else "the machine has no safety scanner"
+
+
 def value_names(m):
     """The names a machine condition takes: counters, joints, sensors,
-    fixtures (MachineModel::Names)."""
-    return list(COUNTERS) + [j for j in JOINTS if j in (m.get("joints") or {})] + \
+    fixtures, the safety relay (`relay`), panel buttons and lamps, and each
+    scanner's fields (SCANNER.warning, SCANNER.protective)
+    (MachineModel::Names)."""
+    out = list(COUNTERS) + [j for j in JOINTS if j in (m.get("joints") or {})] + \
         [s["name"] for s in m.get("sensors") or []] + [f["name"] for f in m.get("fixtures") or []]
+    if isinstance(m.get("safety"), dict):
+        out.append("relay")
+    out += [b["name"] for b in _buttons(m)] + [lamp["name"] for lamp in _lamps(m)]
+    for sc in _scanners(m):
+        out += [sc["name"] + ".warning", sc["name"] + ".protective"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +223,8 @@ def outputs(m):
         if isinstance(f.get("change"), dict):
             out.append((f["change"]["request"], "fixture %s change request" % f["name"],
                         "fixtures[%d].change.request" % i))
+    for i, lamp in enumerate(_lamps(m)):
+        out.append((lamp["output"], "panel lamp %s" % lamp["name"], "panel.lamps[%d].output" % i))
     return out
 
 
@@ -182,6 +240,15 @@ def inputs(m):
     for i, f in enumerate(m.get("fixtures") or []):
         if isinstance(f.get("change"), dict):
             out.append((f["change"]["ready"], "fixture %s ready" % f["name"], "fixtures[%d].change.ready" % i))
+    for i, b in enumerate(_buttons(m)):
+        out.append((b["input"], "panel button %s" % b["name"], "panel.buttons[%d].input" % i))
+    relay = (m.get("safety") or {}).get("relay") if isinstance(m.get("safety"), dict) else None
+    if isinstance(relay, dict) and isinstance(relay.get("feedback"), dict):
+        out.append((relay["feedback"], "safety relay feedback", "safety.relay.feedback"))
+    for i, sc in enumerate(_scanners(m)):
+        if isinstance(sc.get("warning_output"), dict):
+            out.append((sc["warning_output"], "scanner %s warning" % sc["name"],
+                        "safety.scanners[%d].warning_output" % i))
     return out
 
 
@@ -242,6 +309,15 @@ def structure_problems(m):
                 if feed["part"] not in kinds:
                     out.append((at + ".feed.part", "part kind \"%s\" is not defined in \"parts\"%s"
                                 % (feed["part"], " (%s)" % ", ".join(sorted(kinds)) if kinds else "")))
+    for key, items, what in (("panel.buttons", _buttons(m), "button"), ("panel.lamps", _lamps(m), "lamp"),
+                             ("safety.scanners", _scanners(m), "scanner")):
+        for i, el in enumerate(items):
+            if el["name"] in names:
+                out.append(("%s[%d].name" % (key, i), "the name \"%s\" is used by another element (%s)"
+                            % (el["name"], names[el["name"]])))
+            else:
+                names[el["name"]] = "%s %s" % (what, el["name"])
+    out += _panel_problems(m)
     # No input bit bound twice, and no bit both read and written.
     seen = {}
     for b, element, at in inputs(m):
@@ -254,6 +330,53 @@ def structure_problems(m):
         key = bit_text(b)
         if key in seen:
             out.append((at, "%s is both an output (%s) and an input (%s)" % (key, element, seen[key])))
+    return out
+
+
+def _panel_problems(m):
+    """[(JSON path, message)] of the panel's keys and the safety section."""
+    out = []
+    buttons = _buttons(m)
+    keys = {}
+    for i, b in enumerate(buttons):
+        if b["key"] in keys:
+            out.append(("panel.buttons[%d].key" % i, "key \"%s\" is used by button %s too" % (b["key"], keys[b["key"]])))
+        else:
+            keys[b["key"]] = b["name"]
+    safety = m.get("safety")
+    if not isinstance(safety, dict):
+        return out
+    relay = safety["relay"]
+    kinds = {b["name"]: b.get("kind", "momentary") for b in buttons}
+    scanners = {sc["name"] for sc in _scanners(m)}
+    for name in relay["inputs"]:
+        kind = kinds.get(name)
+        if kind is None and name not in scanners:
+            out.append(("safety.relay.inputs", "\"%s\" is not a panel button or a scanner" % name))
+        elif kind == "momentary":
+            out.append(("safety.relay.inputs", "button \"%s\" is momentary: an emergency stop must be latching"
+                        % name))
+        elif kind == "switch":
+            out.append(("safety.relay.inputs", "button \"%s\" is a switch: an emergency stop must be latching" % name))
+    if kinds.get(relay["reset"]) != "momentary":
+        out.append(("safety.relay.reset", "\"%s\" must name a momentary panel button" % relay["reset"]))
+    for j in relay.get("joints") or []:
+        if j not in (m.get("joints") or {}):
+            out.append(("safety.relay.joints", "the machine has no joint \"%s\"" % j))
+    conveyors = {c["name"] for c in m.get("conveyors") or []}
+    for c in relay.get("conveyors") or []:
+        if c not in conveyors:
+            out.append(("safety.relay.conveyors", "the machine has no conveyor \"%s\"" % c))
+
+    def inside(a, b):
+        return all(b["origin"][k] - 1e-9 <= a["origin"][k] and
+                   a["origin"][k] + a["size"][k] <= b["origin"][k] + b["size"][k] + 1e-9 for k in (0, 1))
+
+    for i, sc in enumerate(_scanners(m)):
+        for j, box in enumerate(sc["protective"]):
+            if not any(inside(box, w) for w in sc["warning"]):
+                out.append(("safety.scanners[%d].protective[%d]" % (i, j),
+                            "must lie inside one of the scanner's warning boxes"))
     return out
 
 

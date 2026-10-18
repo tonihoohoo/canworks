@@ -1,7 +1,9 @@
 // Machine tab of the Simulation view (canopen-machine-view; docs/simulator.md): the 3D machine of a
 // network's machine file, drawn with three.js from machine_scene.js, and a
-// panel beside it with the axes, the machine's I/O bits, counters, faults
-// and the machine fault buttons. Offline it shows the machine at home from
+// panel beside it with the operator panel (sim_panel, keys on the stage),
+// the safety relay and the Person tool (sim_person), the axes, the
+// machine's I/O bits, counters, faults and the machine fault buttons.
+// Offline it shows the machine at home from
 // GET /api/sim/machine; online it polls POST /api/sim/machine (sim_machine)
 // with one request in flight and draws a fixed delay behind the newest
 // answer. Without WebGL only the panel runs. Loaded by sim.js (simMachineTab)
@@ -21,6 +23,8 @@ export const POLL_MS = 33;        // about 30 answers a second
 export const NO_DATA_MS = 1000;   // "no data" after this long without an answer
 export const RETRY_MS = 1000;     // after a failed request
 const PANEL_MS = 100;
+export const REPEAT_MS = 200;     // a held panel button's press is repeated (the simulator lets go after 500 ms)
+export const PERSON_MS = 100;     // sim_person at most this often while the person is dragged
 const QUALITY_KEY = "canopen-machine-quality";
 const MODES = { 1: "PP", 3: "PV", 4: "PT", 6: "Homing", 7: "IP", 8: "CSP", 9: "CSV", 10: "CST" };
 const COUNTERS = [["placed", "Placed"], ["picked", "Picked"], ["fed", "Fed"], ["misplaced", "Misplaced"], ["dropped", "Dropped"], ["pallets", "Pallets"]];
@@ -79,6 +83,25 @@ const jointFault = (j) => !!j && (j.fault === true || j.state === "fault" || j.s
 const emcyOf = (j) => (j && isNum(j.emcy) ? j.emcy : j && isNum(j.error_code) ? j.error_code : null);
 const bitText = (b) => (b && typeof b === "object" ? `node ${b.node} ${b.object} bit ${b.bit}` : "");
 
+// A keydown's key as a machine file names it: "Space", letters upper case,
+// else event.key as it is ("ArrowRight", "PageUp", "Shift", "F2").
+export function keyName(ev) {
+  const k = ev.key;
+  if (k === " ") return "Space";
+  return typeof k === "string" && k.length === 1 ? k.toUpperCase() : k;
+}
+const KEY_TEXT = { ArrowRight: "→", ArrowLeft: "←", ArrowUp: "↑", ArrowDown: "↓", PageUp: "Page Up", PageDown: "Page Down" };
+export const keyText = (k) => KEY_TEXT[k] || k;
+
+// The safety relay's state as the panel says it: closed, stopping, open,
+// or waiting for reset (open with every input clear).
+export function relayText(saf) {
+  if (!saf || !saf.relay) return "–";
+  if (saf.relay === "closed") return "Closed";
+  if (saf.relay === "stopping") return "Stopping";
+  return saf.reset_ready ? "Waiting for reset" : "Open";
+}
+
 // The machine's I/O bits: what each bit is and its value in a snapshot.
 export function ioBits(spec) {
   const out = [];
@@ -91,6 +114,12 @@ export function ioBits(spec) {
     if (!f.change) continue;
     if (f.change.request) out.push({ name: `${f.name} change`, dir: "out", bit: f.change.request, value: (s) => !!((s.fixtures || {})[f.name] || {}).changing });
     if (f.change.ready) out.push({ name: `${f.name} ready`, dir: "in", bit: f.change.ready, value: (s) => !!((s.fixtures || {})[f.name] || {}).ready });
+  }
+  // The panel's bits are in the Panel block; the safety relay's and scanners' here.
+  const saf = spec.safety;
+  if (saf && saf.relay.feedback) out.push({ name: "Safety relay closed", dir: "in", bit: saf.relay.feedback, value: (s) => !!(s.safety && s.safety.relay === "closed") });
+  for (const c of saf ? saf.scanners : []) {
+    if (c.warning_output) out.push({ name: `${c.name} warning`, dir: "in", bit: c.warning_output, value: (s) => !!(((s.safety || {}).scanners || {})[c.name] || {}).warning });
   }
   return out;
 }
@@ -136,6 +165,13 @@ export class MachineView {
     this.gl = null;
     this.quality = storedQuality();
     this.watch = new FrameRateWatch();
+    this.held = new Map();      // panel buttons held here: name -> { src: "key" | "pointer", timer }
+    this.toggled = new Map();   // switches and latching buttons sent, until the snapshot shows them: name -> { on, until }
+    this.queue = Promise.resolve();  // panel and person requests go out in order
+    this.personOn = false;      // the Person tool
+    this.personAt = null;
+    this.personSent = -1e9;
+    this.personTimer = null;
     window.machineView = this;  // for the page tests
   }
 
@@ -173,6 +209,7 @@ export class MachineView {
     this.panelTimer = setInterval(() => this.tick(), PANEL_MS);
     // Hidden (another tab, minimised): no polling and no frames until shown again.
     this.onVisible = () => {
+      if (document.hidden) this.releaseAll();
       if (document.hidden || this.stopped || this.timer || this.inflight || !this.ctx.canConnect) return;
       if (this.live) this.lastAnswer = performance.now();  // no "no data" for the time it was hidden
       this.poll();
@@ -183,6 +220,8 @@ export class MachineView {
   }
 
   stop() {
+    this.releaseAll();
+    clearTimeout(this.personTimer);
     this.stopped = true;
     this.seq++;
     clearTimeout(this.timer);
@@ -219,6 +258,7 @@ export class MachineView {
       this.schedule(Math.max(0, POLL_MS - (performance.now() - t0)));
     } else {
       this.error = err || new Error("the answer has no machine");
+      this.releaseAll();
       this.schedule(RETRY_MS);
     }
     this.updateConn();
@@ -260,8 +300,8 @@ export class MachineView {
 
   allowChanges() { return !!(this.live && !this.noData() && this.hello && this.hello.allow_changes); }
 
-  changeReason() {
-    if (!this.live || this.noData()) return "The machine is offline: machine faults need the running machine.";
+  changeReason(what) {
+    if (!this.live || this.noData()) return `The machine is offline: ${what || "machine faults need"} the running machine.`;
     if (!this.hello.allow_changes) {
       return this.hello.target === "runtime" || !this.hello.target
         ? "Read-only: changes are not allowed on this runtime (turn on \"Allow changes\" under Configure → Online access, then save and upload)."
@@ -288,6 +328,164 @@ export class MachineView {
     });
   }
 
+  // ---- Operator panel and the Person tool ----
+  // One request at a time, in order: a release never overtakes its press.
+  send(op, fields, quiet) {
+    const body = Object.assign({ op, network: this.ctx.network, port: this.ctx.port }, fields);
+    this.queue = this.queue.then(() => api("POST", "/api/sim/request", body)).then(() => true, (e) => {
+      if (!quiet && !this.stopped) banner(e.message, true);
+      return false;
+    });
+    return this.queue;
+  }
+
+  // A momentary button held from now: the press at once, then every REPEAT_MS.
+  press(name, src) {
+    if (this.held.has(name) || !this.allowChanges()) return;
+    const timer = setInterval(() => this.send("sim_panel", { button: name, pressed: true }, true), REPEAT_MS);
+    this.held.set(name, { src, timer });
+    this.send("sim_panel", { button: name, pressed: true });
+    this.updateButtons();
+  }
+
+  release(name) {
+    const h = this.held.get(name);
+    if (!h) return;
+    clearInterval(h.timer);
+    this.held.delete(name);
+    this.send("sim_panel", { button: name, pressed: false }, true);
+    this.updateButtons();
+  }
+
+  releaseAll() { for (const name of [...this.held.keys()]) this.release(name); }
+
+  // The state of a button: held here, sent here and not yet shown, else the snapshot's.
+  buttonOn(name, s) {
+    if (this.held.has(name)) return true;
+    const t = this.toggled.get(name);
+    const shown = !!(((s || this.shown || {}).panel || {}).buttons || {})[name];
+    if (t && performance.now() < t.until && t.on !== shown) return t.on;
+    this.toggled.delete(name);
+    return shown;
+  }
+
+  // A switch or latching button: one press flips it.
+  toggle(name) {
+    if (!this.allowChanges()) return;
+    const on = !this.buttonOn(name);
+    this.toggled.set(name, { on, until: performance.now() + 1000 });
+    this.send("sim_panel", { button: name, pressed: on });
+    this.updateButtons();
+  }
+
+  // The Person tool: on, a click on the floor places the person and a drag
+  // moves them; a second click on the tool removes the person.
+  togglePerson() {
+    if (!this.allowChanges()) return;
+    this.personOn = !this.personOn;
+    if (!this.personOn) {
+      clearTimeout(this.personTimer);
+      this.personTimer = null;
+      this.personAt = null;
+      this.send("sim_person", { at: null });
+    }
+    this.updateButtons();
+  }
+
+  // The person dragged to `at` ([x, y] mm): sent at most every PERSON_MS.
+  movePerson(at) {
+    this.personAt = at;
+    const wait = PERSON_MS - (performance.now() - this.personSent);
+    if (wait <= 0) {
+      this.personSent = performance.now();
+      this.send("sim_person", { at }, true);
+    } else if (!this.personTimer) {
+      this.personTimer = setTimeout(() => { this.personTimer = null; if (this.personAt) this.movePerson(this.personAt); }, wait);
+    }
+  }
+
+  // The drag ended: the last position goes out at once.
+  endPerson() {
+    clearTimeout(this.personTimer);
+    this.personTimer = null;
+    if (!this.personAt) return;
+    this.personSent = performance.now();
+    this.send("sim_person", { at: this.personAt });
+  }
+
+  // Keys on the stage: only while it has focus; the browser's repeat is ignored.
+  onKey(ev, down) {
+    if (ev.key === "Escape") { if (down) this.stage.blur(); return; }
+    const b = this.keyMap.get(keyName(ev));
+    if (!b || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    ev.preventDefault();
+    if (!down) { if (b.kind === "momentary") this.release(b.name); return; }
+    if (ev.repeat) return;
+    if (b.kind === "momentary") this.press(b.name, "key"); else this.toggle(b.name);
+  }
+
+  buildPanelBlock() {
+    const P = this.spec.panel, saf = this.spec.safety;
+    this.buttonEls = [];
+    this.keyMap = new Map();
+    if (!P && !saf) return null;
+    const button = (b) => {
+      if (b.key) this.keyMap.set(b.key, b);
+      const estop = b.kind === "latching";
+      const attrs = { type: "button", class: estop ? "machine-estop" : "machine-btn", dataset: { machineButton: b.name, kind: b.kind },
+        title: bitText(b.input), "aria-keyshortcuts": b.key || null };
+      if (b.kind !== "momentary") attrs["aria-pressed"] = "false";
+      const state = estop ? el("span", { class: "machine-btn-state", dataset: { k: "state" } }, "Released") : null;
+      const e = el("button", attrs, el("span", { class: "machine-btn-label" }, b.label), b.key ? el("kbd", null, keyText(b.key)) : null, state);
+      if (b.kind === "momentary") {
+        const up = () => { const h = this.held.get(b.name); if (h && h.src === "pointer") this.release(b.name); };
+        e.addEventListener("pointerdown", (ev) => { if (ev.button === 0) this.press(b.name, "pointer"); });
+        for (const t of ["pointerup", "pointercancel", "pointerleave"]) e.addEventListener(t, up);
+        e.addEventListener("contextmenu", (ev) => ev.preventDefault());  // a long touch is a hold, not a menu
+        e.addEventListener("keydown", (ev) => { if ((ev.key === " " || ev.key === "Enter") && !ev.repeat) { ev.preventDefault(); this.press(b.name, "button"); } });
+        e.addEventListener("keyup", (ev) => { if (ev.key === " " || ev.key === "Enter") this.release(b.name); });
+        e.addEventListener("blur", () => { const h = this.held.get(b.name); if (h && h.src === "button") this.release(b.name); });
+      } else {
+        e.addEventListener("click", () => this.toggle(b.name));
+      }
+      this.buttonEls.push({ b, e, state });
+      return e;
+    };
+    const buttons = P ? P.buttons : [];
+    const of = (kind) => buttons.filter((b) => b.kind === kind);
+    this.lampEls = (P ? P.lamps : []).map((l) => {
+      const dot = el("span", { class: "dot", "aria-hidden": "true" });
+      const val = el("span", { class: "visually-hidden" }, "off");
+      return { l, dot, val, li: el("li", { dataset: { machineLamp: l.name }, title: bitText(l.output) }, dot, el("span", null, l.label), val) };
+    });
+    this.panelReason = el("p", { class: "hint", dataset: { machine: "panel-reason" } });
+    this.relayEl = saf ? el("span", { class: "pill", dataset: { machine: "relay" } }, "–") : null;
+    this.personBtn = saf && saf.scanners.length ? el("button", { type: "button", class: "small", "aria-pressed": "false", dataset: { machineTool: "person" },
+      onclick: () => this.togglePerson() }, "Person") : null;
+    if (this.personBtn) this.buttonEls.push({ b: null, e: this.personBtn });
+    return el("section", { dataset: { machine: "panel" } }, el("h3", null, "Panel"), this.panelReason,
+      buttons.length ? el("p", { class: "hint", dataset: { machine: "keys-hint" } }, "Click the 3D view to use the keys shown on the buttons; Escape or a click outside it stops them.") : null,
+      saf ? el("div", { class: "machine-relay" }, el("span", null, "Safety relay"), this.relayEl) : null,
+      of("latching").map(button),
+      of("switch").length ? el("div", { class: "machine-buttons" }, of("switch").map(button)) : null,
+      of("momentary").length ? el("div", { class: "machine-buttons" }, of("momentary").map(button)) : null,
+      this.lampEls.length ? el("ul", { class: "machine-lamps", "aria-label": "Lamps" }, this.lampEls.map((x) => x.li)) : null,
+      this.personBtn ? el("div", { class: "machine-person" }, this.personBtn,
+        el("span", { class: "hint" }, "On: click the floor to place a person, drag to move them; click again to remove them.")) : null);
+  }
+
+  updateButtons(s) {
+    if (!this.buttonEls) return;
+    for (const x of this.buttonEls) {
+      if (!x.b) { x.e.setAttribute("aria-pressed", String(this.personOn)); x.e.classList.toggle("on", this.personOn); continue; }
+      const on = !(s || this.shown || {}).offline && this.buttonOn(x.b.name, s);
+      x.e.classList.toggle("on", on);
+      x.e.dataset.on = on ? "1" : "0";
+      if (x.b.kind !== "momentary") x.e.setAttribute("aria-pressed", String(on));
+      if (x.state) x.state.textContent = on ? "Latched" : "Released";
+    }
+  }
+
   // ---- Page layout ----
   layout() {
     const seg = (label, items, active, pick, key) => el("div", { class: "segmented", role: "group", "aria-label": label },
@@ -300,11 +498,24 @@ export class MachineView {
       el("div", { class: "notice-slot machine-bars" },
         this.noDataEl = notice("error", "No data", { dataset: { machine: "nodata" } }),
         this.noticeEl = notice("info", "", { dataset: { machine: "notice" } })),
-      this.fpsEl = el("span", { class: "machine-fps", "aria-hidden": "true" }));
+      this.fpsEl = el("span", { class: "machine-fps", "aria-hidden": "true" }),
+      this.kbdEl = el("span", { class: "machine-kbd", dataset: { machine: "keyboard" }, hidden: true }, "Keyboard on"));
     this.noDataEl.hidden = true;
     this.noticeEl.hidden = true;
     this.panel = el("aside", { class: "machine-panel", "aria-label": "Machine values" });
     this.buildPanel();
+    // With a panel the stage takes the keys while it has focus: a click on it, or Tab.
+    if (this.spec.panel) {
+      const st = this.stage;
+      st.tabIndex = 0;
+      st.setAttribute("role", "group");
+      st.setAttribute("aria-label", "Machine stage: while it has focus, the panel's keys press its buttons");
+      st.addEventListener("pointerdown", () => { if (document.activeElement !== st) st.focus({ preventScroll: true }); }, true);
+      st.addEventListener("focus", () => { st.classList.add("kbd-on"); this.kbdEl.hidden = false; });
+      st.addEventListener("blur", () => { st.classList.remove("kbd-on"); this.kbdEl.hidden = true; this.releaseAll(); });
+      st.addEventListener("keydown", (ev) => this.onKey(ev, true));
+      st.addEventListener("keyup", (ev) => this.onKey(ev, false));
+    }
     const problems = (this.offline.problems || []).map(problemText);
     this.host.replaceChildren(...[
       el("div", { class: "toolbar" },
@@ -322,6 +533,7 @@ export class MachineView {
     this.qualityBar.hidden = true;
     for (const b of this.host.querySelectorAll("[data-machine-show]")) b.hidden = true;
     this.stage.classList.add("no-webgl");
+    if (this.personBtn) this.personBtn.closest(".machine-person").hidden = true;  // no floor to click
     this.stage.querySelector(".machine-bars").append(notice("info",
       [why || "The 3D view needs WebGL, which this browser has turned off or does not have.", " The panel shows the machine's values."],
       { live: false, dataset: { machine: "nowebgl" } }));
@@ -380,14 +592,15 @@ export class MachineView {
     this.activeFaults = el("ul", { class: "machine-list", dataset: { machine: "active-faults" } });
     this.eventsEl = el("ul", { class: "machine-list", dataset: { machine: "events" } });
     this.stateEl = el("p", { class: "machine-state", dataset: { machine: "state" } });
-    this.panel.replaceChildren(
+    this.panel.replaceChildren(...[
       this.stateEl,
+      this.buildPanelBlock(),
       el("section", null, el("h3", null, "Axes"), el("div", { class: "machine-axes" }, axes)),
       el("section", null, el("h3", null, "I/O"), this.ioEls.length ? el("ul", { class: "machine-io" }, this.ioEls.map((x) => x.li)) : el("p", { class: "muted" }, "The machine file binds no I/O bits.")),
       el("section", null, el("h3", null, "Counters"), counters),
       el("section", null, el("h3", null, "Last faults"), this.eventsEl, this.activeFaults),
       el("section", { dataset: { machine: "faults" } }, el("h3", null, "Machine faults"), this.faultReason,
-        el("ul", { class: "machine-faults" }, rows), el("div", { class: "toolbar" }, clearAll)));
+        el("ul", { class: "machine-faults" }, rows), el("div", { class: "toolbar" }, clearAll))].filter(Boolean));
   }
 
   updateConn() {
@@ -417,6 +630,18 @@ export class MachineView {
     const reason = this.changeReason();
     this.faultReason.textContent = reason;
     for (const b of this.faultButtons) { b.disabled = !allow; b.title = reason; }
+    if (this.buttonEls && this.buttonEls.length) {
+      const why = this.changeReason("the panel needs");
+      this.panelReason.textContent = why;
+      for (const x of this.buttonEls) {
+        x.e.disabled = !allow;
+        x.e.title = allow ? (x.b ? bitText(x.b.input) : "") : why;
+      }
+      if (!allow) {
+        this.releaseAll();
+        if (this.personOn) { this.personOn = false; this.updateButtons(); }
+      }
+    }
   }
 
   updatePanel() {
@@ -428,7 +653,8 @@ export class MachineView {
       const spec = this.spec.joints[n];
       const fault = jointFault(j);
       const code = emcyOf(j);
-      e.state.textContent = fault ? (code !== null ? `Fault · EMCY ${hex(code, 4)}` : "Fault") : stateText(j.state);
+      e.state.textContent = fault ? (code !== null ? `Fault · EMCY ${hex(code, 4)}` : "Fault")
+        : j.sto ? "Safe torque off" : stateText(j.state);
       e.state.className = "pill " + (fault ? "bad" : j.state === "operation_enabled" ? "ok" : j.state && j.state !== "off" ? "warn" : "");
       e.pos.textContent = `${fmt(j.position, 2)} mm · ${isNum(j.actual_counts) ? j.actual_counts : "–"} counts`;
       const fe = isNum(j.demand) && isNum(j.position) ? j.demand - j.position : null;
@@ -445,6 +671,20 @@ export class MachineView {
       x.dot.className = "dot" + (on ? " on" : "");
       x.val.textContent = on ? "on" : "off";
       x.li.dataset.on = on ? "1" : "0";
+    }
+    this.updateButtons(s);
+    for (const x of this.lampEls || []) {
+      const on = !s.offline && !!((s.panel || {}).lamps || {})[x.l.name];
+      x.dot.className = "dot" + (on ? " on" : "");
+      x.val.textContent = on ? "lit" : "off";
+      x.li.dataset.on = on ? "1" : "0";
+    }
+    if (this.relayEl) {
+      const saf = s.offline ? null : s.safety;
+      const st = saf && saf.relay ? saf.relay : "offline";
+      this.relayEl.textContent = relayText(saf);
+      this.relayEl.className = "pill " + ({ closed: "ok", stopping: "warn", open: "bad" }[st] || "");
+      this.relayEl.dataset.relay = st === "open" && saf.reset_ready ? "reset" : st;
     }
     const c = s.counters || {};
     for (const [k] of COUNTERS) this.counterEls[k].textContent = String(isNum(c[k]) ? c[k] : 0);
@@ -622,6 +862,40 @@ export class MachineView {
       while (o && !(o.userData && o.userData.node)) o = o.parent;
       return o ? o.userData : null;
     };
+    // The Person tool: a press on the floor places the person and a drag moves
+    // them; the camera does not orbit for it (capture, before OrbitControls).
+    let dragging = null;
+    const floorAt = (ev) => {
+      const r = canvas.getBoundingClientRect();
+      v.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(v, this.gl.camera);
+      return this.ms.floorPoint(ray.ray);
+    };
+    this.stage.addEventListener("pointerdown", (ev) => {
+      if (!this.personOn || ev.target !== canvas || ev.button !== 0 || !this.allowChanges()) return;
+      const at = floorAt(ev);
+      if (!at) return;
+      ev.stopPropagation();
+      this.gl.controls.enabled = false;
+      canvas.setPointerCapture(ev.pointerId);
+      dragging = ev.pointerId;
+      this.movePerson(at);
+    }, true);
+    this.stage.addEventListener("pointermove", (ev) => {
+      if (dragging !== ev.pointerId) return;
+      ev.stopPropagation();
+      const at = floorAt(ev);
+      if (at) this.movePerson(at);
+    }, true);
+    const drop = (ev) => {
+      if (dragging !== ev.pointerId) return;
+      ev.stopPropagation();
+      dragging = null;
+      if (this.gl) this.gl.controls.enabled = true;
+      this.endPerson();
+    };
+    this.stage.addEventListener("pointerup", drop, true);
+    this.stage.addEventListener("pointercancel", drop, true);
     let down = null;
     canvas.addEventListener("pointerdown", (ev) => { down = { x: ev.clientX, y: ev.clientY, t: performance.now() }; });
     canvas.addEventListener("pointerup", (ev) => {
@@ -638,7 +912,7 @@ export class MachineView {
         pending = false;
         if (!this.gl) return;
         const d = hit(ev);
-        canvas.style.cursor = d ? "pointer" : "";
+        canvas.style.cursor = d ? "pointer" : this.personOn ? "crosshair" : "";
         canvas.title = d ? `Node ${d.node} (${d.joint.toUpperCase()} axis): click to open in the Online view` : "";
       });
     });

@@ -1,5 +1,5 @@
-// Machine tab scene (canopen-machine-view "Built-in gantry drawing" and
-// "Smooth motion from snapshots"; docs/simulator.md): the 3D model of a
+// Machine tab scene (canopen-machine-view "Built-in gantry drawing",
+// "Smooth motion from snapshots" and "Safety in the view"; docs/simulator.md): the 3D model of a
 // machine file built from its kind and dimensions, posed from sim_machine
 // snapshots, and the snapshot interpolator. No renderer here, so the page
 // tests build and pose it without WebGL; machine_view.js draws it.
@@ -14,6 +14,7 @@ export { THREE };
 // The view draws this far behind the newest snapshot (microseconds).
 export const DELAY_US = 100000;
 export const JOINTS = ["x", "y", "z"];
+export const PERSON_MM = 300;     // the person's radius on the floor (sim_machine.cpp)
 
 const mm = (v) => v / 1000;
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
@@ -73,6 +74,24 @@ export function machineSpec(file) {
       change: ch ? { request: ch.request || null, ready: ch.ready || null, move: nums(ch.move, 2, [0, 400]) } : null,
     };
   });
+  // The operator panel and the safety section; null without them.
+  const str = (v, d) => (typeof v === "string" && v ? v : d);
+  const pn = m.panel && typeof m.panel === "object" ? m.panel : null;
+  spec.panel = pn ? {
+    buttons: list(pn.buttons).map((b, i) => {
+      const name = str(b.name, `button${i + 1}`);
+      return { name, label: str(b.label, name), key: str(b.key, ""), input: b.input || null,
+        kind: ["switch", "latching"].includes(b.kind) ? b.kind : "momentary" };
+    }),
+    lamps: list(pn.lamps).map((l, i) => { const name = str(l.name, `lamp${i + 1}`); return { name, label: str(l.label, name), output: l.output || null }; }),
+  } : null;
+  const sf = m.safety && typeof m.safety === "object" ? m.safety : null;
+  const boxes = (v) => list(v).map((b) => ({ origin: nums(b.origin, 2, [0, 0]), size: nums(b.size, 2, [100, 100]) }));
+  spec.safety = sf ? {
+    relay: Object.assign({ inputs: [], reset: "", stop_delay_ms: 300, feedback: null }, obj(sf.relay)),
+    scanners: list(sf.scanners).map((c, i) => ({ name: str(c.name, `scanner${i + 1}`), at: nums(c.at, 2, [0, 0]),
+      warning: boxes(c.warning), protective: boxes(c.protective), warning_output: c.warning_output || null })),
+  } : null;
   spec.visual = visualSpec(spec, obj(m.visual));
   return spec;
 }
@@ -148,10 +167,21 @@ export function homeSnapshot(spec) {
   for (const s of spec.sensors) sensors[s.name] = false;
   for (const c of spec.conveyors) conveyors[c.name] = { running: false, travel: 0 };
   for (const f of spec.fixtures) fixtures[f.name] = { offset: [0, 0], ready: false, changing: false, filled: 0 };
-  return { name: spec.name, kind: spec.kind, t_us: 0, seq: 0, joints,
+  const out = { name: spec.name, kind: spec.kind, t_us: 0, seq: 0, joints,
     tool: { position: toolPoint(spec, pos), opening: spec.tool.open_mm, closed: false, holding: null },
     parts: [], sensors, conveyors, fixtures,
     counters: { fed: 0, picked: 0, placed: 0, misplaced: 0, dropped: 0, pallets: 0 }, faults: [], offline: true };
+  if (spec.panel) {
+    out.panel = { buttons: {}, lamps: {} };
+    for (const b of spec.panel.buttons) out.panel.buttons[b.name] = false;
+    for (const l of spec.panel.lamps) out.panel.lamps[l.name] = false;
+  }
+  if (spec.safety) {
+    const scanners = {};
+    for (const c of spec.safety.scanners) scanners[c.name] = { warning: false, protective: false };
+    out.safety = { relay: "closed", reset_ready: false, scanners, person: null };
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -837,6 +867,42 @@ export function buildMachine(file, options) {
     add(g, new THREE.CylinderGeometry(0.024, 0.024, 0.008, 24), M.blackMatte, 0, 0.342 + 3 * 0.044 - 0.018, 0);
   }
 
+  // ---- Safety scanners, their fields on the floor, the person ----
+  const fieldMats = [];   // { scanner, field, mat, base, lit }
+  for (const c of spec.safety ? spec.safety.scanners : []) {
+    const g = group(cell, "scanner:" + c.name, mm(c.at[0]), 0, mm(c.at[1]));
+    named[g.name] = g;
+    add(g, new THREE.CylinderGeometry(0.05, 0.06, 0.012, 24), M.blackMatte, 0, 0.006, 0);
+    add(g, new THREE.CylinderGeometry(0.015, 0.015, 0.2, 12), M.aluDark, 0, 0.11, 0);
+    add(g, new RoundedBoxGeometry(0.1, 0.11, 0.1, 2, 0.01), M.carriage, 0, 0.265, 0, "scanner-body:" + c.name);
+    add(g, new THREE.CylinderGeometry(0.04, 0.04, 0.04, 24), M.black, 0, 0.23, 0);  // the scan window
+    for (const [field, color, base, lit, y] of [["warning", 0xf2c230, 0.1, 0.32, 0.0022], ["protective", 0xec4a40, 0.12, 0.42, 0.0028]]) {
+      c[field].forEach((b, i) => {
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: base, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+        const f = new THREE.Mesh(new THREE.PlaneGeometry(mm(b.size[0]), mm(b.size[1])), mat);
+        f.rotation.x = -Math.PI / 2;
+        f.position.set(mm(b.origin[0] + b.size[0] / 2), y, mm(b.origin[1] + b.size[1] / 2));
+        f.renderOrder = 1;
+        cell.add(reg(f, `field:${c.name}:${field}:${i}`));
+        fieldMats.push({ scanner: c.name, field, mat, base, lit, mesh: f });
+      });
+    }
+  }
+  const person = group(cell, "person");
+  named.person = person;
+  person.visible = false;
+  {
+    const foot = new THREE.Mesh(new THREE.CircleGeometry(mm(PERSON_MM), 40),
+      new THREE.MeshBasicMaterial({ color: 0x5cc4d0, transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false }));
+    foot.rotation.x = -Math.PI / 2;
+    foot.position.y = 0.0035;
+    person.add(reg(foot, "person-footprint"));
+    const suit = new THREE.MeshStandardMaterial({ color: 0x2d5f8f, roughness: 0.7 });
+    add(person, new THREE.CapsuleGeometry(0.17, 1.1, 6, 16), suit, 0, 0.17 + 0.55 + 0.05, 0, "person-body");
+    add(person, new THREE.SphereGeometry(0.11, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8b48c, roughness: 0.6 }), 0, 1.58, 0, "person-head");
+    add(person, new THREE.CylinderGeometry(0.125, 0.13, 0.06, 20), new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.5 }), 0, 1.66, 0);  // helmet
+  }
+
   // ---- Lights ----
   const lights = group(scene, "lights");
   const key = new THREE.DirectionalLight(0xffeedd, 3.1);
@@ -936,6 +1002,17 @@ export function buildMachine(file, options) {
       f.group.position.set(mm(off[0] || 0), 0, mm(off[1] || 0));
     }
     syncParts(s.parts);
+    // Scanner fields lit while occupied, the person where the snapshot has them.
+    const saf = s.safety && typeof s.safety === "object" ? s.safety : null;
+    for (const f of fieldMats) {
+      const on = !!(saf && ((saf.scanners || {})[f.scanner] || {})[f.field]);
+      f.mat.opacity = on ? f.lit : f.base;
+      f.mesh.userData.on = on;
+    }
+    const at = saf && Array.isArray(saf.person) && saf.person.length === 2 && saf.person.every(isNum) ? saf.person : null;
+    person.visible = !!at;
+    if (at) person.position.set(mm(at[0]), 0, mm(at[1]));
+    const tripped = !!(saf && saf.relay && saf.relay !== "closed");
     // Drive lamps, fault marking, stack light.
     const blink = po.blink !== false;
     let anyFault = false, allOn = true, anyOn = false;
@@ -952,12 +1029,13 @@ export function buildMachine(file, options) {
       named["fault:" + n].visible = faulted;
     }
     const st = lamps.stack;
-    st.green.material.emissiveIntensity = anyOn && allOn ? 2.2 : 0;
-    st.amber.material.emissiveIntensity = anyOn && !allOn && !anyFault ? 2.2 : 0;
-    st.red.material.emissiveIntensity = anyFault && blink ? 3.0 : 0;
+    // Red stays on while the safety relay is not closed; a drive fault blinks it.
+    st.green.material.emissiveIntensity = anyOn && allOn && !tripped ? 2.2 : 0;
+    st.amber.material.emissiveIntensity = anyOn && !allOn && !anyFault && !tripped ? 2.2 : 0;
+    st.red.material.emissiveIntensity = tripped || (anyFault && blink) ? 3.0 : 0;
     st.green.userData.on = st.green.material.emissiveIntensity > 0;
     st.amber.userData.on = st.amber.material.emissiveIntensity > 0;
-    st.red.userData.on = anyFault;
+    st.red.userData.on = anyFault || tripped;
     return tp;
   }
 
@@ -977,6 +1055,16 @@ export function buildMachine(file, options) {
     cell.updateWorldMatrix(true, false);
     return cell.localToWorld(new THREE.Vector3(mm(x), TOP + mm(h), mm(y)));
   }
+  // Where a ray meets the floor, in machine mm [x, y]; null when it does not.
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  function floorPoint(ray) {
+    const p = ray.intersectPlane(floorPlane, new THREE.Vector3());
+    if (!p) return null;
+    const m = toMachine(p);
+    const fs = V.floor.size, tcx = V.table.origin[0] + V.table.size[0] / 2, tcz = V.table.origin[1] + V.table.size[1] / 2;
+    if (Math.abs(m[0] - tcx) > fs[0] / 2 || Math.abs(m[1] - tcz) > fs[1] / 2) return null;
+    return [Math.round(m[0]), Math.round(m[1])];
+  }
 
   pose(homeSnapshot(spec));
   if (opts.update !== false) scene.updateMatrixWorld(true);
@@ -985,7 +1073,7 @@ export function buildMachine(file, options) {
   const fsize = Math.max(mm(F.size[0]), mm(F.size[1]));
   return {
     spec, scene, cell, named, pickables, anchors, lamps, keyLight: key,
-    tableTop: TOP, pose, toolWorld, toMachine, fromMachine, get tool() { return lastTool; },
+    tableTop: TOP, pose, toolWorld, toMachine, fromMachine, floorPoint, get tool() { return lastTool; },
     // Camera presets around the frame's middle.
     views: {
       target: new THREE.Vector3(0, TOP + mm(F.height) * 0.45, 0),

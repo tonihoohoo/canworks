@@ -514,3 +514,39 @@ TEST(drive_csp_oversized_steps) {
   run_synced(m, 0.01);
   CHECK(m.oversized_steps() == 1);
 }
+
+TEST(drive_safe_torque_off) {
+  FakeIo io;
+  DriveSettings s;
+  s.max_acceleration = 50000;
+  DriveModel m(io, s);
+  m.power_on();
+  enable(io, m, 3);  // profile velocity
+  io.set(0x60FF, 5000);
+  cw(io, m, 0x0F);
+  run(m, 0.2);
+  CHECK(std::fabs(io.get(0x606C) - 5000) < 50);
+  size_t emcys = io.emcys.size();
+  // Power stage off: switch on disabled with "voltage enabled" off, the axis coasts down, no EMCY.
+  m.inputs.safe_torque_off = true;
+  run(m, 0.001);
+  CHECK(is_disabled(io) && !(io.sw() & 0x10));
+  CHECK(io.get(0x606C) > 0);
+  run(m, 0.2);
+  CHECK(io.get(0x606C) == 0);
+  CHECK(io.emcys.size() == emcys);
+  // Enable refused while it is on.
+  cw(io, m, 0x06);
+  cw(io, m, 0x07);
+  cw(io, m, 0x0F);
+  CHECK(is_disabled(io));
+  // Off again: still switch on disabled until the enable sequence runs.
+  double pos = io.get(0x6064);
+  m.inputs.safe_torque_off = false;
+  run(m, 0.01);
+  CHECK(is_disabled(io) && (io.sw() & 0x10));
+  io.set(0x60FF, 0);
+  enable(io, m, 3);
+  CHECK(is_enabled(io));
+  CHECK(io.get(0x6064) == pos);
+}

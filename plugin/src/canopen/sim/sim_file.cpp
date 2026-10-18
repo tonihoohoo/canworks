@@ -185,7 +185,8 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     return false;
   }
   if (!known_keys(o, {"node", "machine", "device", "at_ms", "after_ms", "set", "override", "release", "source", "fault",
-                      "clear", "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat"},
+                      "clear", "wait", "expect", "timeout_ms", "within_ms", "for_ms", "log", "repeat", "panel",
+                      "person"},
                   err))
     return false;
   const cJSON* n = cJSON_GetObjectItemCaseSensitive(o, "node");
@@ -205,17 +206,46 @@ bool parse_step(const cJSON* o, Step& s, std::string& err) {
     return false;
   }
   int actions = 0;
-  for (const char* a : {"set", "override", "release", "source", "fault", "clear", "wait", "expect", "log", "repeat"}) {
+  for (const char* a : {"set", "override", "release", "source", "fault", "clear", "wait", "expect", "log", "repeat",
+                        "panel", "person"}) {
     if (cJSON_GetObjectItemCaseSensitive(o, a)) {
       ++actions;
       s.action = a;
     }
   }
   if (actions != 1) {
-    err = "a step needs exactly one action (set, override, release, source, fault, clear, wait, expect, log, repeat)";
+    err = "a step needs exactly one action (set, override, release, source, fault, clear, wait, expect, log, repeat, "
+          "panel, person)";
     return false;
   }
   const cJSON* a = cJSON_GetObjectItemCaseSensitive(o, s.action.c_str());
+  if (s.action == "panel" || s.action == "person") {
+    // The machine's operator panel and safety scanner person (docs/simulator.md, "Operator panel and safety").
+    if (!s.node.empty() || cJSON_GetObjectItemCaseSensitive(o, "machine") || cJSON_GetObjectItemCaseSensitive(o, "device")) {
+      err = "a \"" + s.action + "\" step has no \"node\", \"machine\" or \"device\"";
+      return false;
+    }
+    if (s.action == "panel") {
+      bool ok = cJSON_IsObject(a) && a->child;
+      for (const cJSON* c = ok ? a->child : nullptr; c; c = c->next) ok = ok && cJSON_IsBool(c);
+      if (!ok) {
+        err = "\"panel\" must be an object of panel button -> true or false";
+        return false;
+      }
+      for (const cJSON* c = a->child; c; c = c->next) s.panel.emplace_back(c->string, cJSON_IsTrue(c));
+      return true;
+    }
+    if (cJSON_IsNull(a)) return true;
+    if (!cJSON_IsArray(a) || cJSON_GetArraySize(a) != 2 || !cJSON_IsNumber(a->child) || !cJSON_IsNumber(a->child->next) ||
+        !std::isfinite(a->child->valuedouble) || !std::isfinite(a->child->next->valuedouble)) {
+      err = "\"person\" must be [x, y] in mm, or null";
+      return false;
+    }
+    s.person = true;
+    s.person_at[0] = a->child->valuedouble;
+    s.person_at[1] = a->child->next->valuedouble;
+    return true;
+  }
   const cJSON* dj = cJSON_GetObjectItemCaseSensitive(o, "device");
   if (dj) {
     // A plain CAN device of raw_devices (docs/simulator.md, "Plain CAN devices").

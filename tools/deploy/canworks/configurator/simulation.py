@@ -29,7 +29,8 @@ PINS_MAX = 64
 
 # Requests the page may send through /api/sim/request.
 OPS = ("sim_status", "sim_get", "sim_set", "sim_override", "sim_release", "sim_source", "sim_fault", "sim_clear",
-       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr", "sim_machine")
+       "sim_scenario_list", "sim_scenario_start", "sim_scenario_stop", "sim_check_expr", "sim_machine", "sim_panel",
+       "sim_person")
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {

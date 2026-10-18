@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-sim-machine.v1.schema.json",
   "title": "canworks machine file, version 1",
-  "description": "A made-up machine around the simulated devices of one network, named by that network's simulation file section (\"machine\": \"machine.json\"; docs/machine.md). Lengths are millimetres: x and y on the table, heights above the table top. Checks the schema cannot express (travel, limits and hard stops in order, part kinds defined, element names unique, no input bit bound twice, joints on simulated CiA 402 axis nodes, bound objects in the node's EDS with a type the bit fits, outputs written by the master in an RPDO and inputs not) are run by the plugin, the simulator and the deploy tool's check.",
+  "description": "A made-up machine around the simulated devices of one network, named by that network's simulation file section (\"machine\": \"machine.json\"; docs/machine.md). Lengths are millimetres: x and y on the table, heights above the table top. Checks the schema cannot express (travel, limits and hard stops in order, part kinds defined, element names unique, no input bit bound twice, panel keys unique, the safety relay's inputs, reset, joints and conveyors, protective fields inside warning fields, joints on simulated CiA 402 axis nodes, bound objects in the node's EDS with a type the bit fits, outputs written by the master in an RPDO and inputs not) are run by the plugin, the simulator and the deploy tool's check.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -86,6 +86,12 @@
       "items": {
         "$ref": "#/$defs/fixture"
       }
+    },
+    "panel": {
+      "$ref": "#/$defs/panel"
+    },
+    "safety": {
+      "$ref": "#/$defs/safety"
     },
     "visual": {
       "$ref": "#/$defs/visual"
@@ -215,6 +221,10 @@
               "maximum": 5000
             }
           }
+        },
+        "brake": {
+          "type": "boolean",
+          "description": "The joint holds its position while its drive is in safe torque off (default false: it coasts to a stop)."
         }
       }
     },
@@ -552,6 +562,232 @@
               "description": "Where the pallet goes during a change."
             }
           }
+        }
+      }
+    },
+    "panel": {
+      "type": "object",
+      "description": "An operator panel: buttons and lamps on bits of a simulated I/O node. Button and lamp names share the machine's element names.",
+      "additionalProperties": false,
+      "properties": {
+        "buttons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/button"
+          }
+        },
+        "lamps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lamp"
+          }
+        }
+      }
+    },
+    "button": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "key",
+        "input"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shown in the configurator (default the name)."
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^([A-Z0-9]|Space|Enter|Shift|Backspace|Delete|Insert|Home|End|PageUp|PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|F([1-9]|1[0-2]))$",
+          "description": "The key that presses the button in the Machine view: a letter (upper case) or digit, Space, Enter, Shift, Backspace, Delete, Insert, Home, End, PageUp, PageDown, an arrow key or F1-F12. Tab and Escape are the view's own."
+        },
+        "kind": {
+          "enum": [
+            "momentary",
+            "switch",
+            "latching"
+          ],
+          "description": "momentary (default): on while pressed; switch: keeps the position it was last set to; latching: an emergency stop, a press latches it and a second press releases it."
+        },
+        "input": {
+          "$ref": "#/$defs/bit",
+          "description": "Input: on while the button is on."
+        }
+      }
+    },
+    "lamp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "output"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shown in the configurator (default the name)."
+        },
+        "output": {
+          "$ref": "#/$defs/bit",
+          "description": "Output: the lamp is lit while on."
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "description": "A virtual safety relay and safety scanners: a simulation for trying a PLC program's reaction, no safety function.",
+      "additionalProperties": false,
+      "required": [
+        "relay"
+      ],
+      "properties": {
+        "relay": {
+          "$ref": "#/$defs/relay"
+        },
+        "scanners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scanner"
+          }
+        }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "reset"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Latching panel buttons (emergency stops) and scanners (their protective fields) that open the relay."
+        },
+        "reset": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A momentary panel button; its rising edge closes the relay once every input is clear."
+        },
+        "stop_delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Time from opening to safe torque off (stop category 1; default 300)."
+        },
+        "joints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The joints whose drives it switches off (default all)."
+        },
+        "conveyors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The conveyors it cuts (default all)."
+        },
+        "feedback": {
+          "$ref": "#/$defs/bit",
+          "description": "Input: on while the relay is closed."
+        }
+      }
+    },
+    "box": {
+      "type": "object",
+      "description": "A box on the floor: a corner and the size along x and y.",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "size"
+      ],
+      "properties": {
+        "origin": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "at",
+        "warning",
+        "protective"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The mounting point [x, y]."
+        },
+        "warning": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/box"
+          },
+          "description": "The warning field."
+        },
+        "protective": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/box"
+          },
+          "description": "The protective field, inside the warning field: an input of the relay."
+        },
+        "warning_output": {
+          "$ref": "#/$defs/bit",
+          "description": "Input: on while the warning field is occupied."
         }
       }
     },

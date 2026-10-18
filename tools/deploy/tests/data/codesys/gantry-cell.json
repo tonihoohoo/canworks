@@ -382,6 +382,49 @@
               "variable": "io_Write_output_8_bit_1"
             }
           ]
+        },
+        {
+          "node_id": 11,
+          "name": "panel",
+          "dcf": "motion/node_11.dcf",
+          "params": [
+            {
+              "id": 1,
+              "name": "Node-ID",
+              "value": "11",
+              "what": "node ID"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "optional device",
+              "element": "FLAG_Optional"
+            }
+          ],
+          "channels": [
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 1,
+              "variable": "panel_Read_input_8_bit_1"
+            },
+            {
+              "dir": "in",
+              "mapping": 6656,
+              "index": 24576,
+              "sub": 2,
+              "variable": "panel_Read_input_8_bit_2"
+            },
+            {
+              "dir": "out",
+              "mapping": 5632,
+              "index": 25088,
+              "sub": 1,
+              "variable": "panel_Write_output_8_bit_1"
+            }
+          ]
         }
       ]
     }
@@ -494,6 +537,21 @@
     },
     {
       "where": "motion/io",
+      "setting": "PDO entry locations",
+      "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
+    },
+    {
+      "where": "motion/panel",
+      "setting": "heartbeat_timeout_ms",
+      "note": "CODESYS supervises the node's heartbeat with its own consumer time"
+    },
+    {
+      "where": "motion/panel",
+      "setting": "status_location",
+      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+    },
+    {
+      "where": "motion/panel",
       "setting": "PDO entry locations",
       "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
     },

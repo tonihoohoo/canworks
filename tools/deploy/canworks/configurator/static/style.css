@@ -862,6 +862,32 @@ tr.group-row th { text-align: left; font-weight: 600; padding-top: 6px; }
 .machine-faults li { display: flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .machine-faults li > span:first-child { flex: 1 1 120px; }
 .machine-mm { width: 64px; }
+/* The operator panel (machine_view.js): buttons held by mouse, touch or key; the emergency stop; lamps; the keyboard marker on the stage. */
+.machine-stage:focus { outline: none; }
+.machine-stage.kbd-on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.machine-kbd { position: absolute; left: 10px; bottom: 8px; z-index: 2; font-size: 12px; font-weight: 600; color: #f4f6f8; background: rgba(13, 17, 20, .88);
+  border: 1px solid #f2a93b; border-radius: 4px; padding: 2px 8px; pointer-events: none; }
+.machine-relay { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.machine-relay .pill { margin-left: auto; }
+.machine-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px; }
+.machine-btn, .machine-estop { display: flex; align-items: center; justify-content: center; gap: 2px 8px;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.machine-btn { flex-direction: column; min-height: 44px; padding: 3px 6px; font-size: 13px; line-height: 1.2; }
+.machine-btn kbd, .machine-estop kbd { font: 11px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.machine-btn.on { background: var(--sel-bg); border-color: var(--accent); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .25); }
+.machine-btn[aria-pressed="true"] { font-weight: 600; }
+.machine-estop { width: 100%; min-height: 46px; margin: 2px 0 4px; padding: 2px 14px; border-radius: 23px; border: 4px solid #e3b324; background: #b3261e; color: #ffffff;
+  font-size: 16px; font-weight: 700; box-shadow: 0 3px 0 #6e1712; }
+.machine-estop:hover { background: #9c2019; }
+.machine-estop kbd { border-color: rgba(255, 255, 255, .7); }
+.machine-estop.on { background: #7a1812; box-shadow: inset 0 3px 8px rgba(0, 0, 0, .55); }
+.machine-btn-state { font-size: 12px; font-weight: 600; }
+.machine-lamps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.machine-lamps li { display: flex; gap: 6px; align-items: center; }
+.machine-lamps .dot.on { background: var(--st-warn); border-color: var(--st-warn); }
+.machine-person { display: flex; gap: 8px; align-items: center; }
+.machine-person .hint { margin: 0; }
+.machine-person button[aria-pressed="true"] { background: var(--sel-bg); border-color: var(--accent); font-weight: 600; }
 /* J1939 networks (j1939.js): signal tables, the DBC message picker, the claim state online. */
 table.j1939-signals input[type=text] { min-width: 4.5em; }
 table.j1939-signals td .row input[type=text] { min-width: 6em; }
