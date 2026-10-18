@@ -654,11 +654,9 @@ class Examples(OnlineBase):
     def test_export_menu_offers_what_applies(self):
         pg = self.page
         self.open_example("virtual-plant")
-        shown = lambda: [b for b in ("#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html",
-                                     "#btn-export-codesys")
+        shown = lambda: [b for b in ("#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html")
                          if pg.evaluate("(s) => !document.querySelector(s).closest('[hidden]')", b)]
-        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html",
-                                   "#btn-export-codesys"])
+        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-node", "#btn-export-dbc", "#btn-export-html"])
         # A dialog opened from a menu item: Escape returns the focus to the menu.
         pg.focus("#menu-export > summary")
         pg.keyboard.press("Enter")
@@ -672,7 +670,7 @@ class Examples(OnlineBase):
         pg.wait_for_function("() => document.activeElement === document.querySelector('#menu-export > summary')")
         pg.wait_for_selector("#menu-export > summary:has-text('Export')")
         tree_net(pg, 2)
-        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-html", "#btn-export-codesys"])
+        self.assertEqual(shown(), ["#btn-export-all", "#btn-export-html"])
         # All DCFs from the slave tab: no "Network cell" question, every master network's DCFs.
         pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
         with pg.expect_download() as dl:
