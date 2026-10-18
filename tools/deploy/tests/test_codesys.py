@@ -425,6 +425,7 @@ class Script(unittest.TestCase):
         cfg = load(BRIDGE)
         dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
         dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "jog_x_plus"}]
+        dio["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 1, "name": "lamp"}]
         folder = os.path.join(tmpdir(self), "codesys")
         files, _ = cplan.export_files(cfg, BRIDGE)
         crun.write_folder(files, folder)
@@ -434,6 +435,10 @@ class Script(unittest.TestCase):
         # The stand-in's channels have no bit elements: the report says what to map by hand.
         self.assertIn("0x6000:1 (PDO mapping 0x1A00) bit 3 has no bit channel here: map dio_jog_x_plus to it by hand",
                       report)
+        # CODESYS refuses an output bit's variable while its channel has one: the output maps its bits only.
+        self.assertIn("0x6200:1 (PDO mapping 0x1600): dio_Write_output_8_bit_1 left unmapped, the output goes through its bits",
+                      report)
+        self.assertNotIn("0x6200:1 (PDO mapping 0x1600) -> ", report)
 
     def test_variable_name_taken(self):
         folder, _ = export(self, BRIDGE)
