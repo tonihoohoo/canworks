@@ -6,6 +6,7 @@ import io
 import itertools
 import json
 import os
+import shutil
 import tempfile
 import threading
 import struct
@@ -110,7 +111,12 @@ class AdapterSpec(unittest.TestCase):
                 LocalBus(parse("virtual:" + channel()), 250000, listen_s=0.05).connect()
         self.assertEqual(e.exception.kind, "unreachable")
         self.assertIn("Permission denied", str(e.exception))
-        with mock.patch.object(tempfile, "gettempdir", lambda: "/proc/no-such-folder"):
+        # A temp folder under a plain file cannot be made on any system.
+        scratch = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, scratch)
+        blocker = os.path.join(scratch, "plain-file")
+        open(blocker, "w").close()
+        with mock.patch.object(tempfile, "gettempdir", lambda: os.path.join(blocker, "sub")):
             with self.assertRaises(AdapterError) as e:
                 adapter._Lock(parse("virtual:x"))
         self.assertEqual(e.exception.kind, "unreachable")
