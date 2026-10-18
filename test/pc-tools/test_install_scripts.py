@@ -89,6 +89,11 @@ class _Base(unittest.TestCase):
                               env=env or self.env(), timeout=60)
 
 
+# The POSIX scripts are for macOS and Linux; Windows uses the .ps1 ones.
+POSIX_ONLY = unittest.skipIf(os.name == "nt", "POSIX shell script; Windows uses the PowerShell installer")
+
+
+@POSIX_ONLY
 class InstallPcSh(_Base):
     script = os.path.join(SCRIPTS, "install-pc.sh")
 
@@ -154,6 +159,7 @@ class InstallPcSh(_Base):
         self.assertIn("unknown option: --frobnicate", r.stdout)
 
 
+@POSIX_ONLY
 class InstallRuntimeSh(_Base):
     script = os.path.join(SCRIPTS, "install-runtime.sh")
 
@@ -186,7 +192,7 @@ class InstallRuntimeSh(_Base):
         self.assertIn("install-stock.sh --uninstall", r.stdout)
         self.assertEqual(_Releases.seen, [])
 
-    @unittest.skipIf(os.geteuid() == 0, "runs as root here; the refusal is for non-root users")
+    @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "runs as root here; the refusal is for non-root users")
     def test_not_root(self):
         r = self.run_script(["bash", self.script])
         self.assertNotEqual(r.returncode, 0)
@@ -211,8 +217,9 @@ class Shellcheck(unittest.TestCase):
 @unittest.skipUnless(shutil.which("pwsh"), "PowerShell (pwsh) is not installed")
 class PowerShellScripts(_Base):
     def pwsh(self, script, *args):
+        # The whole environment: on Windows pwsh needs SystemRoot and the like.
         return self.run_script(["pwsh", "-NoProfile", "-NonInteractive", "-File", os.path.join(SCRIPTS, script)]
-                               + list(args), env=self.env(PATH=self.bin + os.pathsep + os.environ.get("PATH", "")))
+                               + list(args), env=dict(os.environ, **self.env(PATH=self.bin + os.pathsep + os.environ.get("PATH", ""))))
 
     def test_install_pc(self):
         self.fake_uv()
