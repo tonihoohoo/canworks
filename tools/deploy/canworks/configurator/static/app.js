@@ -2877,8 +2877,8 @@ function renderPdos(i, key, dir, title, eds) {
         hasBits(e) ? `Bits… (${e.bits.length})` : "Bits…") : null;
       const columns = 6 + (locations ? 1 : 0);
       const row = el("tr", { dataset: { path: ep } },
-        el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", null, e.type),
-        el("td", null, el("div", { class: "entry-variable" }, variable, bitsButton), el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
+        el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", { class: "entry-type" }, e.type, bitsButton),
+        el("td", null, variable, el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
           el("span", { class: "field-msg", dataset: { for: ep + ".bits" } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
@@ -3101,7 +3101,7 @@ function bitTable(i, dir, ep, e, info, eds) {
       locCell = located || bridge ? el("td") : null;
     }
     rows.push(el("tr", { class: b ? "mapped" : null, dataset: { bitRow: bit } },
-      el("td", null, String(bit)), el("td", { class: "muted" }, notes[String(bit)] || ""), el("td", null, tick), nameCell, locCell));
+      el("td", null, String(bit)), el("td", { class: "muted bit-note" }, notes[String(bit)] || ""), el("td", null, tick), nameCell, locCell));
   }
   const mapped = (e.bits || []).length;
   return el("div", { class: "entry-bits", dataset: { bitsTable: ep } },
