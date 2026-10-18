@@ -196,11 +196,16 @@ def name_channels(dev, channels, report, where):
         if p is None or p.io_mapping is None:
             report.add("warning", "%s has no I/O channel in CODESYS, so %s is not mapped" % (what, ch["variable"]))
             continue
-        try:
-            p.io_mapping.variable = ch["variable"]
-            report.add("set", "%s -> %s" % (what, ch["variable"]))
-        except Exception as e:
-            report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
+        # CODESYS refuses a variable on an output bit while its channel has
+        # one (overlapping output mappings): an output with bits maps the bits only.
+        if ch.get("dir") == "out" and ch.get("bits"):
+            report.add("not set", "%s: %s left unmapped, the output goes through its bits" % (what, ch["variable"]))
+        else:
+            try:
+                p.io_mapping.variable = ch["variable"]
+                report.add("set", "%s -> %s" % (what, ch["variable"]))
+            except Exception as e:
+                report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
         for b in ch.get("bits") or []:
             el = _bit_element(p, b["bit"])
             if el is None or getattr(el, "io_mapping", None) is None:
@@ -216,13 +221,15 @@ def name_channels(dev, channels, report, where):
 
 def _bit_element(channel, bit):
     """The I/O mapping element of one bit of a channel: CODESYS lists a
-    BYTE, WORD, ... channel's bits as its sub-elements, bit 0 first."""
+    BYTE, WORD, ... channel's bits as its sub-elements, bit 0 first, named
+    <parameter id>_<bit> (3.5 SP22)."""
     try:
         subs = list(channel)
     except Exception:
         return None
     for s in subs:
-        if (u"%s" % getattr(s, "identifier", "")).lower() in ("bit%d" % bit, "bit %d" % bit):
+        ident = (u"%s" % getattr(s, "identifier", "")).lower()
+        if ident in ("bit%d" % bit, "bit %d" % bit) or ident.endswith("_%d" % bit):
             return s
     return subs[bit] if bit < len(subs) else None
 
