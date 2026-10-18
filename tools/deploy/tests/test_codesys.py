@@ -336,6 +336,19 @@ class Script(unittest.TestCase):
         self.assertTrue(proj.saved)
         self.assertTrue(proj.closed)
 
+    def test_command_line_project_in_use(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        proj = self.project(w)
+        w.in_use.add(proj.path)
+        set_plan(folder, project=proj.path)
+        report = w.run(folder)
+        self.assertTrue(report.startswith("result: error"), report)
+        self.assertIn("is open in CODESYS (The selected project is currently in use", report)
+        self.assertIn("close it there first", report)
+        self.assertNotIn("unexpected", report)
+        self.assertNotIn("opened", report)
+
     def test_command_line_creates_a_project(self):
         folder, _ = export(self, BRIDGE)
         w = fake_codesys.World()
