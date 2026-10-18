@@ -29,7 +29,7 @@
 
 ## 5. CODESYS
 
-- [ ] 5.1 Check whether the CODESYS scripting API reaches a channel's bit sub-channels (I/O mapping of a BYTE channel); adjust the spec delta to what it allows before archive.
+- [x] 5.1 Check whether the CODESYS scripting API reaches a channel's bit sub-channels (I/O mapping of a BYTE channel); adjust the spec delta to what it allows before archive.
 - [x] 5.2 Plan: `bits` per channel with variable names; script maps them or lists them in the report. Tests on the plan.
 
 ## 6. Docs and versions
@@ -40,5 +40,5 @@
 
 ## 7. Hardware
 
-- [ ] 7.1 Pi: deploy a config with bit channels on a real node's integer input entry and an output entry; the bits change in the PLC with the device, and output bits set by the program reach the device. Clean PLC start after.
-- [ ] 7.2 Windows: run the CODESYS export with bit channels on the real CODESYS install and check the bit variables in the I/O mapping.
+- [x] 7.1 Pi: deploy a config with bit channels on a real node's integer input entry and an output entry; the bits change in the PLC with the device, and output bits set by the program reach the device. Clean PLC start after.
+- [x] 7.2 Windows: run the CODESYS export with bit channels on the real CODESYS install and check the bit variables in the I/O mapping.
