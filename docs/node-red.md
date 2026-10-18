@@ -11,7 +11,7 @@
 ## What you need
 
 - A running `canworks-bridge` with a config ([modbus-bridge.md](modbus-bridge.md#install)). Node-RED is usually on the same device, so set the bridge's `writers` to include `127.0.0.1` (or Node-RED's address when it runs elsewhere); the export says so when the config does not allow it.
-- Node-RED 4 with the Modbus palette `node-red-contrib-modbus` (Menu > Manage palette > Install, or `npm install node-red-contrib-modbus` in the Node-RED folder). Tested with 5.60.
+- Node-RED 4 with the Modbus palette `node-red-contrib-modbus` (Menu > Manage palette > Install, or `npm install node-red-contrib-modbus` in the Node-RED folder). Tested with 5.45 and 5.60. In Docker use a versioned image such as `nodered/node-red:4.1`; there is no `4` tag.
 
 ## Export and import the flow
 
