@@ -44,9 +44,17 @@ jobs:
       - name: Build the wheel
         run: uv build --wheel --out-dir dist tools/deploy
 
-      - name: Install it as the docs say (uv tool install, uv-managed Python 3.12)
+      - name: Install it with the one-line installer, as the docs say (uv-managed Python 3.12)
+        env:
+          UV_MANAGED_PYTHON: "1"
         run: |
-          uv tool install --python 3.12 --managed-python dist/*.whl
+          wheel=$(ls dist/*.whl)
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Windows PowerShell 5.1, the one every Windows 10/11 has
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-pc.ps1 -Wheel "$wheel"
+          else
+            sh scripts/install-pc.sh --wheel "$wheel"
+          fi
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
       - name: Deploy tool and configurator tests

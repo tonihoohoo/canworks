@@ -15,9 +15,12 @@ import json
 import os
 import re
 
-import jsonschema
-
 from .userdirs import replace_file
+
+
+def _draft_validator(schema_doc):
+    import jsonschema  # on first use, not at start
+    return jsonschema.Draft202012Validator(schema_doc)
 
 FORMAT = "canworks-notes.v1"
 SUFFIX = ".notes.json"
@@ -74,7 +77,7 @@ def schema():
 
 def schema_problems(data):
     """The schema findings of a notes document, as "where: message" texts."""
-    validator = jsonschema.Draft202012Validator(schema())
+    validator = _draft_validator(schema())
     out = []
     for e in sorted(validator.iter_errors(data), key=lambda e: list(e.absolute_path)):
         where = "/".join(str(p) for p in e.absolute_path)

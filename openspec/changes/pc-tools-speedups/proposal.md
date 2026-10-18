@@ -15,7 +15,7 @@ Toni also asked (2026-10-18) for an install script users can run by copy-pasting
 ## What Changes
 
 - **One-line PC tools installer**: `scripts/install-pc.sh` (macOS, Linux) and `scripts/install-pc.ps1` (Windows), run straight from GitHub (`curl -LsSf <raw URL> | sh`, `irm <raw URL> | iex`). They install uv when it is missing, find the newest `deploy-v` release, and install its wheel from its release URL with `uv tool install --force --compile-bytecode --python 3.12`. Running the line again updates. Options: `--version X` (a given release), `--uninstall`, `--wheel FILE` (a local wheel; used by CI). Becomes the first install route in the docs and the release notes; the manual steps stay.
-- **One-line runtime plugin installer**: `scripts/install-runtime.sh`, run as `curl -LsSf <raw URL> | sudo bash`, downloads the source of the newest `deploy-v` release (not `main`) and runs its `install-stock.sh` with the options given after `-s --` (for example `--with-link`, `--uninstall`). No git checkout on the device. Running it again updates (re-runs the install of the newer release). `--version X` picks a release.
+- **One-line runtime plugin installer**: `scripts/install-runtime.sh`, run as `curl -LsSf <raw URL> | sudo bash`, downloads the source of the newest `deploy-v` release (not `main`) and runs its `install-stock.sh` with the options given after `-s --` (for example `--with-link`, `--uninstall`). No git checkout on the device. Running it again updates (re-runs the install of the newer release). `--version X` picks a release. The same install runs from a Windows, macOS or Linux PC onto the remote device over SSH (Toni, 2026-10-18): `install-runtime.sh --ssh USER@HOST` on macOS/Linux and `scripts/install-runtime.ps1 -Ssh USER@HOST` on Windows, using the system's own `ssh` (built into Windows 10/11); nothing else is needed on the PC.
 
 - Documented install and update commands, the release notes template, the README and the PC tools CI job use `uv tool install --compile-bytecode`. The pip route gets nothing new (pip already compiles).
 - `jsonschema` is imported when the first validation runs, not at module import. `canworks-config`, `canworks-deploy --version`/`--help` and `canworks-diag --help` start without importing `jsonschema`, `python-can`, `cantools`, `j1939`, `zeroconf` or `iroh`; a unit test keeps it that way.
@@ -28,13 +28,13 @@ No config, schema, page or command-line change.
 
 ### Modified Capabilities
 - `canopen-pc-install`: one-line installer for install and update; the documented install and update commands compile bytecode, and CI installs the same way; the tools start without importing their heavy libraries.
-- `canopen-stock-install`: one-line install and update of the plugin from the newest release, without a git checkout.
+- `canopen-stock-install`: one-line install and update of the plugin from the newest release, without a git checkout, on the device or from a PC over SSH.
 
 ## Impact
 
-- New scripts: `scripts/install-pc.sh`, `scripts/install-pc.ps1`, `scripts/install-runtime.sh`.
+- New scripts: `scripts/install-pc.sh`, `scripts/install-pc.ps1`, `scripts/install-runtime.sh`, `scripts/install-runtime.ps1`.
 - Docs: `docs/install-stock.md` (one-line install first, git checkout kept), `docs/install-pc.md`, `docs/deploy.md`, `README.md`, `tools/deploy/README.md`, `tools/deploy/release-notes.md` (and `test/pc-tools/test_release_notes.py`, which checks the install line).
 - CI: `.github/workflows/pc-tools.yml` installs through `install-pc.sh`/`install-pc.ps1 --wheel` (runs only on version bumps; adds a few seconds there). PR CI gets two small unit tests, `shellcheck` of the two shell scripts and a dry-run test of their release lookup and argument handling (well under a second each).
 - Code: `tools/deploy/canworks/contract.py`, `simfile.py`, `simmachine.py`, `notes.py`, `configurator/simulation.py` (lazy `jsonschema`), `bustrace/formats.py` (`_csv_cell`).
 - Version: minor bump of the tools package (new install route).
-- Hardware/PC tasks: the PC one-liner on the Windows PC and the Mac (install, then update), the runtime one-liner on the Pi (update an existing install, then a clean PLC start).
+- Hardware/PC tasks: the PC one-liner on the Windows PC and the Mac (install, then update), the runtime one-liner from the Windows PC over SSH onto the Pi (update an existing install, then a clean PLC start).

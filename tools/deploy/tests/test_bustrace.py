@@ -98,6 +98,17 @@ def written(trace, fmt, decoder=None):
     return out.getvalue()
 
 
+class CsvCells(unittest.TestCase):
+    def test_quoting(self):
+        self.assertEqual(formats._csv_cell("plain text"), "plain text")
+        self.assertEqual(formats._csv_cell(42), "42")
+        self.assertEqual(formats._csv_cell(""), "")
+        self.assertEqual(formats._csv_cell("a,b"), '"a,b"')
+        self.assertEqual(formats._csv_cell('say "hi"'), '"say ""hi"""')
+        self.assertEqual(formats._csv_cell("two\nlines"), '"two\nlines"')
+        self.assertEqual(formats._csv_cell("cr\rhere"), '"cr\rhere"')
+
+
 class Formats(unittest.TestCase):
     def tmp(self):
         d = tempfile.mkdtemp()

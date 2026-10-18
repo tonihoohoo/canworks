@@ -16,10 +16,9 @@ import hashlib
 import json
 import os
 
-import jsonschema
-from jsonschema.exceptions import best_match
 
 from .. import contract, diag, simclient, simmachine
+from ..contract import best_match
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
@@ -86,7 +85,7 @@ def check(doc):
                                                       "version is %d" % (v, SUPPORTED_VERSION)}]
     out = []
     root = schema(version(doc))
-    validator = jsonschema.Draft202012Validator(root)
+    validator = contract.draft_validator(root)
     for e in sorted(validator.iter_errors(doc), key=lambda e: list(map(str, e.absolute_path))):
         first = e
         while e.context:

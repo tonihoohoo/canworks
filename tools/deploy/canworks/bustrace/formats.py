@@ -532,9 +532,13 @@ def _read_pcap(data):
 # ---------------------------------------------------------------------------
 # CSV
 
+_CSV_QUOTE = re.compile('[,"\n\r]').search
+
+
 def _csv_cell(text):
-    text = str(text)
-    if any(c in text for c in ',"\n\r'):
+    if type(text) is not str:
+        text = str(text)
+    if _CSV_QUOTE(text):
         return '"%s"' % text.replace('"', '""')
     return text
 

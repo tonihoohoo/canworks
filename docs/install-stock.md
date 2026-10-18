@@ -4,7 +4,31 @@ The plugin is installed next to an unmodified runtime, native or [Docker](#docke
 
 This page covers native installs (`./install.sh --native`) first; for upstream's managed Docker install see [Docker installs](#docker-installs).
 
-## Install (on the device)
+## Install or update with one line
+
+On the device, as root; it downloads the newest release (not `main`) and runs its `scripts/install-stock.sh`, with no git checkout. Running it again updates to the newest release:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | sudo bash
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | sudo bash -s -- --with-link      # options go to install-stock.sh
+sudo systemctl restart openplc-runtime              # native installs: once, so the runtime loads the plugin
+```
+
+From a PC onto the device over SSH (the PC needs only `ssh`; `sudo` on the device may ask for its password). macOS and Linux:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--with-link ...]
+```
+
+Windows (PowerShell, with the OpenSSH client built into Windows 10 and 11):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.ps1))) -Ssh pi@rpi.local          # -Port, -Identity, -Options --with-link
+```
+
+`--version 0.82.0` (`-Version` on Windows) installs a given release (0.82.0 or newer, the first with this script); `--uninstall` and the other options below pass through to `install-stock.sh`. The PC resolves the release and the device fetches the script of exactly that release, so both agree on the version. To pin the script itself, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-runtime.sh`); to read it first, download it and run it with `sudo bash install-runtime.sh`. The device still builds Lely and the plugin, so it takes as long as the checkout route.
+
+## Install from a git checkout (on the device)
 
 ```sh
 git clone https://github.com/tonihoohoo/canworks

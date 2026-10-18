@@ -15,10 +15,9 @@ import re
 import stat
 import sys
 
-import jsonschema
-from jsonschema.exceptions import best_match
 
 from . import contract
+from .contract import best_match
 from . import eds as eds_mod
 from . import links as links_mod
 from . import simmachine as machine_mod
@@ -946,7 +945,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         version = v
 
     s = schema(version)
-    for e in sorted(contract.Validator(s).iter_errors(data),
+    for e in sorted(contract.validator_class()(s).iter_errors(data),
                     key=lambda e: list(map(str, e.absolute_path))):
         first = e
         while e.context:

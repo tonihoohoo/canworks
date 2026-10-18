@@ -10,10 +10,9 @@ import json
 import math
 import os
 
-import jsonschema
-from jsonschema.exceptions import best_match
 
 from . import contract
+from .contract import best_match
 
 SUPPORTED_VERSION = 1
 FILE_NAME = "machine.json"
@@ -127,7 +126,7 @@ def schema_problems(m):
     if isinstance(v, int) and not isinstance(v, bool) and v > SUPPORTED_VERSION:
         return [("schema_version", "the file is version %d, this tool reads up to %d" % (v, SUPPORTED_VERSION))]
     out = []
-    for e in sorted(jsonschema.Draft202012Validator(schema()).iter_errors(m),
+    for e in sorted(contract.draft_validator(schema()).iter_errors(m),
                     key=lambda e: list(map(str, e.absolute_path))):
         while e.context:
             fitting = [c for c in e.context if c.validator != "type"]
