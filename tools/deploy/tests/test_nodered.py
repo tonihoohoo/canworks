@@ -118,6 +118,14 @@ class FlowShape(unittest.TestCase):
         self.assertEqual(len(sp["inputs"]), 17)
         self.assertEqual(len(sp["outputs"]), 4)
 
+    def test_bit_channels_by_name(self):
+        cfg = load(EXAMPLE)
+        dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "jog_x_plus"}]  # 0x6000:1 at %IB8
+        _, _, sp = nodered.flow(cfg, "line1")
+        row = [r for r in sp["inputs"] if r["n"] == "dio.jog_x_plus"][0]
+        self.assertEqual((row["k"], row["b"], row["bit"]), ("bit", 8, 3))
+
     def test_ids_are_stable_per_name(self):
         a, _, _ = nodered.flow(load(EXAMPLE), "line1")
         b, _, _ = nodered.flow(load(EXAMPLE), "line1")

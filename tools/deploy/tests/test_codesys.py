@@ -93,6 +93,16 @@ class Plan(unittest.TestCase):
         plan, _ = cplan.build(load(BRIDGE), BRIDGE, variables=False)
         self.assertEqual([n["channels"] for n in plan["networks"][0]["nodes"]], [[], []])
 
+    def test_bit_channels_named_in_the_plan(self):
+        cfg = load(BRIDGE)
+        dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "jog_x_plus"}, {"bit": 0}]
+        plan, _ = cplan.build(cfg, BRIDGE)
+        node = [n for n in plan["networks"][0]["nodes"] if n["name"] == "dio"][0]
+        channel = [c for c in node["channels"] if c["index"] == 0x6000 and c["sub"] == 1][0]
+        self.assertEqual(channel["bits"], [{"bit": 3, "variable": "dio_jog_x_plus"},
+                                           {"bit": 0, "variable": "dio_Read_input_8_bit_1_bit0"}])
+
     def test_not_carried(self):
         plan, _ = cplan.build(load(BRIDGE), BRIDGE)
         notes = {(n["where"], n["setting"]) for n in plan["notes"]}
@@ -410,6 +420,20 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=self.project(w))
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("master node ID not set: this CODESYS has no parameter 288", report)
+
+    def test_bit_channels_mapped_or_reported(self):
+        cfg = load(BRIDGE)
+        dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "jog_x_plus"}]
+        folder = os.path.join(tmpdir(self), "codesys")
+        files, _ = cplan.export_files(cfg, BRIDGE)
+        crun.write_folder(files, folder)
+        w = fake_codesys.World()
+        report = w.run(folder, primary=self.project(w))
+        self.assertTrue(report.startswith("result: ok"), report)
+        # The stand-in's channels have no bit elements: the report says what to map by hand.
+        self.assertIn("0x6000:1 (PDO mapping 0x1A00) bit 3 has no bit channel here: map dio_jog_x_plus to it by hand",
+                      report)
 
     def test_variable_name_taken(self):
         folder, _ = export(self, BRIDGE)

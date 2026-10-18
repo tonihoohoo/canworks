@@ -293,9 +293,19 @@ def _pdo(p):
         name = E(e["name"])
         if e.get("note"):
             name += '<div class="small muted">%s</div>' % E(e["note"])
+        if e.get("bit_channels") and not e["location"]:
+            what = '<span class="muted">bits below</span>'
         rows.append([str(e["bit"]), str(e["length"]), "<code>%s:%d</code>" % (hx(e["index"]), e["subindex"]),
                      name, E(e["type"]) + (" <span class=\"muted\">%s</span>" % E(e["unit"]) if e.get("unit") else ""),
                      what])
+        for b in e.get("bit_channels") or []:
+            bname = E(b["name"] or b["note"] or "bit %d" % b["bit"])
+            if b["name"] and b["note"]:
+                bname += '<div class="small muted">%s</div>' % E(b["note"])
+            rows.append([str(e["bit"] + b["bit"]), "1", "<code>%s:%d</code> bit %d" % (hx(e["index"]), e["subindex"],
+                                                                                    b["bit"]),
+                         bname, "BOOLEAN", _loc(b["location"], b["variables"]) if b["location"]
+                         else '<span class="muted">no location</span>'])
     direction = p.get("direction") or ("node → master" if p["kind"] == "TPDO" else "master → node")
     return ('<div class="pdo" id="%s"><h5>%s %d <span class="muted">%s · %d byte%s</span></h5>'
             '<div class="chips">%s</div>%s%s</div>' % (

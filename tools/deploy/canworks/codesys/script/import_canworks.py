@@ -201,6 +201,30 @@ def name_channels(dev, channels, report, where):
             report.add("set", "%s -> %s" % (what, ch["variable"]))
         except Exception as e:
             report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
+        for b in ch.get("bits") or []:
+            el = _bit_element(p, b["bit"])
+            if el is None or getattr(el, "io_mapping", None) is None:
+                report.add("warning", "%s bit %d has no bit channel here: map %s to it by hand"
+                           % (what, b["bit"], b["variable"]))
+                continue
+            try:
+                el.io_mapping.variable = b["variable"]
+                report.add("set", "%s bit %d -> %s" % (what, b["bit"], b["variable"]))
+            except Exception as e:
+                report.add("warning", "%s bit %d: variable %s not set: %s" % (what, b["bit"], b["variable"], e))
+
+
+def _bit_element(channel, bit):
+    """The I/O mapping element of one bit of a channel: CODESYS lists a
+    BYTE, WORD, ... channel's bits as its sub-elements, bit 0 first."""
+    try:
+        subs = list(channel)
+    except Exception:
+        return None
+    for s in subs:
+        if (u"%s" % getattr(s, "identifier", "")).lower() in ("bit%d" % bit, "bit %d" % bit):
+            return s
+    return subs[bit] if bit < len(subs) else None
 
 
 def _same(a, b):

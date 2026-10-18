@@ -15,7 +15,7 @@ import csv
 import io
 import json
 
-from .iec import parse_location
+from .iec import Location, parse_location
 
 # Bytes per location size letter.
 SIZE_BYTES = {"X": 1, "B": 1, "W": 2, "D": 4, "L": 8}
@@ -278,6 +278,37 @@ def _row(it, word_order):
     return row
 
 
+def bit_byte(start, nbytes, bit, word_order):
+    """The image byte that holds `bit` of a value of `nbytes` bytes at byte
+    `start`: most significant byte first in each word, words in
+    `word_order`."""
+    if nbytes == 1:
+        return start
+    words = nbytes // 2
+    word = bit // 16
+    pos = word if word_order == "low_first" else words - 1 - word
+    return start + 2 * pos + (0 if bit % 16 >= 8 else 1)
+
+
+def _bit_items(it, word_order):
+    """The bit channels of a PDO entry (canworks.json `bits`): in a bridge
+    config they name bits of the entry's own location, a discrete input or
+    coil each."""
+    bits = it.holder.get("bits") if it.kind == "data" and isinstance(it.holder, dict) else None
+    out = []
+    for b in bits if isinstance(bits, list) else []:
+        if not isinstance(b, dict) or not isinstance(b.get("bit"), int) or b["bit"] >= it.nbytes * 8:
+            continue
+        loc = Location(it.loc.area, "X", bit_byte(it.loc.index, it.nbytes, b["bit"], word_order), b["bit"] % 8)
+        if b.get("name"):
+            name = "%s.%s" % (it.source, b["name"]) if it.source else b["name"]
+        else:
+            name = "%s.bit%d" % (it.name, b["bit"])
+        out.append(Item(None, None, str(loc), loc, "data", name, it.network, it.source,
+                        "%s bit %d" % (it.obj, b["bit"]), co_type="BOOLEAN"))
+    return out
+
+
 def register_map(cfg):
     """The register map rows of a bridge config, sorted by table and address.
     Raises MapError when the config breaks the byte rules."""
@@ -290,6 +321,7 @@ def register_map(cfg):
         raise MapError("bridge.word_order must be high_first or low_first, not %r" % word_order)
     order = {"input register": 0, "discrete input": 1, "holding register": 2, "coil": 3}
     rows = [_row(it, word_order) for it in items]
+    rows += [_row(bit, word_order) for it in items for bit in _bit_items(it, word_order)]
     rows.sort(key=lambda r: (order[r["table"]], r["address"], r["name"]))
     return rows
 
