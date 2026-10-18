@@ -61,3 +61,29 @@ The configurator and the deploy tool SHALL start without importing the libraries
 #### Scenario: Validation still works
 - **WHEN** the configurator then opens a project and checks its `canworks.json`
 - **THEN** the config is validated against its schema exactly as before, with the same messages
+
+### Requirement: One-line installer
+
+The repository SHALL provide `scripts/install-pc.sh` (macOS and Linux, POSIX `sh`) and `scripts/install-pc.ps1` (Windows, PowerShell 5.1), and the documentation SHALL give, first among the install routes, the one line per operating system that runs them straight from the repository on GitHub. Each script SHALL install uv with its official installer when uv is not found, use it in the same session, and install the wheel of the newest `deploy-v` release (or of `--version <version>`) from its release download URL with `uv tool install --force --compile-bytecode --python 3.12`, so running the same line again updates to the newest release. The script SHALL find the newest release from the `releases/latest` redirect without the GitHub API, SHALL install only released wheels (never the code on `main`), and with `--wheel <file>` SHALL install that local wheel instead. `--uninstall` SHALL remove the tools and leave uv and the settings folder. When uv's bin folder is not on PATH, the script SHALL add it (`uv tool update-shell`) and say to open a new terminal. The script SHALL print the installed version at the end and exit non-zero, saying why, when any step fails. The documentation SHALL also show the same scripts pinned to a release and how to download and read a script before running it.
+
+CI SHALL run `shellcheck` on `install-pc.sh` and test both scripts' release lookup and argument handling without network access, and the PC tools job SHALL install through the scripts (with `--wheel`) on each of its runners.
+
+#### Scenario: Fresh PC
+- **WHEN** a Windows user with neither uv nor Python pastes the documented PowerShell line
+- **THEN** uv is installed, the newest release's wheel is installed, `canworks-deploy --version` in a new terminal prints that release's version, and `canworks-config` opens the configurator
+
+#### Scenario: Update with the same line
+- **WHEN** a Mac user who has 0.82.0 installed pastes the documented line after 0.83.0 was released
+- **THEN** 0.83.0 is installed over it, uv is not reinstalled, and the configurator's saved settings are kept
+
+#### Scenario: Given version
+- **WHEN** the user runs the script with `--version 0.82.0`
+- **THEN** the wheel of `deploy-v0.82.0` is installed, also when a newer release exists
+
+#### Scenario: Uninstall
+- **WHEN** the user runs the script with `--uninstall`
+- **THEN** the tools' commands are no longer on PATH and uv is still installed
+
+#### Scenario: No release reachable
+- **WHEN** the script cannot reach github.com
+- **THEN** it exits non-zero, names the URL it could not reach and the proxy setting the docs describe, and changes nothing that was installed

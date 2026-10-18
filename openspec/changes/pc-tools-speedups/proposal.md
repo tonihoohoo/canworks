@@ -1,4 +1,4 @@
-# Proposal: pc-tools-speedups
+# Proposal: pc-tools-speedups (with one-line installers)
 
 ## Why
 
@@ -10,7 +10,12 @@ The same measurements found three cheap speedups that apply to the uv install:
 - **`jsonschema` is a third of the configurator's start-up imports** (about 55 of 150 ms): five modules import it at the top, although nothing validates until a config is opened or checked.
 - **Trace CSV export spends most of its time quoting cells**: `_csv_cell` runs a generator per cell. A precompiled regex made exporting 200 000 frames 15-20 % faster with byte-identical output.
 
+Toni also asked (2026-10-18) for an install script users can run by copy-pasting one line, which installs or updates, for the PC tools and for the runtime plugin alike. Today the PC tools need three steps (install uv, download the wheel from the Releases page, run `uv tool install` on it) and the plugin needs a `git clone` on the device before `install-stock.sh`.
+
 ## What Changes
+
+- **One-line PC tools installer**: `scripts/install-pc.sh` (macOS, Linux) and `scripts/install-pc.ps1` (Windows), run straight from GitHub (`curl -LsSf <raw URL> | sh`, `irm <raw URL> | iex`). They install uv when it is missing, find the newest `deploy-v` release, and install its wheel from its release URL with `uv tool install --force --compile-bytecode --python 3.12`. Running the line again updates. Options: `--version X` (a given release), `--uninstall`, `--wheel FILE` (a local wheel; used by CI). Becomes the first install route in the docs and the release notes; the manual steps stay.
+- **One-line runtime plugin installer**: `scripts/install-runtime.sh`, run as `curl -LsSf <raw URL> | sudo bash`, downloads the source of the newest `deploy-v` release (not `main`) and runs its `install-stock.sh` with the options given after `-s --` (for example `--with-link`, `--uninstall`). No git checkout on the device. Running it again updates (re-runs the install of the newer release). `--version X` picks a release.
 
 - Documented install and update commands, the release notes template, the README and the PC tools CI job use `uv tool install --compile-bytecode`. The pip route gets nothing new (pip already compiles).
 - `jsonschema` is imported when the first validation runs, not at module import. `canworks-config`, `canworks-deploy --version`/`--help` and `canworks-diag --help` start without importing `jsonschema`, `python-can`, `cantools`, `j1939`, `zeroconf` or `iroh`; a unit test keeps it that way.
@@ -22,12 +27,14 @@ No config, schema, page or command-line change.
 ## Capabilities
 
 ### Modified Capabilities
-- `canopen-pc-install`: the documented install and update commands compile bytecode, and CI installs the same way; the tools start without importing their heavy libraries.
+- `canopen-pc-install`: one-line installer for install and update; the documented install and update commands compile bytecode, and CI installs the same way; the tools start without importing their heavy libraries.
+- `canopen-stock-install`: one-line install and update of the plugin from the newest release, without a git checkout.
 
 ## Impact
 
-- Docs: `docs/install-pc.md`, `docs/deploy.md`, `README.md`, `tools/deploy/README.md`, `tools/deploy/release-notes.md` (and `test/pc-tools/test_release_notes.py`, which checks the install line).
-- CI: `.github/workflows/pc-tools.yml` install step gets `--compile-bytecode` (runs only on version bumps; adds a few seconds there). No PR CI change beyond two small unit tests.
+- New scripts: `scripts/install-pc.sh`, `scripts/install-pc.ps1`, `scripts/install-runtime.sh`.
+- Docs: `docs/install-stock.md` (one-line install first, git checkout kept), `docs/install-pc.md`, `docs/deploy.md`, `README.md`, `tools/deploy/README.md`, `tools/deploy/release-notes.md` (and `test/pc-tools/test_release_notes.py`, which checks the install line).
+- CI: `.github/workflows/pc-tools.yml` installs through `install-pc.sh`/`install-pc.ps1 --wheel` (runs only on version bumps; adds a few seconds there). PR CI gets two small unit tests, `shellcheck` of the two shell scripts and a dry-run test of their release lookup and argument handling (well under a second each).
 - Code: `tools/deploy/canworks/contract.py`, `simfile.py`, `simmachine.py`, `notes.py`, `configurator/simulation.py` (lazy `jsonschema`), `bustrace/formats.py` (`_csv_cell`).
-- Version: patch bump of the tools package.
-- No hardware tests: nothing touches CAN or the runtime.
+- Version: minor bump of the tools package (new install route).
+- Hardware/PC tasks: the PC one-liner on the Windows PC and the Mac (install, then update), the runtime one-liner on the Pi (update an existing install, then a clean PLC start).
