@@ -5,6 +5,6 @@ PC tools {version} for Windows, macOS and Linux (x86_64 and ARM64). No Python ne
 **Also in this release**
 - `canworks.stlib`: the canworks function block library for OpenPLC Editor (CANopen, CiA 402, CAN and J1939 blocks; [docs/plc-library.md](https://github.com/{repo}/blob/deploy-v{version}/docs/plc-library.md)).
 - `ghcr.io/{owner}/canworks-sim-runtime:{version}` (amd64 and arm64): the local simulator runtime, no hardware needed; `canworks-sim-runtime start` pulls it ([docs/local-runtime.md](https://github.com/{repo}/blob/deploy-v{version}/docs/local-runtime.md)).
-- `ghcr.io/{owner}/canworks-bridge:{version}` (amd64 and arm64): the Modbus TCP bridge ([docs/modbus-bridge.md](https://github.com/{repo}/blob/deploy-v{version}/docs/modbus-bridge.md)).
+- `ghcr.io/{owner}/canworks-bridge:{version}` (amd64 and arm64): the Modbus TCP bridge ([docs/modbus-bridge.md](https://github.com/{repo}/blob/deploy-v{version}/docs/modbus-bridge.md)). To install this release's bridge on a Linux device without Docker: `curl -LsSf https://raw.githubusercontent.com/{repo}/main/scripts/install-bridge.sh | sudo bash -s -- --version {version}` (add `--ssh USER@HOST` to run it from a PC).
 
 Only the newest four releases are kept. To install an older version, see "Older versions" in docs/install-pc.md.

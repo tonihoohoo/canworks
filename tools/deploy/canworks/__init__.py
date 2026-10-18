@@ -1,3 +1,3 @@
 """canworks-deploy: deploys a CANopen config with an OpenPLC program."""
 
-__version__ = "0.83.1"
+__version__ = "0.84.0"

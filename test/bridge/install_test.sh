@@ -52,7 +52,7 @@ ln -s "$(command -v python3)" "$T/docker/venv/bin/python"
 if "$REPO/scripts/install-bridge.sh" --prefix "$T/docker" --no-deps --without-canopen --binary "$BIN_SRC" > "$T/out" 2>&1; then
     check false "a container's venv is refused"
 else
-    check 'grep -q "made with Python 3.0 but runs as" "$T/out" && grep -q -- "--prefix /opt/canworks-bridge" "$T/out"' \
+    check 'grep -q "made by another Python" "$T/out" && grep -q -- "--prefix /opt/canworks-bridge" "$T/out"' \
         "a container's venv is refused with the way out"
 fi
 
