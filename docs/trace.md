@@ -10,6 +10,8 @@ Raw CAN messages ([raw-can.md](raw-can.md)) decode on every network as their mes
 
 DBC files decode their messages in any trace: **Decoding → Add DBC…** in the configurator, or `--dbc FILE` (repeatable) on `trace`, `convert` and `explain`. The config's own PDOs and raw messages come first, then the DBC files in their order; a message that loses is listed with what decodes its identifier instead. NMT, SYNC, TIME, EMCY, SDO, heartbeat and LSS keep their CANopen decoding and get the DBC's decoding after it (`node 2 OPERATIONAL; pingpong_Heartbeat NMT_State=5`), so the DBC's signals still reach graphs and triggers. On a J1939 network the network's own DBC comes first.
 
+An entry with [bit channels](config.md#bit-channels) decodes as its value with a line per mapped bit under it, named as the bit (the PLC variable name in an editor project), so each bit can be graphed and triggered on like any signal.
+
 ### Decoding without a config
 
 Without a config (Commission a CANopen device in the configurator), PDOs decode from the best layout known for their node:

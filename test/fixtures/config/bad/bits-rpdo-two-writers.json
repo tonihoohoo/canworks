@@ -1,0 +1,56 @@
+{
+  "description": "An RPDO entry with both its own location and bit channels: two writers of the same bits.",
+  "config": {
+    "schema_version": 1,
+    "adapter": {
+      "type": "socketcan",
+      "interface": "vcan0",
+      "bitrate": 125000
+    },
+    "master": {
+      "node_id": 1,
+      "sync_period_us": 100000
+    },
+    "nodes": [
+      {
+        "node_id": 2,
+        "name": "pingpong",
+        "eds": "cpp-slave.eds",
+        "heartbeat_ms": 100,
+        "status_location": "%IX10.0",
+        "tx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4001",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%ID100"
+              }
+            ]
+          }
+        ],
+        "rx_pdos": [
+          {
+            "entries": [
+              {
+                "index": "0x4000",
+                "subindex": 0,
+                "type": "UNSIGNED32",
+                "iec_location": "%QD100",
+                "bits": [
+                  {
+                    "bit": 0,
+                    "name": "lamp",
+                    "iec_location": "%QX20.0"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "message": "an RPDO entry with bits has no iec_location of its own"
+}

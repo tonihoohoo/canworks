@@ -107,6 +107,12 @@ def _network_uses(master, nodes, at):
                     loc = parse_location((e or {}).get("iec_location"))
                     if loc:
                         out.append(("%snodes[%d].%s[%d].entries[%d].iec_location" % (at, i, key, j, k), loc))
+                    bits = (e or {}).get("bits")
+                    for m, b in enumerate(bits if isinstance(bits, list) else []):
+                        loc = parse_location(b.get("iec_location") if isinstance(b, dict) else None)
+                        if loc:
+                            out.append(("%snodes[%d].%s[%d].entries[%d].bits[%d].iec_location"
+                                        % (at, i, key, j, k, m), loc))
         for j, v in enumerate(n.get("sdo_variables") or []):
             if not isinstance(v, dict):
                 continue

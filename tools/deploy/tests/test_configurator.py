@@ -230,6 +230,27 @@ class Declarations(unittest.TestCase):
         self.assertTrue(block.startswith("VAR\n"))
         self.assertIn("rtd_AI0_Input_PV AT %IW100 : INT;", block)
 
+    def test_bit_channels(self):
+        cfg = rtd_config()
+        entry = cfg["nodes"][0]["tx_pdos"][0]["entries"][0]
+        entry["bits"] = [{"bit": 3, "name": "jog_x_plus", "iec_location": "%IX140.3"},
+                         {"bit": 15, "iec_location": "%IX141.7"}]
+        decls = declare.declarations(cfg, lambda i, ix, sub: "AI0 Input PV" if sub == 1 else None, {})
+        rows = [(d["name"], d["location"], d["type"]) for d in decls]
+        at = rows.index(("rtd_AI0_Input_PV", "%IW100", "INT"))
+        self.assertEqual(rows[at + 1:at + 3], [("rtd_jog_x_plus", "%IX140.3", "BOOL"),
+                                               ("rtd_AI0_Input_PV_bit15", "%IX141.7", "BOOL")])
+        self.assertTrue(decls[at + 1]["description"].endswith("bit 3"), decls[at + 1]["description"])
+        self.assertRegex(declare.st_block(decls), r"rtd_jog_x_plus +AT %IX140\.3 : BOOL;")
+        uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
+        self.assertEqual(uses["nodes[0].tx_pdos[0].entries[0].bits[0].iec_location"], "%IX140.3")
+        # An entry that reaches the program only through its bits is not declared itself.
+        del entry["iec_location"]
+        names = [d["name"] for d in declare.declarations(cfg, lambda *a: None, {})]
+        self.assertIn("rtd_jog_x_plus", names)
+        self.assertIn("rtd_x7130_1_bit15", names)
+        self.assertNotIn("rtd_x7130_1", names)
+
     def test_state_byte(self):
         cfg = rtd_config()
         cfg["nodes"][0]["state_location"] = "%IB20"

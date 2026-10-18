@@ -165,6 +165,23 @@ class Pdos(unittest.TestCase):
         self.assertEqual(tpdo.signals[0].comment, "0x7130:1 INTEGER16 -> %IW100")
         self.assertEqual((message(m, "rtd_TPDO2").cob_id, message(m, "rtd_TPDO2").length), (0x285, 4))
 
+    def test_bit_channels(self):
+        cfg = fixed_io_config()
+        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+            {"bit": 0, "name": "jog_x_minus", "iec_location": "%IX41.0"}, {"bit": 3, "iec_location": "%IX41.3"}]
+        m = model(cfg)
+        tpdo = message(m, "pingpong_TPDO1")
+        bits = [s for s in tpdo.signals if s.length == 1]
+        self.assertEqual([(s.name, s.start) for s in bits], [("pingpong_jog_x_minus", 8), ("pingpong_%s_bit3"
+                                                                                           % tpdo.signals[1].name, 11)])
+        self.assertEqual(bits[0].comment, "0x6000:2 BOOLEAN -> %IX41.0, bit 0")
+        # The file carries the bits in place of the entry, so no signals overlap.
+        text = dbcexport.write(m)
+        self.assertIn(" SG_ pingpong_jog_x_minus : 8|1@1+", text)
+        self.assertNotIn(" SG_ %s : 8|8" % tpdo.signals[1].name, text)
+        if cantools:
+            cantools.database.load_string(text, strict=True)
+
     def test_device_mapping_with_unused_objects(self):
         m = model(fixed_io_config())
         tpdo, rpdo = message(m, "pingpong_TPDO1"), message(m, "pingpong_RPDO1")

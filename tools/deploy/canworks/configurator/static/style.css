@@ -292,6 +292,21 @@ td input[type=text] { width: 100%; }
 ul.pdo-map { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 ul.pdo-map li { padding: 1px 0; }
 ul.pdo-map li .tag { margin-left: 6px; }
+/* Bit channels: the entry's Bits… button and its unfolded bit table. */
+.entry-variable { display: flex; gap: 6px; align-items: center; }
+.entry-variable input { min-width: 0; flex: 1; }
+.bits-button { display: block; white-space: nowrap; margin-top: 2px; }
+tr.entry-bits-row > td { padding: 4px 0 10px 24px; }
+/* The bit table never widens the PDO table: it takes the row's width and scrolls inside it when narrower. */
+.entry-bits { width: 0; min-width: 100%; overflow-x: auto; }
+.entry-bits-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+table.bits { width: auto; }
+table.bits td, table.bits th { padding: 1px 6px; }
+table.bits td.bit-note { max-width: 14em; white-space: normal; }
+table.bits input[data-bit-of] { width: 30ch; }
+table.bits .entry-variable input { flex: none; width: 9ch; }
+table.bits tr:not(.mapped) td { color: var(--muted); }
+.tag.bit-on { background: var(--accent); color: var(--accent-text); }
 .btn-group { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
 .by-hand { display: inline-flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
 .by-hand input.index { width: 9ch; }

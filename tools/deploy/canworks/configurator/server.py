@@ -327,10 +327,11 @@ def _at(cfg, path):
     return obj
 
 
-def place_entries(cfg):
+def place_entries(cfg, rx_bits=False):
     """Gives every PDO entry of a master network that has no location a
     stand-in one of its type's size (%IB0, %QW0, ...), for a pack to place
-    it; returns how many."""
+    it; returns how many. An RPDO entry with bits gets one only with
+    `rx_bits` (the bridge serves its bits there)."""
     n = 0
     for net in contract.networks(cfg):
         for node in net["nodes"]:
@@ -341,9 +342,37 @@ def place_entries(cfg):
                     for e in (p.get("entries") or []) if isinstance(p, dict) else []:
                         if not isinstance(e, dict) or e.get("iec_location") or e.get("type") not in CO_TYPES:
                             continue
+                        # Bit channels carry an RPDO entry's value; place_bits places them.
+                        if key == "rx_pdos" and e.get("bits") and not rx_bits:
+                            continue
                         area, size = layout.area_size(direction, e["type"])
                         e["iec_location"] = element_str(area, size, 0)
                         n += 1
+    return n
+
+
+def place_bits(cfg):
+    """Readies the bit channels of every master network for OpenPLC: a bit
+    without a location gets a stand-in one (%IX0.0, %QX0.0), for a pack to
+    place it, and an RPDO entry with bits loses its own location (the bits
+    write the value); returns how many locations changed."""
+    n = 0
+    for net in contract.networks(cfg):
+        for node in net["nodes"]:
+            if not isinstance(node, dict):
+                continue
+            for key, area in (("tx_pdos", "I"), ("rx_pdos", "Q")):
+                for p in node.get(key) or []:
+                    for e in (p.get("entries") or []) if isinstance(p, dict) else []:
+                        bits = e.get("bits") if isinstance(e, dict) else None
+                        if not isinstance(bits, list) or not bits:
+                            continue
+                        if key == "rx_pdos" and e.pop("iec_location", None) is not None:
+                            n += 1
+                        for b in bits:
+                            if isinstance(b, dict) and not b.get("iec_location"):
+                                b["iec_location"] = element_str(area, "X", 0)
+                                n += 1
     return n
 
 
@@ -1342,6 +1371,10 @@ class Session:
         located = 0
         if old == targets.CODESYS:
             located = place_entries(out)
+        if target == targets.OPENPLC:
+            located += place_bits(out)
+        elif target == targets.BRIDGE:
+            located += place_entries(out, rx_bits=True)
         unused = [{"path": p, "key": k, "reason": why, "removable": targets.removable(k),
                    "message": targets.message(p, k, why, target)} for p, k, why in targets.unused(out, target)]
         if preview:
@@ -1510,7 +1543,10 @@ class Session:
         "j1939_address", "j1939_status", "j1939_valid" and the diagnostics
         keys of J1939_PLACES (no node needed), "j1939_dm_dtcs" with the number
         of codes as type (that many free consecutive %ID), or
-        "j1939_rx"/"j1939_tx" with the signal's length in bits as type."""
+        "j1939_rx"/"j1939_tx" with the signal's length in bits as type. For a
+        PDO entry's bit channels (no node needed): "bit_in"/"bit_out" for one
+        bit, or "bits_in"/"bits_out" with their number as type (`locations`:
+        that many consecutive free bits from a byte's first bit)."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
         for key, size, _, _ in layout.MASTER_LOCATIONS:
@@ -1539,6 +1575,22 @@ class Session:
             while any(("I", "D", element + k) in used for k in range(count)):
                 element += 1
             return {"location": element_str("I", "D", element)}
+        if direction in ("bit_in", "bit_out"):
+            # One bit channel: the lowest free bit.
+            return {"location": layout.suggest("I" if direction == "bit_in" else "Q", "X", used, start)}
+        if direction in ("bits_in", "bits_out"):
+            # An entry's bit channels: `type_name` consecutive free bits from a byte's first bit.
+            try:
+                count = int(type_name)
+            except (TypeError, ValueError):
+                count = 0
+            if not 1 <= count <= 64:
+                raise ApiError(400, "an entry's bits need their number, 1 to 64, as type")
+            area = "I" if direction == "bits_in" else "Q"
+            element = start * 8
+            while any((area, "X", element + k) in used for k in range(count)):
+                element += 8
+            return {"locations": [element_str(area, "X", element + k) for k in range(count)]}
         if direction in ("j1939_rx", "j1939_tx"):
             # A signal: `type_name` is its length in bits.
             try:

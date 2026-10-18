@@ -162,6 +162,7 @@ def _eds_object_names(cfg, eds_paths):
 
 _ENTRY_PATH = re.compile(r"^(?:networks\[(\d+)\]\.)?nodes\[(\d+)\]\.(tx_pdos|rx_pdos)\[(\d+)\]\.entries\[(\d+)\]"
                          r"\.iec_location$")
+_BIT_PATH = re.compile(r"^(.*\.entries\[\d+\])\.bits\[\d+\]\.iec_location$")
 _UNUSED_PATH = re.compile(r"^(?:networks\[(\d+)\])?\.?(?:nodes\[(\d+)\]\.)?(.*)$")
 
 
@@ -180,8 +181,15 @@ def channels(cfg, eds_paths):
         return (o.name, o.type_name) if o else None
 
     out = {}
+    by_entry = {}  # entry path -> its channel, for its bit channels
     for d in declare.declarations(cfg, object_name, {}, slave_object, unlocated=True):
         if d.get("kind") != "pdo":
+            continue
+        bit = _BIT_PATH.match(d["path"])
+        if bit:
+            channel = by_entry.get(bit.group(1))
+            if channel is not None:
+                channel.setdefault("bits", []).append({"bit": d["bit"], "variable": d["name"]})
             continue
         m = _ENTRY_PATH.match(d["path"])
         if not m:
@@ -197,11 +205,13 @@ def channels(cfg, eds_paths):
             index = _int(entry["index"])
             if index is None:
                 raise ValueError("no valid index")
-            out.setdefault((net_i, node_i), []).append({
+            channel = {
                 "dir": "in" if key == "tx_pdos" else "out",
                 "mapping": (0x1A00 if key == "tx_pdos" else 0x1600) + number - 1,
                 "index": index, "sub": _int(entry.get("subindex", 0), 0),
-                "variable": d["name"]})
+                "variable": d["name"]}
+            out.setdefault((net_i, node_i), []).append(channel)
+            by_entry[d["path"][: -len(".iec_location")]] = channel
         except (KeyError, IndexError, TypeError, ValueError) as e:
             raise ExportFailed([("cannot name the I/O channel of node %s %s%d entry %d: %s"
                                  % (node.get("name") or _int(node.get("node_id")), key[:2].upper() + "PDO",

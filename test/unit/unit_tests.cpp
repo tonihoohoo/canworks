@@ -2790,6 +2790,46 @@ TEST(binding_null_output_reads_zero) {
   CHECK(img.latest_outputs()[2] == 0);
 }
 
+// canopen-pdo-io "Bit channels exchanged with the scan".
+TEST(binding_bit_channels) {
+  std::string s = replace(kValid, R"("type": "UNSIGNED32", "iec_location": "%ID100" })",
+                          R"("type": "UNSIGNED32", "iec_location": "%ID100",
+                             "bits": [ { "bit": 3, "iec_location": "%IX20.3" }, { "bit": 31, "iec_location": "%IX21.0" } ] })");
+  s = replace(s, R"("type": "UNSIGNED32", "iec_location": "%QD100" })",
+              R"("type": "UNSIGNED32",
+                 "bits": [ { "bit": 0, "iec_location": "%QX22.0" }, { "bit": 2, "iec_location": "%QX22.2" } ] })");
+  Config cfg;
+  std::vector<std::string> errors;
+  CHECK_MSG(parse_config(s, "/tmp/c.json", ImageLimits(), cfg, errors), join(errors));
+  ProcessImage img;
+  img.build(cfg);
+  CHECK(img.inputs().size() == 1 && img.outputs().size() == 1);
+  static fake_runtime::Image fake;
+  plugin_runtime_args_t rt;
+  fake_runtime::attach(fake, rt);
+
+  // Input: the whole value and each mapped bit.
+  img.set_input(0, 0x80000008);
+  img.commit_inputs();
+  img.copy_to_plc(rt);
+  CHECK(fake.dint_in[100] == 0x80000008);
+  CHECK(fake.bool_in[20][3] == 1 && fake.bool_in[21][0] == 1);
+  img.set_input(0, 0x00000001);
+  img.commit_inputs();
+  img.copy_to_plc(rt);
+  CHECK(fake.bool_in[20][3] == 0 && fake.bool_in[21][0] == 0);
+
+  // Output: built from the bits; unlisted bits are 0, an undeclared bit reads 0.
+  fake.dint_out[100] = 0xFFFFFFFF;  // not the entry's location: ignored
+  fake.bool_out[22][2] = 1;
+  img.copy_from_plc(rt);
+  CHECK(img.latest_outputs()[0] == 0x4);
+  fake.bool_out[22][0] = 1;
+  fake.p_bool_out[22][2] = nullptr;
+  img.copy_from_plc(rt);
+  CHECK(img.latest_outputs()[0] == 0x1);
+}
+
 // ---------------------------------------------------------------------------
 // SDO variables and NMT command bytes (canopen-sdo-variables,
 // canopen-node-supervision)

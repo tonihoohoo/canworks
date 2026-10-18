@@ -2858,6 +2858,7 @@ function renderPdos(i, key, dir, title, eds) {
       const loc = el("input", { type: "text", spellcheck: "false", dataset: { path: ep + ".iec_location" },
         "aria-label": "Location of " + (info ? info.name : e.index) });
       loc.value = e.iec_location || "";
+      if (hasBits(e) && !e.iec_location) loc.placeholder = dir === "output" ? "bits below" : "bits only";
       loc.addEventListener("input", () => setPath(ep + ".iec_location", loc.value.trim()));
       const move = el("select", { "aria-label": "Move to PDO" },
         pdos.map((_, x) => el("option", { value: x }, `PDO ${pdos[x].number ?? x + 1}`)),
@@ -2869,9 +2870,16 @@ function renderPdos(i, key, dir, title, eds) {
         "aria-label": "Variable name of " + (info ? info.name : e.index) });
       variable.value = typeof e.name === "string" ? e.name : "";
       variable.addEventListener("input", () => setPath(ep + ".name", variable.value.trim()));
-      return el("tr", { dataset: { path: ep } },
-        el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", null, e.type),
+      const bitsKey = `${S.net}|${ep}`;
+      const bitsButton = intInfo(e.type) ? el("button", { type: "button", class: "small bits-button", dataset: { bitsFor: ep },
+        "aria-expanded": String(bitsOpen(bitsKey, ep)), title: `Map single bits of ${e.index}:${e.subindex ?? 0} to their own BOOL variables`,
+        onclick: () => { S.bitsOpen[bitsKey] = !bitsOpen(bitsKey, ep); render(); } },
+        hasBits(e) ? `Bits… (${e.bits.length})` : "Bits…") : null;
+      const columns = 6 + (locations ? 1 : 0);
+      const row = el("tr", { dataset: { path: ep } },
+        el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", { class: "entry-type" }, e.type, bitsButton),
         el("td", null, variable, el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
+          el("span", { class: "field-msg", dataset: { for: ep + ".bits" } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
         locations ? el("td", null, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
@@ -2880,14 +2888,231 @@ function renderPdos(i, key, dir, title, eds) {
         el("td", null, move),
         el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove ${e.index}:${e.subindex ?? 0} from the PDO`,
           onclick: () => removeEntry(i, key, j, k) }, "✕")));
+      return bitsButton && bitsOpen(bitsKey, ep) ? [row, el("tr", { class: "entry-bits-row" },
+        el("td", { colspan: columns }, bitTable(i, dir, ep, e, info, eds)))] : [row];
     });
     box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Variable"]
       .concat(locations ? ["PLC location"] : [], ["PDO", ""])))),
-      el("tbody", null, rows)));
+      el("tbody", null, rows.flat())));
     fs.append(box);
   });
   fs.append(objectPicker(i, eds, dir));
   return fs;
+}
+
+// -- bit channels (canworks.json `bits`): single bits of an integer entry as
+// BOOL variables of their own.
+function hasBits(e) { return Array.isArray(e.bits) && e.bits.length > 0; }
+
+// Whether an entry's bit table is unfolded: the user's choice, else open
+// while one of its bits has a problem.
+function bitsOpen(key, ep) {
+  S.bitsOpen = S.bitsOpen || {};
+  if (S.bitsOpen[key] !== undefined) return S.bitsOpen[key];
+  return ((S.check && S.check.items) || []).some((it) => (it.where || []).some((w) =>
+    (w.net === null || w.net === S.net) && typeof w.path === "string" && w.path.startsWith(ep + ".bits")));
+}
+
+// An IEC 61131-3 identifier (declare.identifier); a note's text lower case.
+function bitIdentifier(text, lower = true) {
+  let s = String(text || "").replace(/[^A-Za-z0-9_]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  if (lower) s = s.toLowerCase();
+  if (!s) s = "v";
+  return /^[0-9]/.test(s) ? "n" + s : s;
+}
+
+// The name part a bit without a `name` gets: `<entry part>_bit<n>` (declare.bit_name).
+function bitDefaultName(e, info, bit) {
+  const label = (typeof e.name === "string" && e.name) || (info && info.name) || `x${hex4(num(e.index)).slice(2)}_${num(e.subindex || 0)}`;
+  return `${bitIdentifier(label, false)}_bit${bit}`;
+}
+
+// The Modbus number of a bit in a bridge config: the image byte holding it
+// (modbusmap.bit_byte) times 8 plus its place in the byte; null without the
+// entry's location.
+function bridgeBitNumber(e, bit) {
+  const m = /^%([IQ])([BWDL])(\d+)$/i.exec(String(e.iec_location || "").trim());
+  const it = intInfo(e.type);
+  if (!m || !it) return null;
+  let byte = Number(m[3]);
+  if (it.bytes > 1) {
+    const words = Math.floor(it.bytes / 2), word = Math.floor(bit / 16);
+    const order = S.model.top.bridge && S.model.top.bridge.word_order === "low_first" ? "low_first" : "high_first";
+    byte += 2 * (order === "low_first" ? word : words - 1 - word) + (bit % 16 >= 8 ? 0 : 1);
+  }
+  return `${m[1].toUpperCase() === "I" ? "discrete input" : "coil"} ${byte * 8 + (bit % 8)}`;
+}
+
+// The note's name of each bit of an entry: { "0": "ready to switch on", ... }.
+function noteBitNames(n, e) {
+  const info = objectInfo(edsFor(n), e.index, e.subindex);
+  const note = noteFor(notesOf(n.eds), n.eds, e.index, e.subindex ?? 0, !!(info && info.var));
+  return note.bits || {};
+}
+
+// A new bit's name from the device note, as an identifier, unless the node
+// already uses it; undefined for the default name.
+function noteBitName(n, e, bit, taken) {
+  const text = noteBitNames(n, e)[String(bit)];
+  if (!text) return undefined;
+  const name = bitIdentifier(text);
+  if (taken.has(name)) return undefined;
+  taken.add(name);
+  return name;
+}
+
+// The names the node's entries and bits use, lower case (they must differ ignoring case).
+function nodeNames(n) {
+  const out = new Set();
+  for (const key of ["tx_pdos", "rx_pdos"]) for (const p of n[key] || []) for (const e of p.entries || []) {
+    if (typeof e.name === "string" && e.name) out.add(e.name.toLowerCase());
+    for (const b of Array.isArray(e.bits) ? e.bits : []) if (typeof b.name === "string" && b.name) out.add(b.name.toLowerCase());
+  }
+  return out;
+}
+
+// The bit channels of a node's PDO entries for one object: [{ bit, name }].
+function bitChannelsOf(n, o) {
+  const out = [];
+  for (const key of ["tx_pdos", "rx_pdos"]) for (const p of n[key] || []) for (const e of p.entries || []) {
+    if (!hasBits(e) || !sameObject(e.index, e.subindex, o.index, o.subindex)) continue;
+    const info = objectInfo(edsFor(n), e.index, e.subindex);
+    for (const b of e.bits) out.push({ bit: b.bit, name: b.name || bitDefaultName(e, info, b.bit) });
+  }
+  return out;
+}
+
+// Before an RPDO entry with its own location gets bits on OpenPLC: the bits
+// write the value, so the location goes. False when the user keeps it.
+async function bitsReplaceLocation(e, ep) {
+  if (!e.iec_location || hasBits(e) || !usedBy("nodes.rx_pdos.entries.bits.iec_location")) return true;
+  const answer = await modal(`${e.index}:${e.subindex ?? 0} is written from ${e.iec_location} now. With bits, the program sets each bit ` +
+    `and the bits make up the value, so ${e.iec_location} is removed from the entry.`,
+    [["cancel", "Keep the location"], ["bits", "Use bits", true]]);
+  if (answer !== "bits") return false;
+  delete getPath(ep).iec_location;
+  return true;
+}
+
+async function mapBit(i, dir, ep, bit) {
+  const n = S.config.nodes[i];
+  const e = getPath(ep);
+  if (dir === "output" && !(await bitsReplaceLocation(e, ep))) { render(); return; }
+  const b = { bit };
+  const name = noteBitName(n, e, bit, nodeNames(n));
+  if (name) b.name = name;
+  if (usedBy(`nodes.${dir === "input" ? "tx" : "rx"}_pdos.entries.bits.iec_location`)) {
+    try {
+      b.iec_location = (await api("POST", "/api/place", { config: fileConfig(), network: S.net,
+        direction: dir === "input" ? "bit_in" : "bit_out" })).location;
+    } catch (err) { banner(err.message, true); }
+  }
+  e.bits = (e.bits || []).concat([b]).sort((x, y) => x.bit - y.bit);
+  changed(true);
+}
+
+function unmapBit(ep, bit) {
+  const e = getPath(ep);
+  e.bits = (e.bits || []).filter((b) => b.bit !== bit);
+  if (!e.bits.length) delete e.bits;
+  changed(true);
+}
+
+// Every bit mapped: the missing ones on the free block's bit of their number
+// (bit n at bit n mod 8 of the block's (n div 8)-th byte); the mapped ones stay.
+async function mapAllBits(i, dir, ep, button) {
+  const n = S.config.nodes[i];
+  const e = getPath(ep);
+  const count = intInfo(e.type).bytes * 8;
+  if (dir === "output" && !(await bitsReplaceLocation(e, ep))) { render(); return; }
+  let locations = null;
+  if (usedBy(`nodes.${dir === "input" ? "tx" : "rx"}_pdos.entries.bits.iec_location`)) {
+    try {
+      locations = (await busy(button, "Placing…", () => api("POST", "/api/place", { config: fileConfig(), network: S.net,
+        direction: dir === "input" ? "bits_in" : "bits_out", type: count }))).locations;
+    } catch (err) { banner(err.message, true); return; }
+  }
+  const have = new Map((e.bits || []).map((b) => [b.bit, b]));
+  const taken = nodeNames(n);
+  const out = [];
+  for (let bit = 0; bit < count; bit++) {
+    if (have.has(bit)) { out.push(have.get(bit)); continue; }
+    const b = { bit };
+    const name = noteBitName(n, e, bit, taken);
+    if (name) b.name = name;
+    if (locations) b.iec_location = locations[bit];
+    out.push(b);
+  }
+  e.bits = out;
+  changed(true);
+}
+
+function unmapAllBits(ep) {
+  delete getPath(ep).bits;
+  changed(true);
+}
+
+// The unfolded bit table of an entry: bit, the note's name, a tick that maps
+// it, its name and (OpenPLC) its location, or (bridge) its Modbus number.
+function bitTable(i, dir, ep, e, info, eds) {
+  const n = S.config.nodes[i];
+  const count = intInfo(e.type).bytes * 8;
+  const notes = noteBitNames(n, e);
+  const located = usedBy(`nodes.${dir === "input" ? "tx" : "rx"}_pdos.entries.bits.iec_location`);
+  const bridge = projectTarget() === "bridge";
+  const what = `${e.index}:${e.subindex ?? 0}`;
+  const byBit = new Map((e.bits || []).map((b, m) => [b.bit, m]));
+  const rows = [];
+  for (let bit = 0; bit < count; bit++) {
+    const m = byBit.get(bit);
+    const b = m === undefined ? null : e.bits[m];
+    const bp = `${ep}.bits[${m}]`;
+    const tick = el("input", { type: "checkbox", "aria-label": `Map bit ${bit} of ${what}`, dataset: { bitTick: bit } });
+    tick.checked = !!b;
+    tick.addEventListener("change", () => (tick.checked ? mapBit(i, dir, ep, bit) : unmapBit(ep, bit)));
+    let nameCell, locCell = null;
+    if (b) {
+      const name = el("input", { type: "text", spellcheck: "false", dataset: { path: bp + ".name", bitOf: ep, bit },
+        placeholder: bitDefaultName(e, info, bit), "aria-label": `Name of bit ${bit} of ${what}` });
+      name.value = typeof b.name === "string" ? b.name : "";
+      name.addEventListener("input", () => setPath(bp + ".name", name.value.trim()));
+      nameCell = el("td", null, name, el("span", { class: "field-msg", dataset: { for: bp + ".name" } }),
+        el("span", { class: "field-msg", dataset: { for: bp + ".bit" } }), el("span", { class: "field-msg", dataset: { for: bp } }));
+      if (located) {
+        const loc = el("input", { type: "text", spellcheck: "false", dataset: { path: bp + ".iec_location" },
+          "aria-label": `Location of bit ${bit} of ${what}`, placeholder: dir === "input" ? "%IX…" : "%QX…" });
+        loc.value = b.iec_location || "";
+        loc.addEventListener("input", () => setPath(bp + ".iec_location", loc.value.trim()));
+        const suggest = el("button", { type: "button", class: "small", title: `Suggest a free ${dir === "input" ? "%IX" : "%QX"} bit`,
+          onclick: (ev) => busy(ev.currentTarget, "…", async () => {
+            try {
+              const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, direction: dir === "input" ? "bit_in" : "bit_out" });
+              setPath(bp + ".iec_location", r.location);
+              render();
+            } catch (err) { banner(err.message, true); }
+          }) }, "Suggest");
+        locCell = el("td", null, el("div", { class: "entry-variable" }, loc, suggest),
+          el("span", { class: "field-msg", dataset: { for: bp + ".iec_location" } }), declNote(bp + ".iec_location"));
+      } else if (bridge) {
+        locCell = el("td", { class: "muted", dataset: { bitModbus: bit } }, bridgeBitNumber(e, bit) || "with the entry's location");
+      }
+    } else {
+      nameCell = el("td", { class: "muted" }, dir === "output" && hasBits(e) && !(bridge && e.iec_location) ? "sent as 0" : "");
+      locCell = located || bridge ? el("td") : null;
+    }
+    rows.push(el("tr", { class: b ? "mapped" : null, dataset: { bitRow: bit } },
+      el("td", null, String(bit)), el("td", { class: "muted bit-note" }, notes[String(bit)] || ""), el("td", null, tick), nameCell, locCell));
+  }
+  const mapped = (e.bits || []).length;
+  return el("div", { class: "entry-bits", dataset: { bitsTable: ep } },
+    el("div", { class: "entry-bits-head" },
+      el("span", { class: "muted" }, `${mapped} of ${count} bits of ${what} mapped to BOOL variables` +
+        (located ? "" : bridge ? ", served in the entry's own location" : "")),
+      mapped < count ? el("button", { type: "button", class: "small", dataset: { mapAllBits: ep },
+        onclick: (ev) => mapAllBits(i, dir, ep, ev.currentTarget) }, "Map all bits") : null,
+      mapped ? el("button", { type: "button", class: "small", dataset: { unmapAllBits: ep }, onclick: () => unmapAllBits(ep) }, "Unmap all") : null),
+    el("table", { class: "bits" }, el("thead", null, el("tr", null, thCells(["Bit", "Device note", "Map", "Variable"]
+      .concat(located ? ["PLC location"] : bridge ? ["Modbus"] : [])))), el("tbody", null, rows)));
 }
 
 // A PDO's communication settings under one summary line ("COB-ID 0x185 ·
@@ -5875,6 +6100,17 @@ function odBuild(box, id, n, allow, data) {
         onclick: () => { st.bitsOpen[key] = !st.bitsOpen[key]; showValue(key); } }, st.bitsOpen[key] ? "Hide bits" : "Bits"));
     }
     if (tools.childNodes.length) c.value.append(" ", tools);
+    // The entry's bit channels in the configuration: each with its name and state.
+    const channels = it && notesCfg ? bitChannelsOf(notesCfg, e) : [];
+    let raw64 = channels.length ? odNumber(v.data, e.type) : null;
+    if (typeof raw64 === "bigint") {
+      if (raw64 < 0n) raw64 += 1n << BigInt(8 * it.bytes);
+      c.value.append(el("div", { class: "od-bits", dataset: { online: "od-bit-channels" } }, channels.map((ch) => {
+        const on = ((raw64 >> BigInt(ch.bit)) & 1n) === 1n;
+        return el("span", { class: "tag" + (on ? " bit-on" : ""), title: `Bit ${ch.bit}: ${on ? "on" : "off"}`, dataset: { bitChannel: ch.name, state: on ? "on" : "off" } },
+          `${ch.name} ${on ? "on" : "off"}`);
+      })));
+    }
     if (bits && st.bitsOpen[key]) {
       c.value.append(el("div", { class: "od-bits", dataset: { online: "od-bit-list" } },
         bits.length ? bits.map((b) => el("span", { class: "tag" }, b)) : el("span", { class: "muted" }, "no bit set")));
@@ -7194,6 +7430,12 @@ function applyCheck() {
   if (entries.length) {
     const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
     for (const x of entries) x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
+  }
+  // A bit's default name follows its entry's name (and the declaration's, when declared).
+  for (const x of document.querySelectorAll("input[data-bit-of]")) {
+    const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
+    const d = ((S.check && S.check.declarations) || []).find((y) => y.kind === "pdo" && y.path === prefix + x.dataset.path.replace(/\.name$/, ".iec_location"));
+    if (d) x.placeholder = d.entry_name;
   }
   problemsSummary();
   const list = $("#problem-list");

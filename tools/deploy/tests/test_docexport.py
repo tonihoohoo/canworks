@@ -116,6 +116,20 @@ class Model(unittest.TestCase):
         self.assertEqual(m["doc_schema_version"], 2)
         self.assertEqual(m["warnings"], [])
 
+    def test_bit_channels(self):
+        cfg = base_config()
+        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+            {"bit": 3, "name": "jog_x_plus", "iec_location": "%IX20.3"}]
+        m = build(cfg)
+        entry = pdo(m["networks"][0]["nodes"][0], "TPDO", 1)["entries"][0]
+        self.assertEqual(entry["bit_channels"], [{"bit": 3, "name": "jog_x_plus", "note": "", "location": "%IX20.3",
+                                                  "variables": []}])
+        self.assertIn("%IX20.3", [r["location"] for r in m["io"]])
+        text = docwriter.write(m)
+        check_html(self, text)
+        self.assertIn("<code>0x4001:0</code> bit 3", text)
+        self.assertIn("jog_x_plus", text)
+
     def test_error_stops(self):
         cfg = base_config()
         cfg["nodes"][0]["tx_pdos"][0]["number"] = 2

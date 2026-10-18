@@ -530,8 +530,9 @@ For a module whose TPDO 1 maps 0x6000:1 and 0x6000:2 and whose RPDO 1 maps 0x620
 | `index` | yes | Object index, as a number or a string (`"0x6000"`). |
 | `subindex` | no | Default 0. |
 | `type` | yes | `BOOLEAN`, `INTEGER8`, `INTEGER16`, `INTEGER32`, `INTEGER64`, `UNSIGNED8`, `UNSIGNED16`, `UNSIGNED32`, `UNSIGNED64`, `REAL32` or `REAL64`. It must equal the object's `DataType` in the EDS. |
-| `iec_location` | yes | The PLC address. Left out only for an entry of a TPDO that feeds a [PDO link](#pdo-links) (the master receives it, the PLC does not), one a gateway route uses, or any entry of a [CODESYS config](#codesys-target). |
+| `iec_location` | yes | The PLC address. Left out only for an entry of a TPDO that feeds a [PDO link](#pdo-links) (the master receives it, the PLC does not), one a gateway route uses, an entry whose value goes through its [bits](#bit-channels), or any entry of a [CODESYS config](#codesys-target). |
 | `name` | no | The variable name part of the entry: its declaration is `<node>_<name>` (`<network>_<node>_<name>` with several networks) instead of the name from the EDS, the CODESYS channel and the Modbus register row get it too. An identifier of up to 64 characters, unique within the node (ignoring case). |
+| `bits` | no | [Bit channels](#bit-channels): single bits of an integer entry as BOOL variables of their own. |
 
 The type must fit the location exactly:
 
@@ -546,6 +547,30 @@ The type must fit the location exactly:
 Values are copied bit for bit. Signed and floating-point objects therefore keep their bit pattern in the unsigned PLC location, and the program interprets them.
 
 The object's `AccessType` in the EDS must allow the direction: a `tx_pdos` entry (the slave sends it) needs `ro`, `rw`, `rwr` or `const`; an `rx_pdos` entry (the master writes it) needs `wo`, `rw` or `rww`.
+
+### Bit channels
+
+A byte or word of a device often carries one signal per bit: the eight inputs of an I/O module, the bits of a CiA 402 statusword. `bits` gives such bits a BOOL variable each, with a name of their own, so the program reads `panel_jog_x_plus` instead of picking bit 3 out of a byte:
+
+```json
+{ "index": "0x6000", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%IB40",
+  "bits": [ { "bit": 0, "name": "start", "iec_location": "%IX41.0" },
+            { "bit": 3, "name": "jog_x_plus", "iec_location": "%IX41.3" } ] }
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `bit` | yes | The bit of the entry's value, 0 for the least significant one, below the type's size. Each bit at most once. |
+| `name` | no | The variable name part, as an entry's `name`: the declaration is `<node>_<name>`. Default: `<entry part>_bit<n>` (`statusword_bit3`). Unique within the node together with the entry names (ignoring case). |
+| `iec_location` | OpenPLC | An `%IX` bit for a TPDO entry, a `%QX` bit for an RPDO entry. Left out in a CODESYS or Modbus bridge config. |
+
+Only integer entries (`INTEGER*`, `UNSIGNED*`) have bits. OpenPLC keeps its bit, byte and word tables apart (`%IX41.0` is not bit 0 of `%IB41`), so the plugin copies each bit every scan:
+
+- A TPDO entry may keep its own `iec_location` next to its bits: the program then has the whole value and the bits. Without one it has the bits only.
+- An RPDO entry has its bits or its own location, not both (both would write the same bits). The program sets the bits and the plugin builds the value from them; bits not listed are sent as 0.
+- A bit's location must not overlap any other location, as for entries.
+
+In a [CODESYS config](#codesys-target) the bits name the channel's bit variables and have no location. In a [Modbus bridge](modbus-bridge.md) config the entry keeps its own location and the bits are names only: each is served as the discrete input or coil that holds it.
 
 ## PDO links
 

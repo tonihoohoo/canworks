@@ -480,7 +480,8 @@
         "index": { "$ref": "canworks.v1.schema.json#/$defs/index" },
         "subindex": { "$ref": "canworks.v1.schema.json#/$defs/subindex" },
         "type": { "$ref": "canworks.v1.schema.json#/$defs/co_type" },
-        "name": { "$ref": "canworks.v1.schema.json#/$defs/entry_name" }
+        "name": { "$ref": "canworks.v1.schema.json#/$defs/entry_name" },
+        "bits": { "$ref": "canworks.v1.schema.json#/$defs/entry/properties/bits" }
       },
       "required": [ "index", "type" ]
     },

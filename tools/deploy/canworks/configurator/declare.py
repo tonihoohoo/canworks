@@ -29,6 +29,11 @@ def identifier(text):
     return s
 
 
+def bit_name(entry_label, bit):
+    """The name part of a bit channel without a `name`: `<entry part>_bit<n>`."""
+    return "%s_bit%d" % (identifier(entry_label), bit)
+
+
 # Descriptions of the master's and a node's diagnostic locations.
 MASTER_TEXT = {
     "bus_state_location": "CAN bus state", "tx_error_count_location": "CAN TX error count",
@@ -110,9 +115,12 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
     `dm_rx<i>`), per own code `<network>_dtc_<spn>_<fmi>`, and
     `<network>_dm_lamps` and `<network>_dm_clears`.
 
-    A PDO entry's `name` replaces the EDS part of its name. With `unlocated`
-    (the CODESYS export) a PDO entry without a location is named too, with
-    location None."""
+    A PDO entry's `name` replaces the EDS part of its name. Each located
+    bit channel of an entry adds a BOOL right after the entry (`bit` holds
+    its number), named `<node>_<name>`, or `<node>_<entry part>_bit<n>`
+    without a name. With `unlocated` (the CODESYS export) a PDO entry
+    and a bit channel without a location are named too, with location
+    None."""
     out, names = [], set()
 
     def unique(base):
@@ -154,7 +162,10 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                 for j, p in enumerate(n.get(key) or []):
                     for k, e in enumerate(p.get("entries") or []):
                         located = parse_location(e.get("iec_location"))
-                        if not (located or unlocated) or e.get("type") not in IEC_TYPE:
+                        bits = [(m, b) for m, b in enumerate(e.get("bits") if isinstance(e.get("bits"), list) else [])
+                                if isinstance(b, dict) and isinstance(b.get("bit"), int)
+                                and (unlocated or parse_location(b.get("iec_location")))]
+                        if not (located or unlocated or bits) or e.get("type") not in IEC_TYPE:
                             continue
                         index = e["index"] if isinstance(e["index"], int) else int(str(e["index"]), 0)
                         sub = e.get("subindex", 0)
@@ -165,14 +176,25 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                         path = at + "nodes[%d].%s[%d].entries[%d].iec_location" % (i - first, key, j, k)
                         pdo = "%s%s" % ("TPDO" if key == "tx_pdos" else "RPDO", p.get("number") or j + 1)
                         text = "%s %s 0x%04X:%d %s" % (who, pdo, index, sub, eds_name or "")
-                        name = unique("%s_%s" % (prefix, identifier(label)))
-                        # `entry_name`: the part after the prefixes, which an
-                        # entry's `name` gives (a switch to CODESYS keeps it).
-                        out.append({"name": name, "entry_name": name[len(prefix) + 1:],
-                                    "location": e["iec_location"].strip() if located else None,
-                                    "type": IEC_TYPE[e["type"]],
-                                    "path": path, "declared_as": declared.get(path), "node": i, "kind": "pdo",
-                                    "description": text.strip()})
+                        if located or unlocated:
+                            name = unique("%s_%s" % (prefix, identifier(label)))
+                            # `entry_name`: the part after the prefixes, which an
+                            # entry's `name` gives (a switch to CODESYS keeps it).
+                            out.append({"name": name, "entry_name": name[len(prefix) + 1:],
+                                        "location": e["iec_location"].strip() if located else None,
+                                        "type": IEC_TYPE[e["type"]],
+                                        "path": path, "declared_as": declared.get(path), "node": i, "kind": "pdo",
+                                        "description": text.strip()})
+                        # Bit channels: one BOOL each, after the entry.
+                        for m, b in bits:
+                            bpath = path[: -len("iec_location")] + "bits[%d].iec_location" % m
+                            bname = unique("%s_%s" % (prefix, identifier(b["name"]) if b.get("name")
+                                                      else bit_name(label, b["bit"])))
+                            bloc = b.get("iec_location") if parse_location(b.get("iec_location")) else None
+                            out.append({"name": bname, "entry_name": bname[len(prefix) + 1:],
+                                        "location": bloc.strip() if bloc else None, "type": "BOOL",
+                                        "path": bpath, "declared_as": declared.get(bpath), "node": i, "kind": "pdo",
+                                        "bit": b["bit"], "description": "%s bit %d" % (text.strip(), b["bit"])})
             for j, v in enumerate(n.get("sdo_variables") or []):
                 if not parse_location(v.get("iec_location")) or v.get("type") not in IEC_TYPE:
                     continue

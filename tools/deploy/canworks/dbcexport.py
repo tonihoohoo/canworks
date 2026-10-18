@@ -360,6 +360,8 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 signed, float_kind = _signal_type(type_name, length)
                 if entry and loc_text:
                     what = "-> " + loc_text
+                elif entry and entry.get("bits"):
+                    what = "(the PLC uses its bits)"
                 elif entry and tx and (n_id(n), num) in linked:
                     what = "(PDO link, not used by the PLC)"
                 elif entry:  # a version 2 entry a gateway route uses: no PLC location
@@ -374,6 +376,19 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 if notes is not None and obj is not None:
                     note_signal(notes.note(index, sub), signal, type_name)
                 msg.signals.append(signal)
+                signal.has_bits = bool(entry and isinstance(entry.get("bits"), list) and entry["bits"])
+                # Bit channels: a one-bit signal each, next to the entry's own.
+                for b in (entry.get("bits") if entry and isinstance(entry.get("bits"), list) else []):
+                    if not isinstance(b, dict) or not isinstance(b.get("bit"), int) or b["bit"] >= length:
+                        continue
+                    plc_name, bit_text = _location_label(b.get("iec_location"), names)
+                    part = identifier(b["name"]) if b.get("name") else "%s_bit%d" % (name, b["bit"])
+                    bname = taken.add(plc_name or "%s_%s" % (node_name, part), "%04X_%d_%d" % (index, sub, b["bit"]))
+                    bs = Signal(bname, bit + b["bit"], 1, False, 0, [receiver],
+                                "0x%04X:%d BOOLEAN %s" % (index, sub, "-> %s, bit %d" % (bit_text, b["bit"]) if bit_text
+                                                          else "bit %d of the entry" % b["bit"]))
+                    bs.position = position
+                    msg.signals.append(bs)
                 bit += length
             msgs.append(msg)
     for s in n.get("sdo", []):
@@ -631,6 +646,14 @@ def mux_signals(config_signals, signals):
         s.mux_on, s.mux_ranges = on, mux_merge(ranges)
 
 
+def _written(m):
+    """The signals a DBC file carries: an entry with bit channels gives way
+    to its one-bit signals, so no two signals overlap (cantools loads
+    overlapping signals only when not strict). The model keeps both for the
+    bus trace."""
+    return [s for s in m.signals if not getattr(s, "has_bits", False)]
+
+
 def write(model):
     """The model as DBC text (ASCII, CRLF)."""
     extended = [m for m in model.messages if _extended_mux(m)]
@@ -639,7 +662,7 @@ def write(model):
          "", "BS_:", "", "BU_: " + " ".join(model.nodes), ""]
     for m in model.messages:
         L.append("BO_ %d %s: %d %s" % (m.dbc_id, m.name, m.length, m.sender))
-        for s in m.signals:
+        for s in _written(m):
             mux = _mux_mark(s)
             lo, hi = s.range()
             L.append(' SG_ %s%s : %d|%d@%d%s (%s,%s) [%s|%s] "%s" %s'
@@ -651,7 +674,7 @@ def write(model):
     for m in model.messages:
         if m.comment:
             L.append('CM_ BO_ %d "%s";' % (m.dbc_id, _ascii(m.comment)))
-        for s in m.signals:
+        for s in _written(m):
             if s.comment:
                 L.append('CM_ SG_ %d %s "%s";' % (m.dbc_id, s.name, _ascii(s.comment)))
     j1939 = model.protocol == "J1939"
@@ -672,17 +695,17 @@ def write(model):
         for m in model.messages:
             L.append('BA_ "VFrameFormat" BO_ %d %d;' % (m.dbc_id, 3 if m.j1939 else 1 if m.extended else 0))
     for m in model.messages:
-        for s in m.signals:
+        for s in _written(m):
             if s.values:
                 L.append("VAL_ %d %s %s ;" % (m.dbc_id, s.name,
                                               " ".join('%d "%s"' % (v, _ascii(t)) for v, t in s.values)))
     for m in model.messages:
-        for s in m.signals:
+        for s in _written(m):
             if s.float_kind:
                 L.append("SIG_VALTYPE_ %d %s : %d;" % (m.dbc_id, s.name, s.float_kind))
     # Extended multiplexing, Vector style: a line for every dependent signal.
     for m in extended:
-        for s in m.signals:
+        for s in _written(m):
             if s.mux_on is not None and s.mux_ranges:
                 L.append("SG_MUL_VAL_ %d %s %s %s;" % (m.dbc_id, s.name, s.mux_on,
                                                         ", ".join("%d-%d" % r for r in s.mux_ranges)))

@@ -1,4 +1,5 @@
 {
+ "tests.test_configurator_bits_page.BitsPage": 4.9,
  "tests.test_configurator_bridge_page.BridgePage": 6.7,
  "tests.test_configurator_checks_page.ChecksPage": 9.5,
  "tests.test_configurator_checks_page.SimulationFile": 2.4,

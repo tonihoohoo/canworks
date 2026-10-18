@@ -153,6 +153,16 @@ class EntryName(unittest.TestCase):
         entries[0]["name"] = entries[1]["name"] = "Door"
         self.assertIn('two PDO entries are named "Door"', "\n".join(check(cfg).errors))
 
+    def test_duplicate_bit_names(self):
+        cfg = load(BRIDGE)
+        entries = cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"]
+        entries[0]["name"] = "Door"
+        entries[1]["bits"] = [{"bit": 0, "name": "lamp"}, {"bit": 1, "name": "door"}]
+        errors = "\n".join(check(cfg).errors)
+        self.assertIn('two PDO entries or bits are named "door"', errors)
+        entries[1]["bits"][1]["name"] = "LAMP"
+        self.assertIn('two PDO entries or bits are named "LAMP"', "\n".join(check(cfg).errors))
+
     def test_name_names_the_register_row(self):
         from canworks import modbusmap
         cfg = load(BRIDGE)
@@ -341,6 +351,35 @@ class Server(Running):
         self.assertNotIn("bridge", out)
         r = self.switch(self.cfg, "bridge", pack=False, keep=True)
         self.assertEqual(entries(r["config"]), entries(self.cfg))
+
+    def test_bit_channels_follow_the_target(self):
+        dio = self.cfg["networks"][0]["nodes"][1]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "start", "iec_location": "%IX110.0"}]
+        out_entry = dio["rx_pdos"][0]["entries"][0]
+        del out_entry["iec_location"]
+        out_entry["bits"] = [{"bit": 0, "name": "lamp", "iec_location": "%QX110.0"}, {"bit": 1, "iec_location": "%QX110.1"}]
+        self.assertEqual(check(self.cfg).errors, [])
+        # The bridge serves the bits in the entry's own location: the RPDO entry gets one, the bits keep their names.
+        cfg = self.switch(self.cfg, "bridge")["config"]
+        dio = cfg["networks"][0]["nodes"][1]
+        self.assertTrue(dio["rx_pdos"][0]["entries"][0]["iec_location"])
+        self.assertEqual(dio["rx_pdos"][0]["entries"][0]["bits"], [{"bit": 0, "name": "lamp"}, {"bit": 1}])
+        self.assertEqual(check(cfg).errors, [])
+        # Back to OpenPLC: the bits get locations again and the RPDO entry gives up its own.
+        out = self.switch(cfg, "openplc")["config"]
+        rx = out["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]
+        self.assertNotIn("iec_location", rx)
+        self.assertTrue(all(b["iec_location"].startswith("%QX") for b in rx["bits"]))
+        self.assertEqual(check(out).errors, [])
+        # CODESYS: names only, every bit named.
+        cs = self.switch(self.cfg, "codesys")["config"]
+        bits = cs["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]["bits"]
+        self.assertEqual([b.get("iec_location") for b in bits], [None, None])
+        self.assertEqual(bits[0]["name"], "lamp")
+        self.assertTrue(bits[1]["name"].endswith("_bit1"), bits[1])
+        self.assertEqual(check(cs).errors, [])
+        back = self.switch(cs, "openplc")["config"]
+        self.assertEqual(check(back).errors, [])
 
     def test_bridge_to_codesys(self):
         cfg = self.switch(self.cfg, "bridge")["config"]

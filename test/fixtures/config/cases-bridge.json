@@ -716,6 +716,20 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": ["%IB571", "diagnostics rx[0] code 2"]
-    }
+    },
+    { "name": "bit channels on the bridge name bits of the entry's own location",
+      "patch": [ [ "set", "networks/0/nodes/0/tx_pdos/0/entries/0/bits", [ { "bit": 3, "name": "ready" } ] ], [ "set", "networks/0/nodes/0/rx_pdos/0/entries/0/bits", [ { "bit": 0, "name": "lamp" } ] ] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "TPDO bit channels on the bridge",
+      "patch": [ [ "set", "networks/0/nodes/0/tx_pdos/0/entries/0/bits", [ { "bit": 3, "name": "ready" } ] ] ],
+      "schema": "valid", "verdict": "accept" },
+    { "name": "bit channel with a location on the bridge",
+      "patch": [ [ "set", "networks/0/nodes/0/tx_pdos/0/entries/0/bits", [ { "bit": 3, "iec_location": "%IX40.3" } ] ] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "node 2 (pingpong), object 0x4001:0 bit 3: a bit has no iec_location in a bridge config" ] },
+    { "name": "bridge entry with bits and no location",
+      "patch": [ [ "delete", "networks/0/nodes/0/tx_pdos/0/entries/0/iec_location" ], [ "set", "networks/0/nodes/0/tx_pdos/0/entries/0/bits", [ { "bit": 3 } ] ] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "node 2 (pingpong), object 0x4001:0: the bridge serves an entry's bits in its own location" ] }
   ]
 }

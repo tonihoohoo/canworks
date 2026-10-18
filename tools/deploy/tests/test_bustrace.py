@@ -417,6 +417,16 @@ class Decoding(unittest.TestCase):
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
 
+    def test_bit_channels_under_the_entry(self):
+        cfg = copy.deepcopy(load_cases()["base"])
+        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+            {"bit": 3, "name": "jog_x_plus", "iec_location": "%IX20.3"}]
+        dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
+        d = dec.decode(Frame(0, 0x182, bytes([0x08, 0, 0, 0])))
+        values = [(key.split(".", 1)[1], v) for key, v in d.signals]
+        self.assertEqual(values[1:], [("pingpong_jog_x_plus", 1)])
+        self.assertEqual(values[0][1], 8)
+
     def test_configured_emcy_cob_id(self):
         # emcy_cob_id (add-emcy-history): the moved COB-ID decodes as the node's EMCY.
         cfg = copy.deepcopy(load_cases()["base"])

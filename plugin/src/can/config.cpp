@@ -424,6 +424,81 @@ class Parser {
     return true;
   }
 
+  // An entry's bit channels (canopen-pdo-io "Bit channels of a PDO entry").
+  bool parse_bits(const cJSON* list, const std::string& ew, const NodeConfig& n, const char* obj, bool is_tx,
+                  PdoEntry& entry) {
+    if (!cJSON_IsArray(list) || cJSON_GetArraySize(list) == 0) {
+      error(ew, "field 'bits' must be a non-empty array");
+      return false;
+    }
+    std::string what = n.label() + ", object " + obj;
+    if (entry.type == CoType::BOOLEAN || entry.type == CoType::REAL32 || entry.type == CoType::REAL64) {
+      error(ew, what + ": bits need an integer entry, not " + co_type_name(entry.type));
+      return false;
+    }
+    // On the bridge the bits only name parts of the entry's own location.
+    if (!is_tx && entry.has_location && !byte_mode_) {
+      error(ew, what + ": an RPDO entry with bits has no iec_location of its own (both would write the same bits; "
+                       "remove the iec_location or the bits)");
+      return false;
+    }
+    unsigned size = co_type_bits(entry.type);
+    uint64_t seen = 0;
+    bool ok = true;
+    int k = 0;
+    const cJSON* b;
+    cJSON_ArrayForEach(b, list) {
+      std::string bw = ew + ": bits[" + std::to_string(k++) + "]";
+      if (!cJSON_IsObject(b)) {
+        error(bw, "must be an object");
+        ok = false;
+        continue;
+      }
+      check_known(b, bw, {"bit", "name", "iec_location"});
+      uint64_t v;
+      if (!get_uint(b, "bit", bw, true, 63, v)) {
+        ok = false;
+        continue;
+      }
+      std::string me = what + " bit " + std::to_string(v);
+      if (v >= size) {
+        error(bw, me + ": the entry has only " + std::to_string(size) + " bits (0-" + std::to_string(size - 1) + ")");
+        ok = false;
+        continue;
+      }
+      if (seen & (1ull << v)) {
+        error(bw, me + " is listed twice");
+        ok = false;
+        continue;
+      }
+      seen |= 1ull << v;
+      PdoBit pb;
+      pb.bit = static_cast<uint8_t>(v);
+      if (byte_mode_) {
+        if (cJSON_GetObjectItemCaseSensitive(b, "iec_location")) {
+          error(bw, me + ": a bit has no iec_location in a bridge config (the bridge serves it in the entry's own "
+                         "location)");
+          ok = false;
+          continue;
+        }
+      } else if (!get_location(b, "iec_location", bw, true, pb.location)) {
+        ok = false;
+        continue;
+      } else {
+        IecArea want = is_tx ? IecArea::Input : IecArea::Output;
+        if (pb.location.area != want || pb.location.size != IecSize::X) {
+          error(bw, me + ": needs " + (is_tx ? "an input bit location (%IX...)" : "an output bit location (%QX...)") +
+                        ", not " + pb.location.str());
+          ok = false;
+          continue;
+        }
+        pb.has_location = true;
+      }
+      entry.bits.push_back(pb);
+    }
+    return ok;
+  }
+
   // timeout_ms, on_timeout and timeout_location of one PDO (canopen-pdo-io
   // "Receive timeout setting", "Inputs while a PDO is timed out").
   void parse_timeout(const cJSON* p, const std::string& pw, const std::string& pdo_name, bool is_tx,
@@ -568,7 +643,7 @@ class Parser {
             ++j;
             continue;
           }
-          check_known(e, ew, {"index", "subindex", "type", "iec_location", "name"});
+          check_known(e, ew, {"index", "subindex", "type", "iec_location", "name", "bits"});
           if (get_uint(e, "index", ew, true, 0xFFFF, v)) entry.index = (uint16_t)v; else ok = false;
           if (get_uint(e, "subindex", ew, false, 0xFF, v)) entry.subindex = (uint8_t)v;
           std::string type;
@@ -583,12 +658,18 @@ class Parser {
           }
           char obj[32];
           std::snprintf(obj, sizeof(obj), "0x%04X:%u", entry.index, entry.subindex);
+          const cJSON* bits_json = cJSON_GetObjectItemCaseSensitive(e, "bits");
           if (!cJSON_GetObjectItemCaseSensitive(e, "iec_location")) {
             // Allowed only for an entry a gateway route uses (checked once
-            // the gateway section is read).
+            // the gateway section is read), or one that has bits.
             entry.has_location = false;
-            if (ok)
+            if (bits_json && byte_mode_) {
+              error(ew, n.label() + ", object " + obj +
+                            ": the bridge serves an entry's bits in its own location; give the entry an iec_location");
+              ok = false;
+            } else if (ok && !bits_json) {
               unlocated_.push_back({network_index_, n.node_id, is_tx, pdo.number, entry.index, entry.subindex, full(ew)});
+            }
           } else if (!get_location(e, "iec_location", ew, true, entry.location)) {
             ok = false;
           }
@@ -608,6 +689,7 @@ class Parser {
               ok = false;
             }
           }
+          if (ok && bits_json && !parse_bits(bits_json, ew, n, obj, is_tx, entry)) ok = false;
           bits += co_type_bits(entry.type);
           if (ok) pdo.entries.push_back(entry);
           ++j;
@@ -3020,6 +3102,10 @@ class Parser {
         error(rw, rc.label() + " writes " + node->label() + " RPDO entry " + obj + " on network \"" + field.network +
                       "\", which also has " + entry->location.str() + "; only one of them may write it (remove the "
                       "entry's iec_location)");
+      else if (!rc.up && !entry->bits.empty())
+        error(rw, rc.label() + " writes " + node->label() + " RPDO entry " + obj + " on network \"" + field.network +
+                      "\", which also has bits the program writes; only one of them may write it (remove the "
+                      "entry's bits)");
       g.routes.push_back(rc);
     }
   }
@@ -3602,10 +3688,11 @@ class Parser {
       auto add = [&](const std::vector<PdoConfig>& pdos, const char* dir) {
         for (const auto& p : pdos)
           for (const auto& e : p.entries) {
-            if (!e.has_location) continue;
             char obj[64];
             std::snprintf(obj, sizeof(obj), " %s %u object 0x%04X:%u", dir, p.number, e.index, e.subindex);
-            uses.push_back({e.location, nl + obj});
+            if (e.has_location) uses.push_back({e.location, nl + obj});
+            for (const auto& b : e.bits)
+              if (b.has_location) uses.push_back({b.location, nl + obj + " bit " + std::to_string(b.bit)});
           }
       };
       add(n.tx_pdos, "TPDO");

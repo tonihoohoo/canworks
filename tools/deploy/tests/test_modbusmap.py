@@ -53,6 +53,22 @@ class RegisterRule(unittest.TestCase):
         r = rows["sensor.TPDO1.timeout"]
         self.assertEqual((r["table"], r["address"]), ("discrete input", 337))
 
+    def test_bit_channels(self):
+        cfg = load()
+        sensor = cfg["networks"][0]["nodes"][0]
+        sensor["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "ready"}, {"bit": 31}]  # %ID4
+        sensor["tx_pdos"][0]["entries"][2]["bits"] = [{"bit": 3, "name": "jog_x_plus"}]  # %IB10
+        sensor["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 9, "name": "lamp"}]  # %QW0
+        rows = by_name(modbusmap.register_map(cfg))
+        # Most significant byte first: bit 0 of %ID4 is in byte 7, bit 31 in byte 4.
+        self.assertEqual((rows["sensor.ready"]["table"], rows["sensor.ready"]["address"]), ("discrete input", 56))
+        self.assertEqual(rows["sensor.0x6000:1.bit31"]["address"], 39)
+        self.assertEqual(rows["sensor.jog_x_plus"]["address"], 83)
+        self.assertEqual((rows["sensor.lamp"]["table"], rows["sensor.lamp"]["address"]), ("coil", 1))
+        cfg["bridge"]["word_order"] = "low_first"
+        rows = by_name(modbusmap.register_map(cfg))
+        self.assertEqual(rows["sensor.ready"]["address"], 40)  # low word first: bit 0 in byte 5
+
     def test_bridge_blocks(self):
         rows = by_name(modbusmap.register_map(load()))
         self.assertEqual((rows["bridge.status"]["address"], rows["bridge.status"]["count"]), (24, 4))

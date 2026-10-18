@@ -526,10 +526,20 @@ def _pdos(n, eds, norm, cfg, names, nt=None):
                     parsed = parse_location(entry["iec_location"])
                     loc = str(parsed) if parsed else entry["iec_location"]
                 note = nt.note(index, sub) if nt is not None and obj is not None else {}
+                bit_channels = []
+                for b in (entry.get("bits") if entry and isinstance(entry.get("bits"), list) else []):
+                    if not isinstance(b, dict) or not isinstance(b.get("bit"), int):
+                        continue
+                    parsed = parse_location(b.get("iec_location"))
+                    bloc = str(parsed) if parsed else ""
+                    bit_channels.append({"bit": b["bit"], "name": b.get("name") or "",
+                                         "note": ((note.get("bits") or {}).get(str(b["bit"])) or ""),
+                                         "location": bloc, "variables": _plc_names(names, bloc) if bloc else []})
                 entries.append({"bit": bit, "length": length, "index": index, "subindex": sub,
                                 "name": _od_text(eds, index, sub), "type": type_name or "", "location": loc,
                                 "variables": _plc_names(names, loc), "used": bool(entry), "dummy": False,
-                                "note": note.get("text", ""), "unit": note.get("unit", "")})
+                                "note": note.get("text", ""), "unit": note.get("unit", ""),
+                                **({"bit_channels": bit_channels} if bit_channels else {})})
                 bit += length
             out.append({"kind": kind, "number": num, "anchor": "", "cob_id": pn["cob_id"],
                         "transmission": trans, "transmission_from_eds": bool(trans_eds and trans is not None),
