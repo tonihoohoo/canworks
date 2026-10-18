@@ -4248,9 +4248,7 @@ TEST(sim_simulated_io_loopback) {
     sim = new Sim(dir);
     CHECK(sim->ok());
     if (!sim->ok()) return;
-    sim->SetProgram([](fake_runtime::Image& plc) {
-    for (int b = 0; b < 3; ++b) plc.bool_out[42][b] = 1;  // 7
-  });
+    sim->SetProgram([](fake_runtime::Image& plc) { plc.byte_out[40] = 7; });
     // The fixture says device type 0; the simulation file makes it a CiA 401 module.
     CHECK(sim->StartSimulator(std::string(R"({"nodes": {"4": {"device_type": "0x00000191")") +
                               (defaults ? "" : R"(, "default_behaviour": false)") + "}}}"));
