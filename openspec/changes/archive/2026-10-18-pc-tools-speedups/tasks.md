@@ -27,11 +27,15 @@
 
 ## 5. Hardware and PCs
 
-- [ ] 5.1 Windows PC: run the PowerShell one-liner on a PC with the tools installed (update), then `--version` of an older release and back; `canworks-config` opens.
-- [ ] 5.2 Mac: run the shell one-liner (update); `canworks-deploy --version` prints the release.
-- [ ] 5.3 Pi: from the Windows PC, run the runtime PowerShell one-liner with `-Ssh` onto the Pi's existing install (update to the newest release), check `canworks-sim --version` and one `canworks` line in `plugins.conf`; clean PLC start afterwards.
+- [x] 5.1 Windows PC: run the PowerShell one-liner on a PC with the tools installed (update), then `--version` of an older release and back; `canworks-config` opens.
+  - 2026-10-18, 0.82.0, Windows PowerShell 5.1: passed. The first run took 51 s (31 s of it compiling bytecode once); 0.81.2 and back took about 30 s each and the window stayed open; the configurator page answered in 1.8 s. `canworks-deploy --version` went from 1.6 s (0.81.2) to 0.8 to 1.0 s.
+- [x] 5.2 Mac: run the shell one-liner (update); `canworks-deploy --version` prints the release.
+  - 2026-10-18: passed. It updated 0.77.0 to the newest release, 0.83.0 by then, in 4.3 s (bytecode compiled in 0.9 s); `canworks-deploy --version` printed 0.83.0 in 73 to 86 ms, and the configurator page answered.
+- [x] 5.3 Pi: from the Windows PC, run the runtime PowerShell one-liner with `-Ssh` onto the Pi's existing install (update to the newest release), check `canworks-sim --version` and one `canworks` line in `plugins.conf`; clean PLC start afterwards.
+  - 2026-10-18: passed in 117 s. The plugin was rebuilt from the release source, the runtime's `canworks-deploy --version` printed 0.82.0, and `plugins.conf` had one `canworks` line; the clean PLC start loaded the plugin. `canworks-sim --version` printed `unknown`: built from a release tarball, it has no git hash to print (follow-up).
 
 ## 6. Release
 
 - [x] 6.1 Minor bump of the tools package (`pyproject.toml` and `__version__`).
-- [ ] 6.2 CI time: wall and summed job time against the baseline (median of the last 5 green `main` runs with code changes), stated in the PR.
+- [x] 6.2 CI time: wall and summed job time against the baseline (median of the last 5 green `main` runs with code changes), stated in the PR.
+  - PR #145: wall 356 s against a 345 s baseline, summed jobs 2435 s against 2458 s.
