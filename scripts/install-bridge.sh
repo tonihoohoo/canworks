@@ -165,7 +165,9 @@ done
 
 [ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] || die "--without-canopen and --without-j1939 leave nothing to build"
 if [ -n "$INSTANCE$CONFIG_DIR" ]; then
-    [ -n "$INSTANCE" ] && [ -n "$CONFIG_DIR" ] || die "--instance NAME and --config DIR go together"
+    if [ -z "$INSTANCE" ] || [ -z "$CONFIG_DIR" ]; then
+        die "--instance NAME and --config DIR go together"
+    fi
     [[ $INSTANCE =~ ^[A-Za-z0-9_-]+$ ]] || die "--instance $INSTANCE: use letters, digits, - and _ only"
     [ "$UNINSTALL" -eq 0 ] || die "--instance and --config install a bridge; leave them out with --uninstall"
     [ -d "$CONFIG_DIR" ] || die "--config $CONFIG_DIR is not a folder"
@@ -294,7 +296,9 @@ ssh_install() {
 # made by the container's Python.
 foreign_venv() {
     local made runs
-    [ -f "$1/venv/pyvenv.cfg" ] && [ -x "$1/venv/bin/python" ] || return 1
+    if [ ! -f "$1/venv/pyvenv.cfg" ] || [ ! -x "$1/venv/bin/python" ]; then
+        return 1
+    fi
     made=$(sed -n 's/^version[_info]* *= *\([0-9]*\.[0-9]*\).*/\1/p' "$1/venv/pyvenv.cfg" | head -n1)
     runs=$("$1/venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
     [ -n "$made" ] && [ "$made" != "$runs" ]
@@ -408,7 +412,7 @@ else
     [ -f "$RUNTIME_DIR/core/src/drivers/plugin_types.h" ] ||
         die "$RUNTIME_DIR is not an OpenPLC runtime v4 checkout (no core/src/drivers/plugin_types.h)"
     BUILD_DIR=$(mktemp -d)
-    on_off() { [ "$1" -eq 1 ] && echo ON || echo OFF; }
+    on_off() { if [ "$1" -eq 1 ]; then echo ON; else echo OFF; fi; }
     say "Building canworks-bridge"
     cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANWORKS_BUILD_TESTS=OFF \
         -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
