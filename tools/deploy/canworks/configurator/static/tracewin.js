@@ -111,8 +111,9 @@ function traceWinBar() {
   const st = S.state || {};
   const folder = st.commission ? "Commission a device" : st.name || st.folder || "";
   const net = onlineNetwork();
-  const conn = st.commission ? (S.adapterOn ? "USB adapter" + (S.online && S.online.adapter ? " " + S.online.adapter : "") : "not connected")
-    : connSimOn() ? "standalone simulator" : S.runtimeOn ? "runtime " + ((S.online && S.online.host) || "") : "not connected";
+  const remote = S.adapterOn && S.online && S.online.remote_adapter ? "adapter server " + S.online.remote_host : "";
+  const conn = remote || (st.commission ? (S.adapterOn ? "USB adapter" + (S.online && S.online.adapter ? " " + S.online.adapter : "") : "not connected")
+    : connSimOn() ? "standalone simulator" : S.runtimeOn ? "runtime " + ((S.online && S.online.host) || "") : "not connected");
   bar.replaceChildren(el("strong", null, "Trace"), el("span", null, folder),
     net ? el("span", null, "network " + net) : null, el("span", { dataset: { trace: "window-conn" } }, conn));
   document.title = "Trace – " + (st.commission ? "commissioning" : st.name || (st.folder || "").split(/[\\/]/).pop() || "canworks");

@@ -51,7 +51,7 @@ canworks-diag --adapter slcan:COM5 --bitrate 250 --allow-changes lss-set-id 0x36
 canworks-diag --adapter slcan:COM5 --bitrate 250 trace -o bench.pcapng --duration 60
 ```
 
-The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, press **Commission a device without a config** on the start page (see [configurator.md](configurator.md#commission-a-canopen-device)); a config's own online view works through the runtime only.
+The commands are the ones of [diagnostics.md](diagnostics.md), with `--adapter` in place of `--runtime`; no token is needed. In the configurator, press **Commission a device without a config** on the start page (see [configurator.md](configurator.md#commission-a-canopen-device)); a config's own online view works through the runtime, or through [an adapter on another machine](#an-adapter-on-another-machine).
 
 ## Changes are off until you allow them
 
@@ -83,6 +83,57 @@ The tools listen for a second before their first frame. A bus that carries NMT c
 `send` and `send-stop` work on an adapter as on a runtime (see [diagnostics.md](diagnostics.md#raw-frames)), with these guards:
 
 - `send` needs `--allow-changes`. It needs `--force` for an identifier the bus uses: NMT, SYNC, TIME and LSS always, and with `send --config canworks.json` the predefined EMCY, PDO, SDO and heartbeat identifiers of the configured nodes. `--force` may stand before or after the command. It also needs `--force` while another master is active or a node's heartbeat says OPERATIONAL. Single frames are limited to 50 per second, cyclic jobs to 8 per adapter (10-60000 ms, at most 10 minutes); a job ends when the command or the configurator connection that started it closes.
+
+## An adapter on another machine
+
+The adapter can also sit in another machine: a Linux box at the machine or on the bench, with the CAN bus, while the configurator, the project folders, the EDS files and the OpenPLC Editor stay on your PC. That machine runs `canworks-diag adapter-serve`, which serves its adapter to PCs on the network with the same protocol as the plugin's diagnostics channel: TLS with a certificate made at every start, and a token login (SCRAM-SHA-256) bound to that certificate, so the token never crosses the network and a machine in the middle cannot log in. Every operation runs on that machine, where the bus is: the bit rate check, SDO transfers, LSS, the scan and the trace. Only the results cross the network, so a slow link makes the pages slower, not the bus timing different.
+
+On the machine with the adapter (Linux; install the PC tools there with the one-line installer of [install-pc.md](install-pc.md)):
+
+```sh
+canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500
+token: 3hK...  (shown once; --new-token makes another)
+```
+
+- **The bit rate** is the server's: `--bitrate` is required and never guessed. The server opens the adapter and runs [the check on connect](#the-check-on-connect) when the first PC logs in; a refused check is that PC's connect error, with the same message as on a USB adapter. A SocketCAN interface that is already up at another rate is refused rather than used. `--check-node N` is the slcan check node. When the last PC disconnects, the server closes the adapter, so `canworks-diag --adapter` on the machine itself can use it again.
+- **The token** is printed once, at the first start. The server keeps only its verifier, in `adapter-serve.json` in the PC tools' settings folder of the user that runs it (`~/.config/canworks`, readable by that user only), per port; the plain token is never written there. `--new-token` makes another (the old one stops working); `--token-file FILE` uses the token in FILE instead, for scripted installs. A wrong token closes the connection; the next login from the same address waits a second, at most 10 failed logins a minute are tried at all, and each one is logged.
+- **Changes** need the server's permission and the PC's: without `--allow-changes` the server refuses SDO writes, NMT, LSS, frames, the PDO test and SYNC with "the adapter server on HOST was started without --allow-changes", and with it each PC still allows changes for its own session (`--allow-changes` on the PC, **Unlock…** in the configurator). The server never stores parameters on a device by itself.
+- **Limits:** 4 PCs at a time (several connections each: the configurator opens a few), 8 connections that have not logged in yet and 2 per address, 30 s to log in, and a connection idle for 10 minutes is closed. Cyclic frames, a trace and a PDO test belong to the connection that started them and stop when it closes, also when the network goes away.
+- `--port` (default 7536) and `--bind ADDR` (default every address; `127.0.0.1` when PCs only come through an SSH port forward).
+
+On the PC, `--adapter remote:HOST[:PORT]` with the server's token (`--token`, `--token-file`, `$CANWORKS_TOKEN` or a prompt) works like a local adapter; the server sets the bit rate, so `--bitrate` is not given:
+
+```sh
+canworks-diag --adapter remote:benchbox --token-file benchbox.token scan
+canworks-diag --adapter remote:benchbox --allow-changes lss-set-id 0x360 0x1 0 0x1234 12
+```
+
+A runtime given as `remote:HOST` is named as such ("HOST is a runtime, not an adapter server: connect without remote:"). `canworks-diag discover` lists adapter servers apart from runtimes. In the configurator, the connect panel offers **Adapter on another machine** next to **USB adapter** in Commission a CANopen device, and next to **Runtime** and **Standalone simulator** with a config ([configurator.md](configurator.md#commission-a-canopen-device)).
+
+### As a service
+
+To keep the server running without a terminal, also after a reboot:
+
+```sh
+sudo canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500 --install-service
+```
+
+This makes the token first (as your user, printed once), writes `/etc/systemd/system/canworks-adapter-can0.service` running the same command as the user who ran sudo, with only the capability to bring the SocketCAN interface up at the bit rate (`CAP_NET_ADMIN`) and restarted on failure, and starts it. When Avahi is installed it also writes `/etc/avahi/services/canworks-adapter-can0.service`, so PCs on the local network find the server (`_canworks._tcp`, TXT `kind=adapter` with the machine's name, the adapter and the bit rate). `canworks-diag adapter-serve --status` says whether the service runs and which PCs are connected; `sudo canworks-diag adapter-serve --remove-service` stops it and removes both files. An slcan adapter's serial port needs the user in the `dialout` group, as on a PC.
+
+### From another network
+
+Discovery stays on the local network, and the remote link is for runtimes. From another network, forward the port over SSH and connect to the forward:
+
+```sh
+ssh -N -L 7536:127.0.0.1:7536 user@benchbox        # on the PC; the server may then use --bind 127.0.0.1
+canworks-diag --adapter remote:127.0.0.1 --token-file benchbox.token status
+```
+
+### Security
+
+- Anyone with the token can read the bus; with `--allow-changes` on the server, also change devices. Keep the token like a password; this PC's configurator keeps it in its settings (`online.json`, readable by you only), per server.
+- No certificate pinning is needed: the login proves the token to the server and the server's signature proves it to the PC, both bound to the server's certificate.
+- The server holds the adapter only while a PC is logged in. Plain (not TLS) connections and connections that do not log in in time are closed before anything reaches the bus.
 
 ## Commissioning one device
 

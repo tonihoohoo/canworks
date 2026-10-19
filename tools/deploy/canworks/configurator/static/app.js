@@ -4431,7 +4431,8 @@ async function saveOnline(values) {
 // the connection bar; the page shows the session (plugin, protocol, notes).
 function renderOnline(view) {
   view.append(el("h2", null, "Nodes"));
-  if (!diagConfig()) {
+  // An adapter on another machine needs no online access in the config.
+  if (!connAdapter() && !diagConfig()) {
     view.append(notice("info", ["Online access is off for this config. Turn it on in Configure → ",
       el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
       ", save, and upload the program to the runtime."], { live: false, dataset: { online: "access-off" } }));
@@ -4442,7 +4443,7 @@ function renderOnline(view) {
     return;
   }
   const conn = noticeSlot({ id: "online-conn", "aria-live": "polite" });
-  stateBars(conn, "info", "Connecting to " + S.online.host + "…");
+  stateBars(conn, "info", "Connecting to " + (connRemote() ? "the adapter server " + S.online.remote_host : S.online.host) + "…");
   view.append(conn,
     onlineIsSlave() ? null : nodesToolbar(),
     el("div", { id: "online-live" }),

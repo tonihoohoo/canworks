@@ -3,7 +3,9 @@
 // connection for every view, shown in the connection bar under the header
 // and made only in the connect panel that the bar's Connect… opens.
 // Commission a device connects through a USB adapter on this PC (with the
-// bit rate check), a config to its runtime or to a standalone simulator.
+// bit rate check), a config to its runtime or to a standalone simulator, and
+// both to an adapter on another machine (an adapter server, the same bit
+// rate check on that machine; S.online.remote_adapter).
 // The Commission pages, Trace, Simulation and the PDO test all use it; no
 // page has a connect form or button of its own. Loaded after app.js and
 // shell.js and uses their helpers.
@@ -19,11 +21,20 @@ const CONN = { timer: null, seq: 0, error: null, entered: false, target: null };
 // A USB adapter on this PC: Commission a device, and a saved CODESYS config,
 // whose bus no canworks runtime runs (canopen-configurator "Commission in a
 // CODESYS project").
-function connAdapter() { return !!(S.state && (S.state.commission || (S.state.config && targetOf(S.state.config) === "codesys"))); }
+function connNative() { return !!(S.state && (S.state.commission || (S.state.config && targetOf(S.state.config) === "codesys"))); }
+
+// The connection goes through an adapter: a USB adapter where the bus has no
+// runtime, or an adapter on another machine (with a config, in place of its
+// runtime). Connect checks the bit rate; the connection stays until Disconnect.
+function connAdapter() { return connNative() || connRemote(); }
+
+// The adapter on another machine is the target (online.json, per folder).
+function connRemote() { return !!(S.state && S.state.mode && S.online && S.online.remote_adapter); }
 
 // The target is set up: an adapter and its bit rate, or a runtime host
 // and this PC's token for the config.
 function connReady() {
+  if (connRemote()) return !!(S.online.remote_host && S.online.remote_token_set);
   if (connAdapter()) return !!(S.online && S.online.adapter && S.online.adapter_bitrate);
   return !!(diagConfig() && S.online && S.online.host && S.online.token && S.online.tokenOk);
 }
@@ -214,9 +225,10 @@ function connBar() {
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "disconnect" }, onclick: connDisconnect }, "Disconnect"));
   } else if (!c) {
     parts.push(Icons.stateIcon("busy", { label: false, spinning: true }));
-    parts.push(el("span", { dataset: { conn: "state" } }, connAdapter()
-      ? `Connecting to ${S.online.adapter} at ${S.online.adapter_bitrate} kbit/s: checking the bit rate…`
-      : `Connecting to ${S.online.host}…`));
+    parts.push(el("span", { dataset: { conn: "state" } }, connRemote()
+      ? `Connecting to the adapter server ${S.online.remote_host}: checking the bit rate…`
+      : connAdapter() ? `Connecting to ${S.online.adapter} at ${S.online.adapter_bitrate} kbit/s: checking the bit rate…`
+        : `Connecting to ${S.online.host}…`));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "cancel" }, onclick: connDisconnect }, "Cancel"));
   } else {
     const bus = c.bus || {};
@@ -225,6 +237,13 @@ function connBar() {
     if (c.kind === "adapter") {
       const kbit = Math.round((c.bitrate || 0) / 1000);
       parts.push(el("span", { dataset: { conn: "rate" } }, `${kbit} kbit/s` + (c.check ? `, confirmed by ${CHECK_TEXT[c.check.how] || c.check.how}` : "")));
+      if (c.remote && Number.isFinite(c.rtt_ms)) {
+        // The adapter on another machine: its round trip, as a runtime's path shows it.
+        const cls = c.rtt_ms > VERY_SLOW_RTT_MS ? "bad" : c.rtt_ms > SLOW_RTT_MS ? "warn" : "";
+        if (cls) raise(cls === "bad" ? 2 : 1);
+        parts.push(el("span", { class: ("pill " + cls).trim(), dataset: { conn: "rtt" },
+          title: "The measured round trip to the adapter server" }, `round trip ${c.rtt_ms} ms`));
+      }
       const bad = ADAPTER_STATES_BAD.includes(String(bus.state || "").toLowerCase());
       if (bad) raise(busIcon(bus.state) === "error" ? 2 : 1);
       if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
@@ -277,6 +296,11 @@ function connBar() {
 // (Unlock… asks, Lock does not); on a runtime, the runtime's own setting as text.
 // No checkbox: its label would name the state, not what ticking it does.
 function allowControl(c) {
+  if (c.server_allow_changes === false) {
+    return el("span", { class: "muted", dataset: { conn: "allow" },
+      title: "Start adapter-serve with --allow-changes on that machine to allow changes" },
+    "🔒 Read-only (adapter server)");
+  }
   if (c.allow_changes_source !== "switch") {
     return el("span", { class: "muted", dataset: { conn: "allow" },
       title: "Set in Configure → Online access, then upload" },
@@ -311,11 +335,15 @@ function allowControl(c) {
 function openConnect(message) {
   const dlg = $("#conn-dialog");
   // The panel remembers the last target of a config (Runtime or Standalone simulator).
-  if (!connAdapter() && typeof SIM !== "undefined" && !SIM.settings) {
+  if (!connNative() && typeof SIM !== "undefined" && !SIM.settings) {
     loadSimSettings().then(() => openConnect(message));
     return;
   }
-  if (!connAdapter() && !dlg.open) CONN.target = connSimOn() ? "simulator" : (CONN.target || simSavedTarget());
+  if (!dlg.open) {
+    const own = connNative() ? ["usb", "remote"] : ["runtime", "simulator", "remote"];
+    CONN.target = connRemote() ? "remote" : connNative() ? "usb" : connSimOn() ? "simulator"
+      : (own.includes(CONN.target) && CONN.target !== "remote" ? CONN.target : simSavedTarget());
+  }
   connPanel(message);
   if (!dlg.dataset.wired) {
     dlg.dataset.wired = "1";
@@ -333,7 +361,7 @@ function openConnect(message) {
   }
   if (!dlg.open) dlg.showModal();
   const body = $("#conn-dialog-body");
-  const first = body.querySelector("[data-conn-recent], [data-online=adapter-list], [data-online=runtime-list], [data-online=host], [data-sim=address], input, select, button");
+  const first = body.querySelector("[data-conn-recent], [data-online=adapter-list], [data-online=runtime-list], [data-online=server-list], [data-online=host], [data-sim=address], input, select, button");
   if (first) first.focus();
 }
 
@@ -341,15 +369,19 @@ function simSavedTarget() {
   return typeof SIM !== "undefined" && SIM.settings && SIM.settings.target === "simulator" ? "simulator" : "runtime";
 }
 
-// The panel's content: the recent connections first, then (with a config)
-// the Runtime / Standalone simulator choice and the chosen target's form.
+// The panel's content: the recent connections first, then the target choice
+// (USB adapter / Adapter on another machine in Commission a device; Runtime /
+// Standalone simulator / Adapter on another machine with a config) and the
+// chosen target's form.
+const CONN_TARGETS = { usb: "USB adapter", remote: "Adapter on another machine", runtime: "Runtime", simulator: "Standalone simulator" };
 function connPanel(message) {
   const body = $("#conn-dialog-body");
-  const sim = !connAdapter() && CONN.target === "simulator";
-  $("#conn-dialog-title").textContent = connAdapter() ? "Connect to a USB adapter" : sim ? "Connect to a standalone simulator" : "Connect to the runtime";
-  const form = connAdapter() ? adapterBox(message) : sim ? simulatorBox(message) : runtimeBox(message);
-  const choice = connAdapter() ? null : el("div", { class: "segmented", role: "group", "aria-label": "Connect to", dataset: { conn: "targets" } },
-    [["runtime", "Runtime"], ["simulator", "Standalone simulator"]].map(([k, label]) =>
+  const t = CONN.target;
+  $("#conn-dialog-title").textContent = { usb: "Connect to a USB adapter", remote: "Connect to an adapter on another machine",
+    simulator: "Connect to a standalone simulator" }[t] || "Connect to the runtime";
+  const form = t === "usb" ? adapterBox(message) : t === "remote" ? remoteBox(message) : t === "simulator" ? simulatorBox(message) : runtimeBox(message);
+  const choice = el("div", { class: "segmented", role: "group", "aria-label": "Connect to", dataset: { conn: "targets" } },
+    (connNative() ? ["usb", "remote"] : ["runtime", "simulator", "remote"]).map((k) => [k, CONN_TARGETS[k]]).map(([k, label]) =>
       el("button", { type: "button", "aria-pressed": String(k === CONN.target), dataset: { connTarget: k },
         onclick: () => { CONN.target = k; connPanel(); const b = body.querySelector(`[data-conn-target="${k}"]`); if (b) b.focus(); } }, label)));
   // replaceChildren() writes null as the text "null": leave the empty parts out.
@@ -360,11 +392,12 @@ function connPanel(message) {
 // Up to three connections this PC made last (online.json `recent`), one click each.
 function recentConnections() {
   const list = (S.online && S.online.recent) || [];
-  return list.filter((r) => connAdapter() ? r.kind === "adapter" : r.kind === "runtime");
+  return list.filter((r) => r.kind === "remote_adapter" || (connNative() ? r.kind === "adapter" : r.kind === "runtime"));
 }
 
 function recentText(r) {
   if (r.kind === "adapter") return `${r.adapter} at ${r.bitrate_kbit} kbit/s` + (r.check_node ? `, check node ${r.check_node}` : "");
+  if (r.kind === "remote_adapter") return `adapter server ${r.host}`;
   return r.name ? `${r.name} (${r.host})` : r.host;
 }
 
@@ -374,7 +407,7 @@ function recentBox() {
   return el("div", { class: "toolbar conn-recent", dataset: { conn: "recent" } },
     el("span", { class: "muted" }, "Recent:"),
     recent.map((r, k) => el("button", { type: "button", dataset: { connRecent: k },
-      title: r.kind === "adapter" ? "Connects with Allow changes off, after the bit rate check" : "Connects to this runtime",
+      title: r.kind === "runtime" ? "Connects to this runtime" : "Connects with Allow changes off, after the bit rate check",
       onclick: () => connectRecent(r) }, recentText(r))));
 }
 
@@ -382,9 +415,14 @@ function recentBox() {
 // pressed, so the bit rate check (adapter) or the token prompt (runtime)
 // runs as from the form, and Allow changes starts off.
 function connectRecent(r) {
-  if (r.kind === "runtime" && CONN.target !== "runtime") { CONN.target = "runtime"; connPanel(); }
+  const want = { runtime: "runtime", adapter: "usb", remote_adapter: "remote" }[r.kind];
+  if (CONN.target !== want) { CONN.target = want; connPanel(); }
   const box = $("#conn-dialog-body");
-  if (r.kind === "adapter") {
+  if (r.kind === "remote_adapter") {
+    box.querySelector("[data-online=remote-host]").value = r.host;
+    const allow = box.querySelector("[data-online=adapter-allow]");
+    if (allow) allow.checked = false;
+  } else if (r.kind === "adapter") {
     box.querySelector("[data-online=adapter]").value = r.adapter;
     box.querySelector("[data-online=adapter-bitrate]").value = String(r.bitrate_kbit);
     box.querySelector("[data-online=check-node]").value = r.check_node ? String(r.check_node) : "";
@@ -409,6 +447,7 @@ function simulatorBox(message) {
     if (token.value.trim()) body.token = token.value.trim();
     try { SIM.settings = await api("POST", "/api/sim/settings", body); } catch (e) { msg.say(e.message); address.focus(); return; }
     // One connection at a time: the simulator takes the runtime's place.
+    if (connRemote() && !(await leaveRemote())) return;
     if (S.runtimeOn) await runtimeClose();
     S.runtimeOff = true;
     S.simOn = true;
@@ -454,6 +493,7 @@ function runtimeBox(message) {
       return;
     }
     if (!(await saveHost(value, (m) => msg.say(`The host was not saved: ${m}`)))) return;
+    if (connRemote() && !(await leaveRemote())) return;
     msg.say("");
     if (!S.online.tokenOk && !(await enterToken())) {
       msg.say(S.online.token
@@ -480,4 +520,121 @@ function runtimeBox(message) {
     el("div", { class: "toolbar" },
       !S.online.tokenOk ? el("button", { type: "button", onclick: async () => { await enterToken(); openConnect(); } }, "Enter token…") : null,
       connect));
+}
+
+// Back from the adapter on another machine to the config's runtime or
+// simulator: its connection closes (the server closes the adapter when it
+// was the last one).
+async function leaveRemote() {
+  connStop();
+  if (!(await saveOnline({ remote_adapter: false }))) return false;
+  S.adapterOn = false;
+  S.adapterEnded = null;
+  S.onlineLast = null;
+  S.identity = null;
+  S.lssAllow = undefined;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
+  return true;
+}
+
+// The adapter on another machine (canworks-diag adapter-serve on it): the
+// servers found on the local network and a host field, the server's adapter
+// and bit rate once known (with a config, a warning when it is not the
+// network's), the token when this PC has none for that server (kept on this
+// PC per server), Allow changes and Connect. The server opens its adapter
+// and checks the bit rate it was started with.
+function remoteBox(message) {
+  const on = !!S.adapterOn && connRemote();
+  const known = {};  // address -> {adapter, bitrate_kbit} of the found servers
+  const list = el("select", { "aria-label": "Adapter servers found", disabled: on, dataset: { online: "server-list" } },
+    el("option", { value: "" }, "Looking for adapter servers…"));
+  const host = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "for example benchbox.local",
+    "aria-label": "Adapter server host", dataset: { online: "remote-host" } });
+  host.value = S.online.remote_host || "";
+  const served = el("div", { class: "muted", dataset: { online: "served" }, "aria-live": "polite" });
+  const warn = el("div", { dataset: { online: "rate-warning" } });
+  const net = S.state.commission ? null : onlineConfig();
+  const netKbit = net && net.adapter && num(net.adapter.bitrate) ? num(net.adapter.bitrate) / 1000 : null;
+  const show = () => {
+    const last = S.onlineLast && S.onlineLast.conn && S.onlineLast.conn.remote === host.value.trim() ? S.onlineLast.conn : null;
+    const k = known[host.value.trim()] || (last ? { adapter: (S.onlineLast.status || {}).adapter, bitrate_kbit: Math.round((last.bitrate || 0) / 1000) } : null);
+    served.textContent = k ? `Serves ${k.adapter || "an adapter"} at ${k.bitrate_kbit} kbit/s.` : "The server's adapter and bit rate show once it is found or connected.";
+    warn.replaceChildren(...(k && netKbit && k.bitrate_kbit && k.bitrate_kbit !== netKbit
+      ? [noteBar("warning", `The server runs the bus at ${k.bitrate_kbit} kbit/s and the network is set to ${netKbit} kbit/s.`, { online: "rate-mismatch" })] : []));
+  };
+  list.addEventListener("change", () => { if (list.value) { host.value = list.value; show(); } });
+  host.addEventListener("input", show);
+  const fill = async () => {
+    let r;
+    try { r = await api("GET", "/api/online/adapter_servers"); } catch (e) {
+      list.replaceChildren(el("option", { value: "" }, "Not available"));
+      return;
+    }
+    for (const sv of r.servers) known[sv.address] = sv;
+    list.replaceChildren(el("option", { value: "" }, r.servers.length ? "Pick a found server…" : r.discovery ? "None found" : "Finding needs zeroconf"),
+      ...r.servers.map((sv) => el("option", { value: sv.address }, `${sv.name}  ${sv.adapter} at ${sv.bitrate_kbit} kbit/s`)));
+    show();
+  };
+  const refresh = el("button", { type: "button", class: "small", disabled: on, onclick: fill }, "Refresh");
+  if (!on) fill();
+  show();
+  const token = el("input", { type: "password", autocomplete: "off", disabled: on, placeholder: S.online.remote_token_set ? "kept on this PC" : "printed when the server started",
+    "aria-label": "Adapter server token", dataset: { online: "remote-token" } });
+  const allow = el("input", { type: "checkbox", checked: on ? !!(S.onlineLast && S.onlineLast.status && S.onlineLast.status.allow_changes) : !!S.online.allow_changes,
+    dataset: { online: "adapter-allow" } });
+  allow.addEventListener("change", async () => {
+    if (allow.checked && on) {
+      const v = await modal("Allow changes on this adapter connection? SDO writes, NMT commands, LSS and restore then go to the bus. Saving to a device's non-volatile memory still asks each time.",
+        [["allow", "Allow changes", true], ["cancel", "Cancel"]]);
+      if (v !== "allow") { allow.checked = false; return; }
+    }
+    if (!(await saveOnline({ allow_changes: allow.checked }))) { allow.checked = !allow.checked; return; }
+    if (on) render();
+  });
+  const msg = msgBar({ online: "connect-msg" }, message ? upperFirst(message) + "." : "");
+  const connect = el("button", { type: "button", class: "primary", hidden: on, dataset: { online: "connect" }, onclick: () => busy(connect, "Checking the bit rate…", async () => {
+    const value = host.value.trim();
+    if (!value) { msg.say("Enter the adapter server's host name or address first, or pick a found one."); host.focus(); return; }
+    // One connection at a time: the adapter server takes the place of the runtime, simulator or USB adapter.
+    if (S.simOn) { S.simOn = false; api("POST", "/api/sim/close", {}).catch(() => {}); }
+    if (S.runtimeOn) await runtimeClose();
+    if (S.adapterOn) { connStop(); S.adapterOn = false; }
+    if (!(await saveOnline({ remote_adapter: true, remote_host: value }))) return;
+    if (token.value.trim() && !(await saveOnline({ remote_token: token.value.trim() }))) return;
+    if (!S.online.remote_token_set) {
+      connPanel("enter the adapter server's token: adapter-serve prints it when it starts the first time");
+      const t = $("#conn-dialog-body [data-online=remote-token]");
+      if (t) t.focus();
+      return;
+    }
+    if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
+    msg.say("");
+    if (!(await adapterOpen(msg))) {
+      if (/wrong token/.test(S.adapterEnded || "")) {
+        // The kept token is not the server's (a new one was made there): ask again.
+        await saveOnline({ remote_token: "" });
+        connPanel(S.adapterEnded);
+        const t = $("#conn-dialog-body [data-online=remote-token]");
+        if (t) t.focus();
+      }
+      return;
+    }
+  }) }, "Connect");
+  const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
+  return el("fieldset", { dataset: { online: "remote-box" } }, el("legend", null, "Adapter on another machine"),
+    msg,
+    el("p", { class: "muted" }, "The adapter is on another machine that runs canworks-diag adapter-serve: the bus timing (SDO, LSS, scan, the bit rate check) stays there, only the results cross the network. The server sets the bit rate."),
+    el("div", { class: "grid" },
+      el("label", null, "Adapter server", el("div", { class: "row" }, list, refresh), host,
+        hint("HOST[:PORT], port 7536 when not given. From another network, through an SSH port forward (docs/pc-adapter.md). Kept on this PC.")),
+      el("div", null, served, warn),
+      el("label", null, "Token", token,
+        hint(S.online.remote_token_set ? "This PC keeps the token for this server; type another to replace it." : "The server's token, kept on this PC for this server.")),
+      el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
+        hint("Off by default and for every new connection: read-only. The server must also have been started with --allow-changes."))),
+    el("div", { class: "toolbar" },
+      S.online.remote_token_set && !on ? el("button", { type: "button", dataset: { online: "forget-remote-token" }, onclick: async () => {
+        if (await saveOnline({ remote_token: "" })) connPanel();
+      } }, "Forget token") : null,
+      connect, disconnect));
 }

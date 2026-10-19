@@ -240,7 +240,7 @@ const CHECK_TEXT = { traffic: "frames on the bus", "probe acknowledged": "a devi
 // on adapters that cannot confirm a sent frame, Allow changes, Connect and
 // Disconnect. The adapter, bit rate and node ID are fixed while connected.
 function adapterBox(message) {
-  const on = !!S.adapterOn;
+  const on = !!S.adapterOn && !connRemote();
   const list = el("select", { "aria-label": "Found adapters", disabled: on, dataset: { online: "adapter-list" } },
     el("option", { value: "" }, "Looking for adapters…"));
   const input = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "gs_usb:0 or slcan:COM5",
@@ -280,37 +280,10 @@ function adapterBox(message) {
     if (!rate.value) { msg.say("Pick the bus's bit rate first."); rate.focus(); return; }
     const node = checkNode.value.trim() ? Number(checkNode.value) : null;
     if (node !== null && !(Number.isInteger(node) && node >= 1 && node <= 127)) { msg.say("The node ID for the check must be 1-127."); checkNode.focus(); return; }
-    if (!(await saveOnline({ adapter: input.value.trim(), adapter_bitrate: Number(rate.value), check_node: node }))) return;
+    if (!(await saveOnline({ remote_adapter: false, adapter: input.value.trim(), adapter_bitrate: Number(rate.value), check_node: node }))) return;
     if (allow.checked && !(await saveOnline({ allow_changes: true }))) return;
     msg.say("");
-    S.adapterOn = true;
-    S.adapterEnded = null;
-    S.onlineLast = null;
-    if (typeof pdoAutoReset === "function") pdoAutoReset();
-    connStop();
-    connBar();
-    // The first status opens the adapter and runs the bit rate check: a
-    // refusal keeps the panel open with the reason and the form filled in.
-    try {
-      const r = await api("POST", "/api/online/status", { port: diagPort() });
-      if (r.recent) S.online.recent = r.recent;
-      S.onlineLast = r;
-      S.onlineLastAt = Date.now();
-    } catch (e) {
-      S.adapterOn = false;
-      S.adapterEnded = e.message;
-      msg.say(upperFirst(e.message) + ".");
-      connBar();
-      return;
-    }
-    closeConnect();
-    render();
-    connKick();
-    // The form is gone once connected: the keyboard goes on with the scan.
-    if (document.activeElement === document.body || !document.activeElement.isConnected) {
-      const next = document.querySelector('#view [data-online="scan"]') || document.querySelector('#conn-bar [data-conn="disconnect"]');
-      if (next) next.focus();
-    }
+    await adapterOpen(msg);
   }) }, "Connect");
   const disconnect = el("button", { type: "button", hidden: !on, dataset: { online: "disconnect" }, onclick: async () => { closeConnect(); await disconnectAdapter(); } }, "Disconnect");
   return el("fieldset", { dataset: { online: "adapter-box" } }, el("legend", null, "USB adapter"),
@@ -326,6 +299,40 @@ function adapterBox(message) {
       el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes (SDO writes, NMT, LSS, restore)"),
         hint("Off by default and for every new connection: read-only. Turning it on or off keeps the connection open."))),
     el("div", { class: "toolbar" }, connect, disconnect));
+}
+
+// Connect for an adapter (USB, or on another machine) once its settings are
+// saved: the first status opens it and runs the bit rate check. A refusal
+// keeps the panel open with the reason and the form filled in. True when
+// connected.
+async function adapterOpen(msg) {
+  S.adapterOn = true;
+  S.adapterEnded = null;
+  S.onlineLast = null;
+  if (typeof pdoAutoReset === "function") pdoAutoReset();
+  connStop();
+  connBar();
+  try {
+    const r = await api("POST", "/api/online/status", { port: diagPort() });
+    if (r.recent) S.online.recent = r.recent;
+    S.onlineLast = r;
+    S.onlineLastAt = Date.now();
+  } catch (e) {
+    S.adapterOn = false;
+    S.adapterEnded = e.message;
+    msg.say(upperFirst(e.message) + ".");
+    connBar();
+    return false;
+  }
+  closeConnect();
+  render();
+  connKick();
+  // The form is gone once connected: the keyboard goes on with the scan.
+  if (document.activeElement === document.body || !document.activeElement.isConnected) {
+    const next = document.querySelector('#view [data-online="scan"]') || document.querySelector('#conn-bar [data-conn="disconnect"]');
+    if (next) next.focus();
+  }
+  return true;
 }
 
 async function disconnectAdapter() {
@@ -372,8 +379,13 @@ function localLive(r, conn) {
   const kbit = Math.round((st.bitrate || 0) / 1000);
   const allow = !!st.allow_changes;
   const other = st.other_master_seen;
-  stateBars(conn, "done", `Connected to USB adapter ${st.adapter} at ${kbit} kbit/s, ${checkText(st.bitrate_check) || "bit rate checked"}, ` +
+  const where = st.remote ? `adapter ${st.adapter} on ${r.remote || st.remote}` : `USB adapter ${st.adapter}`;
+  const cfgKbit = r.config_bitrate ? Math.round(r.config_bitrate / 1000) : null;
+  stateBars(conn, "done", `Connected to ${where} at ${kbit} kbit/s, ${checkText(st.bitrate_check) || "bit rate checked"}, ` +
     (allow ? "changes allowed." : "read-only."), [
+    st.remote && cfgKbit && cfgKbit !== kbit ? noteBar("warning",
+      `The adapter server runs the bus at ${kbit} kbit/s and the network is set to ${cfgKbit} kbit/s.`, { online: "rate-mismatch" }) : null,
+    st.server_allow_changes === false ? noteBar("info", `The adapter server on ${st.remote} was started without --allow-changes: reading only.`, { online: "server-read-only" }) : null,
     other ? noteBar("error",
       `Another master is active on this bus (${other.what}, since ${other.first_at.replace("T", " ").replace(/\.\d+Z$/, " UTC")}). ` +
       "Keep to reading; LSS asks before it runs.", { online: "other-master" }) : null,
