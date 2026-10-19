@@ -1,7 +1,7 @@
 # canopen-remote-adapter Specification
 
 ## Purpose
-TBD - created by archiving change add-remote-adapter. Update Purpose after archive.
+The adapter server: a Linux machine serves its CAN adapter to PCs over the network with the diagnostics protocol (TLS and a token login), with its own limits and permission for changes, optionally as a service, and the PC side that commissions through it like a local adapter.
 
 ## Requirements
 
