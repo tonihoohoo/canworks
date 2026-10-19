@@ -43,9 +43,16 @@ Cookie name `canopen_session_<port>` (the port from the request's Host), set on 
 
 Signing a Windows .exe or a macOS app: not needed, see App shortcut.
 
+## Browser that does not open
+
+`webbrowser.open` often returns True when nothing opened (a broken default browser, a text browser, a desktop without one), so the check is whether a page arrives, not the call's result. 15 s after asking the browser, if no heartbeat came:
+- started from a terminal (the parent of the background child is still waiting, or foreground): print `No browser opened. Open this address in a browser: <url>` and return the prompt;
+- started from the shortcut (no terminal): a message window with the address. Windows: `MessageBoxW` through `ctypes` (Ctrl+C copies a message box's text); macOS: `osascript` `display dialog` with the address in an editable field; Linux: `zenity --entry` or `kdialog`, else `notify-send`, else the log only.
+The address is always written to the log too. Each shown address is a fresh one-time code.
+
 ## Startup grace
 
-A configurator whose first page has not sent a heartbeat within 3 minutes of start stops (the browser failed to open, or the user closed the tab before it loaded). `--keep-running` turns it off with the rest of the page rule.
+A configurator whose first page has not sent a heartbeat within 10 minutes of start stops, so a configurator nobody reached does not stay running. `--keep-running` turns it off with the rest of the page rule.
 
 ## App shortcut
 

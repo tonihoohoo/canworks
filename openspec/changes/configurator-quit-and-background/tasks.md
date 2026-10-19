@@ -19,8 +19,9 @@
 
 ## 4. Background
 
-- [ ] 4.1 Background by default, `--foreground`, foreground by itself with `--no-browser`/`--keep-running`/SSH/no display; hidden `--child-background`: detached child (POSIX new session; Windows DETACHED_PROCESS, CREATE_NO_WINDOW, pythonw when present), wait for the instance, open browser, print log tail on failure; log rotation at 1 MB; 3-minute startup grace.
-- [ ] 4.2 Tests: foreground rules per environment, child detached (no inherited stdin), failure prints the log reason, startup grace with a short time; update every test and script that runs `canworks-config` and expects it in the foreground.
+- [ ] 4.1 Background by default, `--foreground`, foreground by itself with `--no-browser`/`--keep-running`/SSH/no display; hidden `--child-background`: detached child (POSIX new session; Windows DETACHED_PROCESS, CREATE_NO_WINDOW, pythonw when present), wait for the instance, open browser, print log tail on failure; log rotation at 1 MB; 10-minute startup grace.
+- [ ] 4.3 No page 15 s after asking the browser: print the address (terminal) or a message window (Windows MessageBoxW, macOS osascript dialog, Linux zenity/kdialog/notify-send), always the log; tests with `webbrowser.open` stubbed to do nothing and the window call stubbed.
+- [ ] 4.2 Tests: foreground rules per environment, child detached (no inherited stdin), failure prints the log reason, startup grace and the 15 s check with short times; update every test and script that runs `canworks-config` and expects it in the foreground.
 
 ## 4b. App shortcut
 
@@ -46,3 +47,4 @@
 - [ ] 8.1 Windows: one-line installer creates the shortcut; double-click opens the page with no console window; second double-click opens a tab on it; closing the tab stops it; `canworks-config` from a terminal returns at once; Quit; uninstall removes the shortcut.
 - [ ] 8.2 macOS: the same with the app in ~/Applications (Gatekeeper lets it start); closing the tab stops it and frees a USB adapter; reload keeps it.
 - [ ] 8.3 Pi over SSH: `canworks-config` stays in the foreground and prints the address.
+- [ ] 8.4 Windows: with the default browser broken (for example its program renamed), the shortcut shows the address in a message box and the copied address opens the page.

@@ -67,7 +67,7 @@ The configurator SHALL stop when its last page is closed: 10 s after the page sa
 - **THEN** the browser asks first whether to leave the page, and Cancel keeps the configurator running
 
 ### Requirement: Start without a terminal
-`canworks-config` SHALL by default start the configurator detached from the terminal (with no console window on Windows), open the browser and return at once, writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. `--foreground` SHALL keep it in the terminal as before, stopped also by Ctrl-C. It SHALL start in the foreground by itself with `--no-browser` or `--keep-running`, in an SSH session, and on Linux without `DISPLAY` or `WAYLAND_DISPLAY`. A configurator whose first page has not opened within 3 minutes of starting SHALL stop. In every case it SHALL stop when its last tab closes, or by Quit.
+`canworks-config` SHALL by default start the configurator detached from the terminal (with no console window on Windows), open the browser and return at once, writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. `--foreground` SHALL keep it in the terminal as before, stopped also by Ctrl-C. It SHALL start in the foreground by itself with `--no-browser` or `--keep-running`, in an SSH session, and on Linux without `DISPLAY` or `WAYLAND_DISPLAY`. When no page has opened 15 s after the browser was asked to open it, the configurator SHALL show its start address: printed in the terminal when started from one, else in a message window (Windows message box, macOS dialog, Linux desktop dialog or notification when one is available) from which the address can be copied, and always in the log. A configurator whose first page has not opened within 10 minutes of starting SHALL stop. In every case it SHALL stop when its last tab closes, or by Quit.
 
 #### Scenario: Terminal closed
 - **WHEN** the user runs `canworks-config` and closes the terminal
@@ -80,6 +80,14 @@ The configurator SHALL stop when its last page is closed: 10 s after the page sa
 #### Scenario: Over SSH
 - **WHEN** the user runs `canworks-config` in an SSH session
 - **THEN** it stays in the terminal, as with `--foreground`
+
+#### Scenario: Browser does not open from the shortcut
+- **WHEN** the user starts the configurator from the shortcut and no browser opens
+- **THEN** after about 15 s a message window shows the start address to copy into a browser, and the configurator waits up to 10 minutes for it
+
+#### Scenario: Browser does not open from a terminal
+- **WHEN** the user runs `canworks-config` and the browser does not open
+- **THEN** the terminal shows the start address and says to open it in a browser, and the prompt comes back
 
 #### Scenario: Background start fails
 - **WHEN** the configurator cannot start (for example the folder given cannot be opened)
