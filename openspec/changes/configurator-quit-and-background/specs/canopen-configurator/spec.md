@@ -58,6 +58,21 @@ A running configurator SHALL make itself known to later starts by the same user 
 - **WHEN** the background configurator cannot start (for example the folder given cannot be opened)
 - **THEN** `canworks-config --background` prints the reason from the log and exits non-zero
 
+### Requirement: Adapter freed when no page is open
+When no page of the configurator is open, its USB adapter connection SHALL close as Disconnect does, stopping the scan, PDO test, SYNC, send jobs and trace recording on it: 10 s after the last page was closed, or 3 minutes after the last page stopped answering (browser crash, sleep). A reload SHALL NOT close it. The next page SHALL say in the message bar that the adapter connection was closed because no configurator page was open.
+
+#### Scenario: Tab closed while connected
+- **WHEN** the user is connected to gs_usb:0 and closes the configurator's only tab
+- **THEN** within 15 s the adapter is free, and `canworks-diag --adapter gs_usb:0` can open it while the configurator still runs
+
+#### Scenario: Reload keeps the connection
+- **WHEN** the user reloads the page while connected to an adapter
+- **THEN** the connection stays open and the page shows it connected
+
+#### Scenario: Two tabs
+- **WHEN** two tabs of the configurator are open and the user closes one
+- **THEN** the adapter connection stays open
+
 ### Requirement: New start address from the terminal
 While the configurator runs in a terminal, pressing Enter SHALL print a new one-time start address and open it when the configurator opens browsers. Earlier sessions SHALL keep working, and at most 16 unused addresses SHALL be kept, the oldest dropped first.
 

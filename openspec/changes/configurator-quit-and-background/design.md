@@ -27,6 +27,14 @@ The parent waits until `instance.json` names a port that answers (up to 10 s), t
 
 The page sends `POST /api/heartbeat` every 30 s while open (and on `visibilitychange` to visible). A background configurator stops when no heartbeat or other request came for 10 minutes and no trace recording, send job or PDO test runs. A terminal configurator does not stop by itself.
 
+## Adapter freed when the page is gone
+
+Two signals, so the release is quick when the tab closes and still happens when the browser crashes or the PC sleeps:
+- **Page closed:** on `pagehide` the page sends `navigator.sendBeacon("/api/page/closed", {page})`. A beacon cannot carry the token header, so this one route accepts the session cookie alone (SameSite=Strict keeps other sites from sending it) and can only mark a page closed. A reload sends the beacon and then a new heartbeat, so the server waits 10 s before acting.
+- **Heartbeat missing:** each page has a random page id and sends it with the heartbeat every 30 s. Browsers throttle timers in hidden tabs to about once a minute, so a page counts as gone after 3 minutes without a heartbeat, not sooner.
+
+When no page is left, the server closes the adapter connection as Disconnect does (scan, PDO test, SYNC, send jobs and trace recording on it stop) and keeps a note; the next page shows "The adapter connection was closed because no configurator page was open" in the message bar. Runtime and simulator connections already close after 30 s without requests and are unchanged. The configurator itself keeps running in a terminal; in the background it stops later by the idle rule.
+
 ## Cookie per port
 
 Cookie name `canopen_session_<port>` (the port from the request's Host), set on the start-code redirect and read on each request.

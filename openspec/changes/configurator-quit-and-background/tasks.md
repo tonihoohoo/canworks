@@ -16,21 +16,26 @@
 - [ ] 3.1 `--background` / hidden `--child-background`: detached child (POSIX new session; Windows DETACHED_PROCESS, CREATE_NO_WINDOW, pythonw when present), wait for the instance, open browser, print log tail on failure; log rotation at 1 MB.
 - [ ] 3.2 Heartbeat every 30 s and on becoming visible; idle stop after 10 minutes without requests and without traces, send jobs or PDO tests (background only); tests with a short idle time.
 
-## 4. Session
+## 4. Adapter freed when no page is open
 
-- [ ] 4.1 Cookie `canopen_session_<port>`; test with two servers and one cookie jar.
-- [ ] 4.2 Enter prints a new start address (stdin a terminal), at most 16 unused codes; tests.
+- [ ] 4.1 Page id, heartbeat with it, `pagehide` beacon to `/api/page/closed` (cookie only, marks one page closed); server page table with 10 s after-close grace and 3 min heartbeat timeout; closes the adapter connection as Disconnect and keeps the note for the next page.
+- [ ] 4.2 Tests: close beacon frees a `virtual:` adapter within the grace, reload (beacon then heartbeat) keeps it, two pages keep it, heartbeat timeout with a short timeout, beacon without cookie refused; browser test of the message bar note.
 
-## 5. Docs and version
+## 5. Session
 
-- [ ] 5.1 README and `docs/configurator.md` Start: Quit, `--background`, second start, `--new-instance`, log file; tour line if the tour covers the header.
-- [ ] 5.2 Bump the PC tools version (minor), release notes.
+- [ ] 5.1 Cookie `canopen_session_<port>`; test with two servers and one cookie jar.
+- [ ] 5.2 Enter prints a new start address (stdin a terminal), at most 16 unused codes; tests.
 
-## 6. CI time
+## 6. Docs and version
 
-- [ ] 6.1 Compare the PR's CI wall and summed job time with the main baseline and note both in the PR.
+- [ ] 6.1 README and `docs/configurator.md` Start: Quit, `--background`, second start, `--new-instance`, log file; tour line if the tour covers the header.
+- [ ] 6.2 Bump the PC tools version (minor), release notes.
 
-## 7. Desktop checks (manual)
+## 7. CI time
 
-- [ ] 7.1 Windows: `canworks-config --background` from a terminal, close the terminal, page keeps working; no console window; second start opens a tab on it; Quit.
-- [ ] 7.2 macOS: the same, plus idle stop after the last tab closes.
+- [ ] 7.1 Compare the PR's CI wall and summed job time with the main baseline and note both in the PR.
+
+## 8. Desktop checks (manual)
+
+- [ ] 8.1 Windows: `canworks-config --background` from a terminal, close the terminal, page keeps working; no console window; second start opens a tab on it; Quit.
+- [ ] 8.2 macOS: the same, plus idle stop after the last tab closes, and a USB adapter freed after closing the tab of a terminal configurator.
