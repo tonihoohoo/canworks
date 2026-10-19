@@ -1,7 +1,9 @@
 """Finding runtimes on the local network: the device advertises
 _canworks._tcp over mDNS/DNS-SD (an Avahi service file, `avahi_service`), the
 PC tools browse for it with python-zeroconf rather than the operating
-system's .local lookup, which is unreliable on Windows."""
+system's .local lookup, which is unreliable on Windows. An adapter server
+(canworks-diag adapter-serve) advertises the same service type with TXT
+kind=adapter (`avahi_adapter_service`); answers carry their kind."""
 
 import ipaddress
 import socket
@@ -43,6 +45,38 @@ def avahi_service(diag_port=7531, runtime_port=8443, link_id=None, link_port=753
             '</service-group>\n') % (escape(name) if name else "%h", diag_port, records)
 
 
+def avahi_adapter_service(port, name, adapter, bitrate_kbit):
+    """The Avahi service file of an adapter server: kind=adapter with its
+    machine's name, the adapter and the bit rate it serves."""
+    txt = ["v=1", "kind=adapter", "name=%s" % name, "adapter=%s" % adapter, "bitrate=%d" % bitrate_kbit]
+    records = "".join("    <txt-record>%s</txt-record>\n" % escape(t) for t in txt)
+    return ('<?xml version="1.0" standalone="no"?>\n'
+            '<!DOCTYPE service-group SYSTEM "avahi-service.dtd">\n'
+            '<service-group>\n'
+            '  <name>%s</name>\n'
+            '  <service>\n'
+            '    <type>_canworks._tcp</type>\n'
+            '    <port>%d</port>\n'
+            '%s'
+            '  </service>\n'
+            '</service-group>\n') % (escape("%s adapter %s" % (name, adapter)), port, records)
+
+
+def _entry(name, addresses, port, txt):
+    """One answer as browse() and query_host() give it: a runtime ({name,
+    addresses, diag, runtime, id, link, kind: "runtime"}) or an adapter
+    server (kind "adapter", with its machine's name, adapter and bitrate in
+    kbit/s; diag is its port)."""
+    kind = "adapter" if txt.get("kind") == "adapter" else "runtime"
+    out = {"name": name, "addresses": addresses, "diag": _int(txt.get("diag"), port),
+           "runtime": _int(txt.get("runtime"), None), "id": txt.get("id") or None,
+           "link": _int(txt.get("link"), None), "kind": kind}
+    if kind == "adapter":
+        out.update(machine=txt.get("name") or name, adapter=txt.get("adapter") or "",
+                   bitrate=_int(txt.get("bitrate"), None))
+    return out
+
+
 def _txt(props):
     out = {}
     for k, v in (props or {}).items():
@@ -62,8 +96,8 @@ def _int(text, default):
 
 
 def browse(timeout=2.0):
-    """Runtimes that answer within `timeout` seconds: [{name, addresses,
-    diag, runtime, id, link}], sorted by name. [] without zeroconf."""
+    """Runtimes and adapter servers that answer within `timeout` seconds
+    (see _entry), sorted by name. [] without zeroconf."""
     if not available():
         return []
     from zeroconf import ServiceBrowser, Zeroconf
@@ -91,12 +125,8 @@ def browse(timeout=2.0):
             txt = _txt(info.properties)
             addrs = info.parsed_scoped_addresses() if hasattr(info, "parsed_scoped_addresses") else [
                 socket.inet_ntoa(a) for a in info.addresses if len(a) == 4]
-            out.append({
-                "name": name[:-len(SERVICE) - 1] if name.endswith("." + SERVICE) else name,
-                "addresses": addrs, "diag": _int(txt.get("diag"), info.port),
-                "runtime": _int(txt.get("runtime"), None), "id": txt.get("id") or None,
-                "link": _int(txt.get("link"), None),
-            })
+            out.append(_entry(name[:-len(SERVICE) - 1] if name.endswith("." + SERVICE) else name, addrs,
+                              info.port, txt))
         return sorted(out, key=lambda r: r["name"].lower())
     finally:
         zc.close()
@@ -191,24 +221,25 @@ def query_host(ip, timeout=1.5, port=MDNS_PORT):
         return None
     finally:
         s.close()
-    txt = r["txt"]
-    return {"name": r["name"], "addresses": [ip], "diag": _int(txt.get("diag"), r["port"]),
-            "runtime": _int(txt.get("runtime"), None), "id": txt.get("id") or None,
-            "link": _int(txt.get("link"), None)}
+    return _entry(r["name"], [ip], r["port"], r["txt"])
 
 
-def find_address(host, timeout=2.0):
-    """The advertised runtime whose addresses include `host` (an IP or a name
-    that resolves to one), else None: asked directly first, then by browsing."""
+def find_address(host, timeout=2.0, kind=None):
+    """The advertised runtime (or adapter server) whose addresses include
+    `host` (an IP or a name that resolves to one), else None: asked directly
+    first, then by browsing. `kind` "runtime" or "adapter" takes only that
+    kind."""
     try:
         ips = {ai[4][0] for ai in socket.getaddrinfo(host, None)}
     except OSError:
         ips = {host}
     for ip in sorted(ips, key=lambda a: (":" in a, a)):   # IPv4 first
         r = query_host(ip)
-        if r:
+        if r and kind in (None, r["kind"]):
             return r
     for r in browse(timeout):
+        if kind not in (None, r["kind"]):
+            continue
         if ips & {a.split("%")[0] for a in r["addresses"]} or host.rstrip(".").lower() in (
                 r["name"].lower(), r["name"].lower() + ".local"):
             return r

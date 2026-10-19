@@ -93,6 +93,8 @@ A gs_usb (candleLight) adapter works too: on Windows the tools bring its driver 
 
 `canworks-diag adapters` lists the adapters it finds. `canworks-j1939-sim` takes the same `--adapter` values.
 
+The adapter can also be in another Linux machine, at the bus, while the configurator stays on this PC ([pc-adapter.md](pc-adapter.md#an-adapter-on-another-machine)). Install the tools on that machine with the same one-line installer (over SSH too: `ssh user@benchbox` and the `curl ... | sh` line above), then run `canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500` there, or `sudo canworks-diag adapter-serve ... --install-service` for a service that starts with the machine. It prints a token once; on the PC, connect with `--adapter remote:benchbox` or **Adapter on another machine** in the connect panel.
+
 To run the plugin on the PC itself, install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).
 
 ## Switching from pipx or a venv

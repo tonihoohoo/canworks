@@ -2366,19 +2366,23 @@ JOB_LABELS = {"read": "Read all", "backup": "Back up", "compare": "Compare", "re
 
 
 def connection_summary(out, host, local):
-    """What the connection bar shows, the same shape for a USB adapter and a
-    runtime: the target, how the bit rate was confirmed or the path and round
-    trip, the bus, another master and whether changes are allowed."""
+    """What the connection bar shows, the same shape for a USB adapter, an
+    adapter on another machine and a runtime: the target, how the bit rate
+    was confirmed or the path and round trip, the bus, another master and
+    whether changes are allowed."""
     st = out.get("status") or {}
     hello = out.get("hello") or {}
     bus = st.get("bus") or {}
     if local:
         other = st.get("other_master_seen")
-        return {"kind": "adapter", "target": st.get("adapter") or "", "bitrate": st.get("bitrate"),
-                "check": st.get("bitrate_check"), "path": None, "rtt_ms": None,
+        remote = out.get("remote")
+        return {"kind": "adapter", "target": "%s on %s" % (st.get("adapter") or "", remote) if remote
+                else st.get("adapter") or "", "remote": remote, "bitrate": st.get("bitrate"),
+                "check": st.get("bitrate_check"), "path": None, "rtt_ms": out.get("rtt_ms") if remote else None,
                 "bus": {"state": bus.get("adapter_state") or "active", "frames": bus.get("frames"),
                         "error_frames": bus.get("error_frames")},
                 "other_master": other, "allow_changes": bool(st.get("allow_changes")),
+                "server_allow_changes": st.get("server_allow_changes", True) is not False,
                 "allow_changes_source": "switch", "networks": []}
     states = {0: "no bus", 1: "error-active", 2: "error-warning", 3: "error-passive", 4: "bus-off"}
     return {"kind": "runtime", "target": host or "", "name": hello.get("name") or hello.get("hostname"),
@@ -2812,18 +2816,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with s.lock:
             self._need_open(s)
             folder, config_path, canopen_dir = s.folder, s.config_path, s.canopen_dir
-            adapter = s.adapter_online()
+            native = s.adapter_online()
         proj = settings.project(folder)
+        if route == ("POST", "/api/online/settings") and "remote_adapter" in body:
+            # The adapter on another machine as the target (Commission a device, a CODESYS
+            # config, and a config in place of its runtime), or not; kept on this PC.
+            on = body.get("remote_adapter") is True
+            if on != bool(proj.get("remote_adapter")):
+                self.server.sender.close()
+                conn.close()
+                self.server.adapter_allow = False
+                proj = settings.update_project(folder, remote_adapter=True if on else None)
+        # Online access through an adapter: a USB adapter on this PC, or an adapter server.
+        adapter = native or bool(proj.get("remote_adapter"))
 
         def view():
             p = settings.project(folder)
             lib = settings.eds_library
             count, capped = online.count_eds(lib)
+            remote_host = p.get("remote_host") or ""
             return {"token": p.get("token"), "host": p.get("host") or "", "eds_library": lib,
                     "eds_count": count, "eds_count_capped": capped,
                     "connected": conn.connected, "target": "adapter" if adapter else "runtime",
                     "adapter": p.get("adapter") or "", "adapter_bitrate": p.get("adapter_bitrate"),
-                    "check_node": p.get("check_node"),
+                    "check_node": p.get("check_node"), "remote_adapter": bool(p.get("remote_adapter")),
+                    "remote_host": remote_host,
+                    "remote_token_set": bool(remote_host and settings.adapter_token(remote_host)),
                     "allow_changes": self.server.adapter_allow, "commission": bool(s.commission),
                     "remembered": online.remembered_view(p.get("host")),
                     "recent": [r for r in p.get("recent") or [] if isinstance(r, dict)]}
@@ -2839,6 +2857,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("GET", "/api/online/adapters"):
             from .. import localbus
             return {"adapters": localbus.list_adapters()}
+        if route == ("GET", "/api/online/adapter_servers"):
+            # The connect panel's adapter servers on the local network (two seconds of mDNS).
+            return online.adapter_servers_list()
         if route == ("POST", "/api/online/settings"):
             if not adapter and any(k in body for k in ("adapter", "adapter_bitrate", "check_node", "allow_changes")):
                 raise ApiError(422, "a USB adapter on this PC is used in Commission a device and in a CODESYS "
@@ -2872,6 +2893,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # once, without closing.
                 self.server.adapter_allow = body.get("allow_changes") is True
                 conn.set_allow_changes(self.server.adapter_allow)
+            if "remote_host" in body:
+                text = (body.get("remote_host") or "").strip()
+                if text:
+                    from ..localbus import remote
+                    try:
+                        text = remote.host_key(*remote.parse(text))
+                    except ValueError as e:
+                        raise ApiError(422, str(e))
+                if text != (proj.get("remote_host") or ""):
+                    settings.update_project(folder, remote_host=text or None)
+                    self.server.sender.close()
+                    conn.close()
+            if "remote_token" in body:
+                # This PC's token for the adapter server of remote_host, for every project; "" forgets it.
+                host = settings.project(folder).get("remote_host")
+                if not host:
+                    raise ApiError(422, "enter the adapter server's host first")
+                token = (body.get("remote_token") or "").strip()
+                settings.set_adapter_token(host, token or None)
+                self.server.sender.close()
+                conn.close()
             if "host" in body:
                 host = (body.get("host") or "").strip()
                 if host:
@@ -2949,6 +2991,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         hostname, port, token = self._online_target(proj, config_path, network, body)
         host = str(hostname) if isinstance(hostname, online.AdapterTarget) else proj.get("host")
         local = isinstance(hostname, online.AdapterTarget)
+        remote_target = isinstance(hostname, online.RemoteAdapterTarget)
 
         def call(fn):
             def run(c):
@@ -3044,7 +3087,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.
             out.update(conn.link_info())
-            out["recent"] = self._remember_recent(settings, folder, proj, local)
+            out["recent"] = self._remember_recent(settings, folder, proj, local, remote_target)
+            if remote_target:
+                out["remote"] = host
             if local:
                 out["config"] = "local"
                 out["config_bitrate"] = self._config_bitrate(config_path, network)
@@ -3249,7 +3294,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """(host, port, token) for the kept-open connection: the runtime of the
         online access settings, or in Commission a device an
         online.AdapterTarget for the USB adapter on this PC (no token), also
-        in a CODESYS project."""
+        in a CODESYS project; with the adapter on another machine picked
+        (remote_adapter), an online.RemoteAdapterTarget, also with a config."""
+        if proj.get("remote_adapter"):
+            from ..localbus import configinfo, remote
+            key = proj.get("remote_host")
+            if not key:
+                raise ApiError(409, "enter the adapter server's host", need="remote_host")
+            token = online.Settings(config_dir()).adapter_token(key)
+            if not token:
+                raise ApiError(409, "enter the adapter server's token", need="remote_token")
+            nodes = {}
+            if os.path.isfile(config_path):
+                try:
+                    nodes = configinfo.load(config_path, network)[1]
+                except (OSError, ValueError):
+                    pass
+            host, port = remote.parse(key)
+            return online.RemoteAdapterTarget(host, port, token, self.server.adapter_allow, nodes, network), None, None
         if self.server.session.adapter_online():
             from ..localbus import configinfo
             adapter = proj.get("adapter")
@@ -3758,7 +3820,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if spec and spec.get("autosave") and spec["autosave"].get("folder"):
                     spec["autosave"]["folder"] = tracing.check_folder(spec["autosave"]["folder"], canopen_dir)
             proj = online.Settings(config_dir()).project(folder)
-            on_adapter = s.adapter_online()
+            on_adapter = s.adapter_online() or bool(proj.get("remote_adapter"))
             if on_adapter and not self.server.connection.connected:
                 raise ApiError(409, "connect to the USB adapter on Bus and master to record a trace; opening trace "
                                     "files works without it", need="online")
@@ -3890,10 +3952,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(422, str(e))
         raise ApiError(404, "no such API: %s %s" % route)
 
-    def _remember_recent(self, settings, folder, proj, local):
+    def _remember_recent(self, settings, folder, proj, local, remote=False):
         """Puts the connection that just answered first in the recent
         connections of this folder (the Nodes table's one-click list)."""
-        if local:
+        if remote:
+            entry = online.recent_entry(proj.get("remote_host"), remote=True)
+        elif local:
             entry = online.recent_entry(proj.get("adapter"), proj.get("adapter_bitrate"), proj.get("check_node"))
         else:
             mem = online.remembered_view(proj.get("host"))

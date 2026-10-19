@@ -103,9 +103,10 @@ function download(r) {
 
 // Recording and the transmit list use the connection in the connection bar
 // (connection.js): the runtime with a config, the USB adapter in Commission
-// a device. A runtime that is set up opens when recording starts.
+// a device, or an adapter on another machine. A runtime that is set up opens
+// when recording starts.
 function onlineReady() {
-  if (S.state && S.state.commission) return !!S.adapterOn;
+  if (S.state && (S.state.commission || connRemote())) return !!S.adapterOn;
   return connIsOn() || (connReady() && !S.runtimeOff);
 }
 
@@ -1408,8 +1409,8 @@ async function removeTrigger() {
 // -- send -------------------------------------------------------------------
 // Sending (transmit.js): why it is not possible now, and a frame as text.
 function sendBlocked() {
-  if (S.state && S.state.commission) {
-    if (!S.adapterOn) return "Sending needs the USB adapter connection: Connect… in the connection bar";
+  if (S.state && (S.state.commission || connRemote())) {
+    if (!S.adapterOn) return "Sending needs the adapter connection: Connect… in the connection bar";
     if (!S.online.allow_changes) return "Sending needs Allow changes in the connection bar";
     return null;
   }

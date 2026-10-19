@@ -170,7 +170,7 @@ Some features cannot be shown on a simulated bus:
 - **The bit rate check** of a USB adapter connection needs a real bus: a simulated bus has no bit rate ([pc-adapter.md](pc-adapter.md#the-check-on-connect)).
 - **slcan adapters** (CANable and similar) and unplugging one while the bus runs need the adapter ([config.md](config.md)).
 - **Bus error states** (error passive, bus-off and recovery) need a real controller and a fault on the wire.
-- **Commissioning straight from the PC** through a USB adapter, with no runtime, needs the adapter and a device ([pc-adapter.md](pc-adapter.md)).
+- **Commissioning straight from the PC** through a USB adapter, with no runtime, needs the adapter and a device ([pc-adapter.md](pc-adapter.md)); through **Adapter on another machine** in the connect panel, a Linux machine with the adapter that runs `canworks-diag adapter-serve` ([pc-adapter.md](pc-adapter.md#an-adapter-on-another-machine)).
 - **J1939 networks** need the Linux kernel's J1939 support and do not run on the simulated bus; try them on a Linux runtime with `canworks-j1939-sim` and [`examples/j1939`](../examples/j1939) ([j1939.md](j1939.md)).
 - **Real-time timing**: SYNC jitter, PDO latency and the drive's cycle in a container say nothing about a real target.
 - **The install on a runtime host** (`install-stock.sh` on a Raspberry Pi or another Linux device) and its CAN interface ([install-stock.md](install-stock.md)).

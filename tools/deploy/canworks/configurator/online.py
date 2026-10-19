@@ -5,7 +5,8 @@ fingerprints, and EDS matching for scan results.
 The token is never written to the project: canworks.json holds only its
 SCRAM verifier (master.diagnostics.token_verifier). The plain token and the runtime
 host live in online.json in the configurator's settings folder, per project
-folder.
+folder. The tokens of adapter servers (canworks-diag adapter-serve) are kept
+there per server host (adapter_tokens), for every project.
 """
 
 import hashlib
@@ -70,6 +71,24 @@ class Settings:
                     p[k] = v
             self._store(data)
             return dict(p)
+
+    def adapter_token(self, key):
+        """This PC's token for the adapter server `key` (remote.host_key), or None."""
+        tokens = self.load().get("adapter_tokens")
+        t = tokens.get(key) if isinstance(tokens, dict) else None
+        return t if isinstance(t, str) and t else None
+
+    def set_adapter_token(self, key, token):
+        """Keeps (or with None forgets) the token of the adapter server `key`."""
+        with self.lock:
+            data = self.load()
+            tokens = data.get("adapter_tokens") if isinstance(data.get("adapter_tokens"), dict) else {}
+            if token:
+                tokens[key] = token
+            else:
+                tokens.pop(key, None)
+            data["adapter_tokens"] = tokens
+            self._store(data)
 
     @property
     def eds_library(self):
@@ -149,6 +168,8 @@ def runtimes_list(wait=2.0):
     except Exception:  # an mDNS failure must not break the connect box
         browsed = []
     for r in browsed:
+        if r.get("kind") == "adapter":
+            continue  # adapter_servers_list's
         addrs = list(r.get("addresses") or [])
         # IPv4 first: a scoped IPv6 link-local address is hard to type and to read.
         addrs.sort(key=lambda a: ":" in a)
@@ -170,6 +191,28 @@ def runtimes_list(wait=2.0):
     mem.sort(key=lambda r: r["name"].lower())
     return {"discovered": found, "remembered": mem, "discovery": discovery.available(),
             "link": link.available()}
+
+
+def adapter_servers_list(wait=2.0):
+    """The adapter servers (canworks-diag adapter-serve) that answer on the
+    local network within `wait` seconds: {servers: [{name, address, adapter,
+    bitrate_kbit}], discovery: whether this PC can browse}. The address has
+    the port when it is not 7536."""
+    from ..link import discovery
+    from ..localbus import remote
+    try:
+        browsed = discovery.browse(wait) if discovery.available() else []
+    except Exception:  # an mDNS failure must not break the connect panel
+        browsed = []
+    out = []
+    for r in browsed:
+        addrs = sorted(r.get("addresses") or [], key=lambda a: ":" in a)
+        if r.get("kind") != "adapter" or not addrs:
+            continue
+        out.append({"name": r.get("machine") or r.get("name") or "", "address": remote.host_key(addrs[0], r["diag"]),
+                    "adapter": r.get("adapter") or "", "bitrate_kbit": r.get("bitrate")})
+    out.sort(key=lambda r: r["name"].lower())
+    return {"servers": out, "discovery": discovery.available()}
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +259,33 @@ class AdapterTarget:
         return localbus.LocalBus(spec, self.bitrate, allow_changes=self.allow_changes, config=self.nodes,
                                  network=self.network, timeout=timeout, check_node=self.check_node,
                                  listen_only=self.listen_only)
+
+
+class RemoteAdapterTarget(AdapterTarget):
+    """An adapter on another machine (canopen-remote-adapter): an adapter
+    server at host:port with this PC's token for it. The server sets the
+    adapter and the bit rate; like a USB adapter the connection stays open
+    until Disconnect and is not opened again by itself."""
+
+    def __init__(self, host, port, token, allow_changes=False, nodes=None, network=None):
+        super().__init__(None, None, allow_changes, nodes, network)
+        self.host, self.port, self.token = host, port, token
+
+    def _key(self):
+        return ("remote", self.host, self.port, self.token, self.network,
+                json.dumps(self.nodes, sort_keys=True, default=str))
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __str__(self):
+        from ..localbus import remote
+        return remote.host_key(self.host, self.port)
+
+    def client(self, timeout):
+        from ..localbus import remote
+        return remote.RemoteBus(self.host, self.port, self.token, timeout, allow_changes=self.allow_changes,
+                                config=self.nodes, network=self.network)
 
 
 # Operations that only read: the only ones sent again after a timeout or a
@@ -303,14 +373,16 @@ class Connection:
     def link_info(self):
         """{path, rtt_ms, pairing_note} of the open connection: the path the
         automatic path choice took ("LAN", "internet direct", "internet
-        relayed"; None for a USB adapter), the measured round trip in ms, and
+        relayed"; None for an adapter), the measured round trip in ms (also
+        to an adapter server; None for a USB adapter), and
         the background pairing's one line (see diag.Client.connect) once it
         finished, given once per pairing and only when the runtime is
         reachable from other networks (remote_link.internet)."""
         with self.lock:
             c, key = self.client, self.key
         if c is None or isinstance(key[0], AdapterTarget):
-            return {"path": None, "rtt_ms": None, "pairing_note": None}
+            remote = c is not None and isinstance(key[0], RemoteAdapterTarget)
+            return {"path": None, "rtt_ms": c.rtt_ms if remote else None, "pairing_note": None}
         out = {"path": getattr(c, "path", None), "rtt_ms": getattr(c, "rtt_ms", None), "pairing_note": None}
         job = getattr(c, "pairing", None)
         if not isinstance(job, dict) or id(job) in self.notes_shown:
@@ -539,9 +611,12 @@ def compare_scanned(device, expected, configured):
     return {"state": "identity_differs" if differs else "match", "differs": differs}
 
 
-def recent_entry(target, bitrate_kbit=None, check_node=None, name=None):
+def recent_entry(target, bitrate_kbit=None, check_node=None, name=None, remote=False):
     """One recent connection as online.json keeps it: an adapter with its bit
-    rate (and check node), or a runtime host with its name. Never a token."""
+    rate (and check node), an adapter server's host (`remote`), or a runtime
+    host with its name. Never a token."""
+    if remote:
+        return {"kind": "remote_adapter", "host": target}
     if bitrate_kbit is not None:
         e = {"kind": "adapter", "adapter": target, "bitrate_kbit": bitrate_kbit}
         if check_node:

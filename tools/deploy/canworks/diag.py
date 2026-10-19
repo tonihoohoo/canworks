@@ -57,6 +57,9 @@ LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
 TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+# Error kinds an adapter server (localbus/serve.py) names in its answer, as a
+# local adapter would raise them; every other refusal is "refused".
+ANSWER_KINDS = ("bitrate", "busy", "eof")
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +392,8 @@ class Client:
     always; a standalone simulator with a token); without one it is plain,
     for a local simulator without a token."""
 
+    remember = True  # remember the runtime and pair this PC for the remote link after a login on the LAN
+
     def __init__(self, host, port=DEFAULT_PORT, token="", timeout=5.0, network=None, repair=False):
         self.host, self.port, self.token, self.timeout = host, port, token, timeout
         self.network = network
@@ -492,7 +497,7 @@ class Client:
             self.close()
             raise DiagError("protocol", "%s speaks diagnostics protocol %s; this tool speaks %d"
                             % (self.where, proto, want))
-        if self.token and self.path == "LAN" and not self.host.startswith("link:"):
+        if self.remember and self.token and self.path == "LAN" and not self.host.startswith("link:"):
             # Remember the runtime and pair this PC for the remote link, in
             # the background (nothing happens without iroh and discovery).
             try:
@@ -602,7 +607,9 @@ class Client:
                 self.rtts = (self.rtts + [time.monotonic() - started])[-10:]
                 if answer.get("ok"):
                     return answer.get("result") or {}
-                raise DiagError("refused", str(answer.get("error") or "request refused"))
+                kind = answer.get("kind")
+                raise DiagError(kind if kind in ANSWER_KINDS else "refused",
+                                str(answer.get("error") or "request refused"))
         finally:
             if (timeout is not None or self.rtts) and self.sock:
                 self.sock.settimeout(self._timeout_for(None))
@@ -865,7 +872,9 @@ def parser():
                         "of canworks-sim-runtime" % DEFAULT_PORT)
     p.add_argument("--adapter", metavar="TYPE:CHANNEL",
                    help="talk to the bus through a CAN adapter on this PC instead of a runtime: slcan:COM5, "
-                        "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md)")
+                        "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md); "
+                        "remote:HOST[:PORT] for an adapter server on another machine (adapter-serve, with the "
+                        "server's token)")
     p.add_argument("--bitrate", type=int, metavar="KBIT",
                    help="--adapter: the bus's bit rate in kbit/s (default: the network's adapter.bitrate from --config)")
     p.add_argument("--check-node", type=_int_range("node ID", 1, 127), metavar="N",
@@ -1120,7 +1129,8 @@ def parser():
     sub.add_parser("adapters", help="list the CAN adapters on this PC (for --adapter; no connection)")
     h = sub.add_parser("hash-token", help="print the token_verifier for a token (no connection)")
     h.add_argument("value", nargs="?", help="the token (default: --token, $%s or a prompt)" % TOKEN_ENV)
-    dc = sub.add_parser("discover", help="list the runtimes on the local network (mDNS; no login)")
+    _serve_parser(sub)
+    dc = sub.add_parser("discover", help="list the runtimes and adapter servers on the local network (mDNS; no login)")
     dc.add_argument("--wait", type=float, default=3.0, metavar="S", help="listen this long (default %(default)s s)")
     dc.add_argument("host", nargs="?", metavar="HOST",
                     help="ask this host directly instead (gets through firewalls that drop multicast answers)")
@@ -1160,6 +1170,41 @@ def parser():
     _network_arg(gw, "the session's default network (set network), by its name")
     _sim_parser(sub)
     return p
+
+
+def _serve_parser(sub):
+    """`adapter-serve`: this machine's adapter for PCs on the network
+    (localbus/serve.py). The adapter options may come before or after it."""
+    from .localbus import serve
+    a = sub.add_parser("adapter-serve", help="serve a CAN adapter of this machine to PCs on the network "
+                                             "(docs/pc-adapter.md)",
+                       description="Serves the adapter with the diagnostics protocol (TLS and the token login) on "
+                                   "port %d: PCs use it with --adapter remote:HOST or the configurator's Adapter on "
+                                   "another machine. The first start prints a token once and keeps only its "
+                                   "verifier. Changes (SDO writes, NMT, LSS, frames, PDO test, SYNC) need "
+                                   "--allow-changes here and on the PC." % serve.DEFAULT_PORT)
+    for args, kw in ((("--adapter",), dict(metavar="TYPE:CHANNEL", help="the adapter to serve, e.g. socketcan:can0")),
+                     (("--bitrate",), dict(type=int, metavar="KBIT", help="the bus's bit rate in kbit/s (required: "
+                                                                            "the server never guesses it)")),
+                     (("--check-node",), dict(type=_int_range("node ID", 1, 127), metavar="N",
+                                              help="on a silent bus, check the bit rate with one SDO read from "
+                                                   "node N (slcan adapters)")),
+                     (("--allow-changes",), dict(action="store_true",
+                                                 help="let PCs make changes (each PC still allows them for its "
+                                                      "session)"))):
+        a.add_argument(*args, default=argparse.SUPPRESS, **kw)
+    a.add_argument("--port", type=_int_range("port", 1, 65535), default=serve.DEFAULT_PORT, metavar="P",
+                   help="the port (default %(default)s)")
+    a.add_argument("--bind", metavar="ADDR", help="listen on this address only (default: every address; "
+                                                  "127.0.0.1 when PCs come through an SSH port forward)")
+    a.add_argument("--new-token", action="store_true", help="make a new token (the old one stops working)")
+    a.add_argument("--token-file", dest="serve_token_file", metavar="FILE",
+                   help="use the token in this file instead of making one")
+    a.add_argument("--install-service", action="store_true",
+                   help="with sudo: run the server as a systemd service with these options, as the user who ran "
+                        "sudo, and advertise it on the local network")
+    a.add_argument("--remove-service", action="store_true", help="with sudo: stop and remove the service")
+    a.add_argument("--status", action="store_true", help="whether the service runs and which PCs are connected")
 
 
 DM_CLEAR_FORCE = "clearing trouble codes acts on another ECU: repeat with --force"
@@ -2085,7 +2130,9 @@ def _local_client(args):
     network of --config, the configured nodes' names and the network's
     adapter.listen_only from --config."""
     from . import localbus
-    from .localbus import configinfo
+    from .localbus import configinfo, remote
+    if remote.is_remote(args.adapter):
+        return _remote_client(args)
     try:
         spec = localbus.parse(args.adapter, args.adapter_option)
     except localbus.AdapterError as e:
@@ -2109,6 +2156,30 @@ def _local_client(args):
     return localbus.LocalBus(spec, bitrate, allow_changes=args.allow_changes, force=args.force, config=nodes,
                              network=args.network, timeout=args.timeout, check_node=args.check_node,
                              listen_only=listen_only)
+
+
+def _remote_client(args):
+    """A localbus.remote.RemoteBus for --adapter remote:HOST[:PORT]: the
+    server's token from --token, --token-file, $CANWORKS_TOKEN or a prompt;
+    the configured nodes' names from --config. The server fixes the bit rate."""
+    from .localbus import configinfo, remote
+    try:
+        host, port = remote.parse(args.adapter)
+    except ValueError as e:
+        raise DiagError("usage", str(e))
+    if args.bitrate or args.check_node or args.adapter_option:
+        raise DiagError("usage", "the adapter server sets the bit rate and the adapter's options: give --bitrate, "
+                                 "--check-node and --adapter-option to adapter-serve on that machine")
+    nodes = {}
+    config = getattr(args, "config", None)
+    if config:
+        try:
+            nodes = configinfo.load(config, args.network)[1]
+        except (OSError, ValueError) as e:
+            raise DiagError("usage", "cannot use %s: %s" % (config, e))
+    args.token = args.token or _token(args, "Adapter server token: ")  # asked once: a trace opens several
+    return remote.RemoteBus(host, port, args.token, args.timeout,
+                            allow_changes=args.allow_changes, force=args.force, config=nodes, network=args.network)
 
 
 def _adapters(args, out):
@@ -2342,6 +2413,9 @@ def run(args, out=sys.stdout):
         return _discover(args, out)
     if args.command == "link":
         return _link(args, out)
+    if args.command == "adapter-serve":
+        from .localbus import serve
+        return serve.serve(args, out)
     if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
         raise DiagError("usage", "--adapter talks to the bus directly; give either --adapter or --runtime, not both"
                         if args.runtime else "sim commands need a runtime or a standalone simulator, not --adapter")
@@ -2360,7 +2434,7 @@ def run(args, out=sys.stdout):
         return _dm(args, out)
     if args.adapter:
         client = _local_client(args)
-        host = str(client.spec)
+        host = str(getattr(client, "spec", None) or client.where)
     else:
         try:
             host, port = parse_runtime(args.runtime)
@@ -2555,6 +2629,9 @@ def _dm(args, out):
     _dm_force(args)
     names = _dm_spn_names(args)
     if args.adapter:
+        if args.adapter.lower().startswith("remote:"):
+            raise DiagError("usage", "J1939 trouble codes are not available through an adapter server: run "
+                                     "canworks-diag --adapter on that machine")
         return _dm_local(args, out, names)
     try:
         host, port = parse_runtime(args.runtime)
@@ -2664,11 +2741,19 @@ def _discover(args, out):
         out.write("no runtime answered on the local network (discovery does not cross routers: give "
                   "--runtime HOST there)\n")
         return 1
-    for r in found:
+    runtimes = [r for r in found if r.get("kind") != "adapter"]
+    servers = [r for r in found if r.get("kind") == "adapter"]
+    for r in runtimes:
         out.write("%-24s %-32s diagnostics %s%s%s\n" % (
             r["name"], ", ".join(r["addresses"]) or "-", r["diag"],
             ", runtime %s" % r["runtime"] if r.get("runtime") else "",
             ", remote link" if r.get("id") else ""))
+    if servers:
+        out.write("%sadapter servers (--adapter remote:HOST[:PORT]):\n" % ("\n" if runtimes else ""))
+    for r in servers:
+        out.write("  %-22s %-32s port %s, adapter %s at %s kbit/s\n" % (
+            r.get("machine") or r["name"], ", ".join(r["addresses"]) or "-", r["diag"], r.get("adapter") or "?",
+            r.get("bitrate") or "?"))
     return 0
 
 

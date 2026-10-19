@@ -97,7 +97,7 @@ A device without 0x1003 (abort 0x06020000 on sub-index 0) gives `node 23 has no 
 
 ### Through a USB adapter on this PC: `--adapter`
 
-With `--adapter TYPE:CHANNEL` in place of `--runtime` the commands go straight to the bus through a CAN adapter on the PC, with no runtime and no token ([pc-adapter.md](pc-adapter.md)):
+With `--adapter TYPE:CHANNEL` in place of `--runtime` the commands go straight to the bus through a CAN adapter on the PC, with no runtime and no token ([pc-adapter.md](pc-adapter.md)); `--adapter remote:HOST[:PORT]` with that server's token uses an adapter on another machine that runs `canworks-diag adapter-serve` ([pc-adapter.md](pc-adapter.md#an-adapter-on-another-machine)):
 
 ```sh
 canworks-diag adapters                                                      # what is plugged in

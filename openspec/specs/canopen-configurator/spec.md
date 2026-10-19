@@ -1806,22 +1806,20 @@ While connecting it SHALL show the step of the bit rate check and **Cancel**. Wh
 
 The panel SHALL list first up to three recent connections of this PC of the kinds it offers, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The panel SHALL NOT open by itself on entering Commission.
 
-In Commission a device the panel SHALL offer a USB adapter only:
-- the found adapters with Refresh, or a typed target;
-- the bit rate, picked by the user, with no detection and no default;
-- "Device's node ID, to check the bit rate", for adapters that cannot report a sent frame;
-- **Allow changes**, unticked;
-- **Connect**.
+In Commission a device the panel SHALL offer two targets, **USB adapter** (the default) and **Adapter on another machine**:
+- USB adapter: the found adapters with Refresh, or a typed target; the bit rate, picked by the user, with no detection and no default; "Device's node ID, to check the bit rate", for adapters that cannot report a sent frame; **Allow changes**, unticked; **Connect**;
+- Adapter on another machine: the adapter servers found on the local network and a host field (`HOST[:PORT]`, port 7536 when not given); the server's adapter and bit rate once known; the token prompt when this PC has no token for that host, the token then kept on this PC per host; **Allow changes**, unticked; **Connect**.
 
 A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
 
-With a config the panel SHALL offer two targets, **Runtime** (the default) and **Standalone simulator**:
+With a config the panel SHALL offer three targets, **Runtime** (the default), **Standalone simulator** and **Adapter on another machine**:
 - Runtime: the found and remembered runtimes, the host field and **Local simulator runtime**; the token prompt when this PC has no matching token; **Connect**;
-- Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**.
+- Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**;
+- Adapter on another machine: as in Commission a device, with a warning when the server's bit rate differs from the network's.
 
-When the config's online access is off, the Runtime target SHALL say so and link to Configure → Bus and master; the Standalone simulator target SHALL still work.
+When the config's online access is off, the Runtime target SHALL say so and link to Configure → Bus and master; the other targets SHALL still work.
 
-The last target (including Runtime or Standalone simulator) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
+The last target (including Runtime, Standalone simulator or Adapter on another machine) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
 
 #### Scenario: Wrong bit rate refused
 - **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
@@ -1842,6 +1840,14 @@ The last target (including Runtime or Standalone simulator) and bit rate SHALL b
 #### Scenario: Standalone simulator
 - **WHEN** the user picks Standalone simulator in the panel, enters 127.0.0.1:7532 and presses Connect
 - **THEN** the panel closes, the connection bar shows the simulator's address and Disconnect, and Simulation shows its devices
+
+#### Scenario: Adapter on another machine
+- **WHEN** the user opens Commission a device, picks Adapter on another machine, chooses the found server `linuxbox`, enters its token and presses Connect
+- **THEN** the connection bar shows the adapter and `linuxbox` with the round trip, and the commission pages work on linuxbox's bus; the next time the token is not asked again
+
+#### Scenario: Bit rate differs from the network
+- **WHEN** with a config whose network runs at 250 kbit/s the user picks an adapter server serving 500 kbit/s
+- **THEN** the panel warns that the server runs the bus at 500 kbit/s and the network is set to 250 kbit/s before Connect
 
 ### Requirement: One connection for every view
 The Commission pages, Trace recording and its transmit list, the Simulation view and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host, adapter, address or token field, or Connect button. Without a connection, each SHALL say in one line what it needs a connection for and that Connect… is in the connection bar. On a standalone simulator connection, the Nodes table, Trace recording and the PDO test SHALL say that they need a runtime connection.
