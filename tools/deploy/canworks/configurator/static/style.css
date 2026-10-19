@@ -58,6 +58,11 @@ h3, h2.side-caption { font-size: 13px; margin: 14px 0 6px; text-transform: upper
 .spacer { flex: 1; }
 .badge { padding: 2px 8px; border-radius: 10px; background: var(--hover); font-size: 12px; }
 #actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* After Quit (life.js): only the notice is left on the page. */
+body[data-stopped] > :not(#stopped) { display: none !important; }
+#stopped { max-width: 640px; margin: 15vh auto 0; padding: 0 16px; }
+#stopped h1 { font-size: 20px; margin-bottom: 12px; }
+#stopped p { color: var(--muted); }
 button, .file-button { font: inherit; padding: 5px 10px; min-height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; white-space: nowrap; }
 button:hover, .file-button:hover { background: var(--hover); }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

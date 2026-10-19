@@ -95,7 +95,9 @@ class PortInUse(unittest.TestCase):
             taken.bind(("127.0.0.1", 0))
             taken.listen(1)
             err = io.StringIO()
-            with contextlib.redirect_stderr(err):
+            # A settings folder of its own: no running configurator to hand over to.
+            with contextlib.redirect_stderr(err), \
+                    unittest.mock.patch.dict(os.environ, {"CANWORKS_CONFIG_DIR": os.path.join(tmpdir(self), "cfg")}):
                 self.assertEqual(srv.main(["--no-browser", "--port", str(taken.getsockname()[1])]), 2)
         self.assertIn("cannot listen on 127.0.0.1:", err.getvalue())
 
@@ -150,7 +152,7 @@ class Access(Running):
         self.assertEqual(status, 303)
         self.assertEqual(r.getheader("Location"), "/")
         cookie = r.getheader("Set-Cookie").split(";")[0]
-        self.assertEqual(cookie, "%s=%s" % (srv.COOKIE, self.server.token))
+        self.assertEqual(cookie, "%s_%d=%s" % (srv.COOKIE, self.server.server_port, self.server.token))
         # The start code works once: opened again, it is refused and sets no cookie.
         status, data, r = self.request("GET", path, token=False)
         self.assertEqual(status, 403)

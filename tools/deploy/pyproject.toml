@@ -32,6 +32,6 @@ packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.conf
 
 [tool.setuptools.package-data]
 canworks = ["schema/*.json", "library/*.stlib", "builtin_notes/*.json"]
-"canworks.configurator" = ["static/*", "static/uplot/*"]
+"canworks.configurator" = ["static/*", "static/uplot/*", "icons/*"]
 "canworks.codesys" = ["script/*.py"]
 "canworks._lely_dcf" = ["LICENSE", "NOTICE", "VERSION", "README.md"]
