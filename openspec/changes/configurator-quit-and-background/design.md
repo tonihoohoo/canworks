@@ -18,7 +18,7 @@ A running configurator is found only while it has a page or `--keep-running`, si
 
 ## Background start
 
-`--background`: re-run the same command with `--child-background` as a detached process:
+Default start (no `--foreground`): re-run the same command with hidden `--child-background` as a detached process. Foreground instead when `--foreground`, `--no-browser` or `--keep-running` is given, `SSH_CONNECTION` is set, or on Linux neither `DISPLAY` nor `WAYLAND_DISPLAY` is set (the browser could not open, and the user needs the printed address). Detached process:
 - POSIX: `subprocess.Popen(..., start_new_session=True, stdin=DEVNULL, stdout/stderr=log)`.
 - Windows: `creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP`, with `pythonw.exe` next to the running interpreter when present.
 The parent waits until `instance.json` names a port that answers (up to 10 s), then opens the browser through the second-start path and exits; on failure it prints the log's last lines. Log `configurator.log` in the settings folder, kept to 1 MB (one old file).
@@ -41,4 +41,20 @@ Cookie name `canopen_session_<port>` (the port from the request's Host), set on 
 
 ## Not done
 
-A desktop or Start menu shortcut; it can come later on top of `--background`.
+Signing a Windows .exe or a macOS app: not needed, see App shortcut.
+
+## Startup grace
+
+A configurator whose first page has not sent a heartbeat within 3 minutes of start stops (the browser failed to open, or the user closed the tab before it loaded). `--keep-running` turns it off with the rest of the page rule.
+
+## App shortcut
+
+`canworks/configurator/shortcut.py`, `--create-shortcut` / `--remove-shortcut`. The target is the `canworks-config` launcher that the install put on PATH (found with `shutil.which`, else next to `sys.executable`), so a `uv tool install --force` update keeps the shortcut working.
+- **Windows:** `.lnk` files in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\canworks configurator.lnk` and on the desktop, written through PowerShell's `WScript.Shell` COM object (no new dependency), target `pythonw.exe -m canworks.configurator.server` of the tool's environment with `--child-background` semantics, icon from the package's `logo.ico`. pythonw has no console, so nothing flashes. No .exe of ours, so nothing to sign and no SmartScreen prompt.
+- **macOS:** `~/Applications/canworks configurator.app` with `Contents/Info.plist`, `Contents/MacOS/canworks-configurator` (a two-line `#!/bin/sh` running the launcher with `exec`), and `Contents/Resources/logo.icns`. Made on the Mac, so it has no quarantine flag and Gatekeeper lets it run.
+- **Linux:** `~/.local/share/applications/canworks-configurator.desktop` (`Exec=<launcher>`, `Terminal=false`, `Icon=` the package's PNG, `Categories=Development;Engineering;`), then `update-desktop-database` when present.
+Each file carries a marker (`X-Canworks=1`, a plist key, the .lnk description) so `--remove-shortcut` removes only its own files.
+
+Icons: generated from the README logo at build time into the package (`logo.ico`, `logo.icns`, `logo-256.png`).
+
+Installers: `scripts/install-pc.sh` and `install-pc.ps1` call `canworks-config --create-shortcut` after the tool install unless `--no-shortcut` / `-NoShortcut`; `--uninstall` / `-Uninstall` calls `--remove-shortcut` first.

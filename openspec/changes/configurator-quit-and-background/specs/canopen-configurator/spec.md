@@ -67,12 +67,35 @@ The configurator SHALL stop when its last page is closed: 10 s after the page sa
 - **THEN** the browser asks first whether to leave the page, and Cancel keeps the configurator running
 
 ### Requirement: Start without a terminal
-`canworks-config --background` SHALL start the configurator detached from the terminal (with no console window on Windows), open the browser and return at once, writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. It SHALL stop like any configurator when its last tab closes, or by Quit.
+`canworks-config` SHALL by default start the configurator detached from the terminal (with no console window on Windows), open the browser and return at once, writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. `--foreground` SHALL keep it in the terminal as before, stopped also by Ctrl-C. It SHALL start in the foreground by itself with `--no-browser` or `--keep-running`, in an SSH session, and on Linux without `DISPLAY` or `WAYLAND_DISPLAY`. A configurator whose first page has not opened within 3 minutes of starting SHALL stop. In every case it SHALL stop when its last tab closes, or by Quit.
 
 #### Scenario: Terminal closed
-- **WHEN** the user runs `canworks-config --background` and closes the terminal
-- **THEN** the configurator keeps running and its page keeps working
+- **WHEN** the user runs `canworks-config` and closes the terminal
+- **THEN** the prompt came back at once, the configurator keeps running and its page keeps working
+
+#### Scenario: Foreground
+- **WHEN** the user runs `canworks-config --foreground`
+- **THEN** the configurator runs in the terminal, prints its messages there, and Ctrl-C stops it
+
+#### Scenario: Over SSH
+- **WHEN** the user runs `canworks-config` in an SSH session
+- **THEN** it stays in the terminal, as with `--foreground`
 
 #### Scenario: Background start fails
-- **WHEN** the background configurator cannot start (for example the folder given cannot be opened)
-- **THEN** `canworks-config --background` prints the reason from the log and exits non-zero
+- **WHEN** the configurator cannot start (for example the folder given cannot be opened)
+- **THEN** `canworks-config` prints the reason from the log and exits non-zero
+
+### Requirement: App shortcut
+`canworks-config --create-shortcut` SHALL add a shortcut that starts the configurator with no terminal: on Windows a Start menu and a desktop shortcut that run it with `pythonw` (no console window), on macOS an app "canworks configurator" in `~/Applications`, on Linux a `.desktop` entry in the user's applications folder. The shortcut SHALL start the configurator from the installed PC tools, so it keeps working after an update. `--remove-shortcut` SHALL remove what `--create-shortcut` added and nothing else. The one-line PC installers SHALL create the shortcut unless given `--no-shortcut` (`-NoShortcut` on Windows), and their uninstall SHALL remove it.
+
+#### Scenario: Started from the shortcut
+- **WHEN** the user double-clicks the shortcut
+- **THEN** the browser opens on the configurator's start page and no terminal or console window appears
+
+#### Scenario: Shortcut while running
+- **WHEN** the configurator already runs and the user double-clicks the shortcut again
+- **THEN** a new tab opens on the running configurator
+
+#### Scenario: Installer
+- **WHEN** the user installs the PC tools with the one-line installer
+- **THEN** the shortcut is there afterwards, and the installer's uninstall removes it

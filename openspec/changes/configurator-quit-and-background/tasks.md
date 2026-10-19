@@ -19,7 +19,14 @@
 
 ## 4. Background
 
-- [ ] 4.1 `--background` / hidden `--child-background`: detached child (POSIX new session; Windows DETACHED_PROCESS, CREATE_NO_WINDOW, pythonw when present), wait for the instance, open browser, print log tail on failure; log rotation at 1 MB.
+- [ ] 4.1 Background by default, `--foreground`, foreground by itself with `--no-browser`/`--keep-running`/SSH/no display; hidden `--child-background`: detached child (POSIX new session; Windows DETACHED_PROCESS, CREATE_NO_WINDOW, pythonw when present), wait for the instance, open browser, print log tail on failure; log rotation at 1 MB; 3-minute startup grace.
+- [ ] 4.2 Tests: foreground rules per environment, child detached (no inherited stdin), failure prints the log reason, startup grace with a short time; update every test and script that runs `canworks-config` and expects it in the foreground.
+
+## 4b. App shortcut
+
+- [ ] 4b.1 Icons from the logo into the package (ico, icns, png).
+- [ ] 4b.2 `--create-shortcut` / `--remove-shortcut`: Windows .lnk (Start menu + desktop, pythonw) via PowerShell, macOS .app in ~/Applications, Linux .desktop; markers so remove touches only ours. Tests per OS on a temporary home (Windows test in the Windows CI row).
+- [ ] 4b.3 `install-pc.sh` / `install-pc.ps1`: create after install, `--no-shortcut` / `-NoShortcut`, remove on uninstall; installer tests.
 
 ## 5. Session
 
@@ -27,7 +34,7 @@
 
 ## 6. Docs and version
 
-- [ ] 6.1 README and `docs/configurator.md` Start: Quit, closing the tab stops it, `--keep-running`, `--background`, second start, `--new-instance`, log file; tour line if the tour covers the header.
+- [ ] 6.1 README and `docs/configurator.md` Start and `docs/install-pc.md`: shortcut, Quit, closing the tab stops it, `--foreground`, `--keep-running`, second start, `--new-instance`, log file; tour line if the tour covers the header.
 - [ ] 6.2 Bump the PC tools version (minor), release notes.
 
 ## 7. CI time
@@ -36,5 +43,6 @@
 
 ## 8. Desktop checks (manual)
 
-- [ ] 8.1 Windows: `canworks-config --background` from a terminal, close the terminal, page keeps working; no console window; second start opens a tab on it; Quit.
-- [ ] 8.2 macOS: the same; closing the tab stops it and frees a USB adapter; reload keeps it.
+- [ ] 8.1 Windows: one-line installer creates the shortcut; double-click opens the page with no console window; second double-click opens a tab on it; closing the tab stops it; `canworks-config` from a terminal returns at once; Quit; uninstall removes the shortcut.
+- [ ] 8.2 macOS: the same with the app in ~/Applications (Gatekeeper lets it start); closing the tab stops it and frees a USB adapter; reload keeps it.
+- [ ] 8.3 Pi over SSH: `canworks-config` stays in the foreground and prints the address.
