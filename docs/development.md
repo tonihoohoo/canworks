@@ -62,7 +62,7 @@ cmake --build build -j --target canworks_plugin canopen_host
 cp -r examples/virtual-plant /tmp/vp
 CANWORKS_FORCE_SIMULATE=1 build/test/canopen_host build/plugins/libcanworks_plugin.so \
     /tmp/vp/canworks/canworks.json 3600 > /tmp/vp-host.log 2>&1 &
-PYTHONPATH=tools/deploy python3 -c 'from canworks.configurator.server import main; main()' /tmp/vp
+PYTHONPATH=tools/deploy python3 -m canworks.configurator.server --foreground /tmp/vp   # in this terminal; Ctrl-C stops it
 ```
 
 The diagnostics channel listens on 127.0.0.1 at the config's `diagnostics.port` (7531 by default; set another port in the copy to run several hosts). In the configurator, Online → host `127.0.0.1:7531`, token `virtual-plant-demo` (the example's demo token). The Simulation view then drives the simulated devices: faults, power off and on, TPDO stop. `PYTHONPATH=tools/deploy python3 -m canworks.diag --runtime 127.0.0.1 --token virtual-plant-demo status` (or `canworks-diag` when the PC tools are installed) reads the same channel from the command line.

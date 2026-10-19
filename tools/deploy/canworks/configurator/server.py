@@ -1,10 +1,16 @@
 """canworks-config: serves the configurator page on 127.0.0.1.
 
-  canworks-config [PATH] [--port N] [--no-browser]
+  canworks-config [PATH] [--port N] [--no-browser] [--foreground] [--keep-running] [--new-instance]
+  canworks-config --create-shortcut | --remove-shortcut
 
 PATH opens directly: as an editor project when it has project.json (the
 config is PATH/canworks/canworks.json), otherwise as a standalone config folder
 (PATH/canworks.json). Without PATH the page opens on its start page.
+
+By default the configurator runs in the background (launch.py), and it stops
+when its last page is closed: 10 s after the page said so, or 3 minutes after
+the last page stopped answering; --keep-running keeps it. A second
+canworks-config opens a page of the running one.
 
 Every request must carry the session token: the URL printed at start carries
 a one-time code that the server swaps for the token as a cookie for the page
@@ -26,6 +32,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import string
 import sys
 import tempfile
@@ -46,16 +53,26 @@ from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
-from . import cia402map, declare, layout, online, params, rawpage, scan, simulation, tracing, transmit
+from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, tracing, transmit
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
-COOKIE = "canopen_session"
+COOKIE = "canopen_session"  # + "_<port>": configurators on different ports keep their own sessions
 CONFIG = "canworks.json"
 MAX_BODY = 32 * 1024 * 1024
 MAX_TRACE_FILE = 1024 * 1024 * 1024
 RECENT_MAX = 10
-UNEXPECTED_ERROR = "The configurator hit an error; see its terminal."
+UNEXPECTED_ERROR = "The configurator hit an error; see its terminal, or configurator.log in its settings folder."
+
+# When the configurator stops by itself (Server.unused): a page that said it
+# was closing ends this long after (a reload comes back sooner), a page that
+# stopped answering after PAGE_SILENT_S (browsers send a hidden tab's
+# heartbeat about once a minute), and a start address nobody opened after
+# STARTUP_GRACE_S.
+PAGE_CLOSED_S = 10.0
+PAGE_SILENT_S = 180.0
+STARTUP_GRACE_S = 600.0
+WATCH_TICK_S = 1.0
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
@@ -2387,10 +2404,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         allowed = {"127.0.0.1:%d" % self.server.server_port, "localhost:%d" % self.server.server_port}
         return host in allowed
 
+    def _cookie_name(self):
+        # _host_ok() let only this port's Host through.
+        return "%s_%d" % (COOKIE, self.server.server_port)
+
     def _cookie_token(self):
+        name = self._cookie_name()
         for part in (self.headers.get("Cookie") or "").split(";"):
             k, _, v = part.strip().partition("=")
-            if k == COOKIE:
+            if k == name:
                 return v
         return None
 
@@ -2425,7 +2447,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._deny("this start address was used already: open the configurator from the browser "
                                   "tab it opened, or start canworks-config again for a new address")
             return self._send(303, b"", "text/plain", [
-                ("Location", "/"), ("Set-Cookie", "%s=%s; HttpOnly; SameSite=Strict; Path=/" % (COOKIE, token))])
+                ("Location", "/"),
+                ("Set-Cookie", "%s=%s; HttpOnly; SameSite=Strict; Path=/" % (self._cookie_name(), token))])
         if url.path.startswith("/api/"):
             return self._api("GET", url, query)
         if not secrets.compare_digest(self._cookie_token() or "", token):
@@ -2449,7 +2472,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         if not url.path.startswith("/api/"):
             return self._send(404, {"error": "not found"})
+        if url.path == "/api/page/closed":
+            # The page's pagehide beacon: it cannot send the token header, so
+            # the session cookie (SameSite=Strict) is what it shows, and all it
+            # can do is mark one page closed.
+            if not secrets.compare_digest(self._cookie_token() or "", self.server.token):
+                return self._deny("missing or wrong session cookie")
+            try:
+                page = self._body().get("page")
+            except ApiError as e:
+                return self._send(e.status, e.body)
+            self.server.page_closed(page)
+            return self._send(204, b"", "text/plain")
+        if url.path.startswith("/api/instance/"):
+            return self._instance(url.path)
         self._api("POST", url, urllib.parse.parse_qs(url.query))
+
+    def _instance(self, path):
+        """A second canworks-config of the same user (launch.py): with the
+        secret of instance.json instead of the session token, a new start
+        address (/api/instance/start, with a PATH to open), and whether the
+        browser opened it (/api/instance/page)."""
+        secret = self.server.instance_secret
+        if not secret or not secrets.compare_digest(self.headers.get(launch.HEADER) or "", secret):
+            return self._deny("missing or wrong instance secret")
+        try:
+            body = self._body()
+            if path == "/api/instance/start":
+                out = self.server.second_start(body.get("path"), body.get("browser") is not False)
+            elif path == "/api/instance/page":
+                out = {"opened": not self.server.start_code_waiting(str(body.get("code") or ""))}
+            else:
+                raise ApiError(404, "no such API: POST %s" % path)
+        except ApiError as e:
+            return self._send(e.status, e.body)
+        self._send(200, out)
 
     def _body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -2506,6 +2563,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                        unsaved=True)
                     cfg_path = s.config_path
                 return self._send(200, s.codesys_build(cfg_path, runner=self.server.codesys_runner))
+            if (method, url.path) == ("POST", "/api/heartbeat"):
+                body = self._body()
+                return self._send(200, self.server.heartbeat(body.get("page"), body.get("unsaved") is True))
+            if (method, url.path) == ("POST", "/api/second_start/done"):
+                # The page took a second start's PATH, or its user said no.
+                self.server.open_taken(self._body().get("id"))
+                return self._send(200, {})
             if url.path in ("/api/explain", "/api/explain/build"):
                 body = self._body() if method == "POST" else {}
                 return self._send(200, self._explain((method, url.path), body))
@@ -2686,7 +2750,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if quitting:
                 # Only after the answer is out, or the client may see the socket close first.
                 self.wfile.flush()
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                threading.Thread(target=self.server.stop, args=("Quit",), daemon=True).start()
         except ApiError as e:
             self._send(e.status, e.body)
         except OSError as e:
@@ -3972,6 +4036,140 @@ class Server(http.server.ThreadingHTTPServer):
         # Jobs on the bus the page started, for the status bar's job list
         # (/api/online/jobs): asked for their progress only while one runs.
         self.watch = {"scan": False, "lss_find": False, "pdo_test": None, "sync": False}
+        # The pages of this configurator, by the page's random id: {"seen", "closed", "unsaved"}
+        # (monotonic times). main() turns on stopping without them unless --keep-running.
+        self.pages = {}
+        self.page_lock = threading.Lock()
+        self.stop_unused = False
+        self.closed_s, self.silent_s, self.startup_s = PAGE_CLOSED_S, PAGE_SILENT_S, STARTUP_GRACE_S
+        self.no_page_s, self.tick_s = launch.NO_PAGE_S, WATCH_TICK_S
+        self.since = time.monotonic()  # start, or the last second start: a page is due after it
+        self.new_page_at = None  # when a page id was first seen, the latest
+        self.last_end = None  # when the last page closed or stopped answering
+        self.asked = {}  # start code -> (monotonic time, url): addresses the browser was asked to open
+        self.instance_secret = None  # instance.json's secret (launch.py), when written
+        self.instance_file = None
+        self.open_request = None  # a second start's PATH for the page with unsaved changes: {"id", "path"}
+        self.open_epoch = 0  # +1 when a second start opened a folder: the pages show it
+        self.stopped_why = None
+        self.watch_stop = threading.Event()
+
+    # -- pages, and stopping without them -----------------------------------
+    def heartbeat(self, page, unsaved=False):
+        """A page is open (every 30 s, and on becoming visible). The answer
+        carries a second start's PATH for a page with unsaved changes."""
+        if not isinstance(page, str) or not 0 < len(page) <= 64:
+            raise ApiError(400, "page must be the page's id")
+        now = time.monotonic()
+        with self.page_lock:
+            if page not in self.pages:
+                self.new_page_at = now
+            self.pages[page] = {"seen": now, "closed": None, "unsaved": unsaved}
+            req = self.open_request
+            if req is not None and not unsaved and any(p["unsaved"] for p in self._live(now)):
+                # The page with unsaved changes asks; this one says where it waits.
+                return {"open": None, "waiting": req["path"], "epoch": self.open_epoch}
+            return {"open": req, "waiting": None, "epoch": self.open_epoch}
+
+    def page_closed(self, page):
+        with self.page_lock:
+            p = self.pages.get(page) if isinstance(page, str) else None
+            if p is not None and p["closed"] is None:
+                p["closed"] = time.monotonic()
+
+    def _live(self, now):
+        return [p for p in self.pages.values() if p["closed"] is None and now - p["seen"] < self.silent_s]
+
+    def unused(self, now=None):
+        """Why the configurator should stop now, or None: no page open since
+        the last one closed (closed_s) or stopped answering (silent_s), or
+        none came after the start or a second start (startup_s)."""
+        if not self.stop_unused:
+            return None
+        now = time.monotonic() if now is None else now
+        with self.page_lock:
+            if self._live(now):
+                return None
+            for k, p in list(self.pages.items()):
+                end = p["closed"] + self.closed_s if p["closed"] is not None else p["seen"] + self.silent_s
+                self.last_end = max(self.last_end or end, end)
+                del self.pages[k]  # it ended: only its end time counts
+            if self.new_page_at is None or self.new_page_at < self.since:
+                if now - self.since >= self.startup_s:
+                    return "no page was opened within %d minutes of its start" % round(self.startup_s / 60)
+                return None
+            if self.last_end is not None and now >= self.last_end:
+                return "its last page was closed"
+            return None
+
+    def start_watch(self):
+        threading.Thread(target=self._watch_pages, daemon=True).start()
+
+    def _watch_pages(self):
+        while not self.watch_stop.wait(self.tick_s):
+            self._report_unopened()
+            why = self.unused()
+            if why:
+                print("canworks-config stopped: %s." % why, flush=True)
+                self.stop(why)
+                return
+
+    def asked_browser(self, url):
+        """The browser was asked to open `url`: if no page comes in
+        no_page_s, its address is printed (the terminal, or the log)."""
+        with self.page_lock:
+            self.asked[url.rsplit("code=", 1)[-1]] = (time.monotonic(), url)
+
+    def _report_unopened(self):
+        now = time.monotonic()
+        with self.page_lock:
+            due = [(c, u) for c, (t, u) in self.asked.items() if now - t >= self.no_page_s]
+            for c, _ in due:
+                del self.asked[c]
+        for code, url in due:
+            if self.start_code_waiting(code):
+                print(launch.NO_BROWSER % url, flush=True)
+
+    def start_code_waiting(self, code):
+        with self.start_lock:
+            return any(secrets.compare_digest(known, code) for known in self.start_codes)
+
+    def publish(self, path):
+        """Writes instance.json (launch.py), so a later canworks-config of
+        this user finds this configurator; FileExistsError when there is one."""
+        secret = secrets.token_urlsafe(32)
+        launch.write_instance(path, self.server_port, secret)
+        self.instance_secret, self.instance_file = secret, path
+
+    def second_start(self, path, browser=True):
+        """canworks-config started again: a new start address; with PATH that
+        folder opens now, or, when a page has unsaved changes, that page asks
+        first."""
+        now = time.monotonic()
+        if path is not None:
+            if not isinstance(path, str) or not path:
+                raise ApiError(400, "path must be a folder")
+            s = self.session
+            with self.page_lock:
+                ask_first = any(p["unsaved"] for p in self._live(now)) or (s.commission and self._live(now))
+            if ask_first:
+                with self.page_lock:
+                    self.open_request = {"id": secrets.token_hex(8), "path": path}
+            else:
+                with s.lock:
+                    s.open(path)
+                self.open_epoch += 1
+        with self.page_lock:
+            self.since = now
+        url = self.url
+        if browser:
+            self.asked_browser(url)
+        return {"url": url}
+
+    def open_taken(self, request_id):
+        with self.page_lock:
+            if self.open_request is not None and self.open_request["id"] == request_id:
+                self.open_request = None
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
@@ -3997,30 +4195,84 @@ class Server(http.server.ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
-        if not hasattr(self, "jobs"):
+        if not hasattr(self, "watch_stop"):
             return  # binding the port failed: __init__ stopped before setting up the rest
+        self.watch_stop.set()
+        if self.instance_file:
+            launch.remove_instance(self.instance_file, self.instance_secret)
+        self.close_connections()
+        shutil.rmtree(self.session.pending_dir, ignore_errors=True)
+
+    def close_connections(self):
+        # As Disconnect does: a USB adapter is free for other tools at once.
         self.traces.stop_all()
         self.connection.close()
         self.sim_connection.close()
         self.sender.close()
-        shutil.rmtree(self.session.pending_dir, ignore_errors=True)
+
+    def stop(self, why):
+        """Quit, or no page left: serving ends (main() then closes the
+        rest) and every connection closes."""
+        self.stopped_why = why
+        self.shutdown()
+        self.close_connections()
 
 
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-config",
         description="Edit the CANopen config of an OpenPLC editor project (or a standalone config folder) in a "
-                    "local web page.")
+                    "local web page. It runs in the background and stops when its last browser tab is closed; "
+                    "started again, it opens a tab on the running one.")
     p.add_argument("path", nargs="?", help="editor project folder, or standalone config folder, to open directly")
     p.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free one)")
-    p.add_argument("--no-browser", action="store_true", help="print the URL but do not open a browser")
+    p.add_argument("--no-browser", action="store_true",
+                   help="print the URL but do not open a browser (stays in the foreground)")
+    p.add_argument("--foreground", action="store_true",
+                   help="stay in this terminal, printing its messages here; Ctrl-C stops it")
+    p.add_argument("--keep-running", action="store_true",
+                   help="keep running when no page is open, until Quit or Ctrl-C (scripts, remote use; "
+                        "stays in the foreground)")
+    p.add_argument("--new-instance", action="store_true",
+                   help="start a separate configurator even when one runs already")
+    p.add_argument("--create-shortcut", action="store_true",
+                   help="add an app shortcut that starts the configurator without a terminal, and exit")
+    p.add_argument("--remove-shortcut", action="store_true", help="remove that shortcut, and exit")
+    p.add_argument(launch.CHILD, action="store_true", help=argparse.SUPPRESS)  # the background configurator itself
     p.add_argument("--verbose", action="store_true", help="log every request")
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     return p
 
 
+def serve(server):
+    """Serves until Quit, Ctrl-C or no page is left; then closes every
+    connection as Disconnect does."""
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
     args = parser().parse_args(argv)
+    if args.create_shortcut or args.remove_shortcut:
+        from . import shortcut
+        return shortcut.main(remove=args.remove_shortcut)
+    child = args.child_background
+    if child:
+        launch.log_to_file()
+    elif not args.new_instance:
+        # One configurator per user: started again, it opens a page of the running one.
+        inst = launch.running()
+        done = launch.hand_over(inst, args.path, browser=not args.no_browser) if inst else None
+        if done is not None:
+            return done
+    if not child and not launch.foreground(args):
+        return launch.background(argv, new_instance=args.new_instance)
     try:
         server = Server(args.port, verbose=args.verbose)
     except OSError as e:
@@ -4034,18 +4286,52 @@ def main(argv=None):
             print("canworks-config: %s" % e, file=sys.stderr)
             server.server_close()
             return 2
-    url = server.url  # one start code: the browser's first visit uses it up
-    print("canworks configurator: %s" % url, flush=True)
-    print("Press Ctrl-C to stop.", flush=True)
-    if not args.no_browser:
-        webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    if child or not args.new_instance:
+        # A background configurator with --new-instance has a file of its own, for its starter only.
+        path = launch.instance_path(launch.own_instance_name(args.new_instance))
+        for attempt in (1, 2):
+            try:
+                server.publish(path)
+                break
+            except FileExistsError:
+                inst = launch.running(path)
+                if inst is not None and attempt == 1 and launch.ask(inst, "/api/instance/page", {"code": ""}):
+                    # Another canworks-config started at the same moment: that one stays.
+                    server.server_close()
+                    if child:
+                        return launch.TAKEN_OVER
+                    done = launch.hand_over(inst, args.path, browser=not args.no_browser)
+                    return 2 if done is None else done
+                try:
+                    os.remove(path)  # a configurator that no longer runs left it
+                except OSError:
+                    pass
+            except OSError as e:
+                print("canworks-config: cannot write %s: %s (a second canworks-config starts a second "
+                      "configurator)" % (path, e.strerror or e), file=sys.stderr)
+                break
+    server.stop_unused = not args.keep_running
+    if child:
+        print("canworks configurator started on 127.0.0.1:%d (pid %d, version %s)"
+              % (server.server_port, os.getpid(), __version__), flush=True)
+    else:
+        url = server.url  # one start code: the browser's first visit uses it up
+        print("canworks configurator: %s" % url, flush=True)
+        print("Press Ctrl-C to stop." if args.keep_running
+              else "It stops when its last browser tab is closed; Ctrl-C stops it too.", flush=True)
+        if not args.no_browser:
+            server.asked_browser(url)
+            webbrowser.open(url)
+    # Stopped from outside (kill, the terminal closed): stops as Quit does, so
+    # the connections close and instance.json goes.
+    for name in ("SIGTERM", "SIGHUP"):
+        try:
+            signal.signal(getattr(signal, name), lambda *_: threading.Thread(
+                target=server.stop, args=("stopped from outside",), daemon=True).start())
+        except (AttributeError, ValueError, OSError):
+            pass  # not on this system, or not the main thread
+    server.start_watch()
+    return serve(server)
 
 
 if __name__ == "__main__":

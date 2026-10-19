@@ -206,6 +206,8 @@ document.addEventListener("DOMContentLoaded", () => { for (const b of document.q
 
 const JOB_ROUTES = /^\/api\/(online\/(scan|scan_stop|lss_find|backup|compare|restore|restore_plan|configure\w*|od_read|job|pdo_test_start|pdo_test_stop|sync_start|sync_stop|send_frame|send_stop)|trace\/(start|stop))$/;
 async function api(method, path, body) {
+  // After Quit nothing answers: the page's timers wait for good (life.js).
+  if (typeof LIFE !== "undefined" && LIFE.stopped) return new Promise(() => {});
   // Requests to the runtime name the picked network; the server passes it
   // on only to a plugin that runs several.
   const net = onlineNetwork();
@@ -7952,9 +7954,7 @@ function wire() {
   document.addEventListener("keydown", undoKeys);
   wireTheme();
   wireShell();
-  window.addEventListener("beforeunload", (e) => {
-    if (unsavedWork()) { e.preventDefault(); e.returnValue = ""; }
-  });
+  wireLife();  // Quit, the heartbeat and the leave-page question (life.js)
 }
 
 // The header's Project and Export menus: native details elements, one

@@ -11,7 +11,8 @@
 #   -Version X    install release deploy-vX instead of the newest one
 #   -Wheel FILE   install this local wheel instead of a release (CI)
 #   -Python V     the Python uv uses (default 3.12; a path to an installed Python works too)
-#   -Uninstall    remove the tools (uv and the tools' settings stay)
+#   -NoShortcut   do not add the "canworks configurator" Start menu and desktop shortcut
+#   -Uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
 #   -DryRun       print what would run, change nothing
 #
 # It only installs released wheels, never the code on main. The newest release
@@ -23,6 +24,7 @@ param(
     [string]$Wheel = "",
     [string]$Python = "3.12",
     [switch]$Uninstall,
+    [switch]$NoShortcut,
     [switch]$DryRun
 )
 
@@ -97,7 +99,24 @@ if (-not $Uv) {
     }
 }
 
+# Where uv puts the commands.
+function Get-BinDir {
+    $bin = Join-Path $UserHome ".local\bin"
+    if (-not $DryRun) {
+        $ErrorActionPreference = "Continue"
+        $dir = & $Uv tool dir --bin 2>$null
+        $ErrorActionPreference = "Stop"
+        if ($LASTEXITCODE -eq 0 -and $dir) { $bin = "$dir".Trim() }
+    }
+    return $bin
+}
+
 if ($Uninstall) {
+    # The shortcut first, while canworks-config is still there to remove it.
+    $Config = Join-Path (Get-BinDir) "canworks-config.exe"
+    if ($DryRun -or (Test-Path $Config)) {
+        try { Invoke-Step $Config @("--remove-shortcut") } catch { Say "could not remove the shortcut: $_" }
+    }
     Invoke-Step $Uv @("tool", "uninstall", "canworks")
     Say "removed; uv and the tools' settings folder were kept"
     return
@@ -115,13 +134,7 @@ if ($Wheel) {
 
 Invoke-Step $Uv @("tool", "install", "--force", "--compile-bytecode", "--python", $Python, $Spec)
 
-$Bin = Join-Path $UserHome ".local\bin"
-if (-not $DryRun) {
-    $ErrorActionPreference = "Continue"
-    $dir = & $Uv tool dir --bin 2>$null
-    $ErrorActionPreference = "Stop"
-    if ($LASTEXITCODE -eq 0 -and $dir) { $Bin = "$dir".Trim() }
-}
+$Bin = Get-BinDir
 $NewTerminal = $false
 if (-not (($env:PATH -split ";") -contains $Bin)) {
     if ($DryRun) { Write-Host "would run: $Uv tool update-shell" } else { Invoke-Step $Uv @("tool", "update-shell") }
@@ -133,8 +146,13 @@ if ($DryRun) {
 } else {
     Invoke-Step (Join-Path $Bin "canworks-deploy.exe") @("--version")
 }
+# The Start menu and desktop shortcut: starts the configurator without a console window. Not fatal.
+if (-not $NoShortcut) {
+    try { Invoke-Step (Join-Path $Bin "canworks-config.exe") @("--create-shortcut") }
+    catch { Say "could not add the shortcut; run canworks-config --create-shortcut later ($_)" }
+}
 if ($NewTerminal) {
     Say "open a new terminal so $Bin is on PATH, then run canworks-config"
 } else {
-    Say "done; run canworks-config to open the configurator"
+    Say "done; open canworks configurator from the Start menu or the desktop, or run canworks-config"
 }

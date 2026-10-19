@@ -18,7 +18,9 @@ macOS and Linux (Terminal):
 curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh
 ```
 
-Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows run the script as a script block: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0` (`-Uninstall`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels, never the code on `main`, and find the newest release without the GitHub API. To pin the script to a release, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-pc.sh`). To read it before running it, download it first (`curl -LsSfO .../install-pc.sh`, then `sh install-pc.sh`). Then check as in step 2 below. The manual steps follow.
+It also adds the **canworks configurator** app shortcut, which starts the configurator with no terminal or console window: in the Start menu and on the desktop on Windows, in `~/Applications` on macOS (made on the Mac, so Gatekeeper lets it start), among the applications on Linux. Its uninstall removes the shortcut too.
+
+Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows run the script as a script block: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0` (`-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels, never the code on `main`, and find the newest release without the GitHub API. To pin the script to a release, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-pc.sh`). To read it before running it, download it first (`curl -LsSfO .../install-pc.sh`, then `sh install-pc.sh`). Then check as in step 2 below. The manual steps follow.
 
 ## 1. Install uv (once per PC)
 
@@ -55,7 +57,7 @@ canworks-deploy --version
 canworks-config            # opens the configurator in the browser
 ```
 
-The configurator prints its address with an access token and opens it in the default browser. On a machine without one (over SSH, WSL without a browser), open the printed address yourself; `--no-browser` skips the attempt.
+The configurator runs in the background, opens in the default browser and stops when its last tab is closed; **Quit** in its header stops it too. After a manual install, `canworks-config --create-shortcut` adds the app shortcut that starts it without a terminal (`--remove-shortcut` removes it). Over SSH and on Linux without a desktop it stays in the terminal and prints its address with a one-time code: open it yourself; `--no-browser` skips the attempt, `--foreground` keeps it in the terminal anywhere. More in [configurator.md](configurator.md#start).
 
 Linux works with x86_64 and ARM64 (glibc distributions; uv's Python and the compiled dependencies come as wheels for both).
 
@@ -67,10 +69,13 @@ The one-line installer above updates when run again (and uninstalls with `--unin
 
 ```sh
 uv tool install --force --compile-bytecode --python 3.12 canworks-<new version>-py3-none-any.whl
+canworks-config --remove-shortcut    # before uninstalling, when the shortcut was added
 uv tool uninstall canworks
 ```
 
-The configurator's own settings (theme, online access) and the local simulator runtime's credentials (`local-runtime.json`) live in the user's settings folder (`%APPDATA%\canworks` on Windows, `~/Library/Application Support/canworks` on macOS, `$XDG_CONFIG_HOME/canworks` or `~/.config/canworks` on Linux) and survive both. Uninstalling leaves a local simulator runtime container in place: run `canworks-sim-runtime remove --data` first to delete it. After an update, `canworks-sim-runtime update` moves the local runtime to the image of the new version.
+The shortcut runs the installed tools, so it keeps working after an update.
+
+The configurator's own settings (theme, online access, its log `configurator.log`) and the local simulator runtime's credentials (`local-runtime.json`) live in the user's settings folder (`%APPDATA%\canworks` on Windows, `~/Library/Application Support/canworks` on macOS, `$XDG_CONFIG_HOME/canworks` or `~/.config/canworks` on Linux) and survive both. Uninstalling leaves a local simulator runtime container in place: run `canworks-sim-runtime remove --data` first to delete it. After an update, `canworks-sim-runtime update` moves the local runtime to the image of the new version.
 
 ## The editor on Linux
 
