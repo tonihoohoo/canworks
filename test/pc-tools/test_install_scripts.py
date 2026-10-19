@@ -108,6 +108,16 @@ class InstallPcSh(_Base):
                       "deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl" % self.repo_url, r.stdout)
         self.assertNotIn("uv.example", r.stdout)
         self.assertIn("/owner/canworks/releases/latest", _Releases.seen)
+        # The app shortcut, after the install.
+        self.assertIn("would run: %s/uvbin/canworks-config --create-shortcut" % self.tmp, r.stdout)
+        self.assertLess(r.stdout.index("tool install"), r.stdout.index("--create-shortcut"))
+
+    def test_no_shortcut(self):
+        self.fake_uv()
+        r = self.run_script(["sh", self.script, "--dry-run", "--no-shortcut"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("tool install", r.stdout)
+        self.assertNotIn("shortcut", r.stdout)
 
     def test_given_version_skips_lookup(self):
         self.fake_uv()
@@ -146,6 +156,9 @@ class InstallPcSh(_Base):
         r = self.run_script(["sh", self.script, "--dry-run", "--uninstall"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("tool uninstall canworks", r.stdout)
+        # The shortcut goes first, while canworks-config is still there.
+        self.assertIn("would run: %s/uvbin/canworks-config --remove-shortcut" % self.tmp, r.stdout)
+        self.assertLess(r.stdout.index("--remove-shortcut"), r.stdout.index("tool uninstall"))
         self.assertEqual(_Releases.seen, [])
 
     def test_unreachable(self):
@@ -460,6 +473,10 @@ class PowerShellScripts(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("tool install --force --compile-bytecode --python 3.12 canworks @ %s/releases/download/"
                       "deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl" % self.repo_url, r.stdout)
+        self.assertIn("canworks-config.exe --create-shortcut", r.stdout)
+        r = self.pwsh("install-pc.ps1", "-DryRun", "-NoShortcut")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("shortcut", r.stdout)
 
     def test_install_pc_version_and_uninstall(self):
         self.fake_uv()
@@ -468,6 +485,7 @@ class PowerShellScripts(_Base):
         r = self.pwsh("install-pc.ps1", "-DryRun", "-Uninstall")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("tool uninstall canworks", r.stdout)
+        self.assertLess(r.stdout.index("canworks-config.exe --remove-shortcut"), r.stdout.index("tool uninstall"))
 
     def test_install_runtime_over_ssh(self):
         r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Port", "2222",

@@ -11,7 +11,8 @@
 #   --version X    install release deploy-vX instead of the newest one
 #   --wheel FILE   install this local wheel instead of a release (CI)
 #   --python V     the Python uv uses (default 3.12; a path to an installed Python works too)
-#   --uninstall    remove the tools (uv and the tools' settings stay)
+#   --no-shortcut  do not add the "canworks configurator" app shortcut
+#   --uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
 #   --dry-run      print what would run, change nothing
 #
 # It only installs released wheels, never the code on main. The newest release
@@ -30,13 +31,14 @@ VERSION=""
 WHEEL=""
 PYTHON=3.12
 UNINSTALL=0
+SHORTCUT=1
 DRY_RUN=0
 
 die() { echo "install-pc: $*" >&2; exit 1; }
 say() { echo "install-pc: $*"; }
 
 usage() {
-    if [ -f "$0" ]; then sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
+    if [ -f "$0" ]; then sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
 }
 
 while [ $# -gt 0 ]; do
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
         --wheel) [ $# -ge 2 ] || die "--wheel needs a file"; WHEEL=$2; shift 2 ;;
         --python) [ $# -ge 2 ] || die "--python needs a version or path"; PYTHON=$2; shift 2 ;;
         --uninstall) UNINSTALL=1; shift ;;
+        --no-shortcut) SHORTCUT=0; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
@@ -80,7 +83,13 @@ if [ -z "$UV" ]; then
     fi
 fi
 
+BIN=$("$UV" tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")
+
 if [ "$UNINSTALL" = 1 ]; then
+    # The app shortcut first, while canworks-config is still there to remove it.
+    if [ "$DRY_RUN" = 1 ] || [ -x "$BIN/canworks-config" ]; then
+        run "$BIN/canworks-config" --remove-shortcut || say "could not remove the app shortcut (see above)"
+    fi
     run "$UV" tool uninstall canworks
     say "removed; uv and the tools' settings folder were kept"
     exit 0
@@ -116,7 +125,6 @@ fi
 run "$UV" tool install --force --compile-bytecode --python "$PYTHON" "$SPEC" ||
     die "uv could not install the tools (see its message above)"
 
-BIN=$("$UV" tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")
 NEW_TERMINAL=0
 case ":$PATH:" in
     *":$BIN:"*) ;;
@@ -128,10 +136,14 @@ if [ "$DRY_RUN" = 1 ]; then
 else
     "$BIN/canworks-deploy" --version || die "the tools were installed but canworks-deploy does not start"
 fi
+# The app shortcut: starts the configurator without a terminal. Not fatal.
+if [ "$SHORTCUT" = 1 ]; then
+    run "$BIN/canworks-config" --create-shortcut || say "could not add the app shortcut; run canworks-config --create-shortcut later"
+fi
 if [ "$NEW_TERMINAL" = 1 ]; then
     say "open a new terminal so $BIN is on PATH, then run canworks-config"
 else
-    say "done; run canworks-config to open the configurator"
+    say "done; open the canworks configurator app, or run canworks-config"
 fi
 }
 
