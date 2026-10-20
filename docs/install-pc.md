@@ -18,6 +18,8 @@ macOS and Linux (Terminal):
 curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh
 ```
 
+It installs only what the tools need to run: `can-j1939` (the J1939 simulator and trouble-code tools) lists `pytest` as a requirement although it never imports it, so the installer drops it with a uv override (`pytest; sys_platform == 'never'` passed to `uv tool install --overrides`). `iroh` is installed on purpose: it is the remote link of the configurator and `canworks-diag` to runtimes ([remote-access.md](remote-access.md)), and its wheels need nothing else. When uv's bin folder is not on PATH (a new install, or a non-login SSH shell), the installer prints its own hint to open a new terminal once, and uv's PATH warning stays quiet.
+
 It also adds the **canworks configurator** app shortcut, which starts the configurator with no terminal or console window: in the Start menu and on the desktop on Windows, in `~/Applications` on macOS (made on the Mac, so Gatekeeper lets it start), among the applications on Linux. Its uninstall removes the shortcut too.
 
 Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows run the script as a script block: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0` (`-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels, never the code on `main`, and find the newest release without the GitHub API. To pin the script to a release, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-pc.sh`). To read it before running it, download it first (`curl -LsSfO .../install-pc.sh`, then `sh install-pc.sh`). Then check as in step 2 below. The manual steps follow.
@@ -109,6 +111,8 @@ Python 3.10 or newer. From a checkout of this repository, or with the release wh
 pipx install ./tools/deploy          # or: python3 -m pip install ./tools/deploy
 canworks-deploy --help
 ```
+
+A pip, pipx or manual `uv tool install` also gets `pytest`, which `can-j1939` lists as a requirement (the tools never use it); add `--overrides` with a file holding `pytest; sys_platform == 'never'` to `uv tool install` to leave it out, as the one-line installer does.
 
 Without installing: `PYTHONPATH=tools/deploy python3 -m canworks --help` (needs `python3 -m pip install jsonschema`).
 

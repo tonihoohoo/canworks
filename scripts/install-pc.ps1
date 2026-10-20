@@ -132,7 +132,15 @@ if ($Wheel) {
     Say "installing canworks $Version"
 }
 
-Invoke-Step $Uv @("tool", "install", "--force", "--compile-bytecode", "--python", $Python, $Spec)
+# Only runtime dependencies: can-j1939 lists pytest as one but never imports
+# it, so an override drops it (docs/install-pc.md).
+$Overrides = Join-Path ([System.IO.Path]::GetTempPath()) ("canworks-overrides-" + [guid]::NewGuid().ToString("N") + ".txt")
+Set-Content -Path $Overrides -Value "pytest; sys_platform == 'never'" -Encoding ASCII
+try {
+    Invoke-Step $Uv @("tool", "install", "--force", "--compile-bytecode", "--python", $Python, "--overrides", $Overrides, $Spec)
+} finally {
+    Remove-Item -Force $Overrides -ErrorAction SilentlyContinue
+}
 
 $Bin = Get-BinDir
 $NewTerminal = $false

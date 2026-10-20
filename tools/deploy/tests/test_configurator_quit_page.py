@@ -4,7 +4,10 @@ test_configurator_page.py."""
 
 import json
 import os
+import threading
 import time
+
+from canworks.configurator import server as srv
 
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_localbus_page import AdapterPage
@@ -186,6 +189,114 @@ class SecondStart(Base):
         self.assertEqual(self.server.session.folder, other)
         pg.evaluate("heartbeat()")  # the page shows it
         pg.wait_for_function("(p) => S.state.folder === p", arg=other)
+
+
+
+class Gone(Base):
+    """The page of a configurator that has stopped (configurator-survive-sleep)."""
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()  # its port refuses connections now
+
+    def comes_back(self):
+        self.page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+
+    def gone_notice(self):
+        start = time.monotonic()
+        self.page.wait_for_selector('#stopped[data-gone="1"]', timeout=5000)
+        self.assertLess(time.monotonic() - start, 5)
+        text = self.page.inner_text("#stopped")
+        self.assertIn("canworks-config is not running any more.", text)
+        self.assertIn("canworks configurator shortcut", text)
+        self.assertIn("run canworks-config in a terminal", text)
+        self.assertFalse(self.page.is_visible("#top"))
+        return text
+
+    def test_notice_after_the_configurator_stopped(self):
+        pg = self.page
+        self.open()
+        self.stop_server()
+        self.comes_back()
+        text = self.gone_notice()
+        self.assertNotIn("could not be saved", text)
+        self.assertEqual(pg.locator("#stopped-download").count(), 0)
+        # Nothing asks any more, and leaving asks nothing.
+        self.assertEqual(pg.evaluate("LIFE.stopped"), True)
+        asked = []
+        pg.on("dialog", lambda d: (asked.append(d.type), d.accept()))
+        pg.close(run_before_unload=True)
+        self.assertEqual(asked, [])
+
+    def test_one_missed_beat_says_nothing(self):
+        pg = self.page
+        self.open()
+        refused = []
+
+        def first_refused(route):
+            if not refused:
+                refused.append(1)
+                route.abort("connectionrefused")
+            else:
+                route.continue_()
+
+        pg.route("**/api/heartbeat", first_refused)
+        self.comes_back()
+        pg.wait_for_function("() => LIFE.misses === 1")
+        pg.wait_for_function("() => LIFE.misses === 0 && !LIFE.beating", timeout=5000)  # the beat 2 s later answered
+        self.assertEqual(refused, [1])
+        self.assertEqual(pg.locator("#stopped").count(), 0)
+        self.assertFalse(pg.evaluate("LIFE.stopped"))
+
+    def test_http_error_is_an_answer(self):
+        pg = self.page
+        self.open()
+        pg.route("**/api/heartbeat", lambda route: route.fulfill(status=500, body="{}"))
+        for _ in range(3):
+            pg.evaluate("heartbeat()")
+            pg.wait_for_function("() => !LIFE.beating")
+        self.assertEqual(pg.evaluate("LIFE.misses"), 0)
+        self.assertEqual(pg.locator("#stopped").count(), 0)
+
+    def test_unsaved_change_downloaded(self):
+        pg = self.page
+        self.dirty()
+        self.stop_server()
+        pg.evaluate("() => window.dispatchEvent(new Event('focus'))")
+        text = self.gone_notice()
+        self.assertIn("This page's unsaved changes could not be saved.", text)
+        self.assertIn("EDS and notes files imported since the last save", text)
+        with pg.expect_download() as info:
+            pg.click("#stopped-download")
+        download = info.value
+        self.assertEqual(download.suggested_filename, "canworks.json")
+        saved = os.path.join(self.dir, "downloaded.json")
+        download.save_as(saved)
+        with open(saved, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["nodes"][0]["name"], "renamed")
+        # A new configurator opens it as edited.
+        os.replace(saved, self.config_path)
+        self.server = srv.Server()
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.page = self.context.new_page()
+        self.page.on("pageerror", lambda e: self.errors.append(str(e)))
+        self.open()
+        self.assertEqual(self.page.evaluate("S.config.nodes[0].name"), "renamed")
+
+    def test_fits(self):
+        pg = self.page
+        self.dirty()
+        self.stop_server()
+        self.comes_back()
+        self.gone_notice()
+        for width in (1000, 1280, 1440):
+            pg.set_viewport_size({"width": width, "height": 800})
+            pg.wait_for_timeout(100)
+            self.assertEqual(pg.evaluate(FIT_CHECK), [], "gone notice at %d" % width)
+            box = pg.locator("#stopped-download").bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], width)
 
 
 class QuitConnected(AdapterPage):

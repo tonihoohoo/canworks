@@ -187,7 +187,7 @@ def _link(interface):
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
-        raise AdapterError("unreachable", "no CAN interface %s on this PC%s" % (
+        raise AdapterError("unreachable", "no CAN interface %s on this machine%s" % (
             interface, ": " + out.stderr.strip() if out.stderr.strip() else ""))
     try:
         info = json.loads(out.stdout)[0]
@@ -374,7 +374,7 @@ def _gs_usb_options(spec, kwargs):
                                     "first)")
     devices = GsUsb.scan()
     if index >= len(devices):
-        raise AdapterError("unreachable", "no gs_usb adapter %d on this PC (%d found)" % (index, len(devices)))
+        raise AdapterError("unreachable", "no gs_usb adapter %d on this machine (%d found)" % (index, len(devices)))
     kwargs["bus"], kwargs["address"] = devices[index].bus, devices[index].address
 
 
@@ -617,7 +617,7 @@ def open(spec, bitrate, listen_only=False, options=None, shared=False):  # noqa:
     try:
         if spec.kind == "socketcan":
             if not sys.platform.startswith("linux"):
-                raise AdapterError("usage", "socketcan adapters exist on Linux only; use slcan:PORT on this PC")
+                raise AdapterError("usage", "socketcan adapters exist on Linux only; use slcan:PORT on this machine")
             bitrate = _socketcan_up(spec.channel, bitrate)
             listen_only = False
         elif spec.kind == "virtual":

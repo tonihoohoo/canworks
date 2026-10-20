@@ -567,20 +567,32 @@ def serve(args, out=sys.stdout):
         spec, bitrate // 1000, srv.port, " of %s" % args.bind if args.bind else "",
         "changes allowed (each PC still allows changes for its session)" if args.allow_changes else "read-only"))
     import signal
+    how = ["Ctrl-C"]
 
     def stop(*_):
+        how[0] = "SIGTERM"
         raise KeyboardInterrupt
     try:
         signal.signal(signal.SIGTERM, stop)
     except ValueError:  # pragma: no cover - not the main thread
         pass
+    stopped, pcs = False, 0
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        pass
+        stopped = True
     finally:
+        with srv.lock:
+            pcs = len(srv.pcs)
         srv.server_close()
+    if stopped:  # the service's journal shows the stop (systemctl stop sends SIGTERM)
+        _log(stop_line(how[0], pcs))
     return 0
+
+
+def stop_line(how, pcs):
+    """The log line of a stopped server: how (SIGTERM, Ctrl-C) and how many PCs were connected."""
+    return "stopped (%s), %d %s connected" % (how, pcs, "PC was" if pcs == 1 else "PCs were")
 
 
 def _spec_and_bitrate(args):

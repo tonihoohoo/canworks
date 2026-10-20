@@ -1,8 +1,9 @@
 "use strict";
 // The configurator's life (configurator-quit-and-background): Quit in the
 // header, the page's heartbeat and its pagehide beacon (the configurator
-// stops when its last page is closed), the leave-page question, and a second
-// canworks-config's PATH. Loaded after app.js and uses its helpers.
+// stops when its last page is closed), the leave-page question, a second
+// canworks-config's PATH, and the notice when the configurator has gone
+// (configurator-survive-sleep). Loaded after app.js and uses its helpers.
 
 const LIFE = {
   page: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Math.random()).slice(2) + String(Date.now()),
@@ -11,26 +12,52 @@ const LIFE = {
   unsaved: false,  // as the last heartbeat told the server
   epoch: null,  // the server's count of folders a second start opened: a change reloads the page
   asked: null,  // the second start's request this page asked about
+  beating: false,  // a heartbeat waits for its answer
+  misses: 0,  // heartbeats in a row the configurator did not answer
 };
 const HEARTBEAT_MS = 30000;
+const HEARTBEAT_WAIT_MS = 5000;  // no answer in this long: a miss
+const HEARTBEAT_RETRY_MS = 2000;  // after one miss, the next beat comes this soon
 
-// Every 30 s, on becoming visible and when the page comes back from the
-// back/forward cache. The answer may carry a second start's PATH.
+// Every 30 s, on becoming visible, getting focus and coming back from the
+// back/forward cache. The answer may carry a second start's PATH. A beat the
+// configurator does not answer (refused, reset, or nothing in 5 s) is a
+// miss; an HTTP error is an answer. Two misses in a row, 2 s apart, mean the
+// configurator has gone: the page says so (showStopped). One alone says
+// nothing.
 async function heartbeat() {
-  if (LIFE.stopped) return;
+  if (LIFE.stopped || LIFE.beating) return;  // the beat on its way tells
   clearTimeout(LIFE.timer);
   LIFE.timer = setTimeout(heartbeat, HEARTBEAT_MS);
+  LIFE.beating = true;
   let r;
   LIFE.unsaved = !!unsavedWork();
+  const ctl = typeof AbortController === "function" ? new AbortController() : null;
+  const wait = ctl ? setTimeout(() => ctl.abort(), HEARTBEAT_WAIT_MS) : null;
   try {
     const res = await fetch("/api/heartbeat", {
       method: "POST",
       headers: { "X-CANopen-Token": TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ page: LIFE.page, unsaved: LIFE.unsaved }),
+      signal: ctl ? ctl.signal : undefined,
     });
+    LIFE.misses = 0;  // it answered
     if (!res.ok) return;
-    r = await res.json();
-  } catch (e) { return; }  // the configurator has stopped, or is busy: the next beat tells
+    try { r = await res.json(); } catch (e) { return; }  // an answer all the same
+  } catch (e) {
+    if (LIFE.stopped) return;
+    LIFE.misses += 1;
+    if (LIFE.misses >= 2) {
+      showStopped("gone");
+      return;
+    }
+    clearTimeout(LIFE.timer);
+    LIFE.timer = setTimeout(heartbeat, HEARTBEAT_RETRY_MS);
+    return;
+  } finally {
+    clearTimeout(wait);
+    LIFE.beating = false;
+  }
   if (LIFE.epoch !== null && r.epoch !== LIFE.epoch && !unsavedWork() && !TRACE_WINDOW) {
     LIFE.epoch = r.epoch;
     await loadState();  // a second canworks-config opened a folder
@@ -122,17 +149,48 @@ async function quitConfigurator() {
   showStopped();
 }
 
-// After Quit: the page says so; nothing on it asks the server any more.
-function showStopped() {
+// After Quit, or when the configurator has gone ("gone": it did not answer
+// two heartbeats): the page says so; nothing on it asks the server any more.
+// Gone with unsaved changes, the draft config can still be downloaded.
+function showStopped(how) {
+  const gone = how === "gone";
+  const unsaved = gone && !!unsavedWork();
+  const draft = unsaved && !TRACE_WINDOW && S.model && S.dirty ? fileConfig() : null;
   LIFE.stopped = true;
   clearTimeout(LIFE.timer);
   if (typeof JOBS !== "undefined") clearTimeout(JOBS.timer);
   for (const d of document.querySelectorAll("dialog[open]")) d.close();
   document.title = "canworks configurator (stopped)";
   document.body.dataset.stopped = "1";
-  document.body.append(el("main", { id: "stopped", class: "stopped", role: "status" },
-    el("h1", null, "canworks-config has stopped. You can close this tab."),
-    el("p", null, "To start it again, run canworks-config in a terminal, or open the canworks configurator shortcut.")));
+  const again = "To start it again, open the canworks configurator shortcut, or run canworks-config in a terminal: it opens a new tab.";
+  const box = gone
+    ? el("main", { id: "stopped", class: "stopped", role: "alert", dataset: { gone: "1" } },
+      el("h1", null, "canworks-config is not running any more."),
+      el("p", null, "It may have been stopped from another tab, by the system, or because this page was away too long."),
+      el("p", null, again))
+    : el("main", { id: "stopped", class: "stopped", role: "status" },
+      el("h1", null, "canworks-config has stopped. You can close this tab."),
+      el("p", null, again));
+  if (unsaved) {
+    box.append(el("p", { class: "stopped-unsaved" }, "This page's unsaved changes could not be saved."));
+    if (draft) {
+      box.append(el("p", null, el("button", { type: "button", class: "primary", id: "stopped-download",
+        onclick: () => downloadDraft(draft) }, "Download canworks.json")),
+      el("p", null, "It holds this page's config with its unsaved changes; put it in the config folder (or open its folder) "
+        + "in a new configurator. It does not hold EDS and notes files imported since the last save, or the simulation's unsaved edits."));
+    }
+  }
+  document.body.append(box);
+}
+
+// Saves the page's draft config as canworks.json (the configurator has gone).
+function downloadDraft(config) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2) + "\n"], { type: "application/json" }));
+  const a = el("a", { href: url, download: "canworks.json" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function wireLife() {
@@ -141,7 +199,10 @@ function wireLife() {
     if (leaveAsks()) { e.preventDefault(); e.returnValue = ""; }
   });
   window.addEventListener("pagehide", pageClosed);
-  window.addEventListener("pageshow", (e) => { if (e.persisted) heartbeat(); });
+  // Coming back (visible again, focus, back/forward cache) asks at once
+  // whether the configurator still runs.
+  window.addEventListener("pageshow", () => heartbeat());
+  window.addEventListener("focus", () => heartbeat());
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") heartbeat(); });
   // The server knows at once when the page gets or loses unsaved changes: a
   // second canworks-config PATH opens at once only without them.

@@ -57,7 +57,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/ton
 canworks-config                                                                    # opens the configurator
 ```
 
-The installer also adds a **canworks configurator** app shortcut. The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
+The installer also adds a **canworks configurator** app shortcut. The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); a locked screen or a sleeping PC does not stop it, a tab with unsaved changes never times out, and a tab whose configurator has gone says so and offers its unsaved config as a download. `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
 
 **Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)):
 
