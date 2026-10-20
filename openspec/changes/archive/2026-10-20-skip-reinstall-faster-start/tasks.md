@@ -35,7 +35,10 @@
   - Terminal: `start timing: python 362 ms, background 769 ms, listening 1125 ms, browser asked 1233 ms, page 1586 ms (from terminal)`
   - The first start after an install takes about 1.2 s more once (2.8-2.9 s from a terminal), between background and listening; most likely the new files being scanned
   - Left: `launch.py` imports `http.client` (with the email package) for the hand-over; importing it only when needed would save about 0.15 s on both starts
-- [ ] 6.3 macOS: the app starts the configurator; a second click opens a new tab; timing line in the log
+- [x] 6.3 macOS: the app starts the configurator; a second click opens a new tab; timing line in the log
+  - 2026-10-20: on 0.93.1 the install line ran twice (second run 0.34 s, "already installed"), the app start loaded the page in 1.4 s and a terminal start in 0.9 s, but opening the app again did nothing: its script exec'd the launcher, so the configurator was the app. Fixed in 0.93.2 (#179: the script starts it in the background and ends), which made it worse: macOS stops what an app started when its script ends (SIGINT, then SIGTERM). Fixed in 0.93.3/0.93.4 (#180, #181: the script ignores both, and a configurator started from the macOS app lets them go by for its first 10 s)
+  - Checked by hand on the branch build: opening the app twice gives two tabs; closing the tabs and opening it again right away gives a tab. 0.93.4 installed on the Mac; timing line `python 133 ms, listening 503 ms, browser asked 504 ms, page 1573 ms (from shortcut)`
+  - Windows on 0.93.4 (from the Claude app, sandboxed AppData): second install run "already installed"; shortcut start page 2493 ms; terminal starts while it runs open a tab on it; closing the tabs logs "canworks-config stopped: its last page was closed." and no process is left
 
 ## 7. Earlier results (ride this change's PR)
 
