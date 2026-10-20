@@ -29,8 +29,8 @@
 
 ## 6. App icon checks carried over from app-icon-from-logo (run with section 5)
 
-- [ ] 6.1 Windows: after the normal install in 5.1, the desktop and Start menu shortcuts show the new app icon and open the configurator (if Explorer shows the old icon, refresh its icon cache first)
-- [ ] 6.2 macOS: update to 0.91.3 or newer; in Finder list view the app in `~/Applications` shows the small form ("c" over two wires)
+- [ ] 6.1 (app-icon-from-logo 3.1) Windows: after the normal install in 5.1 (from your own PowerShell, not the Claude app, whose sandboxed install made the shortcuts fail with "No Python at"), the desktop and Start menu "canworks configurator" shortcuts show the new icon in Explorer (small "c" over the two wires, "can" over the bus at 48 px and up) and open the configurator; run `ie4uinit.exe -show` if Explorer still shows the cached old icon
+- [ ] 6.2 (app-icon-from-logo 3.2) macOS: update from a normal terminal to 0.91.3 or newer; `~/Applications/canworks configurator.app` shows the new icon in Finder (list view: the "c", icon view: "can" over the bus) and opens the configurator
 
 ## 7. Desktop checks carried over from configurator-survive-sleep (run with section 5)
 
