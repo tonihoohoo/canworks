@@ -1269,8 +1269,11 @@ async function newConfig(folder) {
 // A folder picked in a dialog (browse-eds-library-folder): the PC's folders
 // as the server lists them, with Up (the drives above a Windows drive root),
 // a path field for a typed or pasted path, and each folder's EDS count.
-// Resolves the folder's path, or null on Cancel or Escape.
-async function chooseFolder({ title, start, note }) {
+// Resolves the folder's path, or null on Cancel or Escape. File mode
+// (codesys-new-project-picker): `files` (".project") also lists the folder's
+// files with that extension, and picking one resolves its path; `newName`
+// adds a name field whose Create here resolves <folder>/<name><files>.
+async function chooseFolder({ title, start, note, files, newName }) {
   const path = el("input", { type: "text", spellcheck: "false", "aria-label": "Folder path", dataset: { folder: "path" } });
   const up = el("button", { type: "button", title: "Parent folder", "aria-label": "Parent folder", dataset: { folder: "up" } }, "↑");
   const go = el("button", { type: "button", dataset: { folder: "go" } }, "Go");
@@ -1278,12 +1281,35 @@ async function chooseFolder({ title, start, note }) {
   const list = el("ul", { class: "folders", "aria-label": "Subfolders", dataset: { folder: "list" } });
   const err = msgBar({ folder: "error" });
   let shown = null;  // the listing on screen
+  let pick = () => {};  // file mode: resolves the dialog with a file's path
+  // File mode's new name: Create here, refused in the dialog when the name has slashes or its file is listed.
+  let create = null;
+  const name = newName ? el("input", { type: "text", spellcheck: "false", id: "folder-new-name", dataset: { folder: "new-name" } }) : null;
+  const createNew = () => {
+    let n = name.value.trim();
+    if (!n) { err.say("Give the new " + files + " file a name."); name.focus(); return; }
+    if (/[\\/]/.test(n)) { err.say("The name is one file name, without slashes; open its folder in the list."); name.focus(); return; }
+    if (!n.toLowerCase().endsWith(files)) n += files;
+    const taken = shown && shown.entries.find((e) => e.file && e.name.toLowerCase() === n.toLowerCase());
+    if (taken) { err.say(n + " exists already: pick it in the list to use it."); name.focus(); return; }
+    pick(joinPath(shown.path, n));
+  };
+  if (newName) {
+    name.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); createNew(); }
+    });
+    create = el("div", { class: "field", dataset: { folder: "new" } },
+      el("label", { for: "folder-new-name" }, newName === true ? "New file name" : newName),
+      el("div", { class: "row" }, name, el("button", { type: "button", dataset: { folder: "create" }, onclick: createNew }, "Create here")),
+      hint(`A new file in the folder shown above (${files} is added). Nothing is written until the build.`));
+  }
   const edsTag = (n) => (n ? el("span", { class: "tag" }, n + " EDS") : null);
   async function open(where, drives) {
     const inList = list.contains(document.activeElement);
     let r;
     try {
-      r = await api("GET", "/api/folders?" + (drives ? "drives=1" : "path=" + encodeURIComponent(where)));
+      r = await api("GET", "/api/folders?" + (drives ? "drives=1" : "path=" + encodeURIComponent(where)) +
+        (files ? "&files=" + encodeURIComponent(files) : ""));
     } catch (e) {
       err.say(e.message);
       return false;
@@ -1292,11 +1318,16 @@ async function chooseFolder({ title, start, note }) {
     shown = r;
     path.value = r.path;
     up.disabled = !r.parent && !r.drive;
-    here.textContent = r.drive_list ? "Drives on this PC" : !r.eds ? "No EDS files in this folder" : r.eds === 1 ? "1 EDS file in this folder" : r.eds + " EDS files in this folder";
-    list.replaceChildren(...r.entries.map((e) => el("li", null, el("button", {
-      type: "button", class: "folder", title: e.path, dataset: { folderPath: e.path }, onclick: () => open(e.path),
-    }, "📁 " + e.name, edsTag(e.eds)))));
-    if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : "No subfolders"));
+    const nFiles = r.entries.filter((e) => e.file).length;
+    here.textContent = r.drive_list ? "Drives on this PC"
+      : files ? (!nFiles ? `No ${files} files in this folder` : nFiles === 1 ? `1 ${files} file in this folder` : `${nFiles} ${files} files in this folder`)
+      : !r.eds ? "No EDS files in this folder" : r.eds === 1 ? "1 EDS file in this folder" : r.eds + " EDS files in this folder";
+    list.replaceChildren(...r.entries.map((e) => el("li", null, e.file
+      ? el("button", { type: "button", class: "folder file", title: e.path, dataset: { filePath: e.path }, onclick: () => pick(e.path) }, "📄 " + e.name)
+      : el("button", { type: "button", class: "folder", title: e.path, dataset: { folderPath: e.path }, onclick: () => open(e.path) },
+        "📁 " + e.name, files ? null : edsTag(e.eds)))));
+    if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : files ? `No subfolders or ${files} files` : "No subfolders"));
+    if (create) create.hidden = !!r.drive_list;
     if (inList || (up.disabled && document.activeElement === up)) (list.querySelector("button") || path).focus();
     return true;
   }
@@ -1324,11 +1355,12 @@ async function chooseFolder({ title, start, note }) {
     }
   });
   // Its own dialog, so it can open over another one (Add to a config…).
-  const use = el("button", { type: "button", class: "primary", dataset: { value: "use" } }, "Use this folder");
+  // File mode picks a file or a new name; there is no folder to use.
+  const use = el("button", { type: "button", class: "primary", dataset: { value: "use" }, hidden: files ? true : null }, "Use this folder");
   const cancel = el("button", { type: "button", dataset: { value: "cancel" } }, "Cancel");
   const dlg = el("dialog", { class: "folder-dialog", "aria-labelledby": "folder-dialog-title", dataset: { folder: "dialog" } },
     el("h2", { id: "folder-dialog-title" }, title),
-    el("div", { class: "folder-picker" }, err, el("div", { class: "row" }, up, path, go), here, list, note ? hint(note) : null),
+    el("div", { class: "folder-picker" }, err, el("div", { class: "row" }, up, path, go), here, list, create, note ? hint(note) : null),
     el("menu", null, cancel, use));
   // The nearest folder that exists: the start, else its parents, else home.
   let ok = false;
@@ -1344,6 +1376,7 @@ async function chooseFolder({ title, start, note }) {
   document.body.append(dlg);
   const answer = await new Promise((resolve) => {
     use.onclick = () => resolve("use");
+    pick = (p) => resolve({ file: p });
     cancel.onclick = () => resolve(null);
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); resolve(null); });
     dlg.showModal();
@@ -1352,6 +1385,7 @@ async function chooseFolder({ title, start, note }) {
   dlg.close();
   dlg.remove();
   if (opener && opener.isConnected) opener.focus();
+  if (answer && answer.file) return answer.file;
   if (answer !== "use") return null;
   // A typed path not opened with Go is used as typed: the caller checks it.
   const typed = path.value.trim();

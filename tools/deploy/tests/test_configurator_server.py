@@ -289,6 +289,18 @@ class OpenAndModes(Running):
         self.assertTrue(entry["project"])
         self.assertEqual(data["parent"], os.path.dirname(self.dir))
 
+    def test_folders_with_files(self):
+        lib = os.path.join(self.dir, "projects")
+        os.makedirs(os.path.join(lib, "old"))
+        for name in ("cell.project", "Line.PROJECT", "notes.txt", ".hidden.project"):
+            open(os.path.join(lib, name), "w").close()
+        data = self.ok("GET", "/api/folders?files=.project&path=" + urllib.parse.quote(lib))
+        self.assertEqual([(e["name"], e.get("file", False)) for e in data["entries"]],
+                         [("old", False), ("cell.project", True), ("Line.PROJECT", True)])
+        # Without files: folders only, as before.
+        self.assertEqual([e["name"] for e in self.ok("GET", "/api/folders?path=" + urllib.parse.quote(lib))["entries"]],
+                         ["old"])
+
     def test_missing_home(self):
         # A HOME that does not exist: the start page starts in the current folder.
         # Windows reads USERPROFILE for ~.

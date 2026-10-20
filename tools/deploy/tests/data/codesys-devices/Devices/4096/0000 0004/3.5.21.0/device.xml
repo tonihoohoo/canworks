@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DeviceDescription xmlns="http://www.3s-software.com/schemas/DeviceDescription-1.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Device>
+    <DeviceIdentification>
+      <Type>4096</Type>
+      <Id>0000 0004</Id>
+      <Version>3.5.21.0</Version>
+    </DeviceIdentification>
+    <DeviceInfo>
+      <Name name="local:typename">CODESYS Control Win V3 x64</Name>
+      <Description name="local:typedescription">CODESYS Control Win V3 x64 (trimmed test sample)</Description>
+      <Vendor name="local:3S">CODESYS</Vendor>
+      <OrderNumber>???</OrderNumber>
+    </DeviceInfo>
+    <Connector moduleType="256" interface="Common.PCI" role="parent" explicit="false" />
+    <Functional><ChildObject><ObjectGuid>8ceeba4e-ac7a-4fbd-9415-bfb2d98668ab</ObjectGuid><ObjectName>Plc Logic</ObjectName></ChildObject></Functional>
+  </Device>
+</DeviceDescription>

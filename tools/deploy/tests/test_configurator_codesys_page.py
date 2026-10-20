@@ -1,15 +1,21 @@
 """The CODESYS target in a real browser (spec canopen-configurator "Project
 target", "Only what the target uses is shown", "Switching the target",
 "Variable names of PDO entries", "CODESYS settings", "CODESYS actions",
-"Target of a new config", "Commission in a CODESYS project"): an OpenPLC
+"Target of a new config", "Commission in a CODESYS project", "Placeholder
+look", "CODESYS project file dialog", "New project name in the file
+dialog", "PLC devices installed in CODESYS"): an OpenPLC
 project switched to CODESYS and back, what the page hides, a leftover value
 with Remove, the CODESYS page and Bus page settings, Download for CODESYS,
-Build without CODESYS, and a new CODESYS config from the start page. Needs
+Build without CODESYS, Browse… and the PLC device list, Build creating a
+new project, and a new CODESYS config from the start page. Needs
 Playwright, like test_configurator_page.py."""
 
 import json
 import os
 import shutil
+from unittest import mock
+
+from canworks.codesys import plan as cplan
 
 from canworks.configurator import server as srv
 
@@ -18,6 +24,7 @@ from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
 EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
+DEVICES = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "Devices")
 
 
 class CodesysPage(OnlineBase):
@@ -166,6 +173,109 @@ class CodesysPage(OnlineBase):
         with pg.expect_download() as dl:
             pg.click('#modal-buttons button[data-value="download"]')
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
+
+    def with_codesys(self):
+        """CODESYS 'installed' in a temp folder with the test device
+        repository; a runner stands in for CODESYS and keeps the plans."""
+        root = os.path.join(self.dir, "Program Files")
+        install = os.path.join(root, "CODESYS 3.5.22.40", "CODESYS")
+        os.makedirs(os.path.join(install, "Common"))
+        os.makedirs(os.path.join(install, "Profiles"))
+        open(os.path.join(install, "Common", "CODESYS.exe"), "w").close()
+        open(os.path.join(install, "Profiles", "CODESYS V3.5 SP22.profile.xml"), "w").close()
+        patches = [mock.patch.dict(os.environ, {"PROGRAMFILES": root}), mock.patch.object(srv, "_codesys_devices", None),
+                   mock.patch("canworks.codesys.run.repository_roots", return_value=[DEVICES])]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        plans = []
+
+        def runner(line):
+            folder = os.path.dirname(line.split('--runscript="')[1].rstrip('"'))
+            plans.append(load(os.path.join(folder, cplan.PLAN_NAME)))
+            with open(os.path.join(folder, cplan.REPORT_NAME), "w", encoding="utf-8") as f:
+                f.write("result: ok\n")
+        self.server.codesys_runner = runner
+        return plans
+
+    def browse(self, folder):
+        """Browse… to `folder`, which has a subfolder `old`."""
+        pg = self.page
+        pg.click("[data-codesys-browse]")
+        pg.wait_for_selector('dialog[data-folder="dialog"][open]')
+        self.assertFalse(pg.is_visible('dialog[data-folder="dialog"] button[data-value="use"]'))
+        pg.fill('[data-folder="path"]', folder)
+        pg.press('[data-folder="path"]', "Enter")
+        # The folder's own listing, not the start folder's (the path field already says the folder).
+        pg.wait_for_selector('[data-folder-path="%s"]' % os.path.join(folder, "old"))
+
+    def test_browse_and_device_list(self):
+        pg = self.page
+        self.with_codesys()
+        projects = os.path.join(self.dir, "projects")
+        os.makedirs(os.path.join(projects, "old"))
+        open(os.path.join(projects, "cell.project"), "w").close()
+        self.cfg["codesys"] = {}
+        self.write_config()
+        self.open()
+        tree_view(pg, "codesys")
+        pg.wait_for_selector("[data-codesys-browse]")
+        # Placeholders look like placeholders, and the examples say so.
+        self.assertEqual(pg.get_attribute('input[data-path="codesys.project"]', "placeholder"), "e.g. C:\\Projects\\cell.project")
+        self.assertEqual(pg.evaluate("() => getComputedStyle(document.querySelector('input[data-path=\"codesys.project\"]'), '::placeholder').fontStyle"), "italic")
+        # An existing project: picked in the list; no PLC device asked.
+        self.browse(projects)
+        self.assertIn("1 .project file", pg.inner_text("[data-folder=here]"))
+        pg.click('[data-file-path="%s"]' % os.path.join(projects, "cell.project"))
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+        self.assertEqual(pg.input_value('input[data-path="codesys.project"]'), os.path.join(projects, "cell.project"))
+        pg.wait_for_selector("[data-codesys-existing]")
+        # A new one: named in the dialog; the installed PLCs to pick from.
+        self.browse(projects)
+        pg.fill('[data-folder="new-name"]', "cell")
+        pg.click('[data-folder="create"]')
+        self.assertIn("exists already", pg.inner_text('dialog[data-folder="dialog"]'))
+        pg.fill('[data-folder="new-name"]', "line2")
+        pg.press('[data-folder="new-name"]', "Enter")
+        pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+        self.assertEqual(pg.input_value('input[data-path="codesys.project"]'), os.path.join(projects, "line2.project"))
+        pg.wait_for_selector("select[data-codesys-device]")
+        self.assertEqual(pg.eval_on_selector_all("select[data-codesys-device] option", "os => os.map(o => o.textContent)"),
+                         ["Choose the PLC…", "CODESYS Control RTE V3 3.5.22.40", "CODESYS Control Win V3 x64 3.5.22.40",
+                          "CODESYS Control Win V3 x64 3.5.21.0", "Other (type TYPE:ID:VERSION)…"])
+        pg.select_option("select[data-codesys-device]", label="CODESYS Control Win V3 x64 3.5.22.40")
+        self.assertEqual(pg.evaluate("() => S.model.top.codesys.create"), "4096:0000 0004:3.5.22.40")
+        # A typed name gets .project.
+        pg.fill('input[data-path="codesys.project"]', os.path.join(projects, "line3"))
+        pg.press('input[data-path="codesys.project"]', "Tab")
+        self.assertEqual(pg.evaluate("() => S.model.top.codesys.project"), os.path.join(projects, "line3.project"))
+
+    def test_build_asks_for_a_new_project(self):
+        pg = self.page
+        plans = self.with_codesys()
+        project = os.path.join(self.dir, "new.project")
+        self.cfg["codesys"] = {"project": project}
+        self.write_config()
+        self.open()
+        self.assertTrue(pg.evaluate("() => S.state.codesys_found"))
+        pg.click("#btn-codesys-build")
+        pg.wait_for_selector("#modal[open] [data-codesys-new]")
+        self.assertIn("new.project does not exist. Create a new CODESYS project?", pg.inner_text("#modal-text"))
+        # Cancel changes nothing.
+        pg.click('#modal-buttons button[data-value="cancel"]')
+        self.assertFalse(pg.evaluate("() => S.dirty"))
+        self.assertEqual(plans, [])
+        pg.click("#btn-codesys-build")
+        pg.wait_for_selector("#modal[open] [data-codesys-new]")
+        pg.click('#modal-buttons button[data-value="create"]')
+        self.assertIn("Pick the PLC device", pg.inner_text("#modal-text"))
+        pg.select_option("#modal-extra select[data-codesys-device]", label="CODESYS Control RTE V3 3.5.22.40")
+        pg.click('#modal-buttons button[data-value="create"]')
+        pg.wait_for_selector("#modal[open] [data-codesys-report]", timeout=60000)
+        self.assertIn("CODESYS built the bus into the project", pg.inner_text("#modal-text"))
+        self.assertEqual(load(self.config_path)["codesys"]["create"], "4096:0000 0002:3.5.22.40")
+        self.assertEqual(plans[0]["create"], {"path": project, "device": {"type": 4096, "id": "0000 0002",
+                                                                         "version": "3.5.22.40"}})
 
     def test_commission_connects_through_an_adapter(self):
         pg = self.page

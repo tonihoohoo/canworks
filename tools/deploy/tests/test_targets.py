@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import unittest
+import urllib.parse
 from unittest import mock
 
 from canworks import cli, contract, targets
@@ -442,6 +443,29 @@ class Server(Running):
             r = self.ok("POST", "/api/codesys/build", {})
         self.assertFalse(r["ok"])
         self.assertIn("Close the project in CODESYS first", r["hint"])
+
+        # A project that does not exist and no PLC device: the page's words, not the command line's.
+        cfg["codesys"] = {"project": os.path.join(self.dir, "new")}
+        self.ok("POST", "/api/save", {"config": cfg})
+        with mock.patch.dict(os.environ, {"PROGRAMFILES": root}):
+            r = self.ok("POST", "/api/codesys/build", {})
+        self.assertFalse(r["ok"])
+        self.assertIn("new.project does not exist. Pick a PLC device for a new project", r["output"])
+        self.assertNotIn("--codesys-new", r["output"])
+
+    def test_codesys_devices(self):
+        from canworks.configurator import server as srv
+        root = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "Devices")
+        project = os.path.join(self.dir, "cell.project")
+        open(project, "w").close()
+        with mock.patch.object(srv, "_codesys_devices", None), \
+                mock.patch("canworks.codesys.run.repository_roots", return_value=[root]):
+            r = self.ok("GET", "/api/codesys/devices?project=" + urllib.parse.quote(os.path.join(self.dir, "cell")))
+            self.assertTrue(r["exists"])
+            self.assertEqual(len(r["devices"]), 3)
+            r = self.ok("GET", "/api/codesys/devices?project=" + urllib.parse.quote(os.path.join(self.dir, "new.project")))
+            self.assertFalse(r["exists"])
+            self.assertIsNone(self.ok("GET", "/api/codesys/devices")["exists"])
 
 
 if __name__ == "__main__":

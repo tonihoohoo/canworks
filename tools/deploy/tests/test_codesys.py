@@ -223,6 +223,13 @@ class CommandLine(unittest.TestCase):
         code, _, err = deploy("--config", BRIDGE, "--codesys-import", os.path.join(tmpdir(self), "none.project"))
         self.assertIn("--codesys-new", err)
 
+    def test_project_path_gets_the_extension(self):
+        self.assertEqual(crun.project_path("C:\\Projects.v2\\cell"), "C:\\Projects.v2\\cell.project")
+        self.assertEqual(crun.project_path("C:\\Projects\\cell.project"), "C:\\Projects\\cell.project")
+        self.assertEqual(crun.project_path("/p/Cell.PROJECT"), "/p/Cell.PROJECT")
+        code, _, err = deploy("--config", BRIDGE, "--codesys-import", os.path.join(tmpdir(self), "none"))
+        self.assertIn("none.project does not exist", err)
+
     def run_import(self, report, new=None):
         d = tmpdir(self)
         exe = os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Common", "CODESYS.exe")
@@ -270,6 +277,57 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(code, 0, failure)
         self.assertEqual(lines[1]["create"], {"path": os.path.abspath(project),
                                               "device": {"type": 4096, "id": "0000 0004", "version": "3.5.22.40"}})
+
+    def test_import_new_project_without_extension(self):
+        d = tmpdir(self)
+        exe = os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Common", "CODESYS.exe")
+        os.makedirs(os.path.dirname(exe))
+        os.makedirs(os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Profiles"))
+        open(exe, "w").close()
+        open(os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Profiles", "CODESYS V3.5 SP22.profile.xml"), "w").close()
+        folder = os.path.join(d, "export")
+        plans = []
+
+        def runner(line):
+            plans.append(load(os.path.join(folder, cplan.PLAN_NAME)))
+            with open(os.path.join(folder, cplan.REPORT_NAME), "w", encoding="utf-8") as f:
+                f.write("result: ok\n")
+        cfg = load(BRIDGE)
+        del cfg["bridge"]
+        cfg["codesys"] = {"project": os.path.join(d, "cell"), "create": "4096:0000 0004:3.5.22.40"}
+        args = cli.parser().parse_args(["--config", BRIDGE, "--codesys-import", "--codesys-dir", folder,
+                                        "--codesys-exe", exe])
+        self.assertEqual(cli._codesys(args, cfg, None, [].append, runner=runner), 0)
+        self.assertEqual(plans[0]["create"]["path"], os.path.join(d, "cell.project"))
+
+    def test_installed_plc_devices(self):
+        root = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "Devices")
+        devices = crun.list_plc_devices([root])
+        # PLCs only (no CANbus), newest version first, no hidden or unreadable description.
+        self.assertEqual([(d["name"], d["id"], d["version"]) for d in devices], [
+            ("CODESYS Control RTE V3", "0000 0002", "3.5.22.40"),
+            ("CODESYS Control Win V3 x64", "0000 0004", "3.5.22.40"),
+            ("CODESYS Control Win V3 x64", "0000 0004", "3.5.21.0")])
+        self.assertEqual(devices[1], {"type": 4096, "id": "0000 0004", "version": "3.5.22.40",
+                                      "name": "CODESYS Control Win V3 x64", "vendor": "CODESYS"})
+        self.assertEqual(crun.list_plc_devices([os.path.join(tmpdir(self), "none")]), [])
+
+    def test_repository_from_the_install(self):
+        d = tmpdir(self)
+        exe = os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Common", "CODESYS.exe")
+        settings = os.path.join(d, "CODESYS 3.5.22.40", "CODESYS", "Settings")
+        os.makedirs(os.path.dirname(exe))
+        os.makedirs(settings)
+        devices = os.path.join(d, "Repo Data", "Devices")
+        os.makedirs(devices)
+        with open(os.path.join(settings, "RepositoryLocations.ini"), "w", encoding="utf-8-sig") as f:
+            f.write("[Configuration]\nRepositoryRoot=%s\n[Default]\nDevices=%s\n" % (d, devices))
+        self.assertEqual(crun.repository_roots(exe, environ={}), [devices])
+        # No ini: ProgramData's CODESYS\Devices.
+        data = os.path.join(d, "ProgramData")
+        os.makedirs(os.path.join(data, "CODESYS", "Devices"))
+        self.assertEqual(crun.repository_roots(os.path.join(d, "x", "y", "CODESYS.exe"), environ={"PROGRAMDATA": data}),
+                         [os.path.join(data, "CODESYS", "Devices")])
 
     def test_import_report_error(self):
         code, failure, _, _, _, _ = self.run_import("result: error (1)\nwarnings: 0\n\nerror    x\n")

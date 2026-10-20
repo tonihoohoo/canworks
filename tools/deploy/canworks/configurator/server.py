@@ -1455,6 +1455,10 @@ class Session:
                 return {"ok": False, "output": "\n".join(result.errors), "report": ""}
             cli._codesys(args, cfg, None, lines.append, runner=runner)
             return {"ok": True, "output": "\n".join(lines), "report": "\n".join(lines)}
+        except cli.MissingProject as e:
+            return {"ok": False, "output": "\n".join(lines + [
+                "The project file %s does not exist. Pick a PLC device for a new project on the CODESYS page, "
+                "or choose an existing project with Browse…." % e.project]), "report": "\n".join(lines)}
         except cli.Failure as e:
             text = str(e)
             hint = None
@@ -2276,10 +2280,31 @@ def home_folder():
     return os.path.abspath(os.sep)
 
 
-def list_folders(path, drives=False):
+_codesys_devices = None  # the installed PLC devices, read once per server start
+
+
+def codesys_devices(project=None, refresh=False):
+    """The PLC devices installed in CODESYS on this PC (codesys-new-project-
+    picker), and whether the project file `project` exists (None: no path)."""
+    global _codesys_devices
+    from ..codesys import run as codesys_run
+    if _codesys_devices is None or refresh:
+        try:
+            _codesys_devices = codesys_run.list_plc_devices()
+        except OSError:
+            _codesys_devices = []
+    exists = None
+    if project:
+        exists = os.path.isfile(codesys_run.project_path(os.path.expanduser(project)))
+    return {"devices": _codesys_devices, "exists": exists}
+
+
+def list_folders(path, drives=False, files=None):
     """A folder's subfolders for the folder browsers, each with its number of
     EDS files (`eds`). On Windows, `drives` lists the drive roots, and a
-    drive root says so (`drive`), so Up can go there."""
+    drive root says so (`drive`), so Up can go there. `files` (an extension
+    such as ".project") adds the folder's files with that extension after
+    the subfolders, each with `file` true."""
     if drives:
         if os.name != "nt":
             raise ApiError(404, "only Windows has drives")
@@ -2305,6 +2330,11 @@ def list_folders(path, drives=False):
         entries.append({"name": name, "path": full, "eds": eds,
                         "project": os.path.isfile(os.path.join(full, "project.json")),
                         "config": os.path.isfile(os.path.join(full, CONFIG))})
+    if files:
+        ext = files.lower()
+        entries.extend({"name": name, "path": os.path.join(path, name), "file": True}
+                       for name in names if not name.startswith(".") and name.lower().endswith(ext)
+                       and os.path.isfile(os.path.join(path, name)))
     parent = os.path.dirname(path)
     return {"path": path, "parent": parent if parent != path else None,
             "drive": os.name == "nt" and parent == path, "eds": _eds_here(names), "entries": entries,
@@ -2595,8 +2625,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = load_ui()
                 elif route == ("POST", "/api/ui"):
                     out = save_ui(body)
+                elif route == ("GET", "/api/codesys/devices"):
+                    out = codesys_devices(query.get("project", [None])[0], query.get("refresh", [""])[0] == "1")
                 elif route == ("GET", "/api/folders"):
-                    out = list_folders(query.get("path", [None])[0], query.get("drives", [""])[0] == "1")
+                    out = list_folders(query.get("path", [None])[0], query.get("drives", [""])[0] == "1",
+                                       query.get("files", [None])[0])
                 elif route == ("POST", "/api/folder_nodes"):
                     out = folder_nodes(body.get("path"))
                     if body.get("carry_eds") is not None:
