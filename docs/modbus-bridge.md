@@ -21,8 +21,13 @@ The bridge is the same engine as the OpenPLC plugin: it boots and supervises CAN
 On the Linux device that has the CAN interfaces, as root. It downloads the newest release (not `main`), builds the bridge and installs it, with no git checkout; running it again updates and restarts the bridges that were running:
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash -s -- --instance line1 --config ./line1
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
+```
+
+To also set up and start a bridge:
+
+```sh
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash -s -- --instance line1 --config ./line1
 ```
 
 `--instance NAME --config DIR` also sets up one bridge: it checks `DIR/canworks.json` with `canworks-bridge --check-only`, copies the files of `DIR` (the config and the EDS and DBC files next to it; not subfolders) to `/etc/canworks-bridge/NAME/`, and enables and starts `canworks-bridge@NAME`. A config that fails the check is not copied, and the instance stays as it was. Files already in the instance folder that `DIR` does not have stay.
@@ -30,16 +35,18 @@ curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/in
 From a PC onto the device over SSH (the PC needs only `ssh` and `scp`; `sudo` on the device may ask for its password). macOS and Linux:
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--instance line1 --config ./line1]
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--instance line1 --config ./line1]
 ```
 
 Windows (PowerShell, with the OpenSSH client built into Windows 10 and 11):
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.ps1))) -Ssh pi@rpi.local -Instance line1 -Config .\line1    # -Port, -Identity, -Options --without-j1939
+$f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local -Instance line1 -Config .\line1
 ```
 
-Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put the tag in place of `main` (`.../canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
+`-Port`, `-Identity` and `-Options --without-j1939` go after the file name too.
+
+Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
 
 ### From a checkout
 

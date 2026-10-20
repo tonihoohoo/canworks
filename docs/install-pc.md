@@ -9,28 +9,32 @@ The tools call the editor's `openplc-cli` for **Build only** and **New editor pr
 This installs uv if the PC has none, then the newest release of the tools, and on a second run updates them. Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1 | iex"
+$f = "$env:TEMP\install-pc.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f
 ```
 
 macOS and Linux (Terminal):
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh | sh
 ```
 
 It installs only what the tools need to run: `can-j1939` (the J1939 simulator and trouble-code tools) lists `pytest` as a requirement although it never imports it, so the installer drops it with a uv override (`pytest; sys_platform == 'never'` passed to `uv tool install --overrides`). `iroh` is installed on purpose: it is the remote link of the configurator and `canworks-diag` to runtimes ([remote-access.md](remote-access.md)), and its wheels need nothing else. When uv's bin folder is not on PATH (a new install, or a non-login SSH shell), the installer prints its own hint to open a new terminal once, and uv's PATH warning stays quiet.
 
 It also adds the **canworks configurator** app shortcut, which starts the configurator with no terminal or console window: in the Start menu and on the desktop on Windows, in `~/Applications` on macOS (made on the Mac, so Gatekeeper lets it start), among the applications on Linux. Its uninstall removes the shortcut too.
 
-Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows run the script as a script block: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0` (`-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels, never the code on `main`, and find the newest release without the GitHub API. To pin the script to a release, put the tag in place of `main` (`.../canworks/deploy-v0.82.0/scripts/install-pc.sh`). To read it before running it, download it first (`curl -LsSfO .../install-pc.sh`, then `sh install-pc.sh`). Then check as in step 2 below. The manual steps follow.
+Both scripts come from the newest release's files on GitHub, so you run released code, never what is on `main`. The Windows line saves the script to a file and runs that file: it pipes nothing into `iex`, and when uv is missing the script downloads uv's own release zip and checks it against uv's published SHA-256 instead of running uv's install script, so it starts no other PowerShell. If an antivirus still stops it, use the manual steps below.
+
+Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
 
 ## 1. Install uv (once per PC)
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+winget install --id astral-sh.uv -e
 ```
+
+Without winget (some LTSC and IoT builds): download `uv-x86_64-pc-windows-msvc.zip` (`uv-aarch64-pc-windows-msvc.zip` on ARM) from uv's GitHub releases and put `uv.exe` in `%USERPROFILE%\.local\bin`, or use uv's own installer from [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 macOS and Linux (Terminal):
 
@@ -38,7 +42,7 @@ macOS and Linux (Terminal):
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-`winget install astral-sh.uv`, `brew install uv` and a Linux distribution's own `uv` package (where it has one) work too. Open a new terminal afterwards so `uv` is on PATH.
+`brew install uv` and a Linux distribution's own `uv` package (where it has one) work too. Open a new terminal afterwards so `uv` is on PATH.
 
 ## 2. Install the tools
 

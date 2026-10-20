@@ -5,7 +5,9 @@ stand-in for GitHub, without network access or installing anything
 (--dry-run). install-bridge.sh from a checkout also runs for real into
 temporary folders with a stub bridge and a stub systemctl."""
 
+import hashlib
 import http.server
+import io
 import os
 import re
 import shutil
@@ -16,6 +18,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SCRIPTS = os.path.join(REPO, "scripts")
@@ -31,7 +34,8 @@ class _Releases(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.seen.append(self.path)
         if self.path in self.files:
-            body = self.files[self.path].encode()
+            body = self.files[self.path]
+            body = body if isinstance(body, bytes) else body.encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -587,6 +591,54 @@ class PowerShellScripts(_Base):
         self.assertIn("tool uninstall canworks", r.stdout)
         self.assertLess(r.stdout.index("canworks-config.exe --remove-shortcut"), r.stdout.index("tool uninstall"))
 
+    # uv from its release zip (windows-installer-defender): a stand-in zip and
+    # .sha256 on the local server, and a PATH without any uv.
+    def path_without_uv(self):
+        dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+                if d and not any(os.path.exists(os.path.join(d, n)) for n in ("uv", "uv.exe"))]
+        return os.pathsep.join(dirs)
+
+    def serve_uv(self, arch="x86_64", checksum=None):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for name in ("uv.exe", "uvx.exe", "uvw.exe"):
+                z.writestr(name, "stand-in " + name)
+        data = buf.getvalue()
+        path = "/uv/uv-%s-pc-windows-msvc.zip" % arch
+        _Releases.files[path] = data
+        _Releases.files[path + ".sha256"] = "%s *uv-%s-pc-windows-msvc.zip\n" % (
+            checksum or hashlib.sha256(data).hexdigest(), arch)
+        return self.repo_url.replace("/owner/canworks", "/uv")
+
+    def pwsh_without_uv(self, *args, **extra):
+        env = dict(os.environ, **self.env(PATH=self.path_without_uv()))
+        env.update(extra)
+        return self.run_script(["pwsh", "-NoProfile", "-NonInteractive", "-File", os.path.join(SCRIPTS, "install-pc.ps1")]
+                               + list(args), env=env)
+
+    def local_bin(self):
+        return os.path.join(self.home, ".local", "bin")
+
+    def test_install_pc_uv_from_zip(self):
+        r = self.pwsh_without_uv(CANWORKS_UV_DOWNLOAD=self.serve_uv())
+        self.assertIn("installing uv from", r.stdout)
+        for name in ("uv.exe", "uvx.exe", "uvw.exe"):
+            with open(os.path.join(self.local_bin(), name)) as f:
+                self.assertEqual(f.read(), "stand-in " + name)
+        self.assertIn("/uv/uv-x86_64-pc-windows-msvc.zip.sha256", _Releases.seen)
+
+    def test_install_pc_uv_checksum_mismatch(self):
+        r = self.pwsh_without_uv(CANWORKS_UV_DOWNLOAD=self.serve_uv(checksum="0" * 64))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("did not match its checksum", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.local_bin(), "uv.exe")))
+
+    def test_install_pc_uv_arm64(self):
+        r = self.pwsh_without_uv("-DryRun", CANWORKS_UV_DOWNLOAD="https://uv.example/dl", PROCESSOR_ARCHITECTURE="ARM64")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("would download: https://uv.example/dl/uv-aarch64-pc-windows-msvc.zip", r.stdout)
+        self.assertEqual(_Releases.seen.count("/uv/uv-aarch64-pc-windows-msvc.zip"), 0)
+
     def test_install_runtime_over_ssh(self):
         r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Port", "2222",
                       "-Options", "--with-link")
@@ -629,6 +681,48 @@ class PowerShellScripts(_Base):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("-Instance NAME and -Config DIR go together", r.stdout)
         self.assertEqual(_Releases.seen, [])
+
+
+# windows-installer-defender: what antivirus products flag in malicious
+# PowerShell stays out of the Windows scripts and the documented lines.
+_SCRIPT_PATTERNS = [
+    (r"\biex\b|Invoke-Expression", "runs a string as code"),
+    (r"scriptblock\]::Create", "builds a script block from text"),
+    (r"-EncodedCommand|-enc\b", "passes encoded commands"),
+    (r"ExecutionPolicy\s+Bypass", "switches the execution policy off"),
+    (r"(^|[\s&(;|])(powershell|pwsh)(\.exe)?\s", "starts another PowerShell"),
+]
+_LINE_PATTERNS = [
+    (r"\|\s*iex\b|Invoke-Expression", "pipes into iex"),
+    (r"scriptblock\]::Create", "builds a script block from text"),
+    (r"ExecutionPolicy\s+Bypass", "switches the execution policy off"),
+]
+
+
+class WindowsPatterns(unittest.TestCase):
+    def test_scripts(self):
+        for name in sorted(os.listdir(SCRIPTS)):
+            if not name.endswith(".ps1"):
+                continue
+            with open(os.path.join(SCRIPTS, name), encoding="utf-8") as f:
+                for number, line in enumerate(f, 1):
+                    code = line.split("#", 1)[0]
+                    for pattern, why in _SCRIPT_PATTERNS:
+                        self.assertIsNone(re.search(pattern, code, re.I),
+                                          "scripts/%s:%d %s: %s" % (name, number, why, line.strip()))
+
+    def test_documented_windows_lines(self):
+        docs = os.path.join(REPO, "docs")
+        files = ["README.md", os.path.join("tools", "deploy", "release-notes.md")] + [
+            os.path.join("docs", n) for n in sorted(os.listdir(docs)) if n.endswith(".md")]
+        for rel in files:
+            with open(os.path.join(REPO, rel), encoding="utf-8") as f:
+                for number, line in enumerate(f, 1):
+                    if not re.search(r"\.ps1|powershell", line, re.I):
+                        continue
+                    for pattern, why in _LINE_PATTERNS:
+                        self.assertIsNone(re.search(pattern, line, re.I),
+                                          "%s:%d %s" % (rel, number, why))
 
 
 if __name__ == "__main__":

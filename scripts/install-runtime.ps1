@@ -3,7 +3,7 @@
 # device downloads the newest release and runs its install-stock.sh; nothing
 # else is needed on the PC. Run it again to update.
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.ps1))) -Ssh pi@rpi.local
+#   $f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
 #   ... -Ssh pi@rpi.local -Options --with-link          # install-stock.sh options
 #
 #   -Ssh USER@HOST   the device (sudo there may ask for its password)
@@ -32,7 +32,8 @@ $Repo = if ($env:CANWORKS_REPO) { $env:CANWORKS_REPO } else { "https://github.co
 $Raw = if ($env:CANWORKS_RAW) { $env:CANWORKS_RAW } else { "https://raw.githubusercontent.com/tonihoohoo/canworks" }
 $Api = if ($env:CANWORKS_API) { $env:CANWORKS_API } else { "https://api.github.com/repos/tonihoohoo/canworks" }
 
-# throw, not exit: run as a script block, exit would close the user's PowerShell window.
+# throw, not exit: run inside a PowerShell window (older docs used a script
+# block), exit would close it.
 function Fail([string]$Message) { throw "install-runtime: $Message" }
 
 # The newest release: GitHub redirects releases/latest to releases/tag/<tag>.
