@@ -31,3 +31,12 @@
 
 - [ ] 6.1 Windows: after the normal install in 5.1, the desktop and Start menu shortcuts show the new app icon and open the configurator (if Explorer shows the old icon, refresh its icon cache first)
 - [ ] 6.2 macOS: update to 0.91.3 or newer; in Finder list view the app in `~/Applications` shows the small form ("c" over two wires)
+
+## 7. Desktop checks carried over from configurator-survive-sleep (run with section 5)
+
+- [ ] 7.1 Windows: after the normal (not sandboxed) install in 5.1, the desktop shortcut opens the configurator
+- [ ] 7.2 macOS, Safari: lock the screen for more than 3 minutes with an unsaved node change; after unlocking the page works without a reload, Save works, and the log has no stop line
+- [ ] 7.3 macOS: let the Mac sleep with the tab open for more than 60 minutes and nothing unsaved; after waking the configurator still runs
+- [ ] 7.4 Windows or macOS: stop the configurator from a terminal while its tab is in the background; returning to the tab shows the gone notice; with an unsaved change the downloaded canworks.json opens with the change in a new configurator
+- [ ] 7.5 Remote adapter from a PC to a Linux machine: lock text and trace drop words name the host; a missing interface on the server gives the adapter machine message; `systemctl stop` of the service leaves the stop line in its journal
+- [ ] 7.6 One-line Linux installer through a non-login SSH command on a machine without uv: no uv PATH warning, the installer's hint once, and no `pytest` in the tools' environment
