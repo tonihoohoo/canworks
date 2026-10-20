@@ -111,6 +111,14 @@ class Failure(Exception):
         self.uploaded = uploaded
 
 
+class MissingProject(Failure):
+    """--codesys-import on a project file that does not exist, with no PLC
+    device for a new one."""
+    def __init__(self, message, project):
+        super().__init__(message)
+        self.project = project
+
+
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-deploy",
@@ -418,6 +426,8 @@ def _codesys(args, cfg, network, out, runner=None):
         if not project:
             raise Failure("--codesys-import needs a project: give --codesys-import PROJECT, or set the project file "
                           "in the config (codesys.project)")
+    if project:
+        project = codesys_run.project_path(project)
     new_device = getattr(args, "codesys_new", None) or (own.get("create") if project else None)
     create = None
     try:
@@ -428,7 +438,7 @@ def _codesys(args, cfg, network, out, runner=None):
     except ValueError as e:
         raise Failure(str(e))
     if project and not create and not os.path.isfile(project):
-        raise Failure("%s does not exist; give --codesys-new TYPE:ID:VERSION to create it" % project)
+        raise MissingProject("%s does not exist; give --codesys-new TYPE:ID:VERSION to create it" % project, project)
     if create and os.path.exists(project):
         raise Failure("%s exists already; leave out --codesys-new to import into it" % project)
     exe = profile = None

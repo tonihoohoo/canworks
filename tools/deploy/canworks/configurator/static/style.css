@@ -167,6 +167,9 @@ ul.folders li:has(> button.folder) { padding: 0; }
 ul.folders button.folder { flex: 1; min-width: 0; display: flex; gap: 8px; padding: 5px 10px; border: 0; border-radius: 0; background: none; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 ul.folders button.folder:hover { background: var(--hover); }
 ul.folders li:hover { background: var(--hover); }
+/* A placeholder is a default or an example, never a value (codesys-new-project-picker). */
+::placeholder { color: var(--muted); opacity: .7; font-style: italic; }
+.codesys-device { display: flex; flex-direction: column; gap: 6px; }
 ul.folders li [data-forget] { margin: 3px 6px 3px auto; align-self: center; }
 .tag { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); }
 main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "side view"; min-height: calc(100vh - var(--header-h) - 34px); }

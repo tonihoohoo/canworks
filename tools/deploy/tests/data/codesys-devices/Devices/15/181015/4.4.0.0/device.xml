@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DeviceDescription xmlns="http://www.3s-software.com/schemas/DeviceDescription-1.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Device>
+    <DeviceIdentification>
+      <Type>15</Type>
+      <Id>181015</Id>
+      <Version>4.4.0.0</Version>
+    </DeviceIdentification>
+    <DeviceInfo>
+      <Name name="local:typename">CANbus</Name>
+      <Description name="local:typedescription">CANbus (trimmed test sample)</Description>
+      <Vendor name="local:3S">CODESYS</Vendor>
+      <OrderNumber>???</OrderNumber>
+    </DeviceInfo>
+    <Connector role="child" connectorId="0" interface="Common.PCI" moduleType="257" />
+  </Device>
+</DeviceDescription>

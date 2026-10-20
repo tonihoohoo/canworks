@@ -232,12 +232,10 @@ function renderCodesys(view) {
     targetField(),
     el("fieldset", { dataset: { codesysProject: "1" } }, el("legend", null, "Project"),
       el("div", { class: "grid" },
-        field("Project file", "codesys.project", "text", { placeholder: "C:\\Projects\\cell.project",
-          hint: "The CODESYS project that Build into CODESYS project updates. Created when it does not exist and a PLC device for a new project is given." }),
+        codesysProjectField(),
         field("Device", "codesys.device", "text", { placeholder: "the active application's device",
-          hint: "The device in the project that gets the CANbus. Empty: the device of the project's active application, or its only device." }),
-        field("PLC device for a new project", "codesys.create", "text", { placeholder: "4096:0000 0004:3.5.22.40",
-          hint: "TYPE:ID:VERSION from CODESYS's device repository: a new project gets this PLC device. Empty: the project must exist." }),
+          hint: "The device's name in the project tree that gets the CANbus. Empty: the device of the project's active application, or its only device." }),
+        codesysCreateField(),
         checkbox("Name the I/O channels", "codesys.variables", true,
           "On: every mapped PDO entry's channel gets its variable name (<node>_<entry>), so the program uses the names."))),
     el("fieldset", null, el("legend", null, "Build"),
@@ -245,6 +243,110 @@ function renderCodesys(view) {
         ? "Build into CODESYS project runs CODESYS on this PC without its window, with the saved config, and shows CODESYS's report."
         : "CODESYS was not found on this PC. Download for CODESYS gives the files and a script to run in CODESYS on another PC (Tools > Scripting > Execute Script File)."),
       el("div", { class: "toolbar" }, codesysBuildButton(), codesysDownloadButton())));
+}
+
+// The project file with Browse… (the folder dialog in file mode); a name
+// without an extension gets .project when the field is left.
+function codesysProjectField() {
+  const f = field("Project file", "codesys.project", "text", { placeholder: "e.g. C:\\Projects\\cell.project",
+    hint: "The CODESYS project that Build into CODESYS project updates, or creates when it does not exist yet." });
+  const input = f.querySelector("input");
+  const settle = () => {
+    const v = input.value.trim();
+    const p = v ? codesysProjectPath(v) : "";
+    if (p !== v) { input.value = p; setPath("codesys.project", p); }
+    refreshCodesysCreate();
+  };
+  input.addEventListener("change", settle);
+  const browse = el("button", { type: "button", dataset: { codesysBrowse: "1" }, onclick: async () => {
+    const p = await chooseFolder({ title: "Choose the CODESYS project", start: splitPath(input.value.trim())[0] || "",
+      files: ".project", newName: "New project name",
+      note: "Pick an existing project, or name a new one: Build creates it with the PLC device you pick." });
+    if (p === null) return;
+    input.value = p;
+    setPath("codesys.project", p);
+    refreshCodesysCreate();
+  } }, "Browse…");
+  const row = el("div", { class: "row" });
+  input.replaceWith(row);
+  row.append(input, browse);
+  f.classList.add("span2");
+  return f;
+}
+
+// `.project` added to a name without an extension (as canworks-deploy does).
+function codesysProjectPath(p) {
+  const name = p.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  return /\.[^.]+$/.test(name) ? p : p + ".project";
+}
+
+// The PLC devices installed in CODESYS on this PC (/api/codesys/devices),
+// and whether the project file exists; asked once per project path.
+async function codesysDevices(project) {
+  const key = project || "";
+  if (S.codesysDevs && S.codesysDevs.key === key) return S.codesysDevs.r;
+  let r;
+  try {
+    r = await api("GET", "/api/codesys/devices" + (key ? "?project=" + encodeURIComponent(key) : ""));
+  } catch (e) {
+    r = { devices: [], exists: null };
+  }
+  S.codesysDevs = { key, r };
+  return r;
+}
+
+const codesysDeviceText = (d) => `${d.type}:${d.id}:${d.version}`;
+
+// A PLC device picker: the installed PLCs by name and version, and Other…
+// for typing TYPE:ID:VERSION; a text field when none are known. onPick
+// gets the TYPE:ID:VERSION text ("" for none).
+function codesysDevicePicker(devices, value, onPick, id) {
+  const text = el("input", { type: "text", spellcheck: "false", id: devices.length ? null : id, dataset: { codesysDeviceText: "1" },
+    placeholder: "e.g. 4096:0000 0004:3.5.22.40", "aria-label": "PLC device as TYPE:ID:VERSION" });
+  text.value = value || "";
+  text.addEventListener("input", () => onPick(text.value.trim()));
+  if (!devices.length) return text;
+  const known = devices.some((d) => codesysDeviceText(d) === value);
+  const sel = el("select", { id, dataset: { codesysDevice: "1" }, "aria-label": "PLC device" },
+    el("option", { value: "" }, "Choose the PLC…"),
+    ...devices.map((d) => el("option", { value: codesysDeviceText(d) }, `${d.name} ${d.version}`)),
+    el("option", { value: "other" }, "Other (type TYPE:ID:VERSION)…"));
+  sel.value = !value ? "" : known ? value : "other";
+  text.hidden = sel.value !== "other";
+  sel.addEventListener("change", () => {
+    text.hidden = sel.value !== "other";
+    if (sel.value === "other") { text.focus(); onPick(text.value.trim()); } else onPick(sel.value);
+  });
+  return el("div", { class: "codesys-device" }, sel, text);
+}
+
+// "PLC device for a new project": shown while the project file does not
+// exist; an existing project says the bus is added to it.
+function codesysCreateField() {
+  const box = el("div", { dataset: { codesysCreate: "1" } });
+  fillCodesysCreate(box);
+  return box;
+}
+
+function refreshCodesysCreate() {
+  const box = document.querySelector("[data-codesys-create]");
+  if (box) fillCodesysCreate(box);
+}
+
+async function fillCodesysCreate(box) {
+  const project = (getPath("codesys.project") || "").trim();
+  const r = await codesysDevices(project);
+  if (project && r.exists) {
+    box.replaceChildren(el("label", null, "PLC device for a new project",
+      el("p", { class: "muted", dataset: { codesysExisting: "1" } }, "Existing project: Build adds the bus to it.")));
+    return;
+  }
+  const picker = codesysDevicePicker(r.devices || [], getPath("codesys.create") || "", (v) => setPath("codesys.create", v), "codesys-create");
+  box.replaceChildren(el("label", { for: "codesys-create" }, "PLC device for a new project", picker,
+    hint(r.devices && r.devices.length
+      ? "The PLC of the new project, from the devices installed in CODESYS on this PC."
+      : "TYPE:ID:VERSION from CODESYS's device repository: the new project gets this PLC device."),
+    el("span", { class: "field-msg", dataset: { for: "codesys.create" } })));
 }
 
 function codesysBuildButton() {
@@ -274,6 +376,28 @@ async function codesysBuild() {
     banner("Give the CODESYS project file on the CODESYS page first.", true);
     if (S.view !== "codesys") showView("codesys");
     return;
+  }
+  // A project that does not exist yet needs its PLC: asked here rather than failing in CODESYS.
+  S.codesysDevs = null;
+  const devs = await codesysDevices(getPath("codesys.project"));
+  if (devs.exists === false && !getPath("codesys.create")) {
+    let pickedDevice = "";
+    const picker = codesysDevicePicker(devs.devices || [], "", (v) => { pickedDevice = v; }, "codesys-new-device");
+    const extra = el("div", { class: "field", dataset: { codesysNew: "1" } },
+      el("label", { for: "codesys-new-device" }, "PLC device"), picker,
+      hint("The new project gets this PLC device, and canworks adds the bus to it."));
+    let text = `${getPath("codesys.project")} does not exist. Create a new CODESYS project?`;
+    for (;;) {
+      const v = await modal(text, [["cancel", "Cancel"], ["create", "Create and build", true]], extra);
+      if (v !== "create") return;
+      if (pickedDevice) break;
+      text = "Pick the PLC device of the new project.";
+    }
+    // Create and build is the go-ahead to save: no second question.
+    setPath("codesys.create", pickedDevice);
+    if (S.view === "codesys") render();
+    await save();
+    if (S.dirty) return;
   }
   if (S.dirty) {
     const v = await modal("Build uses the saved config. Save the changes first?", [["cancel", "Cancel"], ["save", "Save and build", true]]);

@@ -111,6 +111,108 @@ def set_target(folder, project, create=None):
         f.write(json.dumps(plan, indent=2) + "\n")
 
 
+# The PLC device type of CODESYS device descriptions (DeviceIdentification Type).
+PLC_TYPE = 4096
+
+
+def repository_roots(exe=None, environ=None):
+    """The device repository folders of CODESYS, existing ones only: the
+    `Devices=` folders of <install>\\CODESYS\\Settings\\RepositoryLocations.ini
+    next to `exe` (the newest CODESYS when None), else
+    <ProgramData>\\CODESYS\\Devices."""
+    import configparser
+    environ = os.environ if environ is None else environ
+    exe = exe or find_codesys(environ)
+    roots = []
+    if exe:
+        ini = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(exe))), "Settings",
+                           "RepositoryLocations.ini")
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        try:
+            parser.read(ini, encoding="utf-8-sig")
+        except (configparser.Error, OSError, UnicodeDecodeError):
+            pass
+        for section in parser.sections():
+            path = parser.get(section, "Devices", fallback=None)
+            if path and os.path.isdir(path) and path not in roots:
+                roots.append(path)
+    if not roots:
+        for var in ("PROGRAMDATA", "ALLUSERSPROFILE"):
+            base = environ.get(var)
+            path = os.path.join(base, "CODESYS", "Devices") if base else None
+            if path and os.path.isdir(path) and path not in roots:
+                roots.append(path)
+    return roots
+
+
+def _local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def read_device(path):
+    """{type, id, version, name, vendor, hidden} of a device description
+    (device.xml), or None when it has no readable device identification."""
+    import xml.etree.ElementTree as ET
+    ident, info = {}, {}
+    where = []
+    hidden = False
+    try:
+        for event, elem in ET.iterparse(path, events=("start", "end")):
+            tag = _local(elem.tag)
+            if event == "start":
+                where.append(tag)
+                if tag == "Device" and elem.get("hideInCatalogue") == "true":
+                    hidden = True
+                continue
+            where.pop()
+            parent = where[-1] if where else None
+            if parent == "DeviceIdentification" and tag in ("Type", "Id", "Version"):
+                ident[tag] = (elem.text or "").strip()
+            elif parent == "DeviceInfo" and tag in ("Name", "Vendor") and tag not in info:
+                info[tag] = (elem.text or "").strip()
+            elif tag == "DeviceInfo" and len(ident) == 3:
+                break
+            if tag in ("Connector", "Functional", "ExtendedSettings"):
+                elem.clear()
+    except (ET.ParseError, OSError, UnicodeDecodeError):
+        return None
+    if not ident.get("Type", "").isdigit() or not ident.get("Id") or not ident.get("Version"):
+        return None
+    return {"type": int(ident["Type"]), "id": ident["Id"], "version": ident["Version"],
+            "name": info.get("Name") or ident["Id"], "vendor": info.get("Vendor") or "", "hidden": hidden}
+
+
+def list_plc_devices(roots=None):
+    """The PLC devices installed in CODESYS, as the device catalogue shows
+    them: each <root>\\4096\\<Id>\\<Version>\\device.xml of type 4096 not
+    hidden in the catalogue, sorted by name and newest version first."""
+    roots = repository_roots() if roots is None else roots
+    found = {}
+    for root in roots:
+        for folder, _, names in os.walk(os.path.join(root, str(PLC_TYPE))):
+            for name in names:
+                if name.lower() != "device.xml":
+                    continue
+                d = read_device(os.path.join(folder, name))
+                if d and d["type"] == PLC_TYPE and not d.pop("hidden"):
+                    found.setdefault((d["type"], d["id"], d["version"]), d)
+
+    def key(d):
+        return d["name"].lower(), [-n for n in _version_numbers(d["version"])]
+    return sorted(found.values(), key=key)
+
+
+def _version_numbers(version):
+    return [int(x) for x in re.findall(r"\d+", version)]
+
+
+def project_path(path):
+    """The project file CODESYS writes for `path`: `.project` added when the
+    name has no extension."""
+    name = re.split(r"[\\/]", path.rstrip("\\/"))[-1]
+    return path if os.path.splitext(name)[1] else path + ".project"
+
+
 def parse_device(text):
     """TYPE:ID:VERSION -> {type, id, version}."""
     parts = (text or "").split(":", 2)
