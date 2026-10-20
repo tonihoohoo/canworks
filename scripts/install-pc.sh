@@ -12,6 +12,7 @@
 #   --wheel FILE   install this local wheel instead of a release (CI)
 #   --python V     the Python uv uses (default 3.12; a path to an installed Python works too)
 #   --no-shortcut  do not add the "canworks configurator" app shortcut
+#   --force        install even when this version is already installed
 #   --uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
 #   --dry-run      print what would run, change nothing
 #
@@ -32,13 +33,14 @@ WHEEL=""
 PYTHON=3.12
 UNINSTALL=0
 SHORTCUT=1
+FORCE=0
 DRY_RUN=0
 
 die() { echo "install-pc: $*" >&2; exit 1; }
 say() { echo "install-pc: $*"; }
 
 usage() {
-    if [ -f "$0" ]; then sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
+    if [ -f "$0" ]; then sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
 }
 
 while [ $# -gt 0 ]; do
@@ -48,6 +50,7 @@ while [ $# -gt 0 ]; do
         --python) [ $# -ge 2 ] || die "--python needs a version or path"; PYTHON=$2; shift 2 ;;
         --uninstall) UNINSTALL=1; shift ;;
         --no-shortcut) SHORTCUT=0; shift ;;
+        --force) FORCE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
@@ -129,6 +132,16 @@ if [ -n "$WHEEL" ]; then
 else
     [ -n "$VERSION" ] || VERSION=$(latest_version)
     SPEC="canworks @ $REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-py3-none-any.whl"
+    # Already this version (uv's own record): nothing to do, unless --force.
+    INSTALLED_VERSION=$("$UV" tool list 2>/dev/null | sed -n 's/^canworks v\([^ ]*\).*/\1/p' | head -n 1)
+    if [ "$FORCE" = 0 ] && [ "$INSTALLED_VERSION" = "$VERSION" ]; then
+        say "canworks $VERSION is already installed; --force installs it again"
+        case ":$PATH:" in
+            *":$BIN:"*) ;;
+            *) say "open a new terminal so $BIN is on PATH, then run canworks-config" ;;
+        esac
+        exit 0
+    fi
     say "installing canworks $VERSION"
 fi
 

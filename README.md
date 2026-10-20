@@ -49,7 +49,7 @@ On OpenPLC, at every PLC start the plugin checks the file against the EDS files,
 
 **Try it without hardware.** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md): one editor project with four simulated networks that shows the features working together on a PC. You need a container engine, the PC tools and the OpenPLC Editor; no CAN hardware.
 
-**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update; [docs/install-pc.md](docs/install-pc.md)).
+**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update, which does nothing when the newest is already installed; [docs/install-pc.md](docs/install-pc.md)).
 
 Windows (PowerShell):
 

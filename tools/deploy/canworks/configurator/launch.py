@@ -1,7 +1,7 @@
 """How canworks-config starts (configurator-quit-and-background): one
 configurator per user, found through instance.json in the settings folder;
-the start in the background with its output in a log file; and the start
-address shown when no browser opened the page.
+the start in the background with its output in a log file; the start
+address shown when no browser opened the page; and the start timing line.
 
 instance.json holds the running configurator's pid, port and a random secret,
 readable only by the user. A second start asks that configurator for a new
@@ -30,8 +30,85 @@ START_S = 10.0  # how long a background start waits for its configurator
 NO_PAGE_S = 15.0  # after asking the browser: no page by then, the address is shown
 TAKEN_OVER = 3  # the background configurator's exit code when another one started at the same moment
 START_ENV = "CANWORKS_CONFIG_START"  # the starter's id for its background configurator: in its instance file
+T0_ENV = "CANWORKS_START_T0"  # the starter's launch and Python-up times, for its background configurator's timing
 TITLE = "canworks configurator"
 NO_BROWSER = "No browser opened. Open this address in a browser: %s"
+
+
+def process_started():
+    """When this process was created (wall clock, seconds), or None where
+    that cannot be read. On Windows a uv command is a small launcher that
+    starts the real interpreter; this is the interpreter's start."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if k32.GetProcessTimes(k32.GetCurrentProcess(), *[ctypes.byref(t) for t in times]):
+                ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime  # 100 ns since 1601
+                return ticks / 1e7 - 11644473600.0
+        elif os.path.exists("/proc/self/stat"):
+            with open("/proc/self/stat") as f:
+                started = int(f.read().rsplit(")", 1)[1].split()[19])  # field 22, clock ticks after boot
+            with open("/proc/uptime") as f:
+                uptime = float(f.read().split()[0])
+            return time.time() - (uptime - started / os.sysconf("SC_CLK_TCK"))
+    except (OSError, ValueError, IndexError, AttributeError):
+        pass
+    return None
+
+
+class StartTiming:
+    """The steps of one start, as wall-clock times, logged as one line in
+    milliseconds from its launch: "start timing: python 140 ms, listening
+    420 ms, browser asked 450 ms, page 1310 ms (from shortcut)". A
+    background configurator carries on its starter's timing (T0_ENV), with
+    "background" for its own Python start."""
+
+    def __init__(self, t0):
+        self.t0 = t0
+        self.marks = {}
+        self.lock = threading.Lock()
+        self.logged = False
+
+    @classmethod
+    def here(cls, now=None):
+        now = time.time() if now is None else now
+        inherited = os.environ.pop(T0_ENV, None)
+        if inherited:
+            try:
+                t0, python = (float(v) for v in inherited.split(","))
+            except ValueError:
+                pass
+            else:
+                t = cls(t0)
+                t.marks["python"], t.marks["background"] = python, now
+                return t
+        t = cls(process_started() or now)
+        t.marks["python"] = now
+        return t
+
+    def env(self):
+        return "%r,%r" % (self.t0, self.marks.get("python", self.t0))
+
+    def mark(self, name, when=None):
+        with self.lock:
+            self.marks.setdefault(name, time.time() if when is None else when)
+
+    def line(self, how):
+        with self.lock:
+            steps = ", ".join("%s %d ms" % (k, round((v - self.t0) * 1000)) for k, v in self.marks.items())
+        return "start timing: %s (from %s)" % (steps, how)
+
+    def log_once(self, how):
+        """The line, the first time only (printed: the log of a background configurator)."""
+        with self.lock:
+            if self.logged:
+                return
+            self.logged = True
+        print(self.line(how), flush=True)
 
 
 def instance_path(name=INSTANCE):
@@ -139,13 +216,6 @@ def foreground(args, env=None, platform=None):
     return platform.startswith("linux") and not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY")
 
 
-def in_terminal(out):
-    try:
-        return out is not None and out.isatty()
-    except (AttributeError, ValueError):
-        return False
-
-
 # -- the log of a background configurator -------------------------------------
 
 def rotate(path, limit=LOG_MAX):
@@ -225,18 +295,20 @@ def child_command(argv, executable=None):
         w = os.path.join(os.path.dirname(exe), "pythonw.exe")
         if os.path.isfile(w):
             exe = w
-    return [exe, "-m", "canworks.configurator.server"] + [a for a in argv if a != CHILD] + [CHILD]
+    return [exe, "-m", "canworks.configurator.start"] + [a for a in argv if a != CHILD] + [CHILD]
 
 
-def spawn(argv, log, start_id=None):
+def spawn(argv, log, start_id=None, timing=None):
     """Starts the background configurator, detached from this terminal (a
     new session; on Windows no console), its output appended to `log`.
     `start_id` comes back in its instance file: on Windows the process
     started is a venv launcher whose pid is not the configurator's."""
     os.makedirs(os.path.dirname(log), exist_ok=True)
     rotate(log)
-    kw = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT, "close_fds": True,
-          "env": dict(os.environ, **({START_ENV: start_id} if start_id else {}))}
+    env = dict(os.environ, **({START_ENV: start_id} if start_id else {}))
+    if timing is not None:
+        env[T0_ENV] = timing.env()
+    kw = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT, "close_fds": True, "env": env}
     if os.name == "nt":
         kw["creationflags"] = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
                                | subprocess.CREATE_NEW_PROCESS_GROUP)
@@ -246,10 +318,11 @@ def spawn(argv, log, start_id=None):
         return subprocess.Popen(child_command(argv), stdout=f, **kw)
 
 
-def background(argv, new_instance=False, out=None, wait_s=START_S, no_page_s=None):
+def background(argv, new_instance=False, out=None, wait_s=START_S, timing=None):
     """canworks-config without --foreground: starts the configurator in the
-    background, opens its page and returns 0; a configurator that could
-    not start: its reason from the log, and 2."""
+    background, prints its address, asks the browser to open it and returns
+    0 (the configurator itself shows the address when no page came); a
+    configurator that could not start: its reason from the log, and 2."""
     out = out or sys.stdout
     log = log_path()
     try:
@@ -260,7 +333,7 @@ def background(argv, new_instance=False, out=None, wait_s=START_S, no_page_s=Non
         start = 0
     start_id = os.urandom(8).hex()
     try:
-        child = spawn(argv, log, start_id)
+        child = spawn(argv, log, start_id, timing)
     except OSError as e:
         print("canworks-config: cannot start the configurator in the background: %s" % (e.strerror or e),
               file=sys.stderr)
@@ -272,7 +345,7 @@ def background(argv, new_instance=False, out=None, wait_s=START_S, no_page_s=Non
         if code == TAKEN_OVER:
             # Another canworks-config started at the same moment and won: its page.
             inst = running()
-            done = hand_over(inst, None, out=out, no_page_s=no_page_s) if inst else None
+            done = hand_over(inst, None, out=out) if inst else None
             if done is not None:
                 return done
         if code is not None:
@@ -282,7 +355,7 @@ def background(argv, new_instance=False, out=None, wait_s=START_S, no_page_s=Non
             return code or 2
         inst = read_instance(path)
         if inst is not None and inst.get("start") == start_id:
-            done = hand_over(inst, None, out=out, no_page_s=no_page_s)
+            done = hand_over(inst, None, out=out)
             if done is not None:
                 if done == 0:
                     print("The configurator runs in the background and stops when its last browser tab is closed "
@@ -295,12 +368,14 @@ def background(argv, new_instance=False, out=None, wait_s=START_S, no_page_s=Non
         time.sleep(0.1)
 
 
-def hand_over(inst, path, browser=True, out=None, no_page_s=None):
+def hand_over(inst, path, browser=True, out=None, from_shortcut=False):
     """Opens a page of the running configurator `inst` (with PATH: asks it
-    to open that folder): 0, or 2 when it refused PATH; None when it did not
-    answer (the instance file is stale)."""
-    out = out or sys.stdout
-    body = {"browser": browser}
+    to open that folder): prints its address to `out` (None: no terminal,
+    from the app shortcut) and asks the browser to open it, without waiting
+    for the page; the configurator shows the address when no page came. 0,
+    or 2 when it refused PATH; None when it did not answer (the instance
+    file is stale)."""
+    body = {"browser": browser, "shortcut": bool(from_shortcut)}
     if path:
         body["path"] = os.path.abspath(path)
     r = ask(inst, "/api/instance/start", body)
@@ -312,29 +387,11 @@ def hand_over(inst, path, browser=True, out=None, no_page_s=None):
               file=sys.stderr)
         return 2
     url = data["url"]
-    if not browser:
+    if out is not None:
         print("canworks configurator: %s" % url, file=out, flush=True)
-        return 0
-    webbrowser.open(url)
-    if not wait_for_page(inst, url, NO_PAGE_S if no_page_s is None else no_page_s):
-        print(NO_BROWSER % url, file=out, flush=True)
-        if not in_terminal(out):
-            message_window(url)
+    if browser:
+        webbrowser.open(url)
     return 0
-
-
-def wait_for_page(inst, url, timeout):
-    """Whether the browser opened `url` (its one-time code was used) within
-    `timeout` seconds."""
-    code = url.rsplit("code=", 1)[-1]
-    deadline = time.monotonic() + timeout
-    while True:
-        r = ask(inst, "/api/instance/page", {"code": code})
-        if r is None or (r[0] == 200 and r[1].get("opened")):
-            return True  # opened, or the configurator has stopped: nothing to show
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.25)
 
 
 # -- the address, when no browser opened and there is no terminal ------------

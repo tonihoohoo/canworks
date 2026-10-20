@@ -23,16 +23,16 @@
 
 ## 5. Windows check (after the 0.92.0 release; Toni, own PowerShell with Defender real-time protection on)
 
-- [ ] 5.1 On a PC (or user) without uv: paste the README Windows line; no Defender detection, uv lands in `.local\bin`, the tools and the shortcut are installed, `canworks-deploy --version` prints 0.92.0 in a new terminal
-- [ ] 5.2 Paste it again: updates without reinstalling uv, no detection
+- [x] 5.1 On a PC (or user) without uv: paste the README Windows line; no Defender detection, uv lands in `.local\bin`, the tools and the shortcut are installed, `canworks-deploy --version` prints 0.92.0 in a new terminal Passed 2026-10-20 with 0.92.0 (Toni, own PowerShell): no Defender detection, installed.
+- [x] 5.2 Paste it again: updates without reinstalling uv, no detection Passed 2026-10-20 with 0.92.0, no detection; the rerun reinstalled everything (uv `--force`, bytecode compile about 18 s), fixed by skip-reinstall-faster-start.
 - [ ] 5.3 The runtime line from Windows over SSH with `-DryRun`: prints the ssh command, no detection
 - [ ] 5.4 macOS: paste the README macOS line; the release asset script updates the tools (uv already there)
 
 ## 6. App icon checks carried over from app-icon-from-logo (run with section 5)
 
-- [ ] 6.1 (app-icon-from-logo 3.1) Windows: after the normal install in 5.1 (from your own PowerShell, not the Claude app, whose sandboxed install made the shortcuts fail with "No Python at"), the desktop and Start menu "canworks configurator" shortcuts show the new icon in Explorer (small "c" over the two wires, "can" over the bus at 48 px and up) and open the configurator; run `ie4uinit.exe -show` if Explorer still shows the cached old icon
+- [x] 6.1 (app-icon-from-logo 3.1) Windows: after the normal install in 5.1 (from your own PowerShell, not the Claude app, whose sandboxed install made the shortcuts fail with "No Python at"), the desktop and Start menu "canworks configurator" shortcuts show the new icon in Explorer (small "c" over the two wires, "can" over the bus at 48 px and up) and open the configurator; run `ie4uinit.exe -show` if Explorer still shows the cached old icon Passed 2026-10-20 with 0.92.0 (Toni).
 - [ ] 6.2 (app-icon-from-logo 3.2) macOS: update from a normal terminal to 0.91.3 or newer; `~/Applications/canworks configurator.app` shows the new icon in Finder (list view: the "c", icon view: "can" over the bus) and opens the configurator
 
 ## 7. Desktop check carried over from configurator-survive-sleep (run with section 5)
 
-- [ ] 7.1 (configurator-survive-sleep 7.3, tick it there too) Windows: after the normal install in 5.1, double-click the desktop shortcut; the configurator opens in the browser with no console window. Close the tab: it stops within about 15 s and `configurator.log` says "stopped: its last page was closed". Optional: with an unsaved change, kill the browser in Task Manager; it keeps running past 4 minutes
+- [x] 7.1 (configurator-survive-sleep 7.3, tick it there too) Windows: after the normal install in 5.1, double-click the desktop shortcut; the configurator opens in the browser with no console window. Close the tab: it stops within about 15 s and `configurator.log` says "stopped: its last page was closed". Optional: with an unsaved change, kill the browser in Task Manager; it keeps running past 4 minutes Passed 2026-10-20 with 0.92.0 (Toni). Starts took about 5 s (over 10 s right after the install); see skip-reinstall-faster-start.

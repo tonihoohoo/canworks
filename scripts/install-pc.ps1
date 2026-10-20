@@ -11,6 +11,7 @@
 #   -Version X    install release deploy-vX instead of the newest one
 #   -Wheel FILE   install this local wheel instead of a release (CI)
 #   -Python V     the Python uv uses (default 3.12; a path to an installed Python works too)
+#   -Force        install even when this version is already installed
 #   -NoShortcut   do not add the "canworks configurator" Start menu and desktop shortcut
 #   -Uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
 #   -DryRun       print what would run, change nothing
@@ -27,6 +28,7 @@ param(
     [string]$Python = "3.12",
     [switch]$Uninstall,
     [switch]$NoShortcut,
+    [switch]$Force,
     [switch]$DryRun
 )
 
@@ -155,6 +157,18 @@ function Get-BinDir {
     return $bin
 }
 
+# The installed version of the tools, from uv's own record ("canworks v0.92.0"), or "".
+function Get-InstalledVersion {
+    if ($DryRun -and $Uv -eq "uv") { return "" }
+    $ErrorActionPreference = "Continue"
+    $lines = & $Uv tool list 2>$null
+    $ErrorActionPreference = "Stop"
+    foreach ($line in @($lines)) {
+        if ("$line" -match '^canworks v(\S+)') { return $Matches[1] }
+    }
+    return ""
+}
+
 if ($Uninstall) {
     # The shortcut first, while canworks-config is still there to remove it.
     $Config = Join-Path (Get-BinDir) "canworks-config.exe"
@@ -173,6 +187,14 @@ if ($Wheel) {
 } else {
     if (-not $Version) { $Version = Get-LatestVersion }
     $Spec = "canworks @ $Repo/releases/download/deploy-v$Version/canworks-$Version-py3-none-any.whl"
+    # Already this version (uv's own record): nothing to do, unless -Force.
+    if (-not $Force -and (Get-InstalledVersion) -eq $Version) {
+        Say "canworks $Version is already installed; -Force installs it again"
+        if (-not (($env:PATH -split ";") -contains (Get-BinDir))) {
+            Say "open a new terminal so $(Get-BinDir) is on PATH, then run canworks-config"
+        }
+        return
+    }
     Say "installing canworks $Version"
 }
 

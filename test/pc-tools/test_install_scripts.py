@@ -86,12 +86,20 @@ class _Base(unittest.TestCase):
         os.makedirs(self.home)
         os.makedirs(self.bin)
 
-    def fake_uv(self):
-        """A uv on PATH that only answers 'tool dir --bin'."""
+    def fake_uv(self, listed=None):
+        """A uv on PATH that only answers 'tool dir --bin', and 'tool list'
+        with `listed` (an installed version of canworks) when given."""
         path = os.path.join(self.bin, "uv")
+        listing = '[ "$1 $2" = "tool list" ] && echo "canworks v%s" && echo "- canworks-config"\n' % listed if listed else ""
         with open(path, "w") as f:
-            f.write('#!/bin/sh\n[ "$1 $2 $3" = "tool dir --bin" ] && echo "%s/uvbin"\nexit 0\n' % self.tmp)
+            f.write('#!/bin/sh\n[ "$1 $2 $3" = "tool dir --bin" ] && echo "%s/uvbin"\n%sexit 0\n' % (self.tmp, listing))
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+        if os.name == "nt":
+            # PowerShell on Windows runs uv.cmd for "uv".
+            with open(path + ".cmd", "w") as f:
+                f.write('@echo off\r\nif "%%1 %%2 %%3"=="tool dir --bin" echo %s\\uvbin\r\n' % self.tmp
+                        + ('if "%%1 %%2"=="tool list" echo canworks v%s\r\n' % listed if listed else "")
+                        + "exit /b 0\r\n")
 
     def env(self, **extra):
         env = {"PATH": self.bin + os.pathsep + "/usr/bin:/bin", "HOME": self.home, "USERPROFILE": self.home,
@@ -126,6 +134,28 @@ class InstallPcSh(_Base):
         # The app shortcut, after the install.
         self.assertIn("would run: %s/uvbin/canworks-config --create-shortcut" % self.tmp, r.stdout)
         self.assertLess(r.stdout.index("tool install"), r.stdout.index("--create-shortcut"))
+
+    # skip-reinstall-faster-start: the newest version already installed.
+    def test_up_to_date_skips(self):
+        self.fake_uv(listed="1.2.3")
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("canworks 1.2.3 is already installed; --force installs it again", r.stdout)
+        self.assertNotIn("tool install", r.stdout)
+        self.assertNotIn("shortcut", r.stdout)
+
+    def test_older_version_installs(self):
+        self.fake_uv(listed="1.2.2")
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("tool install --force", r.stdout)
+
+    def test_force_installs_same_version(self):
+        self.fake_uv(listed="1.2.3")
+        r = self.run_script(["sh", self.script, "--dry-run", "--force"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("tool install --force", r.stdout)
+        self.assertIn("--create-shortcut", r.stdout)
 
     def test_no_shortcut(self):
         self.fake_uv()
@@ -581,6 +611,18 @@ class PowerShellScripts(_Base):
         r = self.pwsh("install-pc.ps1", "-DryRun", "-NoShortcut")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertNotIn("shortcut", r.stdout)
+
+    def test_install_pc_up_to_date(self):
+        self.fake_uv(listed="1.2.3")
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("canworks 1.2.3 is already installed; -Force installs it again", r.stdout)
+        self.assertNotIn("tool install", r.stdout)
+        r = self.pwsh("install-pc.ps1", "-DryRun", "-Force")
+        self.assertIn("tool install --force", r.stdout)
+        self.fake_uv(listed="1.2.2")
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertIn("tool install --force", r.stdout)
 
     def test_install_pc_version_and_uninstall(self):
         self.fake_uv()

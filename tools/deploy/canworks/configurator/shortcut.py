@@ -4,7 +4,8 @@ configurator with no terminal.
 
 - Windows: "canworks configurator" in the Start menu and on the desktop
   (.lnk files written by PowerShell's WScript.Shell), running pythonw of the
-  installed tools, which has no console window. Nothing of ours to sign.
+  installed tools, which has no console window, with --from-shortcut: that
+  process is the configurator (start.py), no second Python. Nothing of ours to sign.
 - macOS: ~/Applications/canworks configurator.app, a script that runs the
   canworks-config launcher; made on the Mac, so Gatekeeper lets it run.
 - Linux: canworks-configurator.desktop in the user's applications folder.
@@ -107,7 +108,7 @@ def linux(remove, env, run):
         with open(entry, "w", encoding="utf-8") as f:
             f.write("[Desktop Entry]\nType=Application\nName=%s\n"
                     "Comment=Configure CANopen and J1939 networks in the browser\n"
-                    "Exec=%s\nIcon=%s\nTerminal=false\nCategories=Development;Engineering;\n"
+                    "Exec=%s --from-shortcut\nIcon=%s\nTerminal=false\nCategories=Development;Engineering;\n"
                     "StartupNotify=false\nX-Canworks=1\n" % (NAME, desktop_quote(exe), icon))
         os.chmod(entry, 0o755)  # some desktops start only an executable entry
         removed = [entry]
@@ -152,7 +153,7 @@ def macos(remove, env, run):
                        "CanworksShortcut": True}, f)
     script = os.path.join(contents, "MacOS", APP_EXE)
     with open(script, "w", encoding="utf-8") as f:
-        f.write("#!/bin/sh\nexec %s\n" % shlex.quote(exe))
+        f.write("#!/bin/sh\nexec %s --from-shortcut\n" % shlex.quote(exe))
     os.chmod(script, os.stat(script).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     shutil.copyfile(os.path.join(ICONS, "logo.icns"), os.path.join(contents, "Resources", "logo.icns"))
     return [app]
@@ -208,10 +209,11 @@ def windows(remove, env, run):
     values = {"CANWORKS_LNK_START": os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs",
                                                  NAME + ".lnk"),
               "CANWORKS_LNK_NAME": NAME, "CANWORKS_LNK_MARK": MARK, "CANWORKS_LNK_TARGET": pythonw(),
-              "CANWORKS_LNK_ARGS": "-m canworks.configurator.server",
+              "CANWORKS_LNK_ARGS": "-m canworks.configurator.start --from-shortcut",
               "CANWORKS_LNK_DIR": env.get("USERPROFILE") or os.path.expanduser("~"),
               "CANWORKS_LNK_ICON": os.path.join(ICONS, "logo.ico")}
-    r = run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+    # -Command text: the execution policy is for script files, so no Bypass.
+    r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
              PS_REMOVE if remove else PS_CREATE], env=dict(env, **values))
     if r.returncode != 0:
         raise Refused((r.stderr or r.stdout or "PowerShell failed").strip().splitlines()[-1])

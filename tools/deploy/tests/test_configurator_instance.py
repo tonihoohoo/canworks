@@ -179,15 +179,40 @@ class SecondStart(Base):
         code, out, _ = self.run_main("--no-browser")
         self.assertEqual(code, 0)
         self.assertIn("http://127.0.0.1:%d/?code=" % server.server_port, out)
-        # With the browser: it opens the address and waits for the page.
-        with mock.patch("webbrowser.open") as opened, mock.patch.object(launch, "NO_PAGE_S", 0.2), \
-                mock.patch.object(launch, "message_window") as window:
+        # With the browser: it prints the address, asks the browser and
+        # returns without waiting for the page (skip-reinstall-faster-start).
+        with mock.patch("webbrowser.open") as opened, mock.patch.object(launch, "message_window") as window:
+            began = time.monotonic()
             code, out, _ = self.run_main("--foreground", self.project)
         self.assertEqual(code, 0)
+        self.assertLess(time.monotonic() - began, 5)
         url = opened.call_args[0][0]
-        self.assertIn(launch.NO_BROWSER % url, out)  # nothing opened it
-        window.assert_called_once_with(url)  # no terminal here: the window too
+        self.assertIn("canworks configurator: %s" % url, out)
         self.assertEqual(self.api(server, "GET", "/api/state")["folder"], self.project)
+        # Nothing opened it: the running configurator logs the address; a
+        # terminal start shows no window (the address is in the terminal).
+        server.no_page_s = 0
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            server._report_unopened()
+        self.assertIn(launch.NO_BROWSER % url, out.getvalue())
+        window.assert_not_called()
+
+    def test_from_shortcut_while_running(self):
+        server = self.start()
+        with mock.patch("webbrowser.open") as opened, mock.patch.object(launch, "message_window") as window:
+            code, out, _ = self.run_main("--from-shortcut")
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "")  # no terminal to print to
+            url = opened.call_args[0][0]
+            # No page came: the address in the log and, from the shortcut, a window.
+            server.no_page_s = 0
+            with contextlib.redirect_stdout(io.StringIO()):
+                server._report_unopened()
+            deadline = time.monotonic() + 5
+            while not window.called and time.monotonic() < deadline:
+                time.sleep(0.02)
+        window.assert_called_once_with(url)
 
     def test_refused_path(self):
         self.start()
@@ -551,8 +576,9 @@ class Background(unittest.TestCase):
 
     def test_hidden_child_option(self):
         self.assertNotIn("child-background", srv.parser().format_help())
+        self.assertNotIn("from-shortcut", srv.parser().format_help())
         cmd = launch.child_command(["--port", "0", launch.CHILD], executable="/x/python")
-        self.assertEqual(cmd, ["/x/python", "-m", "canworks.configurator.server", "--port", "0", launch.CHILD])
+        self.assertEqual(cmd, ["/x/python", "-m", "canworks.configurator.start", "--port", "0", launch.CHILD])
 
     @POSIX
     def test_child_detached(self):
@@ -602,12 +628,12 @@ class Background(unittest.TestCase):
         self.assertIsNone(inst)
 
     def test_started_without_a_browser(self):
-        code, out, _, opened, window, inst, d = self.background(no_page_s=0.3)
+        code, out, _, opened, window, inst, d = self.background()
         try:
             self.assertEqual(code, 0)
             url = opened.call_args[0][0]
-            self.assertIn(launch.NO_BROWSER % url, out)
-            window.assert_called_once_with(url)
+            self.assertIn("canworks configurator: %s" % url, out)  # printed at once, no wait for the page
+            window.assert_not_called()
             self.assertTrue(launch.pid_alive(inst["pid"]))
             self.assertNotEqual(inst["pid"], os.getpid())
             with open(os.path.join(d, "cfg", launch.LOG)) as f:
@@ -616,6 +642,96 @@ class Background(unittest.TestCase):
             if inst:
                 post(inst["port"], "/api/instance/start", {})  # still answers
                 os.kill(inst["pid"], signal.SIGTERM)
+
+
+class Timing(unittest.TestCase):
+    """The start timing line (skip-reinstall-faster-start)."""
+
+    def test_line(self):
+        t = launch.StartTiming(100.0)
+        t.marks["python"] = 100.14
+        t.mark("listening", 100.42)
+        t.mark("listening", 101.0)  # the first time counts
+        t.mark("page", 101.31)
+        self.assertEqual(t.line("shortcut"), "start timing: python 140 ms, listening 420 ms, page 1310 ms (from shortcut)")
+
+    def test_carried_to_the_background_configurator(self):
+        t = launch.StartTiming(100.0)
+        t.marks["python"] = 100.25
+        with mock.patch.dict(os.environ, {launch.T0_ENV: t.env()}):
+            child = launch.StartTiming.here(now=100.9)
+            self.assertNotIn(launch.T0_ENV, os.environ)  # not passed on further
+        self.assertEqual(child.line("terminal"), "start timing: python 250 ms, background 900 ms (from terminal)")
+
+    def test_process_start_known(self):
+        started = launch.process_started()
+        if started is not None:
+            self.assertLess(abs(time.time() - started), 3600)
+
+    def test_terminal_start_logs_its_timing(self):
+        code, _, _, opened, _, inst, d = Background.background(self, timing=launch.StartTiming.here())
+        try:
+            self.assertEqual(code, 0)
+            url = opened.call_args[0][0]
+            urllib.request.build_opener(urllib.request.HTTPCookieProcessor()).open(url, timeout=10).read()
+            log = os.path.join(d, "cfg", launch.LOG)
+            deadline = time.monotonic() + 10
+            text = ""
+            while "start timing" not in text and time.monotonic() < deadline:
+                with open(log) as f:
+                    text = f.read()
+                time.sleep(0.05)
+            line = [l for l in text.splitlines() if l.startswith("start timing:")]
+            self.assertEqual(len(line), 1, text)
+            for step in ("python", "background", "listening", "browser asked", "page"):
+                self.assertIn(step + " ", line[0])
+            self.assertTrue(line[0].endswith("(from terminal)"), line[0])
+        finally:
+            if inst:
+                os.kill(inst["pid"], signal.SIGTERM)
+
+
+@POSIX
+class FromShortcut(unittest.TestCase):
+    """The app shortcut's process is the configurator itself."""
+
+    def test_serves_in_the_shortcut_process(self):
+        d = tmpdir(self)
+        browser = os.path.join(d, "browser")
+        with open(browser, "w") as f:  # a stand-in browser that loads the page
+            f.write("#!/bin/sh\n%s -c \"import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=10)\" "
+                    "\"$1\" &\n" % sys.executable)
+        os.chmod(browser, 0o755)
+        env = dict(os.environ, CANWORKS_CONFIG_DIR=os.path.join(d, "cfg"), PYTHONPATH=DEPLOY, BROWSER=browser,
+                   DISPLAY=":0")
+        p = subprocess.Popen([sys.executable, "-m", "canworks.configurator.start", "--from-shortcut"], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            path = os.path.join(d, "cfg", launch.INSTANCE)
+            log = os.path.join(d, "cfg", launch.LOG)
+            deadline = time.monotonic() + 20
+            text = ""
+            while "start timing" not in text and time.monotonic() < deadline:
+                try:
+                    with open(log) as f:
+                        text = f.read()
+                except OSError:
+                    pass
+                time.sleep(0.05)
+            with mock.patch.dict(os.environ, {"CANWORKS_CONFIG_DIR": os.path.join(d, "cfg")}):
+                inst = launch.read_instance(path)
+            self.assertEqual(inst["pid"], p.pid)  # no second Python
+            self.assertIn("from the app shortcut", text)
+            self.assertRegex(text, r"start timing: python \d+ ms, listening \d+ ms, browser asked \d+ ms, "
+                                   r"page \d+ ms \(from shortcut\)")
+            # A second click: a tab of this one, and that process exits.
+            q = subprocess.run([sys.executable, "-m", "canworks.configurator.start", "--from-shortcut"], env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+            self.assertEqual(q.returncode, 0, q.stdout)
+            self.assertIsNone(p.poll())
+        finally:
+            p.terminate()
+            p.wait(10)
 
 
 class MessageWindow(unittest.TestCase):
