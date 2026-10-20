@@ -4229,7 +4229,6 @@ class Server(http.server.ThreadingHTTPServer):
         while not self.watch_stop.wait(self.tick_s):
             why = self.tick(time.monotonic())
             if why:
-                print("canworks-config stopped: %s." % why, flush=True)
                 self.stop(why)
                 return
 
@@ -4348,6 +4347,7 @@ class Server(http.server.ThreadingHTTPServer):
         """Quit, or no page left: serving ends (main() then closes the
         rest) and every connection closes."""
         self.stopped_why = why
+        print("canworks-config stopped: %s." % why, flush=True)
         self.shutdown()
         self.close_connections()
 
@@ -4440,7 +4440,7 @@ def run(args, mode, timing=None):
     for name in ("SIGTERM", "SIGHUP"):
         try:
             signal.signal(getattr(signal, name), lambda *_: threading.Thread(
-                target=server.stop, args=("stopped from outside",), daemon=True).start())
+                target=server.stop, args=("it was told to stop (a signal)",), daemon=True).start())
         except (AttributeError, ValueError, OSError):
             pass  # not on this system, or not the main thread
     server.start_watch()

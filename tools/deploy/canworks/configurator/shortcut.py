@@ -6,8 +6,10 @@ configurator with no terminal.
   (.lnk files written by PowerShell's WScript.Shell), running pythonw of the
   installed tools, which has no console window, with --from-shortcut: that
   process is the configurator (start.py), no second Python. Nothing of ours to sign.
-- macOS: ~/Applications/canworks configurator.app, a script that runs the
-  canworks-config launcher; made on the Mac, so Gatekeeper lets it run.
+- macOS: ~/Applications/canworks configurator.app, a script that starts the
+  canworks-config launcher in the background and ends, so the app is not
+  running and opening it again starts the script again (which hands over to
+  the running configurator); made on the Mac, so Gatekeeper lets it run.
 - Linux: canworks-configurator.desktop in the user's applications folder.
 
 The shortcut runs what the install put on PATH (the uv tool's launcher or
@@ -153,10 +155,15 @@ def macos(remove, env, run):
                        "CanworksShortcut": True}, f)
     script = os.path.join(contents, "MacOS", APP_EXE)
     with open(script, "w", encoding="utf-8") as f:
-        f.write("#!/bin/sh\nexec %s --from-shortcut\n" % shlex.quote(exe))
+        # Not exec: the configurator would be the app, and opening the app
+        # again would only bring it to the front, with no new tab.
+        f.write(MAC_SCRIPT % shlex.quote(exe))
     os.chmod(script, os.stat(script).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     shutil.copyfile(os.path.join(ICONS, "logo.icns"), os.path.join(contents, "Resources", "logo.icns"))
     return [app]
+
+
+MAC_SCRIPT = "#!/bin/sh\n%s --from-shortcut </dev/null >/dev/null 2>&1 &\n"
 
 
 # -- Windows ----------------------------------------------------------------

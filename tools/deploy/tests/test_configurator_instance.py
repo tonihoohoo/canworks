@@ -389,6 +389,15 @@ class PageEnds(Base):
         server.last_tick = since
         return server
 
+    def test_every_stop_logs_why(self):
+        # Quit, the last page, or stopped from outside (SIGTERM): one line in the log each.
+        server = self.server()
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            server.stop("it was told to stop (a signal)")
+        self.assertEqual(out.getvalue(), "canworks-config stopped: it was told to stop (a signal).\n")
+
     def ticks(self, server, start, end, step=1.0):
         """Ticks the watch loop from start to end; the first stop reason and
         its time, or (None, None)."""
