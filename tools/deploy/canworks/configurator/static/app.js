@@ -3988,6 +3988,10 @@ function stNetworkStartCall(net = stEditNetwork()) {
 const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
 const RUNTIME_NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
 const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (press Unlock… in the connection bar).";
+// An adapter on another machine (canopen-remote-adapter): the lock names its host.
+function remoteNoChanges(host) {
+  return `Changes are off for this connection to the adapter on ${host} (press Unlock… in the connection bar).`;
+}
 let NO_CHANGES = RUNTIME_NO_CHANGES;
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
@@ -4535,7 +4539,7 @@ function onlineApply(r, err) {
   if (staleNote) staleNote.remove();
   runtimeNetworks(r);
   const st = r.status;
-  NO_CHANGES = st.local ? ADAPTER_NO_CHANGES : RUNTIME_NO_CHANGES;
+  NO_CHANGES = !st.local ? RUNTIME_NO_CHANGES : st.remote ? remoteNoChanges(r.remote || st.remote) : ADAPTER_NO_CHANGES;
   if (st.local) {
     localLive(r, conn);
     if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();

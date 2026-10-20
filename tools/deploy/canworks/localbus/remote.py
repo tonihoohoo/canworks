@@ -19,6 +19,7 @@ from .serve import DEFAULT_PORT
 
 PREFIX = "remote:"
 LOGIN_TIMEOUT_S = 10.0  # the login opens the adapter and runs the bit rate check
+THIS_MACHINE = "on this machine"  # how the server's adapter errors name its machine
 
 
 def is_remote(text):
@@ -110,6 +111,20 @@ class RemoteBus(diag.Client):
     def where(self):
         return "adapter server %s" % super().where
 
+    def _named(self, e):
+        """The server words errors about its own adapter for "this machine"
+        (localbus/adapter.py): here that machine is named."""
+        text = str(e)
+        if THIS_MACHINE not in text:
+            return e
+        return DiagError(e.kind, text.replace(THIS_MACHINE, "on the adapter machine %s" % self.host))
+
+    def request(self, op, timeout=None, **fields):
+        try:
+            return super().request(op, timeout=timeout, **fields)
+        except DiagError as e:
+            raise self._named(e) from None
+
     def _open(self):
         # Directly: an adapter server is not remembered or reached over the remote link.
         self.path = "LAN"
@@ -124,7 +139,7 @@ class RemoteBus(diag.Client):
                 raise DiagError("closed", self._closed_text())
             if e.kind == "token":
                 raise DiagError("token", "%s: wrong token" % self.where)
-            raise
+            raise self._named(e) from None
         finally:
             self.timeout = timeout
             if self.sock is not None:

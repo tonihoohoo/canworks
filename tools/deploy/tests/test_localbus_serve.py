@@ -9,9 +9,12 @@ import io
 import itertools
 import os
 import shutil
+import signal
 import socket
 import ssl
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,12 +26,14 @@ import can
 from canworks import diag
 from canworks.link import discovery
 from canworks.localbus import LocalBus, parse
+from canworks.localbus import adapter as adapter_mod
 from canworks.localbus import core as core_mod
 from canworks.localbus import remote, serve
 
 from . import fake_tls
 from .fake_canopen import FakeDevice
 from .fake_diag import FakePlugin
+from .test_configurator_server import DEPLOY
 from .test_localbus import cli
 
 TOKEN = "adapter-test-token"
@@ -181,6 +186,83 @@ class Login(ServerBase):
         self.assertIn("install the openssl package", str(e.exception))
 
 
+class AdapterMachine(ServerBase):
+    """Errors about the server's own adapter name its machine on the PC
+    (configurator-survive-sleep)."""
+
+    def setUp(self):
+        self.devices, self.clients, self.log = [], [], []
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "socketcan on Linux")
+    def test_interface_missing_on_the_server(self):
+        real = subprocess.run
+
+        def no_interface(cmd, *a, **kw):
+            if cmd[:1] == ["ip"]:
+                return subprocess.CompletedProcess(cmd, 1, "", 'Device "slcan0" does not exist.')
+            return real(cmd, *a, **kw)
+
+        kw = dict(cert_hash=fake_tls.CERT_HASH, context=fake_tls.server_context())
+        srv = serve.AdapterServer(parse("socketcan:slcan0"), 250000, diag.token_verifier(TOKEN), bind="127.0.0.1",
+                                  port=0, listen_s=0.05, name="adapterbox", log=self.log.append, **kw)
+        threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        with mock.patch.object(adapter_mod.subprocess, "run", no_interface):
+            with self.assertRaises(diag.DiagError) as e:
+                self.client(srv=srv)
+        text = str(e.exception)
+        self.assertIn("no CAN interface slcan0 on the adapter machine 127.0.0.1", text)
+        self.assertNotIn("this PC", text)
+        self.assertNotIn("this machine", text)
+        # The server's own log says it for its machine.
+        self.assertTrue(any("no CAN interface slcan0 on this machine" in line for line in self.log), self.log)
+
+    def test_local_adapter_words(self):
+        e = diag.DiagError("unreachable", "no gs_usb adapter 1 on this machine (1 found)")
+        c = remote.RemoteBus("linuxbox", 7536, TOKEN)
+        self.assertEqual(str(c._named(e)), "no gs_usb adapter 1 on the adapter machine linuxbox (1 found)")
+        self.assertEqual(c._named(e).kind, "unreachable")
+        other = diag.DiagError("refused", "node 5 does not answer")
+        self.assertIs(c._named(other), other)
+
+
+@unittest.skipUnless(os.name == "posix" and shutil.which("openssl"), "signals on POSIX; the certificate needs openssl")
+class StopLine(unittest.TestCase):
+    """adapter-serve logs how it stopped, as a service's journal shows it."""
+
+    def run_server(self, sig):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        env = dict(os.environ, PYTHONPATH=DEPLOY, CANWORKS_CONFIG_DIR=folder)
+        proc = subprocess.Popen([sys.executable, "-m", "canworks.diag", "adapter-serve", "--adapter",
+                                 "virtual:stop-line-%d" % os.getpid(), "--bitrate", "250", "--port", str(port),
+                                 "--bind", "127.0.0.1"],
+                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        first = proc.stderr.readline()
+        self.assertIn("serving adapter", first)
+        proc.send_signal(sig)
+        self.assertEqual(proc.wait(10), 0)
+        with proc.stderr:
+            return [line for line in proc.stderr.read().splitlines() if line.strip()]
+
+    def test_sigterm(self):
+        lines = self.run_server(signal.SIGTERM)
+        self.assertTrue(lines[-1].endswith("adapter-serve: stopped (SIGTERM), 0 PCs were connected"), lines)
+
+    def test_ctrl_c(self):
+        lines = self.run_server(signal.SIGINT)
+        self.assertTrue(lines[-1].endswith("adapter-serve: stopped (Ctrl-C), 0 PCs were connected"), lines)
+
+    def test_words(self):
+        self.assertEqual(serve.stop_line("SIGTERM", 1), "stopped (SIGTERM), 1 PC was connected")
+        self.assertEqual(serve.stop_line("Ctrl-C", 3), "stopped (Ctrl-C), 3 PCs were connected")
+
+
 class Operations(ServerBase):
     def test_sdo(self):
         self.device(5, heartbeat_s=0.05)
@@ -262,6 +344,23 @@ class Operations(ServerBase):
         code, out, err = cli("--adapter", "remote:127.0.0.1:%d" % self.srv.port, "--token", TOKEN, "status")
         self.assertEqual(code, 0, err)
         self.assertIn("adapter virtual:%s, 250 kbit/s, read-only" % self.ch, out)
+
+
+    def test_cli_trace_drops_are_the_adapter_machines(self):
+        self.device(5, heartbeat_s=0.05)
+        path = os.path.join(tempfile.mkdtemp(), "run.trc")
+        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        code, out, err = cli("--adapter", "remote:127.0.0.1:%d" % self.srv.port, "--token", TOKEN, "trace", "-o", path,
+                             "--duration", "0.4")
+        self.assertEqual(code, 0, err)
+        self.assertIn("0 dropped by the adapter machine's kernel (127.0.0.1)", out)
+        self.assertNotIn("PLC", out)
+
+    def test_drops_words(self):
+        self.assertEqual(diag.drops_by("remote:linuxbox"), "the adapter machine's kernel (linuxbox)")
+        self.assertEqual(diag.drops_by("remote:[fd00::1]:7600"), "the adapter machine's kernel (fd00::1)")
+        self.assertEqual(diag.drops_by("slcan:COM5"), "this PC's kernel")
+        self.assertEqual(diag.drops_by(None), "the PLC's kernel")
 
 
 class ReadOnlyServer(ServerBase):

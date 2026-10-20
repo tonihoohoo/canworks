@@ -63,6 +63,8 @@ body[data-stopped] > :not(#stopped) { display: none !important; }
 #stopped { max-width: 640px; margin: 15vh auto 0; padding: 0 16px; }
 #stopped h1 { font-size: 20px; margin-bottom: 12px; }
 #stopped p { color: var(--muted); }
+#stopped p { margin: 0 0 8px; overflow-wrap: anywhere; }
+#stopped .stopped-unsaved { color: var(--text); font-weight: 600; margin-top: 16px; }
 button, .file-button { font: inherit; padding: 5px 10px; min-height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; white-space: nowrap; }
 button:hover, .file-button:hover { background: var(--hover); }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

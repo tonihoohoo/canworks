@@ -374,6 +374,13 @@ function traceSourceSlot() {
   return slot;
 }
 
+// Whose kernel dropped frames: the kernel that reads the bus, the PLC's on
+// a runtime, the adapter machine's on an adapter on another machine.
+function traceDropsBy(st) {
+  const host = st.meta && st.meta.connection === "adapter" ? st.meta.adapter_host : null;
+  return host ? `the adapter machine's kernel (${host})` : "the PLC's kernel";
+}
+
 function showTraceHeader(st) {
   const src = $("#trace-source");
   const rec = st.recording;
@@ -381,7 +388,8 @@ function showTraceHeader(st) {
   let kind = "info";
   if (st.source === "live") {
     kind = "done";
-    const via = st.meta && st.meta.connection === "adapter" ? `the USB adapter${st.meta.interface ? " " + st.meta.interface : ""}` +
+    const via = st.meta && st.meta.connection === "adapter"
+      ? (st.meta.adapter_host ? `the adapter on ${st.meta.adapter_host}` : `the USB adapter${st.meta.interface ? " " + st.meta.interface : ""}`) +
       (st.summary && st.summary.bitrate ? ` at ${st.summary.bitrate / 1000} kbit/s` : "")
       : (S.online.host || "the runtime");
     text = `Live trace from ${via}${st.network ? ", network " + st.network : ""}: ${TRACE_STATES[rec.state] || rec.state}`;
@@ -399,7 +407,7 @@ function showTraceHeader(st) {
     const commission = !!(S.state && S.state.commission);
     notes.push(noteBar("info",
       (connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
-        : commission ? "Recording needs the USB adapter connection: connect with Connect… in the connection bar above. "
+        : commission ? `Recording needs the ${connRemote() ? "adapter" : "USB adapter"} connection: connect with Connect… in the connection bar above. `
         : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
         : "Recording needs online access: turn it on in Configure → Online access, save and upload. ") +
       "Opening, viewing and exporting trace files works without it.", { trace: "online-hint" }));
@@ -419,7 +427,7 @@ function showTraceHeader(st) {
     rec.running && sm.load != null ? `bus load ${sm.load.toFixed(1)} % (estimate)` : null,
     sm.bitrate ? `${sm.bitrate / 1000} kbit/s` : null,
     `${sm.error_frames} error frames`,
-    sm.lost ? `${sm.lost} lost` : null, sm.kernel_drops ? `${sm.kernel_drops} dropped by the PLC's kernel` : null,
+    sm.lost ? `${sm.lost} lost` : null, sm.kernel_drops ? `${sm.kernel_drops} dropped by ${traceDropsBy(st)}` : null,
     st.trigger_text ? `trigger: ${st.trigger_text}${rec.hits && rec.hits.length ? ` (${rec.hits.length} hit${rec.hits.length === 1 ? "" : "s"})` : ""}` : null];
   if (filterCount() && (T.tab === "frames" || T.tab === "ids") && T.total != null && T.tab === "frames") bits.push(`showing ${T.total.toLocaleString()} of ${sm.frames.toLocaleString()}`);
   else if (filterCount() && T.tab === "ids") bits.push(`showing ${TI.rows.size} identifier${TI.rows.size === 1 ? "" : "s"} (filtered)`);
@@ -1586,7 +1594,7 @@ function layoutActions(node, hasEds) {
   const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { trace: "pick-eds" } });
   input.addEventListener("change", () => { const f = input.files[0]; input.value = ""; if (f) tracePickEds(node, f); });
   const read = el("button", { type: "button", class: "small", dataset: { trace: "read-pdos" }, onclick: () => readPdoLayout(node, true) }, "Read PDOs from device");
-  if (!S.adapterOn) Icons.disable(read, "Reading needs the USB adapter connection: Connect… in the connection bar");
+  if (!S.adapterOn) Icons.disable(read, `Reading needs the ${connRemote() ? "adapter" : "USB adapter"} connection: Connect… in the connection bar`);
   return el("div", { class: "row" }, el("label", { class: "file-button small" }, hasEds ? "Change EDS…" : "Pick EDS…", input), read);
 }
 

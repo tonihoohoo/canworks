@@ -8,8 +8,10 @@ config is PATH/canworks/canworks.json), otherwise as a standalone config folder
 (PATH/canworks.json). Without PATH the page opens on its start page.
 
 By default the configurator runs in the background (launch.py), and it stops
-when its last page is closed: 10 s after the page said so, or 3 minutes after
-the last page stopped answering; --keep-running keeps it. A second
+when its last page is closed: 10 s after the page said so, or 60 minutes
+after the last page without unsaved changes stopped answering (a page with
+unsaved changes never times out, and time the computer slept does not
+count); --keep-running keeps it. A second
 canworks-config opens a page of the running one.
 
 Every request must carry the session token: the URL printed at start carries
@@ -65,14 +67,21 @@ RECENT_MAX = 10
 UNEXPECTED_ERROR = "The configurator hit an error; see its terminal, or configurator.log in its settings folder."
 
 # When the configurator stops by itself (Server.unused): a page that said it
-# was closing ends this long after (a reload comes back sooner), a page that
-# stopped answering after PAGE_SILENT_S (browsers send a hidden tab's
-# heartbeat about once a minute), and a start address nobody opened after
-# STARTUP_GRACE_S.
+# was closing ends this long after (a reload comes back sooner); a page that
+# stopped answering ends PAGE_SILENT_S after its last heartbeat when that
+# said it had no unsaved changes, and never by silence when it had some (a
+# locked screen or a background tab stops a page's timers, and only the
+# server can save its changes); a start address nobody opened ends after
+# STARTUP_GRACE_S. A page "answers" (a second start asks it first) while its
+# last heartbeat is less than PAGE_ANSWERING_S old. A watch tick more than
+# SLEEP_GAP_S after the one before means the process did not run (the
+# computer slept): that time does not count as silence.
 PAGE_CLOSED_S = 10.0
-PAGE_SILENT_S = 180.0
+PAGE_SILENT_S = 3600.0
+PAGE_ANSWERING_S = 180.0
 STARTUP_GRACE_S = 600.0
 WATCH_TICK_S = 1.0
+SLEEP_GAP_S = 30.0
 
 # Key order of a saved file; keys not listed keep their place after these.
 ORDER = {
@@ -3822,8 +3831,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             proj = online.Settings(config_dir()).project(folder)
             on_adapter = s.adapter_online() or bool(proj.get("remote_adapter"))
             if on_adapter and not self.server.connection.connected:
-                raise ApiError(409, "connect to the USB adapter on Bus and master to record a trace; opening trace "
-                                    "files works without it", need="online")
+                raise ApiError(409, "connect to the %s on Bus and master to record a trace; opening trace files "
+                                    "works without it" % ("adapter server" if proj.get("remote_adapter")
+                                                          else "USB adapter"), need="online")
             if not on_adapter and (not proj.get("host") or not proj.get("token")):
                 raise ApiError(409, "set up online access (runtime host and access token) in the Online view to "
                                     "record a trace; opening trace files works without it", need="online")
@@ -3850,7 +3860,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(422, str(e))
             ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name, network,
                      continue_=bool(body.get("continue")), ended=self._trace_ended(adapter),
-                     connection="adapter" if adapter else "runtime")
+                     connection="adapter" if adapter else "runtime",
+                     adapter_host=proj.get("remote_host") if adapter and proj.get("remote_adapter") else None)
             return state()
         if route == ("POST", "/api/trace/open"):
             path, name = body.get("path"), body.get("name") or "trace"
@@ -4106,10 +4117,13 @@ class Server(http.server.ThreadingHTTPServer):
         self.page_lock = threading.Lock()
         self.stop_unused = False
         self.closed_s, self.silent_s, self.startup_s = PAGE_CLOSED_S, PAGE_SILENT_S, STARTUP_GRACE_S
+        self.answering_s, self.sleep_gap_s = PAGE_ANSWERING_S, SLEEP_GAP_S
         self.no_page_s, self.tick_s = launch.NO_PAGE_S, WATCH_TICK_S
         self.since = time.monotonic()  # start, or the last second start: a page is due after it
         self.new_page_at = None  # when a page id was first seen, the latest
         self.last_end = None  # when the last page closed or stopped answering
+        self.last_reason = None  # how that page ended: "closed" or "silent"
+        self.last_tick = None  # the watch loop's last tick (monotonic)
         self.asked = {}  # start code -> (monotonic time, url): addresses the browser was asked to open
         self.instance_secret = None  # instance.json's secret (launch.py), when written
         self.instance_file = None
@@ -4119,12 +4133,14 @@ class Server(http.server.ThreadingHTTPServer):
         self.watch_stop = threading.Event()
 
     # -- pages, and stopping without them -----------------------------------
-    def heartbeat(self, page, unsaved=False):
-        """A page is open (every 30 s, and on becoming visible). The answer
-        carries a second start's PATH for a page with unsaved changes."""
+    def heartbeat(self, page, unsaved=False, now=None):
+        """A page is open (every 30 s, on becoming visible or getting focus).
+        The answer carries a second start's PATH for a page with unsaved
+        changes."""
         if not isinstance(page, str) or not 0 < len(page) <= 64:
             raise ApiError(400, "page must be the page's id")
-        now = time.monotonic()
+        now = time.monotonic() if now is None else now
+        unsaved = bool(unsaved)
         with self.page_lock:
             if page not in self.pages:
                 self.new_page_at = now
@@ -4135,44 +4151,82 @@ class Server(http.server.ThreadingHTTPServer):
                 return {"open": None, "waiting": req["path"], "epoch": self.open_epoch}
             return {"open": req, "waiting": None, "epoch": self.open_epoch}
 
-    def page_closed(self, page):
+    def page_closed(self, page, now=None):
         with self.page_lock:
             p = self.pages.get(page) if isinstance(page, str) else None
             if p is not None and p["closed"] is None:
-                p["closed"] = time.monotonic()
+                p["closed"] = time.monotonic() if now is None else now
 
     def _live(self, now):
-        return [p for p in self.pages.values() if p["closed"] is None and now - p["seen"] < self.silent_s]
+        """The pages that answer: no close beacon and a heartbeat within
+        answering_s (a second start asks these first)."""
+        return [p for p in self.pages.values() if p["closed"] is None and now - p["seen"] < self.answering_s]
+
+    def _page_end(self, p):
+        """When a page ends and how: (time, "closed"|"silent"), or (None,
+        "silent") when silence alone never ends it (unsaved changes)."""
+        if p["closed"] is not None:
+            return p["closed"] + self.closed_s, "closed"
+        if p["unsaved"]:
+            return None, "silent"
+        return p["seen"] + self.silent_s, "silent"
 
     def unused(self, now=None):
-        """Why the configurator should stop now, or None: no page open since
-        the last one closed (closed_s) or stopped answering (silent_s), or
-        none came after the start or a second start (startup_s)."""
+        """Why the configurator should stop now, or None: every page has
+        ended (closed_s after its close beacon; silent_s after its last
+        heartbeat when that said nothing was unsaved; never by silence with
+        unsaved changes), or none came after the start or a second start
+        (startup_s)."""
         if not self.stop_unused:
             return None
         now = time.monotonic() if now is None else now
         with self.page_lock:
-            if self._live(now):
-                return None
-            for k, p in list(self.pages.items()):
-                end = p["closed"] + self.closed_s if p["closed"] is not None else p["seen"] + self.silent_s
-                self.last_end = max(self.last_end or end, end)
+            ends = [(k,) + self._page_end(p) for k, p in self.pages.items()]
+            if any(how == "silent" and (end is None or now < end) for _, end, how in ends):
+                return None  # a page without a close beacon that has not timed out
+            for k, end, how in ends:
+                if self.last_end is None or end >= self.last_end:
+                    self.last_end, self.last_reason = end, how
                 del self.pages[k]  # it ended: only its end time counts
             if self.new_page_at is None or self.new_page_at < self.since:
                 if now - self.since >= self.startup_s:
                     return "no page was opened within %d minutes of its start" % round(self.startup_s / 60)
                 return None
             if self.last_end is not None and now >= self.last_end:
+                if self.last_reason == "silent":
+                    return "its last page sent no heartbeat for %d minutes" % round(self.silent_s / 60)
                 return "its last page was closed"
             return None
 
+    def tick(self, now):
+        """One tick of the watch loop at monotonic time `now`. A gap of more
+        than sleep_gap_s since the last tick means this process did not run
+        (the computer slept): every page's last heartbeat and close, the
+        start and the last end move later by that time (less one tick), so
+        it does not count as silence on any system. Returns why the
+        configurator should stop now, or None."""
+        with self.page_lock:
+            last, self.last_tick = self.last_tick, now
+            if last is not None and now - last > self.sleep_gap_s:
+                gap = now - last - self.tick_s
+
+                def later(t):  # a time from before the sleep (the process slept within a tick of `last`)
+                    return t + gap if t is not None and t <= last + self.tick_s else t
+
+                for p in self.pages.values():
+                    p["seen"], p["closed"] = later(p["seen"]), later(p["closed"])
+                self.since, self.new_page_at = later(self.since), later(self.new_page_at)
+                self.last_end = later(self.last_end)
+        self._report_unopened()
+        return self.unused(now)
+
     def start_watch(self):
+        self.last_tick = time.monotonic()
         threading.Thread(target=self._watch_pages, daemon=True).start()
 
     def _watch_pages(self):
         while not self.watch_stop.wait(self.tick_s):
-            self._report_unopened()
-            why = self.unused()
+            why = self.tick(time.monotonic())
             if why:
                 print("canworks-config stopped: %s." % why, flush=True)
                 self.stop(why)

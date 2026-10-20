@@ -7,6 +7,7 @@ temporary folders with a stub bridge and a stub systemctl."""
 
 import http.server
 import os
+import re
 import shutil
 import socket
 import stat
@@ -22,12 +23,20 @@ IN_CI = bool(os.environ.get("CI"))
 
 
 class _Releases(http.server.BaseHTTPRequestHandler):
-    """releases/latest redirects to releases/tag/deploy-v1.2.3, like GitHub."""
+    """releases/latest redirects to releases/tag/deploy-v1.2.3, like GitHub;
+    `files` are served as they are (a stand-in uv installer)."""
     seen = []
+    files = {}
 
     def do_GET(self):
         self.seen.append(self.path)
-        if self.path.endswith("/releases/latest"):
+        if self.path in self.files:
+            body = self.files[self.path].encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.endswith("/releases/latest"):
             self.send_response(302)
             self.send_header("Location", self.path[:-len("latest")] + "tag/deploy-v1.2.3")
             self.send_header("Content-Length", "0")
@@ -65,6 +74,7 @@ class _Base(unittest.TestCase):
 
     def setUp(self):
         _Releases.seen = []
+        _Releases.files = {}
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.home = os.path.join(self.tmp, "home")
@@ -104,8 +114,9 @@ class InstallPcSh(_Base):
         r = self.run_script(["sh", self.script, "--dry-run"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("installing canworks 1.2.3", r.stdout)
-        self.assertIn("tool install --force --compile-bytecode --python 3.12 canworks @ %s/releases/download/"
-                      "deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl" % self.repo_url, r.stdout)
+        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.12 --overrides \S+overrides\.txt "
+                         + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
+                                     % self.repo_url))
         self.assertNotIn("uv.example", r.stdout)
         self.assertIn("/owner/canworks/releases/latest", _Releases.seen)
         # The app shortcut, after the install.
@@ -132,7 +143,8 @@ class InstallPcSh(_Base):
         open(wheel, "w").close()
         r = self.run_script(["sh", self.script, "--dry-run", "--wheel", wheel, "--python", "3.13"])
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("tool install --force --compile-bytecode --python 3.13 " + wheel, r.stdout)
+        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.13 --overrides \S+ "
+                         + re.escape(wheel))
         self.assertEqual(_Releases.seen, [])
 
     def test_installs_uv_when_missing(self):
@@ -172,6 +184,93 @@ class InstallPcSh(_Base):
         r = self.run_script(["sh", self.script, "--frobnicate"])
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("unknown option: --frobnicate", r.stdout)
+
+    # A real run with a stand-in uv (configurator-survive-sleep): it records
+    # what it was given, and warns as uv does when its bin folder is not on
+    # PATH; the tools it "installs" are stubs.
+    def stub_uv(self, folder):
+        self.log = os.path.join(self.tmp, "uv-log")
+        os.makedirs(self.log, exist_ok=True)
+        uvbin = os.path.join(self.tmp, "uvbin")
+        os.makedirs(uvbin, exist_ok=True)
+        for name in ("canworks-deploy", "canworks-config"):
+            path = os.path.join(uvbin, name)
+            with open(path, "w") as f:
+                f.write("#!/bin/sh\necho %s \"$@\" >> %s/tools\n" % (name, self.log))
+            os.chmod(path, 0o755)
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "uv")
+        with open(path, "w") as f:
+            f.write("""#!/bin/sh
+log=%(log)s
+case "$1 $2" in
+    "tool dir") echo %(uvbin)s ;;
+    "tool install")
+        echo "$*" > "$log/args"
+        prev=""
+        for a in "$@"; do
+            [ "$prev" = --overrides ] && cp "$a" "$log/overrides"
+            prev=$a
+        done
+        case ":$PATH:" in
+            *":%(uvbin)s:"*) ;;
+            *) echo "warning: \\`%(uvbin)s\\` is not on your PATH. To use installed tools, run \\`uv tool update-shell\\`." >&2 ;;
+        esac ;;
+    "tool update-shell") echo update-shell >> "$log/calls" ;;
+esac
+exit 0
+""" % {"log": self.log, "uvbin": uvbin})
+        os.chmod(path, 0o755)
+
+    def read_log(self, name):
+        with open(os.path.join(self.log, name)) as f:
+            return f.read()
+
+    def test_only_runtime_dependencies(self):
+        self.stub_uv(self.bin)
+        tmpdir = os.path.join(self.tmp, "t")
+        os.makedirs(tmpdir)
+        r = self.run_script(["sh", self.script, "--version", "1.2.3"], env=self.env(TMPDIR=tmpdir))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("--overrides", self.read_log("args"))
+        self.assertEqual(self.read_log("overrides").strip(), "pytest; sys_platform == 'never'")
+        self.assertIn("canworks-deploy --version", self.read_log("tools"))
+        self.assertEqual(os.listdir(tmpdir), [], "the overrides file is removed at the end")
+
+    def test_no_uv_path_warning_over_ssh(self):
+        # A non-login shell: uv's bin folder is not on PATH.
+        self.stub_uv(self.bin)
+        r = self.run_script(["sh", self.script, "--version", "1.2.3"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("is not on your PATH", r.stdout)
+        self.assertEqual(r.stdout.count("open a new terminal"), 1, r.stdout)
+        self.assertIn("update-shell", self.read_log("calls"))
+
+    def uv_installer(self, quiet_option):
+        """A stand-in uv installer that puts the stub uv into ~/.local/bin and
+        records its arguments; with or without a --quiet option."""
+        local = os.path.join(self.home, ".local", "bin")
+        self.stub_uv(os.path.join(self.tmp, "staged"))
+        _Releases.files["/uv/install.sh"] = (
+            "#!/bin/sh\n# usage: install.sh%s\n"
+            "echo \"$*\" > %s/installer-args\nmkdir -p %s\ncp %s %s/uv\n"
+            "[ \"$1\" = --qu\"\"iet ] || echo 'To add %s to your PATH, restart your shell'\n"
+            % (" [--quiet]" if quiet_option else "", self.log, local, os.path.join(self.tmp, "staged", "uv"), local,
+               local))
+        return self.env(CANWORKS_UV_INSTALLER="http://127.0.0.1:%d/uv/install.sh" % self.server.server_address[1])
+
+    def test_uv_installer_quiet(self):
+        r = self.run_script(["sh", self.script, "--version", "1.2.3"], env=self.uv_installer(True))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.read_log("installer-args").strip(), "--quiet")
+        self.assertNotIn("to your PATH", r.stdout)
+        self.assertNotIn("is not on your PATH", r.stdout)
+        self.assertEqual(r.stdout.count("open a new terminal"), 1, r.stdout)
+
+    def test_uv_installer_without_quiet(self):
+        r = self.run_script(["sh", self.script, "--version", "1.2.3"], env=self.uv_installer(False))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.read_log("installer-args").strip(), "")
 
 
 @POSIX_ONLY
@@ -471,8 +570,9 @@ class PowerShellScripts(_Base):
         self.fake_uv()
         r = self.pwsh("install-pc.ps1", "-DryRun")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("tool install --force --compile-bytecode --python 3.12 canworks @ %s/releases/download/"
-                      "deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl" % self.repo_url, r.stdout)
+        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.12 --overrides \S+\.txt "
+                         + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
+                                     % self.repo_url))
         self.assertIn("canworks-config.exe --create-shortcut", r.stdout)
         r = self.pwsh("install-pc.ps1", "-DryRun", "-NoShortcut")
         self.assertEqual(r.returncode, 0, r.stdout)

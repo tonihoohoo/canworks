@@ -208,10 +208,12 @@ class Workspace:
 
     # -- recording ----------------------------------------------------------
     def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix, network=None,
-              continue_=False, ended=None, connection=None):
+              continue_=False, ended=None, connection=None, adapter_host=None):
         """continue_: append to the recording that stopped (on its network
         only), after a gap marker, keeping the trigger's hits. ended: see
-        Recorder. connection: "adapter" or "runtime", kept in the metadata."""
+        Recorder. connection: "adapter" or "runtime", kept in the metadata,
+        with adapter_host for an adapter on another machine (its kernel
+        counts the drops)."""
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "a trace is already recording")
@@ -229,6 +231,8 @@ class Workspace:
                 self._replace(Session(decoder, limit=self.limit), "live", decoder.warnings)
             if connection:
                 self.session.trace.meta["connection"] = connection
+            if adapter_host:
+                self.session.trace.meta["adapter_host"] = adapter_host
             self.recorder = Recorder(connect, self.session, filters, error_frames, self.trigger,
                                      autosave_dir=autosave_dir, name_prefix=name_prefix, ended=ended,
                                      offset_us=old.offset_us if continue_ and old else None)

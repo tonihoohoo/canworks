@@ -331,6 +331,131 @@ class LastPage(Base):
         self.assertEqual(out.getvalue().strip(), launch.NO_BROWSER % url)
 
 
+
+class PageEnds(Base):
+    """Server.unused() and the watch tick with chosen monotonic times
+    (configurator-survive-sleep): when a page ends, why, and sleep."""
+
+    def server(self, since=0.0):
+        server = srv.Server()
+        self.addCleanup(server.server_close)
+        server.stop_unused = True
+        server.since = since
+        server.last_tick = since
+        return server
+
+    def ticks(self, server, start, end, step=1.0):
+        """Ticks the watch loop from start to end; the first stop reason and
+        its time, or (None, None)."""
+        t = start
+        while t <= end:
+            why = server.tick(t)
+            if why:
+                return why, t
+            t += step
+        return None, None
+
+    def test_beacon_stops_after_the_grace(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.page_closed("a", now=20.0)
+        self.assertIsNone(server.unused(now=29.0))
+        self.assertEqual(server.unused(now=30.0), "its last page was closed")
+
+    def test_saved_page_silent_past_the_limit(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        self.assertIsNone(server.unused(now=5.0 + srv.PAGE_SILENT_S - 1))
+        self.assertEqual(server.unused(now=5.0 + srv.PAGE_SILENT_S),
+                         "its last page sent no heartbeat for 60 minutes")
+
+    def test_unsaved_page_never_times_out(self):
+        server = self.server()
+        server.heartbeat("a", unsaved=True, now=5.0)
+        self.assertIsNone(server.unused(now=5.0 + 10 * srv.PAGE_SILENT_S))
+        server.page_closed("a", now=10 * srv.PAGE_SILENT_S)
+        self.assertEqual(server.unused(now=10 * srv.PAGE_SILENT_S + srv.PAGE_CLOSED_S), "its last page was closed")
+
+    def test_page_saved_again_times_out(self):
+        server = self.server()
+        server.heartbeat("a", unsaved=True, now=5.0)
+        server.heartbeat("a", unsaved=False, now=100.0)
+        self.assertIsNone(server.unused(now=100.0 + srv.PAGE_SILENT_S - 1))
+        self.assertIn("no heartbeat", server.unused(now=100.0 + srv.PAGE_SILENT_S))
+
+    def test_silent_unsaved_page_keeps_it_when_another_page_closes(self):
+        server = self.server()
+        server.heartbeat("crashed", unsaved=True, now=5.0)
+        server.heartbeat("new", now=5000.0)
+        server.page_closed("new", now=5001.0)
+        self.assertIsNone(server.unused(now=5100.0))
+
+    def test_reason_of_the_page_that_ended_last(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.heartbeat("b", now=10.0)
+        server.page_closed("b", now=20.0)
+        self.assertIsNone(server.unused(now=40.0))  # a still answers within the limit
+        self.assertIn("no heartbeat", server.unused(now=5.0 + srv.PAGE_SILENT_S))
+
+    def test_sleep_does_not_count(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        self.assertEqual(self.ticks(server, 1.0, 100.0), (None, None))
+        # The computer slept for two hours: the next tick comes 7200 s later.
+        self.assertIsNone(server.tick(100.0 + 7200))
+        self.assertEqual(self.ticks(server, 7301.0, 7300.0 + srv.PAGE_SILENT_S - 200), (None, None))
+        why, at = self.ticks(server, 7300.0 + srv.PAGE_SILENT_S - 200, 7300.0 + srv.PAGE_SILENT_S + 200)
+        self.assertIn("no heartbeat", why)
+        self.assertAlmostEqual(at, 5.0 + srv.PAGE_SILENT_S + 7200 - 1, delta=1.5)
+
+    def test_short_gaps_count(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.tick(10.0)
+        self.assertIsNone(server.tick(10.0 + srv.SLEEP_GAP_S))  # a slow tick, not sleep
+        self.assertEqual(server.pages["a"]["seen"], 5.0)
+
+    def test_startup_grace_with_a_gap(self):
+        server = self.server()
+        self.assertEqual(self.ticks(server, 1.0, 100.0), (None, None))
+        self.assertIsNone(server.tick(100.0 + 3600))  # slept an hour before any page came
+        why, at = self.ticks(server, 3701.0, 3700.0 + srv.STARTUP_GRACE_S)
+        self.assertIn("no page was opened within 10 minutes", why)
+        self.assertAlmostEqual(at, srv.STARTUP_GRACE_S + 3600 - 1, delta=1.5)
+
+    def test_closed_page_with_a_gap(self):
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.tick(6.0)
+        server.page_closed("a", now=6.5)
+        self.assertIsNone(server.tick(6.0 + 600))  # slept in the grace: the grace goes on after waking
+        self.assertEqual(self.ticks(server, 607.0, 700.0)[0], "its last page was closed")
+
+    def test_second_start_does_not_wait_for_a_silent_unsaved_page(self):
+        server = self.server()
+        now = time.monotonic()
+        server.heartbeat("editing", unsaved=True, now=now - srv.PAGE_ANSWERING_S - 1)
+        server.second_start(self.project, browser=False)
+        self.assertIsNone(server.open_request)
+        self.assertEqual(server.session.folder, self.project)  # opened at once
+        self.assertIsNone(server.unused())  # and the silent unsaved page still keeps it
+
+    def test_answering_unsaved_page_is_asked_first(self):
+        server = self.server()
+        server.heartbeat("editing", unsaved=True)
+        server.second_start(self.project, browser=False)
+        self.assertEqual(server.open_request["path"], self.project)
+
+    def test_keep_running(self):
+        server = self.server()
+        server.stop_unused = False
+        server.heartbeat("a", now=5.0)
+        self.assertIsNone(server.tick(5.0 + 10 * srv.PAGE_SILENT_S))
+        server.page_closed("a", now=10 * srv.PAGE_SILENT_S)
+        self.assertIsNone(server.tick(20 * srv.PAGE_SILENT_S))
+
+
 class Cookie(Base):
     def test_two_configurators_in_one_browser(self):
         a, b = self.start(publish=False), self.start(publish=False)

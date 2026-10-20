@@ -57,6 +57,14 @@ jobs:
           fi
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
+      - name: Only runtime dependencies in the tools' environment
+        # The installer's override drops can-j1939's pytest requirement
+        # (canopen-pc-install); the J1939 simulator starts without it.
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py="$(uv tool dir)/canworks/Scripts/python.exe"; else py="$(uv tool dir)/canworks/bin/python"; fi
+          "$py" -c "import importlib.util, sys; sys.exit('pytest is installed' if importlib.util.find_spec('pytest') else 0)"
+          canworks-j1939-sim --help > /dev/null
+
       - name: Deploy tool and configurator tests
         # Page tests (Playwright) and the DCF parity check (C++ canopen_check)
         # run on Linux only; they skip here and say why.

@@ -12,6 +12,7 @@ from unittest import mock
 
 from canworks import diag
 from canworks.configurator import online
+from canworks.localbus import client as client_mod
 from canworks.localbus import core as core_mod
 from canworks.localbus import parse, serve
 
@@ -136,6 +137,48 @@ class CommissionRemote(RemotePage):
             dialog = pg.eval_on_selector("#conn-dialog", "e => e.getBoundingClientRect().right")
             self.assertLessEqual(targets, dialog, width)
             pg.click('#conn-dialog [data-conn="close-panel"]')
+
+
+class RemoteWords(RemotePage):
+    """configurator-survive-sleep: an adapter on another machine is never
+    called a USB adapter, and its machine's kernel drops are its own."""
+
+    def test_lock_names_the_host(self):
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_remote()
+        pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("on %s")' % self.address)
+        note = '[data-online="lss-no-changes"]'
+        pg.wait_for_selector(note + ':has-text("Locked.")')
+        text = pg.inner_text(note)
+        self.assertIn("Changes are off for this connection to the adapter on %s" % self.address, text)
+        self.assertNotIn("USB adapter", text)
+        self.assertNotIn("USB adapter", pg.evaluate("NO_CHANGES"))
+
+    def test_trace_drops_are_the_adapter_machines(self):
+        pg = self.page
+        self.device(7, heartbeat_s=0.05)
+        real = client_mod.OPS["trace_fetch"]
+
+        def with_drops(c, f):
+            return dict(real(c, f), kernel_drops=3)
+
+        p = mock.patch.dict(client_mod.OPS, {"trace_fetch": with_drops})
+        p.start()
+        self.addCleanup(p.stop)
+        self.commission()
+        self.connect_remote()
+        pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("on %s")' % self.address)
+        pg.click('button[data-view="trace"]')
+        pg.click("[data-trace=start-stop]")
+        pg.wait_for_selector('#trace-stats:has-text("dropped by")', timeout=20000)
+        stats = pg.inner_text("#trace-stats")
+        self.assertIn("3 dropped by the adapter machine's kernel (%s)" % self.address, stats)
+        self.assertNotIn("PLC", stats)
+        self.assertIn("the adapter on %s" % self.address, pg.inner_text("#trace-source"))
+        self.assertNotIn("USB adapter", pg.inner_text("#trace-source"))
+        pg.click("[data-trace=start-stop]")
 
 
 class ConfigRemote(RemotePage):

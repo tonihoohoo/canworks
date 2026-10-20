@@ -108,7 +108,7 @@ canworks-diag --adapter remote:benchbox --token-file benchbox.token scan
 canworks-diag --adapter remote:benchbox --allow-changes lss-set-id 0x360 0x1 0 0x1234 12
 ```
 
-A runtime given as `remote:HOST` is named as such ("HOST is a runtime, not an adapter server: connect without remote:"). `canworks-diag discover` lists adapter servers apart from runtimes. In the configurator, the connect panel offers **Adapter on another machine** next to **USB adapter** in Commission a CANopen device, and next to **Runtime** and **Standalone simulator** with a config ([configurator.md](configurator.md#commission-a-canopen-device)).
+Errors about the server's own adapter name that machine: an interface the server cannot find shows on the PC as "no CAN interface slcan0 on the adapter machine HOST", never as if the PC lacked it (the server's own log says "on this machine"). A trace's summary counts the frames the server's kernel dropped as "dropped by the adapter machine's kernel (HOST)", in the configurator and in `canworks-diag trace`. A runtime given as `remote:HOST` is named as such ("HOST is a runtime, not an adapter server: connect without remote:"). `canworks-diag discover` lists adapter servers apart from runtimes. In the configurator, the connect panel offers **Adapter on another machine** next to **USB adapter** in Commission a CANopen device, and next to **Runtime** and **Standalone simulator** with a config ([configurator.md](configurator.md#commission-a-canopen-device)).
 
 ### As a service
 
@@ -118,7 +118,7 @@ To keep the server running without a terminal, also after a reboot:
 sudo canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500 --install-service
 ```
 
-This makes the token first (as your user, printed once), writes `/etc/systemd/system/canworks-adapter-can0.service` running the same command as the user who ran sudo, with only the capability to bring the SocketCAN interface up at the bit rate (`CAP_NET_ADMIN`) and restarted on failure, and starts it. When Avahi is installed it also writes `/etc/avahi/services/canworks-adapter-can0.service`, so PCs on the local network find the server (`_canworks._tcp`, TXT `kind=adapter` with the machine's name, the adapter and the bit rate). `canworks-diag adapter-serve --status` says whether the service runs and which PCs are connected; `sudo canworks-diag adapter-serve --remove-service` stops it and removes both files. An slcan adapter's serial port needs the user in the `dialout` group, as on a PC.
+This makes the token first (as your user, printed once), writes `/etc/systemd/system/canworks-adapter-can0.service` running the same command as the user who ran sudo, with only the capability to bring the SocketCAN interface up at the bit rate (`CAP_NET_ADMIN`) and restarted on failure, and starts it. When Avahi is installed it also writes `/etc/avahi/services/canworks-adapter-can0.service`, so PCs on the local network find the server (`_canworks._tcp`, TXT `kind=adapter` with the machine's name, the adapter and the bit rate). When it stops, the server logs one last line, `stopped (SIGTERM), N PCs were connected` (`stopped (Ctrl-C)` in a terminal), so `journalctl -u canworks-adapter-can0` shows a `systemctl stop`. `canworks-diag adapter-serve --status` says whether the service runs and which PCs are connected; `sudo canworks-diag adapter-serve --remove-service` stops it and removes both files. An slcan adapter's serial port needs the user in the `dialout` group, as on a PC.
 
 ### From another network
 

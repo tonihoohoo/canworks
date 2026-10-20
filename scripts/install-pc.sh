@@ -60,6 +60,10 @@ run() {
 
 command -v curl >/dev/null 2>&1 || die "curl is needed"
 
+# A folder for the uv installer and the overrides file, removed at the end.
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t canworks-install) || die "could not make a temporary folder"
+trap 'rm -rf "$TMP"' EXIT
+
 # uv on PATH, else where its installer puts it, else install it now.
 find_uv() {
     if command -v uv >/dev/null 2>&1; then command -v uv; return; fi
@@ -74,10 +78,16 @@ if [ -z "$UV" ]; then
     [ "$UNINSTALL" = 0 ] || die "uv is not installed, so neither are the tools"
     say "installing uv ($UV_INSTALLER)"
     if [ "$DRY_RUN" = 1 ]; then
-        echo "would run: curl -LsSf $UV_INSTALLER | sh"
+        echo "would run: curl -LsSf $UV_INSTALLER | sh (with --quiet when it has that option)"
         UV=uv
     else
-        curl -LsSf "$UV_INSTALLER" | sh || die "could not install uv from $UV_INSTALLER"
+        curl -LsSf -o "$TMP/uv-install.sh" "$UV_INSTALLER" || die "could not download the uv installer from $UV_INSTALLER"
+        # Quietly when it can: its PATH message would come next to this script's own hint.
+        if grep -q -e "--quiet" "$TMP/uv-install.sh"; then
+            sh "$TMP/uv-install.sh" --quiet || die "could not install uv from $UV_INSTALLER"
+        else
+            sh "$TMP/uv-install.sh" || die "could not install uv from $UV_INSTALLER"
+        fi
         UV=$(find_uv)
         [ -n "$UV" ] || die "uv was installed but not found in ~/.local/bin; open a new terminal and run this again"
     fi
@@ -122,8 +132,19 @@ else
     say "installing canworks $VERSION"
 fi
 
-run "$UV" tool install --force --compile-bytecode --python "$PYTHON" "$SPEC" ||
-    die "uv could not install the tools (see its message above)"
+# Only runtime dependencies: can-j1939 lists pytest as one but never imports
+# it, so an override drops it (docs/install-pc.md).
+OVERRIDES="$TMP/overrides.txt"
+echo "pytest; sys_platform == 'never'" > "$OVERRIDES"
+# uv's bin folder first on PATH for this one call: uv then prints no PATH
+# warning of its own, and the hint below says what to do once.
+USER_PATH=$PATH
+PATH="$BIN:$PATH"
+export PATH
+INSTALLED=1
+run "$UV" tool install --force --compile-bytecode --python "$PYTHON" --overrides "$OVERRIDES" "$SPEC" || INSTALLED=0
+PATH=$USER_PATH
+[ "$INSTALLED" = 1 ] || die "uv could not install the tools (see its message above)"
 
 NEW_TERMINAL=0
 case ":$PATH:" in

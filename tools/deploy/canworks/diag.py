@@ -3346,6 +3346,20 @@ def _trace(args, out):
             first.close()
 
 
+def drops_by(adapter):
+    """Whose kernel dropped a trace's frames: the kernel that reads the bus,
+    the PLC's on a runtime, the adapter machine's through an adapter server,
+    this PC's on a local adapter."""
+    from .localbus import remote
+    if remote.is_remote(adapter):
+        try:
+            host = remote.parse(adapter)[0]
+        except ValueError:
+            host = None
+        return "the adapter machine's kernel" + (" (%s)" % host if host else "")
+    return "this PC's kernel" if adapter else "the PLC's kernel"
+
+
 def _record(args, out, fmt, filters, spec, connect, names):
     from .bustrace import formats, triggers
     from .bustrace.recorder import Recorder, Session
@@ -3392,8 +3406,8 @@ def _record(args, out, fmt, filters, spec, connect, names):
         dropped, limit = session.trace.dropped, session.trace.limit
     seconds = ((summary["last_us"] or 0) - (summary["first_us"] or 0)) / 1e6
     rate = summary["frames"] / seconds if seconds > 0 else 0.0
-    out.write("%d frames in %.1f s (%.0f frames/s), %d lost, %d dropped by the PLC's kernel%s -> %s\n" % (
-        summary["frames"], seconds, rate, summary["lost"], summary["kernel_drops"],
+    out.write("%d frames in %.1f s (%.0f frames/s), %d lost, %d dropped by %s%s -> %s\n" % (
+        summary["frames"], seconds, rate, summary["lost"], summary["kernel_drops"], drops_by(args.adapter),
         ", %d error frames" % summary["error_frames"] if summary["error_frames"] else "", args.output))
     if dropped:
         out.write("warning: the oldest %d frames were dropped past the %d-frame limit; the file holds the last "
