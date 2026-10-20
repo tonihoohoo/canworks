@@ -43,8 +43,10 @@ def process_started():
         if os.name == "nt":
             import ctypes
             from ctypes import wintypes
-            k32 = ctypes.windll.kernel32
+            k32 = ctypes.WinDLL("kernel32")  # own instance: windll's shared function types stay as they are
             k32.GetCurrentProcess.restype = wintypes.HANDLE
+            k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+            k32.GetProcessTimes.restype = wintypes.BOOL
             times = [wintypes.FILETIME() for _ in range(4)]
             if k32.GetProcessTimes(k32.GetCurrentProcess(), *[ctypes.byref(t) for t in times]):
                 ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime  # 100 ns since 1601
@@ -55,7 +57,7 @@ def process_started():
             with open("/proc/uptime") as f:
                 uptime = float(f.read().split()[0])
             return time.time() - (uptime - started / os.sysconf("SC_CLK_TCK"))
-    except (OSError, ValueError, IndexError, AttributeError):
+    except Exception:  # timing only: never stops a start
         pass
     return None
 
