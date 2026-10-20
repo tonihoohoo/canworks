@@ -170,6 +170,8 @@ ul.folders li:hover { background: var(--hover); }
 /* A placeholder is a default or an example, never a value (codesys-new-project-picker). */
 ::placeholder { color: var(--muted); opacity: .7; font-style: italic; }
 .codesys-device { display: flex; flex-direction: column; gap: 6px; }
+.folder-picker [data-folder="new"] { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.folder-picker [data-folder="new"] + .hint { display: block; margin-top: 10px; }
 ul.folders li [data-forget] { margin: 3px 6px 3px auto; align-self: center; }
 .tag { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); }
 main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "side view"; min-height: calc(100vh - var(--header-h) - 34px); }
@@ -294,6 +296,7 @@ td input[type=text] { width: 100%; }
 .pdo-grid label, .fixed-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
 .pdo-grid label > input, .pdo-grid label > select { width: 100%; }
 .pdo-grid label > .row input { flex: 1; }
+.grid label > .row input { flex: 1; min-width: 0; }  /* a path field with its Browse… button */
 .fixed-field output { color: var(--text); font-size: 14px; padding: 4px 0; }
 .pdo-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
 .row-head { flex: 0 0 64px; padding-top: 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
