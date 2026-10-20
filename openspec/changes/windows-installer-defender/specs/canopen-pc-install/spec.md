@@ -2,7 +2,7 @@
 
 ### Requirement: One-line installer
 
-The repository SHALL provide `scripts/install-pc.sh` (macOS and Linux, POSIX `sh`) and `scripts/install-pc.ps1` (Windows, PowerShell 5.1), and the documentation SHALL give, first among the install routes, the one line per operating system that runs them straight from GitHub: on macOS and Linux from the repository, on Windows by downloading `install-pc.ps1` from the newest release's assets to a file and running that file (Requirement: Windows installers without download-and-run). Each script SHALL install uv when uv is not found (`install-pc.sh` with uv's official installer, `install-pc.ps1` from uv's release zip checked against its published SHA-256), use it in the same session, and install the wheel of the newest `deploy-v` release (or of `--version <version>`) from its release download URL with `uv tool install --force --compile-bytecode --python 3.12`, so running the same line again updates to the newest release. The script SHALL find the newest release from the `releases/latest` redirect without the GitHub API, SHALL install only released wheels (never the code on `main`), and with `--wheel <file>` SHALL install that local wheel instead. `--uninstall` SHALL remove the tools and leave uv and the settings folder. When uv's bin folder is not on PATH, the script SHALL add it (`uv tool update-shell`) and say to open a new terminal. The script SHALL print the installed version at the end and exit non-zero, saying why, when any step fails. The documentation SHALL also show the same scripts pinned to a release and how to download and read a script before running it.
+The repository SHALL provide `scripts/install-pc.sh` (macOS and Linux, POSIX `sh`) and `scripts/install-pc.ps1` (Windows, PowerShell 5.1), and the documentation SHALL give, first among the install routes, the one line per operating system that runs them from the newest release's assets on GitHub (Requirement: Install scripts from the release): on macOS and Linux piped into `sh`, on Windows downloaded to a file and run from it (Requirement: Windows installers without download-and-run). Each script SHALL install uv when uv is not found (`install-pc.sh` with uv's official installer, `install-pc.ps1` from uv's release zip checked against its published SHA-256), use it in the same session, and install the wheel of the newest `deploy-v` release (or of `--version <version>`) from its release download URL with `uv tool install --force --compile-bytecode --python 3.12`, so running the same line again updates to the newest release. The script SHALL find the newest release from the `releases/latest` redirect without the GitHub API, SHALL install only released wheels (never the code on `main`), and with `--wheel <file>` SHALL install that local wheel instead. `--uninstall` SHALL remove the tools and leave uv and the settings folder. When uv's bin folder is not on PATH, the script SHALL add it (`uv tool update-shell`) and say to open a new terminal. The script SHALL print the installed version at the end and exit non-zero, saying why, when any step fails. The documentation SHALL also show the same scripts pinned to a release and how to download and read a script before running it.
 
 CI SHALL run `shellcheck` on `install-pc.sh` and test both scripts' release lookup and argument handling without network access, and the PC tools job SHALL install through the scripts (with `--wheel`) on each of its runners.
 
@@ -39,12 +39,16 @@ The Windows install scripts (`install-pc.ps1`, `install-runtime.ps1`, `install-b
 - **WHEN** a pull request adds `| iex` to a Windows line in `docs/` or `Invoke-Expression` to `install-bridge.ps1`
 - **THEN** CI fails naming that file and line
 
-### Requirement: Windows scripts from the release
-Each `deploy-v` release SHALL attach `install-pc.ps1`, `install-runtime.ps1` and `install-bridge.ps1` from the released commit as assets. Every documented Windows line SHALL download the script from `releases/latest/download/` (or `releases/download/deploy-v<version>/` when pinned) to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File <file>`, options after the file name, on one line.
+### Requirement: Install scripts from the release
+Each `deploy-v` release SHALL attach the install scripts `install-pc`, `install-runtime` and `install-bridge`, each as `.sh` and `.ps1`, from the released commit as assets. Every documented install line, on every system, SHALL fetch the script from `releases/latest/download/` (or `releases/download/deploy-v<version>/` when pinned). Windows lines SHALL download it to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File <file>`, options after the file name, on one line.
 
 #### Scenario: Release assets
 - **WHEN** release `deploy-v0.92.0` is created
-- **THEN** it has the assets `install-pc.ps1`, `install-runtime.ps1` and `install-bridge.ps1` from the released commit
+- **THEN** it has the assets `install-pc.sh`, `install-pc.ps1`, `install-runtime.sh`, `install-runtime.ps1`, `install-bridge.sh` and `install-bridge.ps1` from the released commit
+
+#### Scenario: macOS line
+- **WHEN** a Mac user pastes the README's macOS and Linux line
+- **THEN** `curl` fetches `install-pc.sh` from the newest release's assets, not from `main`, and pipes it into `sh`
 
 #### Scenario: Options on Windows
 - **WHEN** a user wants a given release or to uninstall

@@ -5,14 +5,14 @@
 ## 2. Installer
 
 - [ ] 2.1 `install-pc.ps1`: install a missing uv from uv's release zip for the PC's architecture, check it against its `.sha256`, extract `uv.exe`, `uvx.exe`, `uvw.exe` into `%USERPROFILE%\.local\bin`; `CANWORKS_UV_DOWNLOAD` overrides the base URL; `-DryRun` prints the download and the target folder; no child PowerShell
-- [ ] 2.2 Comment headers of `install-pc.ps1`, `install-runtime.ps1`, `install-bridge.ps1` show the download-then-`-File` lines with options
-- [ ] 2.3 `release-deploy.yml`: attach the three `.ps1` scripts to each `deploy-v` release; `tools/deploy/release-notes.md` names them and uses the new Windows line
+- [ ] 2.2 Comment headers of `install-pc.ps1`, `install-runtime.ps1`, `install-bridge.ps1` show the download-then-`-File` lines with options; headers of the `.sh` scripts show the `releases/latest/download/` URL
+- [ ] 2.3 `release-deploy.yml`: attach the three `.ps1` and the three `.sh` install scripts to each `deploy-v` release; `tools/deploy/release-notes.md` names them and uses the new lines
 
 ## 3. Docs
 
-- [ ] 3.1 README Quick start: one code block per system for the PC tools, the plugin (on the PLC, from macOS/Linux, from Windows) and the bridge; Windows lines download from `releases/latest/download/` and run with `-ExecutionPolicy RemoteSigned -File`
+- [ ] 3.1 README Quick start: one code block per system for the PC tools, the plugin (on the PLC, from macOS/Linux, from Windows) and the bridge; every line downloads from `releases/latest/download/`; Windows lines run with `-ExecutionPolicy RemoteSigned -File`
 - [ ] 3.2 `docs/install-pc.md`: new Windows line, options after the file name, pinning with `releases/download/deploy-v<version>/`; step 1 gives `winget install --id astral-sh.uv -e` first on Windows; a short note that the line runs no downloaded code through `iex`
-- [ ] 3.3 `docs/install-stock.md` and `docs/modbus-bridge.md`: Windows lines in the new form, one block per system
+- [ ] 3.3 `docs/install-pc.md`, `docs/install-stock.md`, `docs/modbus-bridge.md`, `docs/deploy.md`: every system's line from the release assets, Windows lines in the new form, one block per system
 
 ## 4. Checks
 
@@ -26,6 +26,7 @@
 - [ ] 5.1 On a PC (or user) without uv: paste the README Windows line; no Defender detection, uv lands in `.local\bin`, the tools and the shortcut are installed, `canworks-deploy --version` prints 0.92.0 in a new terminal
 - [ ] 5.2 Paste it again: updates without reinstalling uv, no detection
 - [ ] 5.3 The runtime line from Windows over SSH with `-DryRun`: prints the ssh command, no detection
+- [ ] 5.4 macOS: paste the README macOS line; the release asset script updates the tools (uv already there)
 
 ## 6. App icon checks carried over from app-icon-from-logo (run with section 5)
 
