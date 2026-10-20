@@ -230,6 +230,9 @@ class CodesysPage(OnlineBase):
         pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
         self.assertEqual(pg.input_value('input[data-path="codesys.project"]'), os.path.join(projects, "cell.project"))
         pg.wait_for_selector("[data-codesys-existing]")
+        # The path field takes the row's width beside Browse…, so a long path shows.
+        width = pg.evaluate("() => document.querySelector('input[data-path=\"codesys.project\"]').getBoundingClientRect().width")
+        self.assertGreater(width, 300)
         # A new one: named in the dialog; the installed PLCs to pick from.
         self.browse(projects)
         pg.fill('[data-folder="new-name"]', "cell")

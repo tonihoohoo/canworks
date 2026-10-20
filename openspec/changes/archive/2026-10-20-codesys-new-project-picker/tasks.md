@@ -24,6 +24,7 @@
 
 ## 5. Hardware (Windows PC, CODESYS SP22)
 
-- [ ] 5.1 Browse… to a folder, Create here `hwtest`, pick CODESYS Control Win V3 x64 from the list, Build: a new `hwtest.project` with the PLC and the bus, report ok
-- [ ] 5.2 Build again into the now existing project: device field hidden, project updated, report ok
-- [ ] 5.3 Build with a missing project and the device cleared: create dialog appears, Create and build succeeds
+- [x] 5.1 Browse… to a folder, Create here `hwtest`, pick CODESYS Control Win V3 x64 from the list, Build: a new `hwtest.project` with the PLC and the bus, report ok (PASSED 2026-10-20, 0.94.0 on CODESYS 3.5 SP22 Patch 4: list showed the 4 installed PLCs; project created, CANbus, manager and both nodes, built 0 errors 0 warnings)
+- [x] 5.2 Build again into the now existing project: device field hidden, project updated, report ok (PASSED: "Existing project" line shown, nodes replaced from the DCFs, saved)
+- [x] 5.3 Build with a missing project and the device cleared: create dialog appears, Create and build succeeds (PASSED: `hwtest2` typed without extension became `hwtest2.project`; create dialog listed the PLCs; project created and built)
+- [x] 5.4 Found in 5.1: the project file field stayed about 160 px wide beside Browse…, so a path was cut off; the field now takes the row's width (test checks it), and the dialog's New project name block is spaced from the list
