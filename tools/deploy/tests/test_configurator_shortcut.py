@@ -95,7 +95,7 @@ class MacOS(Base):
                          ("canworks-configurator", "logo", True))
         script = os.path.join(app, "Contents", "MacOS", "canworks-configurator")
         with open(script) as f:
-            self.assertEqual(f.read(), "#!/bin/sh\n%s --from-shortcut </dev/null >/dev/null 2>&1 &\n" % LAUNCHER)
+            self.assertEqual(f.read(), "#!/bin/sh\ntrap '' INT TERM\n%s --from-shortcut </dev/null >/dev/null 2>&1 &\n" % LAUNCHER)
         if os.name != "nt":
             self.assertTrue(os.access(script, os.X_OK))
         self.assertTrue(os.path.isfile(os.path.join(app, "Contents", "Resources", "logo.icns")))

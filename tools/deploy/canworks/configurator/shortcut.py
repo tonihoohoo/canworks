@@ -163,7 +163,10 @@ def macos(remove, env, run):
     return [app]
 
 
-MAC_SCRIPT = "#!/bin/sh\n%s --from-shortcut </dev/null >/dev/null 2>&1 &\n"
+# macOS stops what the app started when the script ends (SIGINT, then
+# SIGTERM): ignored here and for the first seconds in the configurator
+# (server.APP_TEARDOWN_S).
+MAC_SCRIPT = "#!/bin/sh\ntrap '' INT TERM\n%s --from-shortcut </dev/null >/dev/null 2>&1 &\n"
 
 
 # -- Windows ----------------------------------------------------------------

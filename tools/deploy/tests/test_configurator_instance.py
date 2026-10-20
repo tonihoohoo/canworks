@@ -398,6 +398,35 @@ class PageEnds(Base):
             server.stop("it was told to stop (a signal)")
         self.assertEqual(out.getvalue(), "canworks-config stopped: it was told to stop (a signal).\n")
 
+    def test_mac_app_teardown_signals_let_go(self):
+        # macOS stops the app's processes when its script ends: the configurator
+        # it started lets SIGINT/SIGTERM go by for its first seconds, then stops on them.
+        clock = [100.0]
+        server = mock.Mock()
+        handler, names = srv.outside_stop(server, "shortcut", platform="darwin", now=lambda: clock[0])
+        self.assertIn("SIGINT", names)
+        handler()
+        clock[0] += srv.APP_TEARDOWN_S - 1
+        handler()
+        server.stop.assert_not_called()
+        clock[0] += 2
+        handler()
+        deadline = time.monotonic() + 5
+        while not server.stop.called and time.monotonic() < deadline:
+            time.sleep(0.01)
+        server.stop.assert_called_once_with("it was told to stop (a signal)")
+
+    def test_terminal_start_stops_on_a_signal_at_once(self):
+        for mode, platform in (("terminal", "darwin"), ("shortcut", "win32"), ("shortcut", "linux")):
+            server = mock.Mock()
+            handler, names = srv.outside_stop(server, mode, platform=platform)
+            self.assertNotIn("SIGINT", names)
+            handler()
+            deadline = time.monotonic() + 5
+            while not server.stop.called and time.monotonic() < deadline:
+                time.sleep(0.01)
+            server.stop.assert_called_once_with("it was told to stop (a signal)")
+
     def ticks(self, server, start, end, step=1.0):
         """Ticks the watch loop from start to end; the first stop reason and
         its time, or (None, None)."""

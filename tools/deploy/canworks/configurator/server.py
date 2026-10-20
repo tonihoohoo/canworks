@@ -4367,6 +4367,25 @@ def serve(server):
     return 0
 
 
+# When the macOS app's script ends, macOS stops the processes the app started
+# (SIGINT, then SIGTERM): the configurator it started in the background lets
+# those go by for this long after its start (the script also ignores them).
+APP_TEARDOWN_S = 10.0
+
+
+def outside_stop(server, mode, platform=None, now=time.monotonic):
+    """The handler for a stop from outside, and the signals it takes."""
+    grace = APP_TEARDOWN_S if mode == "shortcut" and (platform or sys.platform) == "darwin" else 0.0
+    started = now()
+
+    def handler(*_):
+        if now() - started < grace:
+            return  # the app's script ended
+        threading.Thread(target=server.stop, args=("it was told to stop (a signal)",), daemon=True).start()
+
+    return handler, ("SIGTERM", "SIGHUP") + (("SIGINT",) if grace else ())
+
+
 def main(argv=None):
     return start.main(argv, serving=sys.modules[__name__])
 
@@ -4437,10 +4456,10 @@ def run(args, mode, timing=None):
             webbrowser.open(url)
     # Stopped from outside (kill, the terminal closed): stops as Quit does, so
     # the connections close and instance.json goes.
-    for name in ("SIGTERM", "SIGHUP"):
+    handler, names = outside_stop(server, mode)
+    for name in names:
         try:
-            signal.signal(getattr(signal, name), lambda *_: threading.Thread(
-                target=server.stop, args=("it was told to stop (a signal)",), daemon=True).start())
+            signal.signal(getattr(signal, name), handler)
         except (AttributeError, ValueError, OSError):
             pass  # not on this system, or not the main thread
     server.start_watch()
