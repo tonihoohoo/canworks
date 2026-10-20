@@ -187,3 +187,30 @@ class Command(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppIcon(unittest.TestCase):
+    """app-icon-from-logo: the committed icon files are the ones scripts/make_icons.py writes."""
+
+    HERE = os.path.dirname(shortcut.__file__)
+
+    def read(self, *parts):
+        with open(os.path.join(self.HERE, *parts), "rb") as f:
+            return f.read()
+
+    def test_ico_sizes(self):
+        data = self.read("icons", "logo.ico")
+        count = int.from_bytes(data[4:6], "little")
+        sizes = sorted((data[6 + 16 * i] or 256) for i in range(count))
+        self.assertEqual(sizes, [16, 24, 32, 48, 64, 128, 256])
+
+    def test_favicon_follows_dark_mode(self):
+        svg = self.read("static", "favicon.svg").decode()
+        self.assertIn("prefers-color-scheme:dark", svg)
+        self.assertIn("#1f5fbf", svg)  # the logo's blue, not the earlier square's
+        self.assertNotIn("#2a5d9f", svg)
+
+    def test_touch_icon(self):
+        data = self.read("static", "apple-touch-icon.png")
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual((int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")), (180, 180))

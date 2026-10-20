@@ -169,6 +169,7 @@ class StartPage(Base):
         pg.wait_for_timeout(300)
         self.assertEqual(failed, [])
         self.assertEqual(pg.evaluate("async () => (await fetch('favicon.svg')).status"), 200)
+        self.assertEqual(pg.evaluate("async () => (await fetch('apple-touch-icon.png')).status"), 200)
 
     @unittest.skipIf(ROOT, "root reads and writes every folder")
     def test_unreadable_folder(self):
