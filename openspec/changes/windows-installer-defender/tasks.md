@@ -32,11 +32,6 @@
 - [ ] 6.1 (app-icon-from-logo 3.1) Windows: after the normal install in 5.1 (from your own PowerShell, not the Claude app, whose sandboxed install made the shortcuts fail with "No Python at"), the desktop and Start menu "canworks configurator" shortcuts show the new icon in Explorer (small "c" over the two wires, "can" over the bus at 48 px and up) and open the configurator; run `ie4uinit.exe -show` if Explorer still shows the cached old icon
 - [ ] 6.2 (app-icon-from-logo 3.2) macOS: update from a normal terminal to 0.91.3 or newer; `~/Applications/canworks configurator.app` shows the new icon in Finder (list view: the "c", icon view: "can" over the bus) and opens the configurator
 
-## 7. Desktop checks carried over from configurator-survive-sleep (run with section 5)
+## 7. Desktop check carried over from configurator-survive-sleep (run with section 5)
 
-- [ ] 7.1 Windows: after the normal (not sandboxed) install in 5.1, the desktop shortcut opens the configurator
-- [ ] 7.2 macOS, Safari: lock the screen for more than 3 minutes with an unsaved node change; after unlocking the page works without a reload, Save works, and the log has no stop line
-- [ ] 7.3 macOS: let the Mac sleep with the tab open for more than 60 minutes and nothing unsaved; after waking the configurator still runs
-- [ ] 7.4 Windows or macOS: stop the configurator from a terminal while its tab is in the background; returning to the tab shows the gone notice; with an unsaved change the downloaded canworks.json opens with the change in a new configurator
-- [ ] 7.5 Remote adapter from a PC to a Linux machine: lock text and trace drop words name the host; a missing interface on the server gives the adapter machine message; `systemctl stop` of the service leaves the stop line in its journal
-- [ ] 7.6 One-line Linux installer through a non-login SSH command on a machine without uv: no uv PATH warning, the installer's hint once, and no `pytest` in the tools' environment
+- [ ] 7.1 (configurator-survive-sleep 7.3, tick it there too) Windows: after the normal install in 5.1, double-click the desktop shortcut; the configurator opens in the browser with no console window. Close the tab: it stops within about 15 s and `configurator.log` says "stopped: its last page was closed". Optional: with an unsaved change, kill the browser in Task Manager; it keeps running past 4 minutes
