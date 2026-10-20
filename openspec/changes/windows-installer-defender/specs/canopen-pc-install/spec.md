@@ -40,7 +40,7 @@ The Windows install scripts (`install-pc.ps1`, `install-runtime.ps1`, `install-b
 - **THEN** CI fails naming that file and line
 
 ### Requirement: Install scripts from the release
-Each `deploy-v` release SHALL attach the install scripts `install-pc`, `install-runtime` and `install-bridge`, each as `.sh` and `.ps1`, from the released commit as assets. Every documented install line, on every system, SHALL fetch the script from `releases/latest/download/` (or `releases/download/deploy-v<version>/` when pinned). Windows lines SHALL download it to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File <file>`, options after the file name, on one line.
+Each `deploy-v` release SHALL attach the install scripts `install-pc`, `install-runtime` and `install-bridge`, each as `.sh` and `.ps1`, from the released commit as assets. Every documented install line, on every system, SHALL fetch the script from `releases/latest/download/`. Windows lines SHALL save it to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File`, on one line.
 
 #### Scenario: Release assets
 - **WHEN** release `deploy-v0.92.0` is created
@@ -53,6 +53,7 @@ Each `deploy-v` release SHALL attach the install scripts `install-pc`, `install-
 #### Scenario: Options on Windows
 - **WHEN** a user wants a given release or to uninstall
 - **THEN** the documentation shows the same download line with `-Version 0.82.0` or `-Uninstall` after the file name, and no script block form
+- **AND** a pinned line uses `releases/download/deploy-v0.82.0/`
 
 ### Requirement: uv from a checked zip on Windows
 When `install-pc.ps1` installs uv, it SHALL download uv's Windows zip for the PC's architecture (x86_64 or ARM64) and its `.sha256` file from uv's GitHub release, compare the zip's SHA-256 with it before extracting anything, and put `uv.exe`, `uvx.exe` and `uvw.exe` into `%USERPROFILE%\.local\bin`. On a mismatch or a failed download it SHALL exit non-zero, name the URL, and add nothing to that folder.
