@@ -768,7 +768,7 @@ class FromShortcut(unittest.TestCase):
             self.assertEqual(q.returncode, 0, q.stdout)
             self.assertIsNone(p.poll())
         finally:
-            p.terminate()
+            p.kill()  # on macOS a shortcut start lets SIGTERM go by for its first seconds (APP_TEARDOWN_S)
             p.wait(10)
 
 
