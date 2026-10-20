@@ -477,6 +477,22 @@ class PageEnds(Base):
         self.assertIsNone(server.unused(now=700.0 + srv.PAGE_CLOSED_S - 1))
         self.assertEqual(server.unused(now=700.0 + srv.PAGE_CLOSED_S), "its last page was closed")
 
+    def test_second_start_at_the_same_clock_time_as_a_page(self):
+        # A coarse monotonic clock (Windows: 15.6 ms steps) gives a page's
+        # first heartbeat, its close and a second start one time: that page is
+        # still not the second start's.
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.page_closed("a", now=5.0)
+        server.second_start(None, browser=False, now=5.0)
+        self.assertIsNone(server.unused(now=5.0 + srv.PAGE_CLOSED_S))
+        self.assertIn("no page was opened", server.unused(now=5.0 + srv.STARTUP_GRACE_S))
+        # A page that came at the second start's time is its page.
+        server = self.server()
+        server.second_start(None, browser=False, now=5.0)
+        server.heartbeat("b", now=5.0)
+        self.assertIsNone(server.unused(now=5.0 + srv.STARTUP_GRACE_S))
+
     def test_second_start_does_not_wait_for_a_silent_unsaved_page(self):
         server = self.server()
         now = time.monotonic()
