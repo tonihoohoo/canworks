@@ -46,7 +46,7 @@ class Linux(Base):
                             "canworks-configurator.png")
         with open(entry) as f:
             text = f.read()
-        for line in ("Name=canworks configurator", "Exec=%s" % LAUNCHER, "Icon=%s" % icon, "Terminal=false",
+        for line in ("Name=canworks configurator", "Exec=%s --from-shortcut" % LAUNCHER, "Icon=%s" % icon, "Terminal=false",
                      "Categories=Development;Engineering;", "X-Canworks=1"):
             self.assertIn(line + "\n", text)
         self.assertTrue(os.path.isfile(icon))
@@ -64,7 +64,7 @@ class Linux(Base):
         with mock.patch.object(shortcut, "launcher", return_value="/home/a b/bin/canworks-config"):
             self.assertEqual(self.shortcut("linux")[0], 0)
         with open(os.path.join(self.home, "data", "applications", "canworks-configurator.desktop")) as f:
-            self.assertIn('Exec="/home/a b/bin/canworks-config"\n', f.read())
+            self.assertIn('Exec="/home/a b/bin/canworks-config" --from-shortcut\n', f.read())
 
     def test_only_its_own_file(self):
         entry = os.path.join(self.home, ".local", "share", "applications", "canworks-configurator.desktop")
@@ -95,7 +95,7 @@ class MacOS(Base):
                          ("canworks-configurator", "logo", True))
         script = os.path.join(app, "Contents", "MacOS", "canworks-configurator")
         with open(script) as f:
-            self.assertEqual(f.read(), "#!/bin/sh\nexec %s\n" % LAUNCHER)
+            self.assertEqual(f.read(), "#!/bin/sh\nexec %s --from-shortcut\n" % LAUNCHER)
         if os.name != "nt":
             self.assertTrue(os.access(script, os.X_OK))
         self.assertTrue(os.path.isfile(os.path.join(app, "Contents", "Resources", "logo.icns")))
@@ -124,12 +124,13 @@ class WindowsCall(Base):
             return subprocess.CompletedProcess(cmd, 0, "a.lnk\r\nb.lnk\r\n", "")
         self.assertEqual(shortcut.main(platform="win32", env=self.env, run=run, out=io.StringIO()), 0)
         self.assertEqual(seen["cmd"][0], "powershell")
+        self.assertNotIn("Bypass", " ".join(seen["cmd"]))  # windows-installer patterns: none here either
         self.assertIn("WScript.Shell", seen["cmd"][-1])
         self.assertIn("$l.Save()", seen["cmd"][-1])
         env = seen["env"]
         self.assertTrue(env["CANWORKS_LNK_START"].endswith(os.path.join(
             "Microsoft", "Windows", "Start Menu", "Programs", "canworks configurator.lnk")))
-        self.assertEqual(env["CANWORKS_LNK_ARGS"], "-m canworks.configurator.server")
+        self.assertEqual(env["CANWORKS_LNK_ARGS"], "-m canworks.configurator.start --from-shortcut")
         self.assertTrue(env["CANWORKS_LNK_ICON"].endswith("logo.ico"))
         self.assertEqual(env["CANWORKS_LNK_MARK"], shortcut.MARK)
 
@@ -160,7 +161,7 @@ class Windows(unittest.TestCase):
                             "$l.TargetPath; $l.Arguments"], env=dict(env, P=desk), capture_output=True, text=True)
         target, args = r.stdout.splitlines()[:2]
         self.assertTrue(target.lower().endswith(("pythonw.exe", "python.exe")), target)
-        self.assertEqual(args, "-m canworks.configurator.server")
+        self.assertEqual(args, "-m canworks.configurator.start --from-shortcut")
         self.assertEqual(shortcut.main(remove=True, env=env, out=io.StringIO()), 0)
         self.assertFalse(os.path.exists(start))
         self.assertFalse(os.path.exists(desk))

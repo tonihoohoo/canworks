@@ -6,7 +6,7 @@ The tools call the editor's `openplc-cli` for **Build only** and **New editor pr
 
 ## One line: install or update
 
-This installs uv if the PC has none, then the newest release of the tools, and on a second run updates them. Windows (PowerShell):
+This installs uv if the PC has none, then the newest release of the tools. Run again, it updates them when there is a newer release, and otherwise says the newest version is already installed and changes nothing (`--force`, `-Force` on Windows, installs it again and recreates the shortcut). Windows (PowerShell):
 
 ```powershell
 $f = "$env:TEMP\install-pc.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f
@@ -24,7 +24,7 @@ It also adds the **canworks configurator** app shortcut, which starts the config
 
 Both scripts come from the newest release's files on GitHub, so you run released code, never what is on `main`. The Windows line saves the script to a file and runs that file: it pipes nothing into `iex`, and when uv is missing the script downloads uv's own release zip and checks it against uv's published SHA-256 instead of running uv's install script, so it starts no other PowerShell. If an antivirus still stops it, use the manual steps below.
 
-Options: a given release (`--version 0.82.0`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
+Options: a given release (`--version 0.82.0`), install again (`--force`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Force`, `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
 
 ## 1. Install uv (once per PC)
 

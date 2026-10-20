@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canworks"
-version = "0.92.0"
+version = "0.93.0"
 description = "Configures CANopen for OpenPLC (canworks-config), deploys it to an OpenPLC Runtime v4 (canworks-deploy) and reads the live network (canworks-diag)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,7 @@ dependencies = ["jsonschema>=4.0", "python-can>=4.3", "pyserial>=3.5", "cantools
 
 [project.scripts]
 canworks-deploy = "canworks.cli:main"
-canworks-config = "canworks.configurator.server:main"
+canworks-config = "canworks.configurator.start:main"
 canworks-diag = "canworks.diag:main"
 canworks-sim-runtime = "canworks.localruntime:main"
 canworks-j1939-sim = "canworks.j1939.sim:main"

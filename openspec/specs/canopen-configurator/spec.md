@@ -3570,7 +3570,7 @@ The configurator SHALL stop when its last page is closed: 10 s after the page sa
 - **THEN** after waking, the configurator is still running and the page works without a reload
 
 ### Requirement: Start without a terminal
-`canworks-config` SHALL by default start the configurator detached from the terminal (with no console window on Windows), open the browser and return at once, writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. `--foreground` SHALL keep it in the terminal as before, stopped also by Ctrl-C. It SHALL start in the foreground by itself with `--no-browser` or `--keep-running`, in an SSH session, and on Linux without `DISPLAY` or `WAYLAND_DISPLAY`. When no page has opened 15 s after the browser was asked to open it, the configurator SHALL show its start address: printed in the terminal when started from one, else in a message window (Windows message box, macOS dialog, Linux desktop dialog or notification when one is available) from which the address can be copied, and always in the log. A configurator whose first page has not opened within 10 minutes of starting SHALL stop. In every case it SHALL stop when its last tab closes, or by Quit.
+`canworks-config` SHALL by default start the configurator detached from the terminal (with no console window on Windows), print its start address, ask the browser to open it and return as soon as the browser was asked (without waiting for the page to load), writing its output to a log file in the configurator's settings folder, kept to 1 MB plus one older file. `--foreground` SHALL keep it in the terminal as before, stopped also by Ctrl-C. It SHALL start in the foreground by itself with `--no-browser` or `--keep-running`, in an SSH session, and on Linux without `DISPLAY` or `WAYLAND_DISPLAY`. When no page has opened 15 s after the browser was asked to open it, the background configurator SHALL write its start address to the log and, when it was started from the app shortcut, show it in a message window (Windows message box, macOS dialog, Linux desktop dialog or notification when one is available) from which the address can be copied. A configurator whose first page has not opened within 10 minutes of starting SHALL stop. In every case it SHALL stop when its last tab closes, or by Quit.
 
 #### Scenario: Terminal closed
 - **WHEN** the user runs `canworks-config` and closes the terminal
@@ -3590,18 +3590,26 @@ The configurator SHALL stop when its last page is closed: 10 s after the page sa
 
 #### Scenario: Browser does not open from a terminal
 - **WHEN** the user runs `canworks-config` and the browser does not open
-- **THEN** the terminal shows the start address and says to open it in a browser, and the prompt comes back
+- **THEN** the terminal already shows the start address, the prompt is back, and no message window appears
+
+#### Scenario: Prompt back before the page loads
+- **WHEN** the user runs `canworks-config` and the browser is slow to load the page
+- **THEN** the prompt comes back once the browser was asked, without waiting for the page
 
 #### Scenario: Background start fails
 - **WHEN** the configurator cannot start (for example the folder given cannot be opened)
 - **THEN** `canworks-config` prints the reason from the log and exits non-zero
 
 ### Requirement: App shortcut
-`canworks-config --create-shortcut` SHALL add a shortcut that starts the configurator with no terminal: on Windows a Start menu and a desktop shortcut that run it with `pythonw` (no console window), on macOS an app "canworks configurator" in `~/Applications`, on Linux a `.desktop` entry in the user's applications folder. The shortcut SHALL start the configurator from the installed PC tools, so it keeps working after an update. `--remove-shortcut` SHALL remove what `--create-shortcut` added and nothing else. The one-line PC installers SHALL create the shortcut unless given `--no-shortcut` (`-NoShortcut` on Windows), and their uninstall SHALL remove it.
+`canworks-config --create-shortcut` SHALL add a shortcut that starts the configurator with no terminal: on Windows a Start menu and a desktop shortcut that run it with `pythonw` (no console window) and `--from-shortcut`, on macOS an app "canworks configurator" in `~/Applications`, on Linux a `.desktop` entry in the user's applications folder. The shortcut SHALL start the configurator from the installed PC tools, so it keeps working after an update. Started from the shortcut (`--from-shortcut`), the process SHALL itself become the background configurator when none runs, and otherwise open a tab of the running one and exit; it SHALL NOT start a second Python process. Writing the Windows shortcuts SHALL NOT use `-ExecutionPolicy Bypass`. `--remove-shortcut` SHALL remove what `--create-shortcut` added and nothing else. The one-line PC installers SHALL create the shortcut unless given `--no-shortcut` (`-NoShortcut` on Windows), and their uninstall SHALL remove it.
 
 #### Scenario: Started from the shortcut
 - **WHEN** the user double-clicks the shortcut
 - **THEN** the browser opens on the configurator's start page and no terminal or console window appears
+
+#### Scenario: One process from the shortcut
+- **WHEN** the user double-clicks the shortcut and no configurator runs
+- **THEN** the process the shortcut started serves the page, and no further Python process is started for it
 
 #### Scenario: Shortcut while running
 - **WHEN** the configurator already runs and the user double-clicks the shortcut again
@@ -3632,3 +3640,17 @@ On a connection to an adapter on another machine, the configurator SHALL NOT cal
 #### Scenario: Drops in a remote trace
 - **WHEN** a trace through an adapter on another machine reports kernel drops
 - **THEN** the trace summary says they were dropped by the adapter machine's kernel and names the host, and does not mention a PLC
+
+### Requirement: Start timing in the log
+Each start of the configurator SHALL write one line to its log with the time, in milliseconds from the moment the start was launched (the shortcut or `canworks-config`), at which Python was running, the configurator listened, the browser was asked and the first page loaded, and whether it was started from the shortcut or a terminal. A start whose page does not load SHALL log the line without the page time.
+
+#### Scenario: Normal start
+- **WHEN** the user starts the configurator from the shortcut and the page opens
+- **THEN** `configurator.log` has one line like `start timing: python 140 ms, listening 420 ms, browser asked 450 ms, page 1310 ms (from shortcut)`
+
+### Requirement: Light starter
+The `canworks-config` command SHALL parse its arguments, find a running configurator and start or hand over without importing the configurator's server module or the diagnostics and config validation modules; only a process that serves pages SHALL import them. A unit test in CI SHALL import the entry module in a fresh interpreter and fail when the server or diagnostics module was imported.
+
+#### Scenario: Starter import
+- **WHEN** a fresh Python process imports the `canworks-config` entry module
+- **THEN** neither `canworks.configurator.server` nor `canworks.diag` is in `sys.modules`

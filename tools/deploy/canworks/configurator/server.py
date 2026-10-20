@@ -21,7 +21,6 @@ calls.
 Requests whose Host is not loopback are refused (DNS rebinding).
 """
 
-import argparse
 import base64
 import copy
 import datetime
@@ -55,7 +54,7 @@ from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..userdirs import config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
-from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, tracing, transmit
+from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -2512,7 +2511,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             body = self._body()
             if path == "/api/instance/start":
-                out = self.server.second_start(body.get("path"), body.get("browser") is not False)
+                out = self.server.second_start(body.get("path"), body.get("browser") is not False,
+                                               from_shortcut=body.get("shortcut") is True)
             elif path == "/api/instance/page":
                 out = {"opened": not self.server.start_code_waiting(str(body.get("code") or ""))}
             else:
@@ -4124,7 +4124,8 @@ class Server(http.server.ThreadingHTTPServer):
         self.last_end = None  # when the last page closed or stopped answering
         self.last_reason = None  # how that page ended: "closed" or "silent"
         self.last_tick = None  # the watch loop's last tick (monotonic)
-        self.asked = {}  # start code -> (monotonic time, url): addresses the browser was asked to open
+        self.asked = {}  # start code -> (monotonic time, url, from_shortcut): addresses the browser was asked to open
+        self.timing, self.timing_how = None, None  # this start's launch.StartTiming and where it came from (run())
         self.instance_secret = None  # instance.json's secret (launch.py), when written
         self.instance_file = None
         self.open_request = None  # a second start's PATH for the page with unsaved changes: {"id", "path"}
@@ -4232,21 +4233,28 @@ class Server(http.server.ThreadingHTTPServer):
                 self.stop(why)
                 return
 
-    def asked_browser(self, url):
+    def asked_browser(self, url, from_shortcut=False):
         """The browser was asked to open `url`: if no page comes in
-        no_page_s, its address is printed (the terminal, or the log)."""
+        no_page_s, its address is printed (the terminal, or the log) and,
+        for a start from the app shortcut, shown in a message window."""
+        if self.timing is not None:
+            self.timing.mark("browser asked")
         with self.page_lock:
-            self.asked[url.rsplit("code=", 1)[-1]] = (time.monotonic(), url)
+            self.asked[url.rsplit("code=", 1)[-1]] = (time.monotonic(), url, from_shortcut)
 
     def _report_unopened(self):
         now = time.monotonic()
         with self.page_lock:
-            due = [(c, u) for c, (t, u) in self.asked.items() if now - t >= self.no_page_s]
-            for c, _ in due:
+            due = [(c, u, sc) for c, (t, u, sc) in self.asked.items() if now - t >= self.no_page_s]
+            for c, _, _ in due:
                 del self.asked[c]
-        for code, url in due:
+        for code, url, from_shortcut in due:
             if self.start_code_waiting(code):
                 print(launch.NO_BROWSER % url, flush=True)
+                if self.timing is not None:
+                    self.timing.log_once(self.timing_how)
+                if from_shortcut:
+                    threading.Thread(target=launch.message_window, args=(url,), daemon=True).start()
 
     def start_code_waiting(self, code):
         with self.start_lock:
@@ -4259,7 +4267,7 @@ class Server(http.server.ThreadingHTTPServer):
         launch.write_instance(path, self.server_port, secret)
         self.instance_secret, self.instance_file = secret, path
 
-    def second_start(self, path, browser=True, now=None):
+    def second_start(self, path, browser=True, now=None, from_shortcut=False):
         """canworks-config started again: a new start address; with PATH that
         folder opens now, or, when a page has unsaved changes, that page asks
         first."""
@@ -4284,7 +4292,7 @@ class Server(http.server.ThreadingHTTPServer):
             self.since, self.new_page_at = now, None
         url = self.url
         if browser:
-            self.asked_browser(url)
+            self.asked_browser(url, from_shortcut)
         return {"url": url}
 
     def open_taken(self, request_id):
@@ -4311,8 +4319,13 @@ class Server(http.server.ThreadingHTTPServer):
             for known in self.start_codes:
                 if secrets.compare_digest(known, code):
                     self.start_codes.discard(known)
-                    return True
-        return False
+                    break
+            else:
+                return False
+        if self.timing is not None:
+            self.timing.mark("page")
+            self.timing.log_once(self.timing_how)
+        return True
 
     def server_close(self):
         super().server_close()
@@ -4339,30 +4352,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.close_connections()
 
 
-def parser():
-    p = argparse.ArgumentParser(
-        prog="canworks-config",
-        description="Edit the CANopen config of an OpenPLC editor project (or a standalone config folder) in a "
-                    "local web page. It runs in the background and stops when its last browser tab is closed; "
-                    "started again, it opens a tab on the running one.")
-    p.add_argument("path", nargs="?", help="editor project folder, or standalone config folder, to open directly")
-    p.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free one)")
-    p.add_argument("--no-browser", action="store_true",
-                   help="print the URL but do not open a browser (stays in the foreground)")
-    p.add_argument("--foreground", action="store_true",
-                   help="stay in this terminal, printing its messages here; Ctrl-C stops it")
-    p.add_argument("--keep-running", action="store_true",
-                   help="keep running when no page is open, until Quit or Ctrl-C (scripts, remote use; "
-                        "stays in the foreground)")
-    p.add_argument("--new-instance", action="store_true",
-                   help="start a separate configurator even when one runs already")
-    p.add_argument("--create-shortcut", action="store_true",
-                   help="add an app shortcut that starts the configurator without a terminal, and exit")
-    p.add_argument("--remove-shortcut", action="store_true", help="remove that shortcut, and exit")
-    p.add_argument(launch.CHILD, action="store_true", help=argparse.SUPPRESS)  # the background configurator itself
-    p.add_argument("--verbose", action="store_true", help="log every request")
-    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
-    return p
+parser = start.parser  # the arguments live in start.py, the command's light entry
 
 
 def serve(server):
@@ -4378,28 +4368,23 @@ def serve(server):
 
 
 def main(argv=None):
-    argv = sys.argv[1:] if argv is None else list(argv)
-    args = parser().parse_args(argv)
-    if args.create_shortcut or args.remove_shortcut:
-        from . import shortcut
-        return shortcut.main(remove=args.remove_shortcut)
-    child = args.child_background
-    if child:
-        launch.log_to_file()
-    elif not args.new_instance:
-        # One configurator per user: started again, it opens a page of the running one.
-        inst = launch.running()
-        done = launch.hand_over(inst, args.path, browser=not args.no_browser) if inst else None
-        if done is not None:
-            return done
-    if not child and not launch.foreground(args):
-        return launch.background(argv, new_instance=args.new_instance)
+    return start.main(argv, serving=sys.modules[__name__])
+
+
+def run(args, mode, timing=None):
+    """Serves in this process (start.main): `mode` is "terminal" (the
+    background configurator a terminal started), "shortcut" (the app
+    shortcut's process, itself in the background) or "foreground"."""
+    background = mode in ("terminal", "shortcut")
     try:
         server = Server(args.port, verbose=args.verbose)
     except OSError as e:
         print("canworks-config: cannot listen on 127.0.0.1:%d: %s" % (args.port, e.strerror or e),
               file=sys.stderr)
         return 2
+    server.timing, server.timing_how = timing, mode
+    if timing is not None:
+        timing.mark("listening")
     if args.path:
         try:
             server.session.open(args.path)
@@ -4407,7 +4392,7 @@ def main(argv=None):
             print("canworks-config: %s" % e, file=sys.stderr)
             server.server_close()
             return 2
-    if child or not args.new_instance:
+    if background or not args.new_instance:
         # A background configurator with --new-instance has a file of its own, for its starter only.
         path = launch.instance_path(launch.own_instance_name(args.new_instance))
         for attempt in (1, 2):
@@ -4419,9 +4404,11 @@ def main(argv=None):
                 if inst is not None and attempt == 1 and launch.ask(inst, "/api/instance/page", {"code": ""}):
                     # Another canworks-config started at the same moment: that one stays.
                     server.server_close()
-                    if child:
+                    if mode == "terminal":
                         return launch.TAKEN_OVER
-                    done = launch.hand_over(inst, args.path, browser=not args.no_browser)
+                    done = launch.hand_over(inst, args.path, browser=not args.no_browser,
+                                            out=None if mode == "shortcut" else sys.stdout,
+                                            from_shortcut=mode == "shortcut")
                     return 2 if done is None else done
                 try:
                     os.remove(path)  # a configurator that no longer runs left it
@@ -4432,10 +4419,15 @@ def main(argv=None):
                       "configurator)" % (path, e.strerror or e), file=sys.stderr)
                 break
     server.stop_unused = not args.keep_running
-    if child:
-        print("canworks configurator started on 127.0.0.1:%d (pid %d, version %s)"
-              % (server.server_port, os.getpid(), __version__), flush=True)
-    else:
+    if background:
+        print("canworks configurator started on 127.0.0.1:%d (pid %d, version %s%s)"
+              % (server.server_port, os.getpid(), __version__, ", from the app shortcut" if mode == "shortcut" else ""),
+              flush=True)
+    if mode == "shortcut":
+        url = server.url
+        server.asked_browser(url, from_shortcut=True)
+        webbrowser.open(url)
+    elif mode == "foreground":
         url = server.url  # one start code: the browser's first visit uses it up
         print("canworks configurator: %s" % url, flush=True)
         print("Press Ctrl-C to stop." if args.keep_running
