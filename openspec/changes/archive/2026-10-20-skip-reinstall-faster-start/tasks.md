@@ -27,8 +27,14 @@
 
 ## 6. Desktop checks (after release)
 
-- [ ] 6.1 Windows: run the install line twice; the second run says it is up to date within a few seconds
-- [ ] 6.2 Windows: five starts from the shortcut and five from a terminal; record the timing lines next to 1.2's and compare
+- [x] 6.1 Windows: run the install line twice; the second run says it is up to date within a few seconds
+  - 2026-10-20 on 0.93.1 (from the Claude app, sandboxed AppData): first run 22.6 s (bytecode 9.6 s); second run "canworks 0.93.1 is already installed; -Force installs it again" in 1.1 s
+- [x] 6.2 Windows: five starts from the shortcut and five from a terminal; record the timing lines next to 1.2's and compare
+  - 2026-10-20, 0.93.1, five warm runs each, Chrome open, medians: page loaded from the shortcut 1134 ms (0.91.3: ~2300 ms), from a terminal 1635 ms (0.91.3: 2179 ms); `canworks-config --help` 469 ms (693 ms); light starter import 405 ms, server import 791 ms
+  - Shortcut: `start timing: python 380 ms, listening 720 ms, browser asked 721 ms, page 1124 ms (from shortcut)`
+  - Terminal: `start timing: python 362 ms, background 769 ms, listening 1125 ms, browser asked 1233 ms, page 1586 ms (from terminal)`
+  - The first start after an install takes about 1.2 s more once (2.8-2.9 s from a terminal), between background and listening; most likely the new files being scanned
+  - Left: `launch.py` imports `http.client` (with the email package) for the hand-over; importing it only when needed would save about 0.15 s on both starts
 - [ ] 6.3 macOS: the app starts the configurator; a second click opens a new tab; timing line in the log
 
 ## 7. Earlier results (ride this change's PR)
