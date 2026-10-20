@@ -26,3 +26,8 @@
 - [ ] 5.1 On a PC (or user) without uv: paste the README Windows line; no Defender detection, uv lands in `.local\bin`, the tools and the shortcut are installed, `canworks-deploy --version` prints 0.92.0 in a new terminal
 - [ ] 5.2 Paste it again: updates without reinstalling uv, no detection
 - [ ] 5.3 The runtime line from Windows over SSH with `-DryRun`: prints the ssh command, no detection
+
+## 6. App icon checks carried over from app-icon-from-logo (run with section 5)
+
+- [ ] 6.1 Windows: after the normal install in 5.1, the desktop and Start menu shortcuts show the new app icon and open the configurator (if Explorer shows the old icon, refresh its icon cache first)
+- [ ] 6.2 macOS: update to 0.91.3 or newer; in Finder list view the app in `~/Applications` shows the small form ("c" over two wires)
