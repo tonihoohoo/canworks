@@ -199,13 +199,15 @@ class CodesysPage(OnlineBase):
         return plans
 
     def browse(self, folder):
+        """Browse… to `folder`, which has a subfolder `old`."""
         pg = self.page
         pg.click("[data-codesys-browse]")
         pg.wait_for_selector('dialog[data-folder="dialog"][open]')
         self.assertFalse(pg.is_visible('dialog[data-folder="dialog"] button[data-value="use"]'))
         pg.fill('[data-folder="path"]', folder)
         pg.press('[data-folder="path"]', "Enter")
-        pg.wait_for_function("(f) => document.querySelector('[data-folder=here]').textContent.includes('.project')", arg=folder)
+        # The folder's own listing, not the start folder's (the path field already says the folder).
+        pg.wait_for_selector('[data-folder-path="%s"]' % os.path.join(folder, "old"))
 
     def test_browse_and_device_list(self):
         pg = self.page
