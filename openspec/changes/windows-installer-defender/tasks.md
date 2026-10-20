@@ -4,22 +4,22 @@
 
 ## 2. Installer
 
-- [ ] 2.1 `install-pc.ps1`: install a missing uv from uv's release zip for the PC's architecture, check it against its `.sha256`, extract `uv.exe`, `uvx.exe`, `uvw.exe` into `%USERPROFILE%\.local\bin`; `CANWORKS_UV_DOWNLOAD` overrides the base URL; `-DryRun` prints the download and the target folder; no child PowerShell
-- [ ] 2.2 Comment headers of `install-pc.ps1`, `install-runtime.ps1`, `install-bridge.ps1` show the download-then-`-File` lines with options; headers of the `.sh` scripts show the `releases/latest/download/` URL
-- [ ] 2.3 `release-deploy.yml`: attach the three `.ps1` and the three `.sh` install scripts to each `deploy-v` release; `tools/deploy/release-notes.md` names them and uses the new lines
+- [x] 2.1 `install-pc.ps1`: install a missing uv from uv's release zip for the PC's architecture, check it against its `.sha256`, extract `uv.exe`, `uvx.exe`, `uvw.exe` into `%USERPROFILE%\.local\bin`; `CANWORKS_UV_DOWNLOAD` overrides the base URL; `-DryRun` prints the download and the target folder; no child PowerShell
+- [x] 2.2 Comment headers of `install-pc.ps1`, `install-runtime.ps1`, `install-bridge.ps1` show the download-then-`-File` lines with options; headers of the `.sh` scripts show the `releases/latest/download/` URL
+- [x] 2.3 `release-deploy.yml`: attach the three `.ps1` and the three `.sh` install scripts to each `deploy-v` release; `tools/deploy/release-notes.md` names them and uses the new lines
 
 ## 3. Docs
 
-- [ ] 3.1 README Quick start: one code block per system for the PC tools, the plugin (on the PLC, from macOS/Linux, from Windows) and the bridge; every line downloads from `releases/latest/download/`; Windows lines run with `-ExecutionPolicy RemoteSigned -File`
-- [ ] 3.2 `docs/install-pc.md`: new Windows line, options after the file name, pinning with `releases/download/deploy-v<version>/`; step 1 gives `winget install --id astral-sh.uv -e` first on Windows; a short note that the line runs no downloaded code through `iex`
-- [ ] 3.3 `docs/install-pc.md`, `docs/install-stock.md`, `docs/modbus-bridge.md`, `docs/deploy.md`: every system's line from the release assets, Windows lines in the new form, one block per system
+- [x] 3.1 README Quick start: one code block per system for the PC tools, the plugin (on the PLC, from macOS/Linux, from Windows) and the bridge; every line downloads from `releases/latest/download/`; Windows lines run with `-ExecutionPolicy RemoteSigned -File`
+- [x] 3.2 `docs/install-pc.md`: new Windows line, options after the file name, pinning with `releases/download/deploy-v<version>/`; step 1 gives `winget install --id astral-sh.uv -e` first on Windows; a short note that the line runs no downloaded code through `iex`
+- [x] 3.3 `docs/install-pc.md`, `docs/install-stock.md`, `docs/modbus-bridge.md`, `docs/deploy.md`: every system's line from the release assets, Windows lines in the new form, one block per system
 
 ## 4. Checks
 
-- [ ] 4.1 Tests: uv zip install from the fake release server (files land in `.local\bin`), checksum mismatch stops and copies nothing, ARM64 picks the aarch64 zip
-- [ ] 4.2 Guard test: no `iex`/`Invoke-Expression`/`scriptblock]::Create`/`-EncodedCommand`/nested `powershell` in `scripts/*.ps1`, and no `| iex` or `ExecutionPolicy Bypass` in the documented Windows lines
-- [ ] 4.3 PC tools Windows job: a second installer run with uv hidden from PATH and a fresh `USERPROFILE`
-- [ ] 4.4 PC tools minor version bump (0.92.0); banned-word check on the changed files
+- [x] 4.1 Tests: uv zip install from the fake release server (files land in `.local\bin`), checksum mismatch stops and copies nothing, ARM64 picks the aarch64 zip
+- [x] 4.2 Guard test: no `iex`/`Invoke-Expression`/`scriptblock]::Create`/`-EncodedCommand`/nested `powershell` in `scripts/*.ps1`, and no `| iex` or `ExecutionPolicy Bypass` in the documented Windows lines
+- [x] 4.3 PC tools Windows job: a second installer run with setup-uv's uv hidden from PATH, so uv comes from its zip into `~/.local/bin`
+- [x] 4.4 PC tools minor version bump (0.92.0); banned-word check on the changed files
 
 ## 5. Windows check (after the 0.92.0 release; Toni, own PowerShell with Defender real-time protection on)
 

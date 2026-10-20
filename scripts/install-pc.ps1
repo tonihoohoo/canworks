@@ -2,11 +2,11 @@
 # diagnostics) on Windows, with uv and a uv-managed Python: no Python and no
 # admin rights needed. Run it again to update to the newest release.
 #
-#   powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1 | iex"
+#   $f = "$env:TEMP\install-pc.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f
 #
-# With options (a given release, or uninstall):
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Version 0.82.0
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1))) -Uninstall
+# Options go after the file name (a given release, or uninstall):
+#   ... -File $f -Version 0.82.0
+#   ... -File $f -Uninstall
 #
 #   -Version X    install release deploy-vX instead of the newest one
 #   -Wheel FILE   install this local wheel instead of a release (CI)
@@ -17,6 +17,8 @@
 #
 # It only installs released wheels, never the code on main. The newest release
 # is found from GitHub's releases/latest redirect, so no API token is needed.
+# A missing uv comes from uv's own release zip, checked against its SHA-256;
+# the script runs no downloaded code and starts no other PowerShell.
 # Behind a TLS-inspecting company proxy set UV_NATIVE_TLS=1 (docs/install-pc.md).
 
 param(
@@ -34,9 +36,10 @@ $ErrorActionPreference = "Stop"
 $Repo = if ($env:CANWORKS_REPO) { $env:CANWORKS_REPO } else { "https://github.com/tonihoohoo/canworks" }
 $Api = if ($env:CANWORKS_API) { $env:CANWORKS_API } else { "https://api.github.com/repos/tonihoohoo/canworks" }
 $UserHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-$UvInstaller = if ($env:CANWORKS_UV_INSTALLER) { $env:CANWORKS_UV_INSTALLER } else { "https://astral.sh/uv/install.ps1" }
+$UvDownload = if ($env:CANWORKS_UV_DOWNLOAD) { $env:CANWORKS_UV_DOWNLOAD } else { "https://github.com/astral-sh/uv/releases/latest/download" }
 
-# throw, not exit: run as a script block, exit would close the user's PowerShell window.
+# throw, not exit: run inside a PowerShell window (older docs used a script
+# block), exit would close it.
 function Fail([string]$Message) { throw "install-pc: $Message" }
 function Say([string]$Message) { Write-Host "install-pc: $Message" }
 
@@ -85,15 +88,56 @@ function Get-LatestVersion {
 
 $Version = $Version -replace '^deploy-v', '' -replace '^v', ''
 
+# uv's Windows zip for this PC, checked against the .sha256 next to it, then
+# uv.exe, uvx.exe and uvw.exe into %USERPROFILE%\.local\bin, where uv's own
+# installer puts them. Nothing is copied unless the checksum matches.
+function Install-Uv {
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
+    $zipName = "uv-$arch-pc-windows-msvc.zip"
+    $url = "$UvDownload/$zipName"
+    $target = Join-Path $UserHome ".local\bin"
+    Say "installing uv from $url"
+    if ($DryRun) {
+        Write-Host "would download: $url (checked against $url.sha256)"
+        Write-Host "would copy: uv.exe, uvx.exe, uvw.exe to $target"
+        return
+    }
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("canworks-uv-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        $zip = Join-Path $work $zipName
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip
+            $sumText = (Invoke-WebRequest -UseBasicParsing -Uri "$url.sha256").Content
+        } catch {
+            Fail "could not download uv from $url (behind a company proxy? see docs/install-pc.md)"
+        }
+        if ($sumText -is [byte[]]) { $sumText = [System.Text.Encoding]::ASCII.GetString($sumText) }
+        $expected = ("$sumText".Trim() -split "\s+")[0].ToLowerInvariant()
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+        if (-not $expected -or $actual -ne $expected) {
+            Fail "the uv download did not match its checksum ($url); nothing was installed"
+        }
+        $unpacked = Join-Path $work "uv"
+        Expand-Archive -Path $zip -DestinationPath $unpacked
+        New-Item -ItemType Directory -Force -Path $target | Out-Null
+        foreach ($name in @("uv.exe", "uvx.exe", "uvw.exe")) {
+            $found = Get-ChildItem -Path $unpacked -Recurse -Filter $name | Select-Object -First 1
+            if ($found) { Copy-Item -Force -Path $found.FullName -Destination (Join-Path $target $name) }
+            elseif ($name -eq "uv.exe") { Fail "the uv download has no uv.exe ($url)" }
+        }
+    } finally {
+        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    }
+}
+
 $Uv = Find-Uv
 if (-not $Uv) {
     if ($Uninstall) { Fail "uv is not installed, so neither are the tools" }
-    Say "installing uv ($UvInstaller)"
+    Install-Uv
     if ($DryRun) {
-        Write-Host "would run: powershell -ExecutionPolicy ByPass -c `"irm $UvInstaller | iex`""
         $Uv = "uv"
     } else {
-        Invoke-Step "powershell" @("-NoProfile", "-ExecutionPolicy", "ByPass", "-c", "irm $UvInstaller | iex")
         $Uv = Find-Uv
         if (-not $Uv) { Fail "uv was installed but not found in $UserHome\.local\bin; open a new terminal and run this again" }
     }

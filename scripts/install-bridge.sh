@@ -5,7 +5,7 @@
 # values as Modbus registers to any PLC or program.
 #
 # One line, no git checkout (the newest release; run it again to update):
-#   curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash
+#   curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
 #   curl -LsSf .../install-bridge.sh | sudo bash -s -- --instance line1 --config ./line1
 # From a macOS or Linux PC, onto a device over SSH (no root on the PC):
 #   curl -LsSf .../install-bridge.sh | bash -s -- --ssh pi@rpi.local [--instance NAME --config DIR] [options]

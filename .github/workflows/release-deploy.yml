@@ -155,7 +155,13 @@ jobs:
           previous=$(git tag --list 'deploy-v*' | python3 scripts/release_version.py --previous-tag "$VERSION")
           python3 scripts/release_notes.py --version "$VERSION" --repo "$GITHUB_REPOSITORY" --sha "$SHA" \
             ${previous:+--previous "$previous"} --out notes.md
+          # The install scripts too: the documented one-line installers fetch
+          # them from releases/latest/download/, so users run released code.
+          cp scripts/install-pc.sh scripts/install-pc.ps1 scripts/install-runtime.sh scripts/install-runtime.ps1 \
+             scripts/install-bridge.sh scripts/install-bridge.ps1 dist/
           gh release create "$TAG" dist/*.whl dist/canworks.stlib \
+            dist/install-pc.sh dist/install-pc.ps1 dist/install-runtime.sh dist/install-runtime.ps1 \
+            dist/install-bridge.sh dist/install-bridge.ps1 \
             --target "$SHA" \
             --title "PC tools $VERSION" \
             --notes-file notes.md

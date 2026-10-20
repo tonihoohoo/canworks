@@ -4,11 +4,11 @@
 # onto a remote Linux device over SSH. Run it again to update.
 #
 # On the device (as root):
-#   curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | sudo bash
+#   curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | sudo bash
 #   curl -LsSf .../install-runtime.sh | sudo bash -s -- --with-link       # install-stock.sh options pass through
 # From a PC, onto a device over SSH (no root on the PC):
 #   curl -LsSf .../install-runtime.sh | bash -s -- --ssh pi@rpi.local [--with-link ...]
-# From Windows: scripts/install-runtime.ps1 -Ssh pi@rpi.local
+# From Windows: install-runtime.ps1 -Ssh pi@rpi.local (from the same release)
 #
 # Own options (every other option goes to the release's scripts/install-stock.sh):
 #   --version X        install release deploy-vX instead of the newest one

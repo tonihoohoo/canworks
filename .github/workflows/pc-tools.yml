@@ -51,11 +51,24 @@ jobs:
           wheel=$(ls dist/*.whl)
           if [ "$RUNNER_OS" = Windows ]; then
             # Windows PowerShell 5.1, the one every Windows 10/11 has
-            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-pc.ps1 -Wheel "$wheel"
+            powershell -NoProfile -ExecutionPolicy RemoteSigned -File scripts/install-pc.ps1 -Wheel "$wheel"
           else
             sh scripts/install-pc.sh --wheel "$wheel"
           fi
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: On a PC without uv, the installer brings uv from its checked release zip (Windows)
+        # setup-uv's uv is hidden from PATH, so install-pc.ps1 downloads uv's
+        # zip, checks its SHA-256 and puts uv.exe in ~/.local/bin
+        # (canopen-pc-install, uv from a checked zip on Windows).
+        if: runner.os == 'Windows'
+        env:
+          UV_MANAGED_PYTHON: "1"
+        run: |
+          wheel=$(ls dist/*.whl)
+          nouv=$(echo "$PATH" | tr ':' '\n' | while read -r d; do [ -e "$d/uv.exe" ] || [ -e "$d/uv" ] || printf '%s:' "$d"; done)
+          PATH="$nouv" powershell -NoProfile -ExecutionPolicy RemoteSigned -File scripts/install-pc.ps1 -Wheel "$wheel" -NoShortcut
+          "$USERPROFILE/.local/bin/uv.exe" --version
 
       - name: Only runtime dependencies in the tools' environment
         # The installer's override drops can-j1939's pytest requirement

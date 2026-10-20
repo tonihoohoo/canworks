@@ -49,27 +49,63 @@ On OpenPLC, at every PLC start the plugin checks the file against the EDS files,
 
 **Try it without hardware.** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md): one editor project with four simulated networks that shows the features working together on a PC. You need a container engine, the PC tools and the OpenPLC Editor; no CAN hardware.
 
-**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update; [docs/install-pc.md](docs/install-pc.md)):
+**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update; [docs/install-pc.md](docs/install-pc.md)).
 
-```sh
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh                                                  # macOS, Linux
-powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.ps1 | iex"             # Windows
-canworks-config                                                                    # opens the configurator
+Windows (PowerShell):
+
+```powershell
+$f = "$env:TEMP\install-pc.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f
 ```
 
-The installer also adds a **canworks configurator** app shortcut. The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); a locked screen or a sleeping PC does not stop it, a tab with unsaved changes never times out, and a tab whose configurator has gone says so and offers its unsaved config as a download. `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
-
-**Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)):
+macOS and Linux (Terminal):
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | sudo bash                       # on the PLC: newest release, no git needed
-curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.sh | bash -s -- --ssh pi@rpi.local   # or from a macOS/Linux PC over SSH
-sudo systemctl restart openplc-runtime    # native installs: once, so the runtime loads the plugin
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh | sh
 ```
 
-From Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-runtime.ps1))) -Ssh pi@rpi.local`. Running the line again updates. Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). From a git checkout: `sudo scripts/install-stock.sh`.
+Then open the configurator, from the **canworks configurator** shortcut the installer adds or in a new terminal:
 
-**Other targets.** For the Modbus bridge, run `curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.sh | sudo bash` on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), the same with `bash -s -- --ssh pi@rpi.local` from a macOS/Linux PC, `install-bridge.ps1 -Ssh pi@rpi.local` from Windows, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)). For CODESYS nothing is installed on the controller: pick CODESYS when you make the config, and build into the project from the Windows PC with CODESYS, or download the files for it from any PC ([docs/codesys.md](docs/codesys.md)).
+```sh
+canworks-config
+```
+
+The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); a locked screen or a sleeping PC does not stop it, a tab with unsaved changes never times out, and a tab whose configurator has gone says so and offers its unsaved config as a download. `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
+
+**Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)). Running the line again updates.
+
+On the PLC (newest release, no git needed):
+
+```sh
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | sudo bash
+```
+
+Or from a macOS or Linux PC over SSH:
+
+```sh
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh pi@rpi.local
+```
+
+Or from a Windows PC over SSH (PowerShell):
+
+```powershell
+$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
+```
+
+Native installs only, once on the PLC, so the runtime loads the plugin:
+
+```sh
+sudo systemctl restart openplc-runtime
+```
+
+Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). From a git checkout: `sudo scripts/install-stock.sh`.
+
+**Other targets.** For the Modbus bridge, run this on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), or the same with `bash -s -- --ssh pi@rpi.local` from a macOS or Linux PC, `install-bridge.ps1 -Ssh pi@rpi.local` from Windows like the plugin line above, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)):
+
+```sh
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
+```
+
+For CODESYS nothing is installed on the controller: pick CODESYS when you make the config, and build into the project from the Windows PC with CODESYS, or download the files for it from any PC ([docs/codesys.md](docs/codesys.md)).
 
 **Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); it writes the editor project's `canworks/` folder, and the editor's own **Build and upload** carries it to the PLC. `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
 

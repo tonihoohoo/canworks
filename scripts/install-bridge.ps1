@@ -3,7 +3,7 @@
 # Windows 10 and 11). The device downloads the newest release and runs its
 # install-bridge.sh; nothing else is needed on the PC. Run it again to update.
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-bridge.ps1))) -Ssh pi@rpi.local
+#   $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
 #   ... -Ssh pi@rpi.local -Instance line1 -Config .\line1     # also set up and start a bridge
 #   ... -Ssh pi@rpi.local -Options --uninstall,--purge        # install-bridge.sh options
 #
@@ -40,7 +40,8 @@ $Repo = if ($env:CANWORKS_REPO) { $env:CANWORKS_REPO } else { "https://github.co
 $Raw = if ($env:CANWORKS_RAW) { $env:CANWORKS_RAW } else { "https://raw.githubusercontent.com/tonihoohoo/canworks" }
 $Api = if ($env:CANWORKS_API) { $env:CANWORKS_API } else { "https://api.github.com/repos/tonihoohoo/canworks" }
 
-# throw, not exit: run as a script block, exit would close the user's PowerShell window.
+# throw, not exit: run inside a PowerShell window (older docs used a script
+# block), exit would close it.
 function Fail([string]$Message) { throw "install-bridge: $Message" }
 
 # The newest release: GitHub redirects releases/latest to releases/tag/<tag>.

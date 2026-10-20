@@ -3,7 +3,7 @@
 # diagnostics) on macOS or Linux, with uv and a uv-managed Python: no Python
 # and no admin rights needed. Run it again to update to the newest release.
 #
-#   curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh
+#   curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh | sh
 #   curl -LsSf .../install-pc.sh | sh -s -- --version 0.82.0     # a given release
 #   curl -LsSf .../install-pc.sh | sh -s -- --uninstall
 #
