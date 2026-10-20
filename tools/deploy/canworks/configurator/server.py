@@ -4259,11 +4259,11 @@ class Server(http.server.ThreadingHTTPServer):
         launch.write_instance(path, self.server_port, secret)
         self.instance_secret, self.instance_file = secret, path
 
-    def second_start(self, path, browser=True):
+    def second_start(self, path, browser=True, now=None):
         """canworks-config started again: a new start address; with PATH that
         folder opens now, or, when a page has unsaved changes, that page asks
         first."""
-        now = time.monotonic()
+        now = time.monotonic() if now is None else now
         if path is not None:
             if not isinstance(path, str) or not path:
                 raise ApiError(400, "path must be a folder")

@@ -217,40 +217,53 @@ class SecondStart(Base):
         os.makedirs(os.path.dirname(launch.instance_path()))
         with open(launch.instance_path(), "w") as f:
             json.dump({"pid": p.pid, "port": 1, "secret": "old"}, f)
-        proc, url = self.subprocess_config("--no-browser")
+        proc, url, start = self.subprocess_config("--no-browser")
         doc = launch.read_instance()
-        self.assertEqual((doc["pid"], doc["port"]), (proc.pid, int(url.split(":")[2].split("/")[0])))
-        self.quit(proc, doc)
+        # The new configurator's file: its starter's id, its port, and the pid
+        # of the server itself, alive (on Windows proc.pid is a venv
+        # launcher's, not the configurator's: launch.spawn).
+        self.assertEqual((doc["start"], doc["port"]), (start, int(url.split(":")[2].split("/")[0])))
+        self.assertNotEqual(doc["pid"], p.pid)
+        self.assertEqual(launch.running(), doc)
+        # /api/quit needs the session: the page's, from a fresh start address.
+        status, data = post(doc["port"], "/api/instance/start", {"browser": False}, {launch.HEADER: doc["secret"]})
+        self.assertEqual(status, 200)
+        self.quit(proc, data["url"])
+        self.assertIsNone(launch.read_instance())
+        self.assertFalse(launch.pid_alive(doc["pid"]))
 
     def test_new_instance(self):
         server = self.start()
-        proc, url = self.subprocess_config("--no-browser", "--new-instance")
+        proc, url, start = self.subprocess_config("--no-browser", "--new-instance")
         self.assertNotIn(":%d/" % server.server_port, url)
         self.assertEqual(launch.read_instance()["port"], server.server_port)  # the first one is still the one found
-        proc.terminate()
-        proc.wait(10)
+        # Quit through its page (terminating proc would stop only the venv
+        # launcher on Windows, not the configurator).
+        self.quit(proc, url)
+        self.assertEqual(launch.read_instance()["port"], server.server_port)
 
     def subprocess_config(self, *argv):
-        env = dict(os.environ, PYTHONPATH=DEPLOY)
+        """The configurator started as a process: the process, its address
+        (stdout's first line) and its starter's id (launch.START_ENV)."""
+        start = "test-%d-%d" % (os.getpid(), id(self))
+        env = dict(os.environ, PYTHONPATH=DEPLOY, **{launch.START_ENV: start})
         proc = subprocess.Popen([sys.executable, "-m", "canworks.configurator.server"] + list(argv),
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)
         self.addCleanup(lambda: proc.poll() is None and proc.kill())
         self.addCleanup(proc.stdout.close)
         line = proc.stdout.readline()
         self.assertIn("http://127.0.0.1:", line)
-        return proc, line.split()[-1]
+        return proc, line.split()[-1], start
 
-    def quit(self, proc, doc):
-        # /api/quit needs the session: the page's token, from a fresh start address.
-        status, data = post(doc["port"], "/api/instance/start", {"browser": False}, {launch.HEADER: doc["secret"]})
-        self.assertEqual(status, 200)
+    def quit(self, proc, url):
+        """Quit as the page does: the session token from the start address
+        `url`, then /api/quit."""
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
-        opener.open(data["url"], timeout=10).read()
+        opener.open(url, timeout=10).read()
         token = next(c.value for c in jar)
-        post(doc["port"], "/api/quit", {}, {srv.TOKEN_HEADER: token})
+        post(int(url.split(":")[2].split("/")[0]), "/api/quit", {}, {srv.TOKEN_HEADER: token})
         self.assertEqual(proc.wait(10), 0)
-        self.assertIsNone(launch.read_instance())
 
 
 class LastPage(Base):
@@ -271,13 +284,13 @@ class LastPage(Base):
         self.assertFalse(server.connection.connected)
 
     def test_reload_keeps_it(self):
-        server = self.start(stop_unused=True, closed=0.5)
+        server = self.start(stop_unused=True, closed=1.5)
         self.beat(server, "a")
         self.beacon(server, "a")
         self.beat(server, "b")  # the reloaded page
-        self.assertFalse(self.stops_within(server, 0.6))
+        self.assertFalse(self.stops_within(server, 2.5))  # past a's end
         self.beacon(server, "b")
-        self.assertTrue(self.stops_within(server, 5))
+        self.assertTrue(self.stops_within(server, 10))
 
     def test_two_pages_keep_it(self):
         server = self.start(stop_unused=True)
@@ -309,14 +322,18 @@ class LastPage(Base):
         self.assertIn("no page was opened", server.stopped_why)
 
     def test_second_start_waits_for_its_page(self):
-        # The last page closed; a second start's page is due after it, not the close.
-        server = self.start(stop_unused=True, closed=0.2, startup=1.5)
+        # The last page closed; a second start's page is due after it, not the
+        # close. The times leave seconds for a slow runner; PageEnds checks the
+        # same rule with chosen times.
+        server = self.start(stop_unused=True, closed=1.5, startup=5)
         self.beat(server, "a")
         self.beacon(server, "a")
         self.instance(server, "/api/instance/start", {"browser": False})
-        self.assertFalse(self.stops_within(server, 0.8))
+        self.assertFalse(self.stops_within(server, 2.5))  # past a's end
         self.beat(server, "b")
-        self.assertFalse(self.stops_within(server, 0.6))
+        self.assertFalse(self.stops_within(server, 3.0))  # past the second start's grace
+        self.beacon(server, "b")
+        self.assertTrue(self.stops_within(server, 10))
 
     def test_address_printed_when_no_page_came(self):
         out = io.StringIO()
@@ -327,7 +344,10 @@ class LastPage(Base):
             opened = server.url
             server.asked_browser(opened)
             server.take_start_code(opened.split("code=")[1])  # this one the browser opened
-            time.sleep(0.6)
+            end = time.monotonic() + 10
+            while not out.getvalue() and time.monotonic() < end:
+                time.sleep(0.05)
+            time.sleep(0.5)  # ticks after it: the opened one is not printed
         self.assertEqual(out.getvalue().strip(), launch.NO_BROWSER % url)
 
 
@@ -431,6 +451,31 @@ class PageEnds(Base):
         server.page_closed("a", now=6.5)
         self.assertIsNone(server.tick(6.0 + 600))  # slept in the grace: the grace goes on after waking
         self.assertEqual(self.ticks(server, 607.0, 700.0)[0], "its last page was closed")
+
+    def test_second_start_waits_for_its_page(self):
+        closed = self.server()
+        closed.heartbeat("a", now=5.0)
+        closed.page_closed("a", now=6.0)
+        self.assertEqual(closed.unused(now=6.0 + srv.PAGE_CLOSED_S), "its last page was closed")
+        # The same with a second start after the close: its page is due
+        # STARTUP_GRACE_S after it, not the close.
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.page_closed("a", now=6.0)
+        server.second_start(None, browser=False, now=8.0)
+        self.assertIsNone(server.unused(now=6.0 + srv.PAGE_CLOSED_S))
+        self.assertIsNone(server.unused(now=8.0 + srv.STARTUP_GRACE_S - 1))
+        self.assertIn("no page was opened", server.unused(now=8.0 + srv.STARTUP_GRACE_S))
+        # Its page came: that page keeps it past the grace, until it closes.
+        server = self.server()
+        server.heartbeat("a", now=5.0)
+        server.page_closed("a", now=6.0)
+        server.second_start(None, browser=False, now=8.0)
+        server.heartbeat("b", now=20.0)
+        self.assertIsNone(server.unused(now=8.0 + srv.STARTUP_GRACE_S))
+        server.page_closed("b", now=700.0)
+        self.assertIsNone(server.unused(now=700.0 + srv.PAGE_CLOSED_S - 1))
+        self.assertEqual(server.unused(now=700.0 + srv.PAGE_CLOSED_S), "its last page was closed")
 
     def test_second_start_does_not_wait_for_a_silent_unsaved_page(self):
         server = self.server()
