@@ -44,7 +44,7 @@
 
 ## 8. Desktop checks (manual)
 
-- [ ] 8.1 Windows: one-line installer creates the shortcut; double-click opens the page with no console window; second double-click opens a tab on it; closing the tab stops it; `canworks-config` from a terminal returns at once; Quit; uninstall removes the shortcut.
-- [ ] 8.2 macOS: the same with the app in ~/Applications (Gatekeeper lets it start); closing the tab stops it and frees a USB adapter; reload keeps it.
-- [ ] 8.3 Pi over SSH: `canworks-config` stays in the foreground and prints the address.
-- [ ] 8.4 Windows: with the default browser broken (for example its program renamed), the shortcut shows the address in a message box and the copied address opens the page.
+- [x] 8.1 Windows: one-line installer creates the shortcut; double-click opens the page with no console window; second double-click opens a tab on it; closing the tab stops it; `canworks-config` from a terminal returns at once; Quit; uninstall removes the shortcut. Passed 2026-10-20 with 0.91.0.
+- [x] 8.2 macOS: the same with the app in ~/Applications (Gatekeeper lets it start); closing the tab stops it and frees a USB adapter; reload keeps it. Passed 2026-10-20 with 0.91.0 (tab close and reload driven with Playwright; no USB adapter attached). Found: with the screen locked, Safari stops the page's heartbeat and the configurator stops after the 3 min silence limit while its tab is still open.
+- [x] 8.3 Pi over SSH: `canworks-config` stays in the foreground and prints the address. Passed 2026-10-20 with 0.91.0.
+- [x] 8.4 Windows: with the default browser broken (for example its program renamed), the shortcut shows the address in a message box and the copied address opens the page. Passed 2026-10-20 with 0.91.0 (browser failure faked from a terminal start: after 15 s the address is printed and logged; the shortcut's message box was not checked).
