@@ -23,7 +23,7 @@
 ## 4. Install
 
 - [x] 4.1 c: overrides file with `pytest; sys_platform == 'never'` passed by `install-pc.sh` and `install-pc.ps1` to `uv tool install --overrides`; test (stubbed uv) that the option is passed; CI PC tools job asserts no `pytest` in the installed tool environment and runs `canworks-j1939-sim --help` there.
-- [ ] 4.2 c: `iroh` kept as is; one comment line in `pyproject.toml` on why it is a runtime dependency; upstream report to `can-j1939` to move `pytest` to a test extra (link in the PR).
+- [x] 4.2 c: `iroh` kept as is; one comment line in `pyproject.toml` on why it is a runtime dependency; upstream report to `can-j1939` to move `pytest` to a test extra (link in the PR). The `pyproject.toml` comment is done; the upstream report was dropped by the project owner, since the one-line installers already leave `pytest` out.
 - [x] 4.3 f: `install-pc.sh` runs `uv tool install` with `$BIN` first on PATH for that call, and the uv installer quietly when it supports it; installer test without `$BIN` on PATH: no uv PATH warning, the installer's own hint once; `shellcheck` clean.
 
 ## 5. Docs and version
@@ -38,9 +38,9 @@
 
 ## 7. Desktop and hardware checks (manual)
 
-- [ ] 7.1 macOS, Safari: open the configurator, lock the screen for more than 3 minutes (20 minutes once with nothing unsaved, once with an unsaved node change); after unlocking the page works without a reload, Save works, and the log has no stop line.
+- [ ] 7.1 macOS, Safari: open the configurator, lock the screen for more than 3 minutes (20 minutes once with nothing unsaved, once with an unsaved node change); after unlocking the page works without a reload, Save works, and the log has no stop line. Partly passed 2026-10-20 with 0.91.2: started from the app shortcut in Safari, display asleep for 20 minutes with nothing unsaved; the configurator answered at every 5-minute check and the log has no stop line. Not run: the unsaved-change round (Safari did not accept scripted input), and the after-unlock page and Save check. The machine stayed out of system sleep during the run.
 - [ ] 7.2 macOS: let the Mac sleep with the tab open for more than 60 minutes and nothing unsaved; after waking the configurator still runs.
-- [ ] 7.3 Windows: closing the configurator's only tab still stops it within 15 s, the log says its last page was closed, and a USB adapter is free; quitting the browser does the same.
+- [ ] 7.3 Windows: closing the configurator's only tab still stops it within 15 s, the log says its last page was closed, and a USB adapter is free; quitting the browser does the same. Partly passed 2026-10-20 with 0.91.2: closing the only tab stopped it 10 s later with "its last page was closed"; a reload kept it; a second start opened a page on the same server and it stopped after its last page closed; a page with an unsaved change whose browser was killed kept it running past 4 minutes with no stop line. Not run: the USB adapter check and quitting the browser normally.
 - [ ] 7.4 Windows or macOS: stop the configurator from a terminal while its tab is in the background; returning to the tab shows the gone notice; with an unsaved change the downloaded canworks.json opens with the change in a new configurator.
 - [ ] 7.5 Remote adapter from a PC to a Linux machine: lock text and trace drop words name the host; a missing interface on the server gives the adapter machine message; `systemctl stop` of the service leaves the stop line in its journal.
 - [ ] 7.6 One-line Linux installer through a non-login SSH command on a machine without uv: no uv PATH warning, the installer's hint once, and no `pytest` in the tools' environment.
