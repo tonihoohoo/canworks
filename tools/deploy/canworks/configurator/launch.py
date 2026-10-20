@@ -51,6 +51,18 @@ def process_started():
             if k32.GetProcessTimes(k32.GetCurrentProcess(), *[ctypes.byref(t) for t in times]):
                 ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime  # 100 ns since 1601
                 return ticks / 1e7 - 11644473600.0
+        elif sys.platform == "darwin":
+            import ctypes
+            # proc_pidinfo(PROC_PIDTBSDINFO): struct proc_bsdinfo, 136 bytes,
+            # its start time (seconds, microseconds) at offsets 120 and 128.
+            info = ctypes.create_string_buffer(136)
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+            if libproc.proc_pidinfo(os.getpid(), 3, ctypes.c_uint64(0), info, 136) == 136:
+                sec = int.from_bytes(info.raw[120:128], "little")
+                usec = int.from_bytes(info.raw[128:136], "little")
+                started = sec + usec / 1e6
+                if abs(time.time() - started) < 86400:
+                    return started
         elif os.path.exists("/proc/self/stat"):
             with open("/proc/self/stat") as f:
                 started = int(f.read().rsplit(")", 1)[1].split()[19])  # field 22, clock ticks after boot
