@@ -204,6 +204,23 @@ class AppIcon(unittest.TestCase):
         sizes = sorted((data[6 + 16 * i] or 256) for i in range(count))
         self.assertEqual(sizes, [16, 24, 32, 48, 64, 128, 256])
 
+    def test_icns_small_form(self):
+        """macOS shows the 32 px entry (16 pt @2x) in lists: the small form, as in the .ico."""
+        icns = self.read("icons", "logo.icns")
+        entries, i = {}, 8
+        while i < len(icns):
+            size = int.from_bytes(icns[i + 4:i + 8], "big")
+            entries[icns[i:i + 4]] = icns[i + 8:i + size]
+            i += size
+        ico = self.read("icons", "logo.ico")
+        for k in range(int.from_bytes(ico[4:6], "little")):
+            d = ico[6 + 16 * k:22 + 16 * k]
+            if d[0] == 32:
+                size, offset = int.from_bytes(d[8:12], "little"), int.from_bytes(d[12:16], "little")
+                self.assertEqual(entries[b"ic11"], ico[offset:offset + size])
+                return
+        self.fail("no 32 px frame in logo.ico")
+
     def test_favicon_follows_dark_mode(self):
         svg = self.read("static", "favicon.svg").decode()
         self.assertIn("prefers-color-scheme:dark", svg)
