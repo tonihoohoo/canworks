@@ -4120,7 +4120,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.answering_s, self.sleep_gap_s = PAGE_ANSWERING_S, SLEEP_GAP_S
         self.no_page_s, self.tick_s = launch.NO_PAGE_S, WATCH_TICK_S
         self.since = time.monotonic()  # start, or the last second start: a page is due after it
-        self.new_page_at = None  # when a page id was first seen, the latest
+        self.new_page_at = None  # when a page id was first seen, the latest; None again on a second start
         self.last_end = None  # when the last page closed or stopped answering
         self.last_reason = None  # how that page ended: "closed" or "silent"
         self.last_tick = None  # the watch loop's last tick (monotonic)
@@ -4259,11 +4259,11 @@ class Server(http.server.ThreadingHTTPServer):
         launch.write_instance(path, self.server_port, secret)
         self.instance_secret, self.instance_file = secret, path
 
-    def second_start(self, path, browser=True):
+    def second_start(self, path, browser=True, now=None):
         """canworks-config started again: a new start address; with PATH that
         folder opens now, or, when a page has unsaved changes, that page asks
         first."""
-        now = time.monotonic()
+        now = time.monotonic() if now is None else now
         if path is not None:
             if not isinstance(path, str) or not path:
                 raise ApiError(400, "path must be a folder")
@@ -4278,7 +4278,10 @@ class Server(http.server.ThreadingHTTPServer):
                     s.open(path)
                 self.open_epoch += 1
         with self.page_lock:
-            self.since = now
+            # Only a page seen after this start is its page: the clock alone
+            # cannot tell (Windows' monotonic clock moves in 15.6 ms steps,
+            # so a page's first heartbeat just before can have the same time).
+            self.since, self.new_page_at = now, None
         url = self.url
         if browser:
             self.asked_browser(url)
