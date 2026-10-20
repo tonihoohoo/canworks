@@ -324,8 +324,11 @@ class Requests(Base):
         self.engine = self.sim()
         self.assertTrue(self.engine.wait_claimed(1))
 
-    def bam(self, timeout=1.0):
-        """The next BAM transfer on the bus: (PGN, data)."""
+    def bam(self, timeout=5.0):
+        """The next BAM transfer on the bus: (PGN, data). The packets come at
+        least 50 ms apart (can-j1939's Tb), each wait rounded up to its job
+        thread's wakeup: a 6-packet transfer took over 1 s on a busy macOS
+        runner, so the wait is longer (it only bounds a failing test)."""
         (_, cm), = self.frames(1, lambda m: m.arbitration_id == 0x18ECFF00, timeout)
         self.assertEqual(cm.data[0], 32)
         size, packets = cm.data[1] | cm.data[2] << 8, cm.data[3]
