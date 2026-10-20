@@ -12,5 +12,5 @@
 
 ## 3. Desktop check (after release)
 
-- [ ] 3.1 Windows: update the PC tools with the one-line installer; the desktop and Start menu shortcuts show the new icon
-- [ ] 3.2 macOS: the app in `~/Applications` shows the new icon in Finder and the Dock
+- [ ] 3.1 Windows: update the PC tools with the one-line installer; the desktop and Start menu shortcuts show the new icon. 2026-10-20 with 0.91.2: the .ico in the shortcut has all seven frames and the right form at each size; still to see in Explorer outside the Claude app, which ran the installer in its own sandboxed AppData
+- [ ] 3.2 macOS: the app in `~/Applications` shows the new icon in Finder and the Dock. 2026-10-20 with 0.91.2: 512 px right, but the 32 px entry was the large form scaled down; fixed in 0.91.3 (the .icns 16 pt @2x entry is the small form), recheck after that release

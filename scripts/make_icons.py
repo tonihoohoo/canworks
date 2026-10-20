@@ -6,7 +6,7 @@ stays readable where "can" would not (app-icon-from-logo).
 
 Writes, under tools/deploy/canworks/configurator/:
   icons/logo.ico       Windows shortcut (16-32 px small form, 48-256 px large)
-  icons/logo.icns      macOS app
+  icons/logo.icns      macOS app (32 px small form, 64-1024 px large)
   icons/logo-256.png   Linux .desktop entry
   static/favicon.svg   browser tab (small form, dark colours in dark mode)
   static/apple-touch-icon.png  180 px, Safari Add to Dock and phones
@@ -127,7 +127,7 @@ def main():
     static.mkdir(parents=True, exist_ok=True)
     big = png(False, 1024)
     big.resize((256, 256), Image.LANCZOS).save(icons / "logo-256.png", optimize=True)
-    big.save(icons / "logo.icns")
+    big.save(icons / "logo.icns", append_images=[png(True, 32)])  # 16 pt @2x: the small form
     frames = [png(True, s) for s in SMALL_SIZES] + [png(False, s) for s in LARGE_SIZES]
     frames[-1].save(icons / "logo.ico", sizes=[f.size for f in frames], append_images=frames[:-1])
     png(False, 180).save(static / "apple-touch-icon.png", optimize=True)
