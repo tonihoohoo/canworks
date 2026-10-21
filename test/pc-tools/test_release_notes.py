@@ -60,7 +60,7 @@ class TemplateCoverageTest(unittest.TestCase):
     def test_placeholders_filled(self):
         text = release_notes.render_template(self.template, "1.2.3", "Owner/canworks")
         self.assertNotIn("{", text)
-        self.assertIn("uv tool install --compile-bytecode --python 3.12 canworks-1.2.3-py3-none-any.whl", text)
+        self.assertIn("uv tool install --compile-bytecode --python 3.14 canworks-1.2.3-py3-none-any.whl", text)
         self.assertIn("https://github.com/Owner/canworks/releases/download/deploy-v1.2.3/install-pc.sh | sh -s -- --version 1.2.3",
                       text)
         self.assertIn("ghcr.io/owner/canworks-sim-runtime:1.2.3", text)
