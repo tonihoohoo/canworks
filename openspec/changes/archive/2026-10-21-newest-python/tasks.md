@@ -24,6 +24,11 @@
 
 ## 5. Hardware and desktop checks
 
-- [ ] 5.1 Windows: an existing 0.9x install on 3.12, run the one-line installer from a normal PowerShell (not a sandboxed shell): reinstalled on 3.14 (`uv tool list --show-python`), shortcut and configurator start work, second run skips
-- [ ] 5.2 Mac: same as 5.1
-- [ ] 5.3 Pi: deploy a config with `canworks-deploy` from the 3.14 install, clean PLC start, node 23 OPERATIONAL
+- [x] 5.1 Windows: an existing 0.9x install on 3.12, run the one-line installer from a normal PowerShell (not a sandboxed shell): reinstalled on 3.14 (`uv tool list --show-python`), shortcut and configurator start work, second run skips
+- [x] 5.2 Mac: same as 5.1
+- [x] 5.3 Pi: deploy a config with `canworks-deploy` from the 3.14 install, clean PLC start, node 23 OPERATIONAL
+
+Results (2026-10-21, release 0.97.0, isolated tool folders, no shortcut):
+- 5.1 Windows (uv 0.12.24): 0.96.0 on CPython 3.12.15 moved to 0.97.0 on 3.14.8 (43 s); second run "already installed" in 1.4 s; `-Force -Python 3.12` then a plain run reinstalled on 3.14 with "installing canworks 0.97.0 again on Python 3.14 (it was on 3.12)"; configurator page from the terminal in 6.9 s. Inside a sandboxed (MSIX-packaged) shell uv needs `UV_PYTHON_INSTALL_DIR` to install Python; a normal PowerShell does not.
+- 5.2 Mac (uv 0.10.7): 0.96.0 on 3.12.3 moved to 0.97.0 on 3.14.3 (10.7 s incl. the Python download); second run skipped in 0.32 s; Python switch both ways as on Windows; configurator listening 0.53 s after start.
+- 5.3 Pi: `canworks-deploy --simulated --start` from the Windows 3.14 install, 17 s, PLC running; master, the real node and the simulated node OPERATIONAL, bus error active with 0 errors.
