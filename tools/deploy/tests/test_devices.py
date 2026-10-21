@@ -68,6 +68,19 @@ class Plan(unittest.TestCase):
         p = plan.plan(probe(can=can), "openplc", "0.98.0")
         self.assertEqual(row(p, "can")["have"], "can0 250 kbit/s up · slcan0 500 kbit/s up")
 
+    def test_bridge_without_its_service_is_installed(self):
+        b = {"version": "0.98.1", "prefix": "/opt/canworks-bridge", "unit": False, "instances": []}
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.1", instance="line3")
+        self.assertEqual(p["main"]["action"], "install_bridge")
+        self.assertEqual(p["main"]["label"], "Install and start this project's bridge")
+        self.assertIn("no service", row(p, "bridge")["have"])
+
+    def test_development_bridge_is_updated(self):
+        b = {"version": "deploy-v0.32.0-192-g0bd645be", "prefix": "/opt/canworks-bridge", "unit": True, "instances": []}
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.2", instance="line3")
+        self.assertEqual(p["main"]["action"], "install_bridge")
+        self.assertEqual(p["main"]["label"], "Update deploy-v0.32.0-192-g0bd645be → 0.98.2")
+
     def test_runtime_moved_on(self):
         p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.2.5"},
                             plugin={"version": "0.98.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
@@ -197,6 +210,14 @@ class Jobs(unittest.TestCase):
                 args.update(bad)
                 jobs.commands("install_bridge", args["version"], self.paths, instance=args["instance"],
                               upload=args["upload"])
+
+    def test_bridge_config_needs_the_service(self):
+        lines = jobs.commands("bridge_config", "0.98.0", self.paths, instance="line3",
+                              upload="/tmp/canworks-bridge-upload.abc", bridge_prefix="/opt/canworks-bridge")
+        r = subprocess.run(["sh", "-ec", lines[0]], stdout=subprocess.PIPE, text=True)
+        if not os.path.exists("/etc/systemd/system/canworks-bridge@.service"):
+            self.assertEqual(r.returncode, 3)
+            self.assertIn("install the bridge first", r.stdout)
 
     def test_parse(self):
         out = jobs.parse("::canworks-job 20261021T120000Z-abcd install_plugin @1000\n"
@@ -337,9 +358,14 @@ class Probe(unittest.TestCase):
         self.write("opt/canworks/VERSION", "0.98.1\n")
         self.write("opt/canworks/lib/libcanworks_plugin.so", "")
         self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.32.0\n", 0o755)
+        # Only the plugin venv's console script: no bridge installed.
         p = self.run_probe()
         self.assertEqual(p["plugin"]["version"], "0.98.1")
-        self.assertEqual((p["bridge"]["version"], p["bridge"]["prefix"]), ("0.32.0", "/opt/canworks"))
+        self.assertIsNone(p["bridge"])
+        self.write("etc/systemd/system/canworks-bridge@.service", "")
+        p = self.run_probe()
+        self.assertEqual((p["bridge"]["version"], p["bridge"]["prefix"], p["bridge"]["unit"]),
+                         ("0.32.0", "/opt/canworks", True))
 
     def test_bridge_with_two_instances_and_a_job(self):
         self.write("opt/canworks-bridge/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.97.0\n", 0o755)

@@ -111,13 +111,15 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         dest = quote("/etc/canworks-bridge/" + instance)
         unit = quote("canworks-bridge@%s.service" % instance)
         up = quote(upload)
-        return ['echo "::canworks-step 1/2 Checking the config"',
+        return ["[ -f /etc/systemd/system/canworks-bridge@.service ] || { echo 'The bridge service is not "
+                "installed on this device (no canworks-bridge@.service): install the bridge first.'; exit 3; }",
+                'echo "::canworks-step 1/2 Checking the config"',
                 "%s --config %s/canworks.json --check-only" % (b, up),
                 'echo "::canworks-step 2/2 Starting the bridge %s"' % instance,
                 "mkdir -p %s" % dest,
                 "for f in %s/*; do [ -f \"$f\" ] && install -m 0644 \"$f\" %s/; done" % (up, dest),
                 "rm -rf %s" % up,
-                "systemctl enable %s >/dev/null 2>&1" % unit,
+                "systemctl enable %s >/dev/null" % unit,
                 "systemctl restart %s" % unit,
                 'echo "==> Started %s"' % unit.strip("'")]
     if action == "uninstall_bridge":

@@ -30,14 +30,15 @@ Picking a device checks it again (**Check again** does too). The check is a read
 | A plugin older than the newest release X | **Update A → X** |
 | A plugin built for another runtime version (the runtime was updated) | **Rebuild for runtime vN** |
 | No bridge (bridge project) | **Install and start this project's bridge** |
-| A bridge older than X | **Update A → X** |
+| A bridge older than X, or a development build | **Update A → X** |
+| A bridge without its service (a partial install) | **Install and start this project's bridge** |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
 
 X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the PC tools are older than the canworks on the device, one line says so with how to update them; nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default.
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`). The **Device** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC. The OpenPLC Runtime itself is never removed from here.
+The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Device** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC. The OpenPLC Runtime itself is never removed from here.
 
 ## Starting an action
 

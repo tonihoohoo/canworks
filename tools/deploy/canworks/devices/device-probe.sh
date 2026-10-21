@@ -130,6 +130,9 @@ fi
 bridge=null
 for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
     [ -x "$b/bin/canworks-bridge" ] || continue
+    unit=0; [ -f "$R/etc/systemd/system/canworks-bridge@.service" ] && unit=1
+    # The plugin's own venv has the console script too: not a bridge install.
+    [ "$b" = "$R/opt/canworks" ] && [ "$unit" = 0 ] && [ -e "$b/lib/libcanworks_plugin.so" ] && continue
     # /opt/canworks/VERSION is the plugin's: an older bridge there says its own.
     b_version=""
     [ "$b" = "$R/opt/canworks" ] || b_version=$(first_line "$b/VERSION")
@@ -147,8 +150,9 @@ for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
         instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s}' \
             "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")")"
     done
-    bridge=$(printf '{"version": %s, "prefix": %s, "instances": [%s]}' \
-        "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$instances")
+    # Without its template unit no instance can start (a partial install).
+    bridge=$(printf '{"version": %s, "prefix": %s, "unit": %s, "instances": [%s]}' \
+        "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$(jb "$unit")" "$instances")
     break
 done
 
