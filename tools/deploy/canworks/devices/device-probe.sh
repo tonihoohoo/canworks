@@ -57,19 +57,42 @@ fi
 # --- The OpenPLC runtime ------------------------------------------------------------
 
 SERVICE_FILE="$R/etc/systemd/system/openplc-runtime.service"
-SPEC="$R/var/lib/openplc-bootloader/runtime-spec.json"
+BOOT="$R/var/lib/openplc-bootloader"
+SPEC="$BOOT/runtime-spec.json"
+# The bootloader's folder can be root's only and Docker the docker group's:
+# with password-less sudo the probe reads both through it (read-only).
+spec=""
+if [ -r "$SPEC" ]; then
+    spec=$(cat "$SPEC" 2>/dev/null)
+elif [ "$sudo_mode" = nopasswd ]; then
+    spec=$("$SUDO" -n cat "$SPEC" 2>/dev/null)
+fi
+containers=""
+if have "$DOCKER"; then
+    containers=$("$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null)
+    if [ -z "$containers" ] && [ "$sudo_mode" = nopasswd ]; then
+        containers=$("$SUDO" -n "$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null)
+    fi
+fi
+has_container() { printf '%s\n' "$containers" | grep -qx "$1"; }
+native_active=0
+if [ -f "$SERVICE_FILE" ] && [ "$("$SYSTEMCTL" is-active openplc-runtime.service 2>/dev/null)" = active ]; then
+    native_active=1
+fi
 rt_kind=none rt_version="" rt_dir="" rt_commit=""
-if [ -f "$SPEC" ]; then
+# An installed native unit that is not running is weaker evidence than the
+# managed runtime's folder or containers (a device moved from native to Docker).
+if [ -n "$spec" ] || { [ "$native_active" = 0 ] && { [ -d "$BOOT" ] || has_container openplc-bootloader; }; }; then
     rt_kind=docker-managed
-    rt_version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$SPEC" | head -n 1)
-elif [ -f "$SERVICE_FILE" ]; then
+    rt_version=$(printf '%s\n' "$spec" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)
+elif [ "$native_active" = 1 ] || { [ -f "$SERVICE_FILE" ] && ! has_container openplc-runtime; }; then
     rt_kind=native
     rt_dir=$(sed -n 's/^WorkingDirectory=//p' "$SERVICE_FILE" | head -n 1)
     if [ -n "$rt_dir" ] && have git; then
         rt_version=$(git -C "$R$rt_dir" describe --tags --always 2>/dev/null)
         rt_commit=$(git -C "$R$rt_dir" rev-parse HEAD 2>/dev/null)
     fi
-elif have "$DOCKER" && "$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'openplc-runtime'; then
+elif has_container openplc-runtime; then
     rt_kind=docker-other
 fi
 rt_answers=""

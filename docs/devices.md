@@ -16,7 +16,7 @@ A connection stays open for two minutes after its last use, so checking a device
 
 ## What the page shows
 
-Picking a device checks it again (**Check again** does too). The check is a read-only script, `device-probe.sh` from the PC tools, run on the device through the SSH connection; it needs neither root nor canworks on the device and changes nothing. The page shows:
+Picking a device checks it again (**Check again** does too). The check is a read-only script, `device-probe.sh` from the PC tools, run on the device through the SSH connection; it needs neither root nor canworks on the device and changes nothing. When the SSH user cannot read the managed Docker runtime's folder (`/var/lib/openplc-bootloader`, root's only) or use Docker, and `sudo` needs no password, it reads them through `sudo -n`; without that the runtime still shows as managed Docker, with no version. An old native `openplc-runtime` unit that is installed but stopped does not hide a managed Docker runtime. The page shows:
 
 - a header line: system, architecture, free disk, internet access to github.com, and when the device was checked;
 - one row per part: **OpenPLC Runtime** (native, managed Docker or a container of your own, its version and whether its HTTPS port answers), **canworks plugin** (version, the runtime version it was built for, on or waiting for an upload), **Modbus bridge** (version and its running bridges), **Remote link** and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;

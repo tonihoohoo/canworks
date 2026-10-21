@@ -256,10 +256,10 @@ class Probe(unittest.TestCase):
             f.write("#!/bin/sh\n" + body + "\n")
         os.chmod(path, 0o755)
 
-    def run_probe(self):
+    def run_probe(self, **extra):
         env = dict(os.environ, CANWORKS_PROBE_ROOT=self.root,
                    **{"CANWORKS_PROBE_" + n.upper(): os.path.join(self.bin, n)
-                      for n in ("systemctl", "docker", "ip", "curl")})
+                      for n in ("systemctl", "docker", "ip", "curl")}, **extra)
         with open(PROBE, "rb") as f:
             out = subprocess.run(["sh", "-s"], input=f.read(), stdout=subprocess.PIPE, env=env, check=True).stdout
         return json.loads(out)
@@ -292,6 +292,29 @@ class Probe(unittest.TestCase):
         self.assertEqual(p["plugin"], {"version": "0.98.0", "built_for": "v4.2.4", "enabled": False})
         self.assertEqual(p["link"], "active")
         self.assertTrue(p["discovery"])
+
+    def test_root_only_spec_and_a_stopped_native_unit(self):
+        # A device moved from native to managed Docker: the old unit stays,
+        # stopped; the bootloader's folder is root's and docker the docker group's.
+        self.write("etc/systemd/system/openplc-runtime.service", "[Service]\nWorkingDirectory=/home/pi/rt\n")
+        self.write("home/pi/rt/plugins.conf", "canworks,/opt/canworks/lib/libcanworks_plugin.so,0,0,,\n")
+        os.makedirs(os.path.join(self.root, "var", "lib", "openplc-bootloader"))
+        self.write("opt/canworks/lib/libcanworks_plugin.so", "")
+        self.write("opt/canworks/lib/runtime-version", "v4.2.4\n")
+        self.write("opt/canworks/lib/plugins-line", "canworks,/opt/canworks/lib/libcanworks_plugin.so,1,1,,\n")
+        self.stub("systemctl", 'case $1 in is-active) echo inactive ;; esac')
+        self.stub("sudo", '[ "$1 $2" = "-n true" ] && exit 0\n'
+                          '[ "$2" = cat ] && { echo \'{"version": "v4.2.4"}\'; exit 0; }\nexit 1')
+        sudo = {"CANWORKS_PROBE_SUDO": os.path.join(self.bin, "sudo"), "CANWORKS_PROBE_UID": "1000"}
+        p = self.run_probe(**sudo)
+        self.assertEqual(p["sudo"], "nopasswd")
+        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True})
+        self.assertEqual(p["plugin"], {"version": "unknown", "built_for": "v4.2.4", "enabled": True})
+        # sudo needs a password: still managed Docker, its version unknown.
+        self.stub("sudo", "exit 1")
+        p = self.run_probe(**sudo)
+        self.assertEqual((p["runtime"]["kind"], p["runtime"]["version"]), ("docker-managed", None))
+        self.assertTrue(p["plugin"]["enabled"])
 
     def test_native_runtime(self):
         self.write("etc/systemd/system/openplc-runtime.service", "[Service]\nWorkingDirectory=/home/pi/rt\n")
