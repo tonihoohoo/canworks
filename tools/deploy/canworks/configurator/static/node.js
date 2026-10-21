@@ -14,7 +14,7 @@ function nodeTabs(i) {
   const eds = edsFor(n);
   const drive = !!(objectInfo(eds, "0x6040", 0) && objectInfo(eds, "0x6041", 0));
   const axis = !!n.axis && typeof n.axis === "object";
-  return NODE_TABS.filter(([k]) => (k !== "cia402" || ((drive || axis) && shownFor("nodes.axis"))) && (k !== "simulation" || nodeSimulated(n)));
+  return NODE_TABS.filter(([k]) => (k !== "cia402" || ((drive || axis) && usedBy("nodes.axis"))) && (k !== "simulation" || nodeSimulated(n)));
 }
 
 function nodeTab(i) {
@@ -64,7 +64,7 @@ function renderNode(view, i) {
       renderPdos(i, "rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", eds)));
   } else if (tab === "sdos") {
     // SDO variables are the plugin's and the bridge's.
-    panel.append(renderSdos(i, eds), ...(shownFor("nodes.sdo_variables") ? [renderSdoVars(i, eds)] : []));
+    panel.append(renderSdos(i, eds), ...(usedBy("nodes.sdo_variables") ? [renderSdoVars(i, eds)] : []));
   } else if (tab === "supervision") {
     panel.append(supervisionTab(i, eds));
   } else if (tab === "cia402") {
@@ -112,7 +112,10 @@ function supervisionTab(i, eds) {
           "Optional output byte the program uses to command the node: 0 or 1 run (1 also starts a node with boot off), 2 keep STOPPED, 128 keep PRE-OPERATIONAL, a change to 129 resets the node and to 130 its communication (once). Empty: none."),
         nodeInput("Boot error byte", "boot_error", "boot_error_location", "%IB…",
           "Optional. Why the last boot failed, as a CiA 302 letter code (66 B no answer, 77 M wrong product code, 74 J configuration refused, ...); 0 once the node boots. Empty: none."))),
-    emcyFieldset(emcy, emcyKeys.some((k) => getPath(base + "." + k) !== undefined), () => emcyKeys.forEach((k) => setPath(base + "." + k, undefined)),
+    // The EMCY settings are canworks's: CODESYS reads emergencies itself
+    // (canopen-configurator "Only what the target uses is shown").
+    !(usedBy("nodes.emcy_cob_id") || usedBy("nodes.emcy_code_location")) ? null
+      : emcyFieldset(emcy, emcyKeys.some((k) => getPath(base + "." + k) !== undefined), () => emcyKeys.forEach((k) => setPath(base + "." + k, undefined)),
       el("div", { class: "grid" },
         nodeInput("EMCY code", "emcy", "emcy_code_location", "%IW…",
           "Optional. Error code of the node's latest emergency message, 0 when no error is active (after its error reset or a restart). Every EMCY is also logged. Empty: not mapped."),
@@ -121,16 +124,16 @@ function supervisionTab(i, eds) {
         emcyCobField(i))));
 }
 
-// The Emergency (EMCY) section: its controls are disabled with the reason
-// when the node's EDS has no 0x1014 (canopen-configurator "EMCY section
-// follows the EDS"); fields left in the file can still be removed.
+// The Emergency (EMCY) section: when the node's EDS has no 0x1014 it is one
+// line with the reason and no controls (canopen-configurator "EMCY section
+// follows the EDS"); fields left in the file stay, with Remove.
 function emcyFieldset(supported, leftover, remove, grid) {
   const box = el("fieldset", { dataset: { emcySection: supported ? "" : "unsupported" } }, el("legend", null, "Emergency (EMCY)"));
   if (supported) { box.append(grid); return box; }
   const why = "The EDS has no EMCY COB-ID (0x1014), so this device sends no emergency messages.";
-  if (!leftover) grid.querySelectorAll("input, select, button").forEach((c) => Icons.disable(c, why));
   box.append(edsLimit(why, leftover, { label: "Remove the EMCY settings", dataset: { emcyRemove: "" }, run: remove },
-    { emcyLimit: "" }, true), grid);
+    { emcyLimit: "" }, true));
+  if (leftover) box.append(grid);
   return box;
 }
 

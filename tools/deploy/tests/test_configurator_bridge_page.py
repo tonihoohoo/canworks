@@ -45,12 +45,8 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
         self.assertEqual(pg.locator("#tree #nav-bridge").count(), 0)
         pg.select_option('select[data-target="1"]', "bridge")
-        pg.wait_for_selector("#modal[open]")
-        self.assertIn("Switch the project to Modbus bridge?", pg.inner_text("#modal-text"))
-        self.assertTrue(pg.is_checked('#modal input[data-switch-pack="1"]'))
-        self.assertIn("Pack every location for Modbus", pg.inner_text("#modal-extra"))
-        pg.click("#modal-buttons button.primary")
         pg.wait_for_selector("#banner:has-text('Modbus bridge now')")
+        self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
         pg.wait_for_selector("#tree #nav-bridge")
         self.checked()
 
@@ -199,18 +195,14 @@ class BridgePage(OnlineBase):
         self.assertIsNone(pg.evaluate("() => S.config.master.on_plc_stop || null"))
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.assertEqual(pg.locator('select[data-path="master.sync_source"] option[value="plc_cycle"]').count(), 0)
-        # A watchdog the config still has stays hidden, listed in the bar with Remove.
+        # A watchdog the config still has stays hidden; no problem, save leaves it out.
         pg.evaluate("() => { S.config.master.scan_watchdog_ms = 250; changed(true); }")
         self.checked()
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        self.assertIn("1 setting here is not used by the Modbus bridge", pg.inner_text("[data-unused-bar]"))
-        self.assertIn("1 setting is not used by the Modbus bridge", pg.inner_text("#problem-list"))
-        pg.click("[data-unused-bar] summary")
-        self.assertIn("Master: Scan watchdog (ms) 250", pg.inner_text("[data-unused-bar]"))
-        pg.click('[data-unused-bar] [data-problem-remove="master.scan_watchdog_ms"]')
+        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.locator("[data-unused-bar]").count(), 0)
+        pg.evaluate("() => { delete S.config.master.scan_watchdog_ms; changed(true); }")
         self.checked()
-        self.assertIsNone(pg.evaluate("() => S.config.master.scan_watchdog_ms || null"))
-        self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         # A PLC cycle SYNC the config still has is an error, shown as the config's value.
         pg.evaluate("() => { S.config.master.sync_source = 'plc_cycle'; delete S.config.master.sync_period_us; changed(true); }")
         self.checked()
@@ -224,9 +216,6 @@ class BridgePage(OnlineBase):
 
         # Back to OpenPLC: the bridge object goes, the locations are per type again.
         pg.select_option('select[data-target="1"]', "openplc")
-        pg.wait_for_selector("#modal[open]")
-        self.assertTrue(pg.is_checked('#modal input[data-switch-pack="1"]'))
-        pg.click("#modal-buttons button.primary")
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         pg.wait_for_selector("#tree #nav-bridge", state="detached")
         self.checked()

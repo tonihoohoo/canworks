@@ -69,7 +69,6 @@ function treeCounts() {
   };
   for (const it of (S.check && S.check.items) || []) {
     // Settings the target does not use are one problem, not counted per page (target.js).
-    if (isUnusedItem(it)) continue;
     const keys = new Set();
     for (const w of it.where || []) {
       const [entry, tab] = entryOfPath(w);
@@ -191,15 +190,15 @@ function treeModel() {
       }
       if (linksNetwork(net)) kids.push({ key: `${k}:links`, label: "PDO links", attrs: { view: "links", net: k } });
       // A target that does not run canworks has no CAN messages.
-      if (shownFor("raw")) kids.push({ key: `${k}:raw`, label: "CAN messages", attrs: { view: "raw", net: k } });
+      if (usedBy("raw")) kids.push({ key: `${k}:raw`, label: "CAN messages", attrs: { view: "raw", net: k } });
     }
     out.push({ key: String(k), label: netLabel(net, k), sub: protocolText(net), net: k, kids, attrs: { net: k } });
   });
   if (!commission) {
-    if (shownFor("ui:runtime")) {
+    if (usedBy("ui:runtime")) {
       out.push({ key: "access", label: "Online access", attrs: { view: "access" }, id: "nav-access" });
     }
-    const gateway = shownFor("/gateway") && (S.model.top.gateway || (nets.some(isSlave) && nets.some((n) => !isSlave(n))));
+    const gateway = usedBy("/gateway") && (S.model.top.gateway || (nets.some(isSlave) && nets.some((n) => !isSlave(n))));
     if (gateway) out.push({ key: "gateway", label: "Gateway", attrs: { view: "gateway" }, id: "nav-gateway" });
     if (S.model.top.bridge) out.push({ key: "bridge", label: "Modbus bridge", attrs: { view: "bridge" }, id: "nav-bridge" });
     if (codesysOn()) out.push({ key: "codesys", label: "CODESYS", attrs: { view: "codesys" }, id: "nav-codesys" });

@@ -318,35 +318,32 @@ class Server(Running):
         self.assertIn("ui:codesys", [r["key"] for r in state["targets"]])
 
     def test_openplc_to_codesys_and_back(self):
-        preview = self.switch(self.cfg, "codesys", preview=True)
-        self.assertNotIn("config", preview)
-        paths = [u["path"] for u in preview["unused"]]
-        self.assertIn("networks[0].nodes[0].emcy_code_location", paths)
-        self.assertIn("networks[0].master.scan_watchdog_ms", paths)
+        # No question: what CODESYS does not use goes (target-cleans-up).
         r = self.switch(self.cfg, "codesys")
         cfg = r["config"]
         self.assertEqual((cfg["codesys"], targets.target(cfg)), ({}, "codesys"))
-        self.assertEqual(r["removed"], len(r["unused"]))
+        self.assertNotIn("unused", r)
+        self.assertGreaterEqual(r["removed"], 2)
+        self.assertNotIn("emcy_code_location", cfg["networks"][0]["nodes"][0])
         self.assertTrue(all("name" in e and "iec_location" not in e for e in entries(cfg)))
         self.assertNotIn("scan_watchdog_ms", cfg["networks"][0]["master"])
         self.assertEqual(check(cfg).errors, [])
+        self.assertEqual([w for w in check(cfg).items if w.get("unused")], [])
         # The names are the generated declaration names (EDS names).
         after = {d["name"] for d in declare.declarations(cfg, lambda *a: None, {}, unlocated=True) if d["kind"] == "pdo"}
         self.assertIn("dio_Read_input_8_bit_1", after)
         self.assertIn("rtd_AI0_Input_PV", after)
         # Back to OpenPLC: every entry is placed per type, the names stay.
-        back = self.switch(cfg, "openplc", preview=True)
-        self.assertEqual(back["locations"], len(entries(cfg)))
-        out = self.switch(cfg, "openplc")["config"]
+        back = self.switch(cfg, "openplc")
+        self.assertEqual(back["located"], len(entries(cfg)))
+        out = back["config"]
         self.assertNotIn("codesys", out)
         self.assertTrue(all(e.get("iec_location") and e.get("name") for e in entries(out)))
         self.assertEqual(check(out).errors, [])
 
-    def test_keep_leaves_the_values(self):
-        cfg = self.switch(self.cfg, "codesys", keep=True)["config"]
-        self.assertEqual(cfg["networks"][0]["master"]["scan_watchdog_ms"], 500)
-        self.assertTrue(all("iec_location" in e for e in entries(cfg)))
-        self.assertTrue(check(cfg).warnings)
+    def test_old_switch_options_are_ignored(self):
+        cfg = self.switch(self.cfg, "codesys", keep=True, preview=True)["config"]
+        self.assertNotIn("scan_watchdog_ms", cfg["networks"][0]["master"])
 
     def test_codesys_to_bridge_packs(self):
         cfg = self.switch(self.cfg, "codesys")["config"]
@@ -358,13 +355,11 @@ class Server(Running):
 
     def test_openplc_and_bridge(self):
         r = self.switch(self.cfg, "bridge")
-        self.assertIn("networks[0].master.scan_watchdog_ms", [u["path"] for u in r["unused"]])
+        self.assertGreaterEqual(r["removed"], 1)
         self.assertEqual(r["config"]["bridge"], {"listen": "0.0.0.0:502", "writers": []})
         self.assertNotIn("scan_watchdog_ms", r["config"]["networks"][0]["master"])
         out = self.switch(r["config"], "openplc")["config"]
         self.assertNotIn("bridge", out)
-        r = self.switch(self.cfg, "bridge", pack=False, keep=True)
-        self.assertEqual(entries(r["config"]), entries(self.cfg))
 
     def test_bit_channels_follow_the_target(self):
         dio = self.cfg["networks"][0]["nodes"][1]
@@ -404,6 +399,21 @@ class Server(Running):
     def test_bad_target(self):
         status, data, _ = self.request("POST", "/api/switch_target", {"config": self.cfg, "target": "s7"})
         self.assertEqual(status, 400, data)
+
+    def test_save_leaves_out_what_the_target_does_not_use(self):
+        """canopen-configurator "Settings the target does not use are left out on save"."""
+        cfg = self.switch(self.cfg, "codesys")["config"]
+        cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
+        cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW90"
+        r = self.ok("POST", "/api/save", {"config": cfg})
+        self.assertEqual(r["left_out"], 2)
+        with open(os.path.join(self.folder, "canworks.json"), encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertNotIn("scan_watchdog_ms", saved["networks"][0]["master"])
+        self.assertNotIn("emcy_code_location", saved["networks"][0]["nodes"][0])
+        self.assertEqual(r["state"]["config"], saved)
+        # Nothing left out: none counted.
+        self.assertEqual(self.ok("POST", "/api/save", {"config": saved})["left_out"], 0)
 
     def test_build_needs_a_saved_config(self):
         cfg = self.switch(self.cfg, "codesys")["config"]

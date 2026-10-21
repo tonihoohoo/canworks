@@ -201,9 +201,11 @@ class EdsLimits(OnlineBase):
         self.open()  # the ping-pong EDS has no 0x1014
         tree_node(pg, 0, "supervision")
         pg.wait_for_selector('[data-emcy-section="unsupported"]')
+        # One line, no controls (target-cleans-up).
         for c in ('input[data-path="nodes[0].emcy_code_location"]', 'input[data-path="nodes[0].error_register_location"]',
                   'select[data-emcy-cob="mode"]', 'button[data-suggest="emcy"]', 'button[data-suggest="errreg"]'):
-            self.assertTrue(pg.is_disabled(c), c)
+            self.assertEqual(pg.locator(c).count(), 0, c)
+        self.assertEqual(pg.locator('[data-emcy-section="unsupported"] > :not(legend)').count(), 1)
         limit = "[data-emcy-limit]"
         self.assertIn("no EMCY COB-ID (0x1014)", pg.inner_text(limit))
         self.assertEqual(pg.get_attribute(limit, "class"), "hint")
@@ -227,6 +229,7 @@ class EdsLimits(OnlineBase):
         pg.click("[data-emcy-remove]")
         self.assertEqual(pg.evaluate("() => ['emcy_code_location', 'emcy_cob_id'].filter((k) => k in S.config.nodes[0])"), [])
         self.assertEqual(pg.get_attribute("[data-emcy-limit]", "class"), "hint")
+        self.assertEqual(pg.locator('input[data-path="nodes[0].emcy_code_location"]').count(), 0)
 
     def test_heartbeat_consumer_without_0x1016(self):
         pg = self.page
@@ -252,8 +255,9 @@ class EdsLimits(OnlineBase):
         # Nor can it watch other nodes' heartbeats.
         pg.evaluate("() => { S.config.nodes.push({node_id: 5, eds: 'cpp-slave.eds', heartbeat_ms: 100}); render(); }")
         tree_node(pg, 0, "supervision")
-        pg.wait_for_selector("[data-watch-limit]")
-        self.assertEqual(pg.get_attribute("[data-watch-limit]", "class"), "hint")
+        # Nothing to choose and nothing set: no watch block at all (target-cleans-up).
+        pg.wait_for_selector('[data-supervision="0"]')
+        self.assertEqual(pg.locator(".heartbeat-watch").count(), 0)
         self.assertEqual(pg.locator('select[aria-label="Watch another node\'s heartbeat"]').count(), 0)
         pg.evaluate("() => { S.config.nodes[0].heartbeat_watch = [{node: 5}]; render(); }")
         pg.wait_for_selector("[data-watch-remove]")
@@ -268,6 +272,12 @@ class EdsLimits(OnlineBase):
         pg.wait_for_selector(sel)
         self.assertTrue(pg.is_enabled(sel))
         self.assertEqual(pg.locator("[data-heartbeat-limit]").count(), 0)
+        # The watch list spans the section; its heading and hint each take a line.
+        tree_node(pg, 0, "supervision")
+        pg.wait_for_selector(".grid > .heartbeat-watch")
+        self.assertEqual(pg.eval_on_selector(".heartbeat-watch", "(e) => e.offsetWidth === e.parentElement.clientWidth"), True)
+        for c in (".heartbeat-watch > .row-head", ".heartbeat-watch > .hint"):
+            self.assertEqual(pg.eval_on_selector(c, "(e) => getComputedStyle(e).display"), "block", c)
 
     def test_lss_and_config_check_reasons_look_alike(self):
         pg = self.page

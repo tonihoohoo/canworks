@@ -28,13 +28,13 @@ FOREIGN = {
 }
 
 # The page's visible fields that the target does not use, and its visible
-# text outside the target field and the bar.
+# text outside the target field.
 SWEEP = """() => {
   const vis = (e) => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length) && !e.closest('[hidden]');
   const fields = [...document.querySelectorAll('#view input[data-path], #view select[data-path], #view textarea[data-path]')]
     .filter(vis).map((x) => x.dataset.path);
   const view = document.querySelector('#view').cloneNode(true);
-  for (const x of view.querySelectorAll('[data-project-target], [data-unused-bar], [hidden], option, select')) x.remove();
+  for (const x of view.querySelectorAll('[data-project-target], [hidden], option, select')) x.remove();
   return { unused: fields.filter((p) => unusedWhy(p) !== null), fields: fields.length, text: view.innerText };
 }"""
 
@@ -96,18 +96,10 @@ class TargetView(OnlineBase):
         self.open()
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.evaluate("() => projectTarget()"), target)
-        hidden = self.sweep(target)
-        # Every field is back with Show fields the target does not use.
-        pg.evaluate("() => setShowAll(true)")
-        more = 0
-        for name, show in self.pages():
-            show()
-            r = pg.evaluate(SWEEP)
-            more += r["fields"] - hidden.get(name, {"fields": 0})["fields"]
-        if target != "openplc":
-            self.assertGreater(more, 0)
-        pg.evaluate("() => setShowAll(false)")
-        pg.wait_for_function("async () => (await (await fetch('/api/ui')).json()).show_all_fields === 'off'")
+        self.sweep(target)
+        # Nothing is listed or asked about what the target does not use (target-cleans-up).
+        self.assertEqual(pg.locator("[data-unused-bar], #show-all-fields").count(), 0)
+        self.assertTrue(pg.is_hidden("[data-unsaved]"))
 
     def test_openplc(self):
         self.check("openplc")
@@ -121,6 +113,8 @@ class TargetView(OnlineBase):
         pg = self.page
         tree_node(self.page, 1, "supervision")
         self.assertTrue(pg.is_visible('#node-panel select[data-supervision]'))
+        # CODESYS reads the node's emergencies itself: no EMCY section.
+        self.assertEqual(pg.locator("#node-panel [data-emcy-section]").count(), 0)
 
     def test_messages_without_a_windows_path(self):
         # Readable problem messages: a config path with a drive letter goes too.
