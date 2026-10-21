@@ -8,7 +8,7 @@
 Build an ordered, de-duplicated list of `(type, id, version)` for type 15:
 1. For every type-15 device in the project (`proj.get_children(True)`), if its parent's identification equals the chosen interface's identification: that bus's identification. These fit by construction (same interface type already holds one).
 2. Every other type-15 device's identification in the project.
-3. `repo.get_all_devices()` type 15, highest version per id, stock id last.
+3. `repo.get_all_devices()` type 15, highest version per id, stock id first (a plain PLC that accepts any CANbus keeps getting the stock one; a refused try costs nothing).
 De-duplicate by (id, version); within 1 and 2 newest version first.
 
 Try `_add` with each until one succeeds; collect `(identification, message)` for the refusals. The cost is one `add` attempt per candidate; projects and repositories hold few CANbus types (typically 1 to 5).

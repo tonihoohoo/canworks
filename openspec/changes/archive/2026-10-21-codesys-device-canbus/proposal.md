@@ -9,8 +9,7 @@ The same report also had 22 near-identical warnings ("device X also has a CANope
 - **A new CANbus that fits the interface.** When the chosen device has no CANbus with the network's number, the script tries CANbus devices (type 15) under the interface in this order and keeps the first one CODESYS accepts:
   1. CANbus devices already used in the project under a CAN interface of the same device type as this one (same identification as the chosen interface), newest version first;
   2. other CANbus devices used anywhere in the project;
-  3. other CANbus devices installed in CODESYS (highest version per id);
-  4. the stock CANbus last.
+  3. the CANbus devices installed in CODESYS (highest version per id), the stock CANbus first among them so a plain PLC keeps getting it.
   A refusal adds nothing, so trying the next one is safe. Only when every CANbus is refused does it fall back to a manager directly under the interface, as today.
 - **The manager matches the bus.** A manager added under a vendor CANbus uses the manager version that bus's siblings in the project use, else the one matching the bus version, else the highest installed (as today).
 - **Report** says which CANbus it added and why ("CANbus <id> <version>, as used by device X"), and when nothing fits, the error lists every CANbus it tried with CODESYS's message.

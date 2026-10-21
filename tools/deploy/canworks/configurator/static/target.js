@@ -651,7 +651,17 @@ async function codesysBuild() {
     banner(e.message, true);
     return;
   }
-  const text = r.ok ? "CODESYS built the bus into the project." : "The CODESYS build failed." + (r.hint ? " " + r.hint : "");
-  await modal(text, [["close", "Close", true]], el("pre", { class: "codesys-report", dataset: { codesysReport: "1" } }, r.output || r.report || ""));
-  banner(r.ok ? "CODESYS built the bus into the project." : "The CODESYS build failed." + (r.hint ? " " + r.hint : ""), !r.ok);
+  const report = r.output || r.report || "";
+  const device = codesysReportDevice(report);
+  const text = r.ok ? `CODESYS built the bus into ${device || "the project"}.`
+    : "The CODESYS build failed" + (device ? ` on ${device}` : "") + "." + (r.hint ? " " + r.hint : "");
+  await modal(text, [["close", "Close", true]], el("pre", { class: "codesys-report", dataset: { codesysReport: "1" } }, report));
+  banner(text, !r.ok);
+}
+
+// The device the CODESYS report's device line names, with its reason:
+// "device   ExampleApp (active application)" -> "ExampleApp (active application)".
+function codesysReportDevice(report) {
+  const m = /^device\s+(.+?)\s*$/m.exec(report || "");
+  return m ? m[1] : "";
 }
