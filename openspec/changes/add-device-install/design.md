@@ -38,7 +38,7 @@ The page turns the JSON into rows; the logic (what the project needs, which acti
 
 ## Actions
 
-`plan(probe, project, pc_version)` gives one main action and the row actions:
+`plan(probe, project, latest, pc_version)` gives one main action and the row actions:
 
 | State | Main action |
 |---|---|
@@ -46,12 +46,12 @@ The page turns the JSON into rows; the logic (what the project needs, which acti
 | runtime, no plugin | **Install canworks X** |
 | plugin older than X | **Update A → X** |
 | plugin built for another runtime version | **Rebuild for runtime vN** (also when the version is equal) |
-| plugin newer than X | none; "This device has canworks A, newer than these PC tools (X). Update the PC tools." |
+| all current, PC tools older than the device | none, "Up to date", plus a note: "The PC tools (P) are older than this device's canworks (X). Update the PC tools." |
 | bridge project, no bridge | **Install and start this project's bridge** |
 | bridge older than X or instance config differs | **Update A → X** / **Start this project's bridge** |
 | all current | none, "Up to date" |
 
-X is the PC tools' version. A release for X must exist (checked through the same `releases/latest` / tag URL the scripts use); a PC tools build without a release (development) offers the newest release with a note. Options fold under the main action: remote link (on by default, it stays off the internet until the config says so), discovery (on), protocols (both).
+X is the newest release (Toni 2026-10-21: "Version: latest"), found through the same `releases/latest` redirect the scripts use and cached for the page's session; **Check again** looks again. The job passes `--version X`, so the version the page named is the one installed even when a release lands meanwhile. When the newest release cannot be found from the PC, the probe's device-side lookup is used; when neither works, the action is disabled with the reason. Options fold under the main action: remote link (on by default, it stays off the internet until the config says so), discovery (on), protocols (both).
 
 Not offered when the probe forbids it, with the reason in one line: no systemd, no internet, less than 2 GB free, sudo refused, another job running.
 
@@ -88,7 +88,7 @@ Row action **Uninstall** per part (plugin: `install-runtime.sh --uninstall`; bri
 
 - **System `ssh` with `SSH_ASKPASS`**: no new dependency, but password handling on older Windows 10 OpenSSH builds is unreliable and every question would still be a terminal prompt somewhere. Rejected.
 - **Running the job over the SSH session (`ssh -t`)**: what the scripts do today; a sleeping laptop kills a long build. Kept for the terminal route only.
-- **Install the newest release**: the device could then be ahead of the configurator's config format. The PC tools' version is the safer default.
+- **Install the PC tools' own version**: keeps the configurator and the device on one version, but holds a device back whenever the PC tools are not updated. Toni chose the newest release; the page says when the PC tools are older than the device.
 
 ## Risks
 

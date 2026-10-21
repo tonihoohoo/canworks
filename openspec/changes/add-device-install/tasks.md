@@ -11,7 +11,7 @@
 - [ ] 2.1 `paramiko` dependency (floor without known vulnerabilities), installer checks
 - [ ] 2.2 `devices.json` store per project folder (no secrets); own `known_hosts`; `canworks_ed25519` key creation and `authorized_keys` setup
 - [ ] 2.3 SSH layer: agent, default keys, `~/.ssh/config` aliases, password dialog flow, host key trust/changed/forget
-- [ ] 2.4 Probe runner and `plan(probe, project, pc_version)` (main action, row actions, disabled reasons, release of X or newest)
+- [ ] 2.4 Probe runner and `plan(probe, project, latest, pc_version)` (main action, row actions, disabled reasons, newest release lookup with device-side fallback, PC-tools-older note)
 - [ ] 2.5 Install job: sudo -S once, SFTP of the bridge config folder, `systemd-run` + lock + log, follow from offset, resume from probe, stop, error sentences
 - [ ] 2.6 First runtime user after `--with-openplc` (runtime API, password not kept)
 - [ ] 2.7 Uninstall and Remove everything; Remove device

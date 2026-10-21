@@ -4,8 +4,8 @@
 The configurator SHALL have a **Devices** workspace next to Configure and Commission. It SHALL list the open project's devices, remembered on the PC per project folder in `devices.json` in the settings folder (host, port, SSH user, key choice, trusted host key, last probe result and its time; never a password), with **Add device…** and the devices runtime discovery finds that are not in the list yet. Selecting a device SHALL show its page: a header line with the SSH user, host, system, architecture, free disk and internet access, then one row per part (OpenPLC runtime, canworks plugin, Modbus bridge, remote link, CAN interfaces) with what the device has, what this project needs and that row's action. Parts the project's target does not use SHALL be shown muted with no action. A CODESYS project SHALL show one line that CODESYS installs its runtime itself and offer no action.
 
 #### Scenario: OpenPLC project with an old plugin
-- **WHEN** an OpenPLC project's device has plugin 0.93.4 and the PC tools are 0.98.0
-- **THEN** the plugin row says `0.93.4`, the project column says `needs 0.98.0`, and the main action is **Update 0.93.4 → 0.98.0**
+- **WHEN** an OpenPLC project's device has plugin 0.93.4 and the newest release is 0.98.0
+- **THEN** the plugin row says `0.93.4`, the project column says `newest 0.98.0`, and the main action is **Update 0.93.4 → 0.98.0**
 
 #### Scenario: Bridge row in an OpenPLC project
 - **WHEN** an OpenPLC project's device has no bridge
@@ -49,11 +49,11 @@ Before any change, the configurator SHALL read the device's state with a read-on
 - **THEN** the plugin row says it is off because it was built for v4.2.4, and the main action is **Rebuild for runtime v4.2.5**
 
 ### Requirement: One main action
-Each device SHALL get at most one main action, chosen from the probe, the project's target and the PC tools' version X: **Install OpenPLC Runtime and canworks** (OpenPLC project, no runtime), **Install canworks X** (runtime, no plugin), **Update A → X** (plugin older than X), **Rebuild for runtime vN** (plugin built for another runtime version), **Install and start this project's bridge** (bridge project, no bridge), **Update A → X** (bridge older than X), **Start this project's bridge** (bridge current, no instance with this project's saved config), or none with "Up to date". The version installed SHALL be X when a release of X exists, and otherwise the newest release with a note. A device with a newer canworks than X SHALL get no main action and the message to update the PC tools. An action the device cannot run SHALL be shown disabled with one sentence why: no systemd, no internet access, under 2 GB free, sudo refused, another install job running. The remote link, discovery and protocol options SHALL be folded under the main action, with the link and discovery on by default.
+Each device SHALL get at most one main action, chosen from the probe, the project's target and the newest `deploy-v` release X (found from the `releases/latest` redirect, as the install scripts do): **Install OpenPLC Runtime and canworks** (OpenPLC project, no runtime), **Install canworks X** (runtime, no plugin), **Update A → X** (plugin older than X), **Rebuild for runtime vN** (plugin built for another runtime version), **Install and start this project's bridge** (bridge project, no bridge), **Update A → X** (bridge older than X), **Start this project's bridge** (bridge current, no instance with this project's saved config), or none with "Up to date". The job SHALL install exactly the X the page named (`--version X`). When the PC tools are older than the canworks on the device, the page SHALL say so in one line with how to update the PC tools; it SHALL NOT block or downgrade. When the newest release cannot be found, the actions SHALL be disabled with that reason. An action the device cannot run SHALL be shown disabled with one sentence why: no systemd, no internet access, under 2 GB free, sudo refused, another install job running. The remote link, discovery and protocol options SHALL be folded under the main action, with the link and discovery on by default.
 
-#### Scenario: Device ahead of the PC
-- **WHEN** the device has plugin 0.99.0 and the PC tools are 0.98.0
-- **THEN** no install action is offered and the page says to update the PC tools
+#### Scenario: PC tools older than the device
+- **WHEN** the newest release and the device's plugin are 0.99.0 and the PC tools are 0.98.0
+- **THEN** the plugin row says up to date and one line says to update the PC tools, with no install action
 
 #### Scenario: No internet on the device
 - **WHEN** the probe reports no access to the release host
