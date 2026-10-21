@@ -49,6 +49,19 @@ check '[ -f "$T/etc/line1/canworks.json" ]' "uninstall keeps the configs"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall --purge > "$T/out"
 check '[ ! -e "$T/etc" ]' "--purge removes the configs"
 
+# A prefix shared with the canworks plugin: uninstalling the bridge keeps the
+# plugin's VERSION and its can-j1939 boot entry.
+mkdir -p "$T/shared/lib"
+: > "$T/shared/lib/libcanworks_plugin.so"
+echo 0.98.1 > "$T/shared/VERSION"
+CANWORKS_DEFAULT_PREFIX="$T/shared" "$REPO/scripts/install-bridge.sh" --prefix "$T/shared" --no-deps --without-canopen \
+    --binary "$BIN_SRC" > "$T/out"
+echo 0.98.1 > "$T/shared/VERSION"
+CANWORKS_DEFAULT_PREFIX="$T/shared" "$REPO/scripts/install-bridge.sh" --prefix "$T/shared" --uninstall > "$T/out"
+check '[ ! -e "$T/shared/bin/canworks-bridge" ] && grep -qx 0.98.1 "$T/shared/VERSION" &&
+       grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "uninstall beside the plugin keeps the plugin's files"
+rm -rf "$T/shared"
+
 # A prefix whose venv another Python made (the runtime's Docker container).
 mkdir -p "$T/docker/venv/bin"
 printf 'home = /usr/local/bin\nversion = 3.0.1\n' > "$T/docker/venv/pyvenv.cfg"

@@ -362,9 +362,16 @@ if [ "$UNINSTALL" -eq 1 ]; then
         "$SYSTEMCTL" disable --now "$u" >/dev/null 2>&1 || true
         say "Stopped $u"
     done
-    rm -f "$UNIT" "$BIN" "$PREFIX/VERSION"
+    rm -f "$UNIT" "$BIN"
+    # A prefix shared with the canworks plugin keeps the plugin's VERSION, and
+    # the plugin keeps loading can-j1939 at boot.
+    [ -e "$PREFIX/lib/libcanworks_plugin.so" ] || rm -f "$PREFIX/VERSION"
     "$SYSTEMCTL" daemon-reload || true
-    rm -f "$MODULES_LOAD"
+    if [ -e "$DEFAULT_PREFIX/lib/libcanworks_plugin.so" ]; then
+        say "Keeping $MODULES_LOAD (the canworks plugin uses can-j1939 too)"
+    else
+        rm -f "$MODULES_LOAD"
+    fi
     if [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
         # Installed for the runtime (install-stock.sh --with-link) or another config.
         say "The remote link serves another config and stays"

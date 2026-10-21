@@ -259,6 +259,21 @@ class Installer(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("leave no protocol to build", p.stderr)
 
+    def test_bridge_keeps_the_j1939_boot_entry(self):
+        # The Modbus bridge loads can-j1939 from the same entry: a plugin
+        # without J1939 leaves it while the bridge is installed.
+        self.write_spec()
+        unit = os.path.join(self.dir, "canworks-bridge@.service")
+        open(unit, "w").close()
+        conf = os.path.join(self.modules, "canworks-j1939.conf")
+        os.makedirs(self.modules, exist_ok=True)
+        with open(conf, "w") as f:
+            f.write("can-j1939\n")
+        p = self.run_script("--without-j1939", CANWORKS_BRIDGE_UNIT=unit)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue(os.path.exists(conf))
+        self.assertIn("the Modbus bridge uses can-j1939 too", p.stdout)
+
     def test_missing_module_warns(self):
         self.write_spec()
         p = self.run_script(CANWORKS_MODPROBE="false")

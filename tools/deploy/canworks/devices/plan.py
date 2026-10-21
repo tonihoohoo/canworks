@@ -150,13 +150,15 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         running = [i["name"] for i in instances if i.get("state") == "active"]
         if running:
             have.append("running: %s" % ", ".join(running))
+        if bridge.get("unit") is False:
+            have.append("no service")
         bcur = version_tuple(bridge.get("version"))
     else:
         have, bcur, running = ["not installed"], None, []
     current_cfg = bool(mine and config_sha256 and mine.get("sha256") == config_sha256)
     bstate = "off"
     if need_bridge:
-        bstate = "ok" if bridge and (not new or (bcur and bcur >= new)) and current_cfg \
+        bstate = "ok" if bridge and bridge.get("unit") is not False and (not new or (bcur and bcur >= new)) and current_cfg \
             and mine.get("state") == "active" else "warn"
     elif bridge:
         bstate = "ok"
@@ -165,9 +167,9 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
                  "used": need_bridge, "uninstall": bool(bridge)})
     if need_bridge:
         restart = "Running bridges restart." if running else ""
-        if not bridge:
+        if not bridge or bridge.get("unit") is False:
             main = _main("install_bridge", "Install and start this project's bridge", latest)
-        elif bcur and new and bcur < new:
+        elif new and (bcur is None or bcur < new):
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart])
         elif not current_cfg or not mine or mine.get("state") != "active":
             main = _main("bridge_config", "Start this project's bridge", latest,

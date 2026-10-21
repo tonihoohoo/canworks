@@ -79,6 +79,16 @@ WITH_CANOPEN=1
 WITH_J1939=1
 # J1939 needs the kernel's can-j1939 module (overridable for the tests).
 MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.conf
+BRIDGE_UNIT=${CANWORKS_BRIDGE_UNIT:-/etc/systemd/system/canworks-bridge@.service}
+
+# The Modbus bridge (install-bridge.sh) loads can-j1939 from the same entry.
+remove_j1939_load() {
+    if [ -f "$BRIDGE_UNIT" ]; then
+        [ ! -f "$MODULES_LOAD" ] || say "Keeping $MODULES_LOAD (the Modbus bridge uses can-j1939 too)"
+    else
+        rm -f "$MODULES_LOAD"
+    fi
+}
 MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 # Remote access (scripts/install-link.sh).
 WITH_LINK=0
@@ -144,7 +154,7 @@ fi
 # Loads can-j1939 now and at every boot; without J1939, removes the entry.
 setup_j1939_module() {
     if [ "$WITH_J1939" -eq 0 ]; then
-        rm -f "$MODULES_LOAD"
+        remove_j1939_load
         return 0
     fi
     if ! { mkdir -p "$(dirname "$MODULES_LOAD")" && echo can-j1939 > "$MODULES_LOAD"; } 2>/dev/null; then
@@ -295,7 +305,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
             rm -rf "${PREFIX:?}/lib"
             rm -f "$PREFIX/VERSION"
         fi
-        rm -f "$MODULES_LOAD"
+        remove_j1939_load
         remove_remote_access
         say "Done. The runtime runs without canworks."
         exit 0
@@ -418,7 +428,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     remove_old_install
     remove_editor_hook
     remove_sim_link
-    rm -f "$MODULES_LOAD"
+    remove_j1939_load
     remove_remote_access
     if [ -x "$PREFIX/venv/bin/python" ]; then
         "$PREFIX/venv/bin/python" -m pip uninstall -q -y canworks >/dev/null 2>&1 || true
