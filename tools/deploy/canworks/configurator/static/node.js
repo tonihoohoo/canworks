@@ -7,14 +7,14 @@
 const NODE_TABS = [["general", "General"], ["pdos", "PDOs"], ["sdos", "SDOs"], ["supervision", "Supervision"],
   ["cia402", "CiA 402"], ["simulation", "Simulation"], ["notes", "Notes"], ["advanced", "Advanced"]];
 
-// The tabs node i has: CiA 402 for a drive when the target runs the axis
-// (or a node with an axis already), Simulation for a simulated node.
+// The tabs node i has: CiA 402 for a drive (or a node with an axis already)
+// when the target runs the axis, Simulation for a simulated node.
 function nodeTabs(i) {
   const n = S.config.nodes[i];
   const eds = edsFor(n);
   const drive = !!(objectInfo(eds, "0x6040", 0) && objectInfo(eds, "0x6041", 0));
   const axis = !!n.axis && typeof n.axis === "object";
-  return NODE_TABS.filter(([k]) => (k !== "cia402" || (drive && usedBy("nodes.axis")) || axis) && (k !== "simulation" || nodeSimulated(n)));
+  return NODE_TABS.filter(([k]) => (k !== "cia402" || ((drive || axis) && shownFor("nodes.axis"))) && (k !== "simulation" || nodeSimulated(n)));
 }
 
 function nodeTab(i) {
@@ -63,8 +63,8 @@ function renderNode(view, i) {
       renderPdos(i, "tx_pdos", "input", "Inputs (TPDOs, slave to PLC)", eds),
       renderPdos(i, "rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", eds)));
   } else if (tab === "sdos") {
-    // SDO variables are the plugin's: shown for another target only while the node still has some.
-    panel.append(renderSdos(i, eds), ...(usedBy("nodes.sdo_variables") || (n.sdo_variables || []).length ? [renderSdoVars(i, eds)] : []));
+    // SDO variables are the plugin's and the bridge's.
+    panel.append(renderSdos(i, eds), ...(shownFor("nodes.sdo_variables") ? [renderSdoVars(i, eds)] : []));
   } else if (tab === "supervision") {
     panel.append(supervisionTab(i, eds));
   } else if (tab === "cia402") {

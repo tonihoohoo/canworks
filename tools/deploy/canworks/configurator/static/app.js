@@ -1475,7 +1475,10 @@ function render() {
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
     : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
-  if (!S.state.commission && S.model) badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · " + TARGET_TITLE[projectTarget()]));
+  if (!S.state.commission && S.model) {
+    badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · " + TARGET_TITLE[projectTarget()]));
+    if (S.showAll) badge.append(el("span", { class: "target-mark", dataset: { showAllMark: "1" }, title: "Settings > Show fields the target does not use is on" }, " · all fields"));
+  }
   if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
   const commission = !!S.state.commission;
@@ -1501,7 +1504,10 @@ function render() {
     if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
     if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
     if (S.view === "codesys" && !codesysOn()) S.view = "bus";
-    if (S.view === "access" && !usedBy("ui:runtime") && S.model.diagnostics === undefined && S.model.cia309 === undefined) S.view = "bus";
+    if (S.view === "access" && !shownFor("ui:runtime")) S.view = "bus";
+    if (S.view === "raw" && !shownFor("raw")) S.view = "bus";
+    if (S.view === "gateway" && !shownFor("/gateway")) S.view = "bus";
+    if (S.view === "declarations" && !shownFor("ui:declarations")) S.view = "bus";
     if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   }
   // The view belongs to the workspace shown (shell.js).
@@ -1546,6 +1552,8 @@ function renderSide() {
   const unused = S.state.unused_eds || [];
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
+  // The editor project's address scan is OpenPLC's.
+  $("#scan-info").hidden = !!S.model && !usedBy("ui:editor_project");
   $("#scan-info").textContent = S.state.mode === "project"
     ? `Project addresses scanned ${S.state.scanned_at}: ${S.state.project_uses.length} in use.`
     : "Standalone: address checks against an editor project are skipped.";
@@ -1557,7 +1565,7 @@ const BUS_DIAG = [
   ["tx_error_count_location", "TX errors", "%IB…", "The controller's transmit error counter (0-255). Empty: none."],
   ["rx_error_count_location", "RX errors", "%IB…", "The controller's receive error counter (0-255). Empty: none."],
   ["bus_off_count_location", "Bus-off count", "%IW…",
-    "Bus-off events since the PLC started, also those shorter than a scan. Empty: none."],
+    "bus_off_count"],
   ["state_location", "Master state", "%IB…",
     "The master's own NMT state: 5 operational, 127 pre-operational (start off, or a mandatory node missing), 4 stopped. Empty: none."],
 ];
@@ -1579,8 +1587,11 @@ function switchAdapterType(type) {
 // network, real on a real one), so switching the network sets every node back
 // to that default.
 
-function simNetwork(net = S.config) { return !!(net && net.adapter && net.adapter.simulate === true); }
-function nodeSimulated(n, net = S.config) { return n.simulate === undefined ? simNetwork(net) : n.simulate === true; }
+// A target that runs no canworks simulation (CODESYS) simulates nothing,
+// whatever its config still says.
+function simIgnored() { return !!S.model && !!S.state && !!S.state.targets && !usedBy("ui:simulation"); }
+function simNetwork(net = S.config) { return !simIgnored() && !!(net && net.adapter && net.adapter.simulate === true); }
+function nodeSimulated(n, net = S.config) { return !simIgnored() && (n.simulate === undefined ? simNetwork(net) : n.simulate === true); }
 function netSimulates(net) { return simNetwork(net) || (net.nodes || []).some((n) => nodeSimulated(n, net)); }
 function anySimulated() { return !!S.model && S.model.networks.some(netSimulates); }
 function nodeIds(list) { return list.map((n) => n.node_id ?? "?").join(", "); }
@@ -1716,7 +1727,7 @@ function networkSettings() {
         { value: undefined, label: "Real",
           help: "The CAN adapter below. Nodes switched to Simulated run as simulated devices inside the plugin on the same interface, next to the real devices." },
         { value: true, label: "Simulated",
-          help: "A virtual bus inside the plugin: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back." },
+          help: targetText("sim_network") },
       ], { onChange: (v) => setNetwork(v === true) })),
     el("div", { class: "toolbar" },
       el("span", { dataset: { sim: "nodes" } }, nodes.length
@@ -1742,10 +1753,11 @@ function slaveNetworkSettings() {
       } })));
 }
 
-// Whether the page offers simulated devices: the target runs canworks, or
-// the network still simulates something (shown, so it can be switched off).
-function simulationShown(net = S.config) {
-  return usedBy("ui:simulation") || simNetwork(net) || (net.nodes || []).some((n) => n.simulate !== undefined);
+// Whether the page offers simulated devices: the target runs canworks (or
+// every field is shown). A CODESYS config's leftover `simulate` is listed in
+// the page's bar instead (target.js).
+function simulationShown() {
+  return shownFor("ui:simulation");
 }
 
 // The node page's Simulated switch.
@@ -1799,17 +1811,17 @@ function adapterFieldset() {
         field("Interface", a + ".interface", "text", { list: "ifaces", placeholder: "can0",
           hint: codesysOn() ? "Optional. The bus's name in canworks; a name ending in a number (can1) gives the CODESYS network number when it is not set below."
             : slcan ? "Required. The name the plugin gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."
-            : "Required. The interface on the PLC (the Pi), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus." }),
+            : targetText("interface") }),
         el("label", null, "Bit rate", rateSel, hint("Required. Every node on the bus must use the same rate."),
           el("span", { class: "field-msg", dataset: { for: "adapter.bitrate" } })),
         slcan ? field("Serial speed (baud)", a + ".serial_baudrate", "int", { placeholder: "leave as is",
           hint: "Only for adapters behind a real serial port, such as the FTDI-based Lawicel CANUSB. A CANable ignores it." }) : null,
         slcan ? el("p", { class: "hint wide" },
           "slcan firmware does not report the CAN error state: the bus state input shows only whether the link is up, and the error counters read 0. For error state and counters, flash a CANable with candleLight firmware and use SocketCAN.") : null,
-        slcan ? null : checkbox("Plugin sets up the link (bit rate, up)", a + ".configure_link", true,
+        slcan ? null : checkbox(targetText("configure_link"), a + ".configure_link", true,
           "Off: the interface must already be up at the right rate, for example from the OS network setup."),
         slcan ? null : field("Bus-off restart (ms)", a + ".restart_ms", "intstr", { placeholder: "not set",
-          hint: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the plugin sets up the link." })),
+          hint: targetText("restart") })),
       el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v }))));
 }
 
@@ -1854,9 +1866,9 @@ function renderBus(view) {
           hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (RPDOs and raw sends; SYNC goes on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }),
         choice("EDS lint (dcfgen)", "master.eds_lint", [
           { value: undefined, literal: "communication", label: "Communication objects",
-            help: "Default. The PLC stops only on lint findings in the objects 0x1000-0x1FFF that dcfgen writes, and not on findings only about limits. Other findings are logged as one warning per EDS." },
-          { value: "all", label: "Every object", help: "The PLC stops on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it." },
-          { value: "off", label: "Off", help: "The PLC never stops on a lint finding; findings are logged as one warning per EDS." },
+            help: targetText("lint_communication") },
+          { value: "all", label: "Every object", help: targetText("lint_all") },
+          { value: "off", label: "Off", help: targetText("lint_off") },
         ]))),
     el("fieldset", null, el("legend", null, "Bus diagnostics"),
       el("p", { class: "muted" }, "Optional inputs that let the program tell a bus fault (cable, termination, bit rate) from one missing node."),
@@ -1870,7 +1882,7 @@ function renderBus(view) {
           } }, "Suggest");
         return el("label", null, label, el("span", { class: "row" },
           field("", path, "text", { placeholder }).querySelector("input"), btn),
-          hint(help),
+          hint(TARGET_TEXT[help] ? targetText(help) : help),
           el("span", { class: "field-msg", dataset: { for: path } }),
           declNote(path));
       })))]),
@@ -2027,7 +2039,7 @@ const BINDABLE = { rww: "input", rw: "input", ro: "output", rwr: "output" };
 function roleField() {
   return el("fieldset", null, el("legend", null, "Role"),
     el("div", { class: "grid" }, choice("This network", "role", [
-      { value: undefined, literal: "master", label: "Master", help: "Default. The plugin is the network's master: it boots and configures the nodes listed here." },
+      { value: undefined, literal: "master", label: "Master", help: targetText("role_master") },
       { value: "slave", label: "Slave", help: "Another master runs this network; the plugin is one of its nodes, with an EDS for that master's tool." },
     ], { onChange: switchRole })));
 }
@@ -2176,7 +2188,7 @@ function slaveObjects(eds) {
   fs.append(el("p", { class: "muted" }, "Objects the master writes (AccessType rww or rw) are PLC inputs; objects the " +
       "program writes (ro or rwr) are PLC outputs the master reads. The name is optional and names the variable."),
     el("div", { class: "objects", dataset: { box: "slave_objects", boxLabel: "the bound objects" } }, el("table", { class: "slave-objects" },
-      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", "PLC location", "Name", ""]))),
+      el("thead", null, el("tr", null, thCells(["Object", "EDS name", "Type and direction", targetText("location_column"), "Name", ""]))),
       el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: 6, class: "muted" }, "No objects yet. Bind an object of the slave's dictionary to a PLC location below, so the master can read or write it."))))),
     free.length ? el("div", { class: "toolbar" }, pick, el("button", { type: "button", dataset: { bind: "1" },
       onclick: async () => {
@@ -2648,7 +2660,7 @@ function nodeAdvanced(i, eds) {
   const hex8 = (v) => "0x" + v.toString(16).toUpperCase().padStart(8, "0");
   const ltf = num(n.life_time_factor);
   return advanced("node" + i, "Advanced node settings", base, keys,
-    el("p", { class: "muted" }, "dcfgen's node options. Empty node-side fields write nothing, so the node keeps its EDS values."),
+    el("p", { class: "muted" }, "Node options canworks writes into the node's DCF. Empty node-side fields write nothing, so the node keeps its EDS values."),
     el("h3", null, "Boot"),
     el("div", { class: "grid" },
       checkbox("Mandatory", base + ".mandatory", false,
@@ -2888,8 +2900,8 @@ function renderPdos(i, key, dir, title, eds) {
   const count = eds && eds.pdo_count ? eds.pdo_count[dir] : 0;
   fs.append(el("p", { class: "muted" }, `${pdos.length} of ${count} PDOs defined in the EDS used. Add entries with "Add entry…" (a new PDO is started when the open ones are full).`));
   // The Location column is the target's: CODESYS assigns the addresses itself
-  // (shown while an entry still has one, so it can be removed).
-  const locations = usedBy(`nodes.${key}.entries.iec_location`) || pdos.some((p) => (p.entries || []).some((e) => e.iec_location));
+  // (a location left in an entry is listed in the tab's bar, target.js).
+  const locations = shownFor(`nodes.${key}.entries.iec_location`);
   pdos.forEach((p, j) => {
     const pb = `nodes[${i}].${key}[${j}]`;
     const bits = (p.entries || []).reduce((s, e) => s + (S.state.type_bits[e.type] || 0), 0);
@@ -2952,7 +2964,7 @@ function renderPdos(i, key, dir, title, eds) {
         el("td", { colspan: columns }, bitTable(i, dir, ep, e, info, eds)))] : [row];
     });
     box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Variable"]
-      .concat(locations ? ["PLC location"] : [], ["PDO", ""])))),
+      .concat(locations ? [targetText("location_column")] : [], ["PDO", ""])))),
       el("tbody", null, rows.flat())));
     fs.append(box);
   });
@@ -3172,7 +3184,7 @@ function bitTable(i, dir, ep, e, info, eds) {
         onclick: (ev) => mapAllBits(i, dir, ep, ev.currentTarget) }, "Map all bits") : null,
       mapped ? el("button", { type: "button", class: "small", dataset: { unmapAllBits: ep }, onclick: () => unmapAllBits(ep) }, "Unmap all") : null),
     el("table", { class: "bits" }, el("thead", null, el("tr", null, thCells(["Bit", "Device note", "Map", "Variable"]
-      .concat(located ? ["PLC location"] : bridge ? ["Modbus"] : [])))), el("tbody", null, rows)));
+      .concat(located ? [targetText("location_column")] : bridge ? ["Modbus"] : [])))), el("tbody", null, rows)));
 }
 
 // A PDO's communication settings under one summary line ("COB-ID 0x185 ·
@@ -3209,7 +3221,7 @@ function pdoSummaryText(pb, dir, p, j, eds) {
   }
   const ev = p.event_timer_ms !== undefined ? num(p.event_timer_ms) : sub(5) ? sub(5).value : null;
   if (ev) parts.push(`${dir === "input" ? "event" : "deadline"} ${ev} ms`);
-  if (dir === "input" && p.timeout_ms !== undefined) parts.push(p.timeout_ms === "auto" ? "timeout auto" : `timeout ${p.timeout_ms} ms`);
+  if (dir === "input" && p.timeout_ms !== undefined && shownFor("nodes.tx_pdos.timeout_ms")) parts.push(p.timeout_ms === "auto" ? "timeout auto" : `timeout ${p.timeout_ms} ms`);
   return parts.join(" · ");
 }
 
@@ -3720,7 +3732,7 @@ function renderSdos(i, eds) {
     });
     const parts = [];
     if (why.signal) parts.push(`${why.signal} process signal${why.signal === 1 ? "" : "s"} (PDO-mappable, map them in a PDO)`);
-    if (why.plugin) parts.push(`${why.plugin} communication object${why.plugin === 1 ? "" : "s"} the plugin sets from the node's settings`);
+    if (why.plugin) parts.push(`${why.plugin} ${targetText("sdo_hidden").replace(/^communication objects/, why.plugin === 1 ? "communication object" : "communication objects")}`);
     if (why.listed) parts.push(`${why.listed} already in the list`);
     hidden.textContent = parts.length ? "Hidden: " + parts.join(", ") + "." : "";
     body.replaceChildren(...shown
@@ -4225,7 +4237,7 @@ function onlineAccessSettings() {
   on.checked = !!d;
   on.addEventListener("change", () => enableOnline(on.checked));
   const fs = el("fieldset", { dataset: { section: "online" } }, el("legend", null, several() ? "Online access (all networks)" : "Online access"),
-    el("p", { class: "muted" }, "Lets this configurator (and canworks-diag) watch the live network from this PC: node states, boot errors, emergencies, SDO values, and a scan of the bus. Off by default; the plugin opens no port without it."),
+    el("p", { class: "muted" }, "Lets this configurator (and canworks-diag) watch the live network from this PC: node states, boot errors, emergencies, SDO values, and a scan of the bus. " + targetText("diag_port")),
     el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Online access (diagnostics channel)")));
   if (!d) return fs;
   const allow = el("input", { type: "checkbox", dataset: { path: "master.diagnostics.allow_changes" } });
@@ -7508,13 +7520,13 @@ function applyCheck() {
   const focusedAt = focused ? [...list.children].indexOf(focused) : -1;
   list.replaceChildren();
   const items = (S.check && S.check.items) || [];
+  // Settings the target does not use are one problem (target.js), and no field shows their message.
+  const unused = items.filter(isUnusedItem);
   for (const it of items) {
+    if (unused.includes(it)) continue;
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
-      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])),
-      // A setting the target does not use goes with one click (target.js).
-      it.unused && it.removable && where[0] ? el("button", { type: "button", class: "small", dataset: { problemRemove: where[0].path },
-        title: "Remove this setting from the config", onclick: () => removeUnused(where[0]) }, "Remove") : null);
+      onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
     list.append(li);
     for (const w of where) {
       // Fields of another network's tab are not on the page.
@@ -7529,12 +7541,14 @@ function applyCheck() {
       }
     }
   }
+  if (unused.length) list.append(unusedProblem(unused));
   if (!items.length && S.check) list.append(el("li", { class: "ok" }, Icons.stateIcon("ok", { label: false }), "No problems."));
   if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
   // The overlap override goes with the overlap errors, and stays while ticked.
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
   $("#overlap-box").hidden = !(S.state && S.state.mode === "project" && (overlaps || $("#allow-overlap").checked));
   fillCounts(countProblems());
+  if (typeof unusedBar === "function") unusedBar();
   updateSave();
 }
 
@@ -7567,8 +7581,10 @@ function fillCounts(c) {
 // A check message without the parts meant for the command line: the file
 // name, the config path ("nodes[2]: tx_pdos[1]: entries[0]: ") and the node
 // the place label already names.
+const CONFIG_PATH_LEAD = /^(?:[A-Za-z]:)?[^:]*canworks\.json: /;
 function readable(m) {
-  let t = m.replace(/^[^:]*canworks\.json: /, "");
+  // The config file's path first, a Windows one with its drive letter too.
+  let t = m.replace(CONFIG_PATH_LEAD, "");
   while (/^[a-z_]+(\[\d+\])?(\.[a-z_]+(\[\d+\])?)*: /.test(t)) t = t.replace(/^[^:]*: /, "");
   t = t.replace(/^node \d+( \([^)]*\))?( [TR]PDO \d+)?(, |: )/, "");
   t = t.replace(/^object (0x[0-9A-Fa-f]+:\d+): /, "$1: ");
@@ -7588,7 +7604,7 @@ function humanise(m) {
   const head = lead ? lead[1].charAt(0).toUpperCase() + lead[1].slice(1) + ": " : "";
   let rest = lead ? lead[2] : m;
   if (/field 'nodes' lists no slave nodes/.test(rest)) return head + NO_NODES_TEXT;
-  rest = rest.replace(/^[^:\s]*canworks\.json: /, "");
+  rest = rest.replace(CONFIG_PATH_LEAD, "");
   const segs = [];
   let mm;
   while ((mm = /^([a-z_]+(?:\[\d+\])?): /.exec(rest))) { segs.push(mm[1]); rest = rest.slice(mm[0].length); }

@@ -5,8 +5,7 @@
 // field, checkbox, choice, getPath, setPath, changed, render, S, ...).
 "use strict";
 
-const RAW_KINDS = [["rx", "Received messages", "Messages the PLC reads from the bus. Their signals go to %I."],
-  ["tx", "Sent messages", "Messages the PLC sends. Their signals come from %Q."]];
+const RAW_KINDS = [["rx", "Received messages", "raw_rx"], ["tx", "Sent messages", "raw_tx"]];
 const RAW_STD_MAX = 0x7FF;
 const RAW_EXT_MAX = 0x1FFFFFFF;
 const RAW_COLORS = 8;
@@ -300,7 +299,7 @@ function renderCanMessages(view) {
         el("td", null, el("button", { type: "button", class: "danger", "aria-label": "Remove " + (m.name || rawHex(m.id)),
           onclick: (e) => { e.stopPropagation(); rawRemove(kind, i); } }, "Remove")));
     });
-    view.append(el("h3", null, title), el("p", { class: "muted" }, help),
+    view.append(el("h3", null, title), el("p", { class: "muted" }, targetText(help)),
       el("table", { class: "od raw-table", dataset: { rawTable: kind } },
         el("thead", null, el("tr", null, thCells(["Name", "Identifier", "DLC", kind === "rx" ? "Timeout" : "Sent", "Signals", ""]))),
         el("tbody", null, rows.length ? rows : el("tr", null, el("td", { colspan: "6", class: "muted" }, "None yet")))),
@@ -485,7 +484,7 @@ function rawDbc() {
       dbcFileButton(rawImportDbc, { raw: "dbc-input" }),
       dbc && !missing ? el("button", { type: "button", dataset: { raw: "pick" }, onclick: () => rawPickFromDbc(dbc) }, "Pick messages…") : null),
     hint("Import copies the DBC file into the config folder when you save, then lists its messages: mark each to receive or to send. " +
-      "Each signal gets a free PLC location of the right size."));
+      targetText("free_location")));
 }
 
 async function rawImportDbc(file) {
@@ -558,7 +557,7 @@ function renderPlainBus(view) {
         choice("Network", "adapter.simulate", [
           { value: undefined, label: "Real", help: "The CAN adapter below." },
           { value: true, label: "Simulated",
-            help: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back." },
+            help: targetText("sim_plain") },
         ], { onChange: (v) => {
           const ad = S.config.adapter || (S.config.adapter = {});
           if (v === true) ad.simulate = true; else delete ad.simulate;

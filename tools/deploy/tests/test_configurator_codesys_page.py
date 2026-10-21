@@ -149,24 +149,39 @@ class CodesysPage(OnlineBase):
         pg.keyboard.press("Control+z")
         pg.wait_for_selector("#tree #nav-codesys")
 
-    def test_keep_marks_the_values(self):
+    def test_keep_hides_the_values(self):
         pg = self.page
         self.open()
         self.to_codesys("keep")
-        # Kept: shown, marked, and in Problems with Remove.
-        self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        self.assertIn("not used by CODESYS", pg.inner_text('[data-unused-for="master.scan_watchdog_ms"]'))
-        self.assertIn("'scan_watchdog_ms' is not used by CODESYS", pg.inner_text("#problem-list"))
-        pg.click('#problem-list [data-problem-remove="master.scan_watchdog_ms"]')
-        self.assertIsNone(pg.evaluate("() => S.config.master.scan_watchdog_ms || null"))
+        # Kept: hidden, listed in the page's bar and in one grouped problem.
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        # The PDO table keeps the location column while entries have locations.
+        self.assertEqual(pg.locator("[data-unused-for]").count(), 0)
+        bar = "[data-unused-bar]"
+        self.assertIn("not used by CODESYS", pg.inner_text(bar))
+        problem = pg.inner_text("#problem-list [data-unused-problem]")
+        self.assertRegex(problem, r"\d+ settings are not used by CODESYS")
+        self.assertNotIn("scan_watchdog_ms", pg.inner_text("#problem-list"))
+        pg.click("#problem-list [data-unused-problem] summary")
+        self.assertIn("Master: Scan watchdog (ms) 500", pg.inner_text("#problem-list"))
+        pg.click('#problem-list [data-problem-remove="master.scan_watchdog_ms"]')
+        self.checked()
+        self.assertIsNone(pg.evaluate("() => S.config.master.scan_watchdog_ms || null"))
+        # The PDO table has no location column although entries have locations.
         tree_node(pg, 0, "pdos")
-        loc = 'input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]'
-        pg.wait_for_selector(loc)
-        self.assertIn("not used by CODESYS", pg.inner_text('[data-unused-for="nodes[0].tx_pdos[0].entries[0].iec_location"]'))
-        pg.click('[data-unused-remove="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        self.assertFalse(pg.is_visible(loc))
+        pg.wait_for_selector("[data-unused-bar]")
+        self.assertEqual(pg.locator('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]').count(), 0)
+        self.assertNotIn("PLC location", pg.inner_text("#node-panel thead"))
+        self.assertEqual(pg.locator("#tree .tree-badge").count(), 0)
+        # Remove all on the tab: one undo step brings the locations back.
+        n = pg.evaluate("() => S.config.nodes[0].tx_pdos.flatMap((p) => p.entries).filter((e) => e.iec_location).length")
+        self.assertGreater(n, 0)
+        pg.click("[data-unused-bar] [data-unused-remove-all]")
+        self.checked()
+        self.assertEqual(pg.evaluate("() => S.config.nodes[0].tx_pdos.flatMap((p) => p.entries).filter((e) => e.iec_location).length"), 0)
+        self.assertEqual(pg.locator("[data-unused-bar]").count(), 0)
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => S.config.nodes[0].tx_pdos.flatMap((p) => p.entries).filter((e) => e.iec_location).length === %d" % n)
 
     def test_leftover_value_in_a_codesys_config(self):
         pg = self.page
@@ -176,11 +191,60 @@ class CodesysPage(OnlineBase):
         self.write_config()
         self.open()
         self.checked()
-        self.assertTrue(pg.is_visible('select[data-path="master.on_plc_stop"]'))
-        self.assertIn("not used by CODESYS", pg.inner_text('[data-unused-for="master.on_plc_stop"]'))
-        self.assertIn("'on_plc_stop' is not used by CODESYS", pg.inner_text("#problem-list"))
-        pg.click('[data-unused-remove="master.on_plc_stop"]')
         self.assertFalse(pg.is_visible('select[data-path="master.on_plc_stop"]'))
+        n = int(pg.get_attribute("[data-unused-bar]", "data-unused-bar"))
+        self.assertIn("%d settings here are not used by CODESYS" % n, pg.inner_text("[data-unused-bar]"))
+        pg.click("[data-unused-bar] summary")
+        self.assertIn("Master: When the PLC stops keep", pg.inner_text("[data-unused-bar]"))
+        self.assertIn("settings are not used by CODESYS", pg.inner_text("#problem-list"))
+        pg.click('[data-unused-bar] [data-problem-remove="master.on_plc_stop"]')
+        self.checked()
+        self.assertIsNone(pg.evaluate("() => S.config.master.on_plc_stop || null"))
+        self.assertEqual(int(pg.get_attribute("[data-unused-bar]", "data-unused-bar")), n - 1)
+        # Remove all on the page clears its bar; a Problems row opens the
+        # value's page with its bar unfolded; Remove all there clears the rest.
+        pg.click("[data-unused-bar] [data-unused-remove-all]")
+        self.checked()
+        self.assertEqual(pg.locator("[data-unused-bar]").count(), 0)
+        if pg.locator("#problem-list [data-unused-problem]").count():
+            pg.click("#problem-list [data-unused-problem] summary")
+            pg.click("#problem-list [data-unused-problem] li button.link")
+            pg.wait_for_selector("[data-unused-bar] details[open]")
+            pg.click('#problem-list [data-unused-remove-all="problems"]')
+            self.checked()
+            self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+
+    def test_show_fields_the_target_does_not_use(self):
+        pg = self.page
+        cfg = self.cfg
+        cfg["codesys"] = {}
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
+        cfg["networks"][0]["nodes"][0]["simulate"] = True
+        self.write_config()
+        self.open()
+        self.checked()
+        tree_node(pg, 0, "pdos")
+        # A leftover simulate gives no Simulation tab and no simulated mark.
+        self.assertEqual(pg.locator('.node-tabs [data-node-tab="simulation"]').count(), 0)
+        self.assertEqual(pg.locator("#tree [data-sim-badge]").count(), 0)
+        pg.wait_for_selector("[data-unused-bar]")
+        pg.click("[data-unused-bar] [data-unused-show]")
+        loc = 'input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]'
+        pg.wait_for_selector(loc)
+        self.assertIn("PLC location", pg.inner_text("#node-panel thead"))
+        self.assertIn("not used by CODESYS", pg.inner_text('[data-unused-for="nodes[0].tx_pdos[0].entries[0].iec_location"]'))
+        self.assertIn("all fields", pg.inner_text("#mode"))
+        self.assertTrue(pg.is_checked("#show-all-fields"))
+        # Remembered on this PC, not in the config.
+        pg.wait_for_function("async () => (await (await fetch('/api/ui')).json()).show_all_fields === 'on'")
+        pg.reload()
+        pg.wait_for_selector("#editor:not([hidden])")
+        self.assertTrue(pg.evaluate("() => S.showAll"))
+        with open(self.config_path, encoding="utf-8") as f:
+            self.assertNotIn("show_all", f.read())
+        pg.evaluate("() => setShowAll(false)")
+        pg.wait_for_function("async () => (await (await fetch('/api/ui')).json()).show_all_fields === 'off'")
+        self.assertNotIn("all fields", pg.inner_text("#mode"))
 
     def test_build_without_codesys(self):
         pg = self.page

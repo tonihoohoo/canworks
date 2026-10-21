@@ -374,11 +374,10 @@ function linkBox(l, i) {
 function renderLinks(view) {
   view.append(el("h2", null, "PDO links"),
     el("p", { class: "muted" }, "A link sends one node's TPDO straight to RPDOs of other nodes (CiA 301 producer/consumer): " +
-      "the data no longer passes through the PLC scan, and with \"Keep running\" it moves on while the PLC is stopped. " +
-      "The master configures both ends at boot and keeps receiving the TPDO, so the PLC can still read it. See docs/config.md, PDO links."));
+      targetText("links") + " See docs/config.md, PDO links."));
   if (S.onlineLast && S.onlineLast.status) view.append(el("p", { class: "muted small" }, "States from the Online view's last status."));
   view.append(...linkList().map((l, i) => linkBox(l, i)));
-  if (!linkList().length) view.append(el("p", { class: "muted" }, "No links yet. A link copies a PDO from one node straight to another, without the PLC; add one with Add link."));
+  if (!linkList().length) view.append(el("p", { class: "muted" }, targetText("links_none")));
   view.append(el("button", { type: "button", dataset: { linkNew: "1" }, onclick: addLink }, "Add link"));
 }
 

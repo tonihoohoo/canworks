@@ -20,6 +20,101 @@ const TARGET_LABEL = { openplc: "OpenPLC", bridge: "the Modbus bridge", codesys:
 // The top-level `codesys` keys; the network's own are net_id and interface.
 const CODESYS_TOP_KEYS = ["project", "device", "create", "variables"];
 
+// Page texts that differ per target (canopen-configurator "Only what the
+// target uses is shown"): { openplc, bridge, codesys }, a missing one is
+// OpenPLC's. Bridge and CODESYS texts do not speak of the plugin, the Pi,
+// the PLC scan or PLC locations.
+const TARGET_TEXT = {
+  role_master: {
+    openplc: "Default. The plugin is the network's master: it boots and configures the nodes listed here.",
+    bridge: "Default. The bridge is the network's master: it boots and configures the nodes listed here.",
+    codesys: "Default. The CODESYS CANopen manager is the network's master: it boots and configures the nodes listed here.",
+  },
+  sim_network: {
+    openplc: "A virtual bus inside the plugin: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back.",
+    bridge: "A virtual bus inside the bridge: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back.",
+  },
+  sim_plain: {
+    openplc: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
+    bridge: "A virtual bus inside the bridge: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
+  },
+  interface: {
+    openplc: "Required. The interface on the PLC (the Pi), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus.",
+    bridge: "Required. The interface on the computer that runs the bridge, not necessarily this one: can0 for the first CAN interface, vcan0 for a virtual bus.",
+  },
+  configure_link: {
+    openplc: "Plugin sets up the link (bit rate, up)",
+    bridge: "Bridge sets up the link (bit rate, up)",
+  },
+  restart: {
+    openplc: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the plugin sets up the link.",
+    bridge: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the bridge sets up the link.",
+  },
+  lint_communication: {
+    openplc: "Default. The PLC stops only on lint findings in the objects 0x1000-0x1FFF that dcfgen writes, and not on findings only about limits. Other findings are logged as one warning per EDS.",
+    bridge: "Default. Only lint findings in the objects 0x1000-0x1FFF that dcfgen writes keep the bridge from starting, not findings only about limits. Other findings are logged as one warning per EDS.",
+  },
+  lint_all: {
+    openplc: "The PLC stops on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it.",
+    bridge: "The bridge does not start on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it.",
+  },
+  lint_off: {
+    openplc: "The PLC never stops on a lint finding; findings are logged as one warning per EDS.",
+    bridge: "The bridge always starts; lint findings are logged as one warning per EDS.",
+  },
+  bus_off_count: {
+    openplc: "Bus-off events since the PLC started, also those shorter than a scan. Empty: none.",
+    bridge: "Bus-off events since the bridge started. Empty: none.",
+  },
+  sdo_hidden: {
+    openplc: "communication objects the plugin sets from the node's settings",
+    bridge: "communication objects the bridge sets from the node's settings",
+    codesys: "communication objects CODESYS sets from the node's settings",
+  },
+  raw_rx: {
+    openplc: "Messages the PLC reads from the bus. Their signals go to %I.",
+    bridge: "Messages the bridge reads from the bus. Their signals go to input registers.",
+  },
+  raw_tx: {
+    openplc: "Messages the PLC sends. Their signals come from %Q.",
+    bridge: "Messages the bridge sends. Their signals come from holding registers.",
+  },
+  free_location: {
+    openplc: "Each signal gets a free PLC location of the right size.",
+    bridge: "Each signal gets a free register location of the right size.",
+  },
+  links: {
+    openplc: "the data no longer passes through the PLC scan, and with \"Keep running\" it moves on while the PLC is stopped. " +
+      "The master configures both ends at boot and keeps receiving the TPDO, so the PLC can still read it.",
+    bridge: "the data no longer passes through the bridge. " +
+      "The master configures both ends at boot and keeps receiving the TPDO, so Modbus clients can still read it.",
+    codesys: "the data no longer passes through the PLC program. " +
+      "The consumers' DCFs carry the link, so CODESYS configures both ends at boot.",
+  },
+  location_column: {
+    openplc: "PLC location",
+    bridge: "Location",
+  },
+  set_by_runtime: {
+    openplc: "none: the plugin sets it",
+    bridge: "none: the bridge sets it",
+  },
+  diag_port: {
+    openplc: "Off by default; the plugin opens no port without it.",
+    bridge: "Off by default; the bridge opens no port without it.",
+  },
+  links_none: {
+    openplc: "No links yet. A link copies a PDO from one node straight to another, without the PLC; add one with Add link.",
+    bridge: "No links yet. A link copies a PDO from one node straight to another, without the bridge; add one with Add link.",
+    codesys: "No links yet. A link copies a PDO from one node straight to another, without the PLC program; add one with Add link.",
+  },
+};
+
+function targetText(key) {
+  const t = TARGET_TEXT[key];
+  return t[projectTarget()] || t.openplc;
+}
+
 // The target of a config (or of the draft's top-level keys).
 function targetOf(cfg) {
   const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -75,9 +170,15 @@ function unusedMark(path, why, removable) {
       title: "Remove this setting from the config", onclick: () => { setPath(path, undefined); changed(true); } }, "Remove") : null);
 }
 
+// Whether the page shows a key of the table: the target uses it, or the
+// Settings menu's "Show fields the target does not use" is on (S.showAll).
+function shownFor(key, tgt) { return usedBy(key, tgt) || !!S.showAll; }
+
 // The page after a render: every bound field the target does not use is
-// hidden when empty and marked when set; options of a choice the target
-// does not use are left out; a section left with no field is hidden.
+// hidden, set or not (its value is listed in the page's bar, unusedBar);
+// options of a choice the target does not use are left out; a section left
+// with no field is hidden. With Show fields the target does not use on, the
+// fields stay, dimmed and marked, with Remove when set.
 function applyTarget(root) {
   if (!root || !S.model || !S.state || !S.state.targets) return;
   const tgt = projectTarget();
@@ -87,51 +188,189 @@ function applyTarget(root) {
     const why = unusedWhy(path, tgt);
     if (why === null) continue;
     const box = x.closest(".check-field") || x.closest("label") || x.closest("td") || x.parentElement;
-    if (!isSetValue(getPath(path))) {
+    if (!S.showAll) {
       if (box.tagName === "TD") x.hidden = true;
       else box.hidden = true;
       continue;
     }
-    if (!box.querySelector(`[data-unused-for="${CSS.escape(path)}"]`)) box.append(unusedMark(path, why, true));
+    box.classList.add("unused-field");
+    if (!box.querySelector(`[data-unused-for="${CSS.escape(path)}"]`)) box.append(unusedMark(path, why, isSetValue(getPath(path))));
   }
-  for (const fs of root.querySelectorAll("fieldset, details.advanced")) {
+  // A section is empty when it had settings and no control is left: a
+  // control of its own (Method, Watch a node…) keeps it.
+  const gone = (f) => f.hidden || !!f.closest("[hidden]");
+  for (const fs of root.querySelectorAll("fieldset, details.advanced, .pdo-row")) {
     const fields = [...fs.querySelectorAll("input[data-path], select[data-path], textarea[data-path]")];
-    if (fields.length && fields.every((f) => f.hidden || f.closest("[hidden]"))) fs.hidden = true;
+    if (fields.length && fields.every(gone) && [...fs.querySelectorAll("input, select, textarea, button")].every(gone)) fs.hidden = true;
+  }
+  // A node tab left with nothing says so instead of staying blank.
+  const panel = root.querySelector("#node-panel");
+  if (panel && panel.children.length && [...panel.children].every((c) => c.hidden)) {
+    panel.append(el("p", { class: "muted", dataset: { tabEmpty: "1" } },
+      `${TARGET_TITLE[tgt]} does not use the settings on this tab` + (tgt === "codesys" ? ": CODESYS supervises the node and reads its emergencies itself." : ".")));
   }
 }
 
 // The options of a choice that the target does not use ("PLC cycle" for the
 // bridge, J1939 for CODESYS) are left out, except the one the config has,
-// which is marked.
+// which is marked; Show fields the target does not use keeps them all.
 function pruneOptions(sel, path, tgt) {
   const base = String(path).replace(/\[\d+\]/g, "");
   for (const o of [...sel.options]) {
     if (o.value === "") continue;
     const r = targetRow(`${base}=${o.value}`);
     if (!r || r.targets.includes(tgt)) continue;
-    if (o.value !== sel.value) { o.remove(); continue; }
+    if (o.value !== sel.value) { if (!S.showAll) o.remove(); continue; }
     const box = sel.closest("label") || sel.parentElement;
-    const kind = ["role=slave", "protocol=j1939", "protocol=none"].includes(r.key);
+    const kind = NETWORK_KINDS.includes(r.key);
     if (!box.querySelector(`[data-unused-for="${CSS.escape(path)}"]`)) box.append(unusedMark(path, r.reasons[tgt] || "", !kind && !(r.refused || []).includes(tgt)));
   }
 }
 
+const NETWORK_KINDS = ["role=slave", "protocol=j1939", "protocol=none"];
+
+// -- settings the target does not use (canopen-configurator "Settings the
+// target does not use on the page", "One problem for the settings the
+// target does not use") ------------------------------------------------------
+
+// The check's warnings for values the target does not use that can go:
+// listed in the page's bar and as one problem, not one by one.
+function isUnusedItem(it) { return !!(it && it.unused && it.removable && (it.where || []).length); }
+function unusedItems() { return ((S.check && S.check.items) || []).filter(isUnusedItem); }
+
+// The page that lists a value: its own page or node tab, else (a page the
+// target does not show) the network's Bus page.
+function unusedPage(w) {
+  let [entry, tab] = entryOfPath(w);
+  const bus = `${w.net === null || w.net === undefined ? S.net : w.net}:bus`;
+  if (entry === null) return bus;
+  if (entry === "access") return shownFor("ui:runtime") ? entry : bus;
+  if (entry === "gateway") return shownFor("/gateway") ? entry : bus;
+  if (/:raw$/.test(entry)) return shownFor("raw") ? entry : bus;
+  const m = /^\d+:node:(\d+)$/.exec(entry);
+  if (m && w.net === S.net) {
+    const have = nodeTabs(Number(m[1])).map(([k]) => k);
+    return `${entry}/${have.includes(tab) ? tab : "general"}`;
+  }
+  return m ? `${entry}/${tab || "general"}` : entry;
+}
+
+// The page shown now, in unusedPage's terms; null for a page without settings.
+function viewPage() {
+  if (S.view === "bus" || S.view === "raw" || S.view === "links") return `${S.net}:${S.view}`;
+  if (S.view.startsWith("node:")) { const i = Number(S.view.slice(5)); return `${S.net}:node:${i}/${nodeTab(i)}`; }
+  return ["access", "gateway", "bridge", "codesys"].includes(S.view) ? S.view : null;
+}
+
+// The value at a check place, in words: "%IW100", "500", "on"; "" for a block.
+function unusedValue(w) {
+  let obj = w.net === null || w.net === undefined ? S.model.top : S.model.networks[w.net];
+  const parts = String(w.path).match(/[^.[\]]+/g) || [];
+  if (w.net === null || w.net === undefined) {
+    if (parts[0] === "diagnostics" || parts[0] === "cia309") obj = S.model;
+  }
+  for (const p of parts) obj = obj && typeof obj === "object" ? obj[/^\d+$/.test(p) ? Number(p) : p] : undefined;
+  if (typeof obj === "string" || typeof obj === "number") return String(obj);
+  if (obj === true) return "on";
+  if (obj === false) return "off";
+  return "";
+}
+
+// "Node 5 rtd, TPDO 1, 0x6000:1: PLC location %IW100" for one value.
+function unusedText(it) {
+  const w = it.where[0];
+  const row = targetRow(it.key) || {};
+  let place = [];
+  try { place = placeOf(w); } catch (e) { place = []; }
+  const label = row.label || String(w.path).split(".").pop();
+  const value = unusedValue(w);
+  return (place.length ? place.join(", ") + ": " : "") + label + (value ? " " + value : "");
+}
+
+function unusedRow(it, open) {
+  const w = it.where[0];
+  const row = targetRow(it.key) || {};
+  return el("li", { dataset: { unusedRow: w.path } },
+    open ? el("button", { type: "button", class: "link", title: row.reasons ? row.reasons[projectTarget()] || "" : "",
+      onclick: () => { S.unusedOpen = true; focusPath(w); } }, unusedText(it))
+      : el("span", { title: row.reasons ? row.reasons[projectTarget()] || "" : "" }, unusedText(it)),
+    " ",
+    el("button", { type: "button", class: "small", dataset: { problemRemove: w.path },
+      title: "Remove this setting from the config", onclick: () => removeUnused(w) }, "Remove"));
+}
+
+// Removes several values in one undo step.
+function removeUnusedAll(list) {
+  for (const it of list) removeUnused(it.where[0], false);
+  changed(true);
+}
+
+// "2 settings here are not used by CODESYS" under the page's heading,
+// folded, with Remove all and Show (or Hide while every field is shown).
+function unusedBar() {
+  const old = document.querySelector("[data-unused-bar]");
+  if (old) old.remove();
+  if (!S.model || !S.state || S.state.commission || workspace() !== "configure") return;
+  const page = viewPage();
+  if (!page) return;
+  const mine = unusedItems().filter((it) => unusedPage(it.where[0]) === page);
+  if (!mine.length) return;
+  const tgt = TARGET_LABEL[projectTarget()];
+  const words = `${mine.length} setting${mine.length === 1 ? " here is" : "s here are"} not used by ${tgt}`;
+  const box = el("details", { class: "unused-list", open: !!S.unusedOpen },
+    el("summary", null, words), el("ul", null, mine.map((it) => unusedRow(it, false))));
+  box.addEventListener("toggle", () => { S.unusedOpen = box.open; });
+  const bar = notice("warning", box, { live: false, dataset: { unusedBar: String(mine.length) }, actions: [
+    el("button", { type: "button", dataset: { unusedRemoveAll: "1" }, title: `Remove these settings from the config`,
+      onclick: () => removeUnusedAll(mine) }, "Remove all"),
+    el("button", { type: "button", dataset: { unusedShow: "1" }, title: "Show fields the target does not use (Settings menu)",
+      onclick: () => setShowAll(!S.showAll) }, S.showAll ? "Hide" : "Show")] });
+  const view = $("#view");
+  const panel = view.querySelector("#node-panel");
+  if (panel) { panel.prepend(bar); return; }
+  const h = view.querySelector("h2");
+  const after = h ? (h.closest(".toolbar") && h.closest(".toolbar").parentElement === view ? h.closest(".toolbar") : h) : null;
+  if (after) after.after(bar); else view.prepend(bar);
+}
+
+// The one Problems entry for them: "5 settings are not used by CODESYS",
+// Remove all, and the list folded under it.
+function unusedProblem(list) {
+  const tgt = TARGET_LABEL[projectTarget()];
+  const box = el("details", { class: "unused-list", dataset: { unusedProblem: String(list.length) } },
+    el("summary", null, Icons.stateIcon("warning", { label: false }),
+      `${list.length} setting${list.length === 1 ? " is" : "s are"} not used by ${tgt}`),
+    el("ul", null, list.map((it) => unusedRow(it, true))));
+  return el("li", { class: "warning" }, box,
+    el("button", { type: "button", class: "small", dataset: { unusedRemoveAll: "problems" },
+      title: "Remove every setting the target does not use from the config", onclick: () => removeUnusedAll(list) }, "Remove all"));
+}
+
+// Show fields the target does not use: a per-PC choice (ui.json).
+function setShowAll(on) {
+  S.showAll = !!on;
+  const box = $("#show-all-fields");
+  if (box) box.checked = S.showAll;
+  api("POST", "/api/ui", { show_all_fields: S.showAll ? "on" : "off" }).catch(() => {});
+  render();
+}
+
 // Removes the value at a check place ({ net, path }) from the draft: a
 // network's own path, or a top-level one (net null).
-function removeUnused(w) {
+function removeUnused(w, rerender = true) {
   let parts = String(w.path).match(/[^.[\]]+/g) || [];
   // A version 1 file's master.diagnostics is the draft's one diagnostics object.
   if (parts[0] === "master" && (parts[1] === "diagnostics" || parts[1] === "cia309")) { parts = parts.slice(1); w = { net: null }; }
   let obj;
   if (w.net === null || w.net === undefined) {
     if (parts[0] === "diagnostics" || parts[0] === "cia309") {
-      if (parts.length === 1) { delete S.model[parts[0]]; changed(true); return; }
+      if (parts.length === 1) { delete S.model[parts[0]]; if (rerender) changed(true); return; }
       obj = S.model;
     } else obj = S.model.top;
   } else obj = S.model.networks[w.net];
   for (let i = 0; i < parts.length - 1 && obj; i++) obj = obj[/^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i]];
   if (obj && typeof obj === "object") delete obj[parts[parts.length - 1]];
-  changed(true);
+  if (rerender) changed(true);
 }
 
 // -- the Project target field ---------------------------------------------------
@@ -179,7 +418,7 @@ async function switchTarget(target) {
     preview.unused.length > 12 ? el("li", { class: "muted" }, `and ${preview.unused.length - 12} more`) : null) : null;
   const extra = el("div", null, list, repack);
   const buttons = [["cancel", "Cancel"]];
-  if (removable.length) buttons.push(["keep", "Switch, keep them"], ["remove", "Switch and remove them", true]);
+  if (removable.length) buttons.push(["keep", "Switch, keep them hidden"], ["remove", "Switch and remove them", true]);
   else buttons.push(["switch", "Switch", true]);
   const v = await modal(lines.join(" "), buttons, extra);
   if (!v || v === "cancel") { render(); return; }

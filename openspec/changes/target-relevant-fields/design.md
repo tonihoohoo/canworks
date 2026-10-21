@@ -54,7 +54,7 @@ The check keeps one warning per value: the CLI user and `--codesys-import` see t
 
 ### Show every field
 
-A View menu toggle, "Show fields the target does not use", stored in the configurator's per-PC UI settings (the same place as the theme). When on, `applyTarget` uses today's behaviour on every field, set or empty: shown, dimmed (`.unused-field` opacity) and tagged "not used by <target>", with Remove when set. Tabs and columns come back. The bar's **Show** turns the toggle on. The header badge shows "· all fields" while it is on, so a screenshot cannot be mistaken for the default view. It is per PC, not per config, because it is a viewing preference and should not touch the file.
+A Settings menu toggle (the configurator has no View menu), "Show fields the target does not use", stored in the configurator's per-PC UI settings (`ui.json`, `show_all_fields`, the same place as the theme). When on, `applyTarget` uses today's behaviour on every field, set or empty: shown, dimmed (`.unused-field` opacity) and tagged "not used by <target>", with Remove when set. Tabs and columns come back. The bar's **Show** turns the toggle on. The header badge shows "· all fields" while it is on, so a screenshot cannot be mistaken for the default view. It is per PC, not per config, because it is a viewing preference and should not touch the file.
 
 ### Wording per target from one place
 
@@ -84,6 +84,10 @@ With the toggle on, every field of the full config is visible. This catches the 
 ### Windows paths in messages
 
 `readable()` strips any leading `<path ending in .json>: ` with a pattern that allows a drive letter (`^(?:[A-Za-z]:)?[^:]*\.json: `). `humanise()` gets the same pattern. A unit test runs both on POSIX and `C:\…` prefixes.
+
+### Sections and blank tabs (folded in)
+
+A section (fieldset, advanced block, PDO settings row) was hidden when all its `[data-path]` fields were hidden. The supervision Method choice and the Watch a node… picker have no path, so on CODESYS with Method "EDS default" the whole Supervision tab went blank. Now a section is hidden only when it had setting fields and no control at all (input, select, textarea, button) is left visible. If every child of a node tab's panel still ends up hidden, `applyTarget` adds one line: "<target> does not use the settings on this tab", with the reason for CODESYS. The guard test fails on a blank node tab for any target.
 
 ## Risks
 

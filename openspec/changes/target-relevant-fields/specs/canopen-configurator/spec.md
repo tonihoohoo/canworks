@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Only what the target uses is shown
-The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it. Values the target does not use SHALL be listed instead as Requirement: Settings the target does not use on the page describes, and SHALL be shown in place only while Requirement: Show fields the target does not use is on. Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Pi, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. The same rules SHALL apply to all three targets.
+The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it. Values the target does not use SHALL be listed instead as Requirement: Settings the target does not use on the page describes, and SHALL be shown in place only while Requirement: Show fields the target does not use is on. Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Pi, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, so a control without a setting of its own (such as the supervision Method or Watch a node…) keeps its section, and a node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
 
 #### Scenario: CODESYS project
 - **WHEN** the project's target is CODESYS
@@ -27,9 +27,13 @@ The page SHALL hide every field, table column, choice option, fieldset, node tab
 - **WHEN** a CODESYS project's node has `simulate` set
 - **THEN** the node has no Simulation tab and its General tab's bar lists the setting
 
+#### Scenario: Supervision with the EDS's own settings in a CODESYS project
+- **WHEN** a CODESYS project's node has no heartbeat or guarding settings (Method "EDS default") and the user opens its Supervision tab
+- **THEN** the Method choice and the heartbeat watch list are shown, and the tab is not blank
+
 #### Scenario: Wording guard
 - **WHEN** the browser tests open every page and node tab of a config with every setting set, once per target
-- **THEN** no field the target does not use is visible, and no visible text uses another target's words (for CODESYS: the plugin, the Pi, PLC location, an IEC address, scan watchdog, OpenPLC), apart from the Project target field's help
+- **THEN** no field the target does not use is visible, no node tab is blank, and no visible text uses another target's words (for CODESYS: the plugin, the Pi, PLC location, an IEC address, scan watchdog, OpenPLC), apart from the Project target field's help
 
 ### Requirement: Variable names of PDO entries
 The PDO table SHALL have a Variable column for every target, editing the entry's `name`, with the generated name as placeholder. The Location column SHALL be shown only for targets that use locations, also when an entry of a target without locations still has one, unless Requirement: Show fields the target does not use is on.
@@ -86,7 +90,7 @@ Problems SHALL show the values the target does not use as one grouped warning "N
 - **THEN** it prints five warnings, one per value, as before
 
 ### Requirement: Show fields the target does not use
-The View menu SHALL have a toggle "Show fields the target does not use", off by default and remembered on this PC (not in the config). While it is on, every field, column, tab and page the target does not use SHALL be shown, dimmed and tagged "not used by <target>", and editable, with Remove when it has a value, and the header's target badge SHALL add "· all fields". A bar's **Show** SHALL turn the toggle on.
+The Settings menu SHALL have a toggle "Show fields the target does not use", off by default and remembered on this PC (not in the config). While it is on, every field, column, tab and page the target does not use SHALL be shown, dimmed and tagged "not used by <target>", and editable, with Remove when it has a value, and the header's target badge SHALL add "· all fields". A bar's **Show** SHALL turn the toggle on.
 
 #### Scenario: Turn on from the bar
 - **WHEN** the user clicks Show in the PDOs tab's bar of a CODESYS project

@@ -176,7 +176,13 @@ async function loadShellSettings() {
     if (S.workspace === "commission") S.view = "online";  // the page opens on the workspace's own page
     S.panelOpen = ui.panel !== "closed";
     S.wsNoteNew = ui.ws_note !== "seen";
+    S.showAll = ui.show_all_fields === "on";
   } catch (e) { S.workspace = "configure"; }
+  const box = $("#show-all-fields");
+  if (box) {
+    box.checked = !!S.showAll;
+    box.onchange = () => setShowAll(box.checked);
+  }
 }
 
 // Said once on this PC, as an information bar under the header, the first

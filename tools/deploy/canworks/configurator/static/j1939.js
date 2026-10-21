@@ -223,7 +223,7 @@ function j1939Dbc(j) {
       dbcFileButton(importDbc, { j1939: "dbc-input" }),
       j.dbc ? el("button", { type: "button", dataset: { j1939: "pick" }, onclick: () => pickFromDbc(j.dbc) }, "Pick messages…") : null),
     hint("Import copies the DBC file into the config folder when you save, then lists its messages: mark each to receive or to send. " +
-      "Each signal gets a free PLC location of the right size."));
+      targetText("free_location")));
 }
 
 async function importDbc(file) {
@@ -395,7 +395,7 @@ function j1939Signal(dir, base, signals, k, m) {
   el("tr", { class: "j1939-locations" }, el("td", { colspan: 9 }, el("div", { class: "j1939-locs" },
     el("div", null, el("span", { class: "hint" }, "Switch"), el("span", { class: "row" }, muxSwitchBox(sp, s, `${who} is a switch`))),
     loc("Page", muxPageCell(signals, k, sp, `Page of ${who}`), null, sp + ".mux"),
-    loc("PLC location", cellInput(sp + ".iec_location", `PLC location of ${who}`, null, setByPlugin ? "none: the plugin sets it" : J1939_DIR[dir].area + "…"),
+    loc(targetText("location_column"), cellInput(sp + ".iec_location", `${targetText("location_column")} of ${who}`, null, setByPlugin ? targetText("set_by_runtime") : J1939_DIR[dir].area + "…"),
       suggestButton(sp + ".iec_location", "j1939_" + dir, s.length, who), sp + ".iec_location"),
     dir === "rx" ? loc("Valid input", cellInput(sp + ".valid_location", `Valid input of ${who}`, null, "%IX…"),
       suggestButton(sp + ".valid_location", "j1939_valid", undefined, who + " valid"), sp + ".valid_location") : null)))];
