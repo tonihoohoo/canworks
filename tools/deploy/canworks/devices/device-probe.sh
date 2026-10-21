@@ -130,7 +130,9 @@ fi
 bridge=null
 for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
     [ -x "$b/bin/canworks-bridge" ] || continue
-    b_version=$(first_line "$b/VERSION")
+    # /opt/canworks/VERSION is the plugin's: an older bridge there says its own.
+    b_version=""
+    [ "$b" = "$R/opt/canworks" ] || b_version=$(first_line "$b/VERSION")
     if [ -z "$b_version" ]; then
         b_version=$("$b/bin/canworks-bridge" --version 2>/dev/null | awk '{ print $2; exit }')
     fi

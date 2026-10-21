@@ -105,6 +105,7 @@ class DevicesPage(OnlineBase):
 
     def test_add_probe_update_and_job(self):
         pg = self.page
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.add_device()
         # After a password login: the key login offer.
         pg.wait_for_selector("#modal[open] >> text=Use key login from now on")
@@ -149,6 +150,12 @@ class DevicesPage(OnlineBase):
         self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="plugin"]'))
         # The status bar drops the job at its next look (a poll in flight may still list it).
         pg.wait_for_function("() => document.querySelector('#jobs').innerText.trim() === ''")
+        # Online access shows the device as the runtime host at once, without a reload.
+        pg.click('#ws button[data-ws="configure"]')
+        tree_view(pg, "access")
+        pg.wait_for_selector("[data-devices=host-state]")
+        self.assertEqual(pg.input_value('[data-online="host"]'), "127.0.0.1")
+        self.assertEqual(pg.inner_text("[data-devices=host-state] .muted"), "127.0.0.1: up to date.")
 
         # Nothing secret on this PC.
         for dirpath, _, names in os.walk(self.cfg_dir):

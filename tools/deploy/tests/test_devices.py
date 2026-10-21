@@ -333,6 +333,14 @@ class Probe(unittest.TestCase):
         self.assertEqual(p["runtime"]["kind"], "native")
         self.assertEqual(p["plugin"], {"version": "unknown", "built_for": None, "enabled": True})
 
+    def test_bridge_beside_the_plugin_says_its_own_version(self):
+        self.write("opt/canworks/VERSION", "0.98.1\n")
+        self.write("opt/canworks/lib/libcanworks_plugin.so", "")
+        self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.32.0\n", 0o755)
+        p = self.run_probe()
+        self.assertEqual(p["plugin"]["version"], "0.98.1")
+        self.assertEqual((p["bridge"]["version"], p["bridge"]["prefix"]), ("0.32.0", "/opt/canworks"))
+
     def test_bridge_with_two_instances_and_a_job(self):
         self.write("opt/canworks-bridge/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.97.0\n", 0o755)
         self.write("etc/canworks-bridge/line3/canworks.json", "{}")
