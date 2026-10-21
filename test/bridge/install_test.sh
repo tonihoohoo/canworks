@@ -35,12 +35,16 @@ check '[ -d "$T/etc" ]' "the config folder exists"
 check 'grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "can-j1939 loads at boot"
 check 'grep -q "systemctl enable --now canworks-bridge@NAME" "$T/out"' "the next steps are printed"
 check '"$T/opt/bin/canworks-bridge" --version | grep -q "^canworks-bridge "' "the installed binary runs"
+check '[ -s "$T/opt/VERSION" ]' "the installed version is written next to the binary"
+check '[ "$(grep -c "^::canworks-step " "$T/out")" -eq 2 ] && grep -qx "::canworks-step 1/2 Building canworks-bridge" "$T/out" &&
+       grep -q "^::canworks-step 2/2 " "$T/out"' "each step prints its progress line"
 
 mkdir -p "$T/etc/line1"
 echo '{}' > "$T/etc/line1/canworks.json"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall > "$T/out"
 check 'grep -qx "disable --now canworks-bridge@line1.service" "$T/calls"' "uninstall stops every instance"
-check '[ ! -e "$T/units/canworks-bridge@.service" ] && [ ! -e "$T/opt/bin/canworks-bridge" ]' "uninstall removes the unit and binary"
+check '[ ! -e "$T/units/canworks-bridge@.service" ] && [ ! -e "$T/opt/bin/canworks-bridge" ] && [ ! -e "$T/opt/VERSION" ]' \
+    "uninstall removes the unit, binary and version file"
 check '[ -f "$T/etc/line1/canworks.json" ]' "uninstall keeps the configs"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall --purge > "$T/out"
 check '[ ! -e "$T/etc" ]' "--purge removes the configs"

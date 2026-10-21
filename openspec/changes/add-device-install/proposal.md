@@ -24,7 +24,7 @@ The configurator already knows the project's target, the device's host (Online a
 - **Install job on the device**: runs detached under `systemd-run`, logs to a file on the device and holds a lock, so a closed laptop, a dropped connection or a closed configurator does not stop it. The page shows the steps, elapsed time, the log (folded) and **Stop**; the status bar lists it like other jobs; reopening the page picks it up again. Only destructive effects are confirmed (the Docker-mode PLC stop and empty program; running bridges restarting).
 - **After the job**: probe again and say the next step (OpenPLC: canworks switches on with the next upload; bridge: the bridge runs this config). Online access's runtime host is set to the device.
 - **Uninstall** per part, with **Remove everything** as an option.
-- **Install scripts**: `<prefix>/VERSION` written by `install-stock.sh` and `install-bridge.sh`; machine-readable step lines (`::canworks-step N/M text`); `install-runtime.sh --with-openplc` installs upstream's runtime when none is found, so the terminal route can do the same; `scripts/device-probe.sh`, shipped with the PC tools and in the release, prints the probe JSON.
+- **Install scripts**: `<prefix>/VERSION` written by `install-stock.sh` and `install-bridge.sh`; machine-readable step lines (`::canworks-step N/M text`); `install-runtime.sh --with-openplc` installs upstream's runtime when none is found, so the terminal route can do the same; `device-probe.sh`, shipped with the PC tools and in the release, prints the probe JSON.
 - **Entry points**: Online access's runtime host shows the device's state with **Open in Devices**; the Modbus bridge page shows where the bridge runs with **Install on device…**; the Commission connect panel, when it finds no runtime, offers **Install canworks on a device…**.
 - README, `docs/devices.md` (new), `docs/configurator.md`, `docs/install-stock.md`, `docs/modbus-bridge.md`.
 - PC tools minor version bump (0.98.0); new dependency `paramiko`.
@@ -53,6 +53,6 @@ The configurator already knows the project's target, the device's host (Online a
 
 ## Impact
 
-- New: `tools/deploy/canworks/devices/` (ssh, probe, jobs, actions), `configurator/static/devices.js`, `scripts/device-probe.sh`, `docs/devices.md`, tests.
+- New: `tools/deploy/canworks/devices/` (ssh, probe, jobs, actions), `configurator/static/devices.js`, `docs/devices.md`, tests.
 - Changed: `configurator/server.py` (routes `/api/devices/*`), `index.html`, `app.js`/`connection.js`/`bridge.js` (entry points), `scripts/install-stock.sh`, `install-runtime.sh`, `install-bridge.sh`, `pyproject.toml`, README and docs.
 - Hardware: the Pi from both the Mac and the Windows PC (fresh install with no runtime, update, rebuild after a runtime change, bridge with config, lost connection mid-build, uninstall), then a clean PLC start.

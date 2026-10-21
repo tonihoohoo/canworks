@@ -110,6 +110,27 @@ done
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
 
+# Progress for the configurator's install job (device-install): one line
+# "::canworks-step N/M text" when a step starts. install-runtime.sh passes the
+# steps it ran before this script in CANWORKS_STEP_BASE. Not inside the image.
+STEP_BASE=${CANWORKS_STEP_BASE:-0}
+STEPS=0
+step() {
+    [ "$IN_IMAGE" -eq 0 ] || return 0
+    echo "::canworks-step $((STEP_BASE + $1))/$((STEP_BASE + STEPS)) $2"
+}
+# The steps discovery and the link add: 1 when either is installed or removed.
+access_steps() {
+    if [ "$WITH_LINK" -eq 1 ] || [ "$DISCOVERY" -eq 1 ]; then echo 1; else echo 0; fi
+}
+
+# The installed version, readable on the host without the runtime container.
+write_version() {
+    local v=${CANWORKS_PLUGIN_VERSION:-}
+    [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || echo unknown)
+    echo "${v#deploy-v}" > "$PREFIX/VERSION"
+}
+
 [ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] ||
     die "--without-canopen and --without-j1939 together leave no protocol to build"
 if [ "$WITH_CANOPEN" -eq 1 ] && [ "$WITH_J1939" -eq 1 ]; then
@@ -260,22 +281,29 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     IMAGE=$(spec_tool image "$BOOTLOADER_SPEC") || die "cannot read $BOOTLOADER_SPEC; nothing was changed"
     say "Managed Docker install found: runtime image $IMAGE"
     if [ "$UNINSTALL" -eq 1 ]; then
+        STEPS=2
+        step 1 "Removing canworks from the runtime spec and restarting the runtime container (the PLC stops)"
         say "Removing the canworks entries from $BOOTLOADER_SPEC"
         spec_tool remove "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
         recreate_runtime
+        step 2 "Removing the canworks files"
         if [ "$PURGE" -eq 1 ]; then
             say "Removing $PREFIX"
             rm -rf "${PREFIX:?}"
         else
             say "Removing $PREFIX/lib (Lely and dcfgen stay in $PREFIX; --purge removes them)"
             rm -rf "${PREFIX:?}/lib"
+            rm -f "$PREFIX/VERSION"
         fi
         rm -f "$MODULES_LOAD"
         remove_remote_access
         say "Done. The runtime runs without canworks."
         exit 0
     fi
+    STEPS=$((2 + $(access_steps)))
+    step 1 "Building canworks in the runtime image (this takes a while on a Raspberry Pi)"
     build_in_image "$IMAGE"
+    write_version
     if grep -qF "$OLD_CONTAINER_PREFIX" "$BOOTLOADER_SPEC"; then
         say "Removing the entries from before the rename to canworks from $BOOTLOADER_SPEC"
         spec_tool remove "$BOOTLOADER_SPEC" "$OLD_DOCKER_BIND" "$OLD_DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
@@ -284,7 +312,9 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     say "Adding $DOCKER_BIND and $DOCKER_ENV to $BOOTLOADER_SPEC"
     spec_tool add "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
     setup_j1939_module
+    step 2 "Restarting the runtime container (the PLC stops and comes back without a program)"
     recreate_runtime
+    [ "$(access_steps)" -eq 0 ] || step 3 "Setting up discovery and the remote link"
     setup_remote_access
     cat <<EOF
 ==> Done. canworks ($PROTOCOLS) is installed for $IMAGE and disabled until an upload enables it.
@@ -381,6 +411,8 @@ remove_old_install() {
 }
 
 if [ "$UNINSTALL" -eq 1 ]; then
+    STEPS=1
+    step 1 "Removing canworks"
     say "Removing the canworks plugin from $PLUGINS_CONF"
     strip_plugin_lines
     remove_old_install
@@ -397,6 +429,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     else
         say "Removing $LIB_DIR (Lely and dcfgen stay in $PREFIX; --purge removes them)"
         rm -rf "$LIB_DIR"
+        rm -f "$PREFIX/VERSION"
     fi
     say "Done. Restart the runtime (systemctl restart openplc-runtime) to unload the plugin."
     exit 0
@@ -404,7 +437,13 @@ fi
 
 # --- Lely CANopen and dcfgen ------------------------------------------------
 
+# Native install steps: build tools, Lely, the plugin, plugins.conf and the
+# editor hook, discovery and the link (those that this run takes).
+STEPS=$((DEPS + WITH_CANOPEN + 2 + $(access_steps)))
+N=0
+next_step() { N=$((N + 1)); step "$N" "$1"; }
 if [ "$DEPS" -eq 1 ]; then
+    next_step "Installing build tools"
     if [ "$(id -u)" -ne 0 ]; then
         die "run as root to install build dependencies (or pass --no-deps if they are installed)"
     fi
@@ -418,6 +457,7 @@ pkg-config --atleast-version=3 openssl 2>/dev/null ||
     die "OpenSSL 3 development files are missing: apt-get install libssl-dev (Debian 12 or newer, Raspberry Pi OS bookworm or newer, Ubuntu 22.04 or newer)"
 mkdir -p "$PREFIX" "$PREFIX/state"  # state: slave networks' saved parameters
 if [ "$WITH_CANOPEN" -eq 1 ]; then
+    next_step "Building Lely CANopen and dcfgen"
     "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
     say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
     "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"
@@ -437,6 +477,7 @@ fi
 
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
+next_step "Building the plugin"
 say "Building the plugin ($PROTOCOLS) against $RUNTIME_DIR ($COMMIT)"
 on_off() { [ "$1" -eq 1 ] && echo ON || echo OFF; }
 cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANWORKS_BUILD_TESTS=OFF \
@@ -463,6 +504,7 @@ else
     rm -f "$SIM_BIN"
 fi
 echo "$COMMIT" > "$COMMIT_FILE"
+[ "$IN_IMAGE" -eq 1 ] || write_version
 
 if [ "$IN_IMAGE" -eq 1 ]; then
     # Checked by the editor hook at webserver start and by the plugin.
@@ -475,6 +517,7 @@ fi
 
 # In Docker mode the editor hook adds the line in each new runtime container.
 if [ "$IN_IMAGE" -eq 0 ]; then
+next_step "Adding canworks to plugins.conf and installing the editor hook"
 
 # The runtime creates plugins.conf from plugins_default.conf when it is
 # missing; do the same so the line is not lost on its first start.
@@ -534,6 +577,7 @@ else
     (installed with --no-editor-hook)."
 fi
 
+[ "$(access_steps)" -eq 0 ] || next_step "Setting up discovery and the remote link"
 setup_remote_access
 
 cat <<EOF

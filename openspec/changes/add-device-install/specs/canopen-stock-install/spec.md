@@ -8,7 +8,7 @@
 - **THEN** `/opt/canworks/VERSION` on the host holds `0.98.0`
 
 ### Requirement: Install step lines
-`install-stock.sh` and `install-runtime.sh` SHALL print one line `::canworks-step N/M text` when each step starts (download, build tools, Lely, plugin and editor hook, runtime restart or container recreate, discovery and link), with M the number of steps this run takes, and SHALL keep their other output unchanged. The text SHALL be a short sentence for people.
+`install-stock.sh` and `install-runtime.sh` SHALL print one line `::canworks-step N/M text` when each step starts (download, build tools, Lely, plugin and editor hook, runtime restart or container recreate, discovery and link), with M the number of steps this run takes (`?` in the lines `install-runtime.sh` prints before `install-stock.sh` runs, which does not know it yet), and SHALL keep their other output unchanged. The text SHALL be a short sentence for people.
 
 #### Scenario: Steps of a Docker-mode update
 - **WHEN** an update runs in Docker mode
@@ -26,7 +26,7 @@
 - **THEN** upstream's installer is not run
 
 ### Requirement: Device probe script
-The repository SHALL provide `scripts/device-probe.sh`, a POSIX `sh` script that changes nothing, needs no root and no canworks on the device, and prints one JSON object describing the device as the `device-install` capability's probe requires. It SHALL be part of each release's assets and of the PC tools package. A tool the device lacks SHALL give `null` for its values. CI SHALL run `shellcheck` on it and test its output on a fake root with no runtime, a native runtime with the plugin, a Docker-mode layout and a bridge with two instances.
+The PC tools package SHALL contain `canworks/devices/device-probe.sh`, a POSIX `sh` script that changes nothing, needs no root and no canworks on the device, and prints one JSON object describing the device as the `device-install` capability's probe requires. It SHALL also be one of each release's assets. A tool the device lacks SHALL give `null` for its values. CI SHALL run `shellcheck` on it and test its output on a fake root with no runtime, a native runtime with the plugin, a Docker-mode layout, a bridge with two instances and an install job log.
 
 #### Scenario: Read-only
 - **WHEN** the probe runs as a user without sudo rights

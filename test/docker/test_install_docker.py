@@ -184,7 +184,7 @@ class Installer(unittest.TestCase):
 
     def test_install_reinstall_uninstall(self):
         self.write_spec()
-        p = self.run_script()
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7", CANWORKS_STEP_BASE="2")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         spec = json.loads(self.read_spec())
         self.assertEqual(spec["extraBinds"], [self.bind])
@@ -206,6 +206,12 @@ class Installer(unittest.TestCase):
             self.assertEqual(f.read(), "can-j1939\n")
         with open(self.modprobe_log) as f:
             self.assertEqual(f.read(), "can-j1939\n")
+        # The version on the host, and the progress lines of the install job.
+        with open(os.path.join(self.prefix, "VERSION")) as f:
+            self.assertEqual(f.read(), "9.8.7\n")
+        steps = [line for line in p.stdout.splitlines() if line.startswith("::canworks-step ")]
+        self.assertEqual([s.split()[1] for s in steps], ["3/5", "4/5", "5/5"])
+        self.assertIn("PLC stops", steps[1])
 
         p = self.run_script()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -216,6 +222,7 @@ class Installer(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.read_spec(), UPSTREAM_SPEC)
         self.assertFalse(os.path.exists(os.path.join(self.prefix, "lib")))
+        self.assertFalse(os.path.exists(os.path.join(self.prefix, "VERSION")))
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))  # kept without --purge
         self.assertFalse(os.path.exists(conf))
         self.assertEqual(self.calls()[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])

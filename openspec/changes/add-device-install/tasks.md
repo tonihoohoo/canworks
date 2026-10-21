@@ -3,7 +3,7 @@
 - [ ] 1.1 `install-stock.sh`, `install-bridge.sh`: write `<prefix>/VERSION`, remove it on uninstall
 - [ ] 1.2 Step lines `::canworks-step N/M text` in `install-runtime.sh`, `install-stock.sh`, `install-bridge.sh` (macOS bash 3.2 rules for the PC-side paths)
 - [ ] 1.3 `install-runtime.sh --with-openplc`: upstream installer when no runtime, wait for its HTTPS port, then the plugin; passes over `--ssh`
-- [ ] 1.4 `scripts/device-probe.sh` (POSIX sh, read-only, JSON); release asset and package data
+- [ ] 1.4 `canworks/devices/device-probe.sh` (POSIX sh, read-only, JSON); release asset and package data
 - [ ] 1.5 Script tests: VERSION files, step lines, `--with-openplc` with a stub upstream installer, probe on fake roots (none, native, Docker layout, bridge with two instances); shellcheck
 
 ## 2. PC side (`canworks/devices/`)
