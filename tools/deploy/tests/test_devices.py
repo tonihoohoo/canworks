@@ -59,6 +59,15 @@ class Plan(unittest.TestCase):
         p = plan.plan(probe(), "openplc", "0.98.0")
         self.assertEqual(p["main"]["label"], "Install canworks 0.98.0")
 
+    def test_can_bit_rates(self):
+        can = [{"ifname": "can0", "flags": ["UP"], "linkinfo": {"info_kind": "can",
+                "info_data": {"bittiming": {"bitrate": 250000}}}},
+               # slcan: fixed bit rates, the rate flat in info_data (ip -j -d).
+               {"ifname": "slcan0", "flags": ["UP"], "linkinfo": {"info_kind": "can",
+                "info_data": {"bittiming_bitrate": 500000, "bitrate_const": [125000, 500000]}}}]
+        p = plan.plan(probe(can=can), "openplc", "0.98.0")
+        self.assertEqual(row(p, "can")["have"], "can0 250 kbit/s up · slcan0 500 kbit/s up")
+
     def test_runtime_moved_on(self):
         p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.2.5"},
                             plugin={"version": "0.98.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
@@ -323,6 +332,14 @@ class Probe(unittest.TestCase):
         p = self.run_probe()
         self.assertEqual(p["runtime"]["kind"], "native")
         self.assertEqual(p["plugin"], {"version": "unknown", "built_for": None, "enabled": True})
+
+    def test_bridge_beside_the_plugin_says_its_own_version(self):
+        self.write("opt/canworks/VERSION", "0.98.1\n")
+        self.write("opt/canworks/lib/libcanworks_plugin.so", "")
+        self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.32.0\n", 0o755)
+        p = self.run_probe()
+        self.assertEqual(p["plugin"]["version"], "0.98.1")
+        self.assertEqual((p["bridge"]["version"], p["bridge"]["prefix"]), ("0.32.0", "/opt/canworks"))
 
     def test_bridge_with_two_instances_and_a_job(self):
         self.write("opt/canworks-bridge/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.97.0\n", 0o755)

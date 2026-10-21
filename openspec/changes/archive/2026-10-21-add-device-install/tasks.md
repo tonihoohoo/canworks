@@ -41,8 +41,8 @@
 
 ## 6. Hardware (Pi from the Mac and the Windows PC)
 
-- [ ] 6.1 Windows: add the Pi (host key dialog, password, key login), probe matches the Pi's state
-- [ ] 6.2 Windows: update or rebuild the plugin on the managed Docker runtime; close the configurator mid-build and reopen: job resumed, finished; next upload switches canworks on
+- [x] 6.1 Windows: add the Pi (host key dialog, password, key login), probe matches the Pi's state (2026-10-21 on 0.98.1: host key fingerprint matched, nothing sent before Trust and connect; key login already set up, so no password asked; 0.98.0 saw the runtime wrong, fixed in fix-probe-managed-docker; slcan bit rate fixed after)
+- [x] 6.2 Windows: update or rebuild the plugin on the managed Docker runtime; close the configurator mid-build and reopen: job resumed, finished; next upload switches canworks on (2026-10-21: install 0.98.1 took 2 min 06 s, picked up after the configurator was stopped mid-build; canworks-deploy upload enabled the plugin, nodes operational; Online access refresh and bridge row version fixed after)
 - [ ] 6.3 Mac: bridge project, Install and start this project's bridge; bridge answers on its Modbus port with the project's config; Uninstall the bridge
 - [ ] 6.4 Fresh OS on a spare SD card (when Toni has one): Install OpenPLC Runtime and canworks, first user, upload works
-- [ ] 6.5 Clean PLC start afterwards
+- [x] 6.5 Clean PLC start afterwards (2026-10-21: PLC running, nodes operational)

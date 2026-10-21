@@ -411,6 +411,8 @@ async function devFollow(id) {
 
 async function devJobEnded(id, j) {
   if (typeof jobsKick === "function") jobsKick();
+  // A finished job may have made the device the project's runtime host (Online access).
+  if (j.exit === 0) await loadOnlineSettings();
   await devProbe(id);
   if (j.exit === 0 && j.action === "install_openplc") devFirstUser(id);
 }

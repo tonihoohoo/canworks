@@ -11,4 +11,4 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 Pi (managed Docker, old native unit stopped): the runtime row shows managed Docker v4.2.4, the plugin row shows on, no Rebuild offered
+- [x] 3.1 Pi (managed Docker, old native unit stopped): the runtime row shows managed Docker v4.2.4, the plugin row shows on, no Rebuild offered

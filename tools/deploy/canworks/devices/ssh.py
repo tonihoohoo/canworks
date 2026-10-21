@@ -21,6 +21,10 @@ class SshError(Exception):
     """A connection or command problem, said for people."""
 
 
+class ConnectionLost(SshError):
+    """A kept connection that died under a command: the caller may connect again."""
+
+
 class NeedTrust(SshError):
     def __init__(self, host, fingerprint, key_type):
         super().__init__("%s is new to this PC. Its key is %s." % (host, fingerprint))
@@ -129,8 +133,13 @@ class Connection:
             except (socket.timeout, TimeoutError):
                 raise SshError("%s did not answer in time" % self.label)
             except (OSError, EOFError, AttributeError) as e:
-                raise SshError("the connection to %s was lost (%s)" % (self.label, e or type(e).__name__))
+                self.close()
+                raise ConnectionLost("the connection to %s was lost (%s)" % (self.label, str(e) or type(e).__name__))
             except _paramiko().SSHException as e:
+                t = self.client.get_transport()
+                if not (t and t.is_active()) or "not active" in str(e):
+                    self.close()
+                    raise ConnectionLost("the connection to %s was lost (%s)" % (self.label, e))
                 raise SshError("SSH to %s: %s" % (self.label, e))
         if raw:
             return status, bytes(out), bytes(err)

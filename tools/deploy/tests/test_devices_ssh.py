@@ -230,6 +230,18 @@ class Service(Device):
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
 
+    def test_probe_on_a_dropped_kept_connection(self):
+        self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        conn, _ = self.devices.connection("/proj", self.did)
+        ssh.add_key_login(conn, ssh.own_public_key(self.store))
+        # The device drops the connection, the PC has not noticed yet.
+        conn.client.get_transport().is_active = lambda: True
+        self.device.drop_connections()
+        time.sleep(0.2)
+        out = self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0")
+        self.assertEqual(out["probe"]["probe"], 1)
+        self.assertEqual(self.device.logins[-1], ("pi", "key"))
+
     def test_typical_time_and_failure(self):
         self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
         conn, _ = self.devices.connection("/proj", self.did)
