@@ -121,6 +121,11 @@ if [ -e "$P/lib/libcanworks_plugin.so" ]; then
     if [ -n "$line" ]; then
         if [ "$(printf '%s' "$line" | cut -d, -f3)" = 1 ]; then enabled=true; else enabled=false; fi
     fi
+    # Managed Docker before the first upload: no recorded line yet, and the
+    # editor hook puts the line into plugins.conf disabled until an upload.
+    if [ -z "$line" ] && [ "$rt_kind" = docker-managed ] && [ ! -e "$P/lib/plugins-line" ]; then
+        enabled=false
+    fi
     plugin=$(printf '{"version": %s, "built_for": %s, "enabled": %s}' \
         "$(js "$p_version")" "$(js "$built_for")" "${enabled:-null}")
 fi

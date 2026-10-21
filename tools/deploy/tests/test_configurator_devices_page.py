@@ -115,7 +115,7 @@ class DevicesPage(OnlineBase):
             self.assertEqual(len(f.read().splitlines()), 1)
         rows = pg.eval_on_selector_all("[data-devices=rows] tbody tr", "rs => rs.map((r) => [r.dataset.part, "
                                        "r.cells[1].innerText, r.cells[2].innerText, r.classList.contains('muted-row')])")
-        self.assertEqual(rows[1][:3], ["plugin", "0.93.4 · built for v4.2.4", "newest 0.98.0"])
+        self.assertEqual(rows[1][:3], ["plugin", "0.93.4 · built for v4.2.4 · waiting for an upload", "newest 0.98.0"])
         self.assertEqual(rows[2], ["bridge", "not installed", "not used by this project", True])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
