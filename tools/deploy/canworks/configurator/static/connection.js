@@ -575,7 +575,7 @@ function remoteBox(message) {
       return;
     }
     for (const sv of r.servers) known[sv.address] = sv;
-    list.replaceChildren(el("option", { value: "" }, r.servers.length ? "Pick a found server…" : r.discovery ? "None found" : "Finding needs zeroconf"),
+    list.replaceChildren(el("option", { value: "" }, r.servers.length ? "Pick a found server…" : r.discovery ? "None found" : "Finding is not available"),
       ...r.servers.map((sv) => el("option", { value: sv.address }, `${sv.name}  ${sv.adapter} at ${sv.bitrate_kbit} kbit/s`)));
     show();
   };

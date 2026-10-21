@@ -2730,8 +2730,6 @@ def _discover(args, out):
     if args.host:
         r = discovery.find_address(args.host, timeout=args.wait)  # a direct query, then browsing
         found = [r] if r else []
-    elif not discovery.available():
-        raise DiagError("usage", discovery.NOT_AVAILABLE)
     else:
         found = discovery.browse(args.wait)
     if args.json:

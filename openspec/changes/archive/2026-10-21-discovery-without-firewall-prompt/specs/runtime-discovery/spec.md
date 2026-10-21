@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Discovery in the PC tools
-`canworks-diag discover [--timeout S]` and the configurator's connect box SHALL browse `_canworks._tcp` with the PC tools' own mDNS client (not the operating system's name lookup) and list each runtime with its name, addresses and ports, and its link ID when advertised. Typing an address SHALL keep working. The browse SHALL be a one-shot question sent to the mDNS multicast group on each local interface from a socket that is not bound to a port (an ephemeral source port), so that responders answer by legacy unicast (RFC 6762 section 6.7) to that socket. It SHALL NOT bind a socket to port 5353 or listen on any port. A runtime's first address SHALL be the source address of its answer, and answers from this PC's own addresses SHALL be ignored.
+`canworks-diag discover [--timeout S]` and the configurator's connect box SHALL browse `_canworks._tcp` with the PC tools' own mDNS client (not the operating system's name lookup) and list each runtime with its name, addresses and ports, and its link ID when advertised. Typing an address SHALL keep working. The browse SHALL be a one-shot question sent to the mDNS multicast group on each local interface from a socket that is not bound to a port (an ephemeral source port), so that responders answer by legacy unicast (RFC 6762 section 6.7) to that socket. It SHALL NOT bind a socket to port 5353 or listen on any port. A service's first address SHALL be the source address of its answer. An answer that names a service without its SRV record SHALL be completed by asking that host directly.
 
 #### Scenario: Direct Ethernet cable
 - **WHEN** the PC and the device are joined by one Ethernet cable with no DHCP server and both use link-local addresses

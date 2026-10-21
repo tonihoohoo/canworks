@@ -4223,7 +4223,7 @@ function runtimeList(input) {
     // Short texts: the list sits next to the host field and must not clip.
     const none = r.discovery ? "None found" : "None remembered";
     list.title = r.discovery ? "Runtimes on this network and remembered ones"
-      : "Remembered runtimes (finding runtimes on the network needs the zeroconf package)";
+      : "Remembered runtimes (finding runtimes on the network is not available)";
     list.replaceChildren(el("option", { value: "" }, found.length || mem.length ? "Pick a runtime…" : none),
       found.length ? el("optgroup", { label: "On this network" }, found.map((d) =>
         el("option", { value: d.address, dataset: { runtime: d.name, kind: "discovered" } }, `${d.name}  ${d.address}`))) : null,

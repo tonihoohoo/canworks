@@ -45,7 +45,7 @@ class Runtimes(base.Online):
                          [("Attic", False, False, False), ("line3", True, True, True)])
         self.assertEqual(r["remembered"][1]["hosts"], ["192.168.1.50"])
 
-    def test_without_zeroconf(self):
+    def test_without_discovery(self):
         with mock.patch.object(discovery, "available", return_value=False), \
                 mock.patch.object(discovery, "browse") as browse:
             r = self.ok("GET", "/api/online/runtimes")

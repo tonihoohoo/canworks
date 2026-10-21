@@ -1,11 +1,18 @@
 """Finding runtimes on the local network: the device advertises
 _canworks._tcp over mDNS/DNS-SD (an Avahi service file, `avahi_service`), the
-PC tools browse for it with python-zeroconf rather than the operating
+PC tools ask for it with their own one-shot query rather than the operating
 system's .local lookup, which is unreliable on Windows. An adapter server
 (canworks-diag adapter-serve) advertises the same service type with TXT
-kind=adapter (`avahi_adapter_service`); answers carry their kind."""
+kind=adapter (`avahi_adapter_service`); answers carry their kind.
+
+The question goes out from sockets that are never bound to a port, so the
+responders answer by legacy unicast (RFC 6762 6.7) straight back to them:
+nothing listens on 5353, Windows Defender Firewall does not ask to allow
+Python, and the answers get in on a Public network too (Windows lets unicast
+answers to a multicast question in)."""
 
 import ipaddress
+import select
 import socket
 import struct
 import time
@@ -13,14 +20,12 @@ from xml.sax.saxutils import escape
 
 SERVICE = "_canworks._tcp.local."
 MDNS_PORT = 5353
-NOT_AVAILABLE = "discovery needs the zeroconf package"
+GROUP_V4, GROUP_V6 = "224.0.0.251", "ff02::fb"
+RESEND_S = 1.0  # the question goes out again after this, in case UDP lost it
 
 
 def available():
-    try:
-        import zeroconf  # noqa: F401
-    except Exception:
-        return False
+    """Whether this PC can browse: always, the query needs only the standard library and ifaddr."""
     return True
 
 
@@ -77,17 +82,6 @@ def _entry(name, addresses, port, txt):
     return out
 
 
-def _txt(props):
-    out = {}
-    for k, v in (props or {}).items():
-        try:
-            out[k.decode("utf-8") if isinstance(k, bytes) else str(k)] = (
-                v.decode("utf-8") if isinstance(v, bytes) else (v or ""))
-        except UnicodeDecodeError:
-            pass
-    return out
-
-
 def _int(text, default):
     try:
         return int(text)
@@ -95,41 +89,128 @@ def _int(text, default):
         return default
 
 
-def browse(timeout=2.0):
+def _question(unicast_answer=True):
+    """A PTR question for _canworks._tcp.local, with the QU bit by default."""
+    q = b"".join(bytes([len(p)]) + p.encode() for p in SERVICE.split(".") if p) + b"\0"
+    return struct.pack(">HHHHHH", 0x6377, 0, 1, 0, 0, 0) + q + struct.pack(">HH", 12, 0x8001 if unicast_answer else 1)
+
+
+def _interfaces():
+    """[(family, address, scope id)] to ask on: each IPv4 address that is not
+    loopback (169.254.x.x included, for a direct cable) and each IPv6
+    link-local scope once."""
+    import ifaddr
+    out, scopes = [], set()
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if isinstance(ip.ip, str):
+                if not ip.ip.startswith("127."):
+                    out.append((socket.AF_INET, ip.ip, 0))
+            else:
+                addr, _, scope = ip.ip
+                if addr.lower().startswith("fe80") and scope and scope not in scopes:
+                    scopes.add(scope)
+                    out.append((socket.AF_INET6, addr, scope))
+    return out
+
+
+def _open_senders(interfaces, group_v4, group_v6, port):
+    """One unbound UDP socket per interface, set to send the question out of
+    it: [(socket, destination)]. An interface that refuses is left out."""
+    out = []
+    for fam, addr, scope in interfaces:
+        s = socket.socket(fam, socket.SOCK_DGRAM)
+        try:
+            if fam == socket.AF_INET:
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(addr))
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+                dest = (group_v4, port)
+            else:
+                s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, scope)
+                s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
+                dest = (group_v6, port, 0, scope)
+        except OSError:
+            s.close()
+            continue
+        out.append((s, dest))
+    return out
+
+
+def _source(src):
+    """The address text of a recvfrom() source, with the scope of an IPv6 link-local one."""
+    addr = src[0]
+    if len(src) >= 4 and src[3] and "%" not in addr and addr.lower().startswith("fe80"):
+        addr = "%s%%%d" % (addr, src[3])
+    return addr
+
+
+def browse(timeout=2.0, interfaces=None, group_v4=GROUP_V4, group_v6=GROUP_V6, port=MDNS_PORT):
     """Runtimes and adapter servers that answer within `timeout` seconds
-    (see _entry), sorted by name. [] without zeroconf."""
-    if not available():
-        return []
-    from zeroconf import ServiceBrowser, Zeroconf
-    found = {}
-
-    class Listener:
-        def add_service(self, zc, type_, name):
-            found[name] = None
-
-        def update_service(self, zc, type_, name):
-            found[name] = None
-
-        def remove_service(self, zc, type_, name):
-            found.pop(name, None)
-
-    zc = Zeroconf()
+    (see _entry), sorted by name. The question goes out on every interface
+    (`interfaces`, as _interfaces() gives them) from an unbound socket; an
+    answer's source address is the service's first address."""
+    q = _question()
+    senders = _open_senders(_interfaces() if interfaces is None else interfaces, group_v4, group_v6, port)
+    found = {}   # instance -> {"port", "txt", "addresses"}
     try:
-        ServiceBrowser(zc, SERVICE, Listener())
-        time.sleep(timeout)
-        out = []
-        for name in list(found):
-            info = zc.get_service_info(SERVICE, name, timeout=1000)
-            if not info:
+        sent_at = []
+        for s, dest in senders:
+            try:
+                s.sendto(q, dest)
+            except OSError:
                 continue
-            txt = _txt(info.properties)
-            addrs = info.parsed_scoped_addresses() if hasattr(info, "parsed_scoped_addresses") else [
-                socket.inet_ntoa(a) for a in info.addresses if len(a) == 4]
-            out.append(_entry(name[:-len(SERVICE) - 1] if name.endswith("." + SERVICE) else name, addrs,
-                              info.port, txt))
-        return sorted(out, key=lambda r: r["name"].lower())
+            sent_at.append(s)
+        start = time.monotonic()
+        resent = False
+        while sent_at:
+            now = time.monotonic()
+            if now - start >= timeout:
+                break
+            if not resent and now - start >= RESEND_S:
+                resent = True
+                for s, dest in senders:
+                    try:
+                        s.sendto(q, dest)
+                    except OSError:
+                        pass
+            until = timeout if resent else min(timeout, RESEND_S)
+            ready, _, _ = select.select(sent_at, [], [], max(0.01, until - (now - start)))
+            for s in ready:
+                try:
+                    data, src = s.recvfrom(9000)
+                except OSError:
+                    continue
+                try:
+                    instances, hosts = parse_answers(data)
+                except (ValueError, struct.error, IndexError):
+                    continue
+                addr = _source(src)
+                for name, rec in instances.items():
+                    item = found.setdefault(name, {"port": None, "txt": {}, "addresses": []})
+                    if rec["port"] is not None:
+                        item["port"] = rec["port"]
+                    item["txt"].update(rec["txt"])
+                    extra = hosts.get((rec["target"] or "").lower(), [])
+                    for a in [addr] + extra:
+                        if a not in item["addresses"]:
+                            item["addresses"].append(a)
     finally:
-        zc.close()
+        for s, _ in senders:
+            s.close()
+    missing = {item["addresses"][0] for item in found.values() if item["port"] is None and item["addresses"]}
+    for addr in sorted(missing):
+        # The answer named an instance but left out its SRV record: ask that host directly.
+        r = query_host(addr, port=port)
+        if r and r["name"] in found:
+            found[r["name"]].update(port=r["diag"], txt=dict(found[r["name"]]["txt"], **_txt_of(r)))
+    out = [_entry(name, item["addresses"], item["port"], item["txt"])
+           for name, item in found.items() if item["port"] is not None and item["addresses"]]
+    return sorted(out, key=lambda r: r["name"].lower())
+
+
+def _txt_of(entry):
+    """The TXT keys an _entry carries, for merging a direct answer."""
+    return {k: str(entry[k]) for k in ("diag", "runtime", "id", "link") if entry.get(k) is not None}
 
 
 def _dns_name(data, pos):
@@ -152,35 +233,60 @@ def _dns_name(data, pos):
         pos += n
 
 
-def parse_answer(data):
-    """The _canworks._tcp records of an mDNS answer: {name, port, txt} or None."""
+def parse_answers(data):
+    """The _canworks._tcp records of an mDNS answer: ({instance: {port, txt,
+    target}}, {host name: [addresses]}). An instance named only by a PTR has
+    port None; host names are lower case without the trailing dot."""
     count = sum(struct.unpack(">HHHH", data[4:12])[1:])  # answers + authority + additional
     pos = 12
     for _ in range(struct.unpack(">H", data[4:6])[0]):  # skip the questions
         _, pos = _dns_name(data, pos)
         pos += 4
-    found = {"name": None, "port": None, "txt": {}}
+    instances, hosts = {}, {}
+
+    def instance(owner):
+        return instances.setdefault(owner.split("._canworks._tcp", 1)[0], {"port": None, "txt": {}, "target": None})
     for _ in range(count):
         name, pos = _dns_name(data, pos)
         rtype, _, _, length = struct.unpack(">HHIH", data[pos:pos + 10])
         pos += 10
         rdata = data[pos:pos + length]
-        if SERVICE[:-1] in name.lower() or name.lower().endswith("._canworks._tcp.local"):
+        if len(rdata) != length:
+            raise ValueError("record past the end")
+        lname = name.lower()
+        if lname.endswith("._canworks._tcp.local"):
             if rtype == 33 and len(rdata) >= 6:     # SRV: priority, weight, port, target
-                found["port"] = struct.unpack(">H", rdata[4:6])[0]
-                found["name"] = name.split("._canworks._tcp", 1)[0]
+                rec = instance(name)
+                rec["port"] = struct.unpack(">H", rdata[4:6])[0]
+                rec["target"] = _dns_name(data, pos + 6)[0].lower()
             elif rtype == 16:                        # TXT
+                rec = instance(name)
                 i = 0
                 while i < len(rdata):
                     n = rdata[i]
                     k, _, v = rdata[i + 1:i + 1 + n].decode("utf-8", "replace").partition("=")
-                    found["txt"][k] = v
+                    if k:
+                        rec["txt"][k] = v
                     i += 1 + n
-            elif rtype == 12 and found["name"] is None:  # PTR to the instance
-                target, _ = _dns_name(data, pos)
-                found["name"] = target.split("._canworks._tcp", 1)[0]
+        elif lname == SERVICE[:-1] and rtype == 12:  # PTR to the instance
+            instance(_dns_name(data, pos)[0])
+        elif rtype == 1 and length == 4:             # A
+            hosts.setdefault(lname, []).append(socket.inet_ntoa(rdata))
+        elif rtype == 28 and length == 16:           # AAAA
+            a = socket.inet_ntop(socket.AF_INET6, rdata)
+            if not a.lower().startswith("fe80"):     # a link-local one needs its scope, which only the source has
+                hosts.setdefault(lname, []).append(a)
         pos += length
-    return found if found["name"] else None
+    return instances, hosts
+
+
+def parse_answer(data):
+    """The first _canworks._tcp instance of an mDNS answer: {name, port, txt} or None."""
+    instances, _ = parse_answers(data)
+    if not instances:
+        return None
+    name = next((n for n, r in instances.items() if r["port"] is not None), next(iter(instances)))
+    return {"name": name, "port": instances[name]["port"], "txt": instances[name]["txt"]}
 
 
 def _same_ip(a, b):
@@ -196,8 +302,7 @@ def query_host(ip, timeout=1.5, port=MDNS_PORT):
     firewalls that drop multicast answers (Windows on a Public network).
     Only an answer from `ip` itself counts: datagrams from other hosts are
     dropped. Returns a runtime like browse() does, or None."""
-    q = b"".join(bytes([len(p)]) + p.encode() for p in SERVICE.split(".") if p) + b"\0"
-    msg = struct.pack(">HHHHHH", 0x6377, 0, 1, 0, 0, 0) + q + struct.pack(">HH", 12, 1)
+    msg = _question(unicast_answer=False)
     fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
     s = socket.socket(fam, socket.SOCK_DGRAM)
     deadline = time.monotonic() + timeout

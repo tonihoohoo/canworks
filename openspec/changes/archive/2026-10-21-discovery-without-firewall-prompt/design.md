@@ -23,7 +23,7 @@ Callers of `browse`: `configurator/online.py` `runtimes_list` (connect box, Devi
 **1. A one-shot legacy-unicast question instead of a browser.**
 `browse(timeout)` does the following:
 - Lists the local interface addresses with `ifaddr`: IPv4 addresses that are not loopback (169.254.x.x is included, for a direct cable), and IPv6 link-local addresses with their scope id.
-- Opens one UDP socket per interface without calling `bind()`. It sets `IP_MULTICAST_IF` (or `IPV6_MULTICAST_IF`), TTL 255 and multicast loop off.
+- Opens one UDP socket per interface without calling `bind()`. It sets `IP_MULTICAST_IF` (or `IPV6_MULTICAST_IF`) and TTL 255. Multicast loop stays on, so a service advertised on this PC itself is listed, as it was with zeroconf.
 - Sends the PTR question with the QU bit set to `224.0.0.251:5353` (or `ff02::fb`). It repeats the send once after 1 s, because UDP can drop a packet.
 - Reads answers on all the sockets with `select` until the timeout.
 
@@ -35,10 +35,10 @@ Alternatives considered:
 - Search only on request (a button). This keeps the prompt and only moves it. It stays as the fallback (see Risks).
 
 **2. A parser that reads many instances per packet.**
-`parse_answer` today returns one instance. A host with a runtime and an adapter server, or an Avahi answer that bundles several PTRs, carries several instances in one packet. A new `parse_answers(data)` returns `{instance: {port, txt, target}}` and the A/AAAA records it finds. `query_host` uses the same parser and takes its first instance.
+`parse_answer` today returns one instance. A host with a runtime and an adapter server, or an Avahi answer that bundles several PTRs, carries several instances in one packet. A new `parse_answers(data)` returns `{instance: {port, txt, target}}` and the A/AAAA records it finds. `query_host` uses the same parser and takes its first instance. When an answer names an instance by PTR only, `browse` asks that host directly (`query_host`) for the rest.
 
 **3. Addresses come from the answer's source.**
-Each instance's `addresses` is the source address of the packet that carried its SRV record, followed by the A/AAAA records for the SRV target found in that packet. Answers from 127.x and from this PC's own addresses are ignored. Instances are merged by name, and later packets add addresses. Taking the source address first keeps a host from listing a runtime at somebody else's address. This is the same rule `query_host` already applies ("only an answer from the asked host counts").
+Each instance's `addresses` is the source address of the packet that carried its SRV record, followed by the A/AAAA records for the SRV target found in that packet. Instances are merged by name, and later packets add addresses. Taking the source address first keeps a host from listing a runtime at somebody else's address. This is the same rule `query_host` already applies ("only an answer from the asked host counts").
 
 **4. Dependencies.**
 zeroconf is removed from `pyproject.toml`. `ifaddr>=0.2` is added: a pure-Python package with no compiled parts, which zeroconf already pulled in, so the installed size goes down. `discovery.available()` stays, returns True, and is kept for callers. `NOT_AVAILABLE` and the "needs zeroconf" paths go. The fast-start test keeps asserting that `ifaddr` is not imported at start: it is imported inside `browse`.
