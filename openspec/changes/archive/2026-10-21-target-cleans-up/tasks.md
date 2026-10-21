@@ -20,4 +20,5 @@
 
 ## 4. Hand check (Windows)
 
-- [ ] 4.1 The photo's CODESYS config: Supervision tab has Method and no EMCY section or glued text; save says how many settings were left out; switching to OpenPLC and back asks nothing
+- [x] 4.1 The photo's CODESYS config: Supervision tab has Method and no EMCY section or glued text; save says how many settings were left out; switching to OpenPLC and back asks nothing
+  - 2026-10-21 PASSED on Windows, tools 0.96.0 from the tag, Edge: a CODESYS copy of the example and a copy of a real CODESYS project config. Open: no unsaved mark, no problems, no bar or toggle. Supervision: Method shown, no EMCY section, watch heading and hint on their own lines, no glued text. Save after one edit: "(27 settings CODESYS does not use left out)", values gone from the file. Switch to OpenPLC ("12 PDO entries got a location") and back ("13 settings CODESYS does not use removed"): no dialog, Undo works.
