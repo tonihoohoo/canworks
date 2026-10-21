@@ -16,4 +16,4 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 Mac, Pi with the plugin: Install and start this project's bridge, Modbus answers, Uninstall leaves the plugin and its can-j1939 boot entry
+- [x] 4.1 Mac, Pi with the plugin: Install and start this project's bridge, Modbus answers, Uninstall leaves the plugin and its can-j1939 boot entry

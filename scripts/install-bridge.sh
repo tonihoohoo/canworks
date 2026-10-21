@@ -243,7 +243,7 @@ release_install() {
     local tag=deploy-v$VERSION args=("${PASS[@]+"${PASS[@]}"}")
     [ -z "$INSTANCE" ] || args+=(--instance "$INSTANCE" --config "$CONFIG_DIR")
     [ -z "$UPLOAD_DIR" ] || args+=(--remove-config-dir)
-    say "Installing canworks-bridge $VERSION"
+    if [ "$UNINSTALL" -eq 1 ]; then say "Uninstalling canworks-bridge (scripts of $VERSION)"; else say "Installing canworks-bridge $VERSION"; fi
     local tarball="$GITHUB/archive/refs/tags/$tag.tar.gz"
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "would download: $tarball"
@@ -398,6 +398,12 @@ fi
 # (those that this run takes).
 BUILD_LELY=0
 if [ "$WITH_CANOPEN" -eq 1 ] && { [ -z "$BINARY" ] || [ ! -x "$PREFIX/venv/bin/dcfgen" ]; }; then BUILD_LELY=1; fi
+# A remote link the runtime's install set up (or another config's) is not
+# repointed at a bridge: the PLC would lose it.
+if [ -n "$LINK_NAME" ] && [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
+    say "The remote link serves another config and stays; --with-link $LINK_NAME is skipped"
+    LINK_NAME=""
+fi
 STEPS=$((DEPS + BUILD_LELY + 2))
 [ -z "$INSTANCE" ] || STEPS=$((STEPS + 1))
 [ -z "$LINK_NAME" ] || STEPS=$((STEPS + 1))

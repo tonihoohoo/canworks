@@ -158,9 +158,11 @@ done
 
 # --- Remote access, CAN, the last install job ----------------------------------------------
 
-link=null
+link=null link_config=""
 if [ -f "$R/etc/systemd/system/canworks-link.service" ]; then
     link=$(js "$("$SYSTEMCTL" is-active canworks-link.service 2>/dev/null)")
+    # The config it serves: the PLC's, or a bridge's under /etc/canworks-bridge/.
+    link_config=$(sed -n 's/.*"config": *"\([^"]*\)".*/\1/p' "$R/etc/canworks-link/link.json" 2>/dev/null | head -n 1)
 fi
 discovery=0; [ -f "$R/etc/avahi/services/canworks.service" ] && discovery=1
 
@@ -198,6 +200,7 @@ printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "m
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
 printf '"runtime": {"kind": %s, "version": %s, "commit": %s, "answers": %s}, ' \
     "$(js "$rt_kind")" "$(js "$rt_version")" "$(js "$rt_commit")" "${rt_answers:-null}"
-printf '"plugin": %s, "bridge": %s, "link": %s, "discovery": %s, ' "$plugin" "$bridge" "$link" "$(jb "$discovery")"
+printf '"plugin": %s, "bridge": %s, "link": %s, "link_config": %s, "discovery": %s, ' \
+    "$plugin" "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

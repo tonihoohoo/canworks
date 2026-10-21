@@ -167,10 +167,13 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
                  "used": need_bridge, "uninstall": bool(bridge)})
     if need_bridge:
         restart = "Running bridges restart." if running else ""
+        # A link that serves the PLC (or a config whose place is unknown) stays as it is.
+        lc = probe.get("link_config") or ""
+        kept = {"link_kept": True} if probe.get("link") is not None and not lc.startswith("/etc/canworks-bridge/") else {}
         if not bridge or bridge.get("unit") is False:
-            main = _main("install_bridge", "Install and start this project's bridge", latest)
+            main = _main("install_bridge", "Install and start this project's bridge", latest, **kept)
         elif new and (bcur is None or bcur < new):
-            main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart])
+            main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart], **kept)
         elif not current_cfg or not mine or mine.get("state") != "active":
             main = _main("bridge_config", "Start this project's bridge", latest,
                          ["The bridge %s restarts with this project's saved config." % instance
