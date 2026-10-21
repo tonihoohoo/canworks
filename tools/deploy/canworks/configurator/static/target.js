@@ -155,46 +155,19 @@ function unusedWhy(path, tgt) {
   return r.reasons[tgt] || "";
 }
 
-function isSetValue(v) {
-  return v !== undefined && v !== null && v !== "" && v !== false && !(Array.isArray(v) && !v.length) &&
-    !(typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
-}
-
-// "not used by CODESYS" with the reason as its title, and Remove when the
-// value can go (a network's protocol or role cannot: it is the network).
-function unusedMark(path, why, removable) {
-  const tgt = projectTarget();
-  return el("span", { class: "unused-mark", dataset: { unusedFor: path } },
-    el("span", { class: "tag warn-tag", title: why || "" }, `not used by ${TARGET_LABEL[tgt]}`),
-    removable ? el("button", { type: "button", class: "link", dataset: { unusedRemove: path },
-      title: "Remove this setting from the config", onclick: () => { setPath(path, undefined); changed(true); } }, "Remove") : null);
-}
-
-// Whether the page shows a key of the table: the target uses it, or the
-// Settings menu's "Show fields the target does not use" is on (S.showAll).
-function shownFor(key, tgt) { return usedBy(key, tgt) || !!S.showAll; }
-
 // The page after a render: every bound field the target does not use is
-// hidden, set or not (its value is listed in the page's bar, unusedBar);
-// options of a choice the target does not use are left out; a section left
-// with no field is hidden. With Show fields the target does not use on, the
-// fields stay, dimmed and marked, with Remove when set.
+// hidden, set or not (save leaves its value out); options of a choice the
+// target does not use are left out; a section left with no field is hidden.
 function applyTarget(root) {
   if (!root || !S.model || !S.state || !S.state.targets) return;
   const tgt = projectTarget();
   for (const x of root.querySelectorAll("input[data-path], select[data-path], textarea[data-path]")) {
     const path = x.dataset.path;
     if (x.tagName === "SELECT") pruneOptions(x, path, tgt);
-    const why = unusedWhy(path, tgt);
-    if (why === null) continue;
+    if (unusedWhy(path, tgt) === null) continue;
     const box = x.closest(".check-field") || x.closest("label") || x.closest("td") || x.parentElement;
-    if (!S.showAll) {
-      if (box.tagName === "TD") x.hidden = true;
-      else box.hidden = true;
-      continue;
-    }
-    box.classList.add("unused-field");
-    if (!box.querySelector(`[data-unused-for="${CSS.escape(path)}"]`)) box.append(unusedMark(path, why, isSetValue(getPath(path))));
+    if (box.tagName === "TD") x.hidden = true;
+    else box.hidden = true;
   }
   // A section is empty when it had settings and no control is left: a
   // control of its own (Method, Watch a node…) keeps it.
@@ -212,166 +185,22 @@ function applyTarget(root) {
 }
 
 // The options of a choice that the target does not use ("PLC cycle" for the
-// bridge, J1939 for CODESYS) are left out, except the one the config has,
-// which is marked; Show fields the target does not use keeps them all.
+// bridge, J1939 for CODESYS) are left out, except the one the config has
+// (a network's kind stays, and the check says why).
 function pruneOptions(sel, path, tgt) {
   const base = String(path).replace(/\[\d+\]/g, "");
   for (const o of [...sel.options]) {
     if (o.value === "") continue;
     const r = targetRow(`${base}=${o.value}`);
     if (!r || r.targets.includes(tgt)) continue;
-    if (o.value !== sel.value) { if (!S.showAll) o.remove(); continue; }
-    const box = sel.closest("label") || sel.parentElement;
-    const kind = NETWORK_KINDS.includes(r.key);
-    if (!box.querySelector(`[data-unused-for="${CSS.escape(path)}"]`)) box.append(unusedMark(path, r.reasons[tgt] || "", !kind && !(r.refused || []).includes(tgt)));
+    if (o.value !== sel.value) o.remove();
   }
 }
-
-const NETWORK_KINDS = ["role=slave", "protocol=j1939", "protocol=none"];
-
-// -- settings the target does not use (canopen-configurator "Settings the
-// target does not use on the page", "One problem for the settings the
-// target does not use") ------------------------------------------------------
 
 // The check's warnings for values the target does not use that can go:
-// listed in the page's bar and as one problem, not one by one.
-function isUnusedItem(it) { return !!(it && it.unused && it.removable && (it.where || []).length); }
-function unusedItems() { return ((S.check && S.check.items) || []).filter(isUnusedItem); }
-
-// The page that lists a value: its own page or node tab, else (a page the
-// target does not show) the network's Bus page.
-function unusedPage(w) {
-  let [entry, tab] = entryOfPath(w);
-  const bus = `${w.net === null || w.net === undefined ? S.net : w.net}:bus`;
-  if (entry === null) return bus;
-  if (entry === "access") return shownFor("ui:runtime") ? entry : bus;
-  if (entry === "gateway") return shownFor("/gateway") ? entry : bus;
-  if (/:raw$/.test(entry)) return shownFor("raw") ? entry : bus;
-  const m = /^\d+:node:(\d+)$/.exec(entry);
-  if (m && w.net === S.net) {
-    const have = nodeTabs(Number(m[1])).map(([k]) => k);
-    return `${entry}/${have.includes(tab) ? tab : "general"}`;
-  }
-  return m ? `${entry}/${tab || "general"}` : entry;
-}
-
-// The page shown now, in unusedPage's terms; null for a page without settings.
-function viewPage() {
-  if (S.view === "bus" || S.view === "raw" || S.view === "links") return `${S.net}:${S.view}`;
-  if (S.view.startsWith("node:")) { const i = Number(S.view.slice(5)); return `${S.net}:node:${i}/${nodeTab(i)}`; }
-  return ["access", "gateway", "bridge", "codesys"].includes(S.view) ? S.view : null;
-}
-
-// The value at a check place, in words: "%IW100", "500", "on"; "" for a block.
-function unusedValue(w) {
-  let obj = w.net === null || w.net === undefined ? S.model.top : S.model.networks[w.net];
-  const parts = String(w.path).match(/[^.[\]]+/g) || [];
-  if (w.net === null || w.net === undefined) {
-    if (parts[0] === "diagnostics" || parts[0] === "cia309") obj = S.model;
-  }
-  for (const p of parts) obj = obj && typeof obj === "object" ? obj[/^\d+$/.test(p) ? Number(p) : p] : undefined;
-  if (typeof obj === "string" || typeof obj === "number") return String(obj);
-  if (obj === true) return "on";
-  if (obj === false) return "off";
-  return "";
-}
-
-// "Node 5 rtd, TPDO 1, 0x6000:1: PLC location %IW100" for one value.
-function unusedText(it) {
-  const w = it.where[0];
-  const row = targetRow(it.key) || {};
-  let place = [];
-  try { place = placeOf(w); } catch (e) { place = []; }
-  const label = row.label || String(w.path).split(".").pop();
-  const value = unusedValue(w);
-  return (place.length ? place.join(", ") + ": " : "") + label + (value ? " " + value : "");
-}
-
-function unusedRow(it, open) {
-  const w = it.where[0];
-  const row = targetRow(it.key) || {};
-  return el("li", { dataset: { unusedRow: w.path } },
-    open ? el("button", { type: "button", class: "link", title: row.reasons ? row.reasons[projectTarget()] || "" : "",
-      onclick: () => { S.unusedOpen = true; focusPath(w); } }, unusedText(it))
-      : el("span", { title: row.reasons ? row.reasons[projectTarget()] || "" : "" }, unusedText(it)),
-    " ",
-    el("button", { type: "button", class: "small", dataset: { problemRemove: w.path },
-      title: "Remove this setting from the config", onclick: () => removeUnused(w) }, "Remove"));
-}
-
-// Removes several values in one undo step.
-function removeUnusedAll(list) {
-  for (const it of list) removeUnused(it.where[0], false);
-  changed(true);
-}
-
-// "2 settings here are not used by CODESYS" under the page's heading,
-// folded, with Remove all and Show (or Hide while every field is shown).
-function unusedBar() {
-  const old = document.querySelector("[data-unused-bar]");
-  if (old) old.remove();
-  if (!S.model || !S.state || S.state.commission || workspace() !== "configure") return;
-  const page = viewPage();
-  if (!page) return;
-  const mine = unusedItems().filter((it) => unusedPage(it.where[0]) === page);
-  if (!mine.length) return;
-  const tgt = TARGET_LABEL[projectTarget()];
-  const words = `${mine.length} setting${mine.length === 1 ? " here is" : "s here are"} not used by ${tgt}`;
-  const box = el("details", { class: "unused-list", open: !!S.unusedOpen },
-    el("summary", null, words), el("ul", null, mine.map((it) => unusedRow(it, false))));
-  box.addEventListener("toggle", () => { S.unusedOpen = box.open; });
-  const bar = notice("warning", box, { live: false, dataset: { unusedBar: String(mine.length) }, actions: [
-    el("button", { type: "button", dataset: { unusedRemoveAll: "1" }, title: `Remove these settings from the config`,
-      onclick: () => removeUnusedAll(mine) }, "Remove all"),
-    el("button", { type: "button", dataset: { unusedShow: "1" }, title: "Show fields the target does not use (Settings menu)",
-      onclick: () => setShowAll(!S.showAll) }, S.showAll ? "Hide" : "Show")] });
-  const view = $("#view");
-  const panel = view.querySelector("#node-panel");
-  if (panel) { panel.prepend(bar); return; }
-  const h = view.querySelector("h2");
-  const after = h ? (h.closest(".toolbar") && h.closest(".toolbar").parentElement === view ? h.closest(".toolbar") : h) : null;
-  if (after) after.after(bar); else view.prepend(bar);
-}
-
-// The one Problems entry for them: "5 settings are not used by CODESYS",
-// Remove all, and the list folded under it.
-function unusedProblem(list) {
-  const tgt = TARGET_LABEL[projectTarget()];
-  const box = el("details", { class: "unused-list", dataset: { unusedProblem: String(list.length) } },
-    el("summary", null, Icons.stateIcon("warning", { label: false }),
-      `${list.length} setting${list.length === 1 ? " is" : "s are"} not used by ${tgt}`),
-    el("ul", null, list.map((it) => unusedRow(it, true))));
-  return el("li", { class: "warning" }, box,
-    el("button", { type: "button", class: "small", dataset: { unusedRemoveAll: "problems" },
-      title: "Remove every setting the target does not use from the config", onclick: () => removeUnusedAll(list) }, "Remove all"));
-}
-
-// Show fields the target does not use: a per-PC choice (ui.json).
-function setShowAll(on) {
-  S.showAll = !!on;
-  const box = $("#show-all-fields");
-  if (box) box.checked = S.showAll;
-  api("POST", "/api/ui", { show_all_fields: S.showAll ? "on" : "off" }).catch(() => {});
-  render();
-}
-
-// Removes the value at a check place ({ net, path }) from the draft: a
-// network's own path, or a top-level one (net null).
-function removeUnused(w, rerender = true) {
-  let parts = String(w.path).match(/[^.[\]]+/g) || [];
-  // A version 1 file's master.diagnostics is the draft's one diagnostics object.
-  if (parts[0] === "master" && (parts[1] === "diagnostics" || parts[1] === "cia309")) { parts = parts.slice(1); w = { net: null }; }
-  let obj;
-  if (w.net === null || w.net === undefined) {
-    if (parts[0] === "diagnostics" || parts[0] === "cia309") {
-      if (parts.length === 1) { delete S.model[parts[0]]; if (rerender) changed(true); return; }
-      obj = S.model;
-    } else obj = S.model.top;
-  } else obj = S.model.networks[w.net];
-  for (let i = 0; i < parts.length - 1 && obj; i++) obj = obj[/^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i]];
-  if (obj && typeof obj === "object") delete obj[parts[parts.length - 1]];
-  if (rerender) changed(true);
-}
+// not problems, since save leaves them out (canopen-configurator "Settings
+// the target does not use are left out on save").
+function isUnusedItem(it) { return !!(it && it.unused && it.removable); }
 
 // -- the Project target field ---------------------------------------------------
 
@@ -381,51 +210,16 @@ function targetField() {
       { noPath: true, dataset: { target: "1" }, current: projectTarget(), onChange: switchTarget })));
 }
 
-// Switches the project target in one undo step: one dialog names what the
-// new target does not use (Remove them, the default, or Keep them) and, as
-// it applies, the repacking of the locations; the server does the switch
-// (/api/switch_target).
+// Switches the project target in one undo step, without asking: the server
+// adds the target's marker, removes what the new target does not use and
+// packs the locations (/api/switch_target); a message says what was done,
+// and Undo takes it back.
 async function switchTarget(target) {
   const from = projectTarget();
   if (target === from) return;
-  let preview;
-  try {
-    preview = await api("POST", "/api/switch_target", { config: fileConfig(), target, preview: true });
-  } catch (e) {
-    banner(`The switch to ${TARGET_TITLE[target]} failed: ${e.message}`, true);
-    render();
-    return;
-  }
-  const removable = preview.unused.filter((u) => u.removable);
-  const kept = preview.unused.filter((u) => !u.removable);
-  const lines = [`Switch the project to ${TARGET_TITLE[target]}?`];
-  if (target !== "openplc" && fileVersion(fileConfig()) === 1) lines.push("The file becomes version 2 (a list of networks) when saved.");
-  if (target === "codesys") {
-    lines.push("CODESYS assigns the I/O addresses itself: every PDO entry keeps its variable name, written into the config where it was generated.");
-  } else if (from === "codesys") {
-    if (preview.locations) lines.push(`${preview.locations} PDO entr${preview.locations === 1 ? "y gets a location" : "ies get a location"}` +
-      (target === "bridge" ? ", packed for Modbus." : ", per type."));
-  }
-  if (removable.length) lines.push(`${removable.length} setting${removable.length === 1 ? " is" : "s are"} not used by ${TARGET_LABEL[target]}:`);
-  if (kept.length) lines.push(`${kept.length} network${kept.length === 1 ? "" : "s"} ${kept.length === 1 ? "stays" : "stay"} with canworks and ${kept.length === 1 ? "is" : "are"} not exported.`);
-  // Between OpenPLC and the bridge the addressing differs: repack, as before.
-  const repack = from !== "codesys" && target !== "codesys"
-    ? el("label", { class: "check" }, el("input", { type: "checkbox", checked: true, dataset: { switchPack: "1" } }),
-      target === "bridge" ? " Pack every location for Modbus" : " Repack every location per type")
-    : null;
-  const list = preview.unused.length ? el("ul", { class: "switch-unused", dataset: { switchUnused: "1" } },
-    preview.unused.slice(0, 12).map((u) => el("li", null, problemPlace(u.path) + humanUnused(u))),
-    preview.unused.length > 12 ? el("li", { class: "muted" }, `and ${preview.unused.length - 12} more`) : null) : null;
-  const extra = el("div", null, list, repack);
-  const buttons = [["cancel", "Cancel"]];
-  if (removable.length) buttons.push(["keep", "Switch, keep them hidden"], ["remove", "Switch and remove them", true]);
-  else buttons.push(["switch", "Switch", true]);
-  const v = await modal(lines.join(" "), buttons, extra);
-  if (!v || v === "cancel") { render(); return; }
-  const pack = repack ? repack.querySelector("input").checked : true;
   let r;
   try {
-    r = await api("POST", "/api/switch_target", { config: fileConfig(), target, keep: v === "keep", pack });
+    r = await api("POST", "/api/switch_target", { config: fileConfig(), target });
   } catch (e) {
     banner(`The switch to ${TARGET_TITLE[target]} failed: ${e.message}. The target is still ${TARGET_TITLE[from]}.`, true);
     render();
@@ -434,21 +228,14 @@ async function switchTarget(target) {
   bridgeReplaceDraft(r.config);
   if ((S.view === "bridge" && target !== "bridge") || (S.view === "codesys" && target !== "codesys")) S.view = "bus";
   changed(true);
+  const done = [];
+  if (r.removed) done.push(`${r.removed} setting${r.removed === 1 ? "" : "s"} ${TARGET_LABEL[target]} does not use removed`);
+  if (r.located) done.push(`${r.located} PDO entr${r.located === 1 ? "y" : "ies"} got a location`);
   const page = target === "bridge" ? " See the Modbus bridge page." : target === "codesys" ? " See the CODESYS page." : "";
-  banner(`The project targets ${TARGET_TITLE[target]} now` + (r.removed ? `, ${r.removed} unused setting${r.removed === 1 ? "" : "s"} removed.` : ".") + page);
+  banner(el("span", { dataset: { switchDone: target } },
+    `The project targets ${TARGET_TITLE[target]} now` + (done.length ? ": " + done.join(", ") + "." : ".") + page + " ",
+    el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")));
 }
-
-// "Node 5 rtd: " for a config path in the switch dialog's list.
-function problemPlace(path) {
-  const m = /^networks\[(\d+)\]\.(.*)$/.exec(path);
-  const w = m ? { net: Number(m[1]), path: m[2] } : { net: m ? null : 0, path };
-  try {
-    const parts = placeOf(w);
-    return parts.length ? parts.join(", ") + ": " : "";
-  } catch (e) { return ""; }
-}
-
-function humanUnused(u) { return u.message.replace(/ is not used by [^:]*(: )?/, (s, colon) => (colon ? ": " : "")); }
 
 // -- the CODESYS page -------------------------------------------------------------
 

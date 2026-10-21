@@ -175,7 +175,8 @@ function linkTag(n, number) {
     onclick: () => showView("links") }, `feeds ${names.join(", ")}`);
 }
 
-// The node page's heartbeat watch list (canopen-configurator "Heartbeat watch setting").
+// The node page's heartbeat watch list (canopen-configurator "Heartbeat watch
+// setting"); null for a node that cannot watch and watches nobody.
 function heartbeatWatchFields(i) {
   const n = S.config.nodes[i];
   const base = `nodes[${i}].heartbeat_watch`;
@@ -203,6 +204,8 @@ function heartbeatWatchFields(i) {
   // (canopen-configurator "Heartbeat consumer choice follows the EDS").
   const why = edsHasHeartbeatConsumer(edsFor(n)) ? null
     : "The EDS has no consumer heartbeat time (0x1016), so the device cannot watch other nodes' heartbeats.";
+  // Nothing to choose and nothing set: no block at all.
+  if (why && !rows.length) return null;
   const free = why ? [] : others.filter((x) => !watches(n, x.node_id));
   const add = el("select", { "aria-label": "Watch another node's heartbeat" }, el("option", { value: "" }, "Watch a node…"),
     free.map((x) => el("option", { value: String(x.node_id) }, nodeText(x))));

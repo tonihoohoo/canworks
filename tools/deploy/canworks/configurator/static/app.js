@@ -883,6 +883,11 @@ function pagePath(p, version) {
 // A /api/check shaped answer with its paths in the page's terms: `where` on
 // each item, and the declared map keyed by "<network index>|<path>".
 function normCheck(r, version) {
+  // Values the target does not use are no problem: save leaves them out.
+  if (r.items && r.items.some(isUnusedItem)) {
+    r.items = r.items.filter((it) => !isUnusedItem(it));
+    r.warnings = r.items.filter((it) => it.level !== "error").length;
+  }
   for (const it of r.items || []) it.where = (it.paths || []).map((p) => pagePath(p, version));
   if (r.declared) {
     const d = {};
@@ -1477,7 +1482,6 @@ function render() {
   badge.title = S.state.config_path;
   if (!S.state.commission && S.model) {
     badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · " + TARGET_TITLE[projectTarget()]));
-    if (S.showAll) badge.append(el("span", { class: "target-mark", dataset: { showAllMark: "1" }, title: "Settings > Show fields the target does not use is on" }, " · all fields"));
   }
   if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
@@ -1504,10 +1508,10 @@ function render() {
     if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
     if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
     if (S.view === "codesys" && !codesysOn()) S.view = "bus";
-    if (S.view === "access" && !shownFor("ui:runtime")) S.view = "bus";
-    if (S.view === "raw" && !shownFor("raw")) S.view = "bus";
-    if (S.view === "gateway" && !shownFor("/gateway")) S.view = "bus";
-    if (S.view === "declarations" && !shownFor("ui:declarations")) S.view = "bus";
+    if (S.view === "access" && !usedBy("ui:runtime")) S.view = "bus";
+    if (S.view === "raw" && !usedBy("raw")) S.view = "bus";
+    if (S.view === "gateway" && !usedBy("/gateway")) S.view = "bus";
+    if (S.view === "declarations" && !usedBy("ui:declarations")) S.view = "bus";
     if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   }
   // The view belongs to the workspace shown (shell.js).
@@ -1757,7 +1761,7 @@ function slaveNetworkSettings() {
 // every field is shown). A CODESYS config's leftover `simulate` is listed in
 // the page's bar instead (target.js).
 function simulationShown() {
-  return shownFor("ui:simulation");
+  return usedBy("ui:simulation");
 }
 
 // The node page's Simulated switch.
@@ -2901,7 +2905,7 @@ function renderPdos(i, key, dir, title, eds) {
   fs.append(el("p", { class: "muted" }, `${pdos.length} of ${count} PDOs defined in the EDS used. Add entries with "Add entry…" (a new PDO is started when the open ones are full).`));
   // The Location column is the target's: CODESYS assigns the addresses itself
   // (a location left in an entry is listed in the tab's bar, target.js).
-  const locations = shownFor(`nodes.${key}.entries.iec_location`);
+  const locations = usedBy(`nodes.${key}.entries.iec_location`);
   pdos.forEach((p, j) => {
     const pb = `nodes[${i}].${key}[${j}]`;
     const bits = (p.entries || []).reduce((s, e) => s + (S.state.type_bits[e.type] || 0), 0);
@@ -3221,7 +3225,7 @@ function pdoSummaryText(pb, dir, p, j, eds) {
   }
   const ev = p.event_timer_ms !== undefined ? num(p.event_timer_ms) : sub(5) ? sub(5).value : null;
   if (ev) parts.push(`${dir === "input" ? "event" : "deadline"} ${ev} ms`);
-  if (dir === "input" && p.timeout_ms !== undefined && shownFor("nodes.tx_pdos.timeout_ms")) parts.push(p.timeout_ms === "auto" ? "timeout auto" : `timeout ${p.timeout_ms} ms`);
+  if (dir === "input" && p.timeout_ms !== undefined && usedBy("nodes.tx_pdos.timeout_ms")) parts.push(p.timeout_ms === "auto" ? "timeout auto" : `timeout ${p.timeout_ms} ms`);
   return parts.join(" · ");
 }
 
@@ -7520,10 +7524,7 @@ function applyCheck() {
   const focusedAt = focused ? [...list.children].indexOf(focused) : -1;
   list.replaceChildren();
   const items = (S.check && S.check.items) || [];
-  // Settings the target does not use are one problem (target.js), and no field shows their message.
-  const unused = items.filter(isUnusedItem);
   for (const it of items) {
-    if (unused.includes(it)) continue;
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
       onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
@@ -7541,14 +7542,12 @@ function applyCheck() {
       }
     }
   }
-  if (unused.length) list.append(unusedProblem(unused));
   if (!items.length && S.check) list.append(el("li", { class: "ok" }, Icons.stateIcon("ok", { label: false }), "No problems."));
   if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
   // The overlap override goes with the overlap errors, and stays while ticked.
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
   $("#overlap-box").hidden = !(S.state && S.state.mode === "project" && (overlaps || $("#allow-overlap").checked));
   fillCounts(countProblems());
-  if (typeof unusedBar === "function") unusedBar();
   updateSave();
 }
 
@@ -7818,7 +7817,10 @@ async function save(overwrite) {
     await checkToken();
     render();
     // After render: a test (or a quick user) acting on "Saved" acts on the new page.
-    banner("Saved " + r.written.join(", "));
+    // Settings the target does not use are left out (canopen-configurator
+    // "Settings the target does not use are left out on save").
+    const left = r.left_out ? ` (${r.left_out} setting${r.left_out === 1 ? "" : "s"} ${TARGET_LABEL[projectTarget()]} does not use left out)` : "";
+    banner("Saved " + r.written.join(", ") + left);
     runCheck();
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {

@@ -131,7 +131,7 @@ THEMES = ("auto", "light", "dark")
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
                "workspace": (("configure", "commission"), "configure"), "panel": (("open", "closed"), "open"),
-               "ws_note": (("new", "seen"), "new"), "show_all_fields": (("off", "on"), "off"),
+               "ws_note": (("new", "seen"), "new"),
                "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general")}
 
 # The network tree's folded networks: a list of network names (or "#<index>").
@@ -1359,14 +1359,13 @@ class Session:
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
 
     # -- project target (canopen-configurator "Switching the target") --------
-    def switch_target(self, cfg, target, keep=False, pack=True, preview=False):
+    def switch_target(self, cfg, target):
         """The draft switched to `target`: the target's marker added and the
         old one removed; to CODESYS every PDO entry without a name gets its
         generated name; from CODESYS every entry gets a location, packed for
         the new target; with `pack` (OpenPLC and bridge alike) every location
-        is repacked. `unused` lists what the new target does not use; unless
-        `keep`, the removable ones are removed. With `preview` only `unused`
-        and `locations` (entries that will get a location) come back."""
+        is repacked. What the new target does not use is removed and counted
+        in `removed`."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         if target not in targets.TARGETS:
@@ -1374,7 +1373,7 @@ class Session:
         out = copy.deepcopy(cfg)
         old = targets.target(out)
         if old == target:
-            return {"config": out, "unused": [], "removed": 0, "target": target}
+            return {"config": out, "removed": 0, "target": target}
         if target != targets.OPENPLC:
             out = version2(out)
         if target == targets.CODESYS:
@@ -1400,21 +1399,16 @@ class Session:
             located += place_bits(out)
         elif target == targets.BRIDGE:
             located += place_entries(out, rx_bits=True)
-        unused = [{"path": p, "key": k, "reason": why, "removable": targets.removable(k),
-                   "message": targets.message(p, k, why, target)} for p, k, why in targets.unused(out, target)]
-        if preview:
-            return {"unused": unused, "locations": located, "target": target}
-        if not keep:
-            targets.remove(out, [u["path"] for u in unused if u["removable"]])
-        if target != targets.CODESYS and (pack or located):
+        gone = [p for p, k, _ in targets.unused(out, target) if targets.removable(k)]
+        targets.remove(out, gone)
+        if target != targets.CODESYS:
             try:
                 out = modbusmap.pack(out) if target == targets.BRIDGE else self.pack_openplc(out)["config"]
             except modbusmap.MapError as e:
                 raise ApiError(400, str(e))
         if target == targets.OPENPLC:
             out = lowest_version(out)
-        return {"config": out, "unused": unused, "removed": 0 if keep else sum(u["removable"] for u in unused),
-                "target": target}
+        return {"config": out, "removed": len(gone), "located": located, "target": target}
 
     def _name_entries(self, cfg):
         """Gives every PDO entry without a `name` the name part of its
@@ -1934,6 +1928,15 @@ class Session:
 
     # -- save ---------------------------------------------------------------
     def save(self, cfg, allow_overlap=False, overwrite=False, notes=None):
+        """Writes the draft; settings the target does not use are left out
+        (spec "Settings the target does not use are left out on save") and
+        counted in `left_out`."""
+        left_out = 0
+        if isinstance(cfg, dict):
+            cfg = copy.deepcopy(cfg)
+            gone = [p for p, k, _ in targets.unused(cfg) if targets.removable(k)]
+            targets.remove(cfg, gone)
+            left_out = len(gone)
         cfg = lowest_version(cfg)
         checked = self.check(cfg, allow_overlap, notes=notes)
         if checked["errors"]:
@@ -1942,9 +1945,11 @@ class Session:
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         try:
-            return self._save(cfg, checked, notes)
+            out = self._save(cfg, checked, notes)
         except OSError as e:
             raise folder_error(e, "write to", self.canopen_dir)
+        out["left_out"] = left_out
+        return out
 
     def _save(self, cfg, checked, notes=None):
         os.makedirs(self.canopen_dir, exist_ok=True)
@@ -2721,8 +2726,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.export_codesys(body.get("config"))
                 elif route == ("POST", "/api/switch_target"):
                     self._need_open(s)
-                    out = s.switch_target(body.get("config"), body.get("target"), body.get("keep") is True,
-                                          body.get("pack") is not False, body.get("preview") is True)
+                    out = s.switch_target(body.get("config"), body.get("target"))
                 elif route == ("POST", "/api/export_dcf"):
                     self._need_open(s)
                     out = s.export_dcf(body.get("config"), body.get("node"), body.get("network"))
