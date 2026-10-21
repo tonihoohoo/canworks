@@ -1136,7 +1136,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
     tgt = targets.target(cfg)
     for at, key, why in targets.unused(cfg):
         r.add("warning", "%s: %s: %s" % (path, at, targets.message(at, key, why, tgt)), [at],
-              unused=tgt, removable=targets.removable(key))
+              unused=tgt, removable=targets.removable(key), key=key)
     return r
 
 

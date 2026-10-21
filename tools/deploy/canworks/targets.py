@@ -113,12 +113,50 @@ ROWS = [
     ("ui:editor_project", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: ""}, ()),
     ("ui:runtime", _RUNTIME, {CODESYS: ""}, ()),
     ("ui:simulation", _RUNTIME, {CODESYS: ""}, ()),
-    ("ui:declarations", _RUNTIME, {CODESYS: ""}, ()),
+    ("ui:declarations", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: ""}, ()),
     ("ui:bridge", frozenset((BRIDGE,)), {OPENPLC: "", CODESYS: ""}, ()),
     ("ui:codesys", frozenset((CODESYS,)), {OPENPLC: "", BRIDGE: ""}, ()),
 ]
 
 _BY_KEY = {r[0]: r for r in ROWS}
+
+# The page's name for each setting of the table, for the list of settings
+# the target does not use (canopen-configurator "Settings the target does
+# not use on the page").
+_LOCATION_LABELS = {"bus_state_location": "Bus state", "tx_error_count_location": "TX errors",
+                    "rx_error_count_location": "RX errors", "bus_off_count_location": "Bus-off count",
+                    "state_location": "Master state"}
+_NODE_LABELS = {"status_location": "Status bit", "state_location": "State byte", "boot_error_location": "Boot error byte",
+                "emcy_code_location": "EMCY code", "error_register_location": "Error register",
+                "nmt_command_location": "NMT command"}
+FIELD_LABELS = dict(
+    [("/gateway", "Gateway"), ("/cia309", "CiA 309-3 gateway"), ("/diagnostics", "Online access"),
+     ("raw", "CAN messages"), ("codesys", "CODESYS settings"), ("adapter.type", "Type"),
+     ("adapter.device", "Interface"), ("adapter.serial_baudrate", "Serial speed"),
+     ("adapter.configure_link", "Sets up the link"), ("adapter.restart_ms", "Bus-off restart (ms)"),
+     ("adapter.simulate", "Simulated network"), ("master.on_plc_stop", "When the PLC stops"),
+     ("master.scan_watchdog_ms", "Scan watchdog (ms)"), ("master.sync_source=plc_cycle", "SYNC from the PLC cycle"),
+     ("master.sync_cycles", "SYNC every n PLC cycles"), ("master.eds_lint", "EDS lint"),
+     ("master.diagnostics", "Online access"), ("master.cia309", "CiA 309-3 gateway"),
+     ("master.heartbeat_multiplier", "Heartbeat multiplier"), ("master.error_behavior", "Error behaviour (0x1029)"),
+     ("master.reset_all_nodes", "Reset all nodes on error"), ("master.stop_all_nodes", "Stop all nodes on error"),
+     ("master.boot_time_ms", "Boot time (ms)"), ("master.vendor_id", "Master vendor ID"),
+     ("master.product_code", "Master product code"), ("master.revision_number", "Master revision number"),
+     ("master.serial_number", "Master serial number"), ("master.sync_counter_overflow", "SYNC counter overflow"),
+     ("master.emcy_inhibit_time_us", "Master EMCY inhibit time"),
+     ("nodes.sdo_variables", "SDO variables"), ("nodes.heartbeat_timeout_ms", "Heartbeat timeout (ms)"),
+     ("nodes.lss", "LSS"), ("nodes.axis", "CiA 402 axis"), ("nodes.config_check", "Skip download when unchanged"),
+     ("nodes.store_configuration", "Save configuration on the device"), ("nodes.emcy_cob_id", "EMCY COB-ID"),
+     ("nodes.revision_number", "Revision number"), ("nodes.serial_number", "Serial number"),
+     ("nodes.retry_factor", "Guarding retries"), ("nodes.simulate", "Simulated device"),
+     ("nodes.tx_pdos.timeout_location", "Timeout bit"), ("nodes.tx_pdos.timeout_ms", "Receive timeout (ms)"),
+     ("nodes.tx_pdos.on_timeout", "On timeout"),
+     ("nodes.tx_pdos.entries.iec_location", "PLC location"), ("nodes.rx_pdos.entries.iec_location", "PLC location"),
+     ("nodes.tx_pdos.entries.bits.iec_location", "Bit location"), ("nodes.rx_pdos.entries.bits.iec_location", "Bit location"),
+     ("j1939.scan_watchdog_ms", "Scan watchdog (ms)"), ("raw.scan_watchdog_ms", "Scan watchdog (ms)"),
+     ("role=slave", "Slave network"), ("protocol=j1939", "J1939 network"), ("protocol=none", "Plain CAN network")]
+    + [("master." + k, v) for k, v in _LOCATION_LABELS.items()]
+    + [("nodes." + k, v) for k, v in _NODE_LABELS.items()])
 
 
 def target(cfg):
@@ -146,8 +184,9 @@ def reason(key, tgt):
 
 
 def table():
-    """The table for the configurator page: [{key, targets, refused, reasons}]."""
-    return [{"key": k, "targets": sorted(t), "refused": list(ref), "reasons": dict(why)} for k, t, why, ref in ROWS]
+    """The table for the configurator page: [{key, targets, refused, reasons, label}]."""
+    return [{"key": k, "targets": sorted(t), "refused": list(ref), "reasons": dict(why), "label": FIELD_LABELS.get(k, "")}
+            for k, t, why, ref in ROWS]
 
 
 def _set(value):

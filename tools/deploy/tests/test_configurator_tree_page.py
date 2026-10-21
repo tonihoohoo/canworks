@@ -94,8 +94,13 @@ class Tree(unittest.TestCase):
         # The slave network has its device in place of nodes.
         self.assertEqual(pg.locator('#tree [data-key="2"] [data-slave]').count(), 1)
         # The live state from commission-workspace sets a mark without a redraw.
-        pg.evaluate("() => { document.querySelector('#tree [data-key=\"0:node:1\"]').dataset.probe = '1'; setNodeMark('io', 6, 'absent', 'absent'); }")
-        self.assertEqual(pg.get_attribute('#tree [data-key="0:node:1"][data-probe] .tree-mark', "class"), "tree-mark absent")
+        # In one step: a check finishing later redraws the tree, which is not what is tested here.
+        mark = pg.evaluate("""() => {
+          const li = document.querySelector('#tree [data-key="0:node:1"]');
+          setNodeMark('io', 6, 'absent', 'absent');
+          return li.isConnected ? li.querySelector('.tree-mark').className : 'redrawn';
+        }""")
+        self.assertEqual(mark, "tree-mark absent")
         pg.evaluate("() => setNodeMark('io', 6, null)")
         self.assertEqual(pg.get_attribute('#tree [data-key="0:node:1"] .tree-mark', "class"), "tree-mark sim")
         audit(pg, "tree")

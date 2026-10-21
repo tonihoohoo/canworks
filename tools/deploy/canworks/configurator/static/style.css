@@ -998,9 +998,21 @@ table > tbody > tr.row-selected > td:first-child, table.od-tree tbody tr.od-sele
 /* Project targets (target.js): a setting the target does not use, the switch dialog's list, CODESYS's report. */
 .unused-mark { display: inline-flex; gap: 6px; align-items: center; margin-top: 2px; }
 td .unused-mark { display: flex; }
+/* Show fields the target does not use: the fields stay, dimmed (target.js). */
+.unused-field > :not(.unused-mark) { opacity: 0.55; }
+/* The page's bar and the Problems entry for the settings the target does not use. */
+.unused-list > summary { cursor: pointer; }
+.unused-list ul { margin: 6px 0 0; padding-left: 18px; }
+.unused-list li { margin: 2px 0; }
+#problem-list li .unused-list { padding: 6px; font-size: 13px; }
+#problem-list li .unused-list > summary { display: flex; gap: 6px; align-items: center; }
+#problem-list li > button.small { display: inline-block; width: auto; margin: 0 6px 6px; padding: 2px 8px; background: var(--panel); border: 1px solid var(--line); }
 ul.switch-unused { margin: 4px 0 8px; padding-left: 20px; max-height: 40vh; overflow: auto; }
 pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--hover); padding: 8px; border-radius: 4px; }
 #new-target-row { align-items: center; gap: 8px; margin-bottom: 8px; }
 /* A PDO entry's variable name grows with its name or the generated one. */
 .pdo td input[data-entry-variable] { field-sizing: content; min-width: 9ch; max-width: 100%; }
 .pdo td input[data-path$=".iec_location"] { min-width: 10ch; }
+#problem-list .unused-list li { border: 0; background: none; margin: 4px 0; }
+#problem-list .unused-list li > button { display: inline; width: auto; padding: 0; color: var(--accent); text-decoration: underline; text-align: left; }
+#problem-list .unused-list li > button.small { padding: 2px 8px; margin-left: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; color: var(--text); text-decoration: none; }

@@ -199,13 +199,16 @@ class BridgePage(OnlineBase):
         self.assertIsNone(pg.evaluate("() => S.config.master.on_plc_stop || null"))
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.assertEqual(pg.locator('select[data-path="master.sync_source"] option[value="plc_cycle"]').count(), 0)
-        # A watchdog the config still has shows, marked, with Remove.
+        # A watchdog the config still has stays hidden, listed in the bar with Remove.
         pg.evaluate("() => { S.config.master.scan_watchdog_ms = 250; changed(true); }")
         self.checked()
-        self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        self.assertIn("not used by the Modbus bridge", pg.inner_text('[data-unused-for="master.scan_watchdog_ms"]'))
-        self.assertIn("'scan_watchdog_ms' is not used by the Modbus bridge", pg.inner_text("#problem-list"))
-        pg.click('[data-unused-remove="master.scan_watchdog_ms"]')
+        self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
+        self.assertIn("1 setting here is not used by the Modbus bridge", pg.inner_text("[data-unused-bar]"))
+        self.assertIn("1 setting is not used by the Modbus bridge", pg.inner_text("#problem-list"))
+        pg.click("[data-unused-bar] summary")
+        self.assertIn("Master: Scan watchdog (ms) 250", pg.inner_text("[data-unused-bar]"))
+        pg.click('[data-unused-bar] [data-problem-remove="master.scan_watchdog_ms"]')
+        self.checked()
         self.assertIsNone(pg.evaluate("() => S.config.master.scan_watchdog_ms || null"))
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         # A PLC cycle SYNC the config still has is an error, shown as the config's value.

@@ -99,8 +99,21 @@ class Unused(unittest.TestCase):
         self.assertEqual(r.errors, [])
         item = [i for i in r.items if i["paths"] == ["networks[0].nodes[0].emcy_code_location"]][0]
         self.assertEqual(item["level"], "warning")
-        self.assertEqual((item["unused"], item["removable"]), ("codesys", True))
+        self.assertEqual((item["unused"], item["removable"], item["key"]), ("codesys", True, "nodes.emcy_code_location"))
         self.assertIn("'emcy_code_location' is not used by CODESYS: plugin status location", item["message"])
+
+    def test_every_setting_has_a_page_label(self):
+        # The page's list of settings the target does not use names each one.
+        rows = {r["key"]: r for r in targets.table()}
+        for key, _, _, _ in targets.ROWS:
+            if not key.startswith("ui:"):
+                self.assertTrue(rows[key]["label"], key)
+        self.assertEqual(rows["nodes.tx_pdos.entries.iec_location"]["label"], "PLC location")
+
+    def test_declarations_are_openplc_only(self):
+        self.assertTrue(targets.uses("ui:declarations", targets.OPENPLC))
+        self.assertFalse(targets.uses("ui:declarations", targets.BRIDGE))
+        self.assertFalse(targets.uses("ui:declarations", targets.CODESYS))
 
     def test_bridge_ignores_the_scan_watchdog(self):
         cfg = load(BRIDGE)
