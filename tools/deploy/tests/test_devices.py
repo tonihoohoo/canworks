@@ -357,6 +357,22 @@ class Probe(unittest.TestCase):
         self.assertEqual((p["runtime"]["kind"], p["runtime"]["version"]), ("docker-managed", None))
         self.assertTrue(p["plugin"]["enabled"])
 
+    def test_managed_docker_before_the_first_upload(self):
+        self.write("var/lib/openplc-bootloader/runtime-spec.json", '{"version": "v4.3.1"}\n')
+        self.write("opt/canworks/lib/libcanworks_plugin.so", "")
+        self.write("opt/canworks/VERSION", "0.98.4\n")
+        self.write("opt/canworks/lib/runtime-version", "v4.3.1\n")
+        p = self.run_probe()
+        self.assertIs(p["plugin"]["enabled"], False)
+        self.assertEqual(row(plan.plan(p, "openplc", "0.98.4"), "plugin")["have"],
+                         "0.98.4 · built for v4.3.1 · waiting for an upload")
+        self.write("opt/canworks/lib/plugins-line", "canworks,/opt/canworks/lib/libcanworks_plugin.so,1,1,,\n")
+        self.assertIs(self.run_probe()["plugin"]["enabled"], True)
+        # A recorded line that cannot be read stays unknown.
+        if os.geteuid() != 0:
+            os.chmod(os.path.join(self.root, "opt/canworks/lib/plugins-line"), 0)
+            self.assertIsNone(self.run_probe()["plugin"]["enabled"])
+
     def test_native_runtime(self):
         self.write("etc/systemd/system/openplc-runtime.service", "[Service]\nWorkingDirectory=/home/pi/rt\n")
         self.write("home/pi/rt/plugins.conf", "canworks,/opt/canworks/lib/libcanworks_plugin.so,1,0,,\n")
