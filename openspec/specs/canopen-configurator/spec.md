@@ -77,8 +77,10 @@ Adding a node SHALL start from an EDS file the user picks. The configurator SHAL
 
 At import, the configurator SHALL also run the checks the PLC runs before dcfgen, on the same prepared copy (see `canopen-master-bringup`, "Prepared EDS copy"): dcfgen's EDS read and lint, and Lely's EDS parse rules, sorting the lint findings as the plugin does (see `canopen-master-bringup`, "EDS lint scope") under the config's `eds_lint` setting. The import SHALL show:
 - that the file is readable, when nothing below applies;
-- the corrections the PLC will make (UTF-8 conversion, REAL rewrite, cleared OCTET_STRING values);
+- the corrections made in the prepared copy (UTF-8 conversion, `$NODEID` rewrites, REAL rewrite, cleared OCTET_STRING values), as described below;
 - findings that do not stop the PLC, as a collapsed list with each finding's object, saying they are accepted.
+
+The correction report SHALL name the imported file, SHALL say that the file is kept as imported, and SHALL name who reads the corrected copy for the project's target: the OpenPLC plugin, the Modbus bridge, or, for a node under a CODESYS target, the DCFs exported to CODESYS, which are built from it. A slave EDS import under a CODESYS target SHALL name canworks as the reader. Each kind of correction SHALL be listed on its own line with how many values it changed, in words that read correctly for one value and for several. Under a CODESYS target, a node import SHALL NOT list the REAL rewrite, since the exported DCFs write REAL values as decimals. The UTF-8 conversion, which changes the stored file, SHALL be reported on its own line as before.
 
 The import SHALL be refused, showing the reason, and no node SHALL be added, when dcfgen or Lely cannot read the file even after the corrections, or when the lint has findings that would stop the PLC.
 
@@ -105,6 +107,22 @@ The import SHALL be refused, showing the reason, and no node SHALL be added, whe
 #### Scenario: Notes file for a new EDS
 - **WHEN** the user imports `valve.eds`, which has no notes file, adds the node and saves
 - **THEN** `canworks/valve.eds.notes.json` is written with the valve's identity and an entry for each manufacturer object
+
+#### Scenario: $NODEID rewrite reported for OpenPLC
+- **WHEN** the project target is OpenPLC and the user adds a node from `valve.eds`, which has 8 values written `<number>+$NODEID`
+- **THEN** the banner names `valve.eds`, says it is kept as imported and that the OpenPLC plugin reads a corrected copy, and lists that 8 values written `<number>+$NODEID` are read as `$NODEID+<number>`
+
+#### Scenario: One rewritten value
+- **WHEN** the imported EDS has exactly one value written `<number>+$NODEID`
+- **THEN** the line reads as one value ("1 value ... is read as"), not "1 values"
+
+#### Scenario: $NODEID rewrite reported for CODESYS
+- **WHEN** the project target is CODESYS and the user adds a node from the same `valve.eds`
+- **THEN** the banner names `valve.eds`, says it is kept as imported and that the DCFs exported to CODESYS are built from a corrected copy, and lists the 8 rewritten values
+
+#### Scenario: REAL rewrite only, CODESYS
+- **WHEN** the project target is CODESYS and the only correction an imported EDS needs is decimal REAL values
+- **THEN** no correction is listed, and the banner says the file is readable when nothing else applies
 
 ### Requirement: SocketCAN adapter settings
 The configurator SHALL edit the `socketcan` adapter: interface name, bit rate chosen from the CiA 301 rates the contract allows, whether the plugin configures the link (`configure_link`, default on) and the bus-off restart delay (`restart_ms`). A config using the pre-contract top-level `interface`/`bitrate` keys SHALL be shown as that adapter and saved in the `adapter` form, with the page saying so.

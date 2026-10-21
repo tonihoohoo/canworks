@@ -485,18 +485,43 @@ function showView(view) {
 // The EDS lint setting the draft uses (strict_eds was migrated on load).
 function edsLint() { return (S.config && S.config.master && S.config.master.eds_lint) || "communication"; }
 
+// One correction of the prepared EDS copy in the banner's words, with its
+// count; a kind this page does not know keeps edslint's own text.
+function correctionLine(c) {
+  const one = c.count === 1;
+  const n = `${c.count} ${one ? "value" : "values"}`;
+  const is = one ? "is" : "are";
+  switch (c.kind) {
+    case "nodeid": return `${n} written "<number>+$NODEID" ${is} read as "$NODEID+<number>"`;
+    case "nodeid_bare": return `${one ? "1 bare value" : `${c.count} bare values`} "$NODEID" ${is} read as "$NODEID+0"`;
+    case "real": return `${one ? "1 decimal REAL value" : `${c.count} decimal REAL values`} ${is} read as ${one ? "its" : "their"} hexadecimal bit pattern`;
+    case "string": return `${one ? "1 OCTET_STRING/DOMAIN value" : `${c.count} OCTET_STRING/DOMAIN values`} ${is} cleared: ` +
+      c.items.map((i) => `[${i.section}] ${i.key} was "${i.old}"`).join(", ");
+    default: return `${c.text} (${c.count})`;
+  }
+}
+
 // What the PLC's checks before dcfgen said about an imported EDS: readable,
-// the corrections the PLC makes, and the accepted lint findings, collapsed
-// and grouped by object.
-function importReport(res) {
+// the corrections in the copy the target reads, and the accepted lint
+// findings, collapsed and grouped by object. `slave`: the slave EDS import,
+// which CODESYS never gets.
+function importReport(res, { slave = false } = {}) {
   const lint = res.lint || { corrections: [], accepted: [] };
   const lines = [];
   if (res.converted) lines.push(el("div", null, `${res.name} was converted to UTF-8 (the editor sends project files as UTF-8).`));
-  const fixes = lint.corrections.filter((c) => c.kind !== "utf8");
+  const target = projectTarget();
+  const dcfs = target === "codesys" && !slave;
+  // The exported DCFs write REAL values as decimals again.
+  const fixes = lint.corrections.filter((c) => c.kind !== "utf8" && !(dcfs && c.kind === "real"));
   if (fixes.length) {
-    lines.push(el("div", { dataset: { report: "corrections" } }, "The PLC reads it through a corrected copy: " +
-      fixes.map((c) => c.text + " (" + c.count + ")" + (c.kind === "string"
-        ? ": " + c.items.map((i) => `[${i.section}] ${i.key} was "${i.old}"`).join(", ") : "")).join("; ") + "."));
+    const why = ", because its CANopen stack cannot read these values:";
+    const reader = dcfs ? " The DCFs exported to CODESYS are built from a corrected copy:"
+      : target === "bridge" ? " The Modbus bridge reads a corrected copy" + why
+      : target === "codesys" ? " canworks reads a corrected copy" + why
+      : " The OpenPLC plugin reads a corrected copy" + why;
+    lines.push(el("div", { dataset: { report: "corrections" } },
+      el("div", null, el("code", null, res.name), " is kept as imported." + reader),
+      el("ul", null, fixes.map((c) => el("li", null, correctionLine(c))))));
   }
   if (res.lint && !fixes.length && !lint.accepted.length) {
     lines.push(el("div", { dataset: { report: "readable" } }, `${res.name} is readable by dcfgen and Lely on the PLC.`));
@@ -2284,7 +2309,7 @@ async function useSlaveEdsFile(file) {
     S.state.eds[res.name] = res.summary;
     S.config.slave.eds = res.name;
     S.unsavedFiles = true;
-    banner(importReport(res), "info");
+    banner(importReport(res, { slave: true }), "info");
     changed(true);
   } catch (e) {
     banner(e.message, true);
