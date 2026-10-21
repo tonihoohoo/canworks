@@ -682,7 +682,64 @@ class Script(unittest.TestCase):
         self.assertTrue(report.startswith("result: error"), report)
         self.assertIn("CODESYS takes neither a CANbus nor a CANopen Manager under PLC/Communication/CAN", report)
         self.assertIn("cannot be added or inserted here", report)
+        self.assertIn("CANbus tried: 181015 4.4.0.0: Exception was raised: The device cannot be added", report)
         self.assertIn("PLC/Communication/Ethernet", report)
+
+    def vendor_display(self, w, proj, name):
+        """A display whose Communication > CAN takes only its vendor's CANbus."""
+        proj.add(name, 4096, "0000 0004", "3.5.22.40")
+        dev = proj.find(name)[0]
+        dev.accepts = set()
+        comm = w.add_object(dev, "Communication", 9000, accepts=set())
+        return dev, w.add_object(comm, "CAN", 9002, accepts={(15, "vendor_bus")})
+
+    def test_vendor_canbus_from_another_device(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        w.repo.devices += [fake_codesys.DeviceId(15, "vendor_bus", "2.1.0.0"),
+                           fake_codesys.DeviceId(16, "vendor_mgr", "2.1.0.0")]
+        proj = w.projects.create(os.path.join(tmpdir(self), "rig.project"))
+        template, tcan = self.vendor_display(w, proj, "TemplateDevice")
+        tcan.add("CANbus_display", 15, "vendor_bus", "2.1.0.0")
+        tcan.find("CANbus_display")[0].add("CANopen_Manager", 16, "vendor_mgr", "2.1.0.0")
+        app, can = self.vendor_display(w, proj, "ExampleApp")
+        w.add_application(proj, app)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("(vendor_bus 2.1.0.0, as on device TemplateDevice) under ExampleApp/Communication/CAN", report)
+        bus = can.find("CANbus")[0]
+        self.assertEqual(bus.get_device_identification().id, "vendor_bus")
+        mgr = bus.find("CANopen_Manager")[0]
+        self.assertEqual(mgr.get_device_identification().id, "vendor_mgr")
+        self.assertEqual(len(mgr.get_children()), 2)
+        self.assertFalse([e for e in w.log if e[0] == "add" and e[4] == "181015"])  # the standard one not tried
+
+    def test_vendor_canbus_installed_only(self):
+        folder, _ = export(self, BRIDGE)
+        w = fake_codesys.World()
+        w.repo.devices.append(fake_codesys.DeviceId(15, "vendor_bus", "2.1.0.0"))
+        proj = w.projects.create(os.path.join(tmpdir(self), "rig.project"))
+        app, can = self.vendor_display(w, proj, "ExampleApp")
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("(vendor_bus 2.1.0.0, installed)", report)
+        self.assertEqual([c.get_device_identification().id for c in can.get_children()], ["vendor_bus"])
+
+    def test_many_other_devices_one_warning(self):
+        folder, _ = export(self, BRIDGE)  # network number 0
+        w = fake_codesys.World()
+        proj = self.project(w)
+        for i in range(7):
+            proj.add("Variant%d" % i, 4096, "0000 0004", "3.5.22.40")
+            dev = proj.find("Variant%d" % i)[0]
+            dev.add("CANbus", 15, "181015", "4.4.0.0")
+            dev.find("CANbus")[0].add("CANopen_Manager", 16, "181016", "4.4.0.0")
+        w.add_application(proj, proj.find("PLC")[0])
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("7 other devices also have a CANopen Manager on network number 0 and were left as they are: "
+                      "Variant0, Variant1, Variant2, Variant3, Variant4 and 2 more", report)
+        self.assertEqual(report.count("also ha"), 1)
 
     def test_scanner_is_not_a_can_interface(self):
         folder, _ = export(self, BRIDGE)

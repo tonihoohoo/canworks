@@ -279,7 +279,7 @@ class CodesysPage(OnlineBase):
             folder = os.path.dirname(line.split('--runscript="')[1].rstrip('"'))
             plans.append(load(os.path.join(folder, cplan.PLAN_NAME)))
             with open(os.path.join(folder, cplan.REPORT_NAME), "w", encoding="utf-8") as f:
-                f.write("result: ok\n")
+                f.write("result: ok\nwarnings: 0\n\ndevice   PLC (only device)\n")
         self.server.codesys_runner = runner
         return plans
 
@@ -360,7 +360,7 @@ class CodesysPage(OnlineBase):
         pg.select_option("#modal-extra select[data-codesys-device]", label="CODESYS Control RTE V3 3.5.22.40")
         pg.click('#modal-buttons button[data-value="create"]')
         pg.wait_for_selector("#modal[open] [data-codesys-report]", timeout=60000)
-        self.assertIn("CODESYS built the bus into the project", pg.inner_text("#modal-text"))
+        self.assertIn("CODESYS built the bus into PLC (only device).", pg.inner_text("#modal-text"))
         self.assertEqual(load(self.config_path)["codesys"]["create"], "4096:0000 0002:3.5.22.40")
         self.assertEqual(plans[0]["create"], {"path": project, "device": {"type": 4096, "id": "0000 0002",
                                                                          "version": "3.5.22.40"}})

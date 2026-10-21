@@ -83,7 +83,7 @@ class Obj:
         self.device_parameters = []
         self.children, self.parent = [], None
         self.guid = next(_guids)
-        # Device types CODESYS takes under this object (None: any).
+        # Device types, or (type, id) pairs, CODESYS takes under this object (None: any).
         self.accepts = None
 
     @property
@@ -110,7 +110,7 @@ class Obj:
     def add(self, name, type, id, version):
         if self.world.fail_add.get(type):
             raise Exception(self.world.fail_add[type])
-        if self.accepts is not None and type not in self.accepts:
+        if self.accepts is not None and type not in self.accepts and (type, id) not in self.accepts:
             raise Exception("Exception was raised: The device cannot be added or inserted here.")
         child = self.world.make(name, DeviceId(type, id, version))
         if any(c.get_name() == child.get_name() for c in self.children):

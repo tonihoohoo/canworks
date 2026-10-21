@@ -382,14 +382,90 @@ def _refused(plc, host, where, *errors):
 
 def warn_other_devices(proj, plc, net, report):
     """A CANopen Manager on the same network number under another
-    top-level device would drive the same bus from two controllers."""
+    top-level device would drive the same bus from two controllers. One
+    warning per network: projects that keep a device per hardware variant
+    have many."""
+    names = []
     for top in [c for c in _children(proj) if _is_device(c)]:
         if _same(top, plc) or any(_same(top, a) for a in _ancestors(proj, plc)):
             continue
         bus, _ = find_canbus(top, net["net_id"])
         if bus is not None and any(_type(c) == MANAGER_TYPE for c in _children(bus)):
-            report.add("warning", "network %s: device %s also has a CANopen Manager on network number %d; "
-                       "it was left as it is" % (net["name"] or net["folder"], top.get_name(), net["net_id"]))
+            names.append(top.get_name())
+    if not names:
+        return
+    where = net["name"] or net["folder"]
+    if len(names) == 1:
+        report.add("warning", "network %s: device %s also has a CANopen Manager on network number %d; "
+                   "it was left as it is" % (where, names[0], net["net_id"]))
+        return
+    shown = ", ".join(names[:OTHER_DEVICES_SHOWN])
+    if len(names) > OTHER_DEVICES_SHOWN:
+        shown += " and %d more" % (len(names) - OTHER_DEVICES_SHOWN)
+    report.add("warning", "network %s: %d other devices also have a CANopen Manager on network number %d and were "
+               "left as they are: %s" % (where, len(names), net["net_id"], shown))
+
+
+OTHER_DEVICES_SHOWN = 5
+
+
+def _key(ident):
+    return (ident.type, ident.id, ident.version) if ident is not None else None
+
+
+def _top_device(proj, obj):
+    above = _ancestors(proj, obj)
+    return above[-1] if above else obj
+
+
+def canbus_candidates(proj, host, repo):
+    """The CANbus devices to try under `host`, as (identification, where
+    it came from): the project's CANbus devices whose parent has the same
+    identification as `host` (they fit by construction), the project's
+    other CANbus devices, then the installed ones (highest version per id,
+    CODESYS's standard CANbus first). A CAN interface often takes only its
+    vendor's CANbus, and a refused add leaves nothing behind."""
+    host_key = _key(_ident(host))
+    same, other = [], []
+    for c in _children(proj, True):
+        if not _is_device(c) or _type(c) != CANBUS_TYPE:
+            continue
+        src = (_ident(c), "as on device %s" % _top_device(proj, c).get_name())
+        (same if host_key is not None and _key(_ident(_parent(c))) == host_key else other).append(src)
+    ids = sorted(set(d.device_id.id for d in repo.get_all_devices() if d.device_id.type == CANBUS_TYPE),
+                 key=lambda i: (i != CANBUS_ID, i))
+    installed = [(i, "installed") for i in (_highest(repo, CANBUS_TYPE, x) for x in ids) if i is not None]
+    out, seen = [], set()
+    for ident, why in _newest_first(same) + _newest_first(other) + installed:
+        if (ident.id, ident.version) not in seen:
+            seen.add((ident.id, ident.version))
+            out.append((ident, why))
+    return out
+
+
+def _newest_first(found):
+    return sorted(found, key=lambda s: _version_key(s[0].version), reverse=True)
+
+
+def manager_like(proj, parent, repo):
+    """The CANopen Manager to add under `parent`: the one the project has
+    under an object with the same identification, else the version
+    matching `parent`, else the highest installed."""
+    key = _key(_ident(parent))
+    for c in _children(proj, True):
+        if _is_device(c) and _type(c) == MANAGER_TYPE and key is not None and _key(_ident(_parent(c))) == key:
+            return _ident(c)
+    ver = _ident(parent).version if _ident(parent) is not None else None
+    same = [d.device_id for d in repo.get_all_devices()
+            if d.device_id.type == MANAGER_TYPE and d.device_id.id == MANAGER_ID and d.device_id.version == ver]
+    return same[0] if same else _highest(repo, MANAGER_TYPE, MANAGER_ID)
+
+
+def _first_sentence(e):
+    text = str(e).strip()
+    for sep in ("; ", "\n"):
+        text = text.split(sep)[0]
+    return text
 
 
 def _interface_number(bus, net, report, where):
@@ -404,16 +480,13 @@ def _interface_number(bus, net, report, where):
     report.add("set", "%s: CAN interface %s network number = %d" % (where, bus.get_name(), net["net_id"]))
 
 
-def build_network(plc, net, base, repo, guid, report):
+def build_network(proj, plc, net, base, repo, guid, report):
     where = "network %s" % (net["name"] or net["folder"])
     bus, buses = find_canbus(plc, net["net_id"])
     mgr = None
     if bus is not None:
         report.add("reused", "%s: CANbus %s (network number %d)" % (where, bus.get_name(), net["net_id"]))
     else:
-        like = _ident(buses[0]) if buses else _highest(repo, CANBUS_TYPE, CANBUS_ID)
-        if like is None:
-            raise Stop("%s: no CANbus device is installed in this CODESYS (CANopen support missing?)" % where)
         host = can_interface(plc, net, where)
         if not _same(host, plc) and any(_type(c) == MANAGER_TYPE for c in _children(host)):
             # A CAN interface that is a bus itself and already holds the
@@ -422,22 +495,27 @@ def build_network(plc, net, base, repo, guid, report):
             report.add("reused", "%s: CAN interface %s as the bus" % (where, _path(plc, host)))
             _interface_number(bus, net, report, where)
     if bus is None:
-        try:
-            bus = _add(host, _unique_name(host, "CANbus"), like.type, like.id, like.version)
-        except Exception as e:
-            bus_refused = e
-        else:
-            bus_refused = None
-        if bus_refused is not None:
+        cands = canbus_candidates(proj, host, repo)
+        if not cands:
+            raise Stop("%s: no CANbus device is installed in this CODESYS (CANopen support missing?)" % where)
+        tried = []
+        for like, why in cands:
+            try:
+                bus = _add(host, _unique_name(host, "CANbus"), like.type, like.id, like.version)
+                break
+            except Exception as e:
+                tried.append("%s %s: %s" % (like.id, like.version, _first_sentence(e)))
+        if bus is None:
             # The device's own CAN interface can be the bus itself and take
             # the manager directly.
-            mlike = _highest(repo, MANAGER_TYPE, MANAGER_ID)
+            bus_refused = "CANbus tried: " + "; ".join(tried)
+            mlike = manager_like(proj, host, repo)
             if _same(host, plc) or mlike is None:
                 raise Stop(_refused(plc, host, where, bus_refused))
             try:
                 mgr = _add(host, _unique_name(host, "CANopen_Manager"), mlike.type, mlike.id, mlike.version)
             except Exception as e:
-                raise Stop(_refused(plc, host, where, bus_refused, e))
+                raise Stop(_refused(plc, host, where, bus_refused, "manager: %s" % _first_sentence(e)))
             bus = host
             report.add("created", "%s: CANopen Manager %s %s directly under the CAN interface %s"
                        % (where, mgr.get_name(), mlike.version, _path(plc, host)))
@@ -447,8 +525,8 @@ def build_network(plc, net, base, repo, guid, report):
             if p is None:
                 raise Stop("%s: the new CANbus has no network number parameter" % where)
             p.value = str(net["net_id"])
-            report.add("created", "%s: CANbus %s %s under %s, network number %d"
-                       % (where, bus.get_name(), like.version, _path(plc, host), net["net_id"]))
+            report.add("created", "%s: CANbus %s (%s %s, %s) under %s, network number %d"
+                       % (where, bus.get_name(), like.id, like.version, why, _path(plc, host), net["net_id"]))
     apply_params(bus, net["canbus"], report, where + " CANbus")
     kids = [c for c in _children(bus) if _is_device(c)]
     if any(_type(c) == LOCAL_DEVICE_TYPE for c in kids):
@@ -461,11 +539,7 @@ def build_network(plc, net, base, repo, guid, report):
         mgr = managers[0]
         report.add("reused", "%s: CANopen Manager %s" % (where, mgr.get_name()))
     else:
-        bus_ver = _ident(bus).version if _ident(bus) is not None else None
-        same = [d.device_id for d in repo.get_all_devices()
-                if d.device_id.type == MANAGER_TYPE and d.device_id.id == MANAGER_ID
-                and d.device_id.version == bus_ver]
-        like = same[0] if same else _highest(repo, MANAGER_TYPE, MANAGER_ID)
+        like = manager_like(proj, bus, repo)
         if like is None:
             raise Stop("%s: no CANopen Manager is installed in this CODESYS" % where)
         mgr = _add(bus, _unique_name(bus, "CANopen_Manager"), like.type, like.id, like.version)
@@ -591,7 +665,7 @@ def run(base):
         for net in plan["networks"]:
             try:
                 warn_other_devices(proj, plc, net, report)
-                build_network(plc, net, base, device_repository, guid, report)
+                build_network(proj, plc, net, base, device_repository, guid, report)
             except Stop as e:
                 report.add("error", str(e))
         for n in plan.get("notes") or []:
