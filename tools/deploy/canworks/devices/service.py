@@ -179,7 +179,11 @@ class Devices:
             upload = jobs.make_upload_dir(conn)
             conn.put_files(upload, files)
         options = options or {}
-        lines = jobs.commands(action, version, self.paths, link=options.get("link") is not False,
+        link = options.get("link") is not False
+        if action == "install_bridge" and probe.get("link") is not None \
+                and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
+            link = False  # the device's link serves the PLC: not repointed at a bridge
+        lines = jobs.commands(action, version, self.paths, link=link,
                               discovery=options.get("discovery") is not False, purge=options.get("purge") is True,
                               instance=instance if action in ("install_bridge", "bridge_config") else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))

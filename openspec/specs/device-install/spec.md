@@ -113,3 +113,10 @@ The probe SHALL NOT report the `canworks-bridge` command in the plugin's own pre
 #### Scenario: Plugin device, no bridge yet
 - **WHEN** a device runs the canworks plugin under the managed Docker runtime, its `/opt/canworks/bin` has an old `canworks-bridge`, and no bridge unit is installed
 - **THEN** the bridge row says not installed and the main action is **Install and start this project's bridge**
+
+### Requirement: Bridge install and the device's remote link
+The probe SHALL report the config the remote link serves. For a bridge install on a device whose remote link serves another config, the page SHALL grey the **Remote link** option with a hint that the link stays, and the job SHALL NOT pass `--with-link`.
+
+#### Scenario: Bridge on a PLC device
+- **WHEN** the device's remote link serves the PLC's config and the project is a bridge project
+- **THEN** **Options** shows **Remote link** greyed with "The device's remote link serves another config (the PLC's) and stays as it is.", and the install leaves the link alone

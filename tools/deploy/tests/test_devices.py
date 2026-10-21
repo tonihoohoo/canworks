@@ -75,6 +75,15 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["main"]["label"], "Install and start this project's bridge")
         self.assertIn("no service", row(p, "bridge")["have"])
 
+    def test_bridge_install_keeps_the_plcs_link(self):
+        p = plan.plan(probe(link="active", link_config="/opt/canworks/lib/canworks.json"), "bridge", "0.98.3",
+                      instance="line3")
+        self.assertTrue(p["main"]["link_kept"])
+        p = plan.plan(probe(link="active", link_config="/etc/canworks-bridge/line3/canworks.json"), "bridge",
+                      "0.98.3", instance="line3")
+        self.assertNotIn("link_kept", p["main"])
+        self.assertNotIn("link_kept", plan.plan(probe(), "bridge", "0.98.3", instance="line3")["main"])
+
     def test_development_bridge_is_updated(self):
         b = {"version": "deploy-v0.32.0-192-g0bd645be", "prefix": "/opt/canworks-bridge", "unit": True, "instances": []}
         p = plan.plan(probe(bridge=b), "bridge", "0.98.2", instance="line3")
@@ -316,8 +325,10 @@ class Probe(unittest.TestCase):
         self.write("opt/canworks/lib/runtime-version", "v4.2.4\n")
         self.write("opt/canworks/lib/plugins-line", "canworks,/opt/canworks/lib/libcanworks_plugin.so,0,0,,\n")
         self.write("etc/systemd/system/canworks-link.service", "")
+        self.write("etc/canworks-link/link.json", '{"config": "/opt/canworks/lib/canworks.json", "peers": []}\n')
         self.write("etc/avahi/services/canworks.service", "")
         p = self.run_probe()
+        self.assertEqual(p["link_config"], "/opt/canworks/lib/canworks.json")
         self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True})
         self.assertEqual(p["plugin"], {"version": "0.98.0", "built_for": "v4.2.4", "enabled": False})
         self.assertEqual(p["link"], "active")

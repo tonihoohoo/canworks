@@ -49,6 +49,18 @@ check '[ -f "$T/etc/line1/canworks.json" ]' "uninstall keeps the configs"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall --purge > "$T/out"
 check '[ ! -e "$T/etc" ]' "--purge removes the configs"
 
+# A remote link that serves the PLC's config is not repointed at a bridge.
+mkdir -p "$T/units" "$T/link"
+: > "$T/units/canworks-link.service"
+echo '{"config": "/opt/canworks/lib/canworks.json"}' > "$T/link/link.json"
+CANWORKS_LINK_DIR="$T/link" "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --no-deps --without-canopen \
+    --binary "$BIN_SRC" --with-link line1 > "$T/out"
+check 'grep -q "The remote link serves another config and stays; --with-link line1 is skipped" "$T/out" &&
+       ! grep -q "Setting up discovery and the remote link" "$T/out" &&
+       grep -q "/opt/canworks/lib/canworks.json" "$T/link/link.json"' "the PLC's remote link stays"
+rm -f "$T/units/canworks-link.service"
+"$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall > "$T/out"
+
 # A prefix shared with the canworks plugin: uninstalling the bridge keeps the
 # plugin's VERSION and its can-j1939 boot entry.
 mkdir -p "$T/shared/lib"

@@ -231,7 +231,14 @@ function devMain(d, plan) {
       c.onchange = () => { o[key] = c.checked; };
       return el("div", { class: "check-field" }, el("label", { class: "check" }, c, " ", label), hint(help));
     };
-    box2.append(opt("link", "Remote link", "canworks-link: reach this device from a PC on another network (docs/remote-access.md)."));
+    if (m.link_kept) {
+      // The device's link serves another config (the PLC's): the bridge install leaves it.
+      box2.append(el("div", { class: "check-field" }, el("label", { class: "check" },
+        el("input", { type: "checkbox", disabled: true, dataset: { devicesOption: "link" } }), " Remote link"),
+        hint("The device's remote link serves another config (the PLC's) and stays as it is.")));
+    } else {
+      box2.append(opt("link", "Remote link", "canworks-link: reach this device from a PC on another network (docs/remote-access.md)."));
+    }
     if (m.action !== "install_bridge") box2.append(opt("discovery", "Found on the local network", "The device announces itself, so the connect panel lists it."));
     box.append(box2);
   }
