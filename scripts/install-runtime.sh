@@ -16,6 +16,8 @@
 #   --port N           SSH port (with --ssh)
 #   --identity FILE    SSH key (with --ssh)
 #   --dry-run          print what would run, change nothing
+#   --with-openplc     when the device has no OpenPLC runtime, install upstream's
+#                      (managed Docker, https://runtime.getedge.me) first
 #
 # It only installs released code, never main. The newest release is found
 # from GitHub's releases/latest redirect, so no API token is needed.
@@ -34,6 +36,7 @@ SSH_TARGET=""
 SSH_PORT=""
 SSH_IDENTITY=""
 DRY_RUN=0
+WITH_OPENPLC=0
 PASS=()
 
 die() { echo "install-runtime: $*" >&2; exit 1; }
@@ -46,8 +49,9 @@ while [ $# -gt 0 ]; do
         --port) [ $# -ge 2 ] || die "--port needs a number"; SSH_PORT=$2; shift ;;
         --identity) [ $# -ge 2 ] || die "--identity needs a file"; SSH_IDENTITY=$2; shift ;;
         --dry-run) DRY_RUN=1 ;;
+        --with-openplc) WITH_OPENPLC=1 ;;
         -h|--help)
-            if [ -f "$0" ]; then sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
+            if [ -f "$0" ]; then sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
             exit 0 ;;
         --) ;;
         *) PASS+=("$1") ;;
@@ -87,6 +91,7 @@ if [ -n "$SSH_TARGET" ]; then
     # The device runs this script as of the release it installs, with the
     # release pinned, so both sides agree on the version.
     remote="curl -LsSf $(printf '%q' "$RAW/$TAG/scripts/install-runtime.sh") | sudo bash -s -- --version $(printf '%q' "$VERSION")"
+    [ "$WITH_OPENPLC" = 0 ] || remote+=" --with-openplc"
     for a in "${PASS[@]+"${PASS[@]}"}"; do remote+=" $(printf '%q' "$a")"; done
     cmd=(ssh -t)
     [ -z "$SSH_PORT" ] || cmd+=(-p "$SSH_PORT")
@@ -101,21 +106,56 @@ if [ -n "$SSH_TARGET" ]; then
     exec "${cmd[@]}"
 fi
 
+# Is there an OpenPLC runtime: native service, managed Docker or a container?
+SERVICE_FILE=${OPENPLC_SERVICE_FILE:-/etc/systemd/system/openplc-runtime.service}
+BOOTLOADER_SPEC=${OPENPLC_BOOTLOADER_SPEC:-/var/lib/openplc-bootloader/runtime-spec.json}
+OPENPLC_INSTALLER=${CANWORKS_OPENPLC_INSTALLER:-https://runtime.getedge.me}
+RUNTIME_URL=${CANWORKS_RUNTIME_URL:-https://127.0.0.1:8443/}
+RUNTIME_WAIT=${CANWORKS_RUNTIME_WAIT:-600}
+have_runtime() {
+    [ -f "$SERVICE_FILE" ] || [ -f "$BOOTLOADER_SPEC" ] && return 0
+    command -v docker >/dev/null 2>&1 &&
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'openplc-runtime\|openplc-bootloader'
+}
+
+# Progress lines for the configurator's install job; install-stock.sh numbers
+# its own steps after these (CANWORKS_STEP_BASE).
+INSTALL_OPENPLC=0
+if [ "$WITH_OPENPLC" = 1 ] && ! have_runtime; then INSTALL_OPENPLC=1; fi
+BASE=$((1 + INSTALL_OPENPLC))
+# The total is not known here yet: "?" until install-stock.sh prints N/M.
+step() { echo "::canworks-step $1/? $2"; }
+
 say "installing canworks $VERSION"
 TARBALL="$REPO/archive/refs/tags/$TAG.tar.gz"
 if [ "$DRY_RUN" = 1 ]; then
+    [ "$INSTALL_OPENPLC" = 0 ] || echo "would install the OpenPLC runtime: curl -fsSL $OPENPLC_INSTALLER | bash"
     echo "would download: $TARBALL"
     printf 'would run: CANWORKS_PLUGIN_VERSION=%s bash <source>/scripts/install-stock.sh' "$VERSION"; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
     exit 0
 fi
 
+if [ "$INSTALL_OPENPLC" = 1 ]; then
+    step 1 "Installing the OpenPLC runtime (upstream's installer, with Docker)"
+    say "no OpenPLC runtime found: installing it with $OPENPLC_INSTALLER"
+    curl -fsSL "$OPENPLC_INSTALLER" | bash || die "the OpenPLC runtime install failed (see above); canworks was not installed"
+    say "waiting for the runtime to answer at $RUNTIME_URL"
+    waited=0
+    until [ "$(curl -ks -o /dev/null -w '%{http_code}' "$RUNTIME_URL" 2>/dev/null || true)" != 000 ]; do
+        [ "$waited" -lt "$RUNTIME_WAIT" ] || die "the OpenPLC runtime did not answer at $RUNTIME_URL within $RUNTIME_WAIT s"
+        sleep 5
+        waited=$((waited + 5))
+    done
+fi
+
+step "$BASE" "Downloading canworks $VERSION"
 SRC=$(mktemp -d /tmp/canworks-install.XXXXXX)
 trap 'rm -rf "$SRC"' EXIT
 curl -fsSL "$TARBALL" | tar -xz -C "$SRC" --strip-components=1 ||
     die "could not download $TARBALL"
 [ -f "$SRC/scripts/install-stock.sh" ] || die "$TARBALL has no scripts/install-stock.sh"
 # The source has no git history: the plugin reports the release's version.
-CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-stock.sh" "${PASS[@]+"${PASS[@]}"}"
+CANWORKS_STEP_BASE=$BASE CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-stock.sh" "${PASS[@]+"${PASS[@]}"}"
 }
 
 main "$@"

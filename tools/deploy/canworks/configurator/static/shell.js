@@ -1,6 +1,7 @@
 "use strict";
-// The page's shell (ui-shell-and-connection): the two workspaces, Configure
-// (the config pages) and Commission (the live bus), the tool tabs under the
+// The page's shell (ui-shell-and-connection): the workspaces, Configure
+// (the config pages), Commission (the live bus) and Devices (installing on
+// devices, devices.js), the tool tabs under the
 // header and the bottom panel (Problems, or the commissioning log). Loaded
 // after app.js and uses its helpers.
 
@@ -9,24 +10,32 @@
 const TOOLS = ["declarations", "simulation", "trace", "framelab"];
 const TOOL_LABELS = { declarations: "Variable declarations", simulation: "Simulation", trace: "Trace", framelab: "Frame lab" };
 const COMMISSION_VIEWS = ["online", "nodes"];
+const DEVICES_VIEWS = ["devices"];
 
 function isTool(view) { return TOOLS.includes(view); }
+
+// The workspace a page belongs to (a tool belongs to none).
+function viewWorkspace(view) {
+  return DEVICES_VIEWS.includes(view) ? "devices" : COMMISSION_VIEWS.includes(view) ? "commission" : "configure";
+}
 
 // The workspace the page shows: Commission a device has no config, so it
 // is always Commission.
 function workspace() {
   if (S.state && S.state.commission) return "commission";
-  return S.workspace === "commission" ? "commission" : "configure";
+  return S.workspace === "commission" || S.workspace === "devices" ? S.workspace : "configure";
 }
 
 // The workspace's own page: Network (the config pages) or Nodes.
 function homeView(ws = workspace()) {
   if (ws === "configure") return S.wsView && S.wsView.configure && !isTool(S.wsView.configure) ? S.wsView.configure : "bus";
+  if (ws === "devices") return "devices";
   return S.state && S.state.commission ? "nodes" : "online";
 }
 
 function toolsOf(ws = workspace()) {
   if (S.state && S.state.commission) return ["trace", "framelab"];
+  if (ws === "devices") return [];
   // A target that does not run canworks has no simulated devices or located declarations (target.js).
   const sim = !isJ1939(S.config) && (!S.model || simulationShown());
   const decl = !S.model || usedBy("ui:declarations");
@@ -46,7 +55,7 @@ function fitView() {
   // A page of a workspace shows that workspace (a node page opened from
   // the online view, "Back to the online view").
   if (!isTool(v)) {
-    const ws = COMMISSION_VIEWS.includes(v) ? "commission" : "configure";
+    const ws = viewWorkspace(v);
     if (ws !== workspace()) followWorkspace(v, true);
     if (v === "nodes") S.view = "online";
     return;
@@ -58,7 +67,7 @@ function fitView() {
 // view") switches to that workspace; a tool stays in the one shown.
 function followWorkspace(view, shown) {
   if (!S.state || S.state.commission || isTool(view)) return;
-  const ws = COMMISSION_VIEWS.includes(view) ? "commission" : "configure";
+  const ws = viewWorkspace(view);
   if (ws === workspace()) return;
   if (!shown) rememberView();
   S.workspace = ws;
@@ -75,7 +84,7 @@ function switchWorkspace(ws) {
   S.workspace = ws;
   const kept = S.wsView && S.wsView[ws];
   // A kept page of the other workspace (never kept on purpose) falls back to the home page.
-  S.view = kept && (isTool(kept) || COMMISSION_VIEWS.includes(kept) === (ws === "commission")) ? kept : homeView(ws);
+  S.view = kept && ((isTool(kept) && toolsOf(ws).includes(kept)) || (!isTool(kept) && viewWorkspace(kept) === ws)) ? kept : homeView(ws);
   api("POST", "/api/ui", { workspace: ws }).catch(() => {});
   showView(S.view);
   if (ws === "commission" && typeof connEnter === "function") connEnter();
@@ -101,12 +110,13 @@ function renderShell() {
   const tool = isTool(S.view);
   // The network tree beside the workspace's own page; a tool, and Commission
   // a device (its own node list), take the whole width.
-  $("#editor").classList.toggle("tool-view", tool || device);
-  const own = ws === "configure" ? ["network", "Network"] : [homeView(ws), "Nodes"];
+  $("#editor").classList.toggle("tool-view", tool || device || ws === "devices");
+  const own = ws === "configure" ? ["network", "Network"] : ws === "devices" ? ["devices", "Devices"] : [homeView(ws), "Nodes"];
   const items = [own].concat(toolsOf(ws).map((t) => [t, TOOL_LABELS[t]]));
   const active = tool ? S.view : own[0];
   const host = $("#tool-tabs");
-  host.hidden = false;
+  // Devices has one page and no tools: no tab row.
+  host.hidden = ws === "devices";
   // A redraw keeps keyboard focus on the tool tabs (on the selected one).
   const hadFocus = host.contains(document.activeElement);
   if (hadFocus) setTimeout(() => {
@@ -135,7 +145,7 @@ function renderPanel() {
   const device = !!(S.state && S.state.commission);
   const commission = workspace() === "commission";
   $("#bottom").hidden = false;
-  $("#problems").hidden = device || isTool(S.view);
+  $("#problems").hidden = device || isTool(S.view) || workspace() === "devices";
   // The session log (commission-workspace): Commission only, with or without a config.
   $("#log-panel").hidden = !commission || isTool(S.view);
   if (commission) {
@@ -172,8 +182,9 @@ function wireShell() {
 async function loadShellSettings() {
   try {
     const ui = await api("GET", "/api/ui");
-    S.workspace = ui.workspace === "commission" ? "commission" : "configure";
+    S.workspace = ui.workspace === "commission" || ui.workspace === "devices" ? ui.workspace : "configure";
     if (S.workspace === "commission") S.view = "online";  // the page opens on the workspace's own page
+    if (S.workspace === "devices") S.view = "devices";
     S.panelOpen = ui.panel !== "closed";
     S.wsNoteNew = ui.ws_note !== "seen";
   } catch (e) { S.workspace = "configure"; }

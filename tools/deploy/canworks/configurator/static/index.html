@@ -16,7 +16,7 @@
   <div class="top-row">
   <h1>canworks configurator</h1>
   <div id="ws" class="segmented" role="group" aria-label="Workspace" hidden>
-    <button type="button" data-ws="configure" title="Edit the config: networks, nodes, PDOs, exports">Configure</button><button type="button" data-ws="commission" data-view="online" title="Work on the live bus through the runtime">Commission</button>
+    <button type="button" data-ws="configure" title="Edit the config: networks, nodes, PDOs, exports">Configure</button><button type="button" data-ws="commission" data-view="online" title="Work on the live bus through the runtime">Commission</button><button type="button" data-ws="devices" data-view="devices" title="Install canworks on a Linux device over SSH">Devices</button>
   </div>
   <span id="mode" class="badge" hidden></span>
   <div class="spacer"></div>
@@ -119,6 +119,7 @@
 <script src="node.js"></script>
 <script src="connection.js"></script>
 <script src="jobs.js"></script>
+<script src="devices.js"></script>
 <script src="commission.js"></script>
 <script src="nodes.js"></script>
 <script src="identity.js"></script>

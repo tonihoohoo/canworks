@@ -32,6 +32,8 @@ $f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks
 
 `-Port`, `-Identity` and `-Options --with-link` go after the file name too.
 
+On a device with no OpenPLC runtime yet, `--with-openplc` first runs upstream's installer (`curl -fsSL https://runtime.getedge.me | bash`, which installs Docker and the managed runtime), waits until the runtime answers on `https://127.0.0.1:8443/` (10 minutes at most), then installs the plugin; a device that has a runtime is left as it is. A failed runtime install stops there and installs no canworks. It passes over `--ssh` too. The configurator's **Devices** workspace does all of this from the PC, with the runtime's first user afterwards ([devices.md](devices.md)).
+
 `--version 0.82.0` (`-Version` on Windows) installs a given release (0.82.0 or newer, the first with this script); `--uninstall` and the other options below pass through to `install-stock.sh`. The PC resolves the release and the device fetches the script of exactly that release, so both agree on the version. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.82.0/scripts/install-runtime.sh`); to read it first, download it and run it with `sudo bash install-runtime.sh`. The device still builds Lely and the plugin, so it takes as long as the checkout route.
 
 ## Install from a git checkout (on the device)
@@ -62,6 +64,8 @@ The script:
 - with `--with-link`, installs the [remote link](remote-access.md) (`scripts/install-link.sh`): `canworks-link.service`, `/usr/local/bin/canworks-link`, a venv in `/opt/canworks-link` and `/etc/canworks-link/`. It reads the deployed config from `/opt/canworks/lib/canworks.json`, also in Docker mode, and stays off the internet until the config turns it on.
 
 Both protocols are built by default. `--without-j1939` builds CANopen only (no kernel module). `--without-canopen` builds J1939 only: no Lely, `dcfgen`, deploy tool venv lint or `canworks-sim`; the venv then only holds the editor hook. A config with a network of a protocol that is not built in is refused at load.
+
+The installed release's version is in `/opt/canworks/VERSION` (`--uninstall` removes it). While it runs, the script prints its steps as lines of the form `::canworks-step N/M text` (`N/?` while the total is not known yet), which the configurator shows as progress.
 
 It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canworks` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
 

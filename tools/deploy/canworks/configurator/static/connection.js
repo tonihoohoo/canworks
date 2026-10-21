@@ -519,7 +519,11 @@ function runtimeBox(message) {
     el("div", { class: "grid" }, host),
     el("div", { class: "toolbar" },
       !S.online.tokenOk ? el("button", { type: "button", onclick: async () => { await enterToken(); openConnect(); } }, "Enter token…") : null,
-      connect));
+      connect),
+    // No runtime with canworks yet: install it from the Devices workspace (devices.js).
+    typeof installOnDevice === "function" && !S.state.commission ? el("p", null, el("button", { type: "button", class: "link", dataset: { conn: "install-device" },
+      onclick: () => { const h = devHostOnly(host.querySelector("input").value); closeConnect(); installOnDevice(h && h !== "local" ? h : null); } },
+    "Install canworks on a device…")) : null);
 }
 
 // Back from the adapter on another machine to the config's runtime or

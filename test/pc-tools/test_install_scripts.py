@@ -401,6 +401,44 @@ class InstallRuntimeSh(_Base):
         self.assertIn("| sudo bash", r.stdout)
         self.assertEqual(_Releases.seen, [], "nothing is downloaded before the root check")
 
+    def runtime_env(self, service=False):
+        """No OpenPLC runtime on this "device" unless `service`; no docker on PATH."""
+        env = self.env()
+        svc = os.path.join(self.tmp, "openplc-runtime.service")
+        if service:
+            open(svc, "w").close()
+        env.update(OPENPLC_SERVICE_FILE=svc, OPENPLC_BOOTLOADER_SPEC=os.path.join(self.tmp, "no-spec.json"),
+                   PATH=self.bin + os.pathsep + "/usr/bin:/bin")
+        return env
+
+    def test_with_openplc_installs_a_missing_runtime(self):
+        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc"], env=self.runtime_env())
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("would install the OpenPLC runtime: curl -fsSL https://runtime.getedge.me | bash", r.stdout)
+        self.assertNotIn("--with-openplc", [l for l in r.stdout.splitlines() if "install-stock.sh" in l][0])
+
+    def test_with_openplc_leaves_a_runtime(self):
+        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc"], env=self.runtime_env(service=True))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("would install the OpenPLC runtime", r.stdout)
+
+    def test_with_openplc_over_ssh(self):
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "pi@rpi.local", "--with-openplc"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("--version 1.2.3 --with-openplc", r.stdout)
+
+    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
+    def test_failed_runtime_install_stops(self):
+        _Releases.files = {"/openplc-installer": "#!/bin/sh\necho upstream says no\nexit 3\n"}
+        env = self.runtime_env()
+        env["CANWORKS_OPENPLC_INSTALLER"] = "http://127.0.0.1:%d/openplc-installer" % self.server.server_address[1]
+        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("::canworks-step 1/? Installing the OpenPLC runtime", r.stdout)
+        self.assertIn("upstream says no", r.stdout)
+        self.assertIn("the OpenPLC runtime install failed (see above); canworks was not installed", r.stdout)
+        self.assertFalse(any(p.endswith(".tar.gz") for p in _Releases.seen), "no canworks download")
+
 @POSIX_ONLY
 class InstallBridgeSh(_Base):
     """install-bridge.sh run as from GitHub: the script alone, outside a checkout."""

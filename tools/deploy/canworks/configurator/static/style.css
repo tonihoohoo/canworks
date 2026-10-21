@@ -1004,3 +1004,25 @@ pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; fo
 /* A PDO entry's variable name grows with its name or the generated one. */
 .pdo td input[data-entry-variable] { field-sizing: content; min-width: 9ch; max-width: 100%; }
 .pdo td input[data-path$=".iec_location"] { min-width: 10ch; }
+
+/* Devices workspace (devices.js) */
+.devices-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 760px) { .devices-layout { grid-template-columns: minmax(0, 1fr); } }
+.devices-list { list-style: none; margin: 0; padding: 0; }
+.devices-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.devices-list li .muted { grid-column: 2; }
+.devices-list li .devices-name { overflow-wrap: anywhere; }
+.devices-list li:hover, .devices-list li.active { background: var(--hover); }
+.devices-list li.active { box-shadow: inset 3px 0 0 var(--accent); }
+.devices-found { margin-top: 12px; }
+.devices-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.devices-head h3 { margin: 0; overflow-wrap: anywhere; }
+table.devices-rows { margin: 8px 0 12px; }
+table.devices-rows td { vertical-align: top; }
+table.devices-rows tr.muted-row td { color: var(--muted); }
+.devices-job { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
+.devices-steps { margin: 8px 0; padding-left: 0; list-style: none; }
+.devices-steps li { padding: 2px 0; }
+.devices-steps li[aria-current=step] { font-weight: 600; }
+.devices-log pre, pre.devices-tail { max-height: 320px; overflow: auto; font: 12px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.fingerprint code { font-size: 13px; overflow-wrap: anywhere; }

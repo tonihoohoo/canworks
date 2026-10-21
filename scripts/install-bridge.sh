@@ -123,6 +123,13 @@ PASS=()
 
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
+# Progress for the configurator's install job (device-install): one line
+# "::canworks-step N/M text" when a step starts; the release form passes the
+# steps it ran before in CANWORKS_STEP_BASE ("?": the total is not known yet).
+STEP_BASE=${CANWORKS_STEP_BASE:-0}
+STEPS=0
+N=0
+next_step() { N=$((N + 1)); echo "::canworks-step $((STEP_BASE + N))/$((STEP_BASE + STEPS)) $1"; }
 need() { [ "$2" -ge 2 ] || die "$1 needs a value"; }
 
 usage() {
@@ -244,13 +251,14 @@ release_install() {
         return 0
     fi
     command -v curl >/dev/null 2>&1 || die "curl is needed"
+    echo "::canworks-step 1/? Downloading canworks-bridge $VERSION"
     SRC=$(mktemp -d /tmp/canworks-bridge-install.XXXXXX)
     trap 'rm -rf "${SRC:?}"; [ -z "$UPLOAD_DIR" ] || rm -rf "$UPLOAD_DIR"' EXIT
     curl -fsSL "$tarball" | tar -xz -C "$SRC" --strip-components=1 ||
         die "could not download $tarball"
     [ -f "$SRC/scripts/install-bridge.sh" ] || die "$tarball has no scripts/install-bridge.sh"
     # The source has no git history: the bridge reports the release's version.
-    CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
+    CANWORKS_STEP_BASE=1 CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
 }
 
 # Runs the release's install on another device over SSH.
@@ -348,11 +356,13 @@ UNIT="$UNIT_DIR/canworks-bridge@.service"
 BIN="$PREFIX/bin/canworks-bridge"
 
 if [ "$UNINSTALL" -eq 1 ]; then
+    STEPS=1
+    next_step "Removing canworks-bridge"
     for u in $("$SYSTEMCTL" list-units --all --plain --no-legend 'canworks-bridge@*' 2>/dev/null | awk '{print $1}'); do
         "$SYSTEMCTL" disable --now "$u" >/dev/null 2>&1 || true
         say "Stopped $u"
     done
-    rm -f "$UNIT" "$BIN"
+    rm -f "$UNIT" "$BIN" "$PREFIX/VERSION"
     "$SYSTEMCTL" daemon-reload || true
     rm -f "$MODULES_LOAD"
     if [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
@@ -377,8 +387,16 @@ fi
 
 # --- Build dependencies, Lely CANopen and dcfgen ------------------------------
 
+# Steps: build tools, Lely, the bridge, the service, the instance, the link
+# (those that this run takes).
+BUILD_LELY=0
+if [ "$WITH_CANOPEN" -eq 1 ] && { [ -z "$BINARY" ] || [ ! -x "$PREFIX/venv/bin/dcfgen" ]; }; then BUILD_LELY=1; fi
+STEPS=$((DEPS + BUILD_LELY + 2))
+[ -z "$INSTANCE" ] || STEPS=$((STEPS + 1))
+[ -z "$LINK_NAME" ] || STEPS=$((STEPS + 1))
 if [ "$DEPS" -eq 1 ]; then
     [ "$(id -u)" -eq 0 ] || die "run as root to install build dependencies (or pass --no-deps if they are installed)"
+    next_step "Installing build tools"
     say "Installing build dependencies"
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
@@ -391,7 +409,8 @@ if foreign_venv "$PREFIX"; then
     die "$PREFIX/venv was made by another Python (a prefix the runtime's Docker container uses?); install the bridge into its own prefix: --prefix $FALLBACK_PREFIX"
 fi
 if [ "$WITH_CANOPEN" -eq 1 ]; then
-    if [ -z "$BINARY" ] || [ ! -x "$PREFIX/venv/bin/dcfgen" ]; then
+    if [ "$BUILD_LELY" -eq 1 ]; then
+        next_step "Building Lely CANopen and dcfgen"
         "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
     fi
     say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
@@ -400,6 +419,7 @@ fi
 
 # --- canworks-bridge ----------------------------------------------------------
 
+next_step "Building canworks-bridge"
 if [ -n "$BINARY" ]; then
     [ -x "$BINARY" ] || die "--binary $BINARY is not an executable"
     install -m 0755 "$BINARY" "$BIN.new"
@@ -442,9 +462,14 @@ fi
 ACTIVE=$("$SYSTEMCTL" list-units --state=active --plain --no-legend 'canworks-bridge@*' 2>/dev/null | awk '{print $1}' || true)
 mv -f "$BIN.new" "$BIN"
 say "Installed $BIN"
+# The installed version, for the configurator's device probe.
+v=${CANWORKS_PLUGIN_VERSION:-}
+[ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || echo unknown)
+echo "${v#deploy-v}" > "$PREFIX/VERSION"
 
 # --- The service --------------------------------------------------------------
 
+next_step "Installing the service and restarting running bridges"
 mkdir -p "$UNIT_DIR" "$CONF_DIR"
 cat > "$UNIT" <<EOF
 # canworks-bridge: one instance per config, /etc/canworks-bridge/NAME/canworks.json
@@ -483,10 +508,12 @@ if [ "$WITH_J1939" -eq 1 ]; then
 fi
 
 if [ -n "$INSTANCE" ]; then
+    next_step "Checking and starting the bridge $INSTANCE"
     install_instance
 fi
 
 if [ -n "$LINK_NAME" ]; then
+    next_step "Setting up discovery and the remote link"
     "$REPO/scripts/install-link.sh" --config "$CONF_DIR/$LINK_NAME/canworks.json" --runtime-port none
 fi
 

@@ -16,6 +16,10 @@ The bridge is the same engine as the OpenPLC plugin: it boots and supervises CAN
 
 ## Install
 
+### From the configurator
+
+In a bridge project, the configurator's **Devices** workspace (or **Install on device…** on the **Modbus bridge** page) installs the newest bridge on a Linux device over SSH and starts this project's saved config as the instance named after the project folder, with the steps and the log on the page ([devices.md](devices.md)). **Start this project's bridge** there puts a changed config on a device that has the bridge.
+
 ### With one line
 
 On the Linux device that has the CAN interfaces, as root. It downloads the newest release (not `main`), builds the bridge and installs it, with no git checkout; running it again updates and restarts the bridges that were running:
@@ -46,7 +50,7 @@ $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/
 
 `-Port`, `-Identity` and `-Options --without-j1939` go after the file name too.
 
-Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
+The bridge's version is in `/opt/canworks-bridge/VERSION` (the bridge's prefix; `--uninstall` removes it). Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
 
 ### From a checkout
 
