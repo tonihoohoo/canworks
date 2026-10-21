@@ -24,7 +24,7 @@ It also adds the **canworks configurator** app shortcut, which starts the config
 
 Both scripts come from the newest release's files on GitHub, so you run released code, never what is on `main`. The Windows line saves the script to a file and runs that file: it pipes nothing into `iex`, and when uv is missing the script downloads uv's own release zip and checks it against uv's published SHA-256 instead of running uv's install script, so it starts no other PowerShell. If an antivirus still stops it, use the manual steps below.
 
-Options: a given release (`--version 0.82.0`), install again (`--force`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python PATH`). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Force`, `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
+Options: a given release (`--version 0.82.0`), install again (`--force`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python 3.15` or `--python PATH`; the default is 3.14). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Force`, `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). Run again, the line does nothing when the newest version is already installed on the chosen Python, and installs it again when the tools are on an older Python (so a PC moves to 3.14 on its next update). A uv older than 0.9.0 does not know Python 3.14: the scripts update it with `uv self update`, or, when another tool installed uv (Homebrew, winget), stop and say to update it there. The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
 
 ## 1. Install uv (once per PC)
 
@@ -49,14 +49,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Download `canworks-<version>-py3-none-any.whl` from the repository's **Releases** page (the newest `deploy-v<version>` release; or use `gh release download deploy-v<version>`). The same file is for every operating system. Then, in the folder you downloaded it to:
 
 ```sh
-uv tool install --compile-bytecode --python 3.12 canworks-<version>-py3-none-any.whl
+uv tool install --compile-bytecode --python 3.14 canworks-<version>-py3-none-any.whl
 ```
 
 `--compile-bytecode` compiles the tools at install, so the first start is as fast as later ones.
 
-Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force --compile-bytecode "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.10 or newer that is already installed instead.
+Without a release file, uv installs the newest code straight from GitHub; this needs no git: `uv tool install --force --compile-bytecode "canworks @ https://github.com/tonihoohoo/canworks/archive/refs/heads/main.zip#subdirectory=tools/deploy"`. If uv cannot install its own Python on the PC (seen on a Windows IoT LTSC build), point `--python` at a Python 3.11 or newer that is already installed instead.
 
-uv downloads Python 3.12 if the PC has none, puts the tools in their own environment, and links the five commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
+uv downloads Python 3.14 if the PC has none, puts the tools in their own environment, and links the five commands into its bin folder (`%USERPROFILE%\.local\bin` on Windows, `~/.local/bin` on macOS and Linux). If it warns that the folder is not on PATH, run `uv tool update-shell` and open a new terminal. Check:
 
 ```sh
 canworks-deploy --version
@@ -74,7 +74,7 @@ The first install needs internet access to github.com (Python) and pypi.org (the
 The one-line installer above updates when run again (and uninstalls with `--uninstall`). By hand:
 
 ```sh
-uv tool install --force --compile-bytecode --python 3.12 canworks-<new version>-py3-none-any.whl
+uv tool install --force --compile-bytecode --python 3.14 canworks-<new version>-py3-none-any.whl
 canworks-config --remove-shortcut    # before uninstalling, when the shortcut was added
 uv tool uninstall canworks
 ```
@@ -109,7 +109,7 @@ Remove the old install first so the old commands do not shadow the new ones: `pi
 
 ## With pip or pipx
 
-Python 3.10 or newer. From a checkout of this repository, or with the release wheel in place of `./tools/deploy`:
+Python 3.11 or newer. From a checkout of this repository, or with the release wheel in place of `./tools/deploy`:
 
 ```sh
 pipx install ./tools/deploy          # or: python3 -m pip install ./tools/deploy

@@ -120,7 +120,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: CiA 402 ST tests (the generated axis glue and the demo program against a drive model)
         run: |
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Python dependencies of the vcan scripts (deploy tool modules, diagnostics, trace export, J1939 simulator)
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
@@ -310,7 +310,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install the deploy tool tests' Python dependencies
         # cantools: loads every exported DBC strictly (test_dbcexport); not a deploy tool dependency.
@@ -400,7 +400,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install the page tests' Python dependencies
         run: python -m pip install -q jsonschema playwright python-can pyserial cantools

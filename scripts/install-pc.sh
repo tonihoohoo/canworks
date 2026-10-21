@@ -10,7 +10,7 @@
 # Options:
 #   --version X    install release deploy-vX instead of the newest one
 #   --wheel FILE   install this local wheel instead of a release (CI)
-#   --python V     the Python uv uses (default 3.12; a path to an installed Python works too)
+#   --python V     the Python uv uses (default 3.14; a path to an installed Python works too)
 #   --no-shortcut  do not add the "canworks configurator" app shortcut
 #   --force        install even when this version is already installed
 #   --uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
@@ -30,7 +30,9 @@ API=${CANWORKS_API:-https://api.github.com/repos/tonihoohoo/canworks}
 UV_INSTALLER=${CANWORKS_UV_INSTALLER:-https://astral.sh/uv/install.sh}
 VERSION=""
 WHEEL=""
-PYTHON=3.12
+PYTHON=3.14
+# The first uv release that knows the default Python: an older uv is updated.
+UV_MIN=0.9.0
 UNINSTALL=0
 SHORTCUT=1
 FORCE=0
@@ -96,6 +98,22 @@ if [ -z "$UV" ]; then
     fi
 fi
 
+# True when version $1 is older than $2 (both like 0.9.0).
+version_lt() {
+    [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$1" ]
+}
+
+# A uv too old to know the default Python: update it (uv's own installer
+# made it), else say how. An unreadable version is left as it is.
+if [ "$UNINSTALL" = 0 ]; then
+    UV_VERSION=$("$UV" --version 2>/dev/null | sed -n 's/^uv \([0-9][0-9.]*\).*/\1/p' | head -n 1)
+    if [ -n "$UV_VERSION" ] && version_lt "$UV_VERSION" "$UV_MIN"; then
+        say "uv $UV_VERSION is older than $UV_MIN; updating it"
+        run "$UV" self update ||
+            die "could not update uv $UV_VERSION; update it with the tool that installed it (for example brew upgrade uv) and run this again"
+    fi
+fi
+
 BIN=$("$UV" tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")
 
 if [ "$UNINSTALL" = 1 ]; then
@@ -132,9 +150,18 @@ if [ -n "$WHEEL" ]; then
 else
     [ -n "$VERSION" ] || VERSION=$(latest_version)
     SPEC="canworks @ $REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-py3-none-any.whl"
-    # Already this version (uv's own record): nothing to do, unless --force.
-    INSTALLED_VERSION=$("$UV" tool list 2>/dev/null | sed -n 's/^canworks v\([^ ]*\).*/\1/p' | head -n 1)
-    if [ "$FORCE" = 0 ] && [ "$INSTALLED_VERSION" = "$VERSION" ]; then
+    # Already this version on this Python (uv's own record, "canworks v0.94.2
+    # [CPython 3.14.8]"): nothing to do, unless --force. The Python is
+    # compared only when --python is a version, not a path.
+    INSTALLED_LINE=$("$UV" tool list --show-python 2>/dev/null | grep '^canworks v' | head -n 1)
+    INSTALLED_VERSION=$(echo "$INSTALLED_LINE" | sed -n 's/^canworks v\([^ ]*\).*/\1/p')
+    SAME_PYTHON=1
+    if echo "$PYTHON" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+        WANT_PYTHON=$(echo "$PYTHON" | sed 's/^\([0-9]*\.[0-9]*\).*/\1/')
+        HAVE_PYTHON=$(echo "$INSTALLED_LINE" | sed -n 's/.*\[CPython \([0-9]*\.[0-9]*\).*/\1/p')
+        [ "$HAVE_PYTHON" = "$WANT_PYTHON" ] || SAME_PYTHON=0
+    fi
+    if [ "$FORCE" = 0 ] && [ "$INSTALLED_VERSION" = "$VERSION" ] && [ "$SAME_PYTHON" = 1 ]; then
         say "canworks $VERSION is already installed; --force installs it again"
         case ":$PATH:" in
             *":$BIN:"*) ;;
@@ -142,7 +169,11 @@ else
         esac
         exit 0
     fi
-    say "installing canworks $VERSION"
+    if [ "$INSTALLED_VERSION" = "$VERSION" ] && [ "$SAME_PYTHON" = 0 ]; then
+        say "installing canworks $VERSION again on Python $WANT_PYTHON (it was on ${HAVE_PYTHON:-another Python})"
+    else
+        say "installing canworks $VERSION"
+    fi
 fi
 
 # Only runtime dependencies: can-j1939 lists pytest as one but never imports

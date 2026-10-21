@@ -10,7 +10,7 @@
 #
 #   -Version X    install release deploy-vX instead of the newest one
 #   -Wheel FILE   install this local wheel instead of a release (CI)
-#   -Python V     the Python uv uses (default 3.12; a path to an installed Python works too)
+#   -Python V     the Python uv uses (default 3.14; a path to an installed Python works too)
 #   -Force        install even when this version is already installed
 #   -NoShortcut   do not add the "canworks configurator" Start menu and desktop shortcut
 #   -Uninstall    remove the tools and the shortcut (uv and the tools' settings stay)
@@ -25,7 +25,7 @@
 param(
     [string]$Version = "",
     [string]$Wheel = "",
-    [string]$Python = "3.12",
+    [string]$Python = "3.14",
     [switch]$Uninstall,
     [switch]$NoShortcut,
     [switch]$Force,
@@ -145,6 +145,24 @@ if (-not $Uv) {
     }
 }
 
+# The first uv release that knows the default Python: an older uv is updated.
+$UvMin = [version]"0.9.0"
+
+# A uv too old to know the default Python: update it (uv's own zip or
+# installer made it), else say how. An unreadable version is left as it is.
+if (-not $Uninstall -and -not ($DryRun -and $Uv -eq "uv")) {
+    $ErrorActionPreference = "Continue"
+    $UvVersionText = "$(& $Uv --version 2>$null)"
+    $ErrorActionPreference = "Stop"
+    if ($UvVersionText -match '^uv (\d+\.\d+(\.\d+)?)' -and [version]$Matches[1] -lt $UvMin) {
+        $UvVersion = $Matches[1]
+        Say "uv $UvVersion is older than $UvMin; updating it"
+        try { Invoke-Step $Uv @("self", "update") } catch {
+            Fail "could not update uv $UvVersion; update it with the tool that installed it (for example winget upgrade astral-sh.uv) and run this again"
+        }
+    }
+}
+
 # Where uv puts the commands.
 function Get-BinDir {
     $bin = Join-Path $UserHome ".local\bin"
@@ -157,16 +175,22 @@ function Get-BinDir {
     return $bin
 }
 
-# The installed version of the tools, from uv's own record ("canworks v0.92.0"), or "".
-function Get-InstalledVersion {
-    if ($DryRun -and $Uv -eq "uv") { return "" }
+# The installed tools from uv's own record ("canworks v0.94.2 [CPython 3.14.8]"):
+# @{ Version; Python } (Python as major.minor), empty strings when not found.
+function Get-Installed {
+    $found = @{ Version = ""; Python = "" }
+    if ($DryRun -and $Uv -eq "uv") { return $found }
     $ErrorActionPreference = "Continue"
-    $lines = & $Uv tool list 2>$null
+    $lines = & $Uv tool list --show-python 2>$null
     $ErrorActionPreference = "Stop"
     foreach ($line in @($lines)) {
-        if ("$line" -match '^canworks v(\S+)') { return $Matches[1] }
+        if ("$line" -match '^canworks v(\S+)') {
+            $found.Version = $Matches[1]
+            if ("$line" -match '\[CPython (\d+\.\d+)') { $found.Python = $Matches[1] }
+            break
+        }
     }
-    return ""
+    return $found
 }
 
 if ($Uninstall) {
@@ -187,15 +211,27 @@ if ($Wheel) {
 } else {
     if (-not $Version) { $Version = Get-LatestVersion }
     $Spec = "canworks @ $Repo/releases/download/deploy-v$Version/canworks-$Version-py3-none-any.whl"
-    # Already this version (uv's own record): nothing to do, unless -Force.
-    if (-not $Force -and (Get-InstalledVersion) -eq $Version) {
+    # Already this version on this Python: nothing to do, unless -Force. The
+    # Python is compared only when -Python is a version, not a path.
+    $Installed = Get-Installed
+    $SamePython = $true
+    if ($Python -match '^(\d+\.\d+)(\.\d+)?$') {
+        $WantPython = $Matches[1]
+        $SamePython = $Installed.Python -eq $WantPython
+    }
+    if (-not $Force -and $Installed.Version -eq $Version -and $SamePython) {
         Say "canworks $Version is already installed; -Force installs it again"
         if (-not (($env:PATH -split ";") -contains (Get-BinDir))) {
             Say "open a new terminal so $(Get-BinDir) is on PATH, then run canworks-config"
         }
         return
     }
-    Say "installing canworks $Version"
+    if ($Installed.Version -eq $Version -and -not $SamePython) {
+        $was = if ($Installed.Python) { $Installed.Python } else { "another Python" }
+        Say "installing canworks $Version again on Python $WantPython (it was on $was)"
+    } else {
+        Say "installing canworks $Version"
+    }
 }
 
 # Only runtime dependencies: can-j1939 lists pytest as one but never imports

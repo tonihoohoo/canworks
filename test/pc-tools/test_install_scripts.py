@@ -86,19 +86,29 @@ class _Base(unittest.TestCase):
         os.makedirs(self.home)
         os.makedirs(self.bin)
 
-    def fake_uv(self, listed=None):
-        """A uv on PATH that only answers 'tool dir --bin', and 'tool list'
-        with `listed` (an installed version of canworks) when given."""
+    def fake_uv(self, listed=None, python="3.14.8", uv_version=None, self_update_rc=0):
+        """A uv on PATH that only answers 'tool dir --bin', 'tool list' with
+        `listed` (an installed version of canworks, on `python`) when given,
+        '--version' with `uv_version` when given, and 'self update' with
+        exit code `self_update_rc`."""
         path = os.path.join(self.bin, "uv")
-        listing = '[ "$1 $2" = "tool list" ] && echo "canworks v%s" && echo "- canworks-config"\n' % listed if listed else ""
+        listing = ('[ "$1 $2" = "tool list" ] && echo "canworks v%s [CPython %s]" && echo "- canworks-config"\n'
+                   % (listed, python) if listed else "")
+        version = '[ "$1" = "--version" ] && echo "uv %s (x86_64-unknown-linux-gnu)"\n' % uv_version if uv_version else ""
+        update = '[ "$1 $2" = "self update" ] && exit %d\n' % self_update_rc
         with open(path, "w") as f:
-            f.write('#!/bin/sh\n[ "$1 $2 $3" = "tool dir --bin" ] && echo "%s/uvbin"\n%sexit 0\n' % (self.tmp, listing))
+            f.write('#!/bin/sh\n[ "$1 $2 $3" = "tool dir --bin" ] && echo "%s/uvbin"\n%s%s%sexit 0\n'
+                    % (self.tmp, listing, version, update))
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
         if os.name == "nt":
             # PowerShell on Windows runs uv.cmd for "uv".
             with open(path + ".cmd", "w") as f:
                 f.write('@echo off\r\nif "%%1 %%2 %%3"=="tool dir --bin" echo %s\\uvbin\r\n' % self.tmp
-                        + ('if "%%1 %%2"=="tool list" echo canworks v%s\r\n' % listed if listed else "")
+                        + ('if "%%1 %%2"=="tool list" echo canworks v%s [CPython %s]\r\n' % (listed, python)
+                           if listed else "")
+                        + ('if "%%1"=="--version" echo uv %s (x86_64-pc-windows-msvc)\r\n' % uv_version
+                           if uv_version else "")
+                        + 'if "%%1 %%2"=="self update" exit /b %d\r\n' % self_update_rc
                         + "exit /b 0\r\n")
 
     def env(self, **extra):
@@ -126,7 +136,7 @@ class InstallPcSh(_Base):
         r = self.run_script(["sh", self.script, "--dry-run"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("installing canworks 1.2.3", r.stdout)
-        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.12 --overrides \S+overrides\.txt "
+        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.14 --overrides \S+overrides\.txt "
                          + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
                                      % self.repo_url))
         self.assertNotIn("uv.example", r.stdout)
@@ -143,6 +153,49 @@ class InstallPcSh(_Base):
         self.assertIn("canworks 1.2.3 is already installed; --force installs it again", r.stdout)
         self.assertNotIn("tool install", r.stdout)
         self.assertNotIn("shortcut", r.stdout)
+
+    # newest-python: the same version on an older Python is installed again.
+    def test_same_version_older_python_installs(self):
+        self.fake_uv(listed="1.2.3", python="3.12.15")
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("installing canworks 1.2.3 again on Python 3.14 (it was on 3.12)", r.stdout)
+        self.assertIn("tool install --force --compile-bytecode --python 3.14", r.stdout)
+        self.assertIn("--create-shortcut", r.stdout)
+
+    def test_given_python_version_compared(self):
+        self.fake_uv(listed="1.2.3", python="3.14.8")
+        r = self.run_script(["sh", self.script, "--dry-run", "--python", "3.15"])
+        self.assertIn("tool install --force --compile-bytecode --python 3.15", r.stdout)
+        r = self.run_script(["sh", self.script, "--dry-run", "--python", "3.14.2"])
+        self.assertIn("1.2.3 is already installed", r.stdout)
+
+    def test_python_path_compares_version_only(self):
+        self.fake_uv(listed="1.2.3", python="3.12.15")
+        r = self.run_script(["sh", self.script, "--dry-run", "--python", "/usr/bin/python3"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("1.2.3 is already installed", r.stdout)
+
+    def test_old_uv_updated(self):
+        self.fake_uv(uv_version="0.8.22")
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("uv 0.8.22 is older than 0.9.0; updating it", r.stdout)
+        self.assertLess(r.stdout.index("self update"), r.stdout.index("tool install"))
+
+    def test_new_uv_not_updated(self):
+        for version in ("0.9.0", "0.13.4", "1.0"):
+            self.fake_uv(uv_version=version)
+            r = self.run_script(["sh", self.script, "--dry-run"])
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertNotIn("self update", r.stdout)
+
+    def test_old_uv_update_fails(self):
+        self.fake_uv(uv_version="0.8.22", self_update_rc=1)
+        r = self.run_script(["sh", self.script])
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("could not update uv 0.8.22; update it with the tool that installed it", r.stdout)
+        self.assertNotIn("installing canworks", r.stdout)
 
     def test_older_version_installs(self):
         self.fake_uv(listed="1.2.2")
@@ -604,7 +657,7 @@ class PowerShellScripts(_Base):
         self.fake_uv()
         r = self.pwsh("install-pc.ps1", "-DryRun")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.12 --overrides \S+\.txt "
+        self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.14 --overrides \S+\.txt "
                          + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
                                      % self.repo_url))
         self.assertIn("canworks-config.exe --create-shortcut", r.stdout)
@@ -623,6 +676,34 @@ class PowerShellScripts(_Base):
         self.fake_uv(listed="1.2.2")
         r = self.pwsh("install-pc.ps1", "-DryRun")
         self.assertIn("tool install --force", r.stdout)
+        # newest-python: the same version on an older Python is installed again;
+        # a path to a Python compares the version only.
+        self.fake_uv(listed="1.2.3", python="3.12.15")
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("installing canworks 1.2.3 again on Python 3.14 (it was on 3.12)", r.stdout)
+        self.assertIn("tool install --force --compile-bytecode --python 3.14", r.stdout)
+        r = self.pwsh("install-pc.ps1", "-DryRun", "-Python", "C:\\Python312\\python.exe")
+        self.assertIn("1.2.3 is already installed", r.stdout)
+
+    def test_install_pc_old_uv(self):
+        self.fake_uv(uv_version="0.8.22")
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("uv 0.8.22 is older than 0.9.0; updating it", r.stdout)
+        self.assertLess(r.stdout.index("self update"), r.stdout.index("tool install"))
+        self.fake_uv(uv_version="0.13.4")
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertNotIn("self update", r.stdout)
+        self.fake_uv(uv_version="0.8.22", self_update_rc=1)
+        r = self.pwsh("install-pc.ps1", "-NoShortcut")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        # PowerShell colours the error and wraps it into "     | " lines at the
+        # console width: compare it unwrapped.
+        text = re.sub(r"\s*\n\s*\|\s*", " ", re.sub(r"\x1b\[[0-9;]*m", "", r.stdout))
+        self.assertIn("could not update uv 0.8.22; update it with the tool that installed it", text)
+        self.assertIn("winget upgrade astral-sh.uv", text)
+        self.assertNotIn("installing canworks", r.stdout)
 
     def test_install_pc_version_and_uninstall(self):
         self.fake_uv()

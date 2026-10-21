@@ -49,7 +49,7 @@ On OpenPLC, at every PLC start the plugin checks the file against the EDS files,
 
 **Try it without hardware.** [docs/tour.md](docs/tour.md) walks through [`examples/virtual-plant`](examples/virtual-plant/README.md): one editor project with four simulated networks that shows the features working together on a PC. You need a container engine, the PC tools and the OpenPLC Editor; no CAN hardware.
 
-**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python, then the newest release; run it again to update, which does nothing when the newest is already installed; [docs/install-pc.md](docs/install-pc.md)).
+**Install the PC tools** with one line (installs [uv](https://docs.astral.sh/uv/), which brings its own Python 3.14, then the newest release; run it again to update, which does nothing when the newest is already installed; [docs/install-pc.md](docs/install-pc.md)).
 
 Windows (PowerShell):
 
@@ -234,8 +234,8 @@ Security issues: see [SECURITY.md](SECURITY.md). [docs/development.md](docs/deve
 
 ```sh
 uv build --wheel --out-dir dist tools/deploy && sh scripts/install-pc.sh --wheel dist/*.whl
-uv run --no-project --python 3.12 --with jsonschema --with cantools python -m unittest discover -s tools/deploy/tests -t tools/deploy
-uv run --no-project --python 3.12 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
+uv run --no-project --python 3.14 --with jsonschema --with cantools python -m unittest discover -s tools/deploy/tests -t tools/deploy
+uv run --no-project --python 3.14 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
 A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`). Its notes are `tools/deploy/release-notes.md` plus what each pull request since the previous release changed, and only the newest four releases are kept ([docs/install-pc.md](docs/install-pc.md#releases)).
