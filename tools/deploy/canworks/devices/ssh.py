@@ -213,7 +213,13 @@ def connect(store, host, user="", port=22, password=None, trust=None, timeout=CO
     except socket.gaierror:
         client.close()
         raise SshError("%s is not known on this network (check the name, or use its address)" % host)
-    except (OSError, paramiko.SSHException, EOFError) as e:
+    except paramiko.SSHException as e:
+        client.close()
+        if password is None and "No authentication methods available" in str(e):
+            # No agent and no key file on this PC: the password is the way in.
+            raise NeedPassword(where["user"], host)
+        raise SshError("cannot connect to %s on SSH port %d: %s" % (host, where["port"], e))
+    except (OSError, EOFError) as e:
         client.close()
         raise SshError("cannot connect to %s on SSH port %d: %s" % (host, where["port"], e))
     return Connection(client, label)

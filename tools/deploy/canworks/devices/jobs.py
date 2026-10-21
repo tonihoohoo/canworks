@@ -274,6 +274,44 @@ def follow(conn, job_id, offset, paths):
     return out
 
 
+# What to do about the failures the install scripts name, by a line of the log.
+HINTS = (
+    (re.compile(r"Another install is running"), "Another install is running on this device: wait until it ends, "
+     "then check again."),
+    (re.compile(r"No space left on device"), "The device's disk is full: free some space (the build needs about "
+     "2 GB) and start again."),
+    (re.compile(r"Could not get lock|dpkg was interrupted|is held by process"), "Another program is installing "
+     "packages on the device (apt is locked): wait until it ends and start again."),
+    (re.compile(r"could not reach|could not download|cannot download|Could not resolve host|"
+                r"Temporary failure (in name resolution|resolving)"), "The device lost its connection to github.com "
+     "during the install: check its network and start again."),
+    (re.compile(r"no OpenPLC runtime found|OpenPLC runtime did not answer"), "The OpenPLC runtime was not found or "
+     "does not answer: check again; a device with no runtime gets Install OpenPLC Runtime and canworks."),
+    (re.compile(r"cannot pull|RUNTIME_VERSION is not set|the build in .* failed"), "The runtime's Docker image "
+     "changed or could not be read: check again, then start the install again."),
+)
+
+
+def hint(lines):
+    """One sentence for a failure the scripts name, or None."""
+    for line in reversed(lines):
+        for pattern, text in HINTS:
+            if pattern.search(line):
+                return text
+    return None
+
+
+def failure(conn, job_id, paths, count=20):
+    """The last `count` log lines of a failed job (without the step and exit
+    lines) and the hint for them."""
+    check_id(job_id)
+    status, out, _ = conn.run("tail -c 65536 %s" % quote(paths.log(job_id)))
+    lines = parse(out if status == 0 else "")["lines"]
+    if len(lines) > count:
+        lines = lines[-count:]
+    return {"tail": lines, "hint": hint(lines)}
+
+
 def stop(conn, sudo_mode, password, job_id, paths):
     check_id(job_id)
     status, _, err = as_root(conn, sudo_mode, password, "%s stop %s\n" % (
