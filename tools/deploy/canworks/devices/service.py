@@ -189,14 +189,18 @@ class Devices:
         if done and not out.get("more"):
             if self.running.get(key) == job_id:
                 self.running.pop(key, None)
-            start = jobs.started_at(job_id)
-            if start and out.get("exit") == 0:
+            dev = self.store.get(project, did)
+            last = dev.get("job") or {}
+            if last.get("id") == job_id and not last.get("done"):
+                # Seen to its end: the page shows it as the last job no more.
+                self.store.update(project, did, job=dict(last, done=True, exit=out.get("exit")))
+            start, end = jobs.started_at(job_id), out.get("ended")
+            if start and end and out.get("exit") == 0:
                 # Per action: the page shows it as the typical time of the next job of that kind.
-                dev = self.store.get(project, did)
                 action = (dev.get("job") or {}).get("action") if (dev.get("job") or {}).get("id") == job_id else None
                 if action:
                     seconds = dict(dev.get("job_seconds") or {}) if isinstance(dev.get("job_seconds"), dict) else {}
-                    seconds[action] = int(time.time() - start)
+                    seconds[action] = max(0, end - start)
                     self.store.update(project, did, job_seconds=seconds)
             elif out.get("exit") != 0:
                 out["failure"] = jobs.failure(conn, job_id, self.paths)

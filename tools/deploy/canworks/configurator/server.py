@@ -131,7 +131,7 @@ THEMES = ("auto", "light", "dark")
 
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
-               "workspace": (("configure", "commission"), "configure"), "panel": (("open", "closed"), "open"),
+               "workspace": (("configure", "commission", "devices"), "configure"), "panel": (("open", "closed"), "open"),
                "ws_note": (("new", "seen"), "new"),
                "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general")}
 
@@ -2863,13 +2863,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                           int(port) if isinstance(port, str) and port.isdigit() else port)}
             if not did:
                 raise ApiError(400, "which device?")
+            trust = body.get("trust") if isinstance(body.get("trust"), str) else None
+            if route not in (("POST", "/api/devices/remove"), ("POST", "/api/devices/forget_key"),
+                             ("POST", "/api/devices/probe")) and (password or trust):
+                # A page that answered a password or host key question for another call: log in first.
+                dev.connection(project, did, password=password, trust=trust)
             if route == ("POST", "/api/devices/remove"):
                 dev.remove(project, did)
                 return {}
             if route == ("POST", "/api/devices/forget_key"):
                 return {"forgotten": dev.forget_key(project, did)}
             if route == ("POST", "/api/devices/probe"):
-                trust = body.get("trust") if isinstance(body.get("trust"), str) else None
                 return dev.probe(project, did, target, instance, saved, __version__, password=password, trust=trust,
                                  refresh=body.get("refresh") is True)
             if route == ("POST", "/api/devices/key_login"):
@@ -2901,7 +2905,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 dev.stop(project, did, body.get("job"), sudo)
                 return {}
             if route == ("POST", "/api/devices/runtime_user"):
-                dev.runtime_user(project, did, body.get("user") or "", password or "")
+                # The runtime user's password, not the SSH one: its own field.
+                user_password = body.get("user_password") if isinstance(body.get("user_password"), str) else ""
+                dev.runtime_user(project, did, body.get("user") or "", user_password)
                 return {}
         except dssh.NeedTrust as e:
             raise ApiError(409, str(e), need="trust", fingerprint=e.fingerprint, key_type=e.key_type)
@@ -3512,6 +3518,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "done": j.get("sent"), "total": j.get("count"), "unit": "frames",
                         "stop": {"path": "/api/online/send_stop", "body": {"job": j["job"], "network": j["network"]}},
                         "confirm": None})
+        for j in self.server.devices.running_jobs(folder):
+            # Install jobs run on the device by themselves: no Cancel here, the device's page has Stop.
+            out.append({"id": "device-%s" % j["job"], "kind": "device", "label": "Installing on %s" % j["device"],
+                        "done": None, "total": None, "stop": None, "confirm": None, "device": j["device"]})
         watch = self.server.watch
         if not conn.connected:
             watch.update(scan=False, lss_find=False, pdo_test=None, sync=False)

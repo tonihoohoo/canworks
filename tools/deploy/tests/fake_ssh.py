@@ -170,11 +170,14 @@ class Device:
     def home(self, user):
         return os.path.join(self.root, "home", user)
 
-    def paths(self):
+    def paths(self, fs=None):
+        """The job folders under `fs` (default: the root), as the probe sees them with CANWORKS_PROBE_ROOT=fs."""
         from canworks.devices import jobs
-        return jobs.Paths(log_dir=os.path.join(self.root, "var", "log", "canworks-install"),
-                          state_dir=os.path.join(self.root, "var", "lib", "canworks-install"),
-                          lock=os.path.join(self.root, "run", "canworks-install.lock"),
+        fs = fs or self.root
+        os.makedirs(os.path.join(fs, "run"), exist_ok=True)
+        return jobs.Paths(log_dir=os.path.join(fs, "var", "log", "canworks-install"),
+                          state_dir=os.path.join(fs, "var", "lib", "canworks-install"),
+                          lock=os.path.join(fs, "run", "canworks-install.lock"),
                           systemd_run=os.path.join(self.bin, "systemd-run"),
                           systemctl=os.path.join(self.bin, "systemctl"))
 
@@ -236,6 +239,8 @@ class Device:
             p.kill()
         finally:
             channel.close()
+            for f in (p.stdout, p.stderr):
+                f.close()
 
     def drop_connections(self):
         for t in self.transports:

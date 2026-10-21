@@ -6,7 +6,8 @@
 #
 # For the tests: CANWORKS_PROBE_ROOT puts every file path under another folder,
 # CANWORKS_PROBE_SYSTEMCTL, _DOCKER, _IP, _SUDO and _CURL replace those
-# commands, CANWORKS_PROBE_URL is the release host checked for internet access.
+# commands, CANWORKS_PROBE_URL is the release host checked for internet access
+# and CANWORKS_PROBE_UID the user id.
 
 R=${CANWORKS_PROBE_ROOT:-}
 SYSTEMCTL=${CANWORKS_PROBE_SYSTEMCTL:-systemctl}
@@ -43,7 +44,7 @@ internet=""
 if have "$CURL"; then
     if "$CURL" -sSI --max-time 5 -o /dev/null "$URL" 2>/dev/null; then internet=true; else internet=false; fi
 fi
-if [ "$(id -u)" = 0 ]; then
+if [ "${CANWORKS_PROBE_UID:-$(id -u)}" = 0 ]; then
     sudo_mode=none
 elif have "$SUDO" && "$SUDO" -n true 2>/dev/null; then
     sudo_mode=nopasswd

@@ -97,7 +97,9 @@ Native installs only, once on the PLC, so the runtime loads the plugin:
 sudo systemctl restart openplc-runtime
 ```
 
-Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). From a git checkout: `sudo scripts/install-stock.sh`.
+Or from the configurator: its **Devices** workspace installs the plugin, or the OpenPLC Runtime and the plugin on a fresh device, or a bridge project's bridge, over SSH with the steps on the page ([docs/devices.md](docs/devices.md)).
+
+Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). `install-runtime.sh --with-openplc` installs upstream's OpenPLC Runtime first on a device that has none ([docs/install-stock.md](docs/install-stock.md#install-or-update-with-one-line)). From a git checkout: `sudo scripts/install-stock.sh`.
 
 **Other targets.** For the Modbus bridge, run this on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), or the same with `bash -s -- --ssh pi@rpi.local` from a macOS or Linux PC, `install-bridge.ps1 -Ssh pi@rpi.local` from Windows like the plugin line above, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)):
 
@@ -170,11 +172,12 @@ On the runtime host, `canworks-sim` runs simulated CANopen devices and plain CAN
 
 ### Configurator
 
-`canworks-config` opens in the browser with two workspaces, a connection bar that always shows what the page is connected to, and a status bar that lists running jobs with Cancel ([docs/configurator.md](docs/configurator.md)).
+`canworks-config` opens in the browser with three workspaces, a connection bar that always shows what the page is connected to, and a status bar that lists running jobs with Cancel ([docs/configurator.md](docs/configurator.md)).
 
 - **Configure** edits the config from a network tree, with problem badges on every entry and simulated nodes marked. Each node opens in tabs: General, PDOs, SDOs, Supervision, CiA 402, Simulation, Notes and Advanced. PDO entries are mapped to PLC addresses and checked against the editor project. Settings a device's EDS cannot back (EMCY without 0x1014, the heartbeat consumer without 0x1016, LSS, the configuration check) are off with the reason in grey, and turn amber with a Remove link only when the config still has them. Slave, gateway, J1939 and plain CAN networks are set up here too, with **Import DBC…** for CAN messages (the DBC file is kept in the config folder).
 - **Connect…** in the connection bar is the one place to connect: to a runtime, the standalone simulator, a USB adapter or an adapter on another machine, with recent connections one click away.
 - **Commission** opens on a Nodes table of the live network. **Scan the bus** compares the bus with the config (Match, Missing, Not in config, Identity differs) and adds a found device to the config in one click. Each node has Status, Object dictionary, Parameters, Notes and Log tabs (states, EMCY, error history, SDO, NMT, LSS, parameter backup and restore), and simulated devices take faults and value overrides from their Status tab.
+- **Devices** installs what the project needs on a Linux device over SSH ([docs/devices.md](docs/devices.md)): it checks the device read-only and shows, per part, what it has and what the project needs, with one main action such as **Update 0.93.4 → 0.98.0**, **Rebuild for runtime v4.2.5**, **Install OpenPLC Runtime and canworks** on a fresh device or **Install and start this project's bridge**. The install runs on the device by itself, so a closed laptop or a restarted configurator does not stop it, and the page shows its steps and log. Host keys are trusted only after you saw them, and no SSH, sudo or runtime password is kept.
 - **Commission a CANopen device** works on a USB adapter without any project. The Nodes table names every heard device without a scan (from 0x1008, a matching EDS or its profile) and matches devices against an EDS library folder picked with **Choose folder…**. **Change EDS…** swaps or clears a node's EDS, and a node without one gets the standard CiA 301/401/402 object dictionary. LSS and the PDO test run from here, and **Add to a config…** puts a device into a config.
 - **Trace** records and decodes the bus ([docs/trace.md](docs/trace.md)). The By identifier view marks the bytes that change, a transmit list per network sends frames by hand, and **Decoding ▾** adds DBC files that decode their messages. PDOs decode without a config, from the layout set on the bus, read from the device or taken from the node's EDS (marked assumed); a read names any PDO it could not make usable and why. The frame inspector (closed with ✕ or Esc, layers that fold) and **Frame lab** (result beside its Examples, Build and Arbitration tabs) explain every bit of a frame ([docs/frame-inspector.md](docs/frame-inspector.md)). The trace opens in a window of its own to watch the bus while sending from the main window; the graph zooms with the mouse wheel and the lists and graph lanes resize.
 - **Project target** OpenPLC, Modbus bridge or CODESYS on every Bus page: the page shows only what the target uses, in the target's own words; a setting the config has but the target does not use stays hidden and is left out on save (the save message says how many). A switch asks nothing: it removes the rest in one undo step, with **Undo** in its message ([docs/configurator.md](docs/configurator.md#project-target)).
@@ -205,6 +208,7 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 | Guided tour without hardware | [tour.md](docs/tour.md) |
 | Installing the plugin on the PLC | [install-stock.md](docs/install-stock.md) |
 | Installing the PC tools | [install-pc.md](docs/install-pc.md) |
+| Installing on a device from the configurator | [devices.md](docs/devices.md) |
 | The config file | [config.md](docs/config.md) |
 | Configurator | [configurator.md](docs/configurator.md) |
 | Device notes, by hand or from a datasheet with Claude | [configurator.md](docs/configurator.md#device-notes) |

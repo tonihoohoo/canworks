@@ -1544,6 +1544,7 @@ function render() {
   else if (S.view === "simulation") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
   else if (S.view === "links") renderLinks(view);
+  else if (S.view === "devices") renderDevices(view);
   else renderNode(view, Number(S.view.slice(5)));
   if (workspace() === "configure") applyTarget(view);
   applyCheck();
@@ -4271,6 +4272,7 @@ function onlineAccessSettings() {
       hint("Off: read-only. On: anyone with the token can write parameters and stop nodes."),
       d.allow_changes ? el("span", { class: "field-msg warning" }, "Changes are allowed: keep the token secret and the port on a trusted network.") : null),
     hostField()),
+  typeof devHostState === "function" ? devHostState() : null,
   el("div", { class: "toolbar" },
     el("span", { class: S.online.tokenOk && !old ? "ok-text" : "field-msg warning", dataset: { online: "token-state" } }, tokenState),
     old && S.online.tokenOk ? el("button", { type: "button", class: "primary", dataset: { online: "upgrade" }, onclick: upgradeToken }, "Upgrade") : null,

@@ -56,8 +56,11 @@ function jobItem(j) {
   const bar = j.total ? el("progress", { max: j.total, value: j.done || 0, "aria-hidden": "true" }) : null;
   const cancel = j.stop ? el("button", { type: "button", class: "small", dataset: { jobCancel: j.id }, "aria-label": `Cancel ${j.label}` }, "Cancel") : null;
   if (cancel) cancel.onclick = () => cancelJob(j, cancel);
+  // An install job on a device (devices.js): its page has the steps and Stop.
+  const show = j.device && typeof openDevices === "function" ? el("button", { type: "button", class: "small", dataset: { jobShow: j.id },
+    "aria-label": `Show ${j.label}`, onclick: () => openDevices(j.device) }, "Show") : null;
   return el("span", { class: "job", dataset: { job: j.id } }, Icons.stateIcon("busy", { label: false, spinning: true }),
-    el("span", null, j.label + (progress ? ` – ${progress}` : "")), bar, cancel);
+    el("span", null, j.label + (progress ? ` – ${progress}` : "")), bar, cancel, show);
 }
 
 function renderJobs() {

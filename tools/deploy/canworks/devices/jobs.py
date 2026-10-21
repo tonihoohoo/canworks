@@ -5,7 +5,7 @@ the last five kept); a lock lets one job run at a time.
 
 The log carries the install scripts' "::canworks-step N/M text" lines with
 the time they were seen appended (" @<epoch>"), and ends with
-"::canworks-exit <status>"."""
+"::canworks-exit <status> @<epoch>"."""
 
 import calendar
 import posixpath
@@ -149,7 +149,7 @@ echo "::canworks-job {id} {action} @$(date +%s)"
   echo "::canworks-exit $?"
 }} 2>&1 | while IFS= read -r line || [ -n "$line" ]; do
     case $line in
-        "::canworks-step "*) printf '%s @%s\\n' "$line" "$(date +%s)" ;;
+        "::canworks-step "*|"::canworks-exit "*) printf '%s @%s\\n' "$line" "$(date +%s)" ;;
         *) printf '%s\\n' "$line" ;;
     esac
 done
@@ -226,7 +226,7 @@ def make_upload_dir(conn):
 
 def parse(text):
     """Steps, the exit status and the plain log lines of a piece of job log."""
-    steps, lines, exit_status, started = [], [], None, None
+    steps, lines, exit_status, started, ended = [], [], None, None, None
     for line in text.splitlines():
         if line.startswith("::canworks-step "):
             m = _STEP.match(line)
@@ -239,13 +239,15 @@ def parse(text):
                 exit_status = int(line.split()[1])
             except (IndexError, ValueError):
                 exit_status = 1
+            m = re.search(r" @(\d+)$", line)
+            ended = int(m.group(1)) if m else None
             continue
         if line.startswith("::canworks-job "):
             m = re.search(r" @(\d+)$", line)
             started = int(m.group(1)) if m else None
             continue
         lines.append(line)
-    return {"steps": steps, "lines": lines, "exit": exit_status, "started": started}
+    return {"steps": steps, "lines": lines, "exit": exit_status, "started": started, "ended": ended}
 
 
 def follow(conn, job_id, offset, paths):
