@@ -57,7 +57,7 @@ fi
 
 SERVICE_FILE="$R/etc/systemd/system/openplc-runtime.service"
 SPEC="$R/var/lib/openplc-bootloader/runtime-spec.json"
-rt_kind=none rt_version="" rt_dir=""
+rt_kind=none rt_version="" rt_dir="" rt_commit=""
 if [ -f "$SPEC" ]; then
     rt_kind=docker-managed
     rt_version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$SPEC" | head -n 1)
@@ -66,6 +66,7 @@ elif [ -f "$SERVICE_FILE" ]; then
     rt_dir=$(sed -n 's/^WorkingDirectory=//p' "$SERVICE_FILE" | head -n 1)
     if [ -n "$rt_dir" ] && have git; then
         rt_version=$(git -C "$R$rt_dir" describe --tags --always 2>/dev/null)
+        rt_commit=$(git -C "$R$rt_dir" rev-parse HEAD 2>/dev/null)
     fi
 elif have "$DOCKER" && "$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'openplc-runtime'; then
     rt_kind=docker-other
@@ -115,8 +116,10 @@ for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
         name=$(basename "$d")
         state=$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)
         enabled=$("$SYSTEMCTL" is-enabled "canworks-bridge@$name.service" 2>/dev/null)
-        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s}' \
-            "$(js "$name")" "$(js "$state")" "$(js "$enabled")")"
+        sum=""
+        have sha256sum && sum=$(sha256sum "${d}canworks.json" 2>/dev/null | cut -d' ' -f1)
+        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s}' \
+            "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")")"
     done
     bridge=$(printf '{"version": %s, "prefix": %s, "instances": [%s]}' \
         "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$instances")
@@ -163,8 +166,8 @@ fi
 printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "mem_mb": %s, ' \
     "$(js "$os")" "$(js "$arch")" "$(jb "$systemd")" "$(jn "$disk")" "$(jn "$mem")"
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
-printf '"runtime": {"kind": %s, "version": %s, "answers": %s}, ' \
-    "$(js "$rt_kind")" "$(js "$rt_version")" "${rt_answers:-null}"
+printf '"runtime": {"kind": %s, "version": %s, "commit": %s, "answers": %s}, ' \
+    "$(js "$rt_kind")" "$(js "$rt_version")" "$(js "$rt_commit")" "${rt_answers:-null}"
 printf '"plugin": %s, "bridge": %s, "link": %s, "discovery": %s, ' "$plugin" "$bridge" "$link" "$(jb "$discovery")"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

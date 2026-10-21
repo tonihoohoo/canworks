@@ -52,6 +52,7 @@ from ..bustrace import explain as explain_mod, framebuild
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
+from ..devices import service as devices_service
 from ..userdirs import config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
 from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
@@ -2582,6 +2583,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if url.path.startswith("/api/sim/"):
                 body = self._body() if method == "POST" else {k: v[0] for k, v in query.items() if v}
                 return self._send(200, self._sim((method, url.path), body))
+            if url.path == "/api/devices" or url.path.startswith("/api/devices/"):
+                # SSH to devices: outside the session lock, like the runtime calls.
+                body = self._body() if method == "POST" else {}
+                return self._send(200, self._devices((method, url.path), body))
             if url.path.startswith("/api/trace/"):
                 if (method, url.path) == ("POST", "/api/trace/open") and \
                         (self.headers.get("Content-Type") or "").startswith("application/octet-stream"):
@@ -2818,6 +2823,97 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _need_open(s):
         if not s.mode:
             raise ApiError(409, "no project or config folder is open")
+
+    # -- devices (device-install) -------------------------------------------
+    def _devices(self, route, body):
+        """/api/devices/*: the Devices workspace. A question the user has to
+        answer (trust a host key, a password, the sudo password) is a 409 with
+        `need`; passwords are only in the request that carries them."""
+        from ..devices import jobs as djobs, ssh as dssh, store as dstore
+        from .. import __version__
+        s, dev = self.server.session, self.server.devices
+        with s.lock:
+            self._need_open(s)
+            if s.commission:
+                raise ApiError(409, "Commission a device has no devices; open a project or config folder")
+            project, folder, config_path = s.folder, s.canopen_dir, s.config_path
+            cfg = s.read_config()[0]
+        target = targets.target(cfg)
+        instance = djobs.instance_name(os.path.basename(os.path.normpath(project)))
+        saved = config_path if os.path.isfile(config_path) else None
+        did = body.get("device")
+        if did is not None and not isinstance(did, str):
+            raise ApiError(400, "device must be a device id")
+        password = body.get("password") if isinstance(body.get("password"), str) and body.get("password") else None
+        sudo = body.get("sudo_password") if isinstance(body.get("sudo_password"), str) and body.get("sudo_password") \
+            else None
+        try:
+            if route == ("GET", "/api/devices"):
+                return {"devices": dev.view(project, target, instance, saved, __version__), "target": target,
+                        "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs(project)}
+            if route == ("GET", "/api/devices/discovered"):
+                known = {d["host"] for d in dev.store.devices(project)}
+                found = [r for r in online.runtimes_list().get("discovered") or []
+                         if r.get("addresses") and r["addresses"][0] not in known]
+                return {"discovered": [{"name": r.get("name") or "", "host": sorted(r["addresses"], key=lambda a: ":" in a)[0]}
+                                       for r in found]}
+            if route == ("POST", "/api/devices/add"):
+                port = body.get("port")
+                return {"device": dev.add(project, body.get("host"), body.get("user") or "",
+                                          int(port) if isinstance(port, str) and port.isdigit() else port)}
+            if not did:
+                raise ApiError(400, "which device?")
+            if route == ("POST", "/api/devices/remove"):
+                dev.remove(project, did)
+                return {}
+            if route == ("POST", "/api/devices/forget_key"):
+                return {"forgotten": dev.forget_key(project, did)}
+            if route == ("POST", "/api/devices/probe"):
+                trust = body.get("trust") if isinstance(body.get("trust"), str) else None
+                return dev.probe(project, did, target, instance, saved, __version__, password=password, trust=trust,
+                                 refresh=body.get("refresh") is True)
+            if route == ("POST", "/api/devices/key_login"):
+                dev.key_login(project, did)
+                return {}
+            if route == ("POST", "/api/devices/start"):
+                action = body.get("action")
+                if action in ("install_bridge", "bridge_config") and not saved:
+                    raise ApiError(409, "save the config first: the bridge starts with the saved config", unsaved=True)
+                if action in ("install_bridge", "bridge_config"):
+                    with s.lock:
+                        if s.pending or s.pending_dbc or s.changed_on_disk():
+                            raise ApiError(409, "save the config first: the bridge starts with the saved config",
+                                           unsaved=True)
+                job = dev.start(project, did, action, body.get("options") if isinstance(body.get("options"), dict)
+                                else {}, sudo, instance=instance, config_dir=folder)
+                return {"job": job}
+            if route == ("POST", "/api/devices/job"):
+                job = body.get("job")
+                offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
+                out = dev.follow(project, did, job, offset)
+                if out.get("done") and out.get("exit") == 0 and target == "openplc":
+                    # The device becomes the project's runtime host when it had none.
+                    settings = online.Settings(config_dir())
+                    if not settings.project(project).get("host"):
+                        settings.update_project(project, host=dev.store.get(project, did)["host"])
+                return out
+            if route == ("POST", "/api/devices/stop"):
+                dev.stop(project, did, body.get("job"), sudo)
+                return {}
+            if route == ("POST", "/api/devices/runtime_user"):
+                dev.runtime_user(project, did, body.get("user") or "", password or "")
+                return {}
+        except dssh.NeedTrust as e:
+            raise ApiError(409, str(e), need="trust", fingerprint=e.fingerprint, key_type=e.key_type)
+        except dssh.KeyChanged as e:
+            raise ApiError(409, str(e), need="forget_key", fingerprint=e.fingerprint)
+        except dssh.NeedPassword as e:
+            raise ApiError(409, str(e), need="password", wrong=e.wrong)
+        except djobs.NeedSudo as e:
+            raise ApiError(409, str(e), need="sudo", wrong=e.wrong)
+        except (dssh.SshError, dstore.DeviceError) as e:
+            raise ApiError(422, str(e))
+        raise ApiError(404, "no such API: %s %s" % route)
 
     def _watch(self, settings, folder, body):
         """The object dictionary watch lists of this project, kept per node in
@@ -4140,6 +4236,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.adapter_allow = False  # the USB adapter's allow-changes switch: this connection only, never saved
         self.codesys_runner = None  # tests: runs the CODESYS command line instead of CODESYS
         self.sender = online.Sender()
+        self.devices = devices_service.Devices(config_dir())
         self.sim_connection = online.Connection()  # the Simulation view's standalone simulator
         self.eds_index = online.EdsIndex()
         self.spn_cache = {}  # Handler._spn_names
