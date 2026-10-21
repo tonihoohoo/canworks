@@ -64,11 +64,14 @@ The Problems panel and the messages next to fields SHALL name the place of a pro
 ## ADDED Requirements
 
 ### Requirement: Settings the target does not use on the page
-A page or node tab that holds values its project's target does not use SHALL show, under its heading, one folded bar "N setting(s) here are not used by <target>" with **Remove all** and **Show**. Unfolded, the bar SHALL list each value in the user's terms (place, field label, value) with its own Remove. Problems SHALL show these values as one grouped warning "N settings are not used by <target>" with **Remove all** and a fold-out list, whose rows open the value's page with the bar unfolded. Each Remove and each Remove all SHALL be one undo step. Tree and tab badges SHALL NOT count these warnings, and no message SHALL be written next to their hidden fields. A network kind the target does not use (a slave, J1939 or plain CAN network in a CODESYS project) SHALL keep its current handling, with no Remove. The command-line check SHALL keep one warning per value.
+A page or node tab that holds values its project's target does not use SHALL show, under its heading, one folded bar "N setting(s) here are not used by <target>" with **Remove all** and **Show**. Unfolded, the bar SHALL list each value in the user's terms (place, field label, value) with its own Remove. Each Remove and each Remove all SHALL be one undo step. A network kind the target does not use (a slave, J1939 or plain CAN network in a CODESYS project) SHALL keep its current handling, with no Remove.
 
 #### Scenario: Remove all on a tab
 - **WHEN** a CODESYS project's node 5 Supervision tab holds a status location and a heartbeat timeout, and the user clicks Remove all in its bar
 - **THEN** both values are gone from the config, the bar disappears, and one Undo brings both back
+
+### Requirement: One problem for the settings the target does not use
+Problems SHALL show the values the target does not use as one grouped warning "N settings are not used by <target>" with **Remove all** and a fold-out list, whose rows open the value's page with its bar unfolded. Tree and tab badges SHALL NOT count these warnings, and no message SHALL be written next to their hidden fields. The command-line check SHALL keep one warning per value.
 
 #### Scenario: Grouped problem
 - **WHEN** a CODESYS project has 5 values CODESYS does not use on three pages

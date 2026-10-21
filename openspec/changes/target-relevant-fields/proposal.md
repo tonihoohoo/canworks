@@ -33,7 +33,7 @@ None.
 
 ### Modified Capabilities
 
-- `canopen-configurator`: "Only what the target uses is shown" (set values hidden too, the per-page bar, the grouped problem, Show every field, wording per target, Declarations OpenPLC only), "Variable names of PDO entries" (no Location column for a target without locations, even with a leftover), "Readable problem messages" (Windows path scenario). New requirements: "Settings the target does not use on the page" and "Show fields the target does not use".
+- `canopen-configurator`: "Only what the target uses is shown" (set values hidden too, the per-page bar, the grouped problem, Show every field, wording per target, Declarations OpenPLC only), "Variable names of PDO entries" (no Location column for a target without locations, even with a leftover), "Readable problem messages" (Windows path scenario). New requirements: "Settings the target does not use on the page", "One problem for the settings the target does not use" and "Show fields the target does not use".
 
 ## Impact
 
