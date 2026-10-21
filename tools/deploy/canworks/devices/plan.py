@@ -184,7 +184,9 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         if not isinstance(item, dict) or not item.get("ifname"):
             continue
         info = item.get("linkinfo") or {}
-        rate = ((info.get("info_data") or {}).get("bittiming") or {}).get("bitrate")
+        data = info.get("info_data") or {}
+        # Controllers with fixed bit rates (slcan) give it flat, without bittiming.
+        rate = (data.get("bittiming") or {}).get("bitrate") or data.get("bittiming_bitrate")
         text = item["ifname"]
         if rate:
             text += " %d kbit/s" % (rate // 1000)

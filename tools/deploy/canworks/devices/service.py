@@ -126,7 +126,14 @@ class Devices:
               refresh=False):
         conn, by_password = self.connection(project, did, password=password, trust=trust)
         env = "".join("%s=%s " % (k, ssh.quote(v)) for k, v in sorted(self.probe_env.items()))
-        status, out, err = conn.run(env + "sh -s", stdin=probe_text(), timeout=60.0)
+        try:
+            status, out, err = conn.run(env + "sh -s", stdin=probe_text(), timeout=60.0)
+        except ssh.ConnectionLost:
+            # A kept connection the device or the network dropped: once more on a new one.
+            if by_password or trust is not None:
+                raise
+            conn, by_password = self.connection(project, did)
+            status, out, err = conn.run(env + "sh -s", stdin=probe_text(), timeout=60.0)
         try:
             probe = json.loads(out)
             if not isinstance(probe, dict) or probe.get("probe") != 1:
