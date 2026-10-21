@@ -698,7 +698,9 @@ class PowerShellScripts(_Base):
         self.fake_uv(uv_version="0.8.22", self_update_rc=1)
         r = self.pwsh("install-pc.ps1", "-NoShortcut")
         self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("could not update uv 0.8.22; update it with the tool that installed it", r.stdout)
+        # PowerShell wraps the error to the console width: short pieces only.
+        self.assertIn("could not update uv 0.8.22", r.stdout)
+        self.assertIn("winget upgrade astral-sh.uv", r.stdout)
         self.assertNotIn("installing canworks", r.stdout)
 
     def test_install_pc_version_and_uninstall(self):
