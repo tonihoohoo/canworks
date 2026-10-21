@@ -147,7 +147,8 @@ class DevicesPage(OnlineBase):
         self.assertIn("args: --version 0.98.0 --with-link", pg.inner_text("[data-devices=log] pre"))
         pg.wait_for_selector("[data-devices=up-to-date]")
         self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="plugin"]'))
-        self.assertEqual(pg.inner_text("#jobs"), "")
+        # The status bar drops the job at its next look (a poll in flight may still list it).
+        pg.wait_for_function("() => document.querySelector('#jobs').innerText.trim() === ''")
 
         # Nothing secret on this PC.
         for dirpath, _, names in os.walk(self.cfg_dir):
