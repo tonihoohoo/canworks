@@ -524,7 +524,7 @@ On every view, at window widths from 1000 px up, no input, dropdown or button SH
 - **THEN** a check over the page finds no clipped field or button and no horizontal overflow
 
 ### Requirement: Readable problem messages
-The Problems panel and the messages next to fields SHALL name the place of a problem in the user's terms (node ID and name, PDO kind and number, object index and subindex, SDO variable name) and SHALL NOT show the internal config path (such as `nodes[2]: tx_pdos[1]: entries[0]:`). Selecting a problem SHALL still move to and highlight its field, opening its tree entry and tab first. The same wording SHALL be used wherever the configurator shows a check message: the Trace view's and Frame lab's "decoding without the config's PDOs" notes, the message bar and dialogs. No message shown on the page SHALL contain a filesystem path of the config or project, except where the path itself is the subject (the folder browser, the mode badge, the new-project dialog). An empty config SHALL be reported as "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration." rather than as a schema error. An unexpected server error SHALL be shown as one sentence that points at the configurator's terminal, where the details are logged. The deploy tool's command-line messages are unchanged.
+The Problems panel and the messages next to fields SHALL name the place of a problem in the user's terms (node ID and name, PDO kind and number, object index and subindex, SDO variable name) and SHALL NOT show the internal config path (such as `nodes[2]: tx_pdos[1]: entries[0]:`). Selecting a problem SHALL still move to and highlight its field, opening its tree entry and tab first. The same wording SHALL be used wherever the configurator shows a check message: the Trace view's and Frame lab's "decoding without the config's PDOs" notes, the message bar and dialogs. No message shown on the page SHALL contain a filesystem path of the config or project, on any operating system (a Windows path with a drive letter included), except where the path itself is the subject (the folder browser, the mode badge, the new-project dialog). An empty config SHALL be reported as "No nodes yet. Add a node from its EDS, or turn on Online access for a scan-only configuration." rather than as a schema error. An unexpected server error SHALL be shown as one sentence that points at the configurator's terminal, where the details are logged. The deploy tool's command-line messages are unchanged.
 
 #### Scenario: Type does not fit the location
 - **WHEN** node 5 (rtd) maps UNSIGNED8 object 0x6150:1 in TPDO 2 to `%IW320`
@@ -533,6 +533,10 @@ The Problems panel and the messages next to fields SHALL name the place of a pro
 #### Scenario: Trace note without a path
 - **WHEN** the config has a type-does-not-fit error and the user opens a trace file
 - **THEN** the Trace view's note reads "Decoding without the config's PDOs: Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 (8 bit) does not fit location %IW320 (16 bit)" with no file path
+
+#### Scenario: Windows config path
+- **WHEN** the config is `C:\Users\me\cell\canworks.json` and has the type-does-not-fit error above
+- **THEN** the message next to the location field and the Problems panel show no part of `C:\Users\me\cell\canworks.json`
 
 #### Scenario: New config
 - **WHEN** the user creates a new standalone config
@@ -3406,15 +3410,15 @@ A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESY
 - **THEN** the Project target field and the header show CODESYS
 
 ### Requirement: Only what the target uses is shown
-The page SHALL hide every field, choice option, tree entry, menu item and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them. A setting the target does not use that still has a value SHALL stay shown, marked "not used by <target>", with a Remove action. The same rules SHALL apply to all three targets.
+The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it. Values the target does not use SHALL be listed instead as Requirement: Settings the target does not use on the page describes, and SHALL be shown in place only while Requirement: Show fields the target does not use is on. Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Pi, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, so a control without a setting of its own (such as the supervision Method or Watch a node…) keeps its section, and a node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
 
 #### Scenario: CODESYS project
 - **WHEN** the project's target is CODESYS
-- **THEN** the page shows no IEC location fields, status locations, SDO variables, CiA 402 axis, scan watchdog, EDS lint, simulated devices, raw CAN messages, gateway, Online access or OpenPLC Editor project actions, and the protocol choice offers only CANopen master
+- **THEN** the page shows no IEC location fields or column, status locations, SDO variables, CiA 402 axis, scan watchdog, EDS lint, simulated devices, raw CAN messages, gateway, Online access or OpenPLC Editor project actions, and the protocol choice offers only CANopen master
 
 #### Scenario: Bridge project
 - **WHEN** the project's target is Modbus bridge
-- **THEN** the SYNC source offers no "PLC cycle", no scan watchdog field is shown, and the Project menu has no editor project actions
+- **THEN** the SYNC source offers no "PLC cycle", no scan watchdog field is shown, the Project menu has no editor project actions, no Variable declarations page is in the tree, and the Bus page's role hint says the bridge is the network's master
 
 #### Scenario: OpenPLC project
 - **WHEN** the project's target is OpenPLC
@@ -3422,7 +3426,23 @@ The page SHALL hide every field, choice option, tree entry, menu item and start-
 
 #### Scenario: Leftover value
 - **WHEN** a CODESYS project still has `on_plc_stop` set to `keep`
-- **THEN** the field is shown marked "not used by CODESYS" with Remove, and Problems lists the same warning
+- **THEN** the field is hidden, the Bus page's bar lists "When the PLC stops: keep" with Remove, and Problems lists it in the grouped warning
+
+#### Scenario: Leftover location in a CODESYS project
+- **WHEN** a CODESYS project's node `dio` has one TPDO entry with `iec_location` `%IW100`
+- **THEN** the node's PDO table has no PLC location column, and the PDOs tab shows the bar "1 setting here is not used by CODESYS"
+
+#### Scenario: Leftover simulate in a CODESYS project
+- **WHEN** a CODESYS project's node has `simulate` set
+- **THEN** the node has no Simulation tab and its General tab's bar lists the setting
+
+#### Scenario: Supervision with the EDS's own settings in a CODESYS project
+- **WHEN** a CODESYS project's node has no heartbeat or guarding settings (Method "EDS default") and the user opens its Supervision tab
+- **THEN** the Method choice and the heartbeat watch list are shown, and the tab is not blank
+
+#### Scenario: Wording guard
+- **WHEN** the browser tests open every page and node tab of a config with every setting set, once per target
+- **THEN** no field the target does not use is visible, no node tab is blank, and no visible text uses another target's words (for CODESYS: the plugin, the Pi, PLC location, an IEC address, scan watchdog, OpenPLC), apart from the Project target field's help
 
 ### Requirement: Switching the target
 Switching the target SHALL show one dialog naming what the new target does not use, and SHALL apply the switch as one undo step:
@@ -3439,11 +3459,15 @@ Switching the target SHALL show one dialog naming what the new target does not u
 - **THEN** every entry has a byte-addressed location, the `codesys` objects are gone and the register map row of the entry is named after `Read_input_8_bit_1`
 
 ### Requirement: Variable names of PDO entries
-The PDO table SHALL have a Variable column for every target, editing the entry's `name`, with the generated name as placeholder. The Location column SHALL be shown only for targets that use locations.
+The PDO table SHALL have a Variable column for every target, editing the entry's `name`, with the generated name as placeholder. The Location column SHALL be shown only for targets that use locations, also when an entry of a target without locations still has one, unless Requirement: Show fields the target does not use is on.
 
 #### Scenario: Rename a channel
 - **WHEN** the user types `door_open` as the variable of an entry in a CODESYS project
 - **THEN** the entry gets `name` `door_open` and the CODESYS export names that channel `<node>_door_open`
+
+#### Scenario: No Location column for CODESYS
+- **WHEN** a CODESYS project has an entry with `iec_location` left over
+- **THEN** the PDO table's columns are Object, Name, Type, Variable, PDO and the remove button
 
 ### Requirement: CODESYS settings
 A CODESYS project SHALL have a "CODESYS" page in the tree with the project file, the device that gets the bus, the PLC device for a new project and variable names on or off, and each CANopen master network's Bus page SHALL have the CODESYS network number and CAN interface object, all stored in the config's `codesys` objects. The project file SHALL have **Browse…** (Requirement: CODESYS project file dialog), and a project file without an extension SHALL get `.project`. The PLC device for a new project SHALL be a dropdown of the PLC devices installed in CODESYS (Requirement: PLC devices installed in CODESYS) with "Other…" for typing `TYPE:ID:VERSION`, and SHALL be shown only while the project file does not exist; for an existing project the page SHALL say that canworks adds the bus to it.
@@ -3720,3 +3744,36 @@ The configurator SHALL list the PLC devices installed in CODESYS on this PC from
 #### Scenario: No CODESYS
 - **WHEN** the configurator runs on a PC without CODESYS
 - **THEN** the PLC device field is a text field with an example placeholder
+
+### Requirement: Settings the target does not use on the page
+A page or node tab that holds values its project's target does not use SHALL show, under its heading, one folded bar "N setting(s) here are not used by <target>" with **Remove all** and **Show**. Unfolded, the bar SHALL list each value in the user's terms (place, field label, value) with its own Remove. Each Remove and each Remove all SHALL be one undo step. Network kinds the target does not use SHALL have no Remove.
+
+#### Scenario: Remove all on a tab
+- **WHEN** a CODESYS project's node 5 Supervision tab holds a status location and a heartbeat timeout, and the user clicks Remove all in its bar
+- **THEN** both values are gone from the config, the bar disappears, and one Undo brings both back
+
+#### Scenario: Slave network in a CODESYS project
+- **WHEN** a CODESYS project has a slave network
+- **THEN** the network keeps its current note that it stays with canworks, and is not in any bar's Remove all
+
+### Requirement: One problem for the settings the target does not use
+Problems SHALL show the values the target does not use as one grouped warning "N settings are not used by <target>" with **Remove all** and a fold-out list, whose rows open the value's page with its bar unfolded. Tree and tab badges SHALL NOT count these warnings, and no message SHALL be written next to their hidden fields. The command-line check SHALL keep one warning per value.
+
+#### Scenario: Grouped problem
+- **WHEN** a CODESYS project has 5 values CODESYS does not use on three pages
+- **THEN** Problems shows one warning "5 settings are not used by CODESYS", no tab badge counts them, and clicking its "Node 5 rtd, TPDO 1: PLC location %IW100" row opens node 5's PDOs tab with the bar unfolded
+
+#### Scenario: Command-line check
+- **WHEN** `canworks-deploy --check` runs on that config
+- **THEN** it prints five warnings, one per value, as before
+
+### Requirement: Show fields the target does not use
+The Settings menu SHALL have a toggle "Show fields the target does not use", off by default and remembered on this PC (not in the config). While it is on, every field, column, tab and page the target does not use SHALL be shown, dimmed and tagged "not used by <target>", and editable, with Remove when it has a value, and the header's target badge SHALL add "· all fields". A bar's **Show** SHALL turn the toggle on.
+
+#### Scenario: Turn on from the bar
+- **WHEN** the user clicks Show in the PDOs tab's bar of a CODESYS project
+- **THEN** the PLC location column appears dimmed with `%IW100` tagged "not used by CODESYS" and Remove, and the header badge reads "· CODESYS · all fields"
+
+#### Scenario: Remembered per PC
+- **WHEN** the user turns the toggle off, closes the configurator and opens another config
+- **THEN** the toggle is still off and the config file has not changed
