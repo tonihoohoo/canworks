@@ -16,7 +16,7 @@
 - [x] 3.1 `ci.yml`: `plugin`, `vcan`, `tools` on 3.11; `configurator-page` on 3.14
 - [x] 3.2 `integration.yml` on 3.11; `browser.yml`, `local-runtime.yml` on 3.14
 - [x] 3.3 `pc-tools.yml`: every `uv run --python 3.12` to 3.14
-- [ ] 3.4 Compare CI wall time with the last main run: no growth
+- [x] 3.4 Compare CI wall time with the last main runs: wall 329 s vs median 323 s (noise), summed 2481 s vs 2515 s
 
 ## 4. Docs
 
