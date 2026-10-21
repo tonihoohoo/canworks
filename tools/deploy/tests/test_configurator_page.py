@@ -431,10 +431,25 @@ class Page(unittest.TestCase):
         self.assertFalse(report.evaluate("d => d.open"))
         self.assertEqual(report.locator("li").all_text_contents(),
                          ["0x60C0: LowLimit overflow in [60C0]", "0x60C2 sub 2: LowLimit overflow in [60C2sub2]"])
-        # Corrections the PLC makes.
+        # Corrections in the copy the plugin reads: the file, that it is
+        # kept, the reader, and one line per kind with its count.
         upload(os.path.join(LINT, "octet-string.eds"))
-        self.assertIn('[2051] DefaultValue was "----"',
+        self.assertIn('1 OCTET_STRING/DOMAIN value is cleared: [2051] DefaultValue was "----"',
                       pg.locator('#banner [data-report="corrections"]').inner_text())
+        upload(os.path.join(LINT, "nodeid-suffix.eds"))
+        report = pg.locator('#banner [data-report="corrections"]')
+        self.assertIn("nodeid-suffix.eds is kept as imported. The OpenPLC plugin reads a corrected copy, because its "
+                      "CANopen stack cannot read these values:", report.inner_text())
+        self.assertEqual(report.locator("li").all_text_contents(),
+                         ['3 values written "<number>+$NODEID" are read as "$NODEID+<number>"'])
+        with open(os.path.join(PINGPONG, "cpp-slave.eds"), encoding="utf-8") as f:
+            one = f.read().replace("$NODEID+0x200", "0x200+$NODEID", 1)
+        path = os.path.join(tmpdir(self), "one-suffix.eds")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(one)
+        upload(path)
+        self.assertEqual(pg.locator('#banner [data-report="corrections"] li').all_text_contents(),
+                         ['1 value written "<number>+$NODEID" is read as "$NODEID+<number>"'])
         # A clean file is just readable.
         upload(os.path.join(PINGPONG, "cpp-slave.eds"))
         pg.wait_for_selector('#banner [data-report="readable"]')

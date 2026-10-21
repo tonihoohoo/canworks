@@ -83,6 +83,10 @@ FIXTURES = {
     # REAL32 written as a decimal number.
     "real-decimal.eds": lambda t: add_objects(t, [
         var(0x2120, "R32", "0x0008", pdo=1, DefaultValue="12.345")]),
+    # "<number>+$NODEID" (CiA 306 has "$NODEID+<number>"), as some vendor files write it.
+    "nodeid-suffix.eds": lambda t: add_objects(
+        set_key(set_key(t, "1400sub1", "DefaultValue", "0x200+$NODEID"), "1800sub1", "DefaultValue", "0x180+$NODEID"),
+        [var(0x2130, "Reply COB-ID", "0x0007", DefaultValue="0x200+$NODEID")]),
     # A CP1252 byte in [Comments].
     "cp1252.eds": lambda t: t,  # the byte is put in by main()
     # An OCTET_STRING default Lely cannot read.

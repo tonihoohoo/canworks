@@ -21,7 +21,7 @@ from canworks.configurator import server as srv
 
 from .helpers import REPO, tree_node, tree_view, new_config
 from .test_configurator_online_page import OnlineBase
-from .test_configurator_page import load
+from .test_configurator_page import LINT, load
 
 EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
 DEVICES = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "Devices")
@@ -60,6 +60,27 @@ class CodesysPage(OnlineBase):
         pg.wait_for_selector("#banner:has-text('targets CODESYS now')")
         pg.wait_for_selector("#tree #nav-codesys")
         self.checked()
+
+    def test_eds_corrections_for_codesys(self):
+        # "Import an EDS": CODESYS gets the DCFs built from the corrected
+        # copy; their REAL values are decimals again, so that kind is left out.
+        pg = self.page
+        self.open()
+        self.to_codesys()
+
+        def upload(eds):
+            n = pg.evaluate("() => S.config.nodes.length")
+            pg.set_input_files("#eds-input", eds)
+            pg.wait_for_selector('[data-node-heading="%d"]' % n)
+        upload(os.path.join(LINT, "nodeid-suffix.eds"))
+        report = pg.locator('#banner [data-report="corrections"]')
+        self.assertIn("nodeid-suffix.eds is kept as imported. The DCFs exported to CODESYS are built from a corrected "
+                      "copy:", report.inner_text())
+        self.assertEqual(report.locator("li").all_text_contents(),
+                         ['3 values written "<number>+$NODEID" are read as "$NODEID+<number>"'])
+        upload(os.path.join(LINT, "real-decimal.eds"))
+        pg.wait_for_selector('#banner [data-report="readable"]')
+        self.assertEqual(pg.locator('#banner [data-report="corrections"]').count(), 0)
 
     def test_switch_hides_and_back(self):
         pg = self.page

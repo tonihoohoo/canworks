@@ -30,6 +30,13 @@
     "read_error": false,
     "findings": []
   },
+  "nodeid-suffix.eds": {
+    "corrections": [
+      "nodeid"
+    ],
+    "read_error": false,
+    "findings": []
+  },
   "octal-limit.eds": {
     "corrections": [],
     "read_error": false,
