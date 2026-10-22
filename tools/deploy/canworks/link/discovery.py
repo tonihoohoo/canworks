@@ -174,7 +174,8 @@ def browse(timeout=2.0, interfaces=None, group_v4=GROUP_V4, group_v6=GROUP_V6, p
                     except OSError:
                         pass
             until = timeout if resent else min(timeout, RESEND_S)
-            ready, _, _ = select.select(sent_at, [], [], max(0.01, until - (now - start)))
+            # Short waits: on Windows Ctrl+C only gets through between select calls.
+            ready, _, _ = select.select(sent_at, [], [], min(0.5, max(0.01, until - (now - start))))
             for s in ready:
                 try:
                     data, src = s.recvfrom(9000)
