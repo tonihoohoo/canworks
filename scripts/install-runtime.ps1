@@ -13,6 +13,8 @@
 #   -Options ...     options for the release's install-stock.sh, and --pinned-runtime:
 #                    put a managed Docker runtime on the version the release is
 #                    pinned to (or --runtime-version vX.Y.Z for another one)
+#                    and --with-openplc --bridge: OpenPLC through Modbus, the
+#                    runtime when there is none and canworks-bridge, no plugin
 #   -DryRun          print the ssh command, change nothing
 #
 # It only installs released code, never main. The newest release is found

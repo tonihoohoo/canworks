@@ -144,7 +144,7 @@ ROLES = (("openplc", "OpenPLC PLC with canworks",
 
 def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None):
     """The page's view of one device. `target` is the project's ("openplc",
-    "bridge", "codesys"), or None with no config open: then the parts the
+    "openplc_modbus", "bridge", "codesys"), or None with no config open: then the parts the
     device has pick the main action, and a device with neither the plugin nor
     the bridge gets `roles`, one main action per role for the page to choose
     from. `latest` is the newest release ("0.98.0") or None, `instance` the
@@ -161,13 +161,15 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     # No config: the PLC side when the plugin is there or nothing is (the
     # first role), the bridge side when only the bridge is.
     plc = target == "openplc" or (free and (bool(plugin) or not bridge))
+    # OpenPLC through Modbus: the runtime and this project's bridge, no plugin.
+    modbus = target == "openplc_modbus"
     unused = "" if free else "not used by this project"
 
     if target == "codesys":
         notes.append("CODESYS installs its runtime itself; there is nothing for canworks to install here.")
 
     # OpenPLC runtime
-    need_rt = target == "openplc"
+    need_rt = target in ("openplc", "openplc_modbus")
     rows.append({"part": "runtime", "label": "OpenPLC Runtime", "have": _runtime_text(rt),
                  "state": ("ok" if rt.get("kind") not in (None, "none") else ("warn" if need_rt else "off")),
                  "needs": "needed" if need_rt else unused, "used": need_rt or free,
@@ -192,8 +194,9 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     else:
         have, state, cur = ["not installed"], ("warn" if need_plugin else "off"), None
     rows.append({"part": "plugin", "label": "canworks plugin", "have": " · ".join(have),
-                 "state": state if need_plugin or plugin else "off",
-                 "needs": ("newest %s" % latest if latest else "needed") if need_plugin else unused,
+                 "state": ("warn" if modbus and plugin else state if need_plugin or plugin else "off"),
+                 "needs": ("newest %s" % latest if latest else "needed") if need_plugin
+                 else "no longer used: OpenPLC reaches the bridge through Modbus" if modbus else unused,
                  "used": need_plugin or free,
                  "uninstall": bool(plugin)})
     if plc:
@@ -226,8 +229,12 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
             notes.insert(0, "canworks is off on this device: the runtime is %s and the plugin was built for %s. "
                             "Rebuild it, then upload the program." % (rebuild, plugin.get("built_for")))
 
+    if modbus and plugin:
+        notes.append("The canworks plugin is no longer used: uninstall it, so that it does not run the networks "
+                     "next to the bridge.")
+
     # Modbus bridge
-    need_bridge = target == "bridge"
+    need_bridge = target in ("bridge", "openplc_modbus")
     instances = (bridge or {}).get("instances") or []
     mine = next((i for i in instances if i.get("name") == instance), None) if instance else None
     if bridge:
@@ -255,7 +262,12 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         # A link that serves the PLC (or a config whose place is unknown) stays as it is.
         lc = probe.get("link_config") or ""
         kept = {"link_kept": True} if probe.get("link") is not None and not lc.startswith("/etc/canworks-bridge/") else {}
-        if not bridge or bridge.get("unit") is False:
+        if modbus and rt.get("kind") in (None, "none"):
+            main = _main("install_openplc_bridge", "Install OpenPLC Runtime and this project's bridge", latest,
+                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
+                          "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)],
+                         **kept)
+        elif not bridge or bridge.get("unit") is False:
             main = _main("install_bridge", "Install and start this project's bridge", latest, **kept)
         elif new and (bcur is None or bcur < new):
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart], **kept)

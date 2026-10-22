@@ -17,7 +17,11 @@ from .ssh import SshError, quote
 
 RAW = "https://raw.githubusercontent.com/tonihoohoo/canworks"
 ACTIONS = ("install_openplc", "install_plugin", "uninstall_plugin", "install_bridge", "bridge_config",
-           "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
+           "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off",
+           "install_openplc_bridge")
+# The actions that start the open project's bridge with its saved config:
+# the bridge alone, or (OpenPLC through Modbus) the runtime and the bridge.
+BRIDGE_ACTIONS = ("install_bridge", "bridge_config", "install_openplc_bridge")
 _CONFIG = re.compile(r"^/(opt/canworks/lib|etc/canworks-bridge/[A-Za-z0-9_-]{1,64})/canworks\.json$")
 MAX_CHUNK = 256 * 1024
 _ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4}$")
@@ -119,6 +123,14 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         return [runtime + pin + plugin_opts]
     if action == "uninstall_plugin":
         return [runtime + " --uninstall" + (" --purge" if purge else "")]
+    if action == "install_openplc_bridge":
+        # OpenPLC through Modbus: the runtime when there is none, then the bridge, no plugin.
+        line = runtime + " --with-openplc --pinned-runtime --bridge"
+        if instance and upload:
+            line += " --instance %s --config %s --remove-config-dir" % (quote(instance), quote(upload))
+        if link and instance:
+            line += " --with-link " + quote(instance)
+        return [line]
     if action == "install_bridge":
         line = bridge
         if instance and upload:

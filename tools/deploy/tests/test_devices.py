@@ -196,6 +196,32 @@ class Plan(unittest.TestCase):
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "bridge")["state"], "ok")
 
+    def test_openplc_modbus_project(self):
+        # OpenPLC through Modbus: the runtime and this project's bridge, the plugin no longer used.
+        p = plan.plan(probe(runtime={"kind": "none"}), "openplc_modbus", "0.98.0", instance="line3")
+        self.assertEqual(p["main"]["action"], "install_openplc_bridge")
+        self.assertEqual(p["main"]["label"], "Install OpenPLC Runtime and this project's bridge")
+        self.assertIn(plan.OPENPLC_INSTALLER, p["main"]["confirm"][0])
+        self.assertTrue(row(p, "runtime")["used"])
+        self.assertEqual(row(p, "runtime")["needs"], "needed")
+        self.assertTrue(row(p, "bridge")["used"])
+        self.assertFalse(row(p, "plugin")["used"])
+
+        # A runtime with the old plugin: the bridge is installed, the plugin row says to uninstall it.
+        old = {"version": "0.93.4", "built_for": "v4.3.1", "enabled": True}
+        p = plan.plan(probe(plugin=old), "openplc_modbus", "0.98.0", instance="line3")
+        self.assertEqual(p["main"]["action"], "install_bridge")
+        self.assertIn("no longer used", row(p, "plugin")["needs"])
+        self.assertEqual(row(p, "plugin")["state"], "warn")
+        self.assertTrue(row(p, "plugin")["uninstall"])
+        self.assertIn("uninstall it", p["notes"][0])
+
+        current = {"version": "0.98.0", "prefix": "/opt/canworks-bridge",
+                   "instances": [{"name": "line3", "state": "active", "sha256": "aa"}]}
+        p = plan.plan(probe(bridge=current), "openplc_modbus", "0.98.0", instance="line3", config_sha256="aa")
+        self.assertIsNone(p["main"])
+        self.assertTrue(p["up_to_date"])
+
     def test_codesys(self):
         p = plan.plan(probe(), "codesys", "0.98.0")
         self.assertIsNone(p["main"])
@@ -361,6 +387,11 @@ class Jobs(unittest.TestCase):
                              upload="/tmp/canworks-bridge-upload.abc")[0]
         self.assertIn("install-bridge.sh | bash -s -- --version 0.98.0 --instance line3 --config "
                       "/tmp/canworks-bridge-upload.abc --remove-config-dir --with-link line3", line)
+        line = jobs.commands("install_openplc_bridge", "0.98.0", self.paths, instance="line3",
+                             upload="/tmp/canworks-bridge-upload.abc")[0]
+        self.assertIn("install-runtime.sh | bash -s -- --version 0.98.0 --with-openplc --pinned-runtime --bridge "
+                      "--instance line3 --config /tmp/canworks-bridge-upload.abc --remove-config-dir --with-link line3",
+                      line)
         self.assertTrue(jobs.commands("uninstall_bridge", "0.98.0", self.paths, purge=True)[0].endswith(
             "--uninstall --purge"))
         for bad in (dict(version="0.98.0; rm -rf /"), dict(instance="a b"), dict(upload="/etc")):

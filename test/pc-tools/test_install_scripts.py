@@ -565,6 +565,18 @@ class InstallRuntimeSh(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertNotIn("would install the OpenPLC runtime", r.stdout)
 
+    def test_with_openplc_and_bridge(self):
+        # OpenPLC through Modbus: the runtime, then the release's bridge installer, no plugin.
+        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc", "--bridge", "--instance", "cell",
+                             "--config", "/tmp/cell"], env=self.runtime_env())
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("would install the OpenPLC runtime", r.stdout)
+        self.assertIn("would run: CANWORKS_PLUGIN_VERSION=1.2.3 bash <source>/scripts/install-bridge.sh --instance cell "
+                      "--config /tmp/cell", r.stdout)
+        self.assertNotIn("install-stock.sh", r.stdout)
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc", "--bridge"])
+        self.assertIn("--version 1.2.3 --with-openplc --bridge", r.stdout)
+
     def test_with_openplc_over_ssh(self):
         r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc",
                              "--pinned-runtime"])

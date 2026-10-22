@@ -3163,7 +3163,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 action = body.get("action")
                 if action == "bridge_config" and not project:
                     raise ApiError(409, "starting a bridge with a config needs that config open")
-                if action in ("install_bridge", "bridge_config") and project:
+                if action in djobs.BRIDGE_ACTIONS and project:
                     if not saved:
                         raise ApiError(409, "save the config first: the bridge starts with the saved config", unsaved=True)
                     with s.lock:
