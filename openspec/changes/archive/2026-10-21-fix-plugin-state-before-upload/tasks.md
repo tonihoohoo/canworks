@@ -11,4 +11,5 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 Pi after a plugin reinstall with no recorded line (or the line moved aside): the row reads "waiting for an upload"; after the upload, "on"
+- [x] 3.1 Pi after a plugin reinstall with no recorded line (or the line moved aside): the row reads "waiting for an upload"; after the upload, "on"
+  - 2026-10-22, Pi on runtime v4.3.1 (managed Docker), plugin updated 0.98.3 → 0.98.5 from the 0.98.5 configurator. With the old line: "0.98.5 · built for v4.3.1 · on". Line moved aside + container restart: "0.98.5 · built for v4.3.1 · waiting for an upload" (PASS). Recorded line restored + restart, standing in for the upload: "0.98.5 · built for v4.3.1 · on" (PASS). No real upload ran; the editor hook that records the line is unchanged and passed add-device-install 6.4.
