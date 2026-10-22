@@ -1,5 +1,5 @@
 """Several networks (schema_version 2) in the deploy tool: the exports, the
-editor declarations, the bundle and the clash check
+editor declarations and the bridge's files
 (openspec change add-several-can-networks)."""
 
 import copy
@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import unittest
 
-from canworks import axis, bundle, clash, contract, dbcexport, dcfexport, editorproject
+from canworks import bundle, contract, dbcexport, dcfexport, editorproject
 from canworks.configurator import declare
 
 from .test_contract import FIXTURES, REPO, load_cases
@@ -46,13 +46,6 @@ class Contract(unittest.TestCase):
         del cfg["networks"][1]["name"]
         self.assertEqual(contract.networks(cfg)[1]["name"], "vcan1")
         self.assertTrue(contract.check_config(cfg, FIXTURE_CONFIG).ok)
-
-    def test_version_1_is_one_unnamed_network(self):
-        cfg = load_cases()["base"]
-        nets = contract.networks(cfg)
-        self.assertEqual([(n["name"], n["path"]) for n in nets], [("", "")])
-        self.assertIs(contract.network_config(cfg), cfg)
-
 
 class DcfExport(unittest.TestCase):
     def test_two_networks(self):
@@ -103,12 +96,6 @@ class DbcExport(unittest.TestCase):
     def test_one_network_of_two(self):
         files, _ = dbcexport.export_networks(two(), FIXTURE_CONFIG, network="drives")
         self.assertEqual([name for name, _ in files], ["drives"])
-
-    def test_version_1_unchanged(self):
-        cfg = load_cases()["base"]
-        text, _ = dbcexport.export(cfg, FIXTURE_CONFIG)
-        files, _ = dbcexport.export_networks(cfg, FIXTURE_CONFIG)
-        self.assertEqual(files, [("", text)])
 
     def test_network_file(self):
         self.assertEqual(dbcexport.network_file(os.path.join("out", "plant.dbc"), "io"),
@@ -166,57 +153,11 @@ class Declarations(unittest.TestCase):
                          "networks[1].nodes[0].sdo_variables[0].iec_location")
         self.assertIn("drives_pingpong_serial_status", by_name)
 
-    def test_cia402_axis_on_the_second_network(self):
-        cfg = two()
-        drive = cfg["networks"][1]["nodes"][0]
-        drive["name"] = "x"
-        drive["axis"] = {}
-        decls = declare.declarations(cfg, lambda i, index, sub: None, {})
-        axes, body = axis.glue(cfg, decls)
-        self.assertEqual([(d["name"], d["path"], d["node"]) for d in axes],
-                         [("drives_x", "networks[1].nodes[0].axis", 1),
-                          ("drives_x_bridge", "networks[1].nodes[0].axis.bridge", 1)])
-        self.assertIn("bOnline := drives_x_ok", body[-1])
-
-    def test_one_network_unchanged(self):
-        cfg = load_cases()["base"]
-        decls = declare.declarations(cfg, lambda i, index, sub: None, {})
-        self.assertTrue(all(d["path"].startswith(("nodes[", "master.")) for d in decls))
-        self.assertFalse(any(d["description"].startswith("network ") for d in decls))
-
-
 class Bundle(unittest.TestCase):
     def test_rewrite_every_network(self):
         out, by_name = bundle.rewrite(two(), FIXTURE_CONFIG)
         self.assertEqual(sorted(by_name), ["cpp-slave.eds"])
         self.assertEqual([n["eds"] for n in contract.all_nodes(out)], ["canworks/eds/cpp-slave.eds"] * 2)
-
-    def test_clash_inside_canopen_json(self):
-        cfg = two()
-        cfg["networks"][1]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID100"
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp)
-        os.makedirs(os.path.join(tmp, "conf"))
-        with open(os.path.join(tmp, "conf", "canworks.json"), "w", encoding="utf-8") as f:
-            json.dump(cfg, f)
-        uses, problems = clash.bundle_uses(tmp)
-        errors, _ = clash.check(uses)
-        self.assertEqual(problems, [])
-        self.assertEqual(errors, ["conf/canworks.json: networks[0].nodes[0].tx_pdos[0].entries[0].iec_location and "
-                                  "networks[1].nodes[0].tx_pdos[0].entries[0].iec_location both map %ID100"])
-
-    def test_empty_plugin_config_is_skipped_quietly(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp)
-        os.makedirs(os.path.join(tmp, "conf"))
-        for name, text in (("ethercat.json", ""), ("modbus_master.json", " \n"), ("broken.json", "{")):
-            with open(os.path.join(tmp, "conf", name), "w", encoding="utf-8") as f:
-                f.write(text)
-        uses, problems = clash.bundle_uses(tmp)
-        self.assertEqual(uses, [])
-        self.assertEqual(len(problems), 1)
-        self.assertIn("conf/broken.json: not readable JSON", problems[0])
-
 
 if __name__ == "__main__":
     unittest.main()

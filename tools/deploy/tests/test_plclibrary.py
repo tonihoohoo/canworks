@@ -222,7 +222,7 @@ class Cli(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.ud, "libraries")))
 
     def test_blocks_needs_new_project(self):
-        code, _, err = deploy("--config", pingpong_config(self.dir), "--check-only", "--bundle", self.dir,
+        code, _, err = deploy("--config", pingpong_config(self.dir), "--check",
                               "--blocks", env=self.env)
         self.assertEqual(code, 1)
         self.assertIn("--blocks needs --new-project", err)

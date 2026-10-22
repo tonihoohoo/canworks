@@ -680,8 +680,8 @@ def describe_simulated(cfg):
     networks, one part per network that simulates something, headed by its
     name."""
     nets = contract.networks(cfg) if isinstance(cfg, dict) else []
-    if len(nets) <= 1:
-        return _describe_one(cfg)
+    if len(nets) == 1:
+        return _describe_one({"adapter": nets[0]["adapter"], "nodes": nets[0]["nodes"]})
     parts = []
     for net in nets:
         iface = net["adapter"].get("interface")
