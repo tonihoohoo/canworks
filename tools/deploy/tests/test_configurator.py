@@ -73,7 +73,7 @@ class ErrorPaths(unittest.TestCase):
         self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("does not fit location %IW100", msg)
-        self.assertEqual(paths, ["nodes[0].tx_pdos[0].entries[0].iec_location"])
+        self.assertEqual(paths, ["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"])
 
     def test_duplicate_node_id(self):
         second = copy.deepcopy(self.cfg["networks"][0]["nodes"][0])
@@ -83,24 +83,24 @@ class ErrorPaths(unittest.TestCase):
         self.cfg["networks"][0]["nodes"].append(second)
         found = self.paths(self.cfg)
         dup = [p for m, p in found if "used by more than one slave" in m]
-        self.assertEqual(dup, [["nodes[0].node_id", "nodes[1].node_id"]])
+        self.assertEqual(dup, [["networks[0].nodes[0].node_id", "networks[0].nodes[1].node_id"]])
 
     def test_sdo_range(self):
         self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x1017", "subindex": 0, "type": "UNSIGNED8", "value": 300}]
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("does not fit UNSIGNED8", msg)
-        self.assertEqual(paths, ["nodes[0].sdo[0].value"])
+        self.assertEqual(paths, ["networks[0].nodes[0].sdo[0].value"])
 
     def test_eds_errors_point_at_the_entry(self):
         self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("startup SDO needs a writable object", msg)
-        self.assertEqual(paths, ["nodes[0].sdo[0]"])
+        self.assertEqual(paths, ["networks[0].nodes[0].sdo[0]"])
 
     def test_schema_error_path(self):
         self.cfg["networks"][0]["adapter"]["bitrate"] = 300000
         found = self.paths(self.cfg)
-        self.assertEqual(found[0][1], ["adapter.bitrate"])
+        self.assertEqual(found[0][1], ["networks[0].adapter.bitrate"])
 
 
 class ProjectScan(unittest.TestCase):
@@ -140,7 +140,7 @@ class ProjectScan(unittest.TestCase):
         self.assertEqual(got, {("%IW100", "rtd1"), ("%MD4", "s"), ("%IX1.0", "old")})
         cfg = rtd_config()
         _, declared = layout.project_checks(cfg, scan.scan(d)[0], False)
-        self.assertEqual(declared["nodes[0].tx_pdos[0].entries[0].iec_location"], "rtd1")
+        self.assertEqual(declared["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"], "rtd1")
 
     def test_unreadable_json_is_reported(self):
         d = tmpdir(self)
@@ -222,8 +222,8 @@ class Declarations(unittest.TestCase):
 
         decls = declare.declarations(cfg, name, {})
         got = [(d["location"], d["type"]) for d in decls]
-        self.assertEqual(got, [("%IX10.0", "BOOL")] + [("%%IW%d" % n, "INT") for n in range(100, 104)]
-                         + [("%%IB%d" % n, "USINT") for n in range(100, 104)])
+        self.assertEqual(got, [("%IX10.0", "BOOL")] + [("%%IW%d" % n, "INT") for n in range(100, 108, 2)]
+                         + [("%%IB%d" % n, "USINT") for n in range(110, 114)])
         self.assertEqual(decls[1]["name"], "rtd_AI0_Input_PV")
         self.assertEqual(len({d["name"] for d in decls}), len(decls))
         block = declare.st_block(decls)
@@ -243,7 +243,7 @@ class Declarations(unittest.TestCase):
         self.assertTrue(decls[at + 1]["description"].endswith("bit 3"), decls[at + 1]["description"])
         self.assertRegex(declare.st_block(decls), r"rtd_jog_x_plus +AT %IX140\.3 : BOOL;")
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual(uses["nodes[0].tx_pdos[0].entries[0].bits[0].iec_location"], "%IX140.3")
+        self.assertEqual(uses["networks[0].nodes[0].tx_pdos[0].entries[0].bits[0].iec_location"], "%IX140.3")
         # An entry that reaches the program only through its bits is not declared itself.
         del entry["iec_location"]
         names = [d["name"] for d in declare.declarations(cfg, lambda *a: None, {})]
@@ -257,7 +257,7 @@ class Declarations(unittest.TestCase):
         decls = declare.declarations(cfg, lambda *a: None, {})
         self.assertIn(("rtd_state", "%IB20", "USINT"), [(d["name"], d["location"], d["type"]) for d in decls])
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual(uses["nodes[0].state_location"], "%IB20")
+        self.assertEqual(uses["networks[0].nodes[0].state_location"], "%IB20")
 
     def test_boot_error_and_master_state(self):
         cfg = rtd_config()
@@ -268,20 +268,20 @@ class Declarations(unittest.TestCase):
         self.assertIn(("rtd_boot_err", "%IB21", "USINT"), rows)
         self.assertIn(("can_master_state", "%IB22", "USINT"), rows)
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual(uses["nodes[0].boot_error_location"], "%IB21")
-        self.assertEqual(uses["master.state_location"], "%IB22")
+        self.assertEqual(uses["networks[0].nodes[0].boot_error_location"], "%IB21")
+        self.assertEqual(uses["networks[0].master.state_location"], "%IB22")
 
     def test_bus_diagnostics(self):
         cfg = rtd_config()
         cfg["networks"][0]["master"].update(bus_state_location="%IB120", tx_error_count_location="%IB121",
                              rx_error_count_location="%IB122", bus_off_count_location="%IW120")
-        decls = declare.declarations(cfg, lambda *a: None, {"master.rx_error_count_location": "rxe"})
+        decls = declare.declarations(cfg, lambda *a: None, {"networks[0].master.rx_error_count_location": "rxe"})
         rows = [(d["name"], d["location"], d["type"], d["declared_as"]) for d in decls[:4]]
         self.assertEqual(rows, [("can_bus_state", "%IB120", "USINT", None), ("can_tx_errors", "%IB121", "USINT", None),
                                 ("can_rx_errors", "%IB122", "USINT", "rxe"), ("can_bus_offs", "%IW120", "UINT", None)])
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual(uses["master.bus_state_location"], "%IB120")
-        self.assertEqual(uses["master.bus_off_count_location"], "%IW120")
+        self.assertEqual(uses["networks[0].master.bus_state_location"], "%IB120")
+        self.assertEqual(uses["networks[0].master.bus_off_count_location"], "%IW120")
         self.assertIn(("I", "B", 120), layout.taken(cfg, []))
 
     def test_emcy_inputs(self):
@@ -293,7 +293,7 @@ class Declarations(unittest.TestCase):
         self.assertIn(("rtd_emcy", "%IW30", "WORD"), rows)
         self.assertIn(("rtd_errreg", "%IB31", "BYTE"), rows)
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual((uses["nodes[0].emcy_code_location"], uses["nodes[0].error_register_location"]),
+        self.assertEqual((uses["networks[0].nodes[0].emcy_code_location"], uses["networks[0].nodes[0].error_register_location"]),
                          ("%IW30", "%IB31"))
 
     def test_sdo_variables_and_nmt(self):
@@ -305,7 +305,7 @@ class Declarations(unittest.TestCase):
              "abort_code_location": "%ID21"},
             {"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "direction": "read", "iec_location": "%ID22"}]
         decls = declare.declarations(cfg, lambda i, index, sub: "Vendor-ID" if index == 0x1018 else None,
-                                     {"nodes[0].sdo_variables[0].status_location": "st"})
+                                     {"networks[0].nodes[0].sdo_variables[0].status_location": "st"})
         rows = [(d["name"], d["location"], d["type"], d["declared_as"]) for d in decls]
         self.assertIn(("rtd_nmt", "%QB20", "USINT", None), rows)
         self.assertEqual(rows[-5:], [("rtd_sensor_type", "%QW20", "UINT", None),
@@ -314,14 +314,14 @@ class Declarations(unittest.TestCase):
                                      ("rtd_sensor_type_abort", "%ID21", "UDINT", None),
                                      ("rtd_Vendor_ID", "%ID22", "UDINT", None)])
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
-        self.assertEqual(uses["nodes[0].nmt_command_location"], "%QB20")
-        self.assertEqual(uses["nodes[0].sdo_variables[0].trigger_location"], "%QX21.0")
-        self.assertEqual(uses["nodes[0].sdo_variables[1].iec_location"], "%ID22")
+        self.assertEqual(uses["networks[0].nodes[0].nmt_command_location"], "%QB20")
+        self.assertEqual(uses["networks[0].nodes[0].sdo_variables[0].trigger_location"], "%QX21.0")
+        self.assertEqual(uses["networks[0].nodes[0].sdo_variables[1].iec_location"], "%ID22")
         self.assertIn(("Q", "X", 168), layout.taken(cfg, []))
 
     def test_declared_entries_left_out(self):
         cfg = rtd_config()
-        decls = declare.declarations(cfg, lambda *a: None, {"nodes[0].tx_pdos[0].entries[0].iec_location": "t1"})
+        decls = declare.declarations(cfg, lambda *a: None, {"networks[0].nodes[0].tx_pdos[0].entries[0].iec_location": "t1"})
         self.assertEqual(decls[1]["declared_as"], "t1")
         self.assertNotIn("%IW100", declare.st_block(decls))
 
@@ -347,7 +347,7 @@ class Declarations(unittest.TestCase):
 
         decls = declare.program_order(declare.declarations(cfg, name, {}))
         self.assertEqual([d["location"] for d in decls], [
-            "%IB120", "%IX10.0", "%IW100", "%IW101", "%IW102", "%IW103", "%IB100", "%IB101", "%IB102", "%IB103",
+            "%IB120", "%IX10.0", "%IW100", "%IW102", "%IW104", "%IW106", "%IB110", "%IB111", "%IB112", "%IB113",
             "%IB21", "%QW20", "%QB20", "%IX10.1", "%IB30", "%QB30"])
         by = {d["location"]: d["description"] for d in decls}
         self.assertEqual(by["%IB120"], "CAN bus state")

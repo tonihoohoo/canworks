@@ -12,24 +12,19 @@
       "master": {
         "node_id": 1,
         "heartbeat_ms": 100,
-        "sync_source": "plc_cycle",
-        "state_location": "%IB20"
+        "state_location": "%IB20",
+        "sync_period_us": 2000
       },
       "nodes": [
         {
           "node_id": 4,
           "name": "x",
-          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
+          "eds": "../../../../../test/fixtures/eds/drives/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
           "status_location": "%IX10.0",
           "emcy_code_location": "%IW105",
-          "axis": {
-            "cyclic": true,
-            "scale_numerator": 1000,
-            "scale_denominator": 1
-          },
           "rx_pdos": [
             {
               "number": 1,
@@ -154,17 +149,12 @@
         {
           "node_id": 5,
           "name": "y",
-          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
+          "eds": "../../../../../test/fixtures/eds/drives/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
           "status_location": "%IX10.1",
           "emcy_code_location": "%IW115",
-          "axis": {
-            "cyclic": true,
-            "scale_numerator": 1000,
-            "scale_denominator": 1
-          },
           "rx_pdos": [
             {
               "number": 1,
@@ -289,17 +279,12 @@
         {
           "node_id": 6,
           "name": "z",
-          "eds": "../../../../../examples/virtual-plant/canworks/servo402.eds",
+          "eds": "../../../../../test/fixtures/eds/drives/servo402.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
           "status_location": "%IX10.2",
           "emcy_code_location": "%IW125",
-          "axis": {
-            "cyclic": true,
-            "scale_numerator": 1000,
-            "scale_denominator": 1
-          },
           "rx_pdos": [
             {
               "number": 1,
@@ -461,5 +446,6 @@
         }
       ]
     }
-  ]
+  ],
+  "codesys": {}
 }
