@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view
+from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action
 
 try:
     from playwright.sync_api import sync_playwright
@@ -172,7 +172,7 @@ class Page(unittest.TestCase):
         for word in ("standalone", "canworks.json", "LSS", "object dictionary"):
             self.assertNotIn(word, text)
         self.open_from_start("#start-open", self.project)
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#start-recent:not([hidden])")
         self.assertFalse(pg.is_visible("#start-first"))
         row = pg.inner_text("#recent li")

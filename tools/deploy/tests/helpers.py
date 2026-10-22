@@ -314,3 +314,19 @@ def new_config(pg, path, target="openplc", project=False):
     if target == "openplc" and not pg.is_disabled(box):
         pg.set_checked(box, project)
     pg.click("#modal-buttons button[data-value=create]")
+
+
+def header_action(page, sel):
+    """A header control that sits in the ⋯ menu on a window under 1500 px
+    (compact-chrome): opens the menu first when it is there."""
+    if not page.is_visible(sel) and page.is_visible("#menu-more"):
+        page.click("#menu-more > summary")
+    page.click(sel)
+
+
+def open_log(page):
+    """The bottom Log starts as a one-line strip in Commission (compact-chrome):
+    unfolds it to read or filter it."""
+    page.wait_for_selector("#log-panel:visible")
+    if not page.evaluate("document.querySelector('#log-box').open"):
+        page.click("#log-box > summary")

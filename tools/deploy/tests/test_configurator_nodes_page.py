@@ -7,6 +7,7 @@ test_configurator_page.py."""
 import copy
 
 from .fake_diag import SCAN_RESULT, FakePlugin
+from .helpers import open_log
 from .test_configurator_online_page import OnlineBase, load
 
 # A device the project's own EDS (cpp-slave.eds) matches, not in the config.
@@ -53,6 +54,7 @@ class NodesTable(OnlineBase):
             self.assertIn("cpp-slave.eds", pg.inner_text('tr[data-draft-node="5"]'))
             self.assertTrue(pg.is_visible("[data-unsaved]"))
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)
+            open_log(pg)
             self.assertIn("Add to config", pg.inner_text('#log-panel [data-online="log"]'))
             # The tree has the new node, in Commission too.
             pg.wait_for_selector('#tree .open-net [data-node="1"]')
@@ -81,7 +83,7 @@ class NodesTable(OnlineBase):
             pg.click('#ws [data-ws="configure"]')
             pg.wait_for_selector("#log-panel", state="hidden")
             pg.click('#ws [data-ws="commission"]')
-            pg.wait_for_selector("#log-panel:visible")
+            open_log(pg)
             self.assertIn("Take serial number 0x00000007", pg.inner_text('#log-panel [data-online="log"]'))
 
     def test_scan_cancelled_at_the_force_question(self):
@@ -118,6 +120,7 @@ class NodesTable(OnlineBase):
             pg.wait_for_selector('[data-online="node-log-list"] li.event:has-text("not answering")')
             self.assertIn("Log 1", pg.inner_text('button[data-online-tab="log"]'))
             # The bottom panel's Log filters by kind.
+            open_log(pg)
             pg.click('#log-panel [data-log-filter="changes"]')
             self.assertNotIn("not answering", pg.inner_text('#log-panel [data-online="log"]'))
             pg.click('#log-panel [data-log-filter="events"]')

@@ -56,7 +56,7 @@ class J1939Page(OnlineBase):
         # Free locations: a device of the editor project uses %ID100.
         self.assertEqual(pg.input_value('input[data-path="j1939.rx[1].signals[0].iec_location"]'), "%ID101")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # A problem shows at its field and goes away again.
         pg.fill('input[data-path="j1939.ecu.address"]', "254")
         pg.wait_for_selector('input[data-path="j1939.ecu.address"].invalid')
@@ -66,7 +66,7 @@ class J1939Page(OnlineBase):
         pg.wait_for_selector('input[data-path="j1939.scan_watchdog_ms"].invalid')
         pg.fill('input[data-path="j1939.scan_watchdog_ms"]', "250")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
@@ -110,11 +110,11 @@ class J1939Page(OnlineBase):
         pg.press(f'input[data-path="{base}.signals[1].mux"]', "Tab")
         pg.fill(f'input[data-path="{base}.signals[2].mux"]', "2-3")
         pg.press(f'input[data-path="{base}.signals[2].mux"]', "Tab")
-        pg.wait_for_selector("#problem-list li.ok")
+        pg.wait_for_selector("#problem-list li.ok", state="attached")
         # All pages: the plugin sets the switch, so its location goes.
         pg.select_option(f'select[data-path="{base}.pages"]', "all")
         self.assertEqual(pg.input_value(f'input[data-path="{base}.signals[0].iec_location"]'), "")
-        pg.wait_for_selector("#problem-list li.ok")
+        pg.wait_for_selector("#problem-list li.ok", state="attached")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         lamps = load(self.config_path)["networks"][0]["j1939"]["tx"][2]

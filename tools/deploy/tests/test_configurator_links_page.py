@@ -102,7 +102,7 @@ class LinksPage(unittest.TestCase):
         pg.select_option('select[data-path="links[0].to[0].entries[0]"]', "0x6411:1")
         pg.select_option('select[data-path="links[0].to[0].entries[1]"]', "0x0003:0")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertTrue(pg.is_checked('input[data-link-watch="links[0].to[0]"]'))
         pg.click("#btn-save")
         pg.wait_for_selector("#btn-save:has-text('Saved')")
@@ -160,7 +160,7 @@ class LinksPage(unittest.TestCase):
         pg.fill('#view input[data-path="nodes[1].node_id"]', "21")
         self.assertEqual(pg.evaluate("() => S.config.links[0].to[0].node"), 21)
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         tree_node(pg, 0, "general")
         pg.click('button[data-remove-node="0"]')
         pg.wait_for_selector("#modal[open]")
@@ -171,7 +171,7 @@ class LinksPage(unittest.TestCase):
         self.assertIsNone(pg.evaluate("() => S.config.links || null"))
         self.assertIsNone(pg.evaluate("() => S.config.nodes[0].heartbeat_watch || null"))
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
     def test_watch_problem_wording(self):
         cfg = self.config()

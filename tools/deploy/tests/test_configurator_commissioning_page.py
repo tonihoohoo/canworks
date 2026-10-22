@@ -14,7 +14,7 @@ from unittest import mock
 
 from canworks.configurator import online
 
-from .helpers import PINGPONG
+from .helpers import PINGPONG, header_action
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
 from .test_configurator_layout import audit
 from .test_configurator_localbus_page import AdapterPage as _Page
@@ -325,11 +325,11 @@ class LogPage(Page):
         pg = self.page
         self.commission()
         pg.evaluate("() => commLog(5, 'test entry', 'done')")
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#modal[open]:has-text('not saved')")
         pg.click('#modal button[data-value="cancel"]')
         self.assertTrue(pg.evaluate("() => S.state.commission"))
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         with pg.expect_download():
             pg.click('#modal button[data-value="save"]')
         pg.wait_for_selector("#start-commission")

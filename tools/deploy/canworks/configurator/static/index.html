@@ -19,6 +19,7 @@
     <button type="button" data-ws="configure" title="Edit the config: networks, nodes, PDOs, exports">Configure</button><button type="button" data-ws="commission" data-view="online" title="Work on the live bus through the runtime">Commission</button><button type="button" data-ws="devices" data-view="devices" title="Install canworks on a Linux device over SSH">Devices</button>
   </div>
   <span id="mode" class="badge" hidden></span>
+  <div id="sim-banner" class="sim-chip" data-notice="warning" role="note" hidden></div>
   <div class="spacer"></div>
   <div id="actions" hidden>
     <button id="btn-reload" type="button" data-config="1">Reload from disk</button>
@@ -41,10 +42,22 @@
         <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: CANopen topology, COB-ID map, nodes, PDO layouts and boot SDO writes; J1939 ECU, messages and signals; bus load and PLC I/O">Documentation</button>
       </div>
     </details>
-    <button id="btn-codesys-build" type="button" data-config="1" hidden title="Build the saved config into the CODESYS project with CODESYS on this PC">Build into CODESYS project…</button>
-    <button id="btn-codesys-download" type="button" data-config="1" hidden title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
+    <div id="target-action" class="split" data-config="1" hidden>
+      <button id="btn-codesys-build" type="button" class="primary" hidden title="Build the saved config into the CODESYS project with CODESYS on this PC">Build into CODESYS project…</button>
+      <button id="btn-bridge-install" type="button" class="primary" hidden title="Install the bridge with this config on a Linux device, in the Devices workspace">Install on device…</button>
+      <details id="menu-target" class="menu" hidden>
+        <summary aria-haspopup="true" aria-label="More target actions" title="More target actions">▾</summary>
+        <div class="menu-panel" role="group" aria-label="More target actions">
+          <button id="btn-codesys-download" type="button" class="item" hidden title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
+        </div>
+      </details>
+    </div>
     <button id="btn-save" type="button" class="primary" data-config="1">Save</button>
   </div>
+  <details id="menu-more" class="menu">
+    <summary aria-haspopup="true" aria-label="More" title="More">⋯</summary>
+    <div class="menu-panel" role="group" aria-label="More"></div>
+  </details>
   <details id="menu-settings" class="menu">
     <summary aria-haspopup="true">Settings</summary>
     <div class="menu-panel" role="group" aria-label="Settings">
@@ -57,11 +70,9 @@
   </details>
   <button id="btn-quit" type="button" title="Stop canworks-config (it asks first); closing its last tab stops it too">Quit</button>
   </div>
-  <div id="tool-tabs" hidden></div>
-  <div id="conn-bar" hidden></div>
+  <div id="tab-row"><div id="tool-tabs" hidden></div><div id="conn-bar" hidden></div></div>
 </header>
 <div id="page-bars">
-<div id="sim-banner" class="notice notice-warning" data-notice="warning" role="note" hidden></div>
 <div id="banner" class="notice notice-done" data-notice="done" role="status" hidden><div id="banner-text" class="notice-text"></div><button id="banner-close" class="notice-close" type="button" title="Close" aria-label="Close message">✕</button></div>
 </div>
 <main id="start" hidden>
@@ -86,6 +97,7 @@
   <nav id="side" aria-label="Network">
     <button id="tree-toggle" type="button" aria-expanded="false" aria-controls="tree">Network ▾</button>
     <ul id="tree" role="tree" aria-label="Network"></ul>
+    <ul id="tree-rail" aria-label="Network entries"></ul>
     <div id="tree-live" class="visually-hidden" aria-live="polite"></div>
     <label class="file-button" hidden>Add node from EDS… <input id="eds-input" type="file" accept=".eds,.EDS"></label>
     <div id="side-foot" data-config="1">

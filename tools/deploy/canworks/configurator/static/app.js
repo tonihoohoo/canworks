@@ -1147,7 +1147,6 @@ async function loadState() {
   render();
   if (S.state.mode) {
     runCheck();
-    shellNote();
     connSession();
     if (workspace() === "commission") connEnter();
     if (typeof jobsStart === "function" && !TRACE_WINDOW) jobsStart();
@@ -1161,6 +1160,7 @@ function renderStart() {
   $("#start").hidden = false;
   $("#editor").hidden = true;
   $("#actions").hidden = true;
+  fitHeaderMore();
   $("#mode").hidden = true;
   $("#sim-banner").hidden = true;
   // Recent is the page; with nothing in it, three starting points take its place.
@@ -1492,6 +1492,7 @@ function render() {
   $("#start").hidden = true;
   $("#editor").hidden = false;
   $("#actions").hidden = false;
+  fitHeaderMore();
   const badge = $("#mode");
   badge.hidden = false;
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
@@ -1507,9 +1508,15 @@ function render() {
   $("#editor").classList.toggle("commission", commission);
   // The editor project actions are OpenPLC's (canopen-configurator "Only what the target uses is shown").
   $("#menu-project").hidden = S.state.mode !== "standalone" || commission || (!!S.model && !usedBy("ui:editor_project"));
+  // The target's own action: one split button in the header (CODESYS:
+  // Build, with Download under ▾; the bridge: Install on device…).
   const codesys = !commission && !!S.model && codesysOn();
+  const bridge = !commission && !!S.model && projectTarget() === "bridge";
   $("#btn-codesys-build").hidden = !codesys;
   $("#btn-codesys-download").hidden = !codesys;
+  $("#menu-target").hidden = !codesys;
+  $("#btn-bridge-install").hidden = !bridge;
+  $("#target-action").hidden = !codesys && !bridge;
   Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
   // network (none at all, and no CODESYS export, without a CANopen master
@@ -1543,6 +1550,7 @@ function render() {
   stopTrace();
   const view = $("#view");
   view.replaceChildren();
+  view.classList.toggle("wide-cols", S.view === "bus");
   if (S.view === "bus") {
     (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
     // The project target (target.js) leads every bus page: it is the whole project's.
@@ -1684,8 +1692,9 @@ function simShort() {
 
 const SIM_WARNING = "This configuration must not be uploaded to a machine as it is: its simulated devices control nothing.";
 
-// The banner on every page while anything is simulated: one line, with
-// the full text under Details.
+// The chip in the header while anything is simulated (compact-chrome):
+// what is simulated in a few words, the full text and the warning under
+// Details, in a popover. It takes no row of its own.
 function updateSimBanner() {
   const b = $("#sim-banner");
   if (!b) return;
@@ -1693,14 +1702,17 @@ function updateSimBanner() {
   b.hidden = !text;
   if (!text) { b.replaceChildren(); b.removeAttribute("aria-label"); return; }
   const wasOpen = !!b.querySelector("[data-sim=details]:not([hidden])");
-  const full = el("p", { dataset: { sim: "details" }, hidden: wasOpen ? null : true }, text + " " + SIM_WARNING);
+  const full = el("p", { id: "sim-details", dataset: { sim: "details" }, hidden: wasOpen ? null : true },
+    text + " " + SIM_WARNING + " Do not upload it as it is.");
   const toggle = el("button", { type: "button", class: "small", dataset: { sim: "details-toggle" }, "aria-expanded": String(wasOpen),
+    "aria-controls": "sim-details",
     onclick: () => { full.hidden = !full.hidden; toggle.setAttribute("aria-expanded", String(!full.hidden)); toggle.textContent = full.hidden ? "Details" : "Hide details"; } },
   wasOpen ? "Hide details" : "Details");
-  const line = `Simulated: ${simShort()}. Do not upload it to a machine as it is.`;
-  b.setAttribute("aria-label", line);
-  b.replaceChildren(Icons.stateIcon("warning", { label: false }), el("div", { class: "sim-body notice-text" },
-    el("div", { class: "sim-line" }, el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle), full));
+  const nets = several() ? S.model.networks.filter(netSimulates).length : 0;
+  const line = nets > 1 ? `Simulated: ${nets} networks` : `Simulated: ${simShort()}`;
+  b.setAttribute("aria-label", line + ". Do not upload it to a machine as it is.");
+  b.replaceChildren(Icons.stateIcon("warning", { label: false }),
+    el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle, full);
 }
 
 // Simulating anything needs online access with Allow changes for the
@@ -2984,22 +2996,24 @@ function renderPdos(i, key, dir, title, eds) {
         onclick: () => { S.bitsOpen[bitsKey] = !bitsOpen(bitsKey, ep); render(); } },
         hasBits(e) ? `Bits… (${e.bits.length})` : "Bits…") : null;
       const columns = 6 + (locations ? 1 : 0);
+      // data-label names a cell where the table is a card per entry (phone width).
       const row = el("tr", { dataset: { path: ep } },
-        el("td", null, `${e.index}:${e.subindex ?? 0}`), el("td", null, info ? info.name : "?"), el("td", { class: "entry-type" }, e.type, bitsButton),
-        el("td", null, variable, el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
+        el("td", { dataset: { label: "Object" } }, `${e.index}:${e.subindex ?? 0}`), el("td", { dataset: { label: "Name" } }, info ? info.name : "?"),
+        el("td", { class: "entry-type", dataset: { label: "Type" } }, e.type, bitsButton),
+        el("td", { dataset: { label: "Variable" } }, variable, el("span", { class: "field-msg", dataset: { for: ep + ".name" } }),
           el("span", { class: "field-msg", dataset: { for: ep + ".bits" } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
-        locations ? el("td", null, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
+        locations ? el("td", { dataset: { label: targetText("location_column") } }, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
           el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } }),
           declNote(ep + ".iec_location")) : null,
-        el("td", null, move),
+        el("td", { dataset: { label: "PDO" } }, move),
         el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove ${e.index}:${e.subindex ?? 0} from the PDO`,
           onclick: () => removeEntry(i, key, j, k) }, "✕")));
       return bitsButton && bitsOpen(bitsKey, ep) ? [row, el("tr", { class: "entry-bits-row" },
         el("td", { colspan: columns }, bitTable(i, dir, ep, e, info, eds)))] : [row];
     });
-    box.append(el("table", null, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Variable"]
+    box.append(el("table", { class: "pdo-entries" }, el("thead", null, el("tr", null, thCells(["Object", "Name", "Type", "Variable"]
       .concat(locations ? [targetText("location_column")] : [], ["PDO", ""])))),
       el("tbody", null, rows.flat())));
     fs.append(box);
@@ -7612,7 +7626,21 @@ function applyCheck() {
   const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
   $("#overlap-box").hidden = !(S.state && S.state.mode === "project" && (overlaps || $("#allow-overlap").checked));
   fillCounts(countProblems());
+  stripProblems(items.length);
   updateSave();
+}
+
+// Problems is a one-line strip while there is nothing in it (compact-chrome):
+// it folds when the count drops to none and unfolds, as the user left it,
+// when problems come back. A fold or unfold by hand in between stays.
+function stripProblems(n) {
+  const box = $("#problems-box");
+  if (!box || workspace() !== "configure" || !S.check) return;
+  const had = S.problemsShown;
+  S.problemsShown = n;
+  if (had !== undefined && (had > 0) === (n > 0)) return;
+  const want = n > 0 && S.panelOpen !== false;
+  if (box.open !== want) { S.panelAuto = true; box.open = want; }
 }
 
 // The problem counts from the last check, in one place: all, errors, per
@@ -8114,7 +8142,8 @@ function wire() {
   exporting("#btn-export-dbc", exportDbc);
   exporting("#btn-export-html", exportHtml);
   $("#btn-codesys-build").onclick = () => busy($("#btn-codesys-build"), "Building…", codesysBuild);
-  $("#btn-codesys-download").onclick = () => busy($("#btn-codesys-download"), "Exporting…", exportCodesys);
+  $("#btn-codesys-download").onclick = () => busy($("#menu-target > summary"), "…", exportCodesys);
+  $("#btn-bridge-install").onclick = () => switchWorkspace("devices");
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);
@@ -8165,7 +8194,8 @@ function wireMenus() {
   for (const m of menus) {
     m.addEventListener("toggle", () => {
       m.querySelector("summary").setAttribute("aria-expanded", String(m.open));
-      if (m.open) for (const o of menus) if (o !== m) close(o);
+      // A menu inside another (Settings under ⋯) leaves its parent open.
+      if (m.open) for (const o of menus) if (o !== m && !o.contains(m)) close(o);
     });
     m.addEventListener("keydown", (e) => {
       const items = [...m.querySelectorAll(".item")].filter((b) => !b.disabled && b.offsetParent !== null);
@@ -8174,7 +8204,7 @@ function wireMenus() {
       else if (e.key === "ArrowDown" || (e.key === "ArrowUp" && k < 0)) { e.preventDefault(); if (!m.open) m.open = true; (items[k + 1] || items[0]).focus(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); (items[k - 1] || items[items.length - 1]).focus(); }
     });
-    for (const b of m.querySelectorAll(".item")) b.addEventListener("click", () => close(m));
+    m.addEventListener("click", (e) => { const b = e.target.closest(".item"); if (b && m.contains(b)) close(m); });
     // Tab out of an open menu closes it.
     m.addEventListener("focusout", (e) => { if (m.open && !(e.relatedTarget && m.contains(e.relatedTarget))) close(m); });
   }

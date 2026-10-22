@@ -86,7 +86,7 @@ class CodesysPage(OnlineBase):
         self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.to_codesys()
         self.assertEqual(pg.inner_text("[data-target-mark]"), " · CODESYS")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The Bus page: no scan watchdog, EDS lint, bus diagnostics or simulation; the CODESYS settings.
         for path in ("master.scan_watchdog_ms", "master.eds_lint", "master.bus_state_location", "adapter.type",
                      "adapter.simulate"):
@@ -102,7 +102,9 @@ class CodesysPage(OnlineBase):
         self.assertFalse(pg.is_visible('#tool-tabs [data-view="declarations"]'))
         # The header: Build and Download, no editor project actions.
         self.assertTrue(pg.is_visible("#btn-codesys-build"))
+        pg.click("#menu-target > summary")
         self.assertTrue(pg.is_visible("#btn-codesys-download"))
+        pg.click("#menu-target > summary")
         # The node's PDOs: a Variable column with the names, no PLC location column.
         tree_node(pg, 1, "pdos")
         pg.wait_for_selector('input[data-path="nodes[1].tx_pdos[0].entries[0].name"]')
@@ -111,7 +113,7 @@ class CodesysPage(OnlineBase):
         self.assertEqual(pg.input_value('input[data-path="nodes[1].tx_pdos[0].entries[0].name"]'), "Read_input_8_bit_1")
         pg.fill('input[data-path="nodes[1].tx_pdos[0].entries[0].name"]', "door_open")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The CODESYS page.
         tree_view(pg, "codesys")
         pg.wait_for_selector("h2:has-text('CODESYS')")
@@ -128,6 +130,7 @@ class CodesysPage(OnlineBase):
         self.assertNotIn("scan_watchdog_ms", saved["networks"][0]["master"])
         # Download for CODESYS: the zip, nothing written to the folder.
         with pg.expect_download() as dl:
+            pg.click("#menu-target > summary")
             pg.click("#btn-codesys-download")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
         # Back to OpenPLC: every entry gets a location, the names stay.
@@ -136,7 +139,7 @@ class CodesysPage(OnlineBase):
         self.assertIn("got a location", pg.inner_text("#banner"))
         pg.wait_for_selector("#tree #nav-codesys", state="detached")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.assertFalse(pg.is_visible("#btn-codesys-build"))
         # One undo step brings CODESYS back: the banner's Undo.
@@ -157,7 +160,7 @@ class CodesysPage(OnlineBase):
         self.open()
         self.checked()
         self.assertFalse(pg.is_visible('select[data-path="master.on_plc_stop"]'))
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertTrue(pg.is_hidden("[data-unsaved]"))
         self.assertNotIn("not used by CODESYS", pg.inner_text("#view"))
         self.assertEqual(pg.locator("#show-all-fields").count(), 0)

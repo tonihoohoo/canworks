@@ -14,7 +14,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config
+from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -162,8 +162,8 @@ class Probes(Layout):
         self.assertTrue(pg.is_hidden("#menu-project"))
         self.assertTrue(pg.is_hidden("#menu-export"))
         self.assertTrue(pg.is_hidden("#btn-save"))
-        self.assertTrue(pg.is_hidden("#btn-reload"))
-        self.assertTrue(pg.is_visible("#btn-close"))
+        self.assertFalse(pg.evaluate("() => !!document.querySelector('#btn-reload').offsetParent"))
+        self.assertTrue(pg.is_visible("#btn-close") or pg.is_visible("#menu-more"))
         self.assertTrue(pg.is_hidden("#problems"))
         self.assertTrue(pg.is_visible("#log-panel"))
         self.assertTrue(pg.is_hidden("#tree"))
@@ -173,7 +173,7 @@ class Probes(Layout):
         self.assertEqual(shown, ["Nodes", "Trace", "Frame lab"])
         self.assertTrue(pg.is_hidden("#side"))
         audit(pg, "commissioning")
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
 
     # -- 2.1 safe dialog defaults --------------------------------------------
@@ -197,7 +197,7 @@ class Probes(Layout):
         self.assertEqual(pg.locator('#tree [data-node]').count(), 3)
         # Close with unsaved changes: Cancel focused, "Close without saving" last.
         self.fill_path("nodes[2].name", "rtd2")
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#modal[open]")
         labels = [b.text_content().strip() for b in pg.query_selector_all("#modal-buttons button")]
         self.assertEqual(labels, ["Cancel", "Close without saving"])
@@ -250,7 +250,7 @@ class Probes(Layout):
         # Reload from disk empties the history.
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')
-        pg.click("#btn-reload")
+        header_action(pg, "#btn-reload")
         pg.click('#modal-buttons button[data-value="reload"]')
         pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd")')
         pg.keyboard.press("Control+Shift+z")
@@ -386,7 +386,7 @@ class Probes(Layout):
         # page first and open no chooser. A listener from the start keeps it on.
         pg.on("filechooser", lambda _: None)
         self.open()
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
         # Open…, New config…, the Commission link and Recent are in the Tab order; Enter on Recent opens it.
         pg.wait_for_selector("#recent button.folder")
@@ -682,7 +682,7 @@ class CleanProject(OnlineBase):
             pg.wait_for_selector("#modal[open]", state="hidden")
             self.assertGreater(pg.locator("#trace-rows .trace-row").count(), 0)
             # Closing the folder with an unsaved recording asks first.
-            pg.click("#btn-close")
+            header_action(pg, "#btn-close")
             pg.wait_for_selector("#modal[open]")
             self.assertIn("recording", pg.inner_text("#modal-text"))
             pg.click('#modal-buttons button[data-value="cancel"]')
@@ -692,7 +692,7 @@ class CleanProject(OnlineBase):
                 pg.click("[data-trace=save-menu] > summary")
                 pg.click("[data-trace=export]")
             pg.wait_for_selector("#banner:has-text('Downloaded')")
-            pg.click("#btn-close")
+            header_action(pg, "#btn-close")
             pg.wait_for_selector("#start:not([hidden])")
 
     def test_new_project_dialog_focuses_its_first_field(self):

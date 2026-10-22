@@ -11,7 +11,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, node_tab, tree_entry, tree_node, tree_view
+from .helpers import REPO, node_tab, tree_entry, tree_node, tree_view, header_action
 from .test_configurator_layout import open_tree, pick_theme
 from .test_configurator_online_page import OnlineBase
 
@@ -82,7 +82,7 @@ class MessageBars(OnlineBase):
             pg.wait_for_selector("text=changes allowed")
             for theme in ("light", "dark"):
                 if theme == "dark":  # a fresh page: the node list as at the start
-                    pg.click("#btn-close")
+                    header_action(pg, "#btn-close")
                     pg.wait_for_selector("#start:not([hidden])")
                     self.open()
                     pg.click('button[data-view="online"]')

@@ -16,7 +16,7 @@ import can
 from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
-from .helpers import REPO
+from .helpers import REPO, header_action
 from .test_configurator_online_page import OnlineBase
 
 _n = itertools.count(1)
@@ -266,7 +266,7 @@ class CommissionPage(AdapterPage):
         self.connect_adapter()
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-online-node="7"]', timeout=20000)
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.click("#start-commission")
         pg.wait_for_selector('#view [data-nodes="not-connected"]')
         self.assertFalse(self.server.connection.connected)

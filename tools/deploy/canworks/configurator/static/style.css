@@ -37,13 +37,15 @@ summary { min-height: 24px; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 header { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 3; }  /* its menus open over the message bar */
 header .top-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: wrap; }
-/* The tool tabs: the workspace's own page, then its tools (shell.js). */
-#tool-tabs { padding: 0 16px; }
+/* The tool tabs and, at the row's right end, the connection status (compact-chrome): one row, a second
+   only when the window is too narrow for both. */
+#tab-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; padding: 0 16px; }
+#tab-row:has(> #tool-tabs[hidden]):has(> #conn-bar[hidden]) { display: none; }
 #tool-tabs { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #tool-tabs .tool-tabs { border-bottom: 0; margin: 0; display: flex; flex-wrap: wrap; }
 #tool-tabs .tool-net button { padding: 2px 8px; font-size: 13px; }
 /* The connection bar (connection.js): neutral while all is well. */
-#conn-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 16px; border-top: 1px solid var(--line); font-size: 13px; }
+#conn-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 2px 8px; margin-left: auto; border-radius: 6px; font-size: 13px; }
 #conn-bar .conn-line, #conn-bar { min-height: 30px; }
 #conn-bar > * { display: inline-flex; align-items: center; gap: 4px; }
 /* Tinted as the message bars are: the warning tint for a warning (error passive, a slow path), the error tint for a fault. */
@@ -475,8 +477,12 @@ body.trace-window #bottom, body.trace-window #start { display: none !important; 
 body.trace-window main#editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "view"; min-height: calc(100vh - var(--header-h)); }
 body.trace-window #view > h2:first-child { display: none; }
 /* The bars under the lists and the graph that change their height. */
-.trace-size-bar, .size-bar { height: 8px; margin: 4px 0; cursor: row-resize; background: var(--line); border-radius: 4px; touch-action: none; }
-.trace-size-bar:hover, .trace-size-bar:focus-visible, .size-bar:hover, .size-bar:focus-visible { background: var(--accent); }
+/* A resize handle: a thin line with a grip mark in its middle, so it does not look like a scrollbar. */
+.trace-size-bar, .size-bar { position: relative; height: 10px; margin: 3px 0; cursor: row-resize; touch-action: none; border-radius: 4px;
+  background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
+.trace-size-bar::after, .size-bar::after { content: ""; position: absolute; left: 50%; top: 2px; width: 28px; height: 6px; transform: translateX(-50%);
+  background: radial-gradient(circle, var(--muted) 1.2px, transparent 1.6px) 0 0 / 7px 3px; }
+.trace-size-bar:hover, .trace-size-bar:focus-visible, .size-bar:hover, .size-bar:focus-visible { background: linear-gradient(var(--accent), var(--accent)) center / 100% 2px no-repeat; }
 .trace-insp-rail { display: none; }
 .trace-split.no-insp { grid-template-columns: minmax(0, 1fr) 32px; }
 .trace-split.no-insp .trace-split-handle, .trace-split.no-insp .trace-split-insp { display: none; }
@@ -597,16 +603,16 @@ table.od.watch tr.changed td { background: var(--st-warn-bg); }
 details.od-any { margin: 0 0 12px; }
 details.od-any > summary { cursor: pointer; }
 
-/* Simulation: the banner on every page, and the Simulation view. */
-/* The banner is a warning bar (consistent-message-bars): the configuration must not go to a machine as it is. */
-#sim-banner { padding-top: 4px; padding-bottom: 4px; font-weight: 600; }
-#sim-banner > .sim-body { flex: 1; min-width: 0; }
-.sim-line { display: flex; align-items: center; gap: 12px; }
-.sim-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#sim-banner [data-sim=details] { margin: 4px 0 2px; font-weight: 400; max-width: 120ch; }
-@media (max-width: 640px) {
-  .sim-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-}
+/* Simulation: the chip in the header while anything is simulated (compact-chrome), and the Simulation view.
+   The chip keeps the warning tint and icon: the configuration must not go to a machine as it is. */
+.sim-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 52ch; padding: 2px 4px 2px 8px;
+  border: 1px solid var(--st-warn); border-radius: 14px; background: var(--st-warn-bg); color: var(--text); font-size: 13px; font-weight: 600; }
+.sim-chip[hidden] { display: none; }
+.sim-chip > .st { flex: none; color: var(--st-warn); }
+.sim-text { min-width: 0; overflow-wrap: anywhere; }
+.sim-chip > button { flex: none; }
+.sim-chip [data-sim=details] { position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; width: min(60ch, calc(100vw - 32px)); box-sizing: border-box;
+  margin: 0; padding: 8px 10px; font-weight: 400; background: var(--panel); border: 1px solid var(--st-warn); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
 .tag.sim-tag { background: none; color: var(--text); border: 1px dashed var(--muted); }
 .sim-form { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--panel); }
 .sim-form > strong { display: block; margin-bottom: 6px; }
@@ -1032,3 +1038,75 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
 .devices-steps li[aria-current=step] { font-weight: 600; }
 .devices-log pre, pre.devices-tail { max-height: 320px; overflow: auto; font: 12px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
 .fingerprint code { font-size: 13px; overflow-wrap: anywhere; }
+
+/* compact-chrome: the header's ⋯ menu (under 1500 px) and the target's split button. */
+#menu-more[hidden] { display: none; }
+#menu-more .off-start { display: none; }
+#menu-more .menu-panel > .item, #menu-more .menu-panel > details { display: block; width: 100%; text-align: left; }
+#menu-more #menu-settings > summary { padding: 6px 10px; }
+#menu-more #menu-settings > .menu-panel { position: static; box-shadow: none; border: 0; padding: 4px 10px; }
+.split { display: inline-flex; align-items: stretch; }
+.split[hidden] { display: none; }
+.split > button.primary:not([hidden]) + details > summary { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.split > button.primary:has(+ details:not([hidden])) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > details > summary { height: 100%; box-sizing: border-box; display: inline-flex; align-items: center; }
+/* The bottom panel is a one-line strip while it has nothing to show. */
+#problems-box:not([open]) > summary, #log-box:not([open]) > summary { padding: 2px 0; }
+/* Short windows (a 1920x1080 laptop at 150 %): compact header and one-line message bars. */
+@media (max-height: 800px) {
+  header .top-row { padding: 4px 16px; gap: 8px; }
+  header .top-row button, header .top-row summary { min-height: 28px; padding-top: 2px; padding-bottom: 2px; }
+  #tool-tabs .tool-tabs [role=tab] { padding-top: 4px; padding-bottom: 4px; }
+  #page-bars > .notice { padding-top: 2px; padding-bottom: 2px; }
+  #problem-list, #log-body { max-height: 22vh; }
+  #statusbar { min-height: 26px; padding: 1px 16px; }
+  #view { padding-top: 10px; padding-bottom: 10px; }
+}
+@media (max-height: 600px) { #problem-list, #log-body { max-height: 15vh; } }
+/* Between 800 and 1100 px the tree is a rail: network initials and node IDs with their state and error
+   count; the rail's button opens the whole tree over the page. */
+#tree-rail { display: none; }
+#tree-toggle .tt-rail { display: none; }
+@media (min-width: 801px) and (max-width: 1100px) {
+  main#editor { grid-template-columns: 64px minmax(0, 1fr); grid-template-areas: "side view"; grid-template-rows: none; }
+  #side { position: sticky; top: var(--header-h); align-self: start; height: calc(100vh - var(--header-h) - var(--footer-h, 0px)); overflow: auto;
+    box-sizing: border-box; padding: 6px 4px; border: 0; border-right: 1px solid var(--line); }
+  #tree-toggle { width: 100%; padding: 2px 0; }
+  #tree-toggle .tt-full { display: none; }
+  #tree-toggle .tt-rail { display: inline; }
+  #tree-rail { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding: 0; list-style: none; }
+  .rail-item { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 100%; padding: 4px 0; min-height: 32px; border: 0; border-radius: 6px;
+    background: none; font-size: 12px; cursor: pointer; }
+  .rail-item.net { font-weight: 700; margin-top: 4px; }
+  .rail-item:hover { background: var(--hover); }
+  .rail-item.selected { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  .rail-item .rail-id { display: inline-flex; align-items: center; gap: 2px; }
+  .rail-item .tree-badge { font-size: 11px; }
+  body.tree-open #tree { left: 72px; top: calc(var(--header-h) + 8px); }
+}
+/* Wide windows: the Bus and master, Supervision and Advanced sections side by side. */
+@media (min-width: 1800px) {
+  .wide-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
+  .wide-cols > :not(fieldset):not(details) { grid-column: 1 / -1; }
+}
+/* Phone width: a PDO entry is a card (object and name, variable and location, PDO and remove); only a
+   table's own box may scroll sideways, never the page. */
+@media (max-width: 640px) {
+  table.pdo-entries thead { display: none; }
+  table.pdo-entries, table.pdo-entries tbody { display: block; }
+  table.pdo-entries tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  table.pdo-entries td { display: block; padding: 0; border: 0; min-width: 0; }
+  table.pdo-entries td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
+  body { overflow-x: hidden; }
+}
+/* The Trace inspector over the right part of the list under 1440 px, instead of taking columns away. */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  .trace-split:not(.no-insp) { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .trace-split:not(.no-insp) .trace-split-handle { display: none; }
+  .trace-split:not(.no-insp) .trace-split-insp { position: absolute; top: 0; right: 0; width: min(var(--insp), 560px); max-height: calc(100vh - var(--header-h) - 16px);
+    overflow: auto; z-index: 2; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; box-shadow: -6px 0 18px rgba(0, 0, 0, .15); }
+}
+/* Under 1100 px the page title gives its room to the header's controls (screen readers still read it). */
+@media (max-width: 1100px) {
+  header .top-row h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

@@ -333,9 +333,10 @@ function idsSelect(key, scroll, open) {
   }
   TI.hold = false;  // a newly picked row shows its newest frame
   idsActions();
+  if (open) T.inspWanted = true;
   if (open && !T.inspector) traceInspector(true);
   idsFollow();
-  if (open) traceRevealSplit();
+  if (open) { if (T.applySplit) T.applySplit(); traceRevealSplit(); }
 }
 
 function idsKey(e) {

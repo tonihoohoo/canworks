@@ -14,7 +14,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir, tree_node, new_config
+from .helpers import REPO, tmpdir, tree_node, new_config, header_action
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 PLANT = os.path.join(REPO, "examples", "virtual-plant")
@@ -141,7 +141,7 @@ class StartPage(Base):
         pg = self.page
         folder = self.copy(os.path.join(PLANT, "canworks"))
         self.open(folder)
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
         pg.wait_for_selector("#recent [data-forget]")
         self.assertIn("config folder", pg.inner_text("#recent"))

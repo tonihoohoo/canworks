@@ -15,7 +15,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, node_tab, tree_net, tree_node, tree_view
+from .helpers import REPO, node_tab, tree_net, tree_node, tree_view, header_action
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -38,7 +38,7 @@ FIT_CHECK = r"""() => {
   for (const e of document.querySelectorAll("button, .file-button")) {
     if (!shown(e)) continue;
     if (e.scrollWidth > e.clientWidth + 1) out.push(["button clipped", name(e)]);
-    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.closest("#problem-list") && !e.closest("#recent")) out.push(["button wraps", name(e)]);
+    if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.classList.contains("trace-insp-rail") && !e.closest("#problem-list") && !e.closest("#recent")) out.push(["button wraps", name(e)]);
     if (e.getBoundingClientRect().right > document.documentElement.clientWidth + 1) out.push(["button off screen", name(e)]);
   }
   for (const id of ["view", "side", "problems"]) {
@@ -51,7 +51,7 @@ FIT_CHECK = r"""() => {
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) out.push(["page scrolls sideways"]);
   // Text cut by its box (fix-clipped-text-configure): only data cells, which
   // carry their whole value in a tooltip, may be cut.
-  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot";
+  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot, header .top-row h1";
   for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, dialog[open] *")) {
     if (!shown(e) || !e.textContent.trim() || e.closest(cutOk)) continue;
     const cs = getComputedStyle(e);
@@ -135,6 +135,8 @@ def open_tree(page):
 def pick_theme(page, theme):
     """Light, Dark or Auto from the header's Settings menu."""
     if not page.is_visible('[data-theme-choice="%s"]' % theme):
+        if page.is_visible("#menu-more") and not page.is_visible("#menu-settings > summary"):
+            page.click("#menu-more > summary")
         page.click("#menu-settings > summary")
     page.click('[data-theme-choice="%s"]' % theme)
 
@@ -274,7 +276,7 @@ class Layout(OnlineBase):
                 pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
                 self.fits("export menu at %d" % width)
                 pg.evaluate("() => { document.querySelector('#menu-export').open = false; }")
-                pg.click("#btn-close")
+                header_action(pg, "#btn-close")
                 pg.wait_for_selector("#start:not([hidden])")
 
     def test_online_access_remote_link(self):
@@ -354,7 +356,7 @@ class Layout(OnlineBase):
             label = pg.locator('#modal-extra label:has-text("Enable the canworks function blocks")').bounding_box()
             self.assertLess(abs((box["y"] + box["height"] / 2) - (label["y"] + label["height"] / 2)), 8)
             pg.click("#modal-buttons button[data-value=cancel]")
-            pg.click("#btn-close")
+            header_action(pg, "#btn-close")
             pg.wait_for_selector("#start:not([hidden])")
 
     def test_sdo_variables_at_1280(self):
@@ -460,9 +462,59 @@ class Layout(OnlineBase):
     def fill_path(self, path, value):
         self.page.fill('input[data-path="%s"]' % path, value)
 
+    # The share of the window height the page's own content gets: the window
+    # minus the header, the message bars and the bottom panel (compact-chrome).
+    WORK_SHARE = """() => {
+      const h = window.innerHeight;
+      const top = document.querySelector('#top').getBoundingClientRect().height;
+      const bars = document.querySelector('#page-bars').getBoundingClientRect().height;
+      const bottom = document.querySelector('#bottom').hidden ? 0 : document.querySelector('#bottom').getBoundingClientRect().height;
+      return (h - top - bars - bottom) / h;
+    }"""
+
+    def test_work_area_share(self):
+        pg = self.page
+        self.open()
+        for width, height in ((1280, 720), (911, 512)):
+            pg.set_viewport_size({"width": width, "height": height})
+            for ws in ("configure", "commission"):
+                pg.click('#ws [data-ws="%s"]' % ws)
+                pg.wait_for_timeout(200)
+                share = pg.evaluate(self.WORK_SHARE)
+                self.assertGreaterEqual(share, 0.55, "%s at %dx%d: %.2f" % (ws, width, height, share))
+            self.fits("short window %dx%d" % (width, height))
+            pg.click('#ws [data-ws="configure"]')
+
+    def test_rail_between_800_and_1100(self):
+        # compact-chrome: the tree is a rail of network initials and node IDs; its button opens the whole tree.
+        pg = self.page
+        pg.set_viewport_size({"width": 1000, "height": 720})
+        self.open()
+        pg.wait_for_selector("#tree-rail .rail-item.node")
+        self.assertTrue(pg.is_hidden("#tree"))
+        rail = pg.locator("#side").bounding_box()
+        self.assertLess(rail["width"], 80)
+        ids = pg.eval_on_selector_all("#tree-rail .rail-item.node .rail-id", "es => es.map(e => e.textContent.trim())")
+        self.assertEqual(ids, ["2", "5", "23"])
+        self.assertTrue(pg.locator('#tree-rail [data-rail-key="0:node:1"] .tree-badge').count() >= 0)
+        pg.click('#tree-rail [data-rail-key="0:node:1"]')
+        pg.wait_for_selector('[data-node-heading="1"]')
+        self.assertEqual(pg.get_attribute('#tree-rail [data-rail-key="0:node:1"]', "aria-current"), "page")
+        pg.click("#tree-toggle")
+        self.assertTrue(pg.is_visible('#tree [data-key="0:node:2"]'))
+        self.fits("rail with the tree open")
+        pg.keyboard.press("Escape")
+        self.assertTrue(pg.is_hidden("#tree"))
+        # The secondary header actions are in the ⋯ menu.
+        self.assertTrue(pg.is_hidden("#btn-close"))
+        pg.click("#menu-more > summary")
+        self.assertTrue(pg.is_visible("#btn-close"))
+        self.assertTrue(pg.is_visible("#btn-quit"))
+        self.fits("more menu")
+
     def test_narrow_window(self):
         pg = self.page
-        pg.set_viewport_size({"width": 900, "height": 700})
+        pg.set_viewport_size({"width": 780, "height": 700})
         self.open()
         pg.wait_for_selector("#problem-count:has-text('5 problems')")
         # The bottom panel stays at the bottom of the window, its count in view; it opens and closes.
@@ -677,7 +729,7 @@ class Examples(OnlineBase):
             pg.click("#btn-export-all")
         self.assertTrue(dl.value.suggested_filename.endswith("_dcf.zip"))
         self.assertTrue(pg.is_hidden("#modal"))
-        pg.click("#btn-close")
+        header_action(pg, "#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
         self.open_example("j1939")
         self.assertEqual(shown(), ["#btn-export-dbc", "#btn-export-html"])

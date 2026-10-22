@@ -252,6 +252,7 @@ function renderTree() {
   const walk = (list) => { for (const e of list) { S.treeEntries.set(e.key, e); if (e.kids) walk(e.kids); } };
   walk(model);
   put(host, model.map((e, j) => item(e, 1, model.length, j + 1)));
+  renderRail(model, counts, sel);
   const items = treeVisible();
   const f = items.find((x) => x.dataset.key === focusKey) || items.find((x) => x.dataset.key === sel) || items[0];
   if (f) f.tabIndex = 0;
@@ -261,9 +262,35 @@ function renderTree() {
   if (btn) {
     const e = S.treeEntries.get(sel);
     const errors = S.check ? S.check.errors || 0 : 0;
-    btn.textContent = `${e ? e.label : "Network"} ▾` + (errors ? ` · ${errors}✕` : "");
+    btn.replaceChildren(el("span", { class: "tt-full" }, `${e ? e.label : "Network"} ▾` + (errors ? ` · ${errors}✕` : "")),
+      el("span", { class: "tt-rail", "aria-hidden": "true" }, "☰"));
     btn.setAttribute("aria-label", `Network tree: ${e ? e.label : "none"} open` + (errors ? `, ${errors} error${errors === 1 ? "" : "s"}` : ""));
   }
+}
+
+// The rail between 800 and 1100 px (compact-chrome): each network by its
+// initials and each node by its ID, with its mark and error count; a click
+// opens the entry as the tree does.
+function renderRail(model, counts, sel) {
+  const host = $("#tree-rail");
+  if (!host) return;
+  const item = (e, text, kind) => {
+    const c = counts[e.key];
+    return el("li", null, el("button", { type: "button", class: `rail-item ${kind}` + (e.key === sel ? " selected" : ""),
+      title: e.label, "aria-label": e.label + (c && c.e ? `, ${c.e} error${c.e === 1 ? "" : "s"}` : ""),
+      "aria-current": e.key === sel ? "page" : null, dataset: { railKey: e.key }, onclick: () => openEntry(e) },
+    el("span", { class: "rail-id" }, e.mark !== undefined ? fillMark(el("span", { class: "tree-mark " + e.mark, "aria-hidden": "true" }), e.mark) : null, text),
+    badge(c)));
+  };
+  const out = [];
+  for (const e of model) {
+    if (!e.kids) continue;
+    const words = String(e.label).split(/[\s_-]+/).filter(Boolean);
+    out.push(item(Object.assign({}, e, { key: `${e.net}:bus`, attrs: { net: e.net, view: "bus" } }),
+      (words.length > 1 ? words[0][0] + words[1][0] : String(e.label).slice(0, 2)).toUpperCase(), "net"));
+    for (const x of e.kids) if (x.attrs && x.attrs.node !== undefined && !x.alias) out.push(item(x, String(x.label).split(" ")[0], "node"));
+  }
+  put(host, out);
 }
 
 function treeVisible() { return [...document.querySelectorAll("#tree [role=treeitem]")]; }
