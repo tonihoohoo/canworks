@@ -101,18 +101,27 @@ async function updateOnQuit(version, on) {
 }
 
 async function updateNow(version) {
+  // The server hears of this page's unsaved changes with the next heartbeat,
+  // up to a second late: the page asks itself first.
+  if (unsavedWork()) {
+    heartbeat();
+    return updateLater("Not now: there are unsaved changes.", version);
+  }
   let r;
   try {
     r = await api("POST", "/api/update/start", { version, when: "now" });
   } catch (e) {
-    if (e.body && e.body.on_quit) {
-      const v = await modal(`${e.message} Save or finish the work first, or update when you quit.`,
-        [["cancel", "Cancel"], ["quit", "Update when I quit", true]]);
-      if (v === "quit") await updateOnQuit(version, true);
-    } else banner(e.message, true);
+    if (e.body && e.body.on_quit) await updateLater(e.message, version);
+    else banner(e.message, true);
     return;
   }
   updatingPage(version, r.boot);
+}
+
+async function updateLater(message, version) {
+  const v = await modal(`${message} Save or finish the work first, or update when you quit.`,
+    [["cancel", "Cancel"], ["quit", "Update when I quit", true]]);
+  if (v === "quit") await updateOnQuit(version, true);
 }
 
 // The configurator stopped to update: the page says so and waits for a
