@@ -145,11 +145,11 @@ write_version() {
         local s
         s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")
         case $s in
-            '$Format'*) ;;
+            \$Format*) ;;
             *'|'*) v=${s%%|*}; [ -n "$v" ] || v=${s#*|} ;;
         esac
     fi
-    echo "${v:-unknown}" | sed 's/^deploy-v//' > "$PREFIX/VERSION"
+    v=${v:-unknown}; echo "${v#deploy-v}" > "$PREFIX/VERSION"
 }
 
 [ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] ||

@@ -483,11 +483,11 @@ v=${CANWORKS_PLUGIN_VERSION:-}
 if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
     s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")
     case $s in
-        '$Format'*) ;;
+        \$Format*) ;;
         *'|'*) v=${s%%|*}; [ -n "$v" ] || v=${s#*|} ;;
     esac
 fi
-echo "${v:-unknown}" | sed 's/^deploy-v//' > "$PREFIX/VERSION"
+v=${v:-unknown}; echo "${v#deploy-v}" > "$PREFIX/VERSION"
 
 # --- The service --------------------------------------------------------------
 
