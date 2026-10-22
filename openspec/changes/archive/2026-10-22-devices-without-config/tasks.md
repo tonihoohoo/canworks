@@ -30,4 +30,5 @@
 
 ## 6. Hardware
 
-- [ ] 6.1 From the start page with no config: add the bench Linux device, check it, see its project tag; run Update or Install (plugin) and see it end; open the OpenPLC project and see the same device listed first
+- [x] 6.1 From the start page with no config: add the bench Linux device, check it, see its project tag; run Update or Install (plugin) and see it end; open the OpenPLC project and see the same device listed first
+  - PASSED 2026-10-22 on the bench Pi from the Mac (PC tools 0.110.0): with no config, Devices listed the device with tags "Runtime of" each project using it, no role question (plugin installed) and main action Update 0.108.0 → 0.110.0; the job ran with no config open (4 steps, exit 0, 117 s), the device then read up to date, and no project's runtime host changed; with the OpenPLC project open the device was first and its own. Program redeployed, PLC running, node 23 OPERATIONAL.
