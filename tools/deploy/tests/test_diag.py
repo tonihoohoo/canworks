@@ -165,6 +165,25 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("does not speak encrypted diagnostics", err)
 
+    def test_nothing_behind_the_port(self):
+        # A port forward with nothing behind it (an empty local runtime):
+        # the connection is accepted and closed without a byte.
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def forward_to_nothing():
+            c, _ = srv.accept()
+            c.close()
+
+        t = threading.Thread(target=forward_to_nothing, daemon=True)
+        t.start()
+        code, _, err = run("--runtime", "127.0.0.1:%d" % srv.getsockname()[1], "status")
+        srv.close()
+        self.assertEqual(code, 1)
+        self.assertIn("closed it without answering", err)
+        self.assertNotIn("too old", err)
+
     def test_closed_port(self):
         code, _, err = run("--runtime", "127.0.0.1:%d" % closed_port(), "status")
         self.assertEqual(code, 1)
