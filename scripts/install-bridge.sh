@@ -475,10 +475,19 @@ fi
 ACTIVE=$("$SYSTEMCTL" list-units --state=active --plain --no-legend 'canworks-bridge@*' 2>/dev/null | awk '{print $1}' || true)
 mv -f "$BIN.new" "$BIN"
 say "Installed $BIN"
-# The installed version, for the configurator's device probe.
+# The installed version, for the configurator's device probe: the release's,
+# else git describe, else what git archive wrote into scripts/SOURCE_VERSION
+# (as in install-stock.sh).
 v=${CANWORKS_PLUGIN_VERSION:-}
-[ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || echo unknown)
-echo "${v#deploy-v}" > "$PREFIX/VERSION"
+[ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || true)
+if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
+    s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")
+    case $s in
+        '$Format'*) ;;
+        *'|'*) v=${s%%|*}; [ -n "$v" ] || v=${s#*|} ;;
+    esac
+fi
+echo "${v:-unknown}" | sed 's/^deploy-v//' > "$PREFIX/VERSION"
 
 # --- The service --------------------------------------------------------------
 

@@ -17,3 +17,7 @@ examples/**/*.json text eol=lf
 # Frame explanation golden text: LF on every checkout (Windows autocrlf would
 # add CR and the comparison is byte for byte).
 tools/deploy/tests/data/explain/* text eol=lf
+
+# A source copy made with git archive (no .git) still knows its version:
+# install-stock.sh reads it when git describe cannot run.
+scripts/SOURCE_VERSION export-subst

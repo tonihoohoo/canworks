@@ -134,11 +134,22 @@ access_steps() {
     if [ "$WITH_LINK" -eq 1 ] || [ "$DISCOVERY" -eq 1 ]; then echo 1; else echo 0; fi
 }
 
-# The installed version, readable on the host without the runtime container.
+# The installed version, readable on the host without the runtime container:
+# the release's, else git describe, else what git archive wrote into
+# scripts/SOURCE_VERSION ("<describe>|<commit>"; a plain checkout keeps the
+# unexpanded $Format line).
 write_version() {
     local v=${CANWORKS_PLUGIN_VERSION:-}
-    [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || echo unknown)
-    echo "${v#deploy-v}" > "$PREFIX/VERSION"
+    [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || true)
+    if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
+        local s
+        s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")
+        case $s in
+            '$Format'*) ;;
+            *'|'*) v=${s%%|*}; [ -n "$v" ] || v=${s#*|} ;;
+        esac
+    fi
+    echo "${v:-unknown}" | sed 's/^deploy-v//' > "$PREFIX/VERSION"
 }
 
 [ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] ||
