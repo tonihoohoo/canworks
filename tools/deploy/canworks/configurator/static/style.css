@@ -1131,6 +1131,11 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
 }
 /* Under 1100 px the page title gives its room to the header's controls (screen readers still read it). */
 @media (max-width: 1100px) {
+  header .top-row .sim-what { display: none; }
+  /* The folder's name gives way first; its path is in the badge's tooltip. */
+  #mode { white-space: nowrap; }
+  #mode .unsaved-word { display: none; }
+  #mode .mode-name { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   header .top-row h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 /* A Commission node's one-line header (commission-master-detail): back to Nodes, the node, its live state. */

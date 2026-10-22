@@ -114,6 +114,32 @@ class Cleanup(base.Page):
             self.assertNotEqual(fills[0], fills[1], theme)
 
 
+    def test_walk_fixes(self):
+        # Found walking the page at several window sizes: a stray "null" in
+        # Online access, the Only missing box above its label, and a header
+        # that took two rows in a 911 x 512 window.
+        pg = self.page
+        self.node()
+        pg.evaluate("() => { setPath('adapter.simulate', true); render(); }")
+        pg.click('[data-open-project]')
+        pg.wait_for_selector('[data-section=online]')
+        self.assertEqual(pg.evaluate("""() => [...document.querySelector('[data-section=online]').childNodes]
+            .filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent)"""), [])
+        pg.click('button[data-view="declarations"]')
+        pg.wait_for_selector("[data-decl-missing]")
+        box, text = pg.evaluate("""() => { const l = document.querySelector('[data-decl-missing]').closest('label');
+            const r = l.querySelector('input').getBoundingClientRect(), t = document.createRange(); t.selectNodeContents(l.lastChild);
+            const q = t.getBoundingClientRect(); return [r.top, q.top]; }""")
+        self.assertLess(abs(box - text), 12)
+        pg.set_viewport_size({"width": 911, "height": 512})
+        pg.wait_for_timeout(300)
+        tops = pg.evaluate("""() => [...document.querySelectorAll('header .top-row > *')].filter((e) => e.offsetParent && !e.classList.contains('spacer') && e.getBoundingClientRect().width > 2)
+            .map((e) => [e.id || e.className, Math.round(e.getBoundingClientRect().top), Math.round(e.getBoundingClientRect().width)])""")
+        tops = [t[1] for t in tops]
+        self.assertLess(max(tops) - min(tops), 12, tops)
+        self.assertEqual(pg.inner_text("[data-sim=line]").strip(), "Simulated")
+
+
 class Parameters(CommissionPage):
     def test_restore_names_and_file_buttons(self):
         # ux-cleanup "Parameters names and file buttons".
