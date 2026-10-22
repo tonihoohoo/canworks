@@ -551,7 +551,7 @@ def _gateway(model):
                                                          g["sdo_bridge_write"] else "reads only"))
          if g["sdo_bridge"] else "off"},
     ]
-    return ('<section id="gateway"><h2>Gateway</h2><p class="muted">The plugin copies these values between the upper '
+    return ('<section id="gateway"><h2>Gateway</h2><p class="muted">The bridge copies these values between the upper '
             'network and the master networks without the PLC program.</p>%s<h3>Routes</h3>%s</section>' % (
                 _kv(settings), _table(["Route", "Slave object", "Name", "Type", "Direction", "Field node entry"],
                                       rows, "sortable", empty="No routes.")))

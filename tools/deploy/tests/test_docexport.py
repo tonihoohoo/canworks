@@ -24,7 +24,7 @@ EDS_DIR = os.path.join(FIXTURES, "eds")
 FIXTURE_CONFIG = os.path.join(EDS_DIR, "canworks.json")
 EDITOR_PROJECT = os.path.join(FIXTURES, "editor-project")
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "doc")
-EXAMPLES = ("rtd-sensor", "cia402-drive", "two-networks", "pingpong", "slave", "gateway", "j1939")
+EXAMPLES = ("rtd-sensor", "two-networks", "pingpong", "slave", "gateway", "j1939")
 J1939_EXAMPLE = os.path.join(REPO, "examples", "j1939", "canworks.json")
 NOW = datetime.datetime(2026, 1, 2, 3, 4)
 
@@ -111,20 +111,19 @@ class Model(unittest.TestCase):
         self.assertEqual((node["node_id"], node["name"]), (5, "rtd"))
         self.assertEqual((pdo(node, "TPDO", 1)["cob_id"], pdo(node, "TPDO", 2)["cob_id"]), (0x185, 0x285))
         locs = [r["location"] for r in m["io"]]
-        for loc in ["%IW100", "%IW101", "%IW102", "%IW103", "%IB100", "%IB101", "%IB102", "%IB103", "%IX10.0"]:
+        for loc in ["%IW100", "%IW102", "%IW104", "%IW106", "%IB110", "%IB111", "%IB112", "%IB113", "%IX10.0"]:
             self.assertIn(loc, locs)
         self.assertEqual(m["doc_schema_version"], 2)
         self.assertEqual(m["warnings"], [])
 
     def test_bit_channels(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
-            {"bit": 3, "name": "jog_x_plus", "iec_location": "%IX20.3"}]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+            {"bit": 3, "name": "jog_x_plus"}]
         m = build(cfg)
         entry = pdo(m["networks"][0]["nodes"][0], "TPDO", 1)["entries"][0]
-        self.assertEqual(entry["bit_channels"], [{"bit": 3, "name": "jog_x_plus", "note": "", "location": "%IX20.3",
+        self.assertEqual(entry["bit_channels"], [{"bit": 3, "name": "jog_x_plus", "note": "", "location": "",
                                                   "variables": []}])
-        self.assertIn("%IX20.3", [r["location"] for r in m["io"]])
         text = docwriter.write(m)
         check_html(self, text)
         self.assertIn("<code>0x4001:0</code> bit 3", text)
@@ -132,7 +131,7 @@ class Model(unittest.TestCase):
 
     def test_error_stops(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["number"] = 2
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["number"] = 2
         with self.assertRaises(docexport.ExportFailed) as e:
             build(cfg)
         self.assertIn("TPDO 2", str(e.exception))
@@ -161,7 +160,7 @@ class Model(unittest.TestCase):
 
     def test_auto_cob_id_as_the_dbc(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["cob_id"] = "auto"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["cob_id"] = "auto"
         dbc = dbcexport.build(cfg, FIXTURE_CONFIG)
         cob = next(x.cob_id for x in dbc.messages if x.name == "pingpong_TPDO1")
         [net] = build(cfg)["networks"]
@@ -187,8 +186,8 @@ class Model(unittest.TestCase):
         self.assertIs(writes[-1], startup[-1])  # startup SDOs come last
         self.assertTrue(all(w["source"] == "PDO configuration" for w in writes if 0x1400 <= w["index"] <= 0x1BFF))
         cfg = base_config()
-        cfg["nodes"][0]["config_check"] = True
-        cfg["nodes"][0]["eds"] = "config-check.eds"
+        cfg["networks"][0]["nodes"][0]["config_check"] = True
+        cfg["networks"][0]["nodes"][0]["eds"] = "config-check.eds"
         [net] = build(cfg)["networks"]
         sources = [w["source"] for w in net["nodes"][0]["boot"]["writes"]]
         self.assertEqual(sources[-2:], ["configuration check", "configuration check"])
@@ -206,7 +205,7 @@ class Model(unittest.TestCase):
 
     def test_master_heartbeat_time_and_sdo_frames(self):
         cfg = base_config()
-        cfg["master"].update(heartbeat_ms=100, time_period_ms=1000)
+        cfg["networks"][0]["master"].update(heartbeat_ms=100, time_period_ms=1000)
         [net] = build(cfg)["networks"]
         hb = frame(net, "Master_Heartbeat")
         self.assertEqual((hb["cob_id"], hb["producer"], hb["trigger"]), (0x701, "Master", "every 100 ms"))
@@ -224,27 +223,27 @@ class Model(unittest.TestCase):
 
     def test_sync_off(self):
         cfg = base_config()
-        del cfg["master"]["sync_period_us"]
+        del cfg["networks"][0]["master"]["sync_period_us"]
         for key in ("tx_pdos", "rx_pdos"):
-            cfg["nodes"][0][key][0]["transmission"] = 255
+            cfg["networks"][0]["nodes"][0][key][0]["transmission"] = 255
         [net] = build(cfg)["networks"]
         self.assertNotIn("SYNC", [f["name"] for f in net["frames"]])
         self.assertIn({"label": "SYNC", "value": "off", "object": "0x1005"}, net["settings"])
 
     def test_identity_and_eds_hash(self):
-        cfg, path = example("cia402-drive")
+        cfg, path = example("rtd-sensor")
         [net] = build(cfg, path)["networks"]
         [node] = net["nodes"]
         import hashlib
-        with open(os.path.join(os.path.dirname(path), "servo402.eds"), "rb") as f:
+        with open(os.path.join(os.path.dirname(path), "rtd8.eds"), "rb") as f:
             self.assertEqual(node["eds"]["sha256"], hashlib.sha256(f.read()).hexdigest())
-        info = docexport.eds_mod.device_info(os.path.join(os.path.dirname(path), "servo402.eds"))
+        info = docexport.eds_mod.device_info(os.path.join(os.path.dirname(path), "rtd8.eds"))
         vendor = next(i for i in node["identity"] if i["field"] == "Vendor ID")
         self.assertEqual((vendor["eds"], vendor["checked"]), (info["vendor_id"], True))
 
     def test_device_mapping_shows_unused_objects(self):
         cfg = base_config()
-        n = cfg["nodes"][0]
+        n = cfg["networks"][0]["nodes"][0]
         n["eds"] = "fixed-io.eds"
         n["tx_pdos"] = [{"entries": [{"index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40"}]}]
         n["rx_pdos"] = [{"entries": [{"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40"}]}]
@@ -257,7 +256,7 @@ class Model(unittest.TestCase):
 
     def test_receive_timeout(self):
         cfg = base_config()
-        t = cfg["nodes"][0]["tx_pdos"][0]
+        t = cfg["networks"][0]["nodes"][0]["tx_pdos"][0]
         t.update({"event_timer_ms": 100, "timeout_ms": "auto", "timeout_location": "%IX20.0"})
         doc = build(cfg)
         [net] = doc["networks"]
@@ -270,23 +269,21 @@ class Model(unittest.TestCase):
         [net] = build(cfg)["networks"]
         self.assertNotIn("timeout", pdo(net["nodes"][0], "TPDO", 1))
 
-    def test_plc_variable_names_and_cycle_from_project(self):
+    def test_plc_variable_names_from_project(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         project = os.path.join(tmp, "proj")
         shutil.copytree(EDITOR_PROJECT, project)
         shutil.copytree(EDS_DIR, os.path.join(project, "canworks"))
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID10"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID12"
         with open(os.path.join(project, "pous", "programs", "main.st"), "a", encoding="utf-8") as f:
-            f.write("\nPROGRAM other\n  VAR\n    ping AT %ID10 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
+            f.write("\nPROGRAM other\n  VAR\n    ping AT %ID12 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
         path = os.path.join(project, "canworks", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         [net] = build(cfg, path, names=dbcexport.project_names(path))["networks"]
         self.assertEqual(pdo(net["nodes"][0], "TPDO", 1)["entries"][0]["variables"], ["ping"])
-        self.assertEqual(docexport.project_cycle_ms(path), 20.0)
-        self.assertIsNone(docexport.project_cycle_ms(FIXTURE_CONFIG))
 
     def test_od_extract(self):
         cfg = base_config()
@@ -318,7 +315,7 @@ class BusLoad(unittest.TestCase):
 
     def test_event_pdo_with_inhibit(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0].update(transmission=255, inhibit_time_us=10000)
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0].update(transmission=255, inhibit_time_us=10000)
         [net] = build(cfg)["networks"]
         t = frame(net, "pingpong_TPDO1")
         self.assertEqual((t["rate_cyclic"], t["rate_worst"]), (0.0, 100.0))
@@ -326,29 +323,18 @@ class BusLoad(unittest.TestCase):
 
     def test_unbounded_event_pdo(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0].update(transmission=255, inhibit_time_us=0, event_timer_ms=0)
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0].update(transmission=255, inhibit_time_us=0, event_timer_ms=0)
         m = build(cfg)
         [net] = m["networks"]
         self.assertTrue(net["bus_load"]["unbounded"])
         self.assertTrue(any("node 2 TPDO 1" in w and "unbounded" in w for w in m["warnings"]))
 
-    def test_plc_cycle_sync(self):
-        cfg = base_config()
-        del cfg["master"]["sync_period_us"]
-        cfg["master"]["sync_source"] = "plc_cycle"
-        [net] = build(cfg)["networks"]
-        self.assertEqual(frame(net, "SYNC")["load_cyclic"], 0.0)
-        self.assertTrue(net["bus_load"]["notes"])
-        [net] = build(cfg, plc_cycle_ms=10)["networks"]
-        self.assertEqual(frame(net, "SYNC")["rate_cyclic"], 100.0)
-        self.assertEqual(net["bus_load"]["notes"], [])
-
     def test_high_load_warning(self):
         cfg = base_config()
-        cfg["master"]["sync_period_us"] = 1000
-        cfg["adapter"]["bitrate"] = 125000
+        cfg["networks"][0]["master"]["sync_period_us"] = 1000
+        cfg["networks"][0]["adapter"]["bitrate"] = 125000
         for key in ("tx_pdos", "rx_pdos"):
-            cfg["nodes"][0][key][0]["transmission"] = 1
+            cfg["networks"][0]["nodes"][0][key][0]["transmission"] = 1
         m = build(cfg)
         self.assertTrue(any("above 60 %" in w for w in m["warnings"]), m["warnings"])
 
@@ -360,7 +346,7 @@ class Privacy(unittest.TestCase):
         folder = os.path.join(tmp, "canworks")
         shutil.copytree(EDS_DIR, folder)
         cfg = base_config()
-        cfg["master"]["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
+        cfg["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
         path = os.path.join(folder, "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
@@ -401,7 +387,7 @@ class Html(unittest.TestCase):
         self.assertEqual((node["node_id"], t1["cob_id"], len(t1["entries"])), (5, 0x185, 4))
 
     def test_stable_output(self):
-        cfg, path = example("cia402-drive")
+        cfg, path = example("rtd-sensor")
         a, _ = docexport.export(cfg, path, now=datetime.datetime(2026, 1, 1, 10, 0))
         b, _ = docexport.export(cfg, path, now=datetime.datetime(2026, 1, 1, 10, 1))
         self.assertNotEqual(a, b)
@@ -521,12 +507,15 @@ class SlaveNetworks(unittest.TestCase):
         self.assertEqual(frame(net, "OpenPLC_RPDO1")["producer"], "upper master")
         self.assertTrue(any("Another master runs this bus" in n for n in net["bus_load"]["notes"]))
 
-    def test_slave_tpdo_at_plc_scan(self):
+    def test_slave_tpdo_at_the_openplc_poll(self):
         cfg, path = example("slave")
-        [net] = build(cfg, path, plc_cycle_ms=10)["networks"]
+        [net] = build(cfg, path)["networks"]
+        self.assertIn("not counted: the write rate is not known", frame(net, "OpenPLC_TPDO1")["trigger"])
+        cfg["bridge"]["openplc"] = {"poll_ms": 10}
+        [net] = build(cfg, path)["networks"]
         t1 = frame(net, "OpenPLC_TPDO1")
         self.assertEqual(t1["rate_worst"], 100.0)
-        self.assertIn("once per PLC scan (10 ms)", t1["trigger"])
+        self.assertIn("once per Modbus write (OpenPLC polls every 10 ms)", t1["trigger"])
 
     def test_lss_node_id(self):
         cfg, path = example("slave")
@@ -564,11 +553,6 @@ class Modbus(unittest.TestCase):
         self.assertIn('id="modbus"', text)
         self.assertIn('href="#modbus"', text)
         self.assertIn("4 read input registers", text)
-
-    def test_plain_config_has_none(self):
-        cfg, path = example("pingpong")
-        self.assertNotIn("modbus", build(cfg, path))
-
 
 class Golden(unittest.TestCase):
     """The document model of each example config (UPDATE_GOLDEN=1 rewrites)."""
@@ -616,7 +600,7 @@ class Cli(unittest.TestCase):
 
     def test_failure_leaves_file(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["number"] = 2
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["number"] = 2
         tmp, path = self.config_in(cfg)
         out_file = os.path.join(tmp, "network.html")
         with open(out_file, "w") as f:
@@ -629,13 +613,10 @@ class Cli(unittest.TestCase):
 
     def test_options_need_export_html(self):
         tmp, path = self.config_in(base_config())
-        for extra in (["--doc-od", "all"], ["--doc-embed-eds"], ["--doc-title", "x"], ["--doc-cycle-ms", "10"]):
+        for extra in (["--doc-od", "all"], ["--doc-embed-eds"], ["--doc-title", "x"]):
             code, _, err = self.run_cli("--config", path, "--export-dbc", os.path.join(tmp, "x.dbc"), *extra)
             self.assertEqual(code, 1)
             self.assertIn("needs --export-html", err)
-        code, _, err = self.run_cli("--config", path, "--export-html", os.path.join(tmp, "x.html"), "--runtime", "h")
-        self.assertEqual(code, 1)
-        self.assertIn("only writes an HTML document", err)
 
     def test_network_option(self):
         cfg, path = example("two-networks")

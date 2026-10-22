@@ -516,13 +516,14 @@ class CantoolsStrict(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         shutil.copy(os.path.join(EDS_DIR, "drives", "servo-drive.eds"), os.path.join(tmp, "servo.eds"))
-        cfg = {"schema_version": 1, "adapter": {"type": "socketcan", "interface": "vcan0", "bitrate": 500000},
-               "master": {"node_id": 1, "sync_period_us": 10000},
-               "nodes": [{"node_id": 3, "name": "servo", "eds": "servo.eds", "heartbeat_ms": 100,
-                          "tx_pdos": [{"number": 1, "mapping": "device", "transmission": 1, "entries": [
-                              {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW10"}]}],
-                          "rx_pdos": [{"number": 1, "entries": [
-                              {"index": "0x6040", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%QW10"}]}]}]}
+        cfg = {"schema_version": 2, "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}, "networks": [{
+            "adapter": {"type": "socketcan", "interface": "vcan0", "bitrate": 500000},
+            "master": {"node_id": 1, "sync_period_us": 10000},
+            "nodes": [{"node_id": 3, "name": "servo", "eds": "servo.eds", "heartbeat_ms": 100,
+                       "tx_pdos": [{"number": 1, "mapping": "device", "transmission": 1, "entries": [
+                           {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW10"}]}],
+                       "rx_pdos": [{"number": 1, "entries": [
+                           {"index": "0x6040", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%QW10"}]}]}]}]}
         text, _ = dbcexport.export(cfg, os.path.join(tmp, "canworks.json"), sdo="all")
         db = cantools.database.load_string(text, strict=True)
         self.assertGreater(len(db.get_message_by_frame_id(0x603).signals), 100)

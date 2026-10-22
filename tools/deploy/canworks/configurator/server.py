@@ -1606,7 +1606,6 @@ class Session:
             text, warnings = docexport.export(
                 cfg, self.config_path, eds_paths=self.eds_paths(cfg),
                 names=dbcexport.plc_names(self.uses) if project else None,
-                plc_cycle_ms=docexport.project_cycle_ms(self.config_path) if project else None,
                 notes=self.notes_source(notes))
         except docexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]

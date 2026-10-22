@@ -2,8 +2,8 @@
  "config": {
   "file": "canopen_config.json",
   "schema_version": 2,
-  "sha256": "065abc0f69a472cccb3071ee76bf6ec0bdd5d6ebf0869049f96e4c78a97f067e",
-  "text": "{\n  \"schema_version\": 2,\n  \"networks\": [\n    {\n      \"name\": \"field\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] }\n          ],\n          \"rx_pdos\": [\n            { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\" } ] }\n          ]\n        }\n      ]\n    },\n    {\n      \"name\": \"upper\",\n      \"role\": \"slave\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 250000 },\n      \"slave\": {\n        \"node_id\": 20,\n        \"eds\": \"openplc-gateway.eds\",\n        \"objects\": [\n          { \"index\": \"0x2100\", \"subindex\": 1, \"iec_location\": \"%QX300.0\" }\n        ],\n        \"comm_ok_location\": \"%IX300.0\"\n      }\n    }\n  ],\n  \"gateway\": {\n    \"upper\": \"upper\",\n    \"routes\": [\n      { \"slave\": { \"index\": \"0x2101\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4001\", \"subindex\": 0 }, \"name\": \"pong\" },\n      { \"slave\": { \"index\": \"0x2000\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4000\", \"subindex\": 0 }, \"name\": \"ping\" }\n    ],\n    \"status\": { \"index\": \"0x5E00\" },\n    \"emcy_forward\": true,\n    \"on_upper_loss\": \"zero\",\n    \"sdo_bridge\": true\n  }\n}\n"
+  "sha256": "5fb32f34cd2a72df038f1129019d3cb16788bca29b30d60f59415f01fb81ef76",
+  "text": "{\n  \"schema_version\": 2,\n  \"bridge\": { \"listen\": \"127.0.0.1:1502\", \"writers\": [ \"127.0.0.1\" ] },\n  \"networks\": [\n    {\n      \"name\": \"field\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\" } ] } ]\n        }\n      ]\n    },\n    {\n      \"name\": \"upper\",\n      \"role\": \"slave\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 250000 },\n      \"slave\": {\n        \"node_id\": 20,\n        \"eds\": \"openplc-gateway.eds\",\n        \"objects\": [ { \"index\": \"0x2100\", \"subindex\": 1, \"iec_location\": \"%QX300.0\" } ],\n        \"comm_ok_location\": \"%IX300.0\"\n      }\n    }\n  ],\n  \"gateway\": {\n    \"upper\": \"upper\",\n    \"routes\": [\n      {\n        \"slave\": { \"index\": \"0x2101\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4001\", \"subindex\": 0 },\n        \"name\": \"pong\"\n      },\n      {\n        \"slave\": { \"index\": \"0x2000\", \"subindex\": 1 },\n        \"field\": { \"network\": \"field\", \"node\": 2, \"index\": \"0x4000\", \"subindex\": 0 },\n        \"name\": \"ping\"\n      }\n    ],\n    \"status\": { \"index\": \"0x5E00\" },\n    \"emcy_forward\": true,\n    \"on_upper_loss\": \"zero\",\n    \"sdo_bridge\": true\n  }\n}\n"
  },
  "doc_schema_version": 2,
  "gateway": {
@@ -94,6 +94,111 @@
    "who": "slave object 0x2100:1"
   }
  ],
+ "modbus": {
+  "channels": [
+   {
+    "count": 47,
+    "direction": "input",
+    "function": 4,
+    "start": 5
+   },
+   {
+    "count": 1,
+    "direction": "input",
+    "function": 4,
+    "start": 150
+   },
+   {
+    "count": 1,
+    "direction": "output",
+    "function": 16,
+    "start": 150
+   }
+  ],
+  "input_bytes": 302,
+  "listen": "127.0.0.1:1502",
+  "max_clients": 16,
+  "on_client_loss": "stop",
+  "output_bytes": 302,
+  "readers": [],
+  "registers": [
+   {
+    "address": 50,
+    "byte": 100,
+    "count": 2,
+    "direction": "input",
+    "location": "%ID100",
+    "name": "pingpong.0x4001:0",
+    "network": "field",
+    "object": "0x4001:0",
+    "offset": "",
+    "scale": "",
+    "source": "pingpong",
+    "table": "input register",
+    "type": "UNSIGNED32",
+    "unit": "",
+    "word_order": "high_first"
+   },
+   {
+    "address": 80,
+    "byte": 10,
+    "count": 1,
+    "direction": "input",
+    "location": "%IX10.0",
+    "name": "pingpong.status",
+    "network": "field",
+    "object": "",
+    "offset": "",
+    "scale": "",
+    "source": "pingpong",
+    "table": "discrete input",
+    "type": "BOOL",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 2400,
+    "byte": 300,
+    "count": 1,
+    "direction": "input",
+    "location": "%IX300.0",
+    "name": "upper.comm_ok",
+    "network": "upper",
+    "object": "",
+    "offset": "",
+    "scale": "",
+    "source": "node 20",
+    "table": "discrete input",
+    "type": "BOOL",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 2400,
+    "byte": 300,
+    "count": 1,
+    "direction": "output",
+    "location": "%QX300.0",
+    "name": "node 20.0x2100:1",
+    "network": "upper",
+    "object": "0x2100:1",
+    "offset": "",
+    "scale": "",
+    "source": "node 20",
+    "table": "coil",
+    "type": "BOOL",
+    "unit": "",
+    "word_order": ""
+   }
+  ],
+  "sdo_bridge_write": false,
+  "unit_id": 1,
+  "watchdog_ms": 1000,
+  "word_order": "high_first",
+  "writers": [
+   "127.0.0.1"
+  ]
+ },
  "networks": [
   {
    "anchor": "net-field",
@@ -101,7 +206,6 @@
    "bus_load": {
     "cyclic": 2.48,
     "notes": [],
-    "plc_cycle_ms": null,
     "sync_ms": 100.0,
     "unbounded": [],
     "worst": 2.48
@@ -793,9 +897,8 @@
     "cyclic": 0.05,
     "notes": [
      "Another master runs this bus: its SYNC, its own frames, other devices and the RPDO rates are not in this configuration, so the totals count only the frames this device times itself.",
-     "The PLC cycle was not given: event-driven TPDOs, sent at most once per PLC scan, are left out of the worst case."
+     "The Modbus write rate is not known: event-driven TPDOs, sent at most once per write, are left out of the worst case."
     ],
-    "plc_cycle_ms": null,
     "sync_ms": null,
     "unbounded": [],
     "worst": 0.05
@@ -875,7 +978,7 @@
      "producer": "OpenPLC",
      "rate_cyclic": 0.0,
      "rate_worst": 0.0,
-     "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+     "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
     },
     {
      "bits": 95,
@@ -913,7 +1016,7 @@
      "producer": "OpenPLC",
      "rate_cyclic": 0.0,
      "rate_worst": 0.0,
-     "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+     "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
     },
     {
      "bits": 135,
@@ -932,7 +1035,7 @@
      "producer": "OpenPLC",
      "rate_cyclic": 0.0,
      "rate_worst": 0.0,
-     "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+     "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
     },
     {
      "bits": 135,
@@ -1243,7 +1346,7 @@
        "transmission": 255,
        "transmission_from_eds": true,
        "transmission_text": "event-driven",
-       "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+       "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
       },
       {
        "anchor": "pdo-upper-20-tpdo2",
@@ -1286,7 +1389,7 @@
        "transmission": 255,
        "transmission_from_eds": true,
        "transmission_text": "event-driven",
-       "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+       "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
       },
       {
        "anchor": "pdo-upper-20-tpdo3",
@@ -1329,7 +1432,7 @@
        "transmission": 255,
        "transmission_from_eds": true,
        "transmission_text": "event-driven",
-       "trigger": "on change, at most once per PLC scan; not counted: PLC cycle not given"
+       "trigger": "on change, at most once per Modbus write; not counted: the write rate is not known"
       },
       {
        "anchor": "pdo-upper-20-rpdo1",
