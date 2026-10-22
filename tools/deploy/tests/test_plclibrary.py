@@ -16,8 +16,7 @@ from .test_deploy import deploy
 
 # The ST blocks over the Modbus bridge's PLC link (add-openplc-modbus-target);
 # the C++ plugin blocks are no longer packaged.
-BLOCKS = ["CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
-          "CO_NMT", "CO_NODE_LIVE", "CO_SDO_READ", "CO_SDO_WRITE", "J1939_DTC_SPLIT", "J1939_NAME_SPLIT"]
+BLOCKS = ["CO_NMT", "CO_NODE_LIVE", "CO_SDO_READ", "CO_SDO_WRITE", "J1939_DTC_SPLIT", "J1939_NAME_SPLIT"]
 FUNCTIONS = ["CAN_GET_BITS", "CAN_GET_UINT16", "CAN_GET_UINT32", "CAN_J1939_ID", "CAN_J1939_PGN", "CAN_J1939_SOURCE",
              "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "CW_DWORD_TO_REAL", "CW_LREAL_TO_LWORD",
              "CW_LWORD_TO_LREAL", "CW_REAL_TO_DWORD", "J1939_DTC_MAKE", "J1939_GET_BITS", "J1939_NAME_MAKE",
@@ -38,12 +37,11 @@ class Archive(unittest.TestCase):
         self.assertEqual(sorted(plclibrary.function_names()), FUNCTIONS)
         # Every block's source travels in the archive (the editor shows it and
         # compiles it into the program), all ST: the PLC link blocks, the
-        # REAL helpers, the cyclic CiA 402 blocks, the CAN_ byte and bit
+        # REAL helpers, the CAN_ byte and bit
         # helpers and the J1939 value, bit and NAME helpers.
         helpers = [f + ".st" for f in FUNCTIONS if not f.startswith("CW_")] + ["CW_REAL.st", "J1939_DTC_SPLIT.st", "J1939_NAME_SPLIT.st"]
         self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
-                         sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
-                                 "CO402_CyclicVelocity.st", "CO_NMT.st", "CO_NODE_LIVE.st", "CO_SDO_READ.st",
+                         sorted(["CO_NMT.st", "CO_NODE_LIVE.st", "CO_SDO_READ.st",
                                  "CO_SDO_WRITE.st"] + helpers))
 
     def test_function_parameters(self):
@@ -174,7 +172,8 @@ class Cli(unittest.TestCase):
 
     def test_library_help(self):
         out = cli.library_parser().format_help()
-        self.assertIn("J1939 blocks", out)
+        self.assertIn("J1939 helper functions", " ".join(out.split()))
+        self.assertNotIn("CiA 402", out)
         self.assertIn("docs/plc-library.md", " ".join(out.split()).replace("plc- library", "plc-library"))
         self.assertNotIn("SDO library", out)
 

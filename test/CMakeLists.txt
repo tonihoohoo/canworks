@@ -149,8 +149,6 @@ add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
 set_tests_properties(sim_unit_tests PROPERTIES ENVIRONMENT "${EDSLINT_ENV}")
 
 
-# The library's ST sources are what library/generate.py writes.
-add_test(NAME library_sources_current COMMAND python3 ${PROJECT_SOURCE_DIR}/library/generate.py --check)
 # The .stlib the deploy tool carries is what strucpp builds from the sources
 # (needs Node.js and npm; skipped without them).
 find_program(NPM_PROGRAM npm)

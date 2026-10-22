@@ -639,9 +639,9 @@ def editor_lines(synced):
 def library_parser():
     p = argparse.ArgumentParser(
         prog="canworks-deploy library",
-        description="The %s function block library for the PLC program: CANopen blocks (SDO, EMCY, NMT), the "
-                    "cyclic CiA 402 blocks, CAN frame blocks and J1939 blocks (messages and trouble codes), with "
-                    "their helper functions. See docs/plc-library.md." % plclibrary.NAME)
+        description="The %s function block library for the PLC program: CANopen blocks over the bridge "
+                    "(SDO read and write, NMT, node live state) and CAN and J1939 helper functions. "
+                    "See docs/plc-library.md." % plclibrary.NAME)
     p.add_argument("--out", metavar="DIR",
                    help="write %s into DIR, for the editor's Library Manager (install from file)"
                         % plclibrary.FILE_NAME)

@@ -1,9 +1,9 @@
 """The canworks function block library for the PLC program: the CANopen
-(SDO, EMCY, NMT), CiA 402, CAN frame and J1939 blocks and their helper
-functions (spec plc-library).
+blocks over the bridge (SDO, NMT, node live state) and the CAN and J1939
+helper functions (spec plc-library).
 
-The package carries the library as built from library/canworks
-(library/build.sh); its version is set to this package's version when it is
+The package carries the library as built from library/modbus and
+library/canworks (library/build.sh); its version is set to this package's version when it is
 written out. `install()` puts it where OpenPLC Editor's Library Manager puts
 a library installed from a file: {userData}/libraries/<name>/<name>.stlib,
 registered in {userData}/libraries/registry.json.
