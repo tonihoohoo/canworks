@@ -344,7 +344,7 @@ function openEntry(e) {
     S.lssDevice = null;
     S.supervision = {};
   }
-  if (a.action === "add-node") { $("#eds-input").click(); return; }
+  if (a.action === "add-node") { addNodeDialog(); return; }
   if (a.node !== undefined) return showView("node:" + a.node);
   if (a.slave) return showView("bus");
   showView(a.view || "bus");

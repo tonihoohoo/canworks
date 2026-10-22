@@ -19,7 +19,7 @@ from canworks.codesys import plan as cplan
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tree_node, tree_view, new_config
+from .helpers import REPO, tree_node, tree_view, new_config, add_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import LINT, load
 
@@ -69,7 +69,7 @@ class CodesysPage(OnlineBase):
 
         def upload(eds):
             n = pg.evaluate("() => S.config.nodes.length")
-            pg.set_input_files("#eds-input", eds)
+            add_node(pg, eds)
             pg.wait_for_selector('[data-node-heading="%d"]' % n)
         upload(os.path.join(LINT, "nodeid-suffix.eds"))
         report = pg.locator('#banner [data-report="corrections"]')
@@ -78,8 +78,7 @@ class CodesysPage(OnlineBase):
         self.assertEqual(report.locator("li").all_text_contents(),
                          ['3 values written "<number>+$NODEID" are read as "$NODEID+<number>"'])
         upload(os.path.join(LINT, "real-decimal.eds"))
-        pg.wait_for_selector('#banner [data-report="readable"]')
-        self.assertEqual(pg.locator('#banner [data-report="corrections"]').count(), 0)
+        self.assertEqual(pg.locator('#banner [data-report]').count(), 0)
 
     def test_switch_hides_and_back(self):
         pg = self.page

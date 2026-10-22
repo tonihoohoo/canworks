@@ -11,7 +11,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, new_config, node_tab, tmpdir, tree_node
+from .helpers import REPO, new_config, node_tab, tmpdir, tree_node, add_node
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
@@ -125,7 +125,7 @@ class SaveAnytime(unittest.TestCase):
         self.assertEqual(pg.locator("#problem-list li.error").count(), 0)
         self.assertEqual(pg.locator("#problem-list li.warning", has_text="No nodes yet").count(), 1)
         pg.wait_for_selector("[data-empty-nodes]")
-        pg.set_input_files("#eds-input", os.path.join(TWO, "cpp-slave.eds"))
+        add_node(pg, os.path.join(TWO, "cpp-slave.eds"))
         pg.wait_for_selector('input[data-path="nodes[0].name"]')
         self.settled()
         self.assertEqual(pg.locator("#problem-list li.error").count(), 0, pg.locator("#problem-list").inner_text())

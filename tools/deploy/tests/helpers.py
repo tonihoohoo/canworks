@@ -361,3 +361,19 @@ def pick_network(page, k):
     file, without a connection bar, has it in its heading."""
     name = page.evaluate("(k) => netName(S.model.networks[k])", k)
     page.locator('select[data-online="network"]:visible').select_option(name)
+
+
+def add_node(page, eds, map_pdos=False, node_id=None, name=None):
+    """Adds a node from an EDS file as a user does: the file into the Add
+    node dialog (add-node-dialog), its fields, then Add. The dialog's "Map
+    the EDS's default PDOs" is unticked unless `map_pdos`, so a test starts
+    from a node without PDOs, as before the dialog."""
+    page.set_input_files("#eds-input", eds)
+    page.wait_for_selector('[data-add-node="dialog"][open]')
+    page.set_checked('[data-add-node="map"]', map_pdos)
+    if node_id is not None:
+        page.fill('[data-add-node="id"]', str(node_id))
+    if name is not None:
+        page.fill('[data-add-node="name"]', name)
+    page.click('[data-add-node="add"]')
+    page.wait_for_selector('[data-add-node="dialog"]', state="detached")

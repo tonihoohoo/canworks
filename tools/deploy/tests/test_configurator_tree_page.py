@@ -248,10 +248,13 @@ class Tree(unittest.TestCase):
         pg.fill('#modal-extra input[data-net="name"]', "axes")
         pg.click('#modal-buttons [data-value="rename"]')
         pg.wait_for_selector('#tree [data-key="1"] > .tree-row .name:text-is("axes")')
-        # Add node… under the second network adds it there.
-        with pg.expect_file_chooser() as fc:
-            tree_entry(pg, "1:add")
-        fc.value.set_files(DIO)
+        # Add node… under the second network opens the Add node dialog and adds it there.
+        tree_entry(pg, "1:add")
+        pg.wait_for_selector('[data-add-node="dialog"][open]')
+        pg.set_input_files('[data-add-node="file"]', DIO)
+        pg.wait_for_function("() => document.querySelector('[data-add-node=eds]').value")
+        pg.uncheck('[data-add-node="map"]')
+        pg.click('[data-add-node="add"]')
         pg.wait_for_selector('#tree [data-key="1:node:1"]')
         self.assertEqual(pg.evaluate("() => [S.net, S.config.nodes.length]"), [1, 2])
         pg.wait_for_selector('[data-node-tab-panel="general"]')

@@ -18,7 +18,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
-from .helpers import PINGPONG, REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, tool_tab
+from .helpers import PINGPONG, REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, tool_tab, add_node
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
@@ -172,7 +172,7 @@ class NetworksPage(unittest.TestCase):
         self.answer("rename")
         self.assertEqual(self.tabs(), ["vcan0", "drives"])
         # A node on drives, and online access once for both networks.
-        pg.set_input_files("#eds-input", os.path.join(PINGPONG, "cpp-slave.eds"))
+        add_node(pg, os.path.join(PINGPONG, "cpp-slave.eds"))
         pg.wait_for_selector('#tree [data-key="1:node:0"].selected')
         pg.wait_for_selector('[data-node-tab-panel="general"]')
         node_tab(pg, "supervision")

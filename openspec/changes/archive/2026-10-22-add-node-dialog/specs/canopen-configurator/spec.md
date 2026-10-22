@@ -1,14 +1,14 @@
 ## MODIFIED Requirements
 
 ### Requirement: Network tree
-In both workspaces of a config, the left column of the workspace tab SHALL be a network tree, and it SHALL be the only navigation there. The tree SHALL show every network of the config at once, each as an entry with its name and protocol (CANopen master, CANopen slave, J1939 or Plain CAN). Under a network it SHALL show the entries that network has:
+In both workspaces of a config, the left column of the workspace tab SHALL be a network tree, and it SHALL be the only navigation there. In Configure the tree SHALL start with a **Project** entry that opens the project page (target and online access). The tree SHALL show every network of the config at once, each as an entry with its name and protocol (CANopen master, CANopen slave, J1939 or Plain CAN). Under a network it SHALL show the entries that network has:
 - Bus and master (Bus and ECU on J1939, Bus on Plain CAN and on a slave network);
 - its nodes, sorted by node ID, each named by node ID and name;
 - the slave device on a slave network;
 - **Add node…** on a CANopen master network in Configure, which opens the Add node dialog for that network (see "Add node dialog");
 - PDO links and CAN messages, when the network has them today.
 
-After the networks the tree SHALL show Online access (Configure), Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are folded SHALL be kept on this PC and SHALL come back after a page reload; a folded network SHALL show the sum of its entries' problem counts, and SHALL unfold by itself when a problem link opens an entry in it. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
+After the networks the tree SHALL show Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are folded SHALL be kept on this PC and SHALL come back after a page reload; a folded network SHALL show the sum of its entries' problem counts, and SHALL unfold by itself when a problem link opens an entry in it. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
 
 #### Scenario: Two networks at once
 - **WHEN** a config has networks `io` with nodes 5 and 7 and `drives` with node 2
@@ -21,6 +21,10 @@ After the networks the tree SHALL show Online access (Configure), Gateway and Mo
 #### Scenario: Remove a network from its menu
 - **WHEN** the user opens the menu of network `drives`, which has 3 nodes, and picks **Remove…**
 - **THEN** the page asks for confirmation naming `drives` and its 3 nodes, with Cancel as the default
+
+#### Scenario: Project entry
+- **WHEN** a config is open in Configure
+- **THEN** the tree's first entry is Project, and it opens the target and Online access
 
 ### Requirement: Node tabs
 A node page in Configure SHALL show its heading, Export DCF and Remove node above a tab list, and SHALL show one tab at a time:

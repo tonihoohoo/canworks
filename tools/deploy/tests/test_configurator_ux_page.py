@@ -14,7 +14,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab
+from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -418,13 +418,15 @@ class Probes(Layout):
         pg.keyboard.press("Space")
         pg.wait_for_selector('#view h2:has-text("Node 5")')
         self.assertEqual(pg.evaluate("() => document.activeElement.dataset.node"), "2")
-        # Down from the last node reaches "Add node…"; Space opens the file picker.
+        # Down from the last node reaches "Add node…"; Space opens the Add node dialog.
         pg.keyboard.press("ArrowDown")
         pg.keyboard.press("ArrowDown")
         self.assertEqual(pg.evaluate("() => document.activeElement.dataset.action"), "add-node")
-        with pg.expect_file_chooser() as fc:
-            pg.keyboard.press("Space")
-        fc.value.set_files(os.path.join(RTD, "rtd8.eds"))
+        pg.keyboard.press("Space")
+        pg.wait_for_selector('[data-add-node="dialog"][open]')
+        pg.set_input_files('[data-add-node="file"]', os.path.join(RTD, "rtd8.eds"))
+        pg.wait_for_function("() => document.querySelector('[data-add-node=eds]').value")
+        pg.click('[data-add-node="add"]')
         pg.wait_for_selector('#tree [data-node="3"]')
         # Startup SDO writes: ↓ and ↑ keep the focus with the moved write; Add focuses its value.
         self.node(2, "sdos")
@@ -554,7 +556,7 @@ class Probes(Layout):
     def test_add_node_focuses_its_name(self):
         pg = self.page
         self.open()
-        pg.set_input_files("#eds-input", os.path.join(RTD, "rtd8.eds"))
+        add_node(pg, os.path.join(RTD, "rtd8.eds"), name="rtd8")
         pg.wait_for_selector('#view h2:has-text("Node 3 rtd8")')  # the first free ID after the master's
         self.assertEqual(self.active(), "nodes[3].name")
         pg.keyboard.type("x")

@@ -15,7 +15,7 @@ import unittest
 from canworks import docexport
 from canworks.configurator import server as srv
 
-from .helpers import REPO, node_tab, show_path, tmpdir
+from .helpers import REPO, node_tab, show_path, tmpdir, add_node
 
 try:
     from playwright.sync_api import sync_playwright
@@ -184,7 +184,7 @@ class Configurator(Browser):
         pg.fill("[data-folder=path]", self.project)
         pg.click("[data-folder=dialog] [data-value=use]")
         pg.wait_for_selector("#editor:not([hidden])")
-        pg.set_input_files("#eds-input", os.path.join(RTD, "rtd8.eds"))
+        add_node(pg, os.path.join(RTD, "rtd8.eds"))
         pg.wait_for_selector('[data-node-heading="0"]')
         node_tab(pg, "general")
         pg.fill('input[data-path="nodes[0].node_id"]', "5")

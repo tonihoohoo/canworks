@@ -954,6 +954,12 @@ td:has(> input, > select, > button, > .row), td:has(> label.check) { height: 32p
 /* The folder dialog (chooseFolder) and the EDS library row (browse-eds-library-folder). */
 dialog.folder-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; }
 dialog.folder-dialog h2 { margin-top: 0; font-size: 16px; }
+dialog.add-node-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; }
+dialog.add-node-dialog h2 { margin-top: 0; font-size: 16px; }
+dialog.add-node-dialog .grid { grid-template-columns: 1fr 1fr; }
+dialog.add-node-dialog .wide { grid-column: 1 / -1; }
+dialog.add-node-dialog select[size] { width: 100%; min-height: 9em; }
+dialog.add-node-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; }
 .folder-field { display: flex; gap: 6px; }
 .folder-field input { flex: 1; min-width: 0; }
 .folder-picker .row { display: flex; gap: 6px; }
@@ -1013,8 +1019,11 @@ table > tbody > tr.row-selected > td:first-child, table.od-tree tbody tr.od-sele
 /* Project targets (target.js): CODESYS's report. */
 pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--hover); padding: 8px; border-radius: 4px; }
 #new-target-row { align-items: center; gap: 8px; margin-bottom: 8px; }
-/* A PDO entry's variable name grows with its name or the generated one. */
+/* A PDO entry's variable name grows with its name or the whole declared name
+   (its placeholder). A long message under a field breaks anywhere (a file
+   path in a clash), so it never widens the table. */
 .pdo td input[data-entry-variable] { field-sizing: content; min-width: 9ch; max-width: 100%; }
+.pdo td .field-msg { overflow-wrap: anywhere; }
 .pdo td input[data-path$=".iec_location"] { min-width: 10ch; }
 
 /* Devices workspace (devices.js) */
@@ -1116,3 +1125,7 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
 .node-live { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; color: var(--muted); }
 .node-live > span:first-child { color: var(--text); font-weight: 600; }
 
+
+/* A PDO entry that reaches no PLC variable (add-node-dialog). */
+.unmapped { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin-top: 2px; white-space: normal; }
+.warning-text { color: var(--st-warn); }
