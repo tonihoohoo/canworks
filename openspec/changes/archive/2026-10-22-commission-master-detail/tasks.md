@@ -22,4 +22,5 @@
 
 ## 5. Hardware test (Pi)
 
-- [ ] 5.1 Node 23 with heartbeat: Last heard under 0.2 s in the Nodes table and node header; switch it off and Last heard grows
+- [x] 5.1 Node 23 with heartbeat: Last heard stays under the heartbeat period in the Nodes table and node header; switch it off and Last heard grows (criterion corrected: "under 0.2 s" only fits a ~100 ms heartbeat)
+  - PASSED 2026-10-22 on the bench Pi from the Mac: node 23 heartbeat 1000 ms; Last heard sampled every 250 ms ran a 0 to ~0.8-1 s sawtooth (438, 708, 126, 267, 537, 807, 78 ms). After SDO write 0x1017:00 = 0 it grew without reset (18, 548, 807 ms ... ) until the master's own 3000 ms heartbeat timeout rebooted node 23, which restored 0x1017 = 1000. Wrote 1000 back by hand; no store, 0x1010 untouched.
