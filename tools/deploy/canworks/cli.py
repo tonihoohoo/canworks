@@ -302,7 +302,7 @@ def _export_modbus_map(config, path, out):
         raise Failure("%s: %s" % (config, e))
     except OSError as e:
         raise Failure("cannot write %s: %s" % (path, e))
-    out("wrote %s: %d register map entries" % (path, len(rows)))
+    out("wrote %s: %d register map entries, map hash 0x%08x" % (path, len(rows), modbusmap.map_hash(cfg)))
     return 0
 
 

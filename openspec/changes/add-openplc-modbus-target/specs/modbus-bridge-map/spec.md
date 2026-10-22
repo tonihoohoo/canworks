@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Map hash
-The PC tools and the bridge SHALL compute the same 32-bit map hash of a bridge config: CRC-32 (IEEE 802.3) of a text with one line per located value, sorted by direction (`I` before `Q`) and first byte, each `<I|Q> <first byte> <byte count> <bit number or -> <type>` (the CANopen or signal type name), followed by the line `word_order low_first` or `word_order high_first`, lines ending in a newline. Names SHALL NOT be part of it. `canworks-deploy --export-modbus-map` SHALL print it, and the map export formats SHALL carry it.
+The PC tools and the bridge SHALL compute the same 32-bit map hash of a bridge config: CRC-32 (IEEE 802.3) of a text with one line per located value, sorted by direction (`I` before `Q`) and first byte, each `<I|Q> <first byte> <byte count> <bit number or ->`, followed by the line `word_order low_first` or `word_order high_first`, lines ending in a newline. Names and types SHALL NOT be part of it (the program converts by the generated declarations, which Update declarations rewrites). For an `openplc` config the located values include the map hash block (input bytes 0-3), the status block (input bytes 4-11) and the PLC link header (output bytes 0-5). `canworks-deploy --export-modbus-map` SHALL print it, and the JSON and ST map formats SHALL carry it.
 
 #### Scenario: Rename keeps the hash
 - **WHEN** an entry's `name` changes and nothing else
 - **THEN** the map hash is unchanged
 
-#### Scenario: Retyped entry
-- **WHEN** an entry's location stays and its type changes from INTEGER16 to UNSIGNED16
+#### Scenario: Moved entry
+- **WHEN** an entry's location moves from `%IW12` to `%IW14`
 - **THEN** the map hash changes
 
 #### Scenario: Same hash on both sides

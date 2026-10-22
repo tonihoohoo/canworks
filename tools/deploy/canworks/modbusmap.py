@@ -14,6 +14,7 @@ import copy
 import csv
 import io
 import json
+import zlib
 
 from .iec import Location, parse_location
 
@@ -36,6 +37,14 @@ BRIDGE_BLOCKS = {
 LIVE_LIST_BYTES = 16
 SDO_BRIDGE_BYTES = 14
 
+# bridge.openplc: the map hash at input bytes 0-3, the status block at input
+# byte 4, the PLC link header (running, hash high, hash low) at output bytes
+# 0-5. Fixed places, packing starts after them.
+OPENPLC_HASH_BYTES = 4
+OPENPLC_STATUS = "%IB4"
+OPENPLC_HEADER_BYTES = 6
+OPENPLC_FIRST_FREE = {"I": 12, "Q": 6}
+
 MAX_READ_REGISTERS = 125
 MAX_WRITE_REGISTERS = 123
 WORD_ORDERS = ("high_first", "low_first")
@@ -52,6 +61,18 @@ class MapError(ValueError):
 
 def is_bridge_config(cfg):
     return isinstance(cfg, dict) and isinstance(cfg.get("bridge"), dict)
+
+
+def is_openplc(cfg):
+    """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
+    return is_bridge_config(cfg) and isinstance(cfg["bridge"].get("openplc"), dict)
+
+
+def word_order_of(cfg):
+    """The bridge's word order; an openplc config is always low word first."""
+    if is_openplc(cfg):
+        return "low_first"
+    return cfg["bridge"].get("word_order", "high_first")
 
 
 class Item:
@@ -158,11 +179,19 @@ def _walk(value, ctx, out):
 
 def _bridge_items(bridge):
     out = []
+    openplc = isinstance(bridge.get("openplc"), dict)
+    if openplc:
+        out.append(_block_item({}, "location", "%IB0", "I", OPENPLC_HASH_BYTES, "bridge.map_hash", fixed=True))
+        out.append(_block_item({}, "location", "%QB0", "Q", OPENPLC_HEADER_BYTES, "bridge.plc_link", fixed=True))
     for key, (area, nbytes) in BRIDGE_BLOCKS.items():
         text = bridge.get(key)
+        fixed = openplc and key == "status_location"
+        if text is None and fixed:
+            out.append(_block_item({}, key, OPENPLC_STATUS, area, nbytes, "bridge.status", fixed=True))
         if text is None:
             continue
-        out.append(_block_item(bridge, key, text, area, nbytes, "bridge." + key[: -len("_location")]))
+        out.append(_block_item(bridge, key, text, area, nbytes, "bridge." + key[: -len("_location")],
+                               fixed=fixed))
     for i, entry in enumerate(bridge.get("live_lists") or []):
         if isinstance(entry, dict) and "location" in entry:
             out.append(_block_item(entry, "location", entry["location"], "I", LIVE_LIST_BYTES,
@@ -177,12 +206,30 @@ def _bridge_items(bridge):
     return out
 
 
-def _block_item(holder, key, text, area, nbytes, name, network=None):
+def _block_item(holder, key, text, area, nbytes, name, network=None, fixed=False):
     loc = parse_location(text)
     if loc is None or loc.size != "B" or loc.area != area:
         raise MapError("%s: %r must be a byte location in %%%s (a %d-byte block starts there)"
                        % (name, text, area, nbytes))
-    return Item(holder, key, text, loc, "bridge", name, network, None, "", nbytes=nbytes)
+    return Item(holder, key, text, loc, "bridge", name, network, None, "", nbytes=nbytes,
+                extra={"fixed": True} if fixed else None)
+
+
+def map_hash_text(cfg):
+    """The canonical text the map hash is taken over (modbus-bridge-map):
+    one line per located value "<I|Q> <first byte> <byte count> <bit or ->",
+    sorted, then the word order. Same as map_hash_text in config.cpp."""
+    rows = sorted((0 if it.loc.area == "I" else 1, it.loc.index, it.nbytes,
+                   it.loc.bit if it.loc.size == "X" else -1) for it in collect(cfg))
+    lines = ["%s %d %d %s" % ("IQ"[a], first, n, "-" if bit < 0 else bit) for a, first, n, bit in rows]
+    lines.append("word_order " + word_order_of(cfg))
+    return "\n".join(lines) + "\n"
+
+
+def map_hash(cfg):
+    """CRC-32 (IEEE 802.3) of map_hash_text: what the bridge serves at input
+    registers 0-1 and the program writes to holding registers 1-2."""
+    return zlib.crc32(map_hash_text(cfg).encode("ascii")) & 0xFFFFFFFF
 
 
 def collect(cfg):
@@ -316,7 +363,7 @@ def register_map(cfg):
     problems = check(items)
     if problems:
         raise MapError("; ".join(problems), problems)
-    word_order = cfg["bridge"].get("word_order", "high_first")
+    word_order = word_order_of(cfg)
     if word_order not in WORD_ORDERS:
         raise MapError("bridge.word_order must be high_first or low_first, not %r" % word_order)
     order = {"input register": 0, "discrete input": 1, "holding register": 2, "coil": 3}
@@ -385,7 +432,8 @@ def to_json(cfg, rows):
     doc = {
         "listen": b.get("listen", ""),
         "unit_id": b.get("unit_id", 1),
-        "word_order": b.get("word_order", "high_first"),
+        "word_order": word_order_of(cfg),
+        "map_hash": "0x%08x" % map_hash(cfg),
         "input_bytes": inputs,
         "output_bytes": outputs,
         "registers": rows,
@@ -410,9 +458,9 @@ def _st_name(name):
 def to_st(cfg, rows):
     """A VAR_GLOBAL list for a PLC that reads the bridge as a Modbus client,
     plus a comment table of suggested client channels."""
-    lines = ["(* Modbus register map of the canworks bridge at %s, unit %s, word order %s. *)"
+    lines = ["(* Modbus register map of the canworks bridge at %s, unit %s, word order %s, map hash 0x%08x. *)"
              % (cfg["bridge"].get("listen", "?"), cfg["bridge"].get("unit_id", 1),
-                cfg["bridge"].get("word_order", "high_first")),
+                word_order_of(cfg), map_hash(cfg)),
              "VAR_GLOBAL"]
     taken = set()
     for r in rows:
@@ -483,9 +531,9 @@ def pack(cfg):
     if not is_bridge_config(cfg):
         raise MapError("not a bridge config: it has no top-level \"bridge\" object")
     out = copy.deepcopy(cfg)
-    items = collect(out)
+    items = [it for it in collect(out) if not it.extra.get("fixed")]
     for area in "IQ":
-        pos = 0
+        pos = OPENPLC_FIRST_FREE[area] if is_openplc(out) else 0
         bit_byte = None
         bit_next = 8
         for kind in ("data", "status", "bridge"):

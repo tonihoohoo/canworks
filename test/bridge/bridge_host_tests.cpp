@@ -402,6 +402,9 @@ TEST(map_matches_the_pc_tools) {
   if (!map) return;
   EXPECT(cJSON_GetObjectItem(map, "input_bytes")->valueint == static_cast<int>(h.host.image().input_size()));
   EXPECT(cJSON_GetObjectItem(map, "output_bytes")->valueint == static_cast<int>(h.host.image().output_size()));
+  char hash[16];
+  std::snprintf(hash, sizeof hash, "0x%08x", canopen_plugin::map_hash(h.host.set()));
+  EXPECT(std::string(cJSON_GetObjectItem(map, "map_hash")->valuestring) == hash);
   std::vector<canopen_plugin::ImageUse> uses = canopen_plugin::image_uses(h.host.set());
   int rows = 0;
   const cJSON* r;

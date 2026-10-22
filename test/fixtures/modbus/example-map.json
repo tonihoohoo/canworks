@@ -2,6 +2,7 @@
   "listen": "0.0.0.0:1502",
   "unit_id": 1,
   "word_order": "high_first",
+  "map_hash": "0x5ecd4328",
   "input_bytes": 62,
   "output_bytes": 26,
   "registers": [
