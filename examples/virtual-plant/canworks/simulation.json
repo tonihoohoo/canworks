@@ -65,15 +65,20 @@
     },
     "motion": {
       "nodes": {
-        "4": { "drive": { "max_velocity": 50000, "lag_ms": 20 } }
+        "4": {
+          "sources": {
+            "0x2100:1": { "expr": "lag([0x2000:1], 0.5)" },
+            "0x2101:1": { "expr": "integrate([0x2100:1]) / 10" }
+          }
+        }
       },
       "scenarios": {
-        "drive-moves": {
+        "conveyor-runs": {
           "test": true,
-          "description": "The program homes the drive and moves it between 0 and 1000 while the host runs the line.",
+          "description": "The program runs the conveyor at speed 1000 while the host runs the line: the actual speed follows the set-point.",
           "steps": [
-            { "wait": { "node": 4, "object": "0x6064", "ge": 999 }, "timeout_ms": 30000 },
-            { "wait": { "node": 4, "object": "0x6064", "le": 1 }, "timeout_ms": 30000 }
+            { "wait": { "node": 4, "object": "0x2000:1", "eq": 1000 }, "timeout_ms": 30000 },
+            { "expect": { "node": 4, "object": "0x2100:1", "ge": 990 }, "within_ms": 5000 }
           ]
         }
       }

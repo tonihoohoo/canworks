@@ -16,7 +16,7 @@ VendorName=OpenPLC
 VendorNumber=0x00000000
 ProductName=Virtual plant cell gateway
 ProductNumber=0x00000003
-RevisionNumber=0x2A576D3F
+RevisionNumber=0xF4BA1C1A
 OrderCode=Virtual plant cell gateway
 BaudRate_10=1
 BaudRate_20=1
@@ -98,7 +98,7 @@ ParameterName=Revision number
 ObjectType=0x7
 DataType=0x0007
 AccessType=ro
-DefaultValue=0x2A576D3F
+DefaultValue=0xF4BA1C1A
 PDOMapping=0
 
 [1018sub4]
@@ -1830,7 +1830,7 @@ DefaultValue=1
 PDOMapping=0
 
 [2101sub1]
-ParameterName=axis_position
+ParameterName=belt_position
 ObjectType=0x7
 DataType=0x0004
 AccessType=ro
