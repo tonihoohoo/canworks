@@ -1,7 +1,7 @@
 "use strict";
 // The network tree (network-tree-and-node-tabs): the only navigation of a
 // config's workspace tab. Every network at once, with its Bus and master,
-// nodes, PDO links and CAN messages; the config-wide Online access, Gateway,
+// nodes, PDO links and CAN messages; the Project page (target, Online access) first, the config-wide Gateway,
 // Modbus bridge and CODESYS after them (only what the project's target uses). Each entry carries its problem counts; a
 // node its simulated or absent mark. Follows the WAI-ARIA tree view pattern:
 // one tab stop, arrow keys, type-ahead. Loaded after app.js.
@@ -12,7 +12,7 @@ S.treeFolded = S.treeFolded || new Set();
 function netKey(net, k) { return netName(net) || "#" + k; }
 
 // The entry an open page is: "<net>:bus", "<net>:node:<i>", "<net>:raw",
-// "<net>:links", "access", "gateway", "bridge"; Commission: "<net>" or
+// "<net>:links", "project", "gateway", "bridge"; Commission: "<net>" or
 // "<net>:node:<i>".
 function selectedEntry() {
   if (workspace() === "commission") {
@@ -25,7 +25,7 @@ function selectedEntry() {
     return String(k);
   }
   const v = S.wsView && isTool(S.view) ? S.wsView.configure : S.view;
-  if (v === "access" || v === "gateway" || v === "bridge" || v === "codesys") return v;
+  if (v === "project" || v === "gateway" || v === "bridge" || v === "codesys") return v;
   if (v && v.startsWith("node:")) return `${S.net}:${v}`;
   if (v === "bus" || v === "raw" || v === "links") return `${S.net}:${v}`;
   return `${S.net}:bus`;
@@ -34,7 +34,7 @@ function selectedEntry() {
 // The tree's place of a check path ({ net, path }): [entry, node tab or null].
 function entryOfPath(w) {
   const path = typeof w.path === "string" ? w.path : "";
-  if (path.startsWith("master.diagnostics") || path.startsWith("master.cia309") || (w.net === null && path.startsWith("cia309"))) return ["access", null];
+  if (path.startsWith("master.diagnostics") || path.startsWith("master.cia309") || (w.net === null && path.startsWith("cia309"))) return ["project", null];
   if (path.startsWith("gateway")) return ["gateway", null];
   if (path.startsWith("bridge")) return ["bridge", null];
   if ((w.net === null || w.net === undefined) && path.startsWith("codesys")) return ["codesys", null];
@@ -165,6 +165,8 @@ function treeModel() {
   const commission = workspace() === "commission";
   const nets = S.model.networks;
   const out = [];
+  // The project's own page leads: its target and Online access.
+  if (!commission) out.push({ key: "project", label: "Project", attrs: { view: "project" }, id: "nav-project" });
   nets.forEach((net, k) => {
     if (commission && (isJ1939(net) || isPlain(net))) {
       out.push({ key: String(k), label: netLabel(net, k), sub: protocolText(net), net: k, kids: [], attrs: { net: k } });
@@ -195,9 +197,6 @@ function treeModel() {
     out.push({ key: String(k), label: netLabel(net, k), sub: protocolText(net), net: k, kids, attrs: { net: k } });
   });
   if (!commission) {
-    if (usedBy("ui:runtime")) {
-      out.push({ key: "access", label: "Online access", attrs: { view: "access" }, id: "nav-access" });
-    }
     const gateway = usedBy("/gateway") && (S.model.top.gateway || (nets.some(isSlave) && nets.some((n) => !isSlave(n))));
     if (gateway) out.push({ key: "gateway", label: "Gateway", attrs: { view: "gateway" }, id: "nav-gateway" });
     if (S.model.top.bridge) out.push({ key: "bridge", label: "Modbus bridge", attrs: { view: "bridge" }, id: "nav-bridge" });

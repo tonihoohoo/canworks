@@ -14,7 +14,7 @@ from unittest import mock
 
 from canworks.configurator import online
 
-from .helpers import PINGPONG, header_action
+from .helpers import PINGPONG, header_action, tool_tab
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
 from .test_configurator_layout import audit
 from .test_configurator_localbus_page import AdapterPage as _Page
@@ -198,13 +198,13 @@ class FrameLabPage(Page):
         pg = self.page
         self.open_node(5, "params", "rtd8.eds")
         for leave in ('button[data-view="nodes"]', "[data-fx-mode=build]"):
-            pg.click('button[data-view="framelab"]')
+            tool_tab(pg, "framelab")
             pg.wait_for_selector("[data-fx=examples] .chip")
             pg.click(leave)
             if leave.startswith("[data-fx"):
                 pg.click("[data-fx-mode=examples]")
             else:
-                pg.click('button[data-view="framelab"]')
+                tool_tab(pg, "framelab")
             pg.wait_for_selector("[data-fx=examples] .chip")
             self.assertNotIn("[object ", pg.inner_text("#fx-lab-panel"))
             self.assertIn("Boot-up", pg.inner_text("#fx-lab-panel"))

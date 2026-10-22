@@ -403,10 +403,10 @@ For each PDO the configurator SHALL show whether its mapping is written from the
 - **THEN** the PDO saves with `"mapping": "device"` only after 0x4002 sub 0 is removed, and until then the entry shows an error listing the default mapping
 
 ### Requirement: Online access settings
-The tree SHALL have an **Online access** entry, once for the whole config, that turns `master.diagnostics` on and off and edits its port, bind address and "allow changes" (off by default, with a warning that anyone with the token can then write parameters and stop nodes). Turning it on SHALL generate a random token of at least 128 bits, write only its SCRAM-SHA-256 verifier to `token_verifier`, and keep the token in the configurator's own settings on this PC for this project, never in the project folder. The page SHALL let the user copy the token, enter an existing token (for a project set up on another PC, checked against `token_verifier`), and generate a new one. When a project's config still has the former `token_sha256`, the page SHALL say that the token must be set again for the encrypted channel and, when this PC holds the matching token, offer **Upgrade**, which replaces `token_sha256` with a `token_verifier` for the same token; otherwise **New token** or **Enter token…** replaces it. The runtime host for online access SHALL be stored with the token and default to the host last used by the deploy tool when known.
+The tree's **Project** entry SHALL hold **Online access**, once for the whole config: it turns `master.diagnostics` on and off and edits its port, bind address and "allow changes" (off by default, with a warning that anyone with the token can then write parameters and stop nodes). Turning it on SHALL generate a random token of at least 128 bits, write only its SCRAM-SHA-256 verifier to `token_verifier`, and keep the token in the configurator's own settings on this PC for this project, never in the project folder. The page SHALL let the user copy the token, enter an existing token (for a project set up on another PC, checked against `token_verifier`), and generate a new one. When a project's config still has the former `token_sha256`, the page SHALL say that the token must be set again for the encrypted channel and, when this PC holds the matching token, offer **Upgrade**, which replaces `token_sha256` with a `token_verifier` for the same token; otherwise **New token** or **Enter token…** replaces it. The runtime host for online access SHALL be stored with the token and default to the host last used by the deploy tool when known.
 
 #### Scenario: Enable online access
-- **WHEN** the user opens Online access in the tree, turns it on in a project and saves
+- **WHEN** the user opens Project in the tree, turns Online access on in a project and saves
 - **THEN** `canworks.json` has `master.diagnostics` with `token_verifier` and neither the token nor `token_sha256`, and the configurator's settings hold the token for this project
 
 #### Scenario: Token from another PC
@@ -1757,11 +1757,15 @@ A device's node tabs SHALL be those of "Commission node tabs", and its Status ta
 - **THEN** the Nodes table says in place of its rows that it lists the devices once connected with Connect… in the connection bar, with no connect form or button of its own
 
 ### Requirement: Network picker in online and trace views
-When the runtime reports more than one network, the connection bar SHALL have a network picker. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network of the entry selected in Configure's tree. In Commission, picking a tree entry on another network SHALL move the picker, and changing the picker SHALL select that network's tree entry.
+The connection bar's network picker SHALL be the only network picker of the Commission pages, Trace, Simulation and Frame lab; no tab row or tool SHALL have its own. When the runtime reports more than one network, the picker SHALL list them; while not connected, it SHALL list the config's networks. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network of the entry selected in Configure's tree. In Commission, picking a tree entry on another network SHALL move the picker, and changing the picker SHALL select that network's tree entry.
 
 #### Scenario: Online view of the second network
 - **WHEN** the runtime runs `io` and `drives` and the user picks `drives` in the connection bar
 - **THEN** the Commission workspace shows `drives`' bus state and nodes, the tree selects `drives`, and SDO, NMT, parameter and object dictionary actions go to `drives`
+
+#### Scenario: One picker on Trace
+- **WHEN** the virtual plant example is open, connected, on Trace
+- **THEN** the only network control on the page is the connection bar's picker
 
 ### Requirement: Workspaces
 With a config open, the header SHALL have a **Configure | Commission** switch:
@@ -1783,20 +1787,24 @@ Commission a device SHALL open in Commission and SHALL show no switch. Switching
 - **THEN** the header has no Configure | Commission switch
 
 ### Requirement: Tool tabs
-Next to the workspace's own tab (**Network** in Configure, **Nodes** in Commission), the header SHALL have tool tabs:
-- **Variable declarations** in Configure;
-- **Simulation** in both workspaces of a config;
-- **Trace** and **Frame lab** in every workspace.
+Next to the workspace's own tab (**Network** in Configure, **Nodes** in Commission), the header SHALL have tool tabs, each tool in one workspace only:
+- **Variable declarations** (OpenPLC) and **Simulation file** in Configure of a config;
+- **Simulation** (live values, faults and power, with a link that edits the simulation file in Configure), **Trace** and **Frame lab** in Commission;
+- **Trace** and **Frame lab** in Commission a device.
 
-A tool tab SHALL use the full page width, with no network tree, side bar or bottom panel. The network tree SHALL list no tools. The tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
+A link to a tool of the other workspace SHALL switch to that workspace. A tool tab SHALL use the full page width, with no network tree, side bar or bottom panel. The network tree SHALL list no tools. The tabs SHALL follow the page's tab pattern (see "Keyboard access and announcements").
 
 #### Scenario: Trace from a node page
-- **WHEN** the user is on node 5's PDOs tab in Configure and picks the Trace tab
-- **THEN** the trace view fills the width of the page, and picking Network returns to node 5's PDOs tab
+- **WHEN** the user is on node 5's PDOs tab in Configure and follows a problem's link to the Trace
+- **THEN** the page switches to Commission with the trace view filling the width of the page, and switching back to Configure returns to node 5's PDOs tab
 
 #### Scenario: Tools in Commission a device
 - **WHEN** the user opens Commission a device
 - **THEN** the tabs are Nodes, Trace and Frame lab
+
+#### Scenario: Tools of a config
+- **WHEN** a config is open
+- **THEN** Configure's tabs are Network, Variable declarations and Simulation file, and Commission's tabs are Nodes, Simulation, Trace and Frame lab
 
 ### Requirement: Connection bar
 The connection bar SHALL be the one place on the page to connect and disconnect. It SHALL show under the header: always in Commission, and in Configure while connected and on the Trace and Simulation tool tabs. It SHALL show:
@@ -1832,22 +1840,22 @@ While connecting it SHALL show the step of the bit rate check and **Cancel**. Wh
 - **THEN** each page shows exactly one Connect… button, the one in the connection bar, and each page's own text says what it needs a connection for
 
 ### Requirement: Connect panel
-**Connect…** in the connection bar SHALL open one connect panel, and the panel SHALL be the only place to connect. No page SHALL have a connect form or a button that opens the panel.
+**Connect…** in the connection bar SHALL open one connect panel, and the panel SHALL be the only place to connect. No page SHALL have a connect form or a button that opens the panel, except Trace's Start while not connected (see "Trace Start without a connection").
 
 The panel SHALL list first up to three recent connections of this PC of the kinds it offers, each connectable with one click. A recent adapter connection SHALL still run the bit rate check and SHALL start with Allow changes off. Recent connections SHALL be kept in the configurator's settings on this PC without tokens. The panel SHALL NOT open by itself on entering Commission.
 
 In Commission a device the panel SHALL offer two targets, **USB adapter** (the default) and **Adapter on another machine**:
 - USB adapter: the found adapters with Refresh, or a typed target; the bit rate, picked by the user, with no detection and no default; "Device's node ID, to check the bit rate", for adapters that cannot report a sent frame; **Allow changes**, unticked; **Connect**;
-- Adapter on another machine: the adapter servers found on the local network and a host field (`HOST[:PORT]`, port 7536 when not given); the server's adapter and bit rate once known; the token prompt when this PC has no token for that host, the token then kept on this PC per host; **Allow changes**, unticked; **Connect**.
+- Adapter on another machine: one host combobox listing the adapter servers found on the local network and taking a typed host (`HOST[:PORT]`, port 7536 when not given); the server's adapter and bit rate once known; a token field inside the panel when this PC has no token for that host, the token then kept on this PC per host; **Allow changes**, unticked; **Connect**.
 
 A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
 
 With a config the panel SHALL offer three targets, **Runtime** (the default), **Standalone simulator** and **Adapter on another machine**:
-- Runtime: the found and remembered runtimes, the host field and **Local simulator runtime**; the token prompt when this PC has no matching token; **Connect**;
+- Runtime: one host combobox listing the found and remembered runtimes and "Local simulator runtime" and taking a typed host, saying "Looking for runtimes…" while it searches; a token field inside the panel when this PC has no matching token; **Connect**;
 - Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**;
 - Adapter on another machine: as in Commission a device, with a warning when the server's bit rate differs from the network's.
 
-When the config's online access is off, the Runtime target SHALL say so and link to Configure → Bus and master; the other targets SHALL still work.
+A token SHALL never be asked in a second dialog over the panel. When the config's online access is off, the Runtime target SHALL say so and link to Configure → Project; the other targets SHALL still work.
 
 The last target (including Runtime, Standalone simulator or Adapter on another machine) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
 
@@ -1857,7 +1865,7 @@ The last target (including Runtime, Standalone simulator or Adapter on another m
 
 #### Scenario: Runtime needs a token
 - **WHEN** the user picks a found runtime and this PC has no token for the config
-- **THEN** the panel asks for the token, accepts it only if it matches the config's verifier, and connects
+- **THEN** the panel shows a token field next to Connect, accepts the token only if it matches the config's verifier, and connects, with no second dialog
 
 #### Scenario: Disconnect frees the adapter
 - **WHEN** the user presses Disconnect in the bar while connected to an adapter
@@ -1872,7 +1880,7 @@ The last target (including Runtime, Standalone simulator or Adapter on another m
 - **THEN** the panel closes, the connection bar shows the simulator's address and Disconnect, and Simulation shows its devices
 
 #### Scenario: Adapter on another machine
-- **WHEN** the user opens Commission a device, picks Adapter on another machine, chooses the found server `linuxbox`, enters its token and presses Connect
+- **WHEN** the user opens Commission a device, picks Adapter on another machine, chooses the found server `linuxbox`, enters its token in the panel and presses Connect
 - **THEN** the connection bar shows the adapter and `linuxbox` with the round trip, and the commission pages work on linuxbox's bus; the next time the token is not asked again
 
 #### Scenario: Bit rate differs from the network
@@ -2174,14 +2182,14 @@ Send… SHALL put nothing on the bus itself. It SHALL be enabled only while a co
 - **THEN** Send… is disabled and says that sending needs a connection with Allow changes
 
 ### Requirement: Network tree
-In both workspaces of a config, the left column of the workspace tab SHALL be a network tree, and it SHALL be the only navigation there. The tree SHALL show every network of the config at once, each as an entry with its name and protocol (CANopen master, CANopen slave, J1939 or Plain CAN). Under a network it SHALL show the entries that network has:
+In both workspaces of a config, the left column of the workspace tab SHALL be a network tree, and it SHALL be the only navigation there. In Configure the tree SHALL start with a **Project** entry that opens the project page (target and online access). The tree SHALL show every network of the config at once, each as an entry with its name and protocol (CANopen master, CANopen slave, J1939 or Plain CAN). Under a network it SHALL show the entries that network has:
 - Bus and master (Bus and ECU on J1939, Bus on Plain CAN and on a slave network);
 - its nodes, sorted by node ID, each named by node ID and name;
 - the slave device on a slave network;
 - **Add node…** on a CANopen master network in Configure, which opens the EDS file chooser for that network;
 - PDO links and CAN messages, when the network has them today.
 
-After the networks the tree SHALL show Online access (Configure), Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are folded SHALL be kept on this PC and SHALL come back after a page reload; a folded network SHALL show the sum of its entries' problem counts, and SHALL unfold by itself when a problem link opens an entry in it. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
+After the networks the tree SHALL show Gateway and Modbus bridge when the config has them, and **Add network…** (Configure). Each network entry SHALL have a menu with **Rename…**, **Role** (CANopen networks) and **Remove…**, keeping today's confirmations. Which networks are folded SHALL be kept on this PC and SHALL come back after a page reload; a folded network SHALL show the sum of its entries' problem counts, and SHALL unfold by itself when a problem link opens an entry in it. The unused EDS files note and the address scan line SHALL be shown under the tree. Renaming a node SHALL update its entry as the user types.
 
 #### Scenario: Two networks at once
 - **WHEN** a config has networks `io` with nodes 5 and 7 and `drives` with node 2
@@ -2194,6 +2202,10 @@ After the networks the tree SHALL show Online access (Configure), Gateway and Mo
 #### Scenario: Remove a network from its menu
 - **WHEN** the user opens the menu of network `drives`, which has 3 nodes, and picks **Remove…**
 - **THEN** the page asks for confirmation naming `drives` and its 3 nodes, with Cancel as the default
+
+#### Scenario: Project entry
+- **WHEN** a config is open in Configure
+- **THEN** the tree's first entry is Project, and it opens the target and Online access
 
 ### Requirement: Network tree keyboard
 The tree SHALL follow the WAI-ARIA tree view pattern: one tab stop, Down and Up to the next and previous visible entry, Right to expand a network or move to its first child, Left to collapse a network or move to its parent, Home and End to the first and last entry, Enter or Space to open an entry, and type-ahead on the entry text. Shift+F10 on a network entry SHALL open its menu. The open entry SHALL be marked as selected. Focus SHALL stay on the same entry when the tree is redrawn. A name too long for the column SHALL wrap as "Whole names in the network tree" says, and SHALL be given whole in a tooltip and in the accessible name.
@@ -2258,11 +2270,11 @@ The SDOs tab SHALL show the startup SDO writes and the SDO variables as two tabl
 - **THEN** both tables show with a count of 0 and their add actions
 
 ### Requirement: Simulation tab of a node
-A simulated node (its `simulate`, or a node on a simulated network that is not switched off) SHALL have a Simulation tab that edits that node's part of the simulation file: its value sources, its faults at start and its default behaviour switch. It SHALL edit the same draft as the Simulation tool, so a change shows in both, and SHALL be saved with **Save to simulation file**. With several networks it SHALL edit the node's own network section.
+A simulated node (its `simulate`, or a node on a simulated network that is not switched off) SHALL have a **Simulated device** tab that edits that node's part of the simulation file: its value sources, its faults at start and its default behaviour switch. It SHALL edit the same draft as the Simulation file tab, so a change shows in both, and SHALL be saved with **Save to simulation file**. With several networks it SHALL edit the node's own network section. Its text SHALL point to Commission → Simulation for live values.
 
 #### Scenario: Source from the node
-- **WHEN** the user gives node 5's 0x6401:1 a sine on its Simulation tab and saves to the simulation file
-- **THEN** `simulation.json` has that source for node 5, and the Simulation tool shows it
+- **WHEN** the user gives node 5's 0x6401:1 a sine on its Simulated device tab and saves to the simulation file
+- **THEN** `simulation.json` has that source for node 5, and the Simulation file tab shows it
 
 ### Requirement: Notes tab
 The Notes tab SHALL list the objects of the node's EDS in one of three views chosen above the list: **My notes** (the default), the objects and sub-objects whose device notes entry, with the page's unsaved edits, has at least one field other than `name`; **All notes**, the objects with a note, built-in or the user's own; and **All objects**, every object and sub-object of the EDS. Each row SHALL show the object, its name, the note's text, unit and value meanings, where the note comes from as text (**Mine**, **Built-in** or **Built-in, changed**), and a **Note** button opening the Note editor. When the notes can be edited, a click on a row outside its buttons SHALL also open its Note editor, unless the click ends a text selection. The tab SHALL offer a search by index or name and, next to it, **Add note…** (see "Add note picker"), **Import notes…** and **Export notes…** (see `canopen-device-notes`). The tab's label SHALL show the number of the user's notes. The chosen view and the search SHALL be kept while the page is open. An empty view SHALL say why and offer **Add note…**, **Import notes…** and a way to show **All notes**. The tab SHALL work the same in Configure, in Commission with a config and in Commission a device. When the node has no EDS or its notes cannot be edited (a canworks-built EDS, an unreadable notes file, a notes file that cannot be written), the tab SHALL be read-only, SHALL say why, and SHALL offer only the views, the search and **Export notes…**.
@@ -3431,11 +3443,11 @@ While the runtime does not answer, the online status SHALL be reported without a
 - **THEN** the page shows the connection state and the console has no repeated errors
 
 ### Requirement: Project target
-A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESYS", chosen in a "Project target" field at the top of every Bus page and shown in the header. The target SHALL come from the config: a `bridge` object makes it Modbus bridge, a `codesys` object CODESYS.
+A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESYS", chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The target SHALL come from the config: a `bridge` object makes it Modbus bridge, a `codesys` object CODESYS.
 
 #### Scenario: Target shown
 - **WHEN** the user opens a config with a `codesys` object
-- **THEN** the Project target field and the header show CODESYS
+- **THEN** the Project page's Project target field and the header show CODESYS
 
 ### Requirement: Only what the target uses is shown
 The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Pi, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
@@ -3887,3 +3899,10 @@ The Nodes table and the node header SHALL show the time since the node was last 
 #### Scenario: Heartbeat every 100 ms
 - **WHEN** node 6 sends a heartbeat every 100 ms and the page is connected to the runtime
 - **THEN** node 6's Last heard reads about "0.1 s ago"
+
+### Requirement: Trace Start without a connection
+Trace's **Start** while not connected SHALL open the connect panel and start the trace once the connection is up. Canceling the panel SHALL leave Trace as it was. No message on the page SHALL name the former Online view.
+
+#### Scenario: Start first, connect after
+- **WHEN** the user presses Start on Trace while not connected, then connects to the runtime in the panel
+- **THEN** the trace starts recording without a second press and no error is shown

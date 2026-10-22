@@ -11,6 +11,7 @@ from canworks import diag
 from canworks.bustrace import formats
 from canworks.bustrace.model import Frame, Trace
 
+from .helpers import tool_tab
 from .fake_diag import TOKEN, FakePlugin
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import FIT_CHECK
@@ -25,7 +26,7 @@ class TraceBase(OnlineBase):
         self.page.set_viewport_size({"width": 1280, "height": 800})
 
     def trace_view(self):
-        self.page.click('button[data-view="trace"]')
+        tool_tab(self.page, "trace")
         self.page.wait_for_selector("#trace-source:not(:has-text('Loading'))")
 
     def sample_file(self, trace=None, name="sample.log"):
@@ -124,9 +125,11 @@ class Files(TraceBase):
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor-trace.asc")
         with open(path, "rb") as f:
             self.assertEqual(len([x for x in formats.read(f.read(), "x.asc") if not x.gap]), 25)
+        # Start without a connection opens the connect panel (one-place-navigation).
         pg.click("[data-trace=start-stop]")
         pg.click('#modal button[data-value="new"]')
-        pg.wait_for_selector("#banner.error:has-text('set up online access')")
+        pg.wait_for_selector("#conn-dialog[open]")
+        pg.click('[data-conn="close-panel"]')
 
     def test_large_trace_scrolls_and_graphs(self):
         """2 million frames: the list and the graph get windows from the server."""

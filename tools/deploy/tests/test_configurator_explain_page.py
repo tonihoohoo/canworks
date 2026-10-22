@@ -4,7 +4,7 @@ Frame lab. Needs Playwright, like test_configurator_page.py."""
 
 import json
 
-from .helpers import tree_net
+from .helpers import tree_net, tool_tab, network_tab
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_trace_page import TraceBase
 
@@ -130,7 +130,7 @@ class FrameLab(TraceBase):
         pg.on("request", lambda r: requests.append(r.url))
         self.open()
         del requests[:]
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         self.assertIn("Nothing here is sent", pg.inner_text("[data-fx=nothing-sent]"))
         # A pasted frame.
         pg.fill("[data-fx=lab-frame]", "705#7F")
@@ -186,7 +186,7 @@ class FrameLab(TraceBase):
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"schema_version": 2, "networks": [io, line]}, f)
         self.open()
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.click("[data-fx-mode=build]")
         pg.fill("[data-fx-build=index]", "zz")
         pg.click("[data-fx-build=go]")
@@ -195,9 +195,9 @@ class FrameLab(TraceBase):
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")
         # Another network (picked on the Network page): the frame and its result belonged to io.
-        pg.click('#tool-tabs button[data-view="network"]')
+        network_tab(pg)
         tree_net(pg, 1)
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.click("[data-fx-mode=examples]")
         # The examples are drawn again for the line network; wait for that,
         # not just for the chips io's examples already had.
@@ -209,7 +209,7 @@ class FrameLab(TraceBase):
         pg = self.page
         self.open()
         pg.evaluate("""() => { S.config.nodes.push({node_id: 7, name: "extra", eds: S.config.nodes[0].eds}); }""")
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector("[data-fx=examples] .chip")
         text = pg.inner_text("[data-fx=examples]")
         self.assertIn("node 7 (extra)", text)
@@ -218,7 +218,7 @@ class FrameLab(TraceBase):
         pg = self.page
         self.open()
         pg.set_viewport_size({"width": 390, "height": 800})
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.fill("[data-fx=lab-frame]", "185#2500EA00")
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=inspector]")

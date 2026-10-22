@@ -9,6 +9,7 @@ import time
 
 from canworks import diag
 
+from .helpers import tool_tab, network_tab
 from .fake_canopen import FakeDevice
 from .fake_diag import TOKEN, FakePlugin
 from .test_configurator_layout import audit
@@ -28,7 +29,7 @@ class Workspaces(OnlineBase):
             self.runtime(fp)
             # Configure: the config pages and its tools, no connection bar until connected.
             tabs = [b.inner_text() for b in pg.query_selector_all("#tool-tabs [role=tab]")]
-            self.assertEqual(tabs, ["Network", "Variable declarations", "Simulation", "Trace", "Frame lab"])
+            self.assertEqual(tabs, ["Network", "Variable declarations", "Simulation file"])
             self.assertFalse(pg.is_visible("#conn-bar"))
             self.assertTrue(pg.is_visible("#side"))
             self.assertTrue(pg.is_visible("#problems"))
@@ -67,14 +68,14 @@ class Workspaces(OnlineBase):
     def test_tools_take_the_whole_width(self):
         pg = self.page
         self.open()
-        pg.click('#tool-tabs button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector("#view h2:has-text('Frame lab')")
         self.assertFalse(pg.is_visible("#side"))
         self.assertFalse(pg.is_visible("#problems"))
         view = pg.locator("#view").bounding_box()
         self.assertGreater(view["width"], 1200)
         # Network goes back to the page the user was on.
-        pg.click('#tool-tabs button[data-view="network"]')
+        network_tab(pg)
         pg.wait_for_selector("#side")
         self.assertTrue(pg.is_visible("#problems"))
 
@@ -95,7 +96,7 @@ class Workspaces(OnlineBase):
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.open()
-        pg.click('#tool-tabs button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the connection to the runtime")')
         self.assertIn("Connect… in the connection bar", pg.inner_text('[data-trace="online-hint"]'))
         self.assertEqual(pg.query_selector_all('#view button:has-text("Connect")'), [])
@@ -113,26 +114,26 @@ class Workspaces(OnlineBase):
         pg = self.page
         with FakePlugin() as fp:
             self.runtime(fp)
-            pg.click('#tool-tabs button[data-view="simulation"]')
+            tool_tab(pg, "simulation")
             pg.wait_for_selector('#conn-bar [data-conn="target"]')
             self.assertEqual(pg.query_selector_all('#view input[data-online="host"]'), [])
-            pg.click('#tool-tabs button[data-view="trace"]')
+            tool_tab(pg, "trace")
             self.assertEqual(pg.query_selector_all('[data-trace="online-hint"]'), [])
             # Disconnect: every page has exactly one Connect button, the bar's,
             # in both workspaces, and says in its own words what needs a connection.
             pg.click('#conn-bar [data-conn="disconnect"]')
             pg.wait_for_selector('[data-trace="online-hint"]')
-            self.assertEqual(self.connect_buttons(), ["bar"], "Configure, Trace")
-            pg.click('#tool-tabs button[data-view="simulation"]')
+            self.assertEqual(self.connect_buttons(), ["bar"], "Commission, Trace")
+            tool_tab(pg, "simulation")
             pg.wait_for_selector('[data-sim="not-connected"]')
-            self.assertEqual(self.connect_buttons(), ["bar"], "Configure, Simulation")
-            pg.click('#ws [data-ws="commission"]')
+            self.assertEqual(self.connect_buttons(), ["bar"], "Commission, Simulation")
+            pg.click("#tool-tabs [role=tab] >> nth=0")
             pg.wait_for_selector('#view [data-nodes="not-connected"]')
             self.assertEqual(self.connect_buttons(), ["bar"], "Commission, Nodes")
-            for view, sel in (("simulation", '[data-sim="not-connected"]'), ("trace", '[data-trace="online-hint"]')):
-                pg.click('#tool-tabs button[data-view="%s"]' % view)
-                pg.wait_for_selector(sel)
-                self.assertEqual(self.connect_buttons(), ["bar"], "Commission, " + view)
+            # Configure has no connection to show: no Connect button there.
+            tool_tab(pg, "simfile")
+            pg.wait_for_selector("#view h2:text-is('Simulation file')")
+            self.assertEqual(self.connect_buttons(), [], "Configure, Simulation file")
 
     def test_runtime_bar_and_panel_audit(self):
         pg = self.page
@@ -193,7 +194,7 @@ class AdapterJobs(AdapterPage):
         self.commission()
         self.connect_adapter()
         pg.click('button[data-online="scan"]')
-        pg.click('#tool-tabs button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector('#jobs [data-job="scan"]:has-text("Scan the bus")')
         pg.click('#jobs [data-job-cancel="scan"]')
         pg.wait_for_selector('#jobs [data-job="scan"]', state="detached", timeout=10000)

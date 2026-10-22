@@ -6,7 +6,7 @@ Needs Playwright, like test_configurator_page.py."""
 import os
 import shutil
 
-from .helpers import REPO
+from .helpers import REPO, tool_tab
 from .test_configurator_page import load
 from .test_configurator_trace_page import TraceBase
 
@@ -27,7 +27,7 @@ class J1939Inspector(TraceBase):
     def test_identifier_split_in_the_frame_lab(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.fill("[data-fx=lab-frame]", "18EF0380#01")
         pg.click("[data-fx=lab-explain]")
         pg.wait_for_selector("#fx-lab-inspector [data-fx=identifier]")
@@ -107,7 +107,7 @@ class J1939Inspector(TraceBase):
     def test_frame_lab_examples(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector("[data-fx=examples] .chip")
         chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
         self.assertEqual(chips, ["Request for Address Claimed", "Command", "Pressures", "Setpoints"])

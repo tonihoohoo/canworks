@@ -18,7 +18,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, TWO_NETWORKS, FakePlugin
-from .helpers import PINGPONG, REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view
+from .helpers import PINGPONG, REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, tool_tab
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
@@ -178,13 +178,13 @@ class NetworksPage(unittest.TestCase):
         node_tab(pg, "supervision")
         pg.select_option("select[data-supervision]", "heartbeat")  # the EDS has none: refused without
         pg.fill('input[data-path="nodes[0].heartbeat_ms"]', "100")
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         self.assertEqual(pg.locator('[data-section="online"] legend').inner_text(), "Online access (all networks)")
         pg.check('input[data-online="enable"]')
         pg.wait_for_selector('input[data-path="master.diagnostics.port"]')
         pg.fill('input[data-path="master.diagnostics.port"]', "7600")
         tree_net(pg, 0)
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         self.assertEqual(pg.input_value('input[data-path="master.diagnostics.port"]'), "7600")
         self.assertEqual(pg.inner_text('#tree [data-key="0:node:0"] > .tree-row').split()[0], "2")
         self.assertEqual(pg.inner_text('#tree [data-key="1:node:0"] > .tree-row').split()[0], "2")
@@ -315,7 +315,7 @@ class NetworksPage(unittest.TestCase):
             pg.click('#ws [data-ws="configure"]')
             tree_net(pg, 1)
             # The trace records the picked network.
-            pg.click('button[data-view="trace"]')
+            tool_tab(pg, "trace")
             self.assertEqual(pg.input_value('select[data-online="network"]'), "drives")
             pg.click('button[data-trace="start-stop"]')
             pg.wait_for_selector("#trace-source:has-text('network drives')")

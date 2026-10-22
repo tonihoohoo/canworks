@@ -152,7 +152,7 @@ class DevicesPage(OnlineBase):
         pg.wait_for_function("() => document.querySelector('#jobs').innerText.trim() === ''")
         # Online access shows the device as the runtime host at once, without a reload.
         pg.click('#ws button[data-ws="configure"]')
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         pg.wait_for_selector("[data-devices=host-state]")
         self.assertEqual(pg.input_value('[data-online="host"]'), "127.0.0.1")
         self.assertEqual(pg.inner_text("[data-devices=host-state] .muted"), "127.0.0.1: up to date.")
@@ -191,7 +191,7 @@ class DevicesPage(OnlineBase):
         self.assertTrue(os.path.isdir(self.device.home("pi")))
         # Online access: the runtime host as a device, and the way to install on it.
         pg.click('#ws button[data-ws="configure"]')
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         pg.wait_for_selector("[data-devices=host-state]")
         self.assertIn("line9.local is not in Devices yet.", pg.inner_text("[data-devices=host-state]"))
         pg.click("[data-devices=open-host]")

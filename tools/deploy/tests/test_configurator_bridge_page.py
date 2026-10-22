@@ -42,12 +42,14 @@ class BridgePage(OnlineBase):
 
     def to_bridge(self):
         pg = self.page
+        tree_view(pg, "project")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
         self.assertEqual(pg.locator("#tree #nav-bridge").count(), 0)
         pg.select_option('select[data-target="1"]', "bridge")
         pg.wait_for_selector("#banner:has-text('Modbus bridge now')")
         self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
         pg.wait_for_selector("#tree #nav-bridge")
+        tree_view(pg, "bus")
         self.checked()
 
     def test_switch_pack_and_export_st(self):
@@ -72,7 +74,11 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.input_value('input[data-path="bridge.listen"]'), "0.0.0.0")
         self.assertEqual(pg.input_value('input[data-bridge="port"]'), "502")
+        tree_view(pg, "project")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
+        self.assertEqual(pg.locator('#view select[data-target="1"]').count(), 1)
+        tree_view(pg, "bridge")
+        self.assertEqual(pg.locator('#view select[data-target="1"]').count(), 0)
         pg.wait_for_selector('#bridge-map tr[data-bridge-row="rtd.0x7130:1"]')
         self.assertIn("Input registers", pg.inner_text('tr[data-bridge-row="rtd.0x7130:1"]'))
         # Packed: the rtd's four words are input registers 0-3, the dio's outputs from holding register 0.
@@ -215,6 +221,7 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
         # Back to OpenPLC: the bridge object goes, the locations are per type again.
+        tree_view(pg, "project")
         pg.select_option('select[data-target="1"]', "openplc")
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         pg.wait_for_selector("#tree #nav-bridge", state="detached")

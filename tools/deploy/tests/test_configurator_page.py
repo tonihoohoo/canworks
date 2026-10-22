@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action
+from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab
 
 try:
     from playwright.sync_api import sync_playwright
@@ -798,7 +798,7 @@ class Page(unittest.TestCase):
         self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
         self.assertIn("bOnline := drive_ok", block)
         # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): no CiA 402 tab.
-        pg.click('#tool-tabs button[data-view="network"]')
+        network_tab(pg)
         tree_node(pg, 0)
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         self.assertEqual(pg.locator('.node-tabs [data-node-tab="cia402"]').count(), 0)

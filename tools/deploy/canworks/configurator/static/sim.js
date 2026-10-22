@@ -340,7 +340,7 @@ function simAllow() { return !!(SIM.last && SIM.last.allow_changes); }
 
 function simNoChanges() {
   if (SIM.last && SIM.last.target === "runtime") {
-    return "Read-only: the runtime does not allow changes (turn on \"Allow changes\" under Configure → Online access, then save and upload). Values are still shown.";
+    return "Read-only: the runtime does not allow changes (turn on \"Allow changes\" under Configure → Project → Online access, then save and upload). Values are still shown.";
   }
   return "Read-only: not connected to the simulated devices.";
 }
@@ -362,24 +362,39 @@ async function renderSimulation(view) {
   if (!SIM.file) simLoad(); else simBind();
   const seq = SIM.seq;
   if (!SIM.settings) await loadSimSettings();
-  if (seq !== SIM.seq || S.view !== "simulation") return;
-  if (!S.simOn) connEnsure();
-  const pages = [["live", "Live values"], ["file", "Simulation file"], ["scenarios", "Scenarios"]];
+  if (seq !== SIM.seq || !simView()) return;
+  // Configure edits the simulation file; Commission runs it (one-place-navigation).
+  const live = S.view === "simulation";
+  if (live && !S.simOn) connEnsure();
+  const pages = live ? [["live", "Live values"], ["scenarios", "Scenarios"]] : [["file", "Simulation file"], ["scenarios", "Scenarios"]];
+  if (!pages.some(([k]) => k === SIM.tab)) SIM.tab = pages[0][0];
   const tabList = tabs(pages, SIM.tab,
     (k) => { SIM.tab = k; SIM.rowKeys = ""; SIM.scenSig = ""; clearErrorBanner(); render(); }, { dataset: "simTab", panel: "sim-body", label: "Simulation pages" });
+  const other = el("a", { href: "#", class: "target", dataset: { sim: live ? "edit-file" : "run-live" }, onclick: (e) => {
+    e.preventDefault();
+    if (live) SIM.tab = "file";
+    switchWorkspace(live ? "configure" : "commission");
+    showView(live ? "simfile" : "simulation");
+  } }, live ? "Edit the simulation file" : "Live values in Commission");
   view.append(
-    el("div", { class: "toolbar view-head" }, el("h2", null, "Simulation"), el("div", { class: "spacer" }), simSaveBar()),
+    // Configure has no connection bar while unconnected: the file's network is picked here.
+    el("div", { class: "toolbar view-head" }, el("h2", null, live ? "Simulation" : "Simulation file"), other,
+      !live && S.model && several() && !(connIsOn() || connSimOn()) ? netPicker() : null,
+      el("div", { class: "spacer" }), simSaveBar()),
     // Only what is particular to simulation, as bars under the title; the connection bar says what is connected.
     noticeSlot({ id: "sim-conn", hidden: true, "aria-live": "polite" }),
     notice("warning", "", { id: "sim-readonly", live: false, dataset: { sim: "readonly" } }),
     tabList,
     el("div", { id: "sim-body", role: "tabpanel", "aria-labelledby": "sim-body-tab-" + SIM.tab }));
   simRenderTab();
-  if (simCanConnect()) {
+  if (live && simCanConnect()) {
     SIM.open = true;
     simPoll(SIM.seq);
   }
 }
+
+// The simulation's two views: the file in Configure, live in Commission.
+function simView() { return S.view === "simulation" || S.view === "simfile"; }
 
 // The simulated devices of the connection in the connection bar
 // (connection.js): the runtime's, or the standalone simulator's.
@@ -422,7 +437,7 @@ async function simPoll(seq) {
   try {
     r = await api("POST", "/api/sim/poll", { port: diagPort(), node, objects: node === null ? [] : simExtraObjects(node) });
   } catch (e) { err = e; }
-  if (seq !== SIM.seq || S.view !== "simulation") return;
+  if (seq !== SIM.seq || !simView()) return;
   const conn = $("#sim-conn");
   if (err) {
     SIM.connected = false;
@@ -525,7 +540,7 @@ function simLiveTab() {
     if (simCanConnect()) return notice("info", "The live values show once the simulated devices answer. The simulation file and the scenarios can be edited meanwhile.", { live: false });
     if (!diagConfig()) {
       return notice("info", ["Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
-        el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+        el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("project"); } }, "Project → Online access"),
         " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile."],
       { live: false, dataset: { sim: "access-off" } });
     }
@@ -1465,7 +1480,7 @@ function simUpdateScenarios() {
   }
   SIM.scenSig = sig;
   const off = !connected || !allow;
-  const why = !connected ? "Connect to the simulated devices to run scenarios." : simNoChanges();
+  const why = !connected ? (S.view === "simfile" ? "Run scenarios from Commission → Simulation." : "Connect to the simulated devices to run scenarios.") : simNoChanges();
   tb.replaceChildren(...(rows.length ? rows.map((r) => el("tr", { dataset: { simScenario: r.name }, class: r.name === SIM.scenario ? "active" : null },
     el("td", null, r.name), el("td", null, r.inFile), el("td", { class: r.stateClass, dataset: { sim: "scenario-state" } }, r.state),
     el("td", { dataset: { sim: "scenario-step" } }, r.step), el("td", { dataset: { sim: "scenario-time" } }, r.time),
