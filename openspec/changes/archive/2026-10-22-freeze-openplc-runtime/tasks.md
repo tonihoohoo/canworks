@@ -21,7 +21,7 @@
 - [x] 4.1 `tools/deploy/tests/test_devices.py`, `test_configurator_devices_page.py`: switch action, older/newer notes, job arguments, confirmations
 - [x] 4.2 `test/pc-tools/test_install_scripts.py`: release downloaded before the OpenPLC install, pinned arguments to upstream's installer, failed download installs nothing, pass-through of `--runtime-version` (also over `--ssh`)
 - [x] 4.3 `test/docker/test_install_docker.py`: `--runtime-version` rewrites only the version, keeps the canworks entries, pull failure changes nothing, native refuses; v4.2.4 fixture strings updated where they mean the pin
-- [ ] 4.4 Full CI on v4.3.1; fix what fails on the runtime's behaviour changes (outputs zeroed on stop with one extra cycle, plugins initialised at power-on) and note each fix in the PR
+- [x] 4.4 Full CI on v4.3.1; fix what fails on the runtime's behaviour changes (outputs zeroed on stop with one extra cycle, plugins initialised at power-on) and note each fix in the PR
 
 ## 5. Docs and release
 
