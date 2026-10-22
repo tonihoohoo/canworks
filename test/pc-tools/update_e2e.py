@@ -131,8 +131,11 @@ def tool(name):
 
 
 def installed():
-    out = subprocess.run([tool("canworks-deploy"), "--version"], stdout=subprocess.PIPE,
-                         universal_newlines=True).stdout.split()
+    try:
+        out = subprocess.run([tool("canworks-deploy"), "--version"], stdout=subprocess.PIPE,
+                             universal_newlines=True).stdout.split()
+    except OSError:
+        return None  # uv is replacing it
     return out[-1] if out else None
 
 
@@ -283,11 +286,24 @@ def main(version, dist_wheel):
     say("canworks-config --update without a configurator: exit %d" % r.returncode)
     if r.returncode != 0:
         fail("canworks-config --update exited with %d:\n%s" % (r.returncode, r.stdout))
-    wait_for("the command line update", lambda: installed() == NEW, 300)
+    # Only the run file is watched meanwhile: on Windows a tools program
+    # started during the install would hold its files.
+    run_file = os.path.join(cfg, "update-run.json")
+
+    def finished():
+        try:
+            with open(run_file, encoding="utf-8") as f:
+                return json.load(f).get("result")
+        except (OSError, ValueError):
+            return None
+
+    # macOS and Linux: done when the command ends (it takes the result).
+    result = wait_for("the command line update", finished, 300) if WIN else {"state": "ok"}
+    say("command line update: %s" % result)
+    if result.get("state") != "ok" or installed() != NEW:
+        fail("expected %s to be installed, got %r, installed %s" % (NEW, result, installed()))
     if instance(cfg) is not None:
         fail("canworks-config --update without a configurator started one")
-    wait_for("the updater to finish", lambda: not os.path.exists(os.path.join(cfg, "update-run.json"))
-             or json.load(open(os.path.join(cfg, "update-run.json"))).get("result"), 60)
     reinstall()
     httpd.shutdown()
     shutil.rmtree(work, ignore_errors=True)
