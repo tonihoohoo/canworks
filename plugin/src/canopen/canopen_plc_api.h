@@ -1,18 +1,8 @@
-/* canopen_plc_api.h - the C interface the PLC program's CANopen function
- * blocks (library/canworks) use to run SDO transfers and read emergency
- * messages through the loaded plugin. See the spec canopen-plc-sdo.
- *
- * The blocks find the plugin the runtime has loaded with
- * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) (the plugin's SONAME)
- * and call canopen_plc_api(version), which returns the function table for
- * that version or NULL. Version 2 begins with the fields of version 1; the
- * SDO blocks ask for version 1 (so they run on an older plugin too),
- * CO_RECV_EMCY for version 2. Every function is called on the PLC scan
- * thread: they never wait on CAN traffic, allocate or log.
- *
- * The library carries a copy of these declarations (library/src/common.inc);
- * test/plc_sdo/layout_check.cpp checks that the two agree. Change the layout
- * only together with a new version number. */
+/* canopen_plc_api.h - the call table of the engine's SDO request queue and
+ * EMCY history (plc_api.h, plc_emcy.h). The function blocks that used it
+ * went with the OpenPLC plugin; the table stays as the engine's internal
+ * interface to the queue, which the bridge's SDO registers and the tests
+ * use. No function waits on CAN traffic, allocates or logs. */
 
 #ifndef CANOPEN_PLC_API_H
 #define CANOPEN_PLC_API_H

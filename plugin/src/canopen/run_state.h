@@ -17,7 +17,6 @@
 #include <map>
 #include <vector>
 
-#include "outputs_gate.h"
 
 namespace canopen_plugin {
 
@@ -51,21 +50,9 @@ struct RunState {
   std::map<unsigned, Node> nodes;  // node ID ->
   // Per SDO variable (ProcessImage::sdo_vars()): trigger edges handled.
   std::vector<uint64_t> trig_seen;
-  // Scan watchdog: the scan count last seen and when it last moved.
-  uint64_t scan_seen = 0;
-  std::chrono::steady_clock::time_point scan_moved{};
-  // The watchdog tripped (it holds the outputs gate, outputs_gate.h, until
-  // the scan moves again or the run ends, whatever the bus sessions do).
-  bool scan_hung = false;
   // A gateway's field network: the upper master was OK once in this run, so
   // a session that starts while it is not has lost it.
   bool upper_seen = false;
-
-  // The PLC run ends: a tripped scan watchdog no longer holds the gate.
-  void end_run() {
-    if (scan_hung) set_scan_hung(false);
-    scan_hung = false;
-  }
 };
 
 }  // namespace canopen_plugin

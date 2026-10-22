@@ -20,8 +20,8 @@ class J1939Runtime : public NetworkRuntime {
 
   void start() override { net_->start(); }
   void stop() override { net_->stop(); }
-  void cycle_start(const plugin_runtime_args_t& rt) override { net_->cycle_start(rt); }
-  void cycle_end(const plugin_runtime_args_t& rt) override { net_->cycle_end(rt); }
+  void cycle_start(ImageHost& rt) override { net_->cycle_start(rt); }
+  void cycle_end(ImageHost& rt) override { net_->cycle_end(rt); }
   DiagHub* hub() override { return hub_.get(); }
 
  private:

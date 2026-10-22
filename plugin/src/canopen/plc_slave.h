@@ -24,7 +24,6 @@
 #include "config.h"
 #include "diag.h"
 #include "gateway.h"
-#include "plugin_types.h"
 #include "process_image.h"
 #include "slave_device.h"
 
@@ -55,8 +54,8 @@ class SlaveImage {
   uint64_t scan_count(const uint64_t* snap) const { return snap[out_objs_.size() + 2]; }
 
   // ---- PLC scan ----
-  void copy_to_plc(const plugin_runtime_args_t& rt);
-  void copy_from_plc(const plugin_runtime_args_t& rt);
+  void copy_to_plc(ImageHost& rt);
+  void copy_from_plc(ImageHost& rt);
 
  private:
   const SlaveConfig* cfg_ = nullptr;

@@ -1,19 +1,8 @@
-/* canopen_plc_nmt_api.h - the C interface the PLC program's NMT function
- * blocks (library/canworks: CO_NMT, CO_NETWORK_START, CO_NETWORK_STOP,
- * CO_GET_STATE) use to command nodes and the master through the loaded
- * plugin. See the spec canopen-plc-nmt.
- *
- * The blocks find the plugin as the SDO blocks do (canopen_plc_api.h), with
- * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD), and call
- * canopen_plc_nmt_api(CANOPEN_PLC_NMT_API_VERSION), which returns the
- * function table for that version or NULL. This entry point and its version
- * are separate from the SDO table's, which they leave unchanged. Every
- * function is called on the PLC scan thread: none waits on CAN traffic,
- * allocates or logs, and get_state takes no lock.
- *
- * The library carries a copy of these declarations (library/src/nmt_common.inc);
- * the simulation tests (sim_plc_nmt_blocks) run the real blocks against this
- * table. Change the layout only together with a new version number. */
+/* canopen_plc_nmt_api.h - the call table of the engine's NMT request queue
+ * (node commands, network start and stop, state reads; plc_api.h). The
+ * function blocks that used it went with the OpenPLC plugin; the table stays
+ * as the engine's internal interface, which the tests use. No function waits
+ * on CAN traffic, allocates or logs, and get_state takes no lock. */
 
 #ifndef CANOPEN_PLC_NMT_API_H
 #define CANOPEN_PLC_NMT_API_H

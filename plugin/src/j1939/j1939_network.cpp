@@ -86,7 +86,7 @@ void J1939Image::commit() {
   in_.publish();
 }
 
-void J1939Image::copy_to_plc(const plugin_runtime_args_t& rt) {
+void J1939Image::copy_to_plc(ImageHost& rt) {
   const uint64_t* snap = in_.latest();
   const J1939Config& c = *cfg_;
   for (size_t i = 0; i < c.rx.size(); ++i) {
@@ -113,7 +113,7 @@ void J1939Image::copy_to_plc(const plugin_runtime_args_t& rt) {
   if (c.diagnostics.has_clear_location) image_write_input(rt, c.diagnostics.clear_location, snap[clear_slot_]);
 }
 
-void J1939Image::copy_from_plc(const plugin_runtime_args_t& rt) {
+void J1939Image::copy_from_plc(ImageHost& rt) {
   uint64_t* back = out_.back();
   const J1939Config& c = *cfg_;
   for (size_t i = 0; i < c.tx.size(); ++i)

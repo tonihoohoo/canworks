@@ -2,42 +2,20 @@
 
 #include <algorithm>
 #include <cstring>
-#include <sys/eventfd.h>
-#include <unistd.h>
 
 namespace canopen_plugin {
 
 // ---------------------------------------------------------------------------
 // ProcessImage
 
-ProcessImage::~ProcessImage() {
-  if (sync_fd_ >= 0) close(sync_fd_);
-}
-
-void ProcessImage::request_sync() {
-  if (!sync_cycles_ || ++sync_frames_ < sync_cycles_) return;
-  sync_frames_ = 0;
-  sync_requests_.fetch_add(1, std::memory_order_acq_rel);
-  uint64_t one = 1;
-  ssize_t r = write(sync_fd_, &one, sizeof(one));  // EAGAIN only with 2^64-2 unread requests
-  (void)r;
-}
-
-// The binding of an entry that reaches the PLC, through its own location,
-// its bits or both; none for an entry only a gateway route or a PDO link
-// uses, or a bridge entry's bits (served in the entry's own location).
+// The binding of an entry with a location; none for an entry only a gateway
+// route or a PDO link uses (its bits are served in the entry's location).
 static bool binding(unsigned node_id, const PdoEntry& e, Binding& b) {
-  b = Binding{node_id, e.index, e.subindex, e.type, e.has_location, e.location, {}};
-  for (const auto& bit : e.bits)
-    if (bit.has_location) b.bits.push_back(bit);
-  return b.has_location || !b.bits.empty();
+  b = Binding{node_id, e.index, e.subindex, e.type, e.location};
+  return e.has_location;
 }
 
 void ProcessImage::build(const Config& cfg) {
-  sync_cycles_ = cfg.master.sync_plc_cycle ? cfg.master.sync_cycles : 0;
-  sync_frames_ = 0;
-  if (sync_cycles_ && sync_fd_ < 0) sync_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-  if (sync_fd_ < 0) sync_cycles_ = 0;
   inputs_.clear();
   outputs_.clear();
   node_ids_.clear();
@@ -181,14 +159,10 @@ void ProcessImage::commit_inputs() {
   in_.publish();
 }
 
-
-
-void ProcessImage::copy_to_plc(const plugin_runtime_args_t& rt) {
+void ProcessImage::copy_to_plc(ImageHost& rt) {
   const uint64_t* snap = in_.latest();
   for (size_t i = 0; i < inputs_.size(); ++i) {
-    const Binding& b = inputs_[i];
-    if (b.has_location) image_write_input(rt, b.location, snap[i]);
-    for (const auto& bit : b.bits) image_write_input(rt, bit.location, (snap[i] >> bit.bit) & 1);
+    image_write_input(rt, inputs_[i].location, snap[i]);
   }
   for (size_t s = 0; s < node_ids_.size(); ++s) {
     if (node_has_status_[s]) image_write_input(rt, node_status_loc_[s], snap[inputs_.size() + s]);
@@ -212,21 +186,10 @@ void ProcessImage::copy_to_plc(const plugin_runtime_args_t& rt) {
   for (size_t k = 0; k < timeouts_.size(); ++k) image_write_input(rt, timeouts_[k].location, snap[timeout_slot_ + k]);
 }
 
-void ProcessImage::copy_from_plc(const plugin_runtime_args_t& rt) {
+void ProcessImage::copy_from_plc(ImageHost& rt) {
   uint64_t* back = out_.back();
-  rt.image_lock();
-  for (size_t i = 0; i < outputs_.size(); ++i) {
-    const Binding& b = outputs_[i];
-    if (b.has_location) {
-      back[i] = image_read_output(rt, b.location);
-      continue;
-    }
-    // Built from the bit channels; bits that are not listed are sent as 0.
-    uint64_t v = 0;
-    for (const auto& bit : b.bits)
-      if (image_read_output(rt, bit.location)) v |= uint64_t(1) << bit.bit;
-    back[i] = v;
-  }
+  rt.lock();
+  for (size_t i = 0; i < outputs_.size(); ++i) back[i] = image_read_output(rt, outputs_[i].location);
   for (size_t k = 0; k < sdo_vars_.size(); ++k) {
     const SdoVariable& v = sdo_vars_[k].var;
     uint64_t* slot = back + sdo_out_slot_ + 2 * k;
@@ -252,7 +215,7 @@ void ProcessImage::copy_from_plc(const plugin_runtime_args_t& rt) {
     slot[1] = nmt_resets_[s];
     slot[2] = nmt_reset_code_[s];
   }
-  rt.image_unlock();
+  rt.unlock();
   back[scan_slot_] = ++scans_;
   out_.publish();
 }

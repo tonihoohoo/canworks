@@ -84,7 +84,7 @@ void SlaveImage::commit_inputs() {
   in_.publish();
 }
 
-void SlaveImage::copy_to_plc(const plugin_runtime_args_t& rt) {
+void SlaveImage::copy_to_plc(ImageHost& rt) {
   const uint64_t* snap = in_.latest();
   const SlaveConfig& s = *cfg_;
   for (size_t k = 0; k < in_objs_.size(); ++k) image_write_input(rt, s.objects[in_objs_[k]].location, snap[k]);
@@ -93,15 +93,15 @@ void SlaveImage::copy_to_plc(const plugin_runtime_args_t& rt) {
   if (s.has_sync_count_location) image_write_input(rt, s.sync_count_location, snap[status_slot_ + 2]);
 }
 
-void SlaveImage::copy_from_plc(const plugin_runtime_args_t& rt) {
+void SlaveImage::copy_from_plc(ImageHost& rt) {
   uint64_t* back = out_.back();
   const SlaveConfig& s = *cfg_;
-  rt.image_lock();
+  rt.lock();
   for (size_t k = 0; k < out_objs_.size(); ++k) back[k] = image_read_output(rt, s.objects[out_objs_[k]].location);
   size_t n = out_objs_.size();
   back[n] = s.has_emcy_code_location ? image_read_output(rt, s.emcy_code_location) : 0;
   back[n + 1] = s.has_error_register_location ? image_read_output(rt, s.error_register_location) : 0;
-  rt.image_unlock();
+  rt.unlock();
   back[n + 2] = ++scans_;
   out_.publish();
 }

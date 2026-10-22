@@ -231,10 +231,6 @@ void SimDevice::FlushDelayed(Clock::time_point now) {
   }
 }
 
-void SimDevice::OnSync(uint8_t, const time_point&) noexcept {
-  if (on_sync) on_sync();
-}
-
 void SimDevice::OnRpdoWrite(uint8_t, uint16_t, uint8_t) noexcept {
   if (on_rpdo) on_rpdo();
 }
@@ -242,11 +238,6 @@ void SimDevice::OnRpdoWrite(uint8_t, uint16_t, uint8_t) noexcept {
 void SimDevice::ApplyOverrides() {
   for (auto& kv : identity) od_write(od(), 0x1018, kv.first, Value::number(kv.second));
   if (has_device_type) od_write(od(), 0x1000, 0, Value::number(device_type));
-}
-
-void SimDevice::OnCommand(lely::canopen::NmtCommand cs) noexcept {
-  SlaveDevice::OnCommand(cs);
-  if (cs == lely::canopen::NmtCommand::RESET_NODE && on_reset_node) on_reset_node();
 }
 
 void SimDevice::OnRestored() {

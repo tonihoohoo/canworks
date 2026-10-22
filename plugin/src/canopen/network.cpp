@@ -24,9 +24,6 @@ extern "C" void can_recv_start(__can_recv* recv, __can_net* net, uint_least32_t 
 #include "outputs_gate.h"
 #include "plc_emcy.h"
 
-// From <lely/co/nmt.h> (C header): sends the synchronous TPDOs and actuates
-// the synchronous RPDOs after a SYNC, then calls the SYNC indication (OnSync).
-extern "C" void co_nmt_on_sync(__co_nmt* nmt, uint8_t cnt);
 // From <lely/co/nmt.h> and <lely/co/dev.h>: the master's object dictionary,
 // written without taking the master's mutex (SkipSlaveBoots).
 extern "C" __co_dev* co_nmt_get_dev(const __co_nmt* nmt);
@@ -204,7 +201,6 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
 
 Network::~Network() {
   for (auto& t : heard_taps_) can_recv_destroy(t->recv);  // also stops it
-  if (own_run_) own_run_->end_run();  // the run is this Network's
   HostRequests::instance().set_session(cfg_.network_index, false);
   HostRequests::instance().clear(cfg_.network_index);
   if (lss_) lss_->AbortAll();
@@ -323,7 +319,6 @@ void Network::Start() {
   MapTpdos();
   MapSyncRpdos();
   MapInputPdos();
-  sync_seen_ = image_.sync_requests();
   MasterTpdosOff();
   started_ = clock::now();
   // CO_GET_STATE: every configured node, and the master.
@@ -427,8 +422,6 @@ void Network::Stop() {
   if (stopped_) return;
   stopped_ = true;
   HostRequests::instance().set_session(cfg_.network_index, false);
-  // A tripped scan watchdog keeps the gate closed for the other networks
-  // while this one has no session (RunState::scan_hung).
   if (lss_) lss_->CancelAll();
   CancelPrograms();
 }
@@ -890,18 +883,12 @@ void Network::HandleCommand(NmtCommand cs) {
       break;
   }
   if (was_stopped && lely_state_ != kStateStopped) next_time_ = clock::now();  // TIME again at once
-  // The PLC-cycle SYNC counter starts again at 1, as Lely's own SYNC
-  // producer does when the master resets communication.
-  if (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE) sync_cnt_ = 1;
   if (cs == NmtCommand::RESET_COMM) {
     // The reset (Lely's own with reset_all_nodes, for example) made every
-    // master TPDO valid again, with the DCF's values in its mapped objects,
-    // and the master RPDOs synchronous again: as at Start, the TPDOs are off
-    // until a node comes up (SetUp sends the program's outputs, subject to
-    // the outputs gate and a program stop), and the RPDOs event-driven again
-    // with PLC-cycle SYNC (the map of them stays: the DCF's is the same).
+    // master TPDO valid again, with the DCF's values in its mapped objects:
+    // as at Start, the TPDOs are off until a node comes up (SetUp sends the
+    // program's outputs, subject to the outputs gate and a program stop).
     MasterTpdosOff();
-    SyncRpdosEventDriven();
   }
   if (cs == NmtCommand::STOP && !run_->master_stopped) {
     run_->master_stopped = true;  // for the rest of the PLC run, across sessions
@@ -1185,10 +1172,8 @@ void Network::UpperLoss(bool ok) {
 void Network::OnSync(uint8_t cnt, const time_point& t) noexcept {
   BasicMaster::OnSync(cnt, t);
   CountSync();
-  // With PLC-cycle SYNC the outputs went out with this SYNC (SendSync).
-  bool plc = cfg_.master.sync_plc_cycle;
-  Defer([this, plc] {
-    if (!plc) WriteOutputs();
+  Defer([this] {
+    WriteOutputs();
     ServiceRequests();
   });
 }
@@ -1367,22 +1352,9 @@ void Network::MapSyncRpdos() {
     if (!r.node_id) continue;
     sync_rpdos_[num] = r;
   }
-  SyncRpdosEventDriven();
 }
 
-void Network::SyncRpdosEventDriven() {
-  // PLC-cycle SYNC: take the inputs as they arrive, so the next frame's
-  // cycle_start() sees them (Lely would hold a synchronous RPDO until the
-  // next SYNC). The node keeps its own synchronous type.
-  if (!cfg_.master.sync_plc_cycle) return;
-  for (const auto& it : sync_rpdos_) {
-    std::error_code ec;
-    (*this)[0x1400 + it.first - 1][2].Write<uint8_t>(0xFF, ec);
-    if (ec) log_warn("cannot make master RPDO %u event-driven: %s", it.first, ec.message().c_str());
-  }
-}
-
-// After every SYNC the master sends (timer or PLC cycle): the interval and
+// After every SYNC the master sends: the interval and
 // the late PDO check. Runs on the loop thread with the master locked.
 void Network::CountSync() {
   auto now = clock::now();
@@ -1396,11 +1368,6 @@ void Network::CountSync() {
   }
   ++st.count;
   last_sync_ = now;
-  if (st.count == 1) first_sync_ = now;
-  if (st.count == 101 && !interp_checked_) {
-    interp_checked_ = true;
-    CheckInterpolationPeriods(now);
-  }
   for (auto& it : sync_rpdos_) {
     SyncRpdo& r = it.second;
     auto n = nodes_.find(r.node_id);
@@ -1420,70 +1387,6 @@ void Network::CountSync() {
     }
     ++r.since;
   }
-}
-
-// After 100 SYNC intervals: the measured mean against the interpolation
-// time period written to each cyclic axis (0x60C2), warned once per node.
-void Network::CheckInterpolationPeriods(clock::time_point now) {
-  double mean_us =
-      std::chrono::duration_cast<std::chrono::microseconds>(now - first_sync_).count() / 100.0;
-  for (const NodeConfig& n : cfg_.nodes) {
-    if (!n.interpolation_write_us) continue;
-    double w = n.interpolation_write_us;
-    if (mean_us > w * 1.1 || mean_us < w * 0.9)
-      log_warn("%s: cyclic axis: interpolation time period %u us, but the measured SYNC interval is %.0f us; "
-               "the drive interpolates with the wrong period",
-               n.label().c_str(), n.interpolation_write_us, mean_us);
-  }
-}
-
-void Network::ServiceSyncRequests() {
-  uint64_t req = image_.sync_requests();
-  // CiA 301: a STOPPED master sends no SYNC; the frames it leaves out are not
-  // skipped frames.
-  if (req == sync_seen_ || stopped_ || lely_state_ == kStateStopped) {
-    sync_seen_ = req;
-    return;
-  }
-  uint64_t skipped = req - sync_seen_ - 1;
-  sync_seen_ = req;
-  if (skipped) {
-    sync_stats_.skipped += skipped;
-    auto now = clock::now();
-    if (now - skip_warned_ >= kSyncWarnPeriod) {
-      skip_warned_ = now;
-      log_warn("the bus thread fell behind the PLC cycle: %llu SYNCs merged into one (%llu skipped so far)",
-               static_cast<unsigned long long>(skipped + 1), static_cast<unsigned long long>(sync_stats_.skipped));
-    }
-  }
-  WriteOutputs();
-  SendSync();
-}
-
-// One SYNC as Lely's own producer sends it (co_sync_timer), then Lely's
-// synchronous PDO processing for it.
-void Network::SendSync() {
-  std::error_code ec;
-  uint32_t cobid = (*this)[0x1005][0].Read<uint32_t>(ec);
-  if (ec) cobid = 0x80;
-  uint8_t max_cnt = (*this)[0x1019][0].Read<uint8_t>(ec);
-  if (ec) max_cnt = 0;
-  can_msg msg = CAN_MSG_INIT;
-  if (cobid & 0x20000000u) {
-    msg.id = cobid & CAN_MASK_EID;
-    msg.flags |= CAN_FLAG_IDE;
-  } else {
-    msg.id = cobid & CAN_MASK_BID;
-  }
-  uint8_t cnt = 0;
-  if (max_cnt > 1) {
-    msg.len = 1;
-    msg.data[0] = cnt = sync_cnt_;
-    sync_cnt_ = sync_cnt_ < max_cnt ? sync_cnt_ + 1 : 1;
-  }
-  std::lock_guard<lely::util::BasicLockable> lock(*this);
-  can_net_send(net(), &msg);
-  co_nmt_on_sync(nmt(), cnt);
 }
 
 const uint64_t* Network::LatestOutputs() {
@@ -1514,29 +1417,6 @@ void Network::ResendOutputs(unsigned id, const NodeState& n) {
   }
   for (unsigned num : n.tpdos)
     if (tpdo_event_.count(num)) TpdoEvent(static_cast<int>(num));
-}
-
-void Network::CheckScanWatchdog(clock::time_point now) {
-  unsigned ms = cfg_.master.scan_watchdog_ms;
-  if (!ms) return;
-  uint64_t count = image_.scan_count(LatestOutputs());
-  if (count != run_->scan_seen) {
-    run_->scan_seen = count;
-    run_->scan_moved = now;
-    if (run_->scan_hung) {
-      run_->scan_hung = false;
-      set_scan_hung(false);
-      log_info("scan watchdog: the PLC scan finishes cycles again; outputs on");
-    }
-    return;
-  }
-  // Armed once the program has finished its first cycle.
-  if (!count || run_->scan_hung || now - run_->scan_moved < std::chrono::milliseconds(ms)) return;
-  run_->scan_hung = true;
-  set_scan_hung(true);
-  log_error("scan watchdog: the PLC scan has not finished a cycle for %u ms (master.scan_watchdog_ms); outputs off "
-            "until it does",
-            ms);
 }
 
 void Network::WriteOutputs() {
@@ -1570,7 +1450,6 @@ void Network::WriteOutputs() {
 
 // The host's NMT commands (the bridge's control block) and outputs gate.
 void Network::ServiceHost() {
-  CheckScanWatchdog(clock::now());
   SyncOutputsGate();
   host_nmt_.clear();
   HostRequests::instance().take(cfg_.network_index, host_nmt_);
@@ -2251,34 +2130,6 @@ void Network::FinishTransfer(unsigned id, size_t k, std::error_code ec, const st
   image_.set_sdo_status(k, kSdoDone);
   image_.set_sdo_abort(k, 0);
   image_.commit_inputs();
-}
-
-SyncWake::SyncWake(lely::io::Poll& poll, int fd, Network& net) : poll_(poll), fd_(fd), net_(net) {
-  watch_.w = IO_POLL_WATCH_INIT(&SyncWake::OnEvent);
-  watch_.self = this;
-  Arm();
-}
-
-SyncWake::~SyncWake() {
-  if (fd_ < 0) return;
-  std::error_code ec;
-  poll_.watch(fd_, lely::io::Event::NONE, watch_.w, ec);
-}
-
-void SyncWake::Arm() {
-  if (fd_ < 0) return;
-  std::error_code ec;
-  poll_.watch(fd_, lely::io::Event::IN, watch_.w, ec);
-  if (ec) log_error("cannot watch the PLC-cycle SYNC requests: %s", ec.message().c_str());
-}
-
-void SyncWake::OnEvent(struct ::io_poll_watch* watch, int) noexcept {
-  SyncWake* self = reinterpret_cast<Watch*>(watch)->self;
-  uint64_t n;
-  while (read(self->fd_, &n, sizeof(n)) == static_cast<ssize_t>(sizeof(n))) {
-  }
-  self->net_.ServiceSyncRequests();
-  self->Arm();  // a watch reports one event
 }
 
 FdWake::FdWake(lely::io::Poll& poll, int fd, std::function<void()> fn) : poll_(poll), fd_(fd), fn_(std::move(fn)) {

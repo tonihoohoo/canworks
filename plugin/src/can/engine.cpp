@@ -68,22 +68,8 @@ bool Engine::check(const std::string& path, const ImageLimits& limits, std::vect
   return load(path, limits, set, problems);
 }
 
-bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_t base_tick_ns, const char* version) {
+bool Engine::prepare(const std::string& path, const ImageLimits& limits, const char* version) {
   if (!load(path, limits, set_, nullptr)) return false;
-  // The Modbus bridge has no PLC scan (its cycle_end runs on writes) and its
-  // own watchdog: no scan watchdog there.
-  if (limits.bridge_host)
-    for (auto& cfg : set_.networks) {
-      cfg.master.scan_watchdog_ms = 0;
-      cfg.j1939.scan_watchdog_ms = 0;
-      cfg.raw.scan_watchdog_ms = 0;
-    }
-  // J1939 and plain CAN networks: the engine's own scan watchdogs.
-  watchdogs_.clear();
-  for (const auto& cfg : set_.networks)
-    if (unsigned ms = own_scan_watchdog_ms(cfg))
-      watchdogs_.emplace_back(new ScanWatchdog(ms, cfg.is_j1939() ? "j1939.scan_watchdog_ms" : "raw.scan_watchdog_ms",
-                                               prefix_of(cfg)));
   std::vector<std::string> errors;
   for (auto& cfg : set_.networks) {
     if (cfg.is_plain()) {
@@ -97,7 +83,7 @@ bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_
     }
 #endif
 #if CANWORKS_WITH_CANOPEN
-    canopen_log_loaded(set_, cfg, base_tick_ns);
+    canopen_log_loaded(set_, cfg);
 #endif
   }
 
@@ -117,7 +103,7 @@ bool Engine::prepare(const std::string& path, const ImageLimits& limits, uint64_
   for (size_t i = 0; i < set_.networks.size(); ++i)
     if (set_.networks[i].is_plain()) nets_[i] = canworks_raw::make_plain_runtime(raws_[i].get(), version);
 #if CANWORKS_WITH_CANOPEN
-  if (!canopen_create(set_, base_tick_ns, version, canopen_, nets_)) return false;
+  if (!canopen_create(set_, version, canopen_, nets_)) return false;
 #endif
 #if CANWORKS_WITH_J1939
   j1939_create(set_, version, nets_);
@@ -184,30 +170,12 @@ void Engine::start() {
 #if CANWORKS_WITH_J1939
   j1939_open_plc_jobs(set_);
 #endif
-  if (!watchdogs_.empty()) {
-    watchdog_stop_ = false;
-    watchdog_thread_ = std::thread([this] {
-      std::unique_lock<std::mutex> lock(watchdog_mutex_);
-      while (!watchdog_cv_.wait_for(lock, std::chrono::milliseconds(10), [this] { return watchdog_stop_; }))
-        for (auto& w : watchdogs_) w->check(ScanWatchdog::clock::now());
-    });
-  }
   started_ = true;
 }
 
 void Engine::stop() {
   if (!started_) return;
   started_ = false;
-  if (watchdog_thread_.joinable()) {
-    {
-      std::lock_guard<std::mutex> lock(watchdog_mutex_);
-      watchdog_stop_ = true;
-    }
-    watchdog_cv_.notify_all();
-    watchdog_thread_.join();
-  }
-  // A trip ends with the PLC run.
-  for (auto& w : watchdogs_) w->release();
 #if CANWORKS_WITH_CANOPEN
   canopen_close_plc_requests();
 #endif
@@ -223,15 +191,14 @@ void Engine::stop() {
   for (auto& n : nets_) n->stop();
 }
 
-void Engine::cycle_start(const plugin_runtime_args_t& rt) {
+void Engine::cycle_start(ImageHost& rt) {
   for (auto& n : nets_) n->cycle_start(rt);
   for (auto& r : raws_) r->cycle_start(rt);
 }
 
-void Engine::cycle_end(const plugin_runtime_args_t& rt) {
+void Engine::cycle_end(ImageHost& rt) {
   for (auto& n : nets_) n->cycle_end(rt);
   for (auto& r : raws_) r->cycle_end(rt);
-  for (auto& w : watchdogs_) w->scan_done();
 }
 
 }  // namespace canopen_plugin

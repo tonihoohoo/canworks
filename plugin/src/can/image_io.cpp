@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "byte_image.h"
+
 namespace canopen_plugin {
 
 // ---------------------------------------------------------------------------
@@ -34,6 +36,45 @@ const uint64_t* TripleBuffer::latest(bool* fresh) {
   }
   if (fresh) *fresh = got;
   return bufs_[front_].data();
+}
+
+// ---------------------------------------------------------------------------
+// ByteImageHost
+
+namespace {
+
+unsigned location_bytes(IecSize size) {
+  switch (size) {
+    case IecSize::X:
+    case IecSize::B: return 1;
+    case IecSize::W: return 2;
+    case IecSize::D: return 4;
+    case IecSize::L: return 8;
+  }
+  return 1;
+}
+
+}  // namespace
+
+void ByteImageHost::write_input(const IecLocation& loc, uint64_t v) {
+  const unsigned n = location_bytes(loc.size);
+  if (loc.index >= in.size() || n > in.size() - loc.index) return;
+  if (loc.size == IecSize::X) {
+    uint8_t mask = static_cast<uint8_t>(1u << loc.bit);
+    if (v)
+      in[loc.index] |= mask;
+    else
+      in[loc.index] &= static_cast<uint8_t>(~mask);
+    return;
+  }
+  canworks_bridge::store_value(&in[loc.index], v, n, low_first);
+}
+
+uint64_t ByteImageHost::read_output(const IecLocation& loc) const {
+  const unsigned n = location_bytes(loc.size);
+  if (loc.index >= out.size() || n > out.size() - loc.index) return 0;
+  if (loc.size == IecSize::X) return (out[loc.index] >> loc.bit) & 1;
+  return canworks_bridge::load_value(&out[loc.index], n, low_first);
 }
 
 }  // namespace canopen_plugin

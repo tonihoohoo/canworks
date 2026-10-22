@@ -1,8 +1,8 @@
-// log.h - logging for the CANopen plugin.
+// log.h - logging for the canworks engine.
 //
-// All messages are prefixed with "[CANWORKS]" and routed to a sink. In the
-// runtime the sink is the runtime logger from plugin_runtime_args_t; in unit
-// tests it is a capture buffer. Never call these from cycle_start/cycle_end.
+// All messages are prefixed with "[CANWORKS]" and routed to a sink: the
+// host's (stderr in canworks-bridge), a capture buffer in unit tests. Never
+// call these from cycle_start/cycle_end.
 
 #ifndef CANOPEN_LOG_H
 #define CANOPEN_LOG_H

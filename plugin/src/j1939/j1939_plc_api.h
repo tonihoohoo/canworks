@@ -1,21 +1,10 @@
-/* j1939_plc_api.h - the C interface the PLC program's J1939 blocks in
- * library/canworks use through the loaded plugin: version 1 for the trouble
- * code blocks (J1939_DM_READ, J1939_DM_CLEAR: read DM1/DM2, send DM3/DM11;
- * spec j1939-plc-diagnostics), version 2 adds the message blocks
- * (J1939_SEND, J1939_RECEIVE, J1939_REQUEST, J1939_ECU_INFO,
- * J1939_FIND_ECU; spec j1939-plc-blocks). The plugin offers both versions.
- *
- * The blocks find the plugin the runtime has loaded with
- * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) and call
- * canworks_j1939_api(CANWORKS_J1939_API_VERSION), which returns the function
- * table for that version or NULL (also when the plugin is built without
- * J1939). Every function is called on a PLC task thread, possibly from
- * several tasks at once (a handle stays with the block instance that got
- * it): none waits on CAN traffic, allocates or logs.
- *
- * The library carries a copy of these declarations
- * (library/src/j1939_common.inc); test/j1939_unit checks that the two agree.
- * Change the layout only together with a new version number. */
+/* j1939_plc_api.h - the call table of the engine's J1939 jobs: trouble
+ * codes (DM1/DM2 reads, DM3/DM11) and messages (sends, receivers, requests,
+ * ECU info and search; j1939_plc_jobs.h, j1939_plc_msgs.h). The function
+ * blocks that used it went with the OpenPLC plugin; the table stays as the
+ * engine's internal interface, which the tests use. Every function may be
+ * called from any thread (a handle stays with the caller that got it): none
+ * waits on CAN traffic, allocates or logs. */
 
 #ifndef CANWORKS_J1939_PLC_API_H
 #define CANWORKS_J1939_PLC_API_H

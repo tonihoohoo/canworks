@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "frame_tx.h"
-#include "plugin_types.h"
+#include "image_io.h"
 #include "trace_capture.h"
 
 namespace canopen_plugin {
@@ -24,8 +24,8 @@ class NetworkRuntime {
   virtual void stop() = 0;
   // The scan hooks: inputs to %I* (cycle_start), %Q* into a snapshot
   // (cycle_end). Never block, allocate or log.
-  virtual void cycle_start(const plugin_runtime_args_t& rt) = 0;
-  virtual void cycle_end(const plugin_runtime_args_t& rt) = 0;
+  virtual void cycle_start(ImageHost& rt) = 0;
+  virtual void cycle_end(ImageHost& rt) = 0;
   // The network's diagnostics hub, nullptr without diagnostics.
   virtual DiagHub* hub() = 0;
   // A simulated network's own frames for traces and hand-sent frames

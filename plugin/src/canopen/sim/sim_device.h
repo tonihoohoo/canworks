@@ -84,13 +84,8 @@ class SimDevice : public canopen_plugin::SlaveDevice {
   // Objects in the active PDOs: (index, subindex), TPDOs and RPDOs.
   std::vector<std::pair<uint16_t, uint8_t>> PdoObjects() const;
 
-  // Called on every SYNC the device receives.
-  std::function<void()> on_sync;
   // Called after an RPDO wrote the dictionary.
   std::function<void()> on_rpdo;
-  // Called on NMT reset node, after Lely restored the application objects
-  // (a drive model starts over, as its firmware would).
-  std::function<void()> on_reset_node;
   // False: the device sends nothing (powered off until it is recreated).
   bool powered = true;
 
@@ -113,8 +108,6 @@ class SimDevice : public canopen_plugin::SlaveDevice {
 
  protected:
   void OnRestored() override;
-  void OnCommand(lely::canopen::NmtCommand cs) noexcept override;
-  void OnSync(uint8_t cnt, const time_point& t) noexcept override;
   void OnRpdoWrite(uint8_t id, uint16_t idx, uint8_t subidx) noexcept override;
 
  private:

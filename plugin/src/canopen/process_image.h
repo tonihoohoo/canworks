@@ -23,7 +23,6 @@
 
 #include "config.h"
 #include "image_io.h"
-#include "plugin_types.h"
 
 namespace canopen_plugin {
 
@@ -32,13 +31,7 @@ struct Binding {
   uint16_t index = 0;
   uint8_t subindex = 0;
   CoType type = CoType::UNSIGNED8;
-  // False for an entry that reaches the PLC only through its bits.
-  bool has_location = true;
   IecLocation location;
-  // The entry's bit channels with a location (canopen-pdo-io "Bit channels
-  // exchanged with the scan"): inputs write each bit of the value, outputs
-  // build the value from them.
-  std::vector<PdoBit> bits;
 };
 
 // A node TPDO's receive timeout bit (timeout_location), config order.
@@ -59,7 +52,6 @@ class ProcessImage {
   ProcessImage() = default;
   ProcessImage(const ProcessImage&) = delete;
   ProcessImage& operator=(const ProcessImage&) = delete;
-  ~ProcessImage();
 
   // Builds the binding tables and preallocates every buffer.
   void build(const Config& cfg);
@@ -131,29 +123,11 @@ class ProcessImage {
 
   // ---- PLC scan (cycle_start / cycle_end) ----
   // Copies the newest inputs and status bits to %I* via the journal.
-  void copy_to_plc(const plugin_runtime_args_t& rt);
+  void copy_to_plc(ImageHost& rt);
   // Copies %Q* into a new output snapshot.
-  void copy_from_plc(const plugin_runtime_args_t& rt);
-  // PLC-cycle SYNC (canopen-master-bringup "SYNC from the PLC cycle"): call
-  // once per frame in cycle_start(), after copy_to_plc(). Every sync_cycles-th
-  // frame adds a SYNC request and wakes the bus thread through sync_fd().
-  // Never blocks; does nothing without "sync_source": "plc_cycle".
-  void request_sync();
-
-  // ---- bus thread ----
-  // SYNC requests made so far, and the eventfd that becomes readable when
-  // one is made (-1 without PLC-cycle SYNC). The eventfd lives as long as
-  // the image; the reader drains it.
-  uint64_t sync_requests() const { return sync_requests_.load(std::memory_order_acquire); }
-  int sync_fd() const { return sync_fd_; }
-
+  void copy_from_plc(ImageHost& rt);
  private:
   int node_slot(unsigned node_id) const;
-
-  unsigned sync_cycles_ = 0;  // 0: no PLC-cycle SYNC
-  unsigned sync_frames_ = 0;  // frames since the last request (cycle_start only)
-  std::atomic<uint64_t> sync_requests_{0};
-  int sync_fd_ = -1;
 
   std::vector<Binding> inputs_;
   std::vector<Binding> outputs_;

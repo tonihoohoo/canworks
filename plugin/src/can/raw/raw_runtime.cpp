@@ -199,7 +199,7 @@ void RawRuntime::stop() {
   if (port_) port_->cancel_all();
 }
 
-void RawRuntime::cycle_start(const plugin_runtime_args_t& rt) {
+void RawRuntime::cycle_start(ImageHost& rt) {
   if (!engine_ || !in_.size()) return;
   bool fresh = false;
   const uint64_t* v = in_.latest(&fresh);
@@ -208,7 +208,7 @@ void RawRuntime::cycle_start(const plugin_runtime_args_t& rt) {
   for (size_t i = 0; i < locs.size(); ++i) image_write_input(rt, locs[i], v[i]);
 }
 
-void RawRuntime::cycle_end(const plugin_runtime_args_t& rt) {
+void RawRuntime::cycle_end(ImageHost& rt) {
   if (!engine_ || !out_.size()) return;
   uint64_t* b = out_.back();
   const std::vector<IecLocation>& locs = engine_->output_locations();
@@ -303,8 +303,8 @@ class PlainRuntime : public NetworkRuntime {
   // The plugin starts, stops and scans `raw` with the other networks' raw paths.
   void start() override {}
   void stop() override {}
-  void cycle_start(const plugin_runtime_args_t&) override {}
-  void cycle_end(const plugin_runtime_args_t&) override {}
+  void cycle_start(ImageHost&) override {}
+  void cycle_end(ImageHost&) override {}
   DiagHub* hub() override { return hub_.get(); }
   std::unique_ptr<TraceSource> trace_source() override { return raw_->trace_source(); }
   std::shared_ptr<SimFrameInjector> frame_injector() override { return raw_->frame_injector(); }

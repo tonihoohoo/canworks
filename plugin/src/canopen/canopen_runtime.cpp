@@ -50,22 +50,19 @@ class MasterRuntime : public NetworkRuntime {
   explicit MasterRuntime(const Config& cfg) : cfg_(cfg) {}
   ~MasterRuntime() override { stop(); }
 
-  bool make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLink* gw, const char* version,
+  bool make(const ConfigSet& set, GatewayLink* gw, const char* version,
             std::vector<std::string>& errors);
   void start() override {
-    run_.end_run();
     run_ = RunState();  // a new PLC run (the bus thread is not running)
     bus_->start();
   }
   void stop() override {
     if (bus_) bus_->stop();
-    run_.end_run();  // the PLC stops: so does a tripped scan watchdog
   }
-  void cycle_start(const plugin_runtime_args_t& rt) override {
+  void cycle_start(ImageHost& rt) override {
     image_.copy_to_plc(rt);
-    image_.request_sync();  // PLC-cycle SYNC only
   }
-  void cycle_end(const plugin_runtime_args_t& rt) override { image_.copy_from_plc(rt); }
+  void cycle_end(ImageHost& rt) override { image_.copy_from_plc(rt); }
   DiagHub* hub() override { return hub_.get(); }
   std::unique_ptr<TraceSource> trace_source() override {
     return sim_ && sim_->tap ? make_sim_trace_source(sim_->tap) : nullptr;
@@ -80,8 +77,7 @@ class MasterRuntime : public NetworkRuntime {
   const Config& cfg_;
   GeneratedConfig gen_;
   ProcessImage image_;
-  // The program's NMT state and the scan watchdog for the PLC run, across
-  // the bus sessions (run_state.h).
+  // The NMT state of the run, across the bus sessions (run_state.h).
   RunState run_;
   std::unique_ptr<DiagHub> hub_;
   std::shared_ptr<SimSetup> sim_;
@@ -99,8 +95,8 @@ class SlaveRuntime : public NetworkRuntime {
   void stop() override {
     if (bus_) bus_->stop();
   }
-  void cycle_start(const plugin_runtime_args_t& rt) override { image_.copy_to_plc(rt); }
-  void cycle_end(const plugin_runtime_args_t& rt) override { image_.copy_from_plc(rt); }
+  void cycle_start(ImageHost& rt) override { image_.copy_to_plc(rt); }
+  void cycle_end(ImageHost& rt) override { image_.copy_from_plc(rt); }
   DiagHub* hub() override { return hub_.get(); }
 
  private:
@@ -177,11 +173,10 @@ bool MasterRuntime::load_sim(const ConfigSet& set, std::vector<std::string>& err
   return true;
 }
 
-bool MasterRuntime::make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLink* gw, const char* version,
+bool MasterRuntime::make(const ConfigSet& set, GatewayLink* gw, const char* version,
                          std::vector<std::string>& errors) {
   Config& cfg = const_cast<Config&>(cfg_);
   size_t failed = errors.size();
-  resolve_interpolation_periods(cfg, base_tick_ns / 1000);
   if (!generate_device_config(cfg, default_dcfgen(), gen_, errors)) {
     for (size_t i = failed; i < errors.size(); ++i) log_error("%s", errors[i].c_str());
     log_error("could not generate the device configuration; canworks inactive, CAN interface not opened");
@@ -189,11 +184,6 @@ bool MasterRuntime::make(uint64_t base_tick_ns, const ConfigSet& set, GatewayLin
   }
   log_info("device configuration %s in %s", gen_.reused ? "unchanged, reusing" : "generated", gen_.work_dir.c_str());
   image_.build(cfg_);
-  if (cfg_.master.sync_plc_cycle && image_.sync_fd() < 0) {
-    log_error("cannot create the PLC-cycle SYNC event (%s); canworks inactive, CAN interface not opened",
-              strerror(errno));
-    return false;
-  }
   if (simulates_anything(cfg_)) {
     std::vector<std::string> sim_errors;
     if (!load_sim(set, sim_errors)) {
@@ -247,7 +237,7 @@ bool canopen_check(ConfigSet& set, std::vector<std::string>& errors) {
   return ok;
 }
 
-void canopen_log_loaded(const ConfigSet& set, const Config& cfg, uint64_t base_tick_ns) {
+void canopen_log_loaded(const ConfigSet& set, const Config& cfg) {
   ScopedLogPrefix prefix(prefix_of(cfg));
   const std::string& path = set.path;
   if (cfg.is_slave()) {
@@ -263,25 +253,14 @@ void canopen_log_loaded(const ConfigSet& set, const Config& cfg, uint64_t base_t
            cfg.adapter.simulate ? " (not used: the network is simulated)" : "", cfg.master.node_id, cfg.nodes.size(),
            cfg.nodes.size() == 1 ? "" : "s");
   const MasterConfig& m = cfg.master;
-  if (m.sync_plc_cycle) {
-    unsigned long long tick_us = base_tick_ns / 1000;
-    if (!tick_us)
-      log_info("SYNC from the PLC cycle, every %u PLC cycle%s (the runtime does not report its base tick)",
-               m.sync_cycles, m.sync_cycles == 1 ? "" : "s");
-    else
-      log_info("SYNC from the PLC cycle, every %u PLC cycle%s (base tick %llu us)", m.sync_cycles,
-               m.sync_cycles == 1 ? "" : "s", tick_us);
-    if (tick_us && tick_us * m.sync_cycles < 1000)
-      log_warn("a SYNC period of %llu us is below 1 ms; the bus may not carry all PDOs in one period",
-               tick_us * m.sync_cycles);
-  } else if (m.sync_period_us) {
+  if (m.sync_period_us) {
     log_info("SYNC every %u us", m.sync_period_us);
   } else {
     log_info("no SYNC period: the master produces no SYNC and sends outputs when they change");
   }
 }
 
-bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
+bool canopen_create(ConfigSet& set, const char* version,
                     std::shared_ptr<CanopenShared>& shared, std::vector<std::unique_ptr<NetworkRuntime>>& out) {
   shared = std::make_shared<CanopenShared>();
   if (set.gateway.enabled) {
@@ -303,7 +282,7 @@ bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
     }
     std::unique_ptr<MasterRuntime> m(new MasterRuntime(cfg));
     std::vector<std::string> errors;
-    if (!m->make(base_tick_ns, set, shared->gateway.get(), version, errors)) return false;
+    if (!m->make(set, shared->gateway.get(), version, errors)) return false;
     out[i] = std::move(m);
   }
   return true;

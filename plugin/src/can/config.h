@@ -25,10 +25,9 @@ namespace canopen_plugin {
 // One bit of an integer PDO entry bound to its own %IX/%QX location
 // (canopen-pdo-io "Bit channels of a PDO entry"). Bit 0 is the value's
 // least significant bit. A bridge config gives bits no location.
+// A named bit of an entry; the bridge serves it in the entry's location.
 struct PdoBit {
   uint8_t bit = 0;
-  bool has_location = false;
-  IecLocation location;
 };
 
 struct PdoEntry {
@@ -140,10 +139,6 @@ struct SdoVariable {
 // startup SDO or SDO variable that writes one of them overrides the plugin.
 const char* plugin_owned_object(uint16_t index);
 
-// 0x60C2 for an interpolation period: sub 1 `value` (1-255) and sub 2
-// `exponent`, the largest of -3 to -6 that gives the period exactly. False
-// when none does.
-bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent);
 
 struct NodeConfig {
   unsigned node_id = 0;
@@ -262,14 +257,6 @@ struct NodeConfig {
   // A simulated device runs this node (docs/simulator.md); defaults to
   // adapter.simulate.
   bool simulate = false;
-  // A CiA 402 axis driven in the cyclic synchronous modes (axis.cyclic):
-  // the master writes the drive's interpolation time period 0x60C2 from
-  // interpolation_period_us or, when 0, the SYNC period.
-  bool axis_cyclic = false;
-  unsigned interpolation_period_us = 0;
-  // The period the master writes to 0x60C2 (resolve_interpolation_periods),
-  // 0 when it writes none.
-  unsigned interpolation_write_us = 0;
 
   // COB-ID a PDO uses on the bus (explicit or the CiA 301 default).
   uint32_t tpdo_cob_id(const PdoConfig& pdo) const;
@@ -323,7 +310,7 @@ struct LinkConfig {
 enum class OnPlcStop { Preop, Stop, Keep };
 
 // The CiA 309-3 ASCII gateway (canopen-cia309-gateway spec): a top-level
-// `cia309` object in a version 2 file, master.cia309 in version 1. Off
+// `cia309` object. Off
 // without it. The plain port listens on loopback only; other machines come
 // in through the diagnostics channel's `cia309` op.
 struct Cia309Config {
@@ -354,14 +341,8 @@ bool cia309_built_in();
 struct MasterConfig {
   unsigned node_id = 1;
   unsigned sync_period_us = 0;  // 0 (or left out): the master produces no SYNC
-  // SYNC source: Lely's timer (sync_period_us) or the PLC cycle, one SYNC
-  // every sync_cycles frames from cycle_start() (canopen-master-bringup "SYNC
-  // from the PLC cycle").
-  bool sync_plc_cycle = false;
-  bool has_sync_cycles = false;
-  unsigned sync_cycles = 1;
-  // Whether the master sends SYNC at all.
-  bool produces_sync() const { return sync_period_us || sync_plc_cycle; }
+  // Whether the master sends SYNC at all (Lely's timer).
+  bool produces_sync() const { return sync_period_us != 0; }
   unsigned heartbeat_ms = 0;  // master heartbeat producer (0 = off)
   // Which dcfgen EDS lint findings stop the load (eds_lint.h):
   // "communication", "all" or "off"; strict_eds true/false reads as all/off.
@@ -412,9 +393,6 @@ struct MasterConfig {
   // ENTER PRE-OPERATIONAL (default), STOP or nothing to every up node on a
   // PLC stop.
   OnPlcStop on_plc_stop = OnPlcStop::Preop;
-  // Outputs gate closes when the PLC scan has not finished a cycle for this
-  // long (canopen-pdo-io "Scan watchdog"); 0 = off, else 10-60000.
-  unsigned scan_watchdog_ms = 1000;
   // The COB-ID the master produces TIME on: time_cob_id, else 0x100.
   uint32_t time_producer_cob_id() const { return (has_time_cob_id ? time_cob_id : 0x100u) & 0x1FFFFFFFu; }
   // Diagnostics channel (canopen-online-diagnostics spec); off without
@@ -550,25 +528,24 @@ struct GatewayConfig {
   bool is_field(const Config& c) const;
 };
 
-// Highest config schema_version this plugin reads. Version 2 holds a list of
-// networks (canopen-networks spec); version 1 is one network.
+// The config schema_version canworks reads: 2, a list of networks
+// (canopen-networks spec). Version 1 (one network) was the OpenPLC plugin's.
 constexpr unsigned kSchemaVersion = 2;
 constexpr unsigned kMaxNetworks = 8;
 
-// One CANopen network: its adapter, master and nodes. A version 1 file is one
-// network with an empty name. The diagnostics settings, which are one for the
-// whole file, are copied into every network's master.
+// One CANopen network: its adapter, master and nodes. The diagnostics
+// settings, which are one for the whole file, are copied into every
+// network's master.
 struct Config {
   std::string path;        // the JSON file
   std::string config_dir;  // its directory
   std::string file_sha256;  // SHA-256 of the file's bytes (lower-case hex)
   unsigned schema_version = 1;
-  // The network's name: "" for a version 1 file, else `name` or the
-  // adapter's interface name.
+  // The network's name: `name` or the adapter's interface name.
   std::string network;
   unsigned network_index = 0;
-  // Where dcfgen's output and the prepared EDS copies go: <config dir>/.canworks
-  // for a version 1 file, <config dir>/.canworks/<network> for version 2.
+  // Where dcfgen's output and the prepared EDS copies go:
+  // <config dir>/.canworks/<network>.
   std::string work_dir;
   // Put in front of the network's log lines ("drives"), empty when the file
   // has one network.
@@ -698,23 +675,19 @@ struct ConfigSet {
   std::vector<Config> networks;
   GatewayConfig gateway;
   BridgeConfig bridge;
-  bool byte_addressed() const { return bridge.enabled; }
   // Findings of the parser (each names the file and JSON path).
   std::vector<std::string> warnings;
   std::vector<std::string> notes;
   bool several() const { return networks.size() > 1; }
 };
 
-// Limits of the runtime's I/O image, from plugin_runtime_args_t.
+// Limits of the host's byte image (the bridge's, bridge_host.h).
 struct ImageLimits {
-  unsigned buffer_size = 1024;
+  unsigned buffer_size = 8192;
   // Set from the runtime environment (CANWORKS_FORCE_SIMULATE=1, the local
   // local runtime image): every network is parsed as a simulated network,
   // whatever its adapter.simulate says (docs/local-runtime.md).
   bool force_simulate = false;
-  // The host is the Modbus bridge: only bridge configs load. Otherwise (the
-  // OpenPLC plugin) a bridge config is refused.
-  bool bridge_host = false;
 };
 
 // Whether the value of CANWORKS_FORCE_SIMULATE forces simulation: exactly "1".

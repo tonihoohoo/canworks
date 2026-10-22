@@ -37,7 +37,7 @@ struct ObjKey {
 struct Fault {
   // emcy, heartbeat, power, reset, nmt_state, sdo_abort, sdo_delay,
   // refuse_write_operational, tpdo_stop, identity, device_type,
-  // forget_node_id, drive_input
+  // forget_node_id
   std::string kind;
   std::string json;  // as given, for status answers
   // emcy
@@ -61,8 +61,6 @@ struct Fault {
   // identity (0x1018 subindex -> value), device_type
   std::map<uint8_t, uint32_t> identity;
   uint32_t value = 0;
-  // drive_input: name -> state
-  std::map<std::string, bool> inputs;
 };
 
 // Parses one fault object.
@@ -118,8 +116,6 @@ struct NodeBehaviour {
   bool default_behaviour = true;
   unsigned tick_ms = 0;  // 0: the file's
   std::vector<std::pair<ObjKey, std::string>> sources;  // source JSON text
-  bool has_drive = false;
-  std::string drive_json;
   std::vector<Fault> faults;
   std::map<uint8_t, uint32_t> identity;
   bool has_device_type = false;

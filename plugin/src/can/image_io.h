@@ -1,6 +1,6 @@
-// image_io.h - moving values between a protocol's bus thread and the PLC
+// image_io.h - moving values between a protocol's bus thread and the host's
 // I/O image: a lock-free triple buffer for snapshots, and the writes into
-// %I* (through the runtime's journal) and reads of %Q* the scan hooks make.
+// %I* and reads of %Q* the scan hooks make through the host.
 
 #ifndef CANWORKS_IMAGE_IO_H
 #define CANWORKS_IMAGE_IO_H
@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "iec_location.h"
-#include "plugin_types.h"
 
 namespace canopen_plugin {
 
@@ -37,53 +36,35 @@ class TripleBuffer {
   std::atomic<uint8_t> middle_{2};
 };
 
-// One input location written through the runtime's journal (cycle_start),
-// and one output location read (cycle_end, with the image lock held).
-// Journal buffer types (journal_buffer_type_t in the runtime).
-enum : int {
-  kBoolInput = 0,
-  kByteInput = 3,
-  kIntInput = 5,
-  kDintInput = 8,
-  kLintInput = 11,
+// The host's I/O image as the scan hooks see it: the bridge's byte image
+// (bridge/bridge_host.cpp) or a test's. cycle_start writes the inputs,
+// cycle_end reads the outputs between lock() and unlock(). Locations are
+// byte-addressed: %IW2 is input bytes 2 and 3.
+class ImageHost {
+ public:
+  virtual ~ImageHost() = default;
+  virtual void write_input(const IecLocation& loc, uint64_t v) = 0;
+  virtual uint64_t read_output(const IecLocation& loc) const = 0;
+  virtual void lock() {}
+  virtual void unlock() {}
 };
 
-inline void image_write_input(const plugin_runtime_args_t& rt, const IecLocation& loc, uint64_t v) {
-  switch (loc.size) {
-    case IecSize::X: rt.journal_write_bool(kBoolInput, loc.index, loc.bit, v ? 1 : 0); break;
-    case IecSize::B: rt.journal_write_byte(kByteInput, loc.index, static_cast<int>(v & 0xFF)); break;
-    case IecSize::W: rt.journal_write_int(kIntInput, loc.index, static_cast<int>(v & 0xFFFF)); break;
-    case IecSize::D: rt.journal_write_dint(kDintInput, loc.index, static_cast<unsigned>(v)); break;
-    case IecSize::L: rt.journal_write_lint(kLintInput, loc.index, static_cast<unsigned long long>(v)); break;
-  }
-}
+inline void image_write_input(ImageHost& host, const IecLocation& loc, uint64_t v) { host.write_input(loc, v); }
+inline uint64_t image_read_output(ImageHost& host, const IecLocation& loc) { return host.read_output(loc); }
 
-inline uint64_t image_read_output(const plugin_runtime_args_t& rt, const IecLocation& loc) {
-  // A location the program does not declare has a NULL pointer: read 0.
-  switch (loc.size) {
-    case IecSize::X: {
-      IEC_BOOL* p = rt.bool_output[loc.index][loc.bit];
-      return p ? (*p ? 1 : 0) : 0;
-    }
-    case IecSize::B: {
-      IEC_BYTE* p = rt.byte_output[loc.index];
-      return p ? *p : 0;
-    }
-    case IecSize::W: {
-      IEC_UINT* p = rt.int_output[loc.index];
-      return p ? *p : 0;
-    }
-    case IecSize::D: {
-      IEC_UDINT* p = rt.dint_output[loc.index];
-      return p ? *p : 0;
-    }
-    case IecSize::L: {
-      IEC_ULINT* p = rt.lint_output[loc.index];
-      return p ? *p : 0;
-    }
-  }
-  return 0;
-}
+// An ImageHost over two byte areas: the bridge's (modbus-bridge "Byte-
+// addressed locations") and the tests'. Values are most significant byte
+// first; with `low_first` the 16-bit words of 4- and 8-byte values come
+// lowest word first. A location past an area is ignored (writes) or reads
+// 0; the config check keeps them inside.
+class ByteImageHost : public ImageHost {
+ public:
+  bool low_first = false;
+  std::vector<uint8_t> in, out;
+
+  void write_input(const IecLocation& loc, uint64_t v) override;
+  uint64_t read_output(const IecLocation& loc) const override;
+};
 
 }  // namespace canopen_plugin
 

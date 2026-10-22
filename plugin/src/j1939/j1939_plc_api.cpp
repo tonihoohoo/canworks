@@ -302,8 +302,7 @@ const canworks_j1939_api_v2 kApiV2 = {sizeof(canworks_j1939_api_v2),
 
 }  // namespace canopen_plugin
 
-// The plugin exports it as canworks_j1939_api (plugin.cpp). Every earlier
-// version stays offered, so the trouble code blocks (version 1) keep working.
+// Version 1 (trouble codes) and 2 (with the messages).
 extern "C" const void* canworks_j1939_api_table(uint32_t version) {
   if (version == 1) return &canopen_plugin::kApiV1;
   if (version == 2) return &canopen_plugin::kApiV2;
