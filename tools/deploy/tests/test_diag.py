@@ -106,7 +106,7 @@ class Cli(unittest.TestCase):
         self.assertIn("master node 1: OPERATIONAL", out)
         self.assertIn("SYNC: PLC cycle, every 2 cycles, 500 sent, interval 10012 us (min 9870, max 10240), "
                       "skipped 0, late PDOs 3", out)
-        self.assertRegex(out, r"2\s+pingpong\s+OPERATIONAL\s+yes\s+booted\s+none\s+0x4210 temperature")
+        self.assertRegex(out, r"2\s+pingpong\s+OPERATIONAL\s+yes\s+0\.1 s ago\s+booted\s+none\s+0x4210 temperature")
         self.assertIn("error J: the configuration download failed", out)
         self.assertIn("(retrying)", out)
         self.assertIn("node 2 SDO variable 0x2001:0 (uptime), UNSIGNED32 read: raw 42", out)

@@ -282,13 +282,13 @@ class Probes(Layout):
             # The runtime stops answering: values grey out with their age.
             fp.outage()
             pg.wait_for_selector("#online-conn:has-text('Not connected')", timeout=8000)
-            pg.wait_for_selector("#online-live.stale")
+            pg.wait_for_selector("#online-live.stale", state="attached")
             pg.wait_for_selector("[data-online=stale-age]:has-text('Last data')")
-            self.assertTrue(pg.is_visible('tr[data-online-node="2"]'))
+            self.assertEqual(pg.locator('tr[data-online-node="2"]').count(), 1)
             pg.wait_for_function("() => /Last data [1-9]\\d* s ago/.test(document.querySelector('[data-online=stale-age]').textContent)", timeout=8000)
             fp.restart()
             pg.wait_for_selector("#online-conn:has-text('Connected to')", timeout=8000)
-            pg.wait_for_selector("#online-live:not(.stale)")
+            pg.wait_for_selector("#online-live:not(.stale)", state="attached")
 
     # -- 3.1 / 3.2 / 3.3 keyboard and announcements ---------------------------
     def test_lists_and_tabs_by_keyboard(self):

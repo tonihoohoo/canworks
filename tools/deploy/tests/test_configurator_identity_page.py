@@ -7,7 +7,7 @@ import os
 import struct
 import unittest
 
-from .helpers import REPO
+from .helpers import REPO, back_to_nodes
 from .test_configurator_localbus_page import AdapterPage
 
 EDS = os.path.join(REPO, "config", "gateway", "cpp-slave.eds")
@@ -99,15 +99,18 @@ class IdentityPage(AdapterPage):
         self.assertFalse(pg.is_visible('tr[data-od-object-row="%d"]' % 0x1802))
         self.assertFalse(pg.is_visible('tr[data-od-key="%d:0"]' % 0x1013))
         pg.uncheck('input[data-od-filter="lacking"]')
-        pg.click('details[data-od-group="communication"] > summary')
+        # Read all unfolded the communication group (commission-master-detail).
+        if not pg.locator('details[data-od-group="communication"]').evaluate("d => d.open"):
+            pg.click('details[data-od-group="communication"] > summary')
         pg.wait_for_selector('tr[data-od-key="%d:0"]:has-text("Not on this device")' % 0x1013)
         # The device's EDS replaces the standard objects.
         with pg.expect_file_chooser() as fc:
             pg.click('[data-eds-choices="od"] label.file-button')
         fc.value.set_files(EDS)
-        pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("cpp-slave.eds")')
+        pg.wait_for_selector('[data-online="od-standard"]', state="detached")
         pg.wait_for_selector('[data-online="od"] tr[data-od-key]', state="attached")
-        self.assertEqual(pg.query_selector_all('[data-online="od-standard"]'), [])
+        back_to_nodes(pg)
+        pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("cpp-slave.eds")')
 
     def test_more_pdos_than_listed(self):
         od = dict(SMALL)
@@ -130,6 +133,8 @@ class IdentityPage(AdapterPage):
         self.device(7, heartbeat_s=0.05, name="valve")
         pg = self.connected(7)
         pg.set_input_files('tr[data-online-node="7"] input[data-online="pick-eds"]', EDS)
+        pg.wait_for_selector('[data-online="node-header"]')
+        back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("cpp-slave.eds")')
         # The EDS column shows the file, not the device's name.
         self.assertNotIn("valve", pg.inner_text('tr[data-online-node="7"] [data-node-eds="7"]'))
@@ -137,6 +142,8 @@ class IdentityPage(AdapterPage):
         with pg.expect_file_chooser() as fc:
             pg.click('#modal button[data-value="pick"]')
         fc.value.set_files(OTHER_EDS)
+        pg.wait_for_selector('[data-online="node-header"]')
+        back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("openplc-slave.eds")')
         self.assertTrue(pg.evaluate("S.commLog.some((e) => e.what.includes('cpp-slave.eds → openplc-slave.eds'))"))
         # Clear: back to the EDS choices and the standard objects.
@@ -150,6 +157,8 @@ class IdentityPage(AdapterPage):
         pg.set_input_files('input[data-online="add-eds-file"]', EDS)
         pg.fill('input[data-online="add-node-id"]', "40")
         pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector('[data-online="node-heading"]:has-text("40")')
+        back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="40"]')
         pg.click('tr[data-online-node="40"] button[data-change-eds="40"]')
         self.assertEqual(pg.query_selector_all('#modal button[data-value="clear"]'), [])

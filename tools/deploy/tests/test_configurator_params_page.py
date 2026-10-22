@@ -96,6 +96,12 @@ class ParamsPage(OnlineBase):
             # Read all with progress; a value that differs from the EDS default is marked, also on its object.
             pg.click('button[data-online="od-read-all"]')
             pg.wait_for_selector('[data-online="od-summary"]:has-text("read, 0 not readable")')
+            # Read all shows what it read: the groups unfold, and the object holding an entry off its default.
+            self.assertTrue(pg.locator('details[data-od-group="profile"]').evaluate("d => d.open"))
+            self.assertTrue(pg.locator('tr[data-od-key="%d:3"]' % 0x6112).is_visible())
+            # Nothing watched yet: a hint line, no Watch list card.
+            self.assertTrue(pg.is_visible('[data-online="watch-hint"]'))
+            self.assertFalse(pg.is_visible('[data-online="watch-card"]'))
             self.search("0x6112")
             self.assertIn("1 ≠ default", pg.inner_text('tr[data-od-object-row="%d"]' % 0x6112))
             self.assertIn("≠ default", pg.inner_text('tr[data-od-key="%d:3"]' % 0x6112))
@@ -127,6 +133,7 @@ class ParamsPage(OnlineBase):
             self.search("0x7130")
             pg.check('tr[data-od-key="%d:1"] input[data-online="od-watch"]' % 0x7130)
             pg.wait_for_selector('[data-online="watch"] tr[data-watch-key]')
+            self.assertFalse(pg.is_visible('[data-online="watch-hint"]'))
             before = len(fp.sdo_requests("sdo_read"))
             deadline = time.monotonic() + 2.5
             while len(fp.sdo_requests("sdo_read")) - before < 2 and time.monotonic() < deadline:
@@ -307,10 +314,11 @@ class ParamsPage(OnlineBase):
         with self.device() as fp:
             self.open_node(fp, tab="od")
             pg.wait_for_selector('details[data-od-group="profile"]')
-            pg.select_option('select[data-online="watch-period"]', "500")
             for q, key in (("0x7130", (0x7130, 1)), ("0x7130", (0x7130, 2)), ("0x1008", (0x1008, 0))):
                 self.search(q)
                 pg.check('tr[data-od-key="%d:%d"] input[data-online="od-watch"]' % key)
+            # The Watch list card shows once an entry is watched.
+            pg.select_option('select[data-online="watch-period"]', "500")
             pg.wait_for_selector('[data-online="watch-round"]')
             self.assertIn("SDO variables the program reads periodically", pg.inner_text('[data-online="watch-sdo-vars"]'))
             row = '[data-online="watch"] tr[data-watch-key="%d:1"]' % 0x7130
@@ -487,10 +495,10 @@ class ParamsPage(OnlineBase):
         with self.device() as fp:
             self.open_node(fp, tab="od")
             pg.wait_for_selector('details[data-od-group="profile"]')
-            pg.select_option('select[data-online="watch-period"]', "500")
             for sub in (1, 2):
                 self.search("0x7130")
                 pg.check('tr[data-od-key="%d:%d"] input[data-online="od-watch"]' % (0x7130, sub))
+            pg.select_option('select[data-online="watch-period"]', "500")
             for theme in ("light", "dark"):
                 pg.evaluate("t => document.documentElement.dataset.theme = t", theme)
                 pg.click('button[data-online="watch-graph-toggle"]')

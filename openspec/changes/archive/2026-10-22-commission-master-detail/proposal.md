@@ -17,7 +17,7 @@ The usability hunt of 2026-10-21 (H3, M10, L10) walked Commission against the re
 - **Read all shows what it read.** After Read all, the groups that got values unfold, with their objects folded. Objects whose value differs from the EDS default unfold too. A search or filter still unfolds what matches. The Watch list card shows only once an entry is watched; before that, a one-line hint "Tick Watch on an entry to read it again and again" sits under the filters.
 - **Last heard from the plugin.** The plugin's status reports, per node, the time since anything was last received from it (heartbeat, boot-up, EMCY, a TPDO or an SDO answer). The Nodes table and node header show "0.1 s ago". "-" is kept only when the node was never heard.
 - **EMCY 0x0000 clears, it doesn't flag.** An EMCY with error code 0x0000 counts as the clearing of the node's diagnosis: the flag turns grey (as "Diagnosis flag and simulated mark" says). The Last EMCY column shows "cleared (0x0000)" in neutral text.
-- PC tools minor version bump; plugin patch version. docs/configurator.md (Commission).
+- PC tools minor version bump (the plugin version follows git). docs/configurator.md (Commission).
 
 ## Capabilities
 

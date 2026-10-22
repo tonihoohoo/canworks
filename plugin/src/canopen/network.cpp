@@ -13,6 +13,11 @@ extern "C" int can_net_send(__can_net* net, const can_msg* msg);
 using can_send_func = int(const can_msg* msg, void* data);
 extern "C" void can_net_get_send_func(const __can_net* net, can_send_func** pfunc, void** pdata);
 extern "C" void can_net_set_send_func(__can_net* net, can_send_func* func, void* data);
+using can_recv_func = int(const can_msg* msg, void* data);
+extern "C" __can_recv* can_recv_create(void);
+extern "C" void can_recv_destroy(__can_recv* recv);
+extern "C" void can_recv_set_func(__can_recv* recv, can_recv_func* func, void* data);
+extern "C" void can_recv_start(__can_recv* recv, __can_net* net, uint_least32_t id, uint_least8_t flags);
 
 #include "frame_tx.h"
 #include "log.h"
@@ -184,11 +189,21 @@ Network::Network(ev_exec_t* exec, lely::io::TimerBase& timer, lely::io::TimerBas
              (cfg.master.cia309.enabled && cfg.master.cia309.allow_changes);
   for (const auto& n : cfg.nodes) lss |= n.lss_assign;
   if (lss) lss_.reset(new LssAssigner(exec, *this));
+  for (const auto& n : cfg.nodes) {
+    for (uint32_t cob : {0x700u + n.node_id, 0x580u + n.node_id}) {
+      __can_recv* r = can_recv_create();
+      if (!r) continue;
+      heard_taps_.emplace_back(new HeardTap{this, n.node_id, r});
+      can_recv_set_func(r, &Network::Heard, heard_taps_.back().get());
+      can_recv_start(r, net(), cob, 0);
+    }
+  }
   // A new session: the program's EMCY queue starts empty, as the history.
   EmcyQueues::instance().reset(cfg.network_index);
 }
 
 Network::~Network() {
+  for (auto& t : heard_taps_) can_recv_destroy(t->recv);  // also stops it
   if (own_run_) own_run_->end_run();  // the run is this Network's
   HostRequests::instance().set_session(cfg_.network_index, false);
   HostRequests::instance().clear(cfg_.network_index);
@@ -207,6 +222,21 @@ void Network::HookSend() {
   can_net_get_send_func(net, &f, &send_data_);
   send_func_ = reinterpret_cast<void*>(f);
   can_net_set_send_func(net, &Network::SendTapped, this);
+}
+
+int Network::Heard(const can_msg* msg, void* data) {
+  (void)msg;
+  auto* t = static_cast<HeardTap*>(data);
+  auto it = t->net->nodes_.find(t->id);
+  if (it != t->net->nodes_.end()) it->second.last_heard = clock::now();
+  return 0;
+}
+
+Network::clock::time_point Network::LastHeard(unsigned id, const NodeState& n) const {
+  clock::time_point t = n.last_heard;
+  for (const auto& ip : in_pdos_)
+    if (ip.second.node_id == id && ip.second.last_rx > t) t = ip.second.last_rx;
+  return t;
 }
 
 void Network::SetSendTap(std::function<void(const can_msg&)> tap) {
@@ -1705,6 +1735,8 @@ void Network::HandleState(uint8_t id, NmtState st) {
 
 void Network::OnEmcy(uint8_t id, uint16_t eec, uint8_t er, uint8_t msef[5]) noexcept {
   BasicMaster::OnEmcy(id, eec, er, msef);
+  auto heard = nodes_.find(id);
+  if (heard != nodes_.end()) heard->second.last_heard = clock::now();
   std::array<uint8_t, 5> m{};
   if (msef) std::copy(msef, msef + 5, m.begin());
   Defer([this, id, eec, er, m] { HandleEmcy(id, eec, er, m); });

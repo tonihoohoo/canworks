@@ -193,6 +193,12 @@ void Network::DiagStatus(const DiagRequest& r) {
     cJSON_AddBoolToObject(o, "status", n.up);
     cJSON_AddBoolToObject(o, "booted", n.booted);
     cJSON_AddNumberToObject(o, "boots", n.boots);
+    const clock::time_point heard = LastHeard(id, n);
+    if (heard == clock::time_point{})
+      cJSON_AddNullToObject(o, "last_heard_ms");
+    else
+      cJSON_AddNumberToObject(o, "last_heard_ms", static_cast<double>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - heard).count()));
     const bool conflict = sim_conflicts_.count(id) > 0;
     cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
     cJSON_AddBoolToObject(o, "sim_conflict", conflict);

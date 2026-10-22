@@ -15,7 +15,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, node_tab, tree_net, tree_node, tree_view, header_action
+from .helpers import REPO, back_to_nodes, header_action, node_tab, tree_net, tree_node, tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -606,6 +606,7 @@ class Layout(OnlineBase):
                 pg.click('#ws [data-ws="configure"]')
                 pg.click('button[data-view="online"]')
                 pg.wait_for_selector("text=changes allowed")
+                back_to_nodes(pg)
                 pg.click('tr[data-online-node="%d"]' % NODE)
                 pg.click('button[data-online-tab="od"]')
                 pg.wait_for_selector('details[data-od-group="communication"]')

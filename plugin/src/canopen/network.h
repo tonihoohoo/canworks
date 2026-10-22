@@ -41,6 +41,7 @@
 #include "run_state.h"
 
 struct can_msg;
+struct __can_recv;
 
 namespace canopen_plugin {
 
@@ -209,6 +210,7 @@ class Network : public lely::canopen::BasicMaster {
     bool node_op = false;      // the node itself is OPERATIONAL
     bool retry_pending = false;
     clock::time_point next_retry;
+    clock::time_point last_heard{};  // last heartbeat, boot-up, SDO answer or EMCY from it
     std::chrono::milliseconds backoff{kRetryMin};
     size_t cfg_step = 0;       // next SDO of an ongoing configuration
     bool cfg_ok = false;       // this boot's configuration step succeeded
@@ -504,6 +506,17 @@ class Network : public lely::canopen::BasicMaster {
   void* send_func_ = nullptr;  // Lely's can_send_func_t*, called by SendTapped()
   void* send_data_ = nullptr;
   static int SendTapped(const can_msg* msg, void* data);
+  // Time a node was last heard (canopen-online-diagnostics): a receiver on
+  // its heartbeat and SDO answer identifiers, next to Lely's own.
+  struct HeardTap {
+    Network* net;
+    unsigned id;
+    __can_recv* recv;
+  };
+  std::vector<std::unique_ptr<HeardTap>> heard_taps_;
+  static int Heard(const can_msg* msg, void* data);
+  // The newest of last_heard and the node's input PDOs (none: epoch).
+  clock::time_point LastHeard(unsigned id, const NodeState& n) const;
   // Puts SendTapped() between Lely and the bus (once).
   void HookSend();
   int SendOn(const can_msg& msg);

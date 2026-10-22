@@ -330,3 +330,10 @@ def open_log(page):
     page.wait_for_selector("#log-panel:visible")
     if not page.evaluate("document.querySelector('#log-box').open"):
         page.click("#log-box > summary")
+
+
+def back_to_nodes(page):
+    """From a Commission node page to the Nodes table (commission-master-detail);
+    nothing when the table shows already."""
+    if page.is_visible('[data-online="back-to-nodes"]'):
+        page.click('[data-online="back-to-nodes"]')

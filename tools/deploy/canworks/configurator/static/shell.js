@@ -124,8 +124,11 @@ function renderShell() {
   }, 0);
   host.replaceChildren(tabs(items, active, (k) => {
     if (k === "network") showView(S.wsView && S.wsView.configure && !isTool(S.wsView.configure) ? S.wsView.configure : "bus");
-    else if (!isTool(k)) showView(k);
-    else { if (!isTool(S.view)) rememberView(); showView(k); }
+    else if (!isTool(k)) {
+      // Nodes is the network's page: from a node page it goes back to the table (commission-master-detail).
+      if (S.onlineNode !== null && S.onlineNode !== undefined && (S.state.commission || !onlineIsSlave())) { S.onlineBackFrom = S.onlineNode; S.onlineNode = null; }
+      showView(k);
+    } else { if (!isTool(S.view)) rememberView(); showView(k); }
   }, { class: "tabs tool-tabs", dataset: "view", label: "Pages", panel: "view" }));
   // A tool works on one network of the config: with several, the network
   // tree's networks are here, since a tool has no tree.
