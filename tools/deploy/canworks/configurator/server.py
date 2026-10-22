@@ -2400,6 +2400,15 @@ def home_folder():
     return os.path.abspath(os.sep)
 
 
+def runtime_host_only(text):
+    """HOST of an Online access runtime host "HOST", "HOST:PORT" or
+    "[v6]:PORT"; None for none and for "local" (the local runtime)."""
+    t = (text or "").strip() if isinstance(text, str) else ""
+    m = re.match(r"^\[(.*)\](?::\d+)?$", t) or re.match(r"^([^:]*):\d+$", t)
+    t = m.group(1) if m else t
+    return t if t and t != "local" else None
+
+
 _codesys_devices = None  # the installed PLC devices, read once per server start
 
 
@@ -2991,21 +3000,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # -- devices (device-install) -------------------------------------------
     def _devices(self, route, body):
-        """/api/devices/*: the Devices workspace. A question the user has to
+        """/api/devices/*: the Devices workspace, with a config open or none
+        (the start page's Install on a device). A question the user has to
         answer (trust a host key, a password, the sudo password) is a 409 with
         `need`; passwords are only in the request that carries them."""
         from ..devices import jobs as djobs, ssh as dssh, store as dstore
         from .. import __version__
         s, dev = self.server.session, self.server.devices
         with s.lock:
-            self._need_open(s)
             if s.commission:
-                raise ApiError(409, "Commission a device has no devices; open a project or config folder")
-            project, folder, config_path = s.folder, s.canopen_dir, s.config_path
-            cfg = s.read_config()[0]
-        target = targets.target(cfg)
-        instance = djobs.instance_name(os.path.basename(os.path.normpath(project)))
-        saved = config_path if os.path.isfile(config_path) else None
+                raise ApiError(409, "Commission a device has no devices; open a project or config folder, "
+                                    "or Install on a device from the start page")
+            if s.mode:
+                project, folder, config_path = s.folder, s.canopen_dir, s.config_path
+                cfg = s.read_config()[0]
+            else:
+                project = folder = config_path = cfg = None
+        target = targets.target(cfg) if project else None
+        instance = djobs.instance_name(os.path.basename(os.path.normpath(project))) if project else None
+        saved = config_path if config_path and os.path.isfile(config_path) else None
         did = body.get("device")
         if did is not None and not isinstance(did, str):
             raise ApiError(400, "device must be a device id")
@@ -3014,17 +3027,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else None
         try:
             if route == ("GET", "/api/devices"):
-                return {"devices": dev.view(project, target, instance, saved, __version__), "target": target,
-                        "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs(project)}
+                return {"devices": dev.view(target, instance, saved, __version__, *self._device_projects(project)),
+                        "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
-                known = {d["host"] for d in dev.store.devices(project)}
+                known = {d["host"] for d in dev.store.devices()}
                 found = [r for r in online.runtimes_list().get("discovered") or []
                          if r.get("addresses") and r["addresses"][0] not in known]
                 return {"discovered": [{"name": r.get("name") or "", "host": sorted(r["addresses"], key=lambda a: ":" in a)[0]}
                                        for r in found]}
             if route == ("POST", "/api/devices/add"):
                 port = body.get("port")
-                return {"device": dev.add(project, body.get("host"), body.get("user") or "",
+                return {"device": dev.add(body.get("host"), body.get("user") or "",
                                           int(port) if isinstance(port, str) and port.isdigit() else port)}
             if not did:
                 raise ApiError(400, "which device?")
@@ -3032,48 +3045,50 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if route not in (("POST", "/api/devices/remove"), ("POST", "/api/devices/forget_key"),
                              ("POST", "/api/devices/probe")) and (password or trust):
                 # A page that answered a password or host key question for another call: log in first.
-                dev.connection(project, did, password=password, trust=trust)
+                dev.connection(did, password=password, trust=trust)
             if route == ("POST", "/api/devices/remove"):
-                dev.remove(project, did)
+                dev.remove(did)
                 return {}
             if route == ("POST", "/api/devices/forget_key"):
-                return {"forgotten": dev.forget_key(project, did)}
+                return {"forgotten": dev.forget_key(did)}
             if route == ("POST", "/api/devices/probe"):
-                return dev.probe(project, did, target, instance, saved, __version__, password=password, trust=trust,
+                return dev.probe(did, target, instance, saved, __version__, password=password, trust=trust,
                                  refresh=body.get("refresh") is True)
             if route == ("POST", "/api/devices/key_login"):
-                dev.key_login(project, did)
+                dev.key_login(did)
                 return {}
             if route == ("POST", "/api/devices/start"):
                 action = body.get("action")
-                if action in ("install_bridge", "bridge_config") and not saved:
-                    raise ApiError(409, "save the config first: the bridge starts with the saved config", unsaved=True)
-                if action in ("install_bridge", "bridge_config"):
+                if action == "bridge_config" and not project:
+                    raise ApiError(409, "starting a bridge with a config needs that config open")
+                if action in ("install_bridge", "bridge_config") and project:
+                    if not saved:
+                        raise ApiError(409, "save the config first: the bridge starts with the saved config", unsaved=True)
                     with s.lock:
                         if s.pending or s.pending_dbc or s.changed_on_disk():
                             raise ApiError(409, "save the config first: the bridge starts with the saved config",
                                            unsaved=True)
                         s.need_no_errors()
-                job = dev.start(project, did, action, body.get("options") if isinstance(body.get("options"), dict)
-                                else {}, sudo, instance=instance, config_dir=folder)
+                job = dev.start(did, action, body.get("options") if isinstance(body.get("options"), dict)
+                                else {}, sudo, instance=instance, config_dir=folder if project else None)
                 return {"job": job}
             if route == ("POST", "/api/devices/job"):
                 job = body.get("job")
                 offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
-                out = dev.follow(project, did, job, offset)
-                if out.get("done") and out.get("exit") == 0 and target == "openplc":
+                out = dev.follow(did, job, offset)
+                if out.get("done") and out.get("exit") == 0 and project and target == "openplc":
                     # The device becomes the project's runtime host when it had none.
                     settings = online.Settings(config_dir())
                     if not settings.project(project).get("host"):
-                        settings.update_project(project, host=dev.store.get(project, did)["host"])
+                        settings.update_project(project, host=dev.store.get(did)["host"])
                 return out
             if route == ("POST", "/api/devices/stop"):
-                dev.stop(project, did, body.get("job"), sudo)
+                dev.stop(did, body.get("job"), sudo)
                 return {}
             if route == ("POST", "/api/devices/runtime_user"):
                 # The runtime user's password, not the SSH one: its own field.
                 user_password = body.get("user_password") if isinstance(body.get("user_password"), str) else ""
-                dev.runtime_user(project, did, body.get("user") or "", user_password)
+                dev.runtime_user(did, body.get("user") or "", user_password)
                 return {}
         except dssh.NeedTrust as e:
             raise ApiError(409, str(e), need="trust", fingerprint=e.fingerprint, key_type=e.key_type)
@@ -3090,6 +3105,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except dssh.SshError as e:
             raise ApiError(422, str(e))
         raise ApiError(404, "no such API: %s %s" % route)
+
+    @staticmethod
+    def _device_projects(project):
+        """The device list's project tags: host -> the names of the projects
+        whose Online access runtime host it is, and the open project's own
+        runtime host (None with no config)."""
+        projects = (online.Settings(config_dir()).load().get("projects") or {})
+        runtimes, own = {}, None
+        for folder, p in projects.items():
+            host = runtime_host_only((p or {}).get("host") if isinstance(p, dict) else None)
+            if not host:
+                continue
+            runtimes.setdefault(host, []).append(os.path.basename(os.path.normpath(folder)))
+            if folder == project:
+                own = host
+        return runtimes, own
 
     def _watch(self, settings, folder, body):
         """The object dictionary watch lists of this project, kept per node in
@@ -3692,7 +3723,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "done": j.get("sent"), "total": j.get("count"), "unit": "frames",
                         "stop": {"path": "/api/online/send_stop", "body": {"job": j["job"], "network": j["network"]}},
                         "confirm": None})
-        for j in self.server.devices.running_jobs(folder):
+        for j in self.server.devices.running_jobs():
             # Install jobs run on the device by themselves: no Cancel here, the device's page has Stop.
             out.append({"id": "device-%s" % j["job"], "kind": "device", "label": "Installing on %s" % j["device"],
                         "done": None, "total": None, "stop": None, "confirm": None, "device": j["device"]})

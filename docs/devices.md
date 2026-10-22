@@ -1,12 +1,23 @@
 # Installing on a device from the configurator
 
-The configurator's **Devices** workspace installs what a project needs on a Linux device over SSH: the canworks plugin for an OpenPLC project (and the OpenPLC Runtime itself on a fresh device), or the Modbus bridge with the project's saved config for a bridge project. It runs the same release scripts as the one-line installs ([install-stock.md](install-stock.md), [modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
+The configurator's **Devices** workspace installs canworks on a Linux device over SSH: with a config open, what that project needs (the canworks plugin for an OpenPLC project, and the OpenPLC Runtime itself on a fresh device, or the Modbus bridge with the project's saved config for a bridge project); with no config, what you pick for the device ([Without a config](#without-a-config)). It runs the same release scripts as the one-line installs ([install-stock.md](install-stock.md), [modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
 
-**Configure | Commission | Devices** at the top of the page switches to it. The devices are kept per project folder on this PC, in `devices.json` in the configurator's settings folder: host, SSH port and user, the last check and the last job. No password is ever kept.
+**Configure | Commission | Devices** at the top of the page switches to it while a config is open, and **Install on a device** on the start page opens it with no config. The devices are kept once for this PC, in `devices.json` in the configurator's settings folder, and every project lists the same devices: host, SSH port and user, the last check and the last job. No password is ever kept.
+
+Each device in the list says what it is to which project: **Runtime of line3** when it is the runtime host under **Online access** of the project `line3`, and **Bridge of packer** when its last check found the bridge instance `packer` (named after a bridge project's folder). With a config open, that project's devices come first and the others are greyed, but still usable.
+
+## Without a config
+
+**Install on a device** on the start page (or **Set up a Linux device** on the first run) opens Devices with no config: the header reads **Devices · no config**, and **Close** goes back to the start page. The parts table has no "This project" column. A device with neither the canworks plugin nor the bridge asks **What should this device run?**:
+
+- **OpenPLC PLC with canworks**: **Install OpenPLC Runtime and canworks X** on a device with no runtime, **Install canworks X** on one with a runtime. Upload a program afterwards (the editor's **Build and upload**, or `canworks-deploy`).
+- **Modbus bridge**: **Install the bridge X**, without a config. Open the bridge project and install it from its Devices page to start the bridge with that config.
+
+A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
 
 ## Adding a device
 
-**Add device…** asks for the host name or address, and optionally the SSH user and port. A host that is an alias in `~/.ssh/config` takes its host name, user, port and key files from there; with no user anywhere, this PC's user name is used. Runtimes that announce themselves on the local network are listed under **Found on this network** with **Add**.
+A device is any Linux computer this PC reaches over SSH. **Add device…** asks for the host name or address, and optionally the SSH user and port. A host that is an alias in `~/.ssh/config` takes its host name, user, port and key files from there; with no user anywhere, this PC's user name is used. Runtimes that announce themselves on the local network are listed under **Found on this network** with **Add**.
 
 The first connection to a device shows its host key's fingerprint (`SHA256:…`); nothing is sent to the device before **Trust and connect**. To compare, run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the device. Trusted keys are kept in the configurator's own `known_hosts` in its settings folder, not in `~/.ssh`. When a device later answers with another key, the connection is refused with the key it now shows; if the device was reinstalled, **Forget key** and connect again, otherwise do not connect.
 
@@ -38,7 +49,7 @@ X is the newest `deploy-v` release, looked up on github.com from this PC (or fro
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Actions** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC. The OpenPLC Runtime itself is never removed from here.
+The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Actions** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC (for every project). The OpenPLC Runtime itself is never removed from here.
 
 In **Add device…** a wrong host, user or port is said under its field. A device that does not answer reads **Not reached**, with one sentence ("Can't reach 192.0.2.10 on SSH port 22.") and what to check: SSH on the device, the same network, the address and the port.
 
@@ -62,6 +73,7 @@ After **Install OpenPLC Runtime and canworks**, a runtime with no user asks for 
 
 ## Other ways in
 
+- The start page's **Install on a device**, with no config ([Without a config](#without-a-config)).
 - **Online access** shows whether the runtime host is in Devices, with **Open in Devices** or **Install canworks on it…**.
 - The connect panel's **Install canworks on a device…** under the runtime host.
 - The **Modbus bridge** page's **Install on device…**.

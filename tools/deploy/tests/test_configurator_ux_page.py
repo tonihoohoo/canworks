@@ -388,10 +388,10 @@ class Probes(Layout):
         self.open()
         header_action(pg, "#btn-close")
         pg.wait_for_selector("#start:not([hidden])")
-        # Open…, New config…, the Commission link and Recent are in the Tab order; Enter on Recent opens it.
+        # Open…, New config…, the Commission and Install on a device links and Recent are in the Tab order; Enter on Recent opens it.
         pg.wait_for_selector("#recent button.folder")
         pg.focus("#start-open")
-        for want in ("start-new", "start-commission"):
+        for want in ("start-new", "start-commission", "start-devices"):
             pg.keyboard.press("Tab")
             self.assertEqual(self.active(), want)
         pg.keyboard.press("Tab")

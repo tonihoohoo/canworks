@@ -150,7 +150,8 @@ main#start { max-width: 900px; margin: 20px auto; padding: 0 16px; display: grid
 .start-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .start-actions .spacer { flex: 1; }
 .start-actions button.link { min-height: 28px; padding: 4px 0; }
-.start-first { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.start-first { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .start-first { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .start-first { grid-template-columns: minmax(0, 1fr); } }
 .choice { display: flex; flex-direction: column; text-align: left; gap: 4px; padding: 14px; white-space: normal; }
 .choice span { color: var(--muted); font-size: 13px; }
@@ -193,6 +194,8 @@ main#editor { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-t
 /* A tool tab and the Commission workspace take the whole width. */
 main#editor.tool-view { grid-template-columns: minmax(0, 1fr); grid-template-areas: "view"; }
 main#editor.tool-view #side { display: none; }
+/* Devices with no config (the start page's Install on a device): Close and nothing else of a config's. */
+body.devices-only #actions > :not(#btn-close), body.devices-only #btn-reload { display: none; }
 #side { grid-area: side; }
 #view { grid-area: view; }
 /* The bottom panel and the status bar stay at the bottom of the window (shell.js, jobs.js). */
@@ -1049,7 +1052,14 @@ pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; fo
 .devices-list li .devices-name { overflow-wrap: anywhere; }
 .devices-list li:hover, .devices-list li.active { background: var(--hover); }
 .devices-list li.active { box-shadow: inset 3px 0 0 var(--accent); }
+.devices-list li.devices-other:not(.active) .devices-name { color: var(--muted); }
 .devices-found { margin-top: 12px; }
+.devices-roles { border: 0; padding: 0; margin: 4px 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.devices-roles legend { font-weight: 600; padding: 0; margin-bottom: 6px; }
+.devices-roles label.choice { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; padding: 10px 12px; }
+.devices-roles label.choice:has(input:checked) { outline: 2px solid var(--accent); }
+.devices-roles label.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.devices-roles input { position: absolute; opacity: 0; pointer-events: none; }
 .devices-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .devices-head h3 { margin: 0; overflow-wrap: anywhere; }
 table.devices-rows { margin: 8px 0 12px; }

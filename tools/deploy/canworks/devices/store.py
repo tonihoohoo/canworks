@@ -1,5 +1,6 @@
-"""devices.json in the settings folder: each project folder's devices (host,
-port, SSH user, last probe, last job) and nothing secret. The host keys this
+"""devices.json in the settings folder: this PC's devices, one list for every
+project and with no config open (host, port, SSH user, last probe, last job)
+and nothing secret. The host keys this
 PC trusts are in known_hosts next to it, the PC's own key in
 canworks_ed25519."""
 
@@ -79,6 +80,8 @@ class Store:
             return {}
 
     def _store(self, data):
+        # The per-project lists of older PC tools ("projects") are not read; they go with the next write.
+        data = {k: v for k, v in data.items() if k != "projects"}
         os.makedirs(self.folder, exist_ok=True)
         tmp = "%s.%d.%d.tmp" % (self.path, os.getpid(), threading.get_ident())
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -86,22 +89,22 @@ class Store:
             json.dump(data, f, indent=2)
         replace_file(tmp, self.path)
 
-    def devices(self, project):
-        items = (self.load().get("projects") or {}).get(project) or []
+    def devices(self):
+        items = self.load().get("devices") or []
         return [dict(d) for d in items if isinstance(d, dict) and d.get("host")]
 
-    def get(self, project, did):
-        for d in self.devices(project):
+    def get(self, did):
+        for d in self.devices():
             if device_id(d["host"], d.get("port")) == did:
                 return d
-        raise DeviceError("no device %s in this project" % did)
+        raise DeviceError("no device %s on this PC" % did)
 
-    def add(self, project, host, user="", port=None):
+    def add(self, host, user="", port=None):
         host, user, port = check_host(host), check_user(user), check_port(port)
         did = device_id(host, port)
         with self.lock:
             data = self.load()
-            items = data.setdefault("projects", {}).setdefault(project, [])
+            items = data.setdefault("devices", [])
             for d in items:
                 if device_id(d.get("host"), d.get("port")) == did:
                     if user:
@@ -112,10 +115,10 @@ class Store:
             self._store(data)
         return did
 
-    def update(self, project, did, **values):
+    def update(self, did, **values):
         with self.lock:
             data = self.load()
-            for d in (data.get("projects") or {}).get(project) or []:
+            for d in data.get("devices") or []:
                 if device_id(d.get("host"), d.get("port")) == did:
                     for k, v in values.items():
                         if k not in FIELDS:
@@ -126,12 +129,10 @@ class Store:
                             d[k] = v
                     self._store(data)
                     return dict(d)
-        raise DeviceError("no device %s in this project" % did)
+        raise DeviceError("no device %s on this PC" % did)
 
-    def remove(self, project, did):
+    def remove(self, did):
         with self.lock:
             data = self.load()
-            items = (data.get("projects") or {}).get(project) or []
-            data.setdefault("projects", {})[project] = [
-                d for d in items if device_id(d.get("host"), d.get("port")) != did]
+            data["devices"] = [d for d in data.get("devices") or [] if device_id(d.get("host"), d.get("port")) != did]
             self._store(data)

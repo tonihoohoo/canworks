@@ -159,21 +159,22 @@ class Page(unittest.TestCase):
 
     # -- tests --------------------------------------------------------------
     def test_start_page(self):
-        """simplify-start-page: Open…, New config…, the Commission link and
-        Recent; three starting points while Recent is empty."""
+        """simplify-start-page: Open…, New config…, the Commission and Install
+        on a device links and Recent; four starting points while Recent is
+        empty (devices-without-config)."""
         pg = self.page
         pg.set_viewport_size({"width": 1280, "height": 900})
         pg.wait_for_selector("#start-open")
         self.assertIn("PLC", pg.inner_text("#start-intro"))
-        self.assertEqual([pg.inner_text(i) for i in ("#start-open", "#start-new", "#start-commission")],
-                         ["Open…", "New config…", "Commission a device without a config"])
+        self.assertEqual([pg.inner_text(i) for i in ("#start-open", "#start-new", "#start-commission", "#start-devices")],
+                         ["Open…", "New config…", "Commission a device without a config", "Install on a device"])
         self.assertTrue(pg.is_visible("#start-first"))
         self.assertFalse(pg.is_visible("#start-recent"))
         tops = pg.eval_on_selector_all("#start-first .choice", "cs => cs.map(c => Math.round(c.getBoundingClientRect().top))")
-        self.assertEqual(len(tops), 3)
+        self.assertEqual(len(tops), 4)
         self.assertEqual(len(set(tops)), 1, tops)
         text = pg.inner_text("#start")
-        for word in ("standalone", "canworks.json", "LSS", "object dictionary"):
+        for word in ("standalone", "canworks.json", "LSS", "object dictionary", "Raspberry"):
             self.assertNotIn(word, text)
         self.open_from_start("#start-open", self.project)
         header_action(pg, "#btn-close")
