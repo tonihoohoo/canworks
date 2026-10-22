@@ -14,7 +14,7 @@ This is change 3 of 3. It builds on change 1's design (PLC link header, map hash
 - **Program-owned resources end with the program.** When the PLC link header goes to stopped or mismatch, or the output watchdog fires, the bridge cancels pending jobs, stops cyclic jobs and closes receivers, as a PLC stop did for the plugin's blocks.
 - **ST blocks over the mailboxes** in the `canworks` library, pins and ERROR_IDs kept close to the plugin's blocks with the in-out `LINK`: `CO_SDO_READ_BYTES`, `CO_SDO_WRITE_BYTES`, `CO_SDO_READ_STRING`, `CO_SDO_WRITE_STRING`, `CO_SDO_READ_REAL`, `CO_SDO_WRITE_REAL`, `CO_RECV_EMCY`, `CAN_SEND`, `CAN_SEND_CYCLIC`, `CAN_RECEIVE`, `CAN_BUS_INFO`, `J1939_SEND`, `J1939_RECEIVE`, `J1939_REQUEST`, `J1939_DM_READ`, `J1939_DM_CLEAR`, `J1939_ECU_INFO`, `J1939_FIND_ECU`. Instances share the mailboxes and are served in the order they started. Plain ST only, no runtime interface.
 - **`canworks.link` grows** from `ARRAY[0..88] OF WORD` to `ARRAY[0..1023] OF WORD`; words 0-88 keep change 1's meaning, so change 1's blocks only get the new array bound.
-- **Any Modbus PLC.** `canworks-deploy library --format st|plcopen` writes the bridge blocks and helpers as plain ST or PLCopen XML for import into CODESYS and other IEC 61131-3 tools, with pure ST versions of the REAL word helpers. The ST map export (`--export-modbus-map OUT.st`) also writes the `canworks_in`/`canworks_out` code for that PLC.
+- **Any Modbus PLC.** `canworks-deploy library --format st` writes the bridge blocks and helpers as plain ST sources for CODESYS and other IEC 61131-3 tools, with pure ST versions of the REAL word helpers. The ST map export (`--export-modbus-map OUT.st`) also writes the `canworks_in`/`canworks_out` code for that PLC. PLCopen XML export and import is the next change, `add-plcopen-export`, not this one.
 - **Configurator.** The Project page of a bridge or OpenPLC config gets a **Function blocks** section (request mailboxes, receivers, cyclic jobs, network info) with the register and request cost shown. New OpenPLC configs have it on with one request mailbox.
 - **Tests and docs.** STruC++ block tests against a scripted mailbox model, bridge C++ tests, a few block checks added to change 1's OpenPLC Modbus integration job; `docs/plc-library.md`, `docs/modbus-bridge.md`, `docs/raw-can.md`, `docs/j1939.md`, `docs/plc-sdo.md` and README.
 
@@ -31,13 +31,13 @@ This is change 3 of 3. It builds on change 1's design (PLC link header, map hash
 - `canopen-config-contract`: `bridge.mailboxes` in the schema.
 - `canopen-configurator`: Function blocks section on the Project page.
 - `canopen-editor-project`: the larger `canworks.link` and its copy code.
-- `plc-library`: library contents and the portable ST/PLCopen XML output.
+- `plc-library`: library contents and the portable ST source output.
 - `canopen-ci`: block and mailbox tests.
 
 ## Impact
 
 - Bridge: new `plugin/src/bridge/mailboxes.{h,cpp}` (request and receive mailboxes, info and cyclic tables), `bridge_host.cpp` (link-state hooks), `config.cpp` (`mailboxes`). Backends are the engine services the plugin's blocks used (SDO queue in `canopen/plc_api.cpp`, EMCY history in `canopen/plc_emcy.cpp`, raw jobs and receivers in `can/raw/plc_frames.cpp`, J1939 jobs in `j1939/j1939_plc_msgs.cpp`, DM store in `j1939/dm.cpp`). Change 2 deletes the C ABI tables over them; this change needs the services themselves (see design, Decision 9).
 - PC tools: `modbusmap.py` (mailbox items, pack, hash), `openplcmodbus.py` (groups, link copy code), `bridgecheck.py`, configurator Project page, `library` command (`--format`).
-- Library: `library/modbus/` new ST blocks; change 1's blocks get the new `LINK` bound; `library/generate.py`, `build.sh`, PLCopen XML writer.
+- Library: `library/modbus/` new ST blocks; change 1's blocks get the new `LINK` bound; `library/generate.py`, `build.sh`, ST source output.
 - Tests: `test/plc_modbus/` (mailbox model, block tests), `test/bridge/`, change 1's integration job.
 - Not in scope: CiA 402; CAN FD; ISO-TP; blocks that run inside the PLC scan.

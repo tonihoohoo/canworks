@@ -167,7 +167,7 @@ ERROR_IDs: each family keeps its numbers; "the plugin is not loaded" now means "
 
 The blocks use only IEC 61131-3 standard functions and `TON`, and `LINK` is a word array, so they compile on any runtime that can hold a 1024-word array and call the blocks every scan. For PLCs other than OpenPLC:
 
-- `canworks-deploy library --format st --out DIR` writes the bridge blocks, `CW_LINK_SERVICE`, the pure ST helpers and pure ST versions of `CW_WORDS_TO_REAL` and friends (bit arithmetic, exact for normal and subnormal values; NaN and infinities mapped) as `.st` files; `--format plcopen` writes them as one PLCopen XML (TC6) file for CODESYS's "Import PLCopenXML".
+- `canworks-deploy library --format st --out DIR` writes the bridge blocks, `CW_LINK_SERVICE`, the pure ST helpers and pure ST versions of `CW_WORDS_TO_REAL` and friends (bit arithmetic, exact for normal and subnormal values; NaN and infinities mapped) as `.st` files, which another IEC 61131-3 tool can take in as source. PLCopen XML output is not part of this change; it comes in the following change `add-plcopen-export`, which will cover these blocks too.
 - `--export-modbus-map OUT.st` also writes `canworks_in` and `canworks_out` for that PLC: the same copy code as change 1 generates, reading and writing the GVL's channel variables instead of `%IW`/`%QW`. The user maps those variables to the PLC's Modbus channels, as the existing channel table suggests.
 
 ### 12. Configurator
@@ -188,4 +188,4 @@ Nothing in use. Programs that used the plugin's blocks get the same block names 
 
 ## Open Questions
 
-None for Toni. Spike items in tasks 1.x (STruC++ with a 1024-word in-out array and many instances, the editor's handling of a large global array, PLCopen XML import into CODESYS).
+None for Toni. Spike items in tasks 1.x (STruC++ with a 1024-word in-out array and many instances, the editor's handling of a large global array, the ST sources in CODESYS).

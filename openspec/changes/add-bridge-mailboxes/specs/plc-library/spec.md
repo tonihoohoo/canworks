@@ -8,11 +8,11 @@ The `canworks` library SHALL also hold the blocks of `bridge-plc-blocks` (`CO_SD
 - **THEN** the library tree lists `CAN_SEND`, `J1939_RECEIVE` and `CO_SDO_READ_BYTES`, and a program that calls them builds for OpenPLC Runtime v4
 
 ### Requirement: Library for other PLCs
-`canworks-deploy library --format st --out DIR` SHALL write the blocks over the bridge, `CW_LINK_SERVICE`, the pure ST helpers and pure ST versions of the word-to-REAL and word-to-LREAL helpers as `.st` files, and `--format plcopen --out FILE.xml` SHALL write them as one PLCopen XML (TC6) file. The pure ST REAL helpers SHALL give the same bit patterns as the library's own helpers for every normal and subnormal value and zero, and SHALL map infinities and NaN to the IEEE patterns of the same class.
+`canworks-deploy library --format st --out DIR` SHALL write the blocks over the bridge, `CW_LINK_SERVICE`, the pure ST helpers and pure ST versions of the word-to-REAL and word-to-LREAL helpers as `.st` files, one block or function per file, with a short header naming the library version. The pure ST REAL helpers SHALL give the same bit patterns as the library's own helpers for every normal and subnormal value and zero, and SHALL map infinities and NaN to the IEEE patterns of the same class.
 
-#### Scenario: PLCopen XML
-- **WHEN** the user runs `canworks-deploy library --format plcopen --out canworks.xml`
-- **THEN** the file is valid PLCopen XML TC6 and holds every block and function the ST format writes
+#### Scenario: ST sources
+- **WHEN** the user runs `canworks-deploy library --format st --out lib`
+- **THEN** `lib` holds one `.st` file per block and function of the bridge blocks and helpers, and they build together with STruC++ without any other source
 
 #### Scenario: REAL helpers agree
 - **WHEN** CI converts 10,000 random bit patterns with both the pure ST and the library's REAL helpers
