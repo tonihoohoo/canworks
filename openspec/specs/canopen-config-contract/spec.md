@@ -350,11 +350,15 @@ The master's heartbeat consumer entry for a node SHALL equal the node's `heartbe
 - **THEN** the master's 0x1016 entry for the node is 10 ms
 
 ### Requirement: Config target
-A config SHALL target one system: the Modbus bridge when it has a top-level `bridge` object, CODESYS when it has a top-level `codesys` object, else OpenPLC. A config with both SHALL be an error. A CODESYS config SHALL be version 2.
+A config SHALL target one system: OpenPLC through Modbus when it has a top-level `bridge` object holding an `openplc` object, the Modbus bridge when it has a `bridge` object without one, CODESYS when it has a top-level `codesys` object, else the OpenPLC plugin. A config with both `bridge` and `codesys` SHALL be an error. A CODESYS config SHALL be version 2. The configurator SHALL NOT offer the OpenPLC plugin as a target for new configs.
 
 #### Scenario: Both markers
 - **WHEN** a config has both `bridge` and `codesys`
 - **THEN** the check fails saying a config targets one system
+
+#### Scenario: OpenPLC through Modbus
+- **WHEN** a config has `"bridge": {"openplc": {}, "writers": ["127.0.0.1"]}`
+- **THEN** its target is OpenPLC through Modbus and `canworks-bridge` runs it
 
 ### Requirement: CODESYS section in the schema
 The version 2 schema SHALL define an optional top-level `codesys` object with `project`, `device`, `create` (`TYPE:ID:VERSION`) and `variables` (boolean), and an optional network `codesys` object with `net_id` (0-255) and `interface` (a name), all optional. In a CODESYS config PDO entries SHALL NOT need `iec_location` and `adapter.interface` SHALL be optional.

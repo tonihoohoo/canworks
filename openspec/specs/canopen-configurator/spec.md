@@ -3475,11 +3475,15 @@ While the runtime does not answer, the online status SHALL be reported without a
 - **THEN** the page shows the connection state and the console has no repeated errors
 
 ### Requirement: Project target
-A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESYS", chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The target SHALL come from the config: a `bridge` object makes it Modbus bridge, a `codesys` object CODESYS.
+A project SHALL have one target: "OpenPLC" (default; OpenPLC Runtime through its Modbus master and the bridge), "Modbus bridge" or "CODESYS", chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The target SHALL come from the config: a `bridge` object holding `openplc` makes it OpenPLC, any other `bridge` object Modbus bridge, a `codesys` object CODESYS. A config with neither (an OpenPLC plugin config) SHALL open with the target "OpenPLC plugin (no longer offered)" shown and one message saying canworks no longer offers the plugin, with **Switch to OpenPLC through Modbus**, which repacks the locations for the bridge, adds `bridge.openplc` with a control block, SDO registers that may write and a live list per named CANopen master network, and removes what the bridge does not use, as one undo step. The plugin SHALL NOT be offered as a choice for any other config.
 
 #### Scenario: Target shown
 - **WHEN** the user opens a config with a `codesys` object
 - **THEN** the Project page's Project target field and the header show CODESYS
+
+#### Scenario: Plugin config opened
+- **WHEN** the user opens a config with no `bridge` and no `codesys` object, whose master has `"sync_source": "plc_cycle"`
+- **THEN** the message offers Switch to OpenPLC through Modbus, and after it the config has `bridge.openplc`, timer SYNC is asked for in Problems, and one Undo restores the plugin config
 
 ### Requirement: Only what the target uses is shown
 The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Linux device, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
@@ -3588,7 +3592,7 @@ A CODESYS project SHALL have **Build into CODESYS project…** and **Download fo
 - **THEN** the page says CODESYS was not found and offers Download for CODESYS
 
 ### Requirement: Target of a new config
-New config… SHALL be one dialog that asks first what will run the networks, with three choices and one sentence each: OpenPLC Runtime (the canworks plugin runs the networks), Modbus bridge (no PLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and other Modbus TCP clients) and CODESYS (a CODESYS PLC runs the CANopen master). OpenPLC SHALL be preselected. The dialog SHALL then ask for a name (the folder, new or existing and empty) and its location, with Choose… opening the folder dialog. For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here", ticked by default when the editor's `openplc-cli` is found and disabled with the reason when it is not; ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project, and while the project is created the dialog SHALL show "Creating the editor project…" with Create disabled. Otherwise the folder SHALL become a config folder. In both cases Create SHALL write the target's empty config to disk (the project's `canworks/` folder, or the config folder) before the page opens it, so a reload shows the new config with its target.
+New config… SHALL be one dialog that asks first what will run the networks, with three choices and one sentence each: OpenPLC Runtime (the canworks bridge runs the networks next to the runtime and OpenPLC reads and writes them over Modbus, set up for you), Modbus bridge (no PLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and other Modbus TCP clients) and CODESYS (a CODESYS PLC runs the CANopen master). OpenPLC SHALL be preselected and SHALL write a config with `bridge.openplc`. The dialog SHALL then ask for a name (the folder, new or existing and empty) and its location, with Choose… opening the folder dialog. For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here", ticked by default when the editor's `openplc-cli` is found and disabled with the reason when it is not; ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project, and while the project is created the dialog SHALL show "Creating the editor project…" with Create disabled. Otherwise the folder SHALL become a config folder. In both cases Create SHALL write the target's empty config to disk (the project's `canworks/` folder, or the config folder) before the page opens it, so a reload shows the new config with its target.
 
 #### Scenario: New CODESYS config
 - **WHEN** the user creates a new config with target CODESYS
@@ -3600,7 +3604,7 @@ New config… SHALL be one dialog that asks first what will run the networks, wi
 
 #### Scenario: New OpenPLC config with an editor project
 - **WHEN** `openplc-cli` is found and the user creates a new OpenPLC config in `~/plc/new-machine` with the editor-project tick on
-- **THEN** the dialog shows "Creating the editor project…" until `~/plc/new-machine` is an OpenPLC Editor project with an empty config in its `canworks/` folder, and the page shows the mode "project new-machine"
+- **THEN** the dialog shows "Creating the editor project…" until `~/plc/new-machine` is an OpenPLC Editor project with a config holding `bridge.openplc` in its `canworks/` folder and `devices/remote/canworks.json`, and the page shows the mode "project new-machine"
 
 #### Scenario: No editor command-line tool
 - **WHEN** `openplc-cli` is not found and the user picks OpenPLC
@@ -4216,3 +4220,21 @@ On a J1939 network the **Simulation** tool tab SHALL stay in the tool tabs and S
 #### Scenario: J1939 project
 - **WHEN** the user opens Simulation on a J1939 network whose DBC is `machine.dbc`
 - **THEN** the view says the runtime does not simulate J1939 and offers `canworks-j1939-sim --dbc machine.dbc --node NAME --interface IF` to copy, and names the J1939 simulator doc
+
+### Requirement: OpenPLC editor files on save
+Saving an OpenPLC project (target OpenPLC, inside an editor project) with no errors SHALL also write the editor files of `canopen-editor-project` (the remote device file, the `canworks_in` and `canworks_out` programs, the `canworks` variable list and the task instances) and SHALL touch no other editor file or POU. A save with errors SHALL write none of them. When the remote device file or one of the two programs changed on disk since canworks last wrote it, Save SHALL ask before writing anything, naming those files; Cancel SHALL save nothing. After writing them the message SHALL say that an OpenPLC Editor with this project open must reopen it before Build. A standalone OpenPLC config folder SHALL write no editor files and SHALL say so on its Project page.
+
+#### Scenario: Save writes the device
+- **WHEN** the user adds a TPDO entry in an OpenPLC project and saves
+- **THEN** `devices/remote/canworks.json` gains a read group for it, `canworks_in` reads it into a new `canworks` variable, and the user's `main` is unchanged
+
+#### Scenario: Program edited in the editor
+- **WHEN** the user changed `pous/programs/canworks_in.st` in OpenPLC Editor and then saves in the configurator
+- **THEN** Save asks whether to write the files again, naming that file, and Cancel leaves the config and the editor files as they were
+
+### Requirement: OpenPLC project page
+The Project page of an OpenPLC project SHALL show, from the saved config, the remote device and its port, the poll period with the number of Modbus requests per poll, the warning above 40, the writer-loss time, the map hash, the first editor `%IW`/`%QW` and the editor files Save writes. The Modbus bridge page of such a project SHALL show the poll period (`poll_ms`, placeholder 10), the remote device name, the first editor location, the unit ID, the watchdog and the loss action, the status block as fixed `%IB4`, and no listen, port, writers, readers, word order or client limit fields; those follow `bridge.openplc`.
+
+#### Scenario: Requests per poll
+- **WHEN** an OpenPLC project has 30 nodes with two TPDOs and two RPDOs each, none contiguous
+- **THEN** the Project page shows the request count above 40 with the warning, and Problems lists it as a warning
