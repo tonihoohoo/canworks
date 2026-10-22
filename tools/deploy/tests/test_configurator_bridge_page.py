@@ -59,7 +59,7 @@ class BridgePage(OnlineBase):
         # Writers is required: the switch starts it empty (nobody writes) and
         # the hint names how to let every host write.
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.get_attribute('input[data-path="bridge.writers"]', "placeholder"), "nobody writes")
         self.assertIn("0.0.0.0/0, ::/0", pg.inner_text('label:has(input[data-path="bridge.writers"])'))
         pg.fill('input[data-path="bridge.writers"]', "0.0.0.0/0, ::/0")
@@ -69,7 +69,7 @@ class BridgePage(OnlineBase):
         pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24, 192.168.20.5")
         pg.fill('input[data-path="bridge.max_clients_per_address"]', "2")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.input_value('input[data-path="bridge.listen"]'), "0.0.0.0")
         self.assertEqual(pg.input_value('input[data-bridge="port"]'), "502")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
@@ -90,7 +90,7 @@ class BridgePage(OnlineBase):
         row = pg.wait_for_selector('#bridge-map tr[data-bridge-row="bridge.live_list.field"]')
         self.assertIn("12..19", row.inner_text())
         self.assertIn("8 registers", row.inner_text())
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
         # The filter, and the suggested client channels.
         pg.fill('input[data-bridge="filter"]', "live")
@@ -173,7 +173,7 @@ class BridgePage(OnlineBase):
         pg.press('#modal-extra input[data-net="name"]', "Enter")
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.live_lists[0].network"), "plant")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # A second network, then the first removed: its live list goes with it.
         pg.click('#tree [data-action="add-network"] > .tree-row')
         pg.click('#modal button[data-value="canopen"]')
@@ -199,7 +199,7 @@ class BridgePage(OnlineBase):
         pg.evaluate("() => { S.config.master.scan_watchdog_ms = 250; changed(true); }")
         self.checked()
         self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.locator("[data-unused-bar]").count(), 0)
         pg.evaluate("() => { delete S.config.master.scan_watchdog_ms; changed(true); }")
         self.checked()
@@ -212,14 +212,14 @@ class BridgePage(OnlineBase):
         pg.select_option('select[data-path="master.sync_source"]', "")
         pg.fill('input[data-path="master.sync_period_us"]', "20")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
         # Back to OpenPLC: the bridge object goes, the locations are per type again.
         pg.select_option('select[data-target="1"]', "openplc")
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         pg.wait_for_selector("#tree #nav-bridge", state="detached")
         self.checked()
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The switch and its repack are one step: undo brings the bridge back, redo removes it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")

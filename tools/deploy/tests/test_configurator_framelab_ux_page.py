@@ -247,20 +247,22 @@ class SimBanner(Base):
         shutil.copytree(os.path.join(REPO, "examples", "virtual-plant"), self.project)
 
     def test_one_line_with_details(self):
+        # compact-chrome: a chip in the header row, the full text under Details.
         pg = self.page
         pg.set_viewport_size({"width": 1440, "height": 900})
         self.open()
         pg.wait_for_selector("#sim-banner:not([hidden])")
-        line = pg.inner_text("#sim-banner [data-sim=line]")
-        for part in ("io (nodes 5, 6, 7)", "motion (node 4)", "cell", "host", "Do not upload"):
-            self.assertIn(part, line)
-        self.assertLess(pg.evaluate("document.querySelector('#sim-banner').getBoundingClientRect().height"), 44)
+        self.assertEqual(pg.locator("#top .top-row #sim-banner").count(), 1)
+        self.assertEqual(pg.inner_text("#sim-banner [data-sim=line]"), "Simulated: 4 networks")
+        self.assertIn("Do not upload", pg.get_attribute("#sim-banner", "aria-label"))
+        self.assertLess(pg.evaluate("document.querySelector('#sim-banner').getBoundingClientRect().height"), 34)
         self.assertFalse(pg.is_visible("#sim-banner [data-sim=details]"))
         pg.click("[data-sim=details-toggle]")
-        self.assertIn("must not be uploaded to a machine", pg.inner_text("#sim-banner [data-sim=details]"))
-        # Phone width: at most two lines.
+        details = pg.inner_text("#sim-banner [data-sim=details]")
+        for part in ("Network io:", "nodes 5, 6, 7 simulated", "Network motion:", "Network cell:", "Network host:",
+                     "must not be uploaded to a machine", "Do not upload it as it is"):
+            self.assertIn(part, details)
         pg.click("[data-sim=details-toggle]")
-        pg.set_viewport_size({"width": 400, "height": 800})
-        lh = pg.evaluate("parseFloat(getComputedStyle(document.querySelector('#sim-banner [data-sim=line]')).lineHeight)")
-        h = pg.evaluate("document.querySelector('#sim-banner [data-sim=line]').getBoundingClientRect().height")
-        self.assertLessEqual(h, 2 * lh + 1)
+        # The chip takes no row of its own: the header is as tall as without it.
+        top = pg.evaluate("document.querySelector('#top .top-row').getBoundingClientRect().height")
+        self.assertLess(top, 60)

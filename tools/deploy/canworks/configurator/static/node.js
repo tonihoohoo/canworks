@@ -101,7 +101,7 @@ function supervisionTab(i, eds) {
       hint(help),
       el("span", { class: "field-msg", dataset: { for: base + "." + key } }),
       declNote(base + "." + key));
-  return el("div", null,
+  return el("div", { class: "wide-cols" },
     el("fieldset", null, el("legend", null, "Supervision"),
       el("div", { class: "grid" }, supervisionFields(i),
         nodeInput("Status bit", "status", "status_location", "%IX…",

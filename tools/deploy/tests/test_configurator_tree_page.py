@@ -13,7 +13,7 @@ import unittest
 from canworks.configurator import server as srv
 
 from .fake_diag import FakePlugin
-from .helpers import REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view
+from .helpers import REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, header_action
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import REQUIRED, sync_playwright
@@ -300,7 +300,7 @@ class Tree(unittest.TestCase):
         cfg["networks"][3]["nodes"][0]["name"] = "temperature_inputs_left_side"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
-        pg.click("#btn-reload")
+        header_action(pg, "#btn-reload")
         pg.wait_for_function("() => S.model.networks[3].name === 'conveyor_line_01'")
         whole = """() => [...document.querySelectorAll('#tree .name, #tree .proto')].filter((e) => {
           const r = e.getBoundingClientRect(), t = document.querySelector('#tree').getBoundingClientRect();
@@ -335,7 +335,7 @@ class Tree(unittest.TestCase):
 
     def test_narrow_window(self):
         pg = self.page
-        pg.set_viewport_size({"width": 900, "height": 800})
+        pg.set_viewport_size({"width": 780, "height": 800})
         self.assertFalse(pg.is_visible("#tree"))
         self.assertIn("▾", pg.inner_text("#tree-toggle"))
         pg.click("#tree-toggle")

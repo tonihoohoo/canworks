@@ -12,7 +12,7 @@ While any part of the config is simulated, the page header SHALL show a simulati
 - **THEN** the simulation chip stays in the header with the warning tint and icon
 
 ### Requirement: Narrow window layout
-From 800 px to 1100 px wide, the network tree SHALL fold into a rail at the left of the workspace tab. The rail SHALL show each network's initials and its nodes' IDs with their state icons and error counts. Picking a node in the rail SHALL open it. The rail's button, hover or focus SHALL open the full tree over the page, and picking an entry SHALL close it. Under 800 px the tree SHALL fold into a button at the top of the workspace tab that names the selected entry and shows the config's error count, and opens the tree over the page. The bottom panel SHALL stay, with its tab title showing the problem count. A node's error count SHALL stay next to the node's name in the tree.
+From 800 px to 1100 px wide, the network tree SHALL fold into a rail at the left of the workspace tab. The rail SHALL show each network's initials and its nodes' IDs with their state icons and error counts. Picking a node in the rail SHALL open it. The rail's button SHALL open the full tree over the page, and picking an entry SHALL close it. Under 800 px the tree SHALL fold into a button at the top of the workspace tab that names the selected entry and shows the config's error count, and opens the tree over the page. The bottom panel SHALL stay, with its tab title showing the problem count. A node's error count SHALL stay next to the node's name in the tree.
 
 #### Scenario: Problems at 900 px
 - **WHEN** the window is 900 px wide and the config has 4 errors
@@ -70,7 +70,7 @@ Each tab title SHALL carry its count. There SHALL be no right-hand Problems colu
 - **THEN** the bottom panel is one line reading "Problems: none"
 
 ### Requirement: Close and reopen the inspector
-The Trace inspector SHALL have a close button (✕) in its own title bar, and Esc with the focus inside the inspector SHALL close it and return the focus to the selected row. A closed inspector SHALL leave a slim **Inspector** rail at its edge that opens it again. With no frame selected, the inspector SHALL start closed. Selecting a frame by click or Enter while it is closed SHALL open it. Moving through the list with the arrow keys SHALL NOT open it. Under 1440 px wide, an open inspector SHALL be a drawer over the right part of the list rather than a column beside it. The open or closed state SHALL be kept on this PC once a frame has been selected.
+The Trace inspector SHALL have a close button (✕) in its own title bar, and Esc with the focus inside the inspector SHALL close it and return the focus to the selected row. A closed inspector SHALL leave a slim **Inspector** rail at its edge that opens it again. With no frame selected, the inspector SHALL start closed. Selecting a frame by click or Enter while it is closed SHALL open it. Moving through the list with the arrow keys SHALL NOT open it. From 1280 px to under 1440 px wide, an open inspector SHALL be a drawer over the right part of the list rather than a column beside it; narrower, it stays under the list. The open or closed state SHALL be kept on this PC once a frame has been selected.
 
 #### Scenario: Close with Esc
 - **WHEN** the user tabs into the inspector of a selected SYNC frame and presses Esc
@@ -91,21 +91,21 @@ The Trace inspector SHALL have a close button (✕) in its own title bar, and Es
 ## ADDED Requirements
 
 ### Requirement: Short window layout
-When the window is 800 px high or less, the header and tab rows SHALL use compact spacing, and message bars SHALL overlay the top of the work area instead of pushing it down. The connection status SHALL sit at the right end of the sub-tab row in every window, and SHALL wrap to a second line only when that row is too narrow.
+When the window is 800 px high or less, the header and tab rows SHALL use compact spacing, and message bars SHALL use slim padding. A message bar SHALL never cover controls of the work area. The connection status SHALL sit at the right end of the sub-tab row in every window, and SHALL wrap to a second line only when that row is too narrow.
 
 #### Scenario: Laptop at 150 %
 - **WHEN** the window is 1280×720 with the virtual plant example in Commission, connected
 - **THEN** the work area is at least 60 % of the window height
 
 ### Requirement: Header target action
-The header SHALL hold the target's hand-off actions as one primary split button: Build into CODESYS project… with Download for CODESYS for CODESYS, Install on device… for the Modbus bridge. At 1280 px and wider the header SHALL be one row for every target. Under 1100 px, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu.
+The header SHALL hold the target's hand-off actions as one primary split button: Build into CODESYS project… with Download for CODESYS for CODESYS, Install on device… for the Modbus bridge. At 1280 px and wider the header SHALL be one row for every target. Under 1500 px, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu.
 
 #### Scenario: CODESYS at 1366 px
 - **WHEN** a CODESYS config is open at 1366 px wide
 - **THEN** the header is one row with one Build split button
 
 ### Requirement: Wide window sections
-From 1800 px wide, the sections of a network's Bus page and of a node's Supervision and Advanced tabs SHALL lay out in two columns.
+From 1800 px wide, the sections of a network's Bus page and of a node's Supervision tab SHALL lay out in two columns.
 
 #### Scenario: Bus page at 2560 px
 - **WHEN** the window is 2560 px wide and the user opens Bus and master

@@ -132,7 +132,6 @@ THEMES = ("auto", "light", "dark")
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
                "workspace": (("configure", "commission", "devices"), "configure"), "panel": (("open", "closed"), "open"),
-               "ws_note": (("new", "seen"), "new"),
                "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general")}
 
 # The network tree's folded networks: a list of network names (or "#<index>").

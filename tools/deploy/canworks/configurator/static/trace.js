@@ -473,12 +473,13 @@ function traceSplit(box) {
   const pane = el("section", { class: "trace-split-insp", "aria-label": "Frame inspector", dataset: { trace: "inspector-pane" } },
     el("div", { class: "trace-insp-head" }, el("h3", null, "Inspector"), close), body);
   const rail = el("button", { type: "button", class: "trace-insp-rail", dataset: { trace: "inspector-rail" }, "aria-expanded": "false",
-    title: "Open the inspector", onclick: () => traceInspector(true) }, el("span", null, "Inspector"));
+    title: "Open the inspector", onclick: () => { T.inspWanted = true; if (T.inspector) apply(); else traceInspector(true); } }, el("span", null, "Inspector"));
   const handle = el("div", { class: "trace-split-handle", role: "separator", tabindex: "0", "aria-label": "Resize the inspector",
     "aria-orientation": "vertical", "aria-valuemin": "15", "aria-valuemax": "85", "aria-valuenow": String(T.split), dataset: { trace: "split" } });
   const split = el("div", { class: "trace-split", dataset: { trace: "split-box" } }, view, handle, pane, rail);
   const apply = () => {
-    split.classList.toggle("no-insp", !T.inspector);
+    // Closed until a frame is picked by click or Enter (or the rail is pressed): the list keeps the width.
+    split.classList.toggle("no-insp", !T.inspector || !T.inspWanted);
     split.style.setProperty("--insp", T.split + "%");
     handle.setAttribute("aria-valuenow", String(Math.round(T.split)));
     handle.setAttribute("aria-orientation", window.innerWidth >= SPLIT_WIDE ? "vertical" : "horizontal");
@@ -887,9 +888,10 @@ function selectRow(x, open) {
   T.selectedRow = x;
   for (const r of document.querySelectorAll("#trace-rows .trace-row")) r.classList.toggle("selected", Number(r.dataset.seq) === x.seq);
   rowActions();
+  if (open) T.inspWanted = true;
   if (open && !T.inspector) traceInspector(true);
   else if (T.inspector) fxInspectSeq(x.seq);
-  if (open) traceRevealSplit();
+  if (open) { if (T.applySplit) T.applySplit(); traceRevealSplit(); }
 }
 
 function rowActions() {

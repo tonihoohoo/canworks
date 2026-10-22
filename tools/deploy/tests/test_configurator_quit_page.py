@@ -9,6 +9,7 @@ import time
 
 from canworks.configurator import server as srv
 
+from .helpers import header_action
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_localbus_page import AdapterPage
 from .test_configurator_online_page import OnlineBase
@@ -17,7 +18,7 @@ from .test_configurator_online_page import OnlineBase
 class Base(OnlineBase):
     def quit_dialog(self):
         pg = self.page
-        pg.click("#btn-quit")
+        header_action(pg, "#btn-quit")
         pg.wait_for_selector("#modal[open]")
         return pg.inner_text("#modal-text"), pg.eval_on_selector_all(
             "#modal-buttons button", "bs => bs.map((b) => b.dataset.value)")
@@ -56,7 +57,7 @@ class Quit(Base):
         pg = self.page
         pg.goto(self.server.url)
         pg.wait_for_selector("#start:not([hidden])")
-        self.assertTrue(pg.is_visible("#btn-quit"))  # on the start page too
+        self.assertTrue(pg.is_visible("#btn-quit") or pg.is_visible("#menu-more"))  # on the start page too
         text, buttons = self.quit_dialog()
         self.assertEqual((text, buttons), ("Quit canworks-config?", ["cancel", "quit"]))
         pg.click('#modal button[data-value="cancel"]')
@@ -109,7 +110,7 @@ class Quit(Base):
                 pg.set_viewport_size({"width": width, "height": 800})
                 pg.wait_for_timeout(100)
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "%s at %d" % (where, width))
-                box = pg.locator("#btn-quit").bounding_box()
+                box = pg.locator("#btn-quit" if pg.is_visible("#btn-quit") else "#menu-more").bounding_box()
                 self.assertLessEqual(box["x"] + box["width"], width, "%s at %d" % (where, width))
                 self.quit_dialog()
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "quit dialog at %d" % width)
@@ -308,7 +309,7 @@ class QuitConnected(AdapterPage):
                         "{ id: '123', data: '01', period_ms: 50, port: diagPort() })")
         self.assertTrue(r.get("job"), r)
         self.assertTrue(self.server.connection.connected)
-        pg.click("#btn-quit")
+        header_action(pg, "#btn-quit")
         pg.wait_for_selector("#modal[open]")
         self.assertEqual(pg.inner_text("#modal-text"),
                          "Quit canworks-config? The adapter connection and cyclic send 0x123 every 50 ms will stop.")

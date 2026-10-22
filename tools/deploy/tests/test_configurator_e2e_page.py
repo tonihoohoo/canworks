@@ -32,7 +32,7 @@ class EndToEnd(OnlineBase):
         self.cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.cfg, f, indent=2)
-        self.page.set_viewport_size({"width": 1280, "height": 800})
+        self.page.set_viewport_size({"width": 1600, "height": 800})  # the whole header, no ⋯ menu
         self.report = []
 
     def write_config(self, diagnostics=None):

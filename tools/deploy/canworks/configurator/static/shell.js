@@ -80,7 +80,6 @@ function switchWorkspace(ws) {
   if (ws === workspace()) return;
   rememberView();
   banner("");  // a message about the other workspace's page
-  if (S.wsNoteDone && S.wsNoteNew) S.wsNoteDone();
   S.workspace = ws;
   const kept = S.wsView && S.wsView[ws];
   // A kept page of the other workspace (never kept on purpose) falls back to the home page.
@@ -153,12 +152,14 @@ function renderPanel() {
     if (!body.childElementCount || body.dataset.device !== String(device)) { body.dataset.device = String(device); body.replaceChildren(logBox()); }
     refreshLog();
   }
-  // Commission with a config: the Log open, Problems collapsed; Configure keeps the user's choice.
+  // Commission: Problems and the Log start as one-line strips (the Log's count in its strip);
+  // Configure keeps the user's choice while there are problems.
   const box = $("#problems-box");
   if (S.panelWs !== workspace()) {
     S.panelWs = workspace();
-    box.open = commission ? false : S.panelOpen !== false;
-    if (commission && !device) $("#log-box").open = true;
+    const want = commission ? false : S.panelOpen !== false && (S.problemsShown === undefined || S.problemsShown > 0);
+    if (box.open !== want) { S.panelAuto = true; box.open = want; }
+    if (commission && !device) $("#log-box").open = false;
   }
 }
 
@@ -166,6 +167,7 @@ function wireShell() {
   for (const b of document.querySelectorAll("#ws [data-ws]")) b.onclick = () => switchWorkspace(b.dataset.ws);
   const box = $("#problems-box");
   box.addEventListener("toggle", () => {
+    if (S.panelAuto) { S.panelAuto = false; return; }  // folded or unfolded for its count, not by hand
     if (workspace() !== "configure") return;
     S.panelOpen = box.open;
     api("POST", "/api/ui", { panel: box.open ? "open" : "closed" }).catch(() => {});
@@ -186,24 +188,38 @@ async function loadShellSettings() {
     if (S.workspace === "commission") S.view = "online";  // the page opens on the workspace's own page
     if (S.workspace === "devices") S.view = "devices";
     S.panelOpen = ui.panel !== "closed";
-    S.wsNoteNew = ui.ws_note !== "seen";
   } catch (e) { S.workspace = "configure"; }
 }
 
-// Said once on this PC, as an information bar under the header, the first
-// time a config opens with the workspaces; switching or closing the note
-// marks it seen.
-function shellNote() {
-  const old = document.querySelector("[data-ws-note]");
-  if (old) old.remove();
-  if (!S.wsNoteNew || (S.state && S.state.commission)) return;
-  const done = () => {
-    S.wsNoteNew = false;
-    const n = document.querySelector("[data-ws-note]");
-    if (n) n.remove();
-    api("POST", "/api/ui", { ws_note: "seen" }).catch(() => {});
-  };
-  $("#page-bars").append(notice("info", "Work on the live bus is under Commission, next to Configure (it was the Online view).",
-    { live: false, dataset: { wsNote: "1" }, close: done }));
-  S.wsNoteDone = done;
+// Under 1500 px the secondary header actions (Reload from disk, Close,
+// Settings, Quit) go into one "⋯" menu, so the header stays one row; wider,
+// they go back to their places. Reload and Close follow the config actions'
+// visibility there too.
+const HEADER_MORE = ["#btn-reload", "#btn-close", "#menu-settings", "#btn-quit"];
+const HEADER_NARROW = matchMedia("(max-width: 1499px)");
+function fitHeaderMore() {
+  const more = $("#menu-more");
+  if (!more) return;
+  const panel = more.querySelector(".menu-panel");
+  const narrow = HEADER_NARROW.matches && !TRACE_WINDOW;
+  more.hidden = !narrow;
+  if (!narrow) more.open = false;
+  for (const sel of HEADER_MORE) {
+    const e = $(sel);
+    if (narrow && e.parentElement !== panel) {
+      const home = document.createComment(sel);
+      e.before(home);
+      e.homeMark = home;
+      panel.append(e);
+      if (e.tagName === "BUTTON") e.classList.add("item");
+    } else if (!narrow && e.homeMark) {
+      e.homeMark.replaceWith(e);
+      e.homeMark = null;
+      if (e.tagName === "BUTTON") e.classList.remove("item");
+    }
+  }
+  // Reload and Close are a config's: hidden on the start page, in the menu too.
+  const off = $("#actions").hidden;
+  for (const sel of ["#btn-reload", "#btn-close"]) $(sel).classList.toggle("off-start", narrow && off);
 }
+HEADER_NARROW.addEventListener("change", fitHeaderMore);

@@ -161,6 +161,7 @@ class SaveAnytime(unittest.TestCase):
         cfg = self.config(node_id=1)  # the master's node ID
         net = {k: cfg[k] for k in ("adapter", "master", "nodes")}
         self.open({"schema_version": 2, "codesys": {}, "networks": [dict(net, name="io")]})
+        pg.click("#menu-target > summary")
         pg.click("#btn-codesys-download")
         pg.wait_for_selector("[data-handoff-refused]")
         self.assertIn("The saved config has 1 error", pg.inner_text("[data-handoff-refused]"))

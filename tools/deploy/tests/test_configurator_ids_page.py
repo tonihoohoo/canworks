@@ -157,7 +157,11 @@ class ByIdentifier(Base):
         pg.wait_for_selector(ROW % "182" + "[aria-selected=true]")
         self.assertEqual(pg.get_attribute("#ids-grid", "aria-activedescendant"),
                          pg.get_attribute(ROW % "182", "id"))
+        # The arrow keys do not open the inspector (compact-chrome); Enter does.
+        self.assertTrue(pg.is_visible('[data-trace="inspector-rail"]'))
+        pg.keyboard.press("Enter")
         pg.wait_for_selector("#trace-inspector [data-fx=inspector][data-kind=pdo]")
+        self.assertFalse(pg.is_visible('[data-trace="inspector-rail"]'))
         self.assertEqual(pg.inner_text("[data-ids=change]"), "No change since the previous frame.")
         pg.keyboard.press("End")
         pg.wait_for_selector(ROW % "701" + "[aria-selected=true]")

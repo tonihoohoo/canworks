@@ -168,7 +168,7 @@ class Access(Running):
         self.assertEqual(self.request("GET", "/../server.py", token=False, headers={"Cookie": cookie})[0], 404)
 
 
-UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open", "ws_note": "new",
+UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open",
                "node_tab": "general", "tree_folded": [], "box_heights": {}}
 
 
@@ -223,7 +223,7 @@ class Theme(Running):
         self.assertEqual(self.ok("POST", "/api/ui", {"workspace": "commission", "panel": "closed"}),
                          ui(workspace="commission", panel="closed"))
         self.assertEqual(self.request("POST", "/api/ui", {"workspace": "online"})[0], 400)
-        self.assertEqual(self.ok("POST", "/api/ui", {"ws_note": "seen"}), ui(workspace="commission", panel="closed", ws_note="seen"))
+        self.assertEqual(self.request("POST", "/api/ui", {"ws_note": "seen"})[0], 400)  # compact-chrome: no note
 
     def test_node_tab_and_folded_networks_kept(self):
         """network-tree-and-node-tabs: the open node tab and the folded

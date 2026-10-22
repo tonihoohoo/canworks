@@ -78,17 +78,15 @@ class Workspaces(OnlineBase):
         pg.wait_for_selector("#side")
         self.assertTrue(pg.is_visible("#problems"))
 
-    def test_one_time_note(self):
+    def test_no_moved_note(self):
+        # compact-chrome: no "moved to Commission" note.
         pg = self.page
         self.open()
-        pg.wait_for_selector("[data-ws-note]")
-        pg.click('#ws [data-ws="commission"]')
         self.assertEqual(pg.query_selector_all("[data-ws-note]"), [])
+        pg.click('#ws [data-ws="commission"]')
         # Not connected: the network's tree entry opens without a page error.
         pg.click('#tree [data-key="0"] > .tree-row')
         pg.click('#tree [data-key="0"] > .tree-row')
-        pg.click("#btn-close")
-        self.open()
         self.assertEqual(pg.query_selector_all("[data-ws-note]"), [])
 
     def test_trace_without_a_connection_points_to_the_bar(self):

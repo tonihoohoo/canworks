@@ -13,7 +13,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_sim_page import TOKEN, FakeSim
-from .helpers import tmpdir, tree_node, tree_view
+from .helpers import tmpdir, tree_node, tree_view, header_action
 from .test_configurator_page import FIXTURE, REQUIRED, RTD, load, sync_playwright
 
 BANNER_END = "must not be uploaded to a machine as it is"
@@ -219,7 +219,7 @@ class Network(Base):
         cfg = three_nodes()
         cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
         self.write_config(cfg)
-        pg.click("#btn-reload")
+        header_action(pg, "#btn-reload")
         tree_view(pg, "access")
         pg.wait_for_selector('input[data-online="enable"]:checked')
         tree_view(pg, "bus")
@@ -336,7 +336,7 @@ class Live(View):
             "0x7130:2": {"expr": "[0x7130:1] * 2"}, "0x7130:1": {"sine": {"min": 200, "max": 260, "period_s": 10}}}}}})
         self.assertIn("Saved", pg.inner_text('[data-sim="file-state"]'))
         # Reloading the project reads it back.
-        pg.click("#btn-reload")
+        header_action(pg, "#btn-reload")
         pg.click('button[data-view="simulation"]')
         pg.click('button[data-sim-tab="file"]')
         self.assertIn("sine 200 to 260, 10 s", pg.inner_text('[data-sim-file="5"]'))

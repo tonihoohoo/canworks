@@ -80,13 +80,13 @@ class RawPage(OnlineBase):
         self.assertEqual(pg.inner_text('[data-raw="dbc"]'), "cab.dbc")
         self.assertIn("0x18FF1020 ext", pg.inner_text('[data-raw-table="rx"]'))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The network's own scan watchdog; a bad value shows at the field.
         pg.fill('input[data-path="raw.scan_watchdog_ms"]', "5")
         pg.wait_for_selector('input[data-path="raw.scan_watchdog_ms"].invalid')
         pg.fill('input[data-path="raw.scan_watchdog_ms"]', "250")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.inner_text("#problem-list"), "No problems.")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
@@ -133,7 +133,7 @@ class RawPage(OnlineBase):
         self.assertEqual(pg.locator(".raw-bit.raw-clash").count(), 0)
         self.assertIn("Press", pg.get_attribute(".raw-grid td[title='bit 8: Press']", "title"))
         # No overlap problem (nor any other).
-        pg.wait_for_selector("#problem-list li.ok")
+        pg.wait_for_selector("#problem-list li.ok", state="attached")
         pg.select_option('select[data-raw-page="rx:0"]', label="Page = 1")
         self.assertEqual(pg.inner_text('[data-raw-shown="rx:0"]'), "Shows Page, Temp")
         # A page on a switch that is not there shows at the Page cell.
@@ -147,7 +147,7 @@ class RawPage(OnlineBase):
         pg.wait_for_selector('input[data-path="raw.rx[0].signals[1].mux"].invalid')
         self.assertIn("300", pg.inner_text("#problem-list"))
         pg.fill('input[data-path="raw.rx[0].signals[1].mux"]', "1")
-        pg.wait_for_selector("#problem-list li.ok")
+        pg.wait_for_selector("#problem-list li.ok", state="attached")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         sigs = load(self.config_path)["networks"][0]["raw"]["rx"][0]["signals"]
@@ -187,7 +187,7 @@ class RawPage(OnlineBase):
         pg.select_option('#modal select[data-pick="Twin"]', "")
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#banner:has-text('Imported 1 message')")
-        pg.wait_for_selector("#problem-list li.ok")
+        pg.wait_for_selector("#problem-list li.ok", state="attached")
         pg.click('tr[data-raw="rx:0"]')
         # Rows: the switch, then page 1, then page 2.
         self.assertEqual(pg.eval_on_selector_all('[data-raw-editor="rx:0"] .raw-signals tbody tr',
