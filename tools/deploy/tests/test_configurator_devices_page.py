@@ -12,7 +12,7 @@ import unittest.mock
 
 from canworks import diag
 
-from .helpers import tmpdir, tree_view
+from .helpers import header_action, tmpdir, tree_view
 from .test_configurator_online_page import TOKEN, OnlineBase
 
 try:
@@ -87,10 +87,11 @@ class DevicesPage(OnlineBase):
                 pg.fill(sel, text)
         pg.click(f'#modal button[data-value="{value}"]')
 
-    def add_device(self):
+    def add_device(self, config=True):
         pg = self.page
-        self.open()
-        pg.click('#ws button[data-ws="devices"]')
+        if config:
+            self.open()
+            pg.click('#ws button[data-ws="devices"]')
         pg.wait_for_selector("[data-devices=empty]")
         pg.click("[data-devices=add]")
         self.answer("add", {"[data-devices=host]": "127.0.0.1", "[data-devices=user]": "pi",
@@ -165,7 +166,7 @@ class DevicesPage(OnlineBase):
                 self.assertNotIn(SSH_PW.encode(), data, n)
                 self.assertNotIn(SUDO_PW.encode(), data, n)
         with open(os.path.join(self.cfg_dir, "devices.json")) as f:
-            stored = json.load(f)["projects"][self.project][0]
+            stored = json.load(f)["devices"][0]
         self.assertEqual(stored["host"], "127.0.0.1")
         self.assertIn("install_plugin", stored["job_seconds"])
         # The device became the project's runtime host (it had none).
@@ -222,6 +223,53 @@ class DevicesPage(OnlineBase):
         self.assertEqual(pg.input_value("[data-devices=host]"), "line9.local")
         self.assertEqual(pg.evaluate("workspace()"), "devices")
         self.answer("cancel")
+
+    def test_without_config(self):
+        # devices-without-config: the start page's Install on a device, the
+        # role question for a device with nothing of canworks, a job, and the
+        # same device listed when a config is opened afterwards.
+        pg = self.page
+        shutil.rmtree(os.path.join(self.fs, "opt", "canworks"))
+        pg.goto(self.server.url)
+        self.assertEqual(pg.inner_text("#start-devices"), "Install on a device")
+        pg.click("#start-devices")
+        pg.wait_for_selector("#mode:has-text('Devices · no config')")
+        self.assertTrue(pg.is_hidden("#ws"))
+        self.assertTrue(pg.is_hidden("#btn-save"))
+        self.assertNotIn("Raspberry", pg.inner_text("#view"))
+        self.add_device(config=False)
+        self.answer("cancel")  # no key login
+        pg.wait_for_selector("[data-devices=roles]")
+        self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 3)
+        self.assertEqual(pg.inner_text("[data-devices=start]"), "Install canworks 0.98.0")
+        self.assertIn("Nothing installed yet", pg.inner_text(".devices-list"))
+        pg.click("label:has([data-devices-role=bridge])")
+        pg.wait_for_selector("[data-devices=start]:has-text('Install the bridge 0.98.0')")
+        self.assertTrue(pg.is_checked("[data-devices-role=bridge]"))
+        self.assertEqual(pg.locator("[data-devices=options]").count(), 0)
+        pg.click("label:has([data-devices-role=openplc])")
+        pg.wait_for_selector("[data-devices=start]:has-text('Install canworks 0.98.0')")
+        pg.click("[data-devices=start]")
+        self.answer("go", {"[data-devices=sudo]": SUDO_PW})
+        pg.wait_for_selector("[data-devices=done]", timeout=20000)
+        self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
+        pg.wait_for_selector("[data-devices=up-to-date]")
+        # No project took the device as its runtime host.
+        online_json = os.path.join(self.cfg_dir, "online.json")
+        if os.path.isfile(online_json):
+            with open(online_json) as f:
+                self.assertFalse(any((p or {}).get("host") for p in (json.load(f).get("projects") or {}).values()))
+        # Close: the start page; a config opened next lists the same device.
+        header_action(pg, "#btn-close")
+        pg.wait_for_selector("#start:not([hidden])")
+        self.open()
+        pg.click('#ws button[data-ws="devices"]')
+        pg.wait_for_selector(".devices-list [data-device]")
+        self.assertIn("127.0.0.1", pg.inner_text(".devices-list"))
+        pg.click(".devices-list [data-device]")
+        pg.wait_for_selector("[data-devices=rows]")
+        self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

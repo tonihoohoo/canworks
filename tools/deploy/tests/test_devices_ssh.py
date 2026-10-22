@@ -212,56 +212,56 @@ class Service(Device):
         self.devices = service.Devices(self.settings, paths=self.device.paths(), latest=lambda: "0.98.0",
                                        probe_env={"CANWORKS_PROBE_ROOT": root, "CANWORKS_PROBE_URL": "file:///"})
         self.addCleanup(self.devices.close_all)
-        self.did = self.devices.add("/proj", "127.0.0.1", "pi", self.port)
+        self.did = self.devices.add("127.0.0.1", "pi", self.port)
 
     def test_probe_job_and_no_password_kept(self):
         with self.assertRaises(ssh.NeedPassword):
-            self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0")
-        out = self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+            self.devices.probe(self.did, "openplc", "proj", None, "0.98.0")
+        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
         self.assertTrue(out["offer_key_login"])
         self.assertEqual(out["latest"], "0.98.0")
         self.assertEqual(out["plan"]["main"]["action"], "install_openplc")
-        self.assertEqual(self.store.get("/proj", self.did)["latest"], "0.98.0")
+        self.assertEqual(self.store.get(self.did)["latest"], "0.98.0")
         # The connection is kept: the next calls need no password.
-        self.store.update("/proj", self.did, probe=dict(out["probe"], sudo="password"))
+        self.store.update(self.did, probe=dict(out["probe"], sudo="password"))
         with self.assertRaises(jobs.NeedSudo):
-            self.devices.start("/proj", self.did, "install_plugin", {}, None)
-        self.assertEqual(self.devices.running_jobs("/proj"), [])
+            self.devices.start(self.did, "install_plugin", {}, None)
+        self.assertEqual(self.devices.running_jobs(), [])
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
 
     def test_probe_on_a_dropped_kept_connection(self):
-        self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
-        conn, _ = self.devices.connection("/proj", self.did)
+        self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        conn, _ = self.devices.connection(self.did)
         ssh.add_key_login(conn, ssh.own_public_key(self.store))
         # The device drops the connection, the PC has not noticed yet.
         conn.client.get_transport().is_active = lambda: True
         self.device.drop_connections()
         time.sleep(0.2)
-        out = self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0")
+        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0")
         self.assertEqual(out["probe"]["probe"], 1)
         self.assertEqual(self.device.logins[-1], ("pi", "key"))
 
     def test_typical_time_and_failure(self):
-        self.devices.probe("/proj", self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
-        conn, _ = self.devices.connection("/proj", self.did)
+        self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        conn, _ = self.devices.connection(self.did)
         self.device.sudo_nopasswd = True
         job = jobs.start(conn, "nopasswd", None, "install_plugin", ["echo ok"], self.devices.paths)
-        self.store.update("/proj", self.did, job={"id": job, "action": "install_plugin", "version": "0.98.0"})
+        self.store.update(self.did, job={"id": job, "action": "install_plugin", "version": "0.98.0"})
         deadline = time.monotonic() + 20
         out, offset = {}, 0
         while not out.get("done") and time.monotonic() < deadline:
-            out = self.devices.follow("/proj", self.did, job, offset)
+            out = self.devices.follow(self.did, job, offset)
             offset = out["offset"]
             time.sleep(0.1)
         self.assertEqual(out["exit"], 0)
-        self.assertIn("install_plugin", self.store.get("/proj", self.did)["job_seconds"])
+        self.assertIn("install_plugin", self.store.get(self.did)["job_seconds"])
 
         job = jobs.start(conn, "nopasswd", None, "install_plugin",
                          ["echo 'cp: write error: No space left on device'", "exit 3"], self.devices.paths)
         out, offset = {}, 0
         while not out.get("done") and time.monotonic() < deadline:
-            out = self.devices.follow("/proj", self.did, job, offset)
+            out = self.devices.follow(self.did, job, offset)
             offset = out["offset"]
             time.sleep(0.1)
         self.assertEqual(out["exit"], 3)

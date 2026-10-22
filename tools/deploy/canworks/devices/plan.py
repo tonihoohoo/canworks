@@ -1,7 +1,7 @@
 """What a device has against what the project needs: the rows of the device
 page, the one main action and why an action cannot run. Pure functions of the
-probe (device-probe.sh's JSON), the project's target and the newest release,
-so every case is tested without a device."""
+probe (device-probe.sh's JSON), the project's target (None with no config
+open) and the newest release, so every case is tested without a device."""
 
 import re
 
@@ -85,11 +85,20 @@ def _main(action, label, version, confirm=(), **extra):
     return out
 
 
+ROLES = (("openplc", "OpenPLC PLC with canworks",
+          "Installs the OpenPLC Runtime when there is none, and the canworks plugin. Upload a program afterwards."),
+         ("bridge", "Modbus bridge",
+          "For Node-RED, an HMI or SCADA. It starts with a config when that config's Devices page installs it here."))
+
+
 def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None):
     """The page's view of one device. `target` is the project's ("openplc",
-    "bridge", "codesys"), `latest` the newest release ("0.98.0") or None,
-    `instance` the bridge instance name of this project and `config_sha256`
-    its saved canworks.json's."""
+    "bridge", "codesys"), or None with no config open: then the parts the
+    device has pick the main action, and a device with neither the plugin nor
+    the bridge gets `roles`, one main action per role for the page to choose
+    from. `latest` is the newest release ("0.98.0") or None, `instance` the
+    bridge instance name of this project and `config_sha256` its saved
+    canworks.json's."""
     probe = probe or {}
     rt = probe.get("runtime") or {}
     plugin = probe.get("plugin")
@@ -97,6 +106,11 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     docker = rt.get("kind") == "docker-managed"
     new = version_tuple(latest)
     rows, notes, main = [], [], None
+    free = target is None
+    # No config: the PLC side when the plugin is there or nothing is (the
+    # first role), the bridge side when only the bridge is.
+    plc = target == "openplc" or (free and (bool(plugin) or not bridge))
+    unused = "" if free else "not used by this project"
 
     if target == "codesys":
         notes.append("CODESYS installs its runtime itself; there is nothing for canworks to install here.")
@@ -105,7 +119,7 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     need_rt = target == "openplc"
     rows.append({"part": "runtime", "label": "OpenPLC Runtime", "have": _runtime_text(rt),
                  "state": ("ok" if rt.get("kind") not in (None, "none") else ("warn" if need_rt else "off")),
-                 "needs": "needed" if need_rt else "not used by this project", "used": need_rt,
+                 "needs": "needed" if need_rt else unused, "used": need_rt or free,
                  "hint": untested_runtime(rt)})
 
     # canworks plugin
@@ -127,10 +141,10 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         have, state, cur = ["not installed"], ("warn" if need_plugin else "off"), None
     rows.append({"part": "plugin", "label": "canworks plugin", "have": " · ".join(have),
                  "state": state if need_plugin or plugin else "off",
-                 "needs": ("newest %s" % latest if latest else "needed") if need_plugin else "not used by this project",
-                 "used": need_plugin,
+                 "needs": ("newest %s" % latest if latest else "needed") if need_plugin else unused,
+                 "used": need_plugin or free,
                  "uninstall": bool(plugin)})
-    if need_plugin:
+    if plc:
         if rt.get("kind") in (None, "none"):
             main = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
                          else "Install OpenPLC Runtime and canworks", latest,
@@ -174,10 +188,10 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         bstate = "ok" if bridge and bridge.get("unit") is not False and (not new or (bcur and bcur >= new)) and current_cfg \
             and mine.get("state") == "active" else "warn"
     elif bridge:
-        bstate = "ok"
+        bstate = "warn" if free and (bridge.get("unit") is False or (new and (bcur is None or bcur < new))) else "ok"
     rows.append({"part": "bridge", "label": "Modbus bridge", "have": " · ".join(have), "state": bstate,
-                 "needs": ("this project's config as %s" % instance) if need_bridge else "not used by this project",
-                 "used": need_bridge, "uninstall": bool(bridge)})
+                 "needs": ("this project's config as %s" % instance) if need_bridge else unused,
+                 "used": need_bridge or free, "uninstall": bool(bridge)})
     if need_bridge:
         restart = "Running bridges restart." if running else ""
         # A link that serves the PLC (or a config whose place is unknown) stays as it is.
@@ -191,6 +205,13 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
             main = _main("bridge_config", "Start this project's bridge", latest,
                          ["The bridge %s restarts with this project's saved config." % instance
                           if mine and mine.get("state") == "active" else ""])
+    elif free and bridge and main is None:
+        # No config: the bridge alone is updated (its configs stay as they run).
+        restart = "Running bridges restart." if running else ""
+        if bridge.get("unit") is False:
+            main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
+        elif new and (bcur is None or bcur < new):
+            main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart])
 
     # Remote link, CAN
     link = probe.get("link")
@@ -218,7 +239,13 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
                  "have": " · ".join(can + ["serial %s" % s for s in serial]) or "none found",
                  "state": "ok" if can or serial else "off", "needs": "", "used": target != "codesys"})
 
-    reason = blocked(probe, latest) if main else None
+    roles = None
+    if free and not plugin and not bridge:
+        # Nothing of canworks here yet: the page asks what the device should run.
+        bridge_main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
+        roles = [{"role": r, "label": label, "text": text, "main": main if r == "openplc" else bridge_main}
+                 for r, label, text in ROLES]
+    reason = blocked(probe, latest) if main or roles else None
     pc = version_tuple(pc_version)
     seen = [v for v in (version_tuple((plugin or {}).get("version")), version_tuple((bridge or {}).get("version"))) if v]
     newest_here = max(seen) if seen else None
@@ -226,8 +253,8 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         notes.append("These PC tools (%s) are older than canworks on this device (%s). Update the PC tools "
                      "with the one-line installer." % (pc_version, ".".join(map(str, newest_here))))
     job = probe.get("install_job")
-    return {"rows": rows, "main": main, "blocked": reason, "notes": notes, "job": job,
-            "up_to_date": main is None and target != "codesys",
+    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "job": job,
+            "up_to_date": main is None and not roles and target != "codesys",
             "sudo": probe.get("sudo"), "header": header(probe)}
 
 

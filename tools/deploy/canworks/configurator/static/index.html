@@ -81,17 +81,19 @@
 <div id="banner" class="notice notice-done" data-notice="done" role="status" hidden><div id="banner-text" class="notice-text"></div><button id="banner-close" class="notice-close" type="button" title="Close" aria-label="Close message">✕</button></div>
 </div>
 <main id="start" hidden>
-  <p id="start-intro" class="start-intro">Set up CANopen and J1939 networks for a PLC or a Modbus bridge, or work on a CANopen device directly from this PC.</p>
+  <p id="start-intro" class="start-intro">Set up CANopen and J1939 networks for a PLC or a Modbus bridge, work on a CANopen device directly from this PC, or install canworks on a Linux device.</p>
   <div class="start-actions">
     <button id="start-open" type="button" class="primary" title="Open an OpenPLC Editor project or a config folder">Open…</button>
     <button id="start-new" type="button" title="Start a new config for OpenPLC, the Modbus bridge or CODESYS">New config…</button>
     <span class="spacer"></span>
     <button id="start-commission" type="button" class="link" title="A USB CAN adapter on this PC is enough: no runtime and no config">Commission a device without a config</button>
+    <button id="start-devices" type="button" class="link" title="Install the OpenPLC Runtime, canworks or the Modbus bridge on a Linux device over SSH: no config needed">Install on a device</button>
   </div>
   <section id="start-first" class="start-first" aria-label="Where to start" hidden>
     <button id="start-first-open" type="button" class="choice"><strong>I have an OpenPLC project</strong><span>Open its folder. PLC addresses are checked against its program.</span></button>
     <button id="start-first-new" type="button" class="choice"><strong>Start something new</strong><span>For OpenPLC, a Modbus bridge (Node-RED, HMI) or CODESYS.</span></button>
     <button id="start-first-commission" type="button" class="choice"><strong>I just want to talk to a device</strong><span>A USB CAN adapter is enough: scan the bus, set node IDs, read and write parameters.</span></button>
+    <button id="start-first-devices" type="button" class="choice"><strong>Set up a Linux device</strong><span>Install the OpenPLC Runtime, canworks or the Modbus bridge over SSH. No config needed.</span></button>
   </section>
   <section id="start-recent">
     <h2>Recent</h2>

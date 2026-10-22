@@ -18,7 +18,7 @@ HAVE_SH = sys.platform != "win32" and shutil.which("sh") is not None
 
 
 def probe(**over):
-    """A probe result: a Pi with the managed Docker runtime and nothing of canworks."""
+    """A probe result: a Linux device with the managed Docker runtime and nothing of canworks."""
     out = {"probe": 1, "os": "Debian GNU/Linux 12 (bookworm)", "arch": "aarch64", "systemd": True,
            "disk_free_mb": 20000, "mem_mb": 8000, "internet": True, "sudo": "password",
            "runtime": {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True},
@@ -194,31 +194,81 @@ class Plan(unittest.TestCase):
         self.assertIsNone(plan.version_tuple("0.98.0-3-gabc"))
 
 
+class PlanWithoutConfig(unittest.TestCase):
+    """devices-without-config: no target; what the device has, or the role
+    the page picks, gives the main action."""
+
+    def test_fresh_device_asks_what_it_runs(self):
+        p = plan.plan(probe(runtime={"kind": "none"}), None, "0.110.0")
+        self.assertEqual([r["role"] for r in p["roles"]], ["openplc", "bridge"])
+        self.assertEqual(p["roles"][0]["main"]["label"], "Install OpenPLC Runtime and canworks 0.110.0")
+        self.assertEqual((p["roles"][1]["main"]["action"], p["roles"][1]["main"]["label"]),
+                         ("install_bridge", "Install the bridge 0.110.0"))
+        self.assertFalse(p["up_to_date"])
+        self.assertTrue(all(r["used"] and r["needs"] == "" for r in p["rows"]))
+
+    def test_runtime_without_plugin(self):
+        p = plan.plan(probe(), None, "0.110.0")
+        self.assertEqual(p["roles"][0]["main"]["label"], "Install canworks 0.110.0")
+
+    def test_installed_plugin_picks_the_action(self):
+        p = plan.plan(probe(plugin={"version": "0.105.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        self.assertIsNone(p["roles"])
+        self.assertEqual(p["main"]["label"], "Update 0.105.0 → 0.110.0")
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        self.assertIsNone(p["main"])
+        self.assertTrue(p["up_to_date"])
+
+    def test_installed_bridge_picks_the_action(self):
+        b = {"version": "0.105.0", "prefix": "/opt/canworks-bridge",
+             "instances": [{"name": "packer", "state": "active", "sha256": "aa"}]}
+        p = plan.plan(probe(runtime={"kind": "none"}, bridge=b), None, "0.110.0")
+        self.assertIsNone(p["roles"])
+        self.assertEqual((p["main"]["action"], p["main"]["label"]), ("install_bridge", "Update 0.105.0 → 0.110.0"))
+        self.assertEqual(p["main"]["confirm"], ["Running bridges restart."])
+        p = plan.plan(probe(runtime={"kind": "none"}, bridge=dict(b, version="0.110.0")), None, "0.110.0")
+        self.assertIsNone(p["main"])
+        self.assertTrue(p["up_to_date"])
+
+    def test_blocked_applies_to_the_roles(self):
+        self.assertIn("github.com", plan.plan(probe(internet=False), None, "0.110.0")["blocked"])
+
+
 class Store(unittest.TestCase):
     def test_no_secrets(self):
         d = tmpdir(self)
         s = store.Store(d)
-        did = s.add("/p", "line3.local", "pi")
+        did = s.add("line3.local", "pi")
         with self.assertRaises(store.DeviceError):
-            s.update("/p", did, password="x")
-        s.update("/p", did, probe={"probe": 1}, latest="0.98.0")
-        self.assertEqual(s.get("/p", did)["latest"], "0.98.0")
+            s.update(did, password="x")
+        s.update(did, probe={"probe": 1}, latest="0.98.0")
+        self.assertEqual(s.get(did)["latest"], "0.98.0")
         if os.name == "posix":
             self.assertEqual(os.stat(s.path).st_mode & 0o777, 0o600)
-        self.assertEqual(s.devices("/other"), [])
-        self.assertEqual(s.add("/p", "line3.local", port=2222), "line3.local:2222")
-        s.remove("/p", did)
-        self.assertEqual([x["host"] for x in s.devices("/p")], ["line3.local"])
+        self.assertEqual(s.add("line3.local", port=2222), "line3.local:2222")
+        s.remove(did)
+        self.assertEqual([x["host"] for x in s.devices()], ["line3.local"])
+
+    def test_one_list_for_the_pc(self):
+        # devices-without-config: one list, whatever project is open; the old per-project lists are not read.
+        d = tmpdir(self)
+        with open(os.path.join(d, store.FILE), "w") as f:
+            json.dump({"projects": {"/p": [{"host": "old.local", "port": 22, "user": "u"}]}}, f)
+        s = store.Store(d)
+        self.assertEqual(s.devices(), [])
+        s.add("line3.local", "admin")
+        self.assertEqual([x["host"] for x in store.Store(d).devices()], ["line3.local"])
+        self.assertNotIn("projects", s.load())
 
     def test_checks(self):
         s = store.Store(tmpdir(self))
         for host in ("", "-oProxyCommand=x", "a b"):
             with self.assertRaises(store.DeviceError):
-                s.add("/p", host)
+                s.add(host)
         with self.assertRaises(store.DeviceError):
-            s.add("/p", "h", "bad user")
+            s.add("h", "bad user")
         with self.assertRaises(store.DeviceError):
-            s.add("/p", "h", port=70000)
+            s.add("h", port=70000)
 
 
 class Jobs(unittest.TestCase):

@@ -1149,6 +1149,9 @@ function runtimeNetworks(r) {
 
 async function loadState() {
   S.state = await api("GET", "/api/state");
+  if (S.state.mode) S.devicesOnly = false;
+  // The device list's plans follow the open config's target (devices.js).
+  if (typeof devContext === "function") devContext(S.state.mode ? S.state.folder : null);
   if (S.workspace === undefined) { await loadShellSettings(); await loadTreeSettings(); }
   if (S.state.mode) {
     setModel(S.state.config);
@@ -1175,6 +1178,7 @@ async function loadState() {
 function renderStart() {
   // Back on the start page: the next folder or commissioning session starts afresh.
   if (typeof CONN !== "undefined") { CONN.key = null; connStop(); }
+  document.body.classList.remove("devices-only");
   for (const id of ["#tool-tabs", "#conn-bar", "#bottom", "#ws"]) $(id).hidden = true;
   $("#start").hidden = false;
   $("#editor").hidden = true;
@@ -1182,7 +1186,7 @@ function renderStart() {
   fitHeaderMore();
   $("#mode").hidden = true;
   $("#sim-banner").hidden = true;
-  // Recent is the page; with nothing in it, three starting points take its place.
+  // Recent is the page; with nothing in it, four starting points take its place.
   const items = S.state.recent || [];
   $("#start-first").hidden = items.length > 0;
   $("#start-recent").hidden = items.length === 0;
@@ -1530,7 +1534,8 @@ function render() {
     if (!S.state || !S.state.mode) return renderTraceWindowEmpty();
     S.view = "trace";
   }
-  if (!S.state || !S.state.mode) return renderStart();
+  if (!S.state || !S.state.mode) return S.devicesOnly ? renderDevicesOnly() : renderStart();
+  document.body.classList.remove("devices-only");
   $("#start").hidden = true;
   $("#editor").hidden = false;
   $("#actions").hidden = false;
@@ -8479,6 +8484,7 @@ function wire() {
   $("#start-open").onclick = $("#start-first-open").onclick = () => startOpen();
   $("#start-new").onclick = $("#start-first-new").onclick = () => newConfig();
   $("#start-commission").onclick = $("#start-first-commission").onclick = commissionDevice;
+  $("#start-devices").onclick = $("#start-first-devices").onclick = devicesOnlyStart;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
   $("#btn-save").onclick = () => busy($("#btn-save"), "Saving…", () => save(false)).then(() => {
     const had = document.activeElement === $("#btn-save");
@@ -8500,7 +8506,7 @@ function wire() {
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);
-  $("#btn-close").onclick = closeFolder;
+  $("#btn-close").onclick = () => (S.devicesOnly && !(S.state && S.state.mode) ? devicesOnlyClose() : closeFolder());
   $("#btn-move").onclick = () => busy($("#btn-move"), "Moving…", moveIntoProject);
   $("#btn-new-project").onclick = () => busy($("#btn-new-project"), "Creating…", newEditorProject);
   $("#allow-overlap").onchange = runCheck;

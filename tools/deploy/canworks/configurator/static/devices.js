@@ -1,14 +1,17 @@
 "use strict";
-// The Devices workspace (device-install; docs/devices.md): the project's
-// Linux devices, what each has against what the project needs, one main
-// action, and install jobs that run on the device by themselves. SSH, the
+// The Devices workspace (device-install; docs/devices.md): this PC's Linux
+// devices, what each has against what the open project needs (or, with no
+// config, what the user picks it to run), one main action, and install jobs
+// that run on the device by themselves. SSH, the
 // probe and the jobs are the server's (/api/devices/*); this page asks the
 // questions (host key, password, sudo password) and never keeps an answer.
 // Loaded after app.js and uses its helpers (el, api, modal, busy, notice,
 // banner, S, ...).
 
 const DEV = {
+  ctx: undefined,     // the open config's folder the list was read for; null with no config
   list: null,         // /api/devices: { devices, target, instance, pc_version, jobs }
+  role: {},           // device id -> the role picked for a device with nothing of canworks (no config)
   sel: null,          // the selected device's id
   probes: {},         // device id -> the last probe answer of this page ({ probe, plan, latest })
   errors: {},         // device id -> the last connection error
@@ -24,6 +27,7 @@ const DEV_ACTION_DONE = {
   install_openplc: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
   install_plugin: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
   install_bridge: "The bridge runs this project's saved config.",
+  install_bridge_only: "The bridge is installed. It starts with a config when that config's Devices page installs it here.",
   bridge_config: "The bridge runs this project's saved config.",
   uninstall_plugin: "The canworks plugin was uninstalled.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
@@ -39,6 +43,61 @@ const DEV_ACTION_NAME = {
 function devKeyFile(type) {
   if (/^ecdsa/.test(type || "")) return "ecdsa";
   return (type || "ssh-ed25519").replace(/^ssh-/, "");
+}
+
+// Another config (or none): the plans were for another target, the list is read again.
+function devContext(key) {
+  if (DEV.ctx === key) return;
+  DEV.ctx = key;
+  DEV.list = null;
+  DEV.probes = {};
+  DEV.sel = null;
+  DEV.found = null;
+}
+
+// The main action shown: the plan's, or with no config the picked role's.
+function devMainOf(id, plan) {
+  if (!plan) return null;
+  if (!plan.roles) return plan.main;
+  const pick = plan.roles.find((r) => r.role === DEV.role[id]) || plan.roles[0];
+  return pick.main;
+}
+
+// The start page's Install on a device: Devices with no config open.
+function devicesOnlyStart() {
+  banner("");
+  S.devicesOnly = true;
+  S.view = "devices";
+  devContext(null);
+  render();
+}
+
+function devicesOnlyClose() {
+  S.devicesOnly = false;
+  S.view = "bus";
+  render();
+  const to = $("#start-devices");
+  if (to && !to.closest("[hidden]")) to.focus();
+}
+
+function renderDevicesOnly() {
+  if (typeof CONN !== "undefined") { CONN.key = null; connStop(); }
+  document.body.classList.add("devices-only");
+  for (const id of ["#tool-tabs", "#conn-bar", "#bottom", "#ws", "#sim-banner"]) $(id).hidden = true;
+  $("#start").hidden = true;
+  $("#editor").hidden = false;
+  $("#editor").classList.remove("commission");
+  $("#editor").classList.add("tool-view");
+  $("#actions").hidden = false;
+  fitHeaderMore();
+  const badge = $("#mode");
+  badge.hidden = false;
+  badge.title = "";
+  badge.replaceChildren(el("span", { class: "mode-name" }, "Devices · no config"));
+  const view = $("#view");
+  view.replaceChildren();
+  view.classList.remove("wide-cols");
+  renderDevices(view);
 }
 
 function devItem(id) { return ((DEV.list && DEV.list.devices) || []).find((d) => d.id === id) || null; }
@@ -110,13 +169,14 @@ async function devCall(path, body) {
 
 function renderDevices(view) {
   view.append(el("h2", null, "Devices"),
-    el("p", { class: "muted" }, "Install canworks on a Linux device over SSH: what this project needs, from the newest release. " +
-      "Passwords are asked when needed and never kept."));
+    el("p", { class: "muted" }, (DEV.ctx ? "Install canworks on a Linux device over SSH: what this project needs, from the newest release. "
+      : "Install the OpenPLC Runtime, canworks or the Modbus bridge on a Linux device over SSH, from the newest release. ") +
+      "Passwords are asked when needed and never kept. Devices added here are listed for every project on this PC."));
   const slot = noticeSlot({ dataset: { devices: "bars" } });
   view.append(slot);
   if (!DEV.list) {
     view.append(el("p", { class: "muted" }, "Reading the devices…"));
-    devLoad().then(() => { if (S.view === "devices") render(); });
+    devLoad().then(() => { if (S.view === "devices" || S.devicesOnly) render(); });
     return;
   }
   if (DEV.list.error) slot.append(notice("error", DEV.list.error, { live: false }));
@@ -132,12 +192,16 @@ function devListPane() {
     const job = DEV.jobs[d.id];
     const state = job && !job.done ? "busy" : DEV.errors[d.id] ? "error" : !p ? "unknown" : p.plan.main ? "warning" : "operational";
     const sub = job && !job.done ? "Install running" : DEV.errors[d.id] ? "Not reached" : !p ? "Not checked yet"
-      : p.plan.main ? p.plan.main.label : DEV.list.target === "codesys" ? "Nothing to install" : "Up to date";
-    return el("li", { role: "option", tabindex: "0", "aria-selected": String(d.id === DEV.sel), class: d.id === DEV.sel ? "active" : null,
-      dataset: { device: d.id }, onclick: () => devSelect(d.id),
+      : p.plan.roles ? "Nothing installed yet" : p.plan.main ? p.plan.main.label : DEV.list.target === "codesys" ? "Nothing to install" : "Up to date";
+    // With a config open, the other projects' devices are listed after its own, muted.
+    const other = DEV.ctx && !d.mine;
+    const cls = [d.id === DEV.sel ? "active" : null, other ? "devices-other" : null].filter(Boolean).join(" ") || null;
+    return el("li", { role: "option", tabindex: "0", "aria-selected": String(d.id === DEV.sel), class: cls,
+      dataset: { device: d.id, mine: d.mine ? "1" : null }, onclick: () => devSelect(d.id),
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); devSelect(d.id); } } },
     Icons.stateIcon(state === "busy" ? "busy" : state, { label: false, spinning: state === "busy" }),
-    el("span", { class: "devices-name" }, devLabel(d)), el("span", { class: "muted" }, sub));
+    el("span", { class: "devices-name" }, devLabel(d)), el("span", { class: "muted" }, sub),
+    (d.tags || []).length ? el("span", { class: "muted devices-tags", dataset: { devices: "tags" } }, d.tags.join(" · ")) : null);
   }));
   const pane = el("section", { class: "devices-pane", "aria-label": "Device list" }, el("div", { class: "toolbar" }, add),
     items.length ? list : el("p", { class: "muted", dataset: { devices: "empty" } }, "No devices yet. Add the device by its host name or address."));
@@ -168,8 +232,9 @@ function devPagePane() {
   const pane = el("section", { class: "devices-page", "aria-label": "Device", dataset: { devices: "page" } });
   const d = devItem(DEV.sel);
   if (!d) {
-    pane.append(el("p", { class: "muted" }, (DEV.list.devices || []).length ? "Pick a device to see what it has and what this project needs."
-      : "A device is a Raspberry Pi or another Linux computer reachable over SSH from this PC."));
+    pane.append(el("p", { class: "muted" }, (DEV.list.devices || []).length
+      ? (DEV.ctx ? "Pick a device to see what it has and what this project needs." : "Pick a device to see what it has.")
+      : "A device is a Linux computer this PC reaches over SSH."));
     return pane;
   }
   const p = DEV.probes[d.id];
@@ -189,7 +254,7 @@ function devPagePane() {
   if (DEV.errors[d.id]) {
     // Not reached: one sentence and what to check, without the socket's text.
     const text = !DEV.unreached[d.id] ? DEV.errors[d.id] : el("div", { dataset: { devices: "unreached" } }, DEV.errors[d.id],
-      el("ul", { class: "checklist" }, el("li", null, "SSH is on in the device (on a Raspberry Pi: raspi-config, Interface Options)."),
+      el("ul", { class: "checklist" }, el("li", null, "SSH is on in the device."),
         el("li", null, "This PC and the device are on the same network."),
         el("li", null, "The host name or address is right; try the address if the name is not found."),
         el("li", null, `The SSH port is right (${d.port || 22}).`)));
@@ -209,12 +274,14 @@ function devPagePane() {
 
 function devRows(d, plan, job) {
   const running = job && !job.done;
+  // With no config there is no project to need anything: no column for it.
+  const project = !!DEV.ctx;
   return el("table", { class: "devices-rows", dataset: { devices: "rows" } },
-    el("thead", null, el("tr", null, thCells(["Part", "On the device", "This project", ""]))),
+    el("thead", null, el("tr", null, thCells(project ? ["Part", "On the device", "This project", ""] : ["Part", "On the device", ""]))),
     el("tbody", null, plan.rows.map((r) => el("tr", { class: r.used ? null : "muted-row", dataset: { part: r.part } },
       el("td", null, Icons.stateIcon(DEV_PART_ICON[r.state] || "unknown", { label: false }), " ", r.label),
       el("td", null, r.have, r.hint ? el("div", { class: "muted", dataset: { devices: "hint" } }, r.hint) : null),
-      el("td", null, r.needs),
+      project ? el("td", null, r.needs) : null,
       el("td", null, r.uninstall ? el("button", { type: "button", class: "small", dataset: { devicesUninstall: r.part },
         disabled: running ? "An install is running." : null,
         onclick: () => devStart(d.id, r.part === "plugin" ? "uninstall_plugin" : "uninstall_bridge") }, "Uninstall…") : null)))));
@@ -222,7 +289,19 @@ function devRows(d, plan, job) {
 
 function devMain(d, plan) {
   const box = el("div", { class: "devices-main", dataset: { devices: "main" } });
-  const m = plan.main;
+  if (plan.roles) {
+    // Nothing of canworks on the device and no config to say what it needs: the user picks.
+    const picked = (plan.roles.find((r) => r.role === DEV.role[d.id]) || plan.roles[0]).role;
+    box.append(el("fieldset", { class: "devices-roles", dataset: { devices: "roles" } },
+      el("legend", null, "What should this device run?"),
+      plan.roles.map((r) => {
+        const radio = el("input", { type: "radio", name: "devices-role", value: r.role, dataset: { devicesRole: r.role } });
+        radio.checked = r.role === picked;
+        radio.onchange = () => { DEV.role[d.id] = r.role; render(); const back = document.querySelector(`[data-devices-role="${r.role}"]`); if (back) back.focus(); };
+        return el("label", { class: "choice" }, radio, el("strong", null, r.label), el("span", null, r.text));
+      })));
+  }
+  const m = devMainOf(d.id, plan);
   if (!m) {
     if (plan.up_to_date) box.append(notice("done", "Up to date.", { live: false, dataset: { devices: "up-to-date" } }));
     return box;
@@ -231,7 +310,8 @@ function devMain(d, plan) {
     onclick: () => devStart(d.id, m.action) }, m.label);
   box.append(el("div", { class: "toolbar" }, go, plan.blocked ? el("span", { class: "field-msg warning", dataset: { devices: "blocked" } }, plan.blocked) : null));
   // The options, folded: the remote link and discovery are on unless switched off.
-  if (m.action !== "bridge_config") {
+  // A bridge installed with no config has no instance to link or announce: no options.
+  if (m.action !== "bridge_config" && !(m.action === "install_bridge" && !DEV.list.instance)) {
     const o = DEV.options || (DEV.options = { link: true, discovery: true });
     const box2 = el("details", { class: "devices-options", dataset: { devices: "options" } }, el("summary", null, "Options"));
     const opt = (key, label, help) => {
@@ -334,7 +414,7 @@ async function devOfferKeyLogin(id) {
 
 async function devRemove(id) {
   const d = devItem(id);
-  const v = await modal(`Remove ${devLabel(d)} from this project's devices? Nothing changes on the device.`,
+  const v = await modal(`Remove ${devLabel(d)} from this PC's devices? It goes from every project's list; nothing changes on the device.`,
     [["cancel", "Cancel"], ["remove", "Remove device", { danger: true }]]);
   if (v !== "remove") return;
   try { await api("POST", "/api/devices/remove", { device: id }); } catch (e) { banner(e.message, true); return; }
@@ -352,7 +432,8 @@ async function devRemove(id) {
 function devConfirmText(d, action) {
   const p = DEV.probes[d.id];
   const plan = p && p.plan;
-  if (plan && plan.main && plan.main.action === action) return plan.main.confirm || [];
+  const main = devMainOf(d.id, plan);
+  if (main && main.action === action) return main.confirm || [];
   if (action === "uninstall_plugin") return ["The plugin is removed and canworks stops on this device; the OpenPLC runtime and its programs stay."];
   if (action === "uninstall_bridge") return ["The bridges on this device stop and the bridge is removed; their configs stay in /etc/canworks-bridge."];
   if (action === "remove_all") return ["The canworks plugin, the bridge, the remote link and their settings are removed from the device. The OpenPLC runtime stays."];
@@ -364,7 +445,8 @@ async function devStart(id, action) {
   const plan = (DEV.probes[id] || {}).plan || {};
   const effects = devConfirmText(d, action);
   const sudo = plan.sudo === "password";
-  const title = action === (plan.main || {}).action ? plan.main.label : DEV_ACTION_NAME[action];
+  const main = devMainOf(id, plan) || {};
+  const title = action === main.action ? main.label : DEV_ACTION_NAME[action];
   let pw = null;
   let wrong = false;
   for (;;) {
@@ -446,7 +528,7 @@ async function devFollow(id) {
 async function devJobEnded(id, j) {
   if (typeof jobsKick === "function") jobsKick();
   // A finished job may have made the device the project's runtime host (Online access).
-  if (j.exit === 0) await loadOnlineSettings();
+  if (j.exit === 0 && S.state && S.state.mode) await loadOnlineSettings();
   await devProbe(id);
   if (j.exit === 0 && j.action === "install_openplc") devFirstUser(id);
 }
@@ -493,8 +575,10 @@ function devJobView(d, j) {
       const dockerRt = docker && /Docker/.test((docker.find((r) => r.part === "runtime") || {}).have || "");
       let text = DEV_ACTION_DONE[j.action] || "The job ended.";
       if ((j.action === "install_plugin" || j.action === "install_openplc") && dockerRt) text += " Until then the PLC has no program.";
-      if (j.action === "install_bridge" || j.action === "bridge_config") text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
-      const open = (j.action === "install_bridge" || j.action === "bridge_config")
+      const projectBridge = (j.action === "install_bridge" || j.action === "bridge_config") && DEV.list.instance;
+      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
+      else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;
+      const open = projectBridge
         ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission") : null;
       box.append(notice("done", text, { live: true, actions: [open], dataset: { devices: "done" } }));
     } else {
