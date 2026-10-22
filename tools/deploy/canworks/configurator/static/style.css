@@ -1063,7 +1063,10 @@ pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; fo
 .devices-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .devices-head h3 { margin: 0; overflow-wrap: anywhere; }
 table.devices-rows { margin: 8px 0 12px; }
-table.devices-rows td { vertical-align: top; }
+table.devices-rows td { vertical-align: top; overflow-wrap: anywhere; }
+/* A narrow window: long values wrap and the row's buttons stack, inside the page. */
+table.devices-rows td:last-child { text-align: right; }
+table.devices-rows td:last-child button { margin: 0 0 4px 4px; }
 table.devices-rows tr.muted-row td { color: var(--muted); }
 .devices-job { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
 .devices-steps { margin: 8px 0; padding-left: 0; list-style: none; }

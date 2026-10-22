@@ -80,6 +80,10 @@ r=$(CANWORKS_LINK_PIP="" "$REPO/scripts/install-link.sh" --version 0.113.0 --dry
 check 'grep -q "would download: .*/deploy-v0.113.0.tar.gz" <<<"$r" && grep -q "install-link.sh --config /c.json --runtime-port none" <<<"$r"' \
     "--version downloads the release and runs its script"
 
+# Piped into bash (curl ... | sudo bash -s --), as the Devices page runs it: no unbound BASH_SOURCE.
+bash -s -- --help < "$REPO/scripts/install-link.sh" > "$T/out" 2>&1
+check '! grep -q "unbound variable" "$T/out"' "runs piped into bash"
+
 if "$REPO/scripts/install-link.sh" --prefix "$T/opt" > "$T/out" 2>&1; then
     check false "--config is required"
 else

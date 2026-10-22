@@ -328,6 +328,23 @@ class DevicesPage(OnlineBase):
         run(disc, "discovery_on")
         pg.wait_for_selector(disc + " [data-devices-action=discovery_off]")
         self.assertIn("yes", pg.inner_text(disc))
+        self.assertNotIn("Step ", pg.inner_text("[data-devices=job]") if pg.locator("[data-devices=job]").count() else "")
+        # A narrow window: the rows' buttons stay inside the page, not behind a scroller.
+        pg.set_viewport_size({"width": 800, "height": 860})
+        # Long values (a commit hash, several interfaces) wrap instead of widening the table.
+        pg.evaluate("""() => document.querySelector('tr[data-part=can] td:nth-child(2)').textContent =
+            'slcan0 500 kbit/s up · can1 250 kbit/s up · vcan0 (virtual) · serial /dev/serial/by-id/usbCANable0123456789abcdef0123456789abcdef0123456789'""")
+        pg.wait_for_timeout(100)
+        cut = pg.evaluate("""() => [...document.querySelectorAll('table.devices-rows button')].filter((b) => {
+            const r = b.getBoundingClientRect();
+            let p = b.parentElement;
+            for (; p; p = p.parentElement) {
+                const c = p.getBoundingClientRect();
+                if (getComputedStyle(p).overflowX !== 'visible' && (r.right > c.right + 1 || r.left < c.left - 1)) return true;
+            }
+            return r.right > window.innerWidth;
+        }).map((b) => b.textContent)""")
+        self.assertEqual(cut, [])
 
     def test_pc_tools_older_than_the_device(self):
         # A newer minor on the device: a note with Update PC tools…, which

@@ -37,7 +37,7 @@
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 PREFIX=/opt/canworks-link
 CONFIG=""
 RUNTIME_PORT=8443
@@ -63,8 +63,8 @@ SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
 PIP=${CANWORKS_LINK_PIP:-}
 
 usage() {
-    if [ -f "${BASH_SOURCE[0]}" ]; then
-        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
+    if [ -f "${BASH_SOURCE[0]:-}" ]; then
+        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]:-}"
     else
         echo "see $GITHUB/blob/main/scripts/install-link.sh"
     fi
