@@ -212,7 +212,7 @@ When the node's EDS has no object 0x1016 with a writable sub-index, "Watches the
 ## ADDED Requirements
 
 ### Requirement: Hand-off steps need a config without errors
-Build into CODESYS project, Download for CODESYS, and installing or updating the bridge config on a device SHALL use the saved config. They SHALL refuse while it has errors. A refusal SHALL be shown next to the control in one line naming the error count, with a link that opens Problems. Allowed overlaps SHALL NOT count. Exports of DCF, DBC and documentation SHALL keep their own rules.
+Build into CODESYS project and installing or updating the bridge config on a device SHALL use the saved config; Download for CODESYS SHALL use the draft. They SHALL refuse while the config they use has errors, and a CANopen master network without nodes SHALL count as one. A refusal SHALL be shown next to the control in one line naming the error count, with a link that opens Problems. Allowed overlaps SHALL NOT count. Exports of DCF, DBC and documentation SHALL keep their own rules.
 
 #### Scenario: Build with an error
 - **WHEN** a CODESYS config is saved with one error and the user presses Build into CODESYS project…

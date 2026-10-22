@@ -451,7 +451,7 @@ class Layout(OnlineBase):
         pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
         pg.wait_for_selector("#overlap-box:not([hidden])")
         pg.check("#allow-overlap")
-        pg.wait_for_selector("#btn-save:has-text('Save (overlaps allowed)')")
+        pg.wait_for_selector("#problem-list li.warning:has-text('ecat-bus.json')")
         self.assertTrue(pg.is_visible("#overlap-box"))
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")

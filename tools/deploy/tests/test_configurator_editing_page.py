@@ -370,7 +370,7 @@ class Editing(Base):
         pg.wait_for_selector("#btn-save:has-text('Save')")
         self.assertFalse(pg.inner_text("#btn-save") == "Saved")
         pg.fill(path, old)
-        pg.wait_for_selector("#btn-save:text-is('Saved')")
+        pg.wait_for_selector("#btn-save:has-text('Saved')")
         self.assertTrue(pg.is_disabled("#btn-save"))
 
     def test_declarations_wording(self):

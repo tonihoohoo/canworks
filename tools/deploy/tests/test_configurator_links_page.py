@@ -129,7 +129,7 @@ class LinksPage(unittest.TestCase):
         self.assertNotIn("stick_to_valves: link", problems)  # the place, said once
         pg.fill('input[data-path="links[0].name"]', "stick_valves")
         self.checked()
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
 
     def test_producer_removed_asks(self):
         pg = self.page

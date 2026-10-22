@@ -304,6 +304,10 @@ def _canonical_network(cfg):
     return cfg
 
 
+# The contract's error for a master network without nodes ("Empty network is a warning").
+NO_NODES = re.compile(r"field 'nodes' lists no slave nodes")
+
+
 def empty_config():
     return {"schema_version": 1,
             "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000},
@@ -722,12 +726,16 @@ class Session:
             raise folder_error(e, "read", folder)
         self.remember()
 
-    def new_config(self, path, editor_project=False):
+    def new_config(self, path, editor_project=False, target=None):
         """New config… on the start page: a config folder, or with
-        `editor_project` a new OpenPLC Editor project with no config yet,
-        opened as a project. The target is set on the draft afterwards."""
+        `editor_project` a new OpenPLC Editor project, opened as a project.
+        Either way the target's empty config is written on Create, so a
+        reload shows the new config with its target."""
+        if target is not None and target not in targets.TARGETS:
+            raise ApiError(400, "target must be one of: " + ", ".join(targets.TARGETS))
         if not editor_project:
-            return self.open(path, "standalone", new=True)
+            self.open(path, "standalone", new=True)
+            return self._write_new(target)
         path = os.path.abspath(os.path.expanduser(path or ""))
         if os.path.isfile(os.path.join(path, "project.json")):
             raise ApiError(409, "%s is already an editor project" % path, is_project=True, path=path)
@@ -738,6 +746,20 @@ class Session:
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
+        self._write_new(target)
+
+    def _write_new(self, target):
+        """Writes the empty config of `target` (default OpenPLC) into the
+        folder just opened, unless it has one."""
+        if os.path.isfile(self.config_path):
+            return
+        cfg = empty_config()
+        if target and target != targets.OPENPLC:
+            cfg = self.switch_target(cfg, target)["config"]
+        try:
+            self._save(lowest_version(cfg), None)
+        except OSError as e:
+            raise folder_error(e, "write to", self.canopen_dir)
 
     def commission_device(self):
         """"Commission a device": a scratch standalone folder in the settings
@@ -1319,6 +1341,11 @@ class Session:
                 block = (block + "\n" if block else "") + axes
         except (KeyError, TypeError, ValueError, AttributeError):
             pass  # the contract errors already say what is wrong with the entries
+        for it in items:
+            # A master network without nodes is the first step of every config,
+            # not a mistake: a warning here, while the hand-off steps refuse it.
+            if it["level"] == "error" and NO_NODES.search(it.get("message", "")):
+                it["level"], it["handoff"] = "warning", True
         errors = sum(1 for i in items if i["level"] == "error")
         return {"items": items, "errors": errors, "declared": declared, "declarations": decls, "block": block,
                 "overlaps": sum(1 for i in items if i.get("overlap"))}
@@ -1939,10 +1966,9 @@ class Session:
             targets.remove(cfg, gone)
             left_out = len(gone)
         cfg = lowest_version(cfg)
+        # A draft with errors is saved too: the steps that hand the config
+        # over refuse it (spec "Hand-off steps need a config without errors").
         checked = self.check(cfg, allow_overlap, notes=notes)
-        if checked["errors"]:
-            raise ApiError(422, "the config has %d error%s; nothing was saved"
-                           % (checked["errors"], "" if checked["errors"] == 1 else "s"), check=checked)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         try:
@@ -1950,6 +1976,7 @@ class Session:
         except OSError as e:
             raise folder_error(e, "write to", self.canopen_dir)
         out["left_out"] = left_out
+        out["errors"] = checked["errors"]
         return out
 
     def _save(self, cfg, checked, notes=None):
@@ -2000,6 +2027,23 @@ class Session:
             del self.pending_dbc[name]
         self.loaded = (os.path.getmtime(self.config_path), sha256(self.config_path))
         return {"written": written, "check": checked}
+
+    def need_no_errors(self):
+        """Refuses a hand-off step while the saved config has errors (spec
+        "Hand-off steps need a config without errors"): 422 with
+        `config_errors`, the count."""
+        cfg, _, error = self.read_config()
+        if error:
+            raise ApiError(422, error, config_errors=1)
+        try:
+            result = contract.check_config(cfg, self.config_path, eds_paths=self.eds_paths(cfg))
+            errors = len(result.errors)
+        except (AttributeError, KeyError, TypeError, ValueError, OSError) as e:
+            raise ApiError(422, "the saved config cannot be checked: %s" % e, config_errors=1)
+        if errors:
+            raise ApiError(422, "the saved config has %d error%s; fix %s in Problems first"
+                           % (errors, "" if errors == 1 else "s", "it" if errors == 1 else "them"),
+                           config_errors=errors)
 
     # -- the simulation file -------------------------------------------------
     def sim_changed_on_disk(self):
@@ -2789,7 +2833,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out["state"] = s.state()
                 elif route == ("POST", "/api/new"):
                     self._leave_commission(s)
-                    s.new_config(body.get("path"), bool(body.get("editor_project")))
+                    s.new_config(body.get("path"), bool(body.get("editor_project")), body.get("target"))
                     out = s.state()
                 elif route == ("POST", "/api/new_project"):
                     self._need_open(s)
@@ -2888,6 +2932,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         if s.pending or s.pending_dbc or s.changed_on_disk():
                             raise ApiError(409, "save the config first: the bridge starts with the saved config",
                                            unsaved=True)
+                        s.need_no_errors()
                 job = dev.start(project, did, action, body.get("options") if isinstance(body.get("options"), dict)
                                 else {}, sudo, instance=instance, config_dir=folder)
                 return {"job": job}

@@ -369,6 +369,10 @@ async function devStart(id, action) {
         banner("Save the config first: the bridge starts with the saved config.", "warning");
         return;
       }
+      if (b.config_errors) {
+        handoffRefused(null, b.config_errors);
+        return;
+      }
       banner(e.message, true);
       return;
     }

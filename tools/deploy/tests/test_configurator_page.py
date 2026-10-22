@@ -244,9 +244,10 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat=None)
         self.fill("nodes[0].node_id", "5")
         self.fill("nodes[0].name", "rtd")
-        # Supervision is a dropdown; only the chosen method's fields show.
+        # Supervision is a dropdown; only the chosen method's fields show. The
+        # EDS heartbeat is 0, so the new node starts with a 1000 ms heartbeat.
         node_tab(pg, "supervision")
-        self.assertEqual(pg.locator('input[data-path="nodes[0].heartbeat_ms"]').count(), 0)
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].heartbeat_ms"]'), "1000")
         pg.select_option('select[data-supervision="0"]', "heartbeat")
         self.assertEqual(pg.locator('input[data-path="nodes[0].guard_time_ms"]').count(), 0)
         self.fill("nodes[0].heartbeat_ms", "100")
@@ -559,7 +560,7 @@ class Page(unittest.TestCase):
         self.fill("adapter.device", "ttyACM0")
         self.settled()
         self.assertIn("absolute path", pg.inner_text('.field-msg[data-for="adapter.device"]'))
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
         device = "/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7-if00"
         self.fill("adapter.device", device)
         self.save()
@@ -715,9 +716,9 @@ class Page(unittest.TestCase):
         self.assertFalse(pg.is_checked(store))
         self.assertTrue(pg.is_disabled(reset))
         self.assertIn("node ID 12 at every start", pg.locator(assign).locator("xpath=ancestor::div[1]").inner_text())
-        # Without a serial number saving is refused, and the field says why.
+        # Without a serial number it is an error, and the field says why.
         self.settled()
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
         pg.wait_for_selector('[data-for="nodes[0].serial_number"]:has-text("serial_number")')
         path = os.path.join(self.project, "canworks", "canworks.json")
         self.assertFalse(os.path.exists(path))
@@ -1361,8 +1362,11 @@ class Page(unittest.TestCase):
         pg = self.page
         self.open_from_start("#start-open", self.project)
         self.add_node(os.path.join(RTD, "rtd8.eds"), heartbeat=None)
-        # The EDS heartbeat is 0: with "EDS default" the node would never be
-        # seen lost, which is refused under Method.
+        # save-anytime: the EDS heartbeat is 0, so the new node starts with 1000 ms.
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].heartbeat_ms"]'), "1000")
+        pg.wait_for_selector("[data-supervision-added]")
+        # With "EDS default" the node would never be seen lost, which is an error under Method.
+        pg.select_option('select[data-supervision="0"]', "none")
         msg = '.field-msg[data-for="nodes[0].heartbeat_ms"]'
         pg.wait_for_selector(msg + ':has-text("has no heartbeat or guarding")')
         self.assertIn("has no heartbeat or guarding", pg.inner_text("#problem-list"))
@@ -1389,10 +1393,8 @@ class Page(unittest.TestCase):
         pg.fill(loc, "%ID100")
         pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
         pg.wait_for_selector(loc + ".invalid")
-        self.assertTrue(pg.is_disabled("#btn-save"))
-        self.assertIn("1 error", pg.get_attribute("#btn-save", "title"))
         pg.check("#allow-overlap")
-        pg.wait_for_selector("#btn-save:not([disabled])")
+        pg.wait_for_selector("#problem-list li.warning:has-text('ecat-bus.json')")
         self.save()
         saved = load(os.path.join(self.project, "canworks", "canworks.json"))
         self.assertEqual(saved["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"], "%ID100")

@@ -262,6 +262,12 @@ details.pdo-settings[open] > summary { margin-bottom: 6px; }
 #problem-list li.warning { background: var(--st-warn-bg); border-left-color: var(--st-warn); }
 #problem-list li.ok { padding: 6px; }
 #problem-list .st { margin-right: 6px; }
+/* Quick fixes of a problem, under its text. */
+#problem-list .problem-fixes { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 6px 6px 28px; }
+/* A hand-off step refused for errors, under its buttons. */
+.handoff-msg { display: block; margin: 4px 0 0; }
+/* A network without nodes: the first step, said once at the top of its Bus page. */
+.empty-state { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
 /* Commissioning: no config, so no Problems and nothing that edits a config. */
 body.commission #problems, body.commission [data-config] { display: none !important; }
 body:not(.commission) [data-commission] { display: none !important; }

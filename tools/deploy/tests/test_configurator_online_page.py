@@ -540,11 +540,8 @@ class OnlinePage(OnlineBase):
             pg.wait_for_selector('tr[data-online-node="40"]:not([data-not-in-config])')
             self.assertEqual(pg.locator(row40).count(), 0)
             self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
-            # The problem that follows (no supervision) opens Problems; it leads to the field in Configure.
-            pg.wait_for_selector("#problems-box[open] #problem-list li")
-            pg.click("#problem-list li >> nth=0")
-            pg.select_option("select[data-supervision]", "heartbeat")
-            pg.fill('input[data-path="nodes[1].heartbeat_ms"]', "100")
+            # save-anytime: its EDS heartbeat is 0, so the node starts with a 1000 ms heartbeat.
+            self.assertEqual(pg.evaluate("() => onlineConfig().nodes[1].heartbeat_ms"), 1000)
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
             pg.wait_for_selector("#banner:has-text('Saved')")

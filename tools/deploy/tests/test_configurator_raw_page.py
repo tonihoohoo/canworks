@@ -245,7 +245,7 @@ class RawPage(OnlineBase):
         pg.press(length, "Tab")
         pg.wait_for_selector(length + ".invalid")
         self.assertIn("Received Joystick, signal X: missing", pg.inner_text("#problem-list"))
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
         self.assertNotIn("hit an error", pg.inner_text("#banner"))
 
     def test_trace_and_frame_lab_without_canopen(self):
