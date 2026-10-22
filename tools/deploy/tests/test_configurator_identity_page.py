@@ -152,6 +152,7 @@ class IdentityPage(AdapterPage):
         pg.click('button[data-online-tab="od"]')
         pg.wait_for_selector('[data-online="od-standard"]')
         # A node only added from an EDS is removed instead.
+        back_to_nodes(pg)
         pg.click('button[data-online="add-eds"]')
         browse_eds(pg, EDS)
         pg.fill('input[data-online="add-node-id"]', "40")

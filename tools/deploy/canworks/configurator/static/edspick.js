@@ -18,8 +18,10 @@ function edsBrowseStart() {
 // this page in Commission a device), asking on a name conflict. Returns the
 // /api/eds_path answer, or null.
 async function importEdsPath(path, lint) {
+  // Commission a device keeps both without asking, as its picks always did.
+  const keep = S.state && S.state.commission ? { on_conflict: "keep_both" } : {};
   try {
-    return await api("POST", "/api/eds_path", { path, eds_lint: lint });
+    return await api("POST", "/api/eds_path", Object.assign({ path, eds_lint: lint }, keep));
   } catch (e) {
     if (e.status === 409 && e.body.conflict) {
       const v = await modal(e.message + ". Replace it, or keep both under a new name?",
