@@ -20,6 +20,8 @@
 
 ## 4. Windows checks (hand or Remote Control)
 
-- [ ] 4.1 New config with an editor project on the bench Windows PC: no console window appears, the project opens
-- [ ] 4.2 Same into an existing empty folder and into a folder with one unrelated file (kept)
+- [x] 4.1 New config with an editor project on the bench Windows PC: no console window appears, the project opens
+  - PASSED 2026-10-22: `editorproject.create` from a console-less `pythonw` (as the configurator runs): 0 new console or Terminal windows. The same run without CREATE_NO_WINDOW opened one Windows Terminal window per create (the default console host there), each closing when create finished.
+- [x] 4.2 Same into an existing empty folder and into a folder with one unrelated file (kept)
+  - PASSED 2026-10-22: new folder, existing empty folder and a folder with `notes.txt` each became a project in about 4 s (target OpenPLC Runtime v4, `notes.txt` unchanged); a folder holding `project.json` was refused with "already has project.json" and left unchanged.
 - [ ] 4.3 On the PC where the error was seen: New config with an editor project succeeds, or the message names the file and the held-open reason
