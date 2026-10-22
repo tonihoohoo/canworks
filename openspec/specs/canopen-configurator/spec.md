@@ -521,10 +521,10 @@ On every view, at window widths from 1000 px up, no input, dropdown or button SH
 
 #### Scenario: Scan page button
 - **WHEN** the scan finds a device with no matching EDS
-- **THEN** its "Pick EDS file…" button shows its label on one line
+- **THEN** its "Choose EDS…" button shows its label on one line
 
 #### Scenario: Automatic check
-- **WHEN** the browser tests open each view (start, bus and master, each node, declarations, online, scan) at 1000, 1280 and 1440 px
+- **WHEN** the browser tests open each view (start, bus and master, each node, declarations, online, scan, the EDS dialog) at 1000, 1280 and 1440 px
 - **THEN** a check over the page finds no clipped field or button and no horizontal overflow
 
 ### Requirement: Readable problem messages
@@ -626,7 +626,7 @@ For each node the configurator SHALL show an "Assign node ID by serial number (L
 The Nodes table SHALL have an **Unconfigured devices** panel, with and without a config. It SHALL be collapsed until changes are allowed or a search runs. It SHALL find a device without a node ID and show:
 - its vendor ID, with the vendor name when an EDS gives it;
 - its product code, revision and serial number;
-- a matching EDS when the project's `canworks/` folder or the EDS library has one.
+- the best matching EDS from the project's `canworks/` folder or the EDS library, as text (product name and file name), with no picker of its own: after "Set node ID" the node's EDS is changed in the Nodes table.
 
 It SHALL offer "Set node ID" and "Set bit rate" for the device. Both dialogs SHALL have a "Store in the device" checkbox that is unticked each time the dialog opens.
 
@@ -1055,11 +1055,19 @@ Each CANopen network SHALL have a role, master or slave, set from **Role** on it
 - **THEN** the network's tree entries become Bus and the slave device, and Bus shows the adapter settings
 
 ### Requirement: Slave device page
-The slave device page SHALL edit node ID (or LSS), the EDS (pick a file, or build one), the bound objects with their PLC locations, `inputs_on_loss` and the status and EMCY locations. Object rows SHALL come from the EDS, show the direction from its access type, and offer only matching PLC areas.
+The slave device page SHALL edit node ID (or LSS), the EDS (choose a file, or build one), the bound objects with their PLC locations, `inputs_on_loss` and the status and EMCY locations. Object rows SHALL come from the EDS, show the direction from its access type, and offer only matching PLC areas. The EDS SHALL be an EDS field (see "One EDS field"); its dialog SHALL list the EDS files generated for a slave of this config under **Built here** and import with the slave's EDS lint.
 
 #### Scenario: Bind an object
 - **WHEN** the user adds 0x2100:1 (access `ro`, UNSIGNED16) from the EDS
 - **THEN** the row suggests a free `%QW` location and refuses an `%I` one
+
+#### Scenario: Choose a library EDS for the slave
+- **WHEN** the slave has no EDS, an EDS library is set, and the user presses Choose EDS…, picks a library file and presses Use
+- **THEN** the file is imported with the slave's EDS lint, the EDS field shows its product name and file name, and the object list offers its objects
+
+#### Scenario: Generated EDS comes first
+- **WHEN** the config has a generated `openplc-slave.eds` and two node EDS files, and the user opens Change EDS… on the slave page
+- **THEN** `openplc-slave.eds` is under Built here, above In this project, and selected
 
 ### Requirement: Build the slave EDS in the configurator
 The page SHALL have an object list editor (name, type, direction, default, limits), identity fields and a layout choice, and SHALL generate the EDS with the same generator as `slave-eds` into the project's `canworks/` folder, then offer to bind every generated object to suggested locations.
@@ -1752,7 +1760,7 @@ The node page's Emergency (EMCY) section SHALL edit `emcy_cob_id`: Device (the d
 - **THEN** the Check reports node 5's `emcy_cob_id` clashing with node 6's TPDO 1
 
 ### Requirement: Nodes in commissioning
-In Commission a device, the Nodes table (see "Nodes table") SHALL list the devices of this session: heard, found by a scan, given a node ID by LSS, or added with **Add node from EDS…**. **Add node from EDS…** SHALL take a node ID and an EDS file and add the device with that EDS, kept in this page only.
+In Commission a device, the Nodes table (see "Nodes table") SHALL list the devices of this session: heard, found by a scan, given a node ID by LSS, or added with **Add node from EDS…**. **Add node from EDS…** SHALL open a dialog with the list of "One EDS dialog" and a node ID, and **Add node** SHALL add the device with that EDS, kept in this page only. It SHALL NOT open the system file picker before the dialog.
 
 The table SHALL have:
 - **Scan the bus**, with progress and **Cancel** in the status bar, which stops the scan and keeps the devices found so far;
@@ -1771,6 +1779,10 @@ A device's node tabs SHALL be those of "Commission node tabs", and its Status ta
 #### Scenario: Not connected yet
 - **WHEN** the user opens Commission a device before connecting
 - **THEN** the Nodes table says in place of its rows that it lists the devices once connected with Connect… in the connection bar, with no connect form or button of its own
+
+#### Scenario: Add node from the library
+- **WHEN** the user presses Add node from EDS…, picks a library file, types 23 and presses Add node
+- **THEN** node 23 is listed with that EDS, and no system file picker was opened
 
 ### Requirement: Network picker in online and trace views
 The connection bar's network picker SHALL be the only network picker of the Commission pages, Trace, Simulation and Frame lab; no tab row or tool SHALL have its own. When the runtime reports more than one network, the picker SHALL list them; while not connected, it SHALL list the config's networks. The Commission pages, Trace and Simulation SHALL show and act on the picked network only. The picker SHALL start on the network of the entry selected in Configure's tree. In Commission, picking a tree entry on another network SHALL move the picker, and changing the picker SHALL select that network's tree entry.
@@ -2393,7 +2405,7 @@ Before a scan the rows SHALL show Heard or Not heard. A summary SHALL count each
 
 ### Requirement: Add found devices to the config
 On the comparison the page SHALL offer:
-- **Add to config** for Not in config rows, one or several ticked rows at once: each becomes an unsaved node with that node ID, the matching EDS (a picker when several match, a file picker when none does), the EDS product name as name and the serial number, with `lss.assign` set when the ID was given by LSS in this session and the EDS says `LSS_Supported=1`;
+- **Add to config** for Not in config rows, one or several ticked rows at once: each becomes an unsaved node with that node ID, the matching EDS (the EDS dialog, with **Add node** and **Skip**, when several match or none does), the EDS product name as name and the serial number, with `lss.assign` set when the ID was given by LSS in this session and the EDS says `LSS_Supported=1`;
 - **Use matching EDS** for an Identity differs row when an EDS in the project or the EDS library matches the device;
 - **Take serial number** when only the serial number differs.
 
@@ -2406,6 +2418,10 @@ Each action SHALL be a draft edit that Undo reverts. The user SHALL stay in Comm
 #### Scenario: Undo an add
 - **WHEN** the user added node 9 from the comparison and presses Undo
 - **THEN** node 9 is gone from the draft and its row reads Not in config again
+
+#### Scenario: No match
+- **WHEN** node 12 reads Not in config, no EDS matches it, and the user presses Add to config
+- **THEN** the EDS dialog opens for node 12 with In this project, EDS library and Browse…, and Skip leaves node 12 out of the draft
 
 ### Requirement: Scan through a runtime
 With a config, the scan SHALL run through the runtime connection, from the Commission workspace only. It SHALL NOT need Allow changes. When the runtime refuses because a node is OPERATIONAL, the page SHALL name those nodes, say that the scan sends SDO requests to every node ID while the program runs, and scan with force only after the user confirms, with Cancel as the default. On a relayed path or a round trip above 100 ms the page SHALL ask first, as for LSS.
@@ -2789,7 +2805,7 @@ The Trace toolbar's **Decoding** button SHALL open a panel that says what the tr
 
 The panel SHALL have:
 - **DBC files**: each file's name, how many of its messages are used out of its total, its problems and the messages not used with what decodes their identifier instead; **Add DBC…** (one or more files), remove, and a way to change the order with the mouse and the keyboard.
-- **Nodes**, on a CANopen network: each node heard on the bus or on the Nodes tab, with its device name, its EDS file or "none, built-in CiA names", the source of its PDO layout ("set on the bus at …", "read from the device at …", "EDS defaults", "configuration", or "unknown"), and the actions **Pick EDS…** or **Change EDS…** (the Nodes table's menu for that node) and **Read PDOs from device**.
+- **Nodes**, on a CANopen network: each node heard on the bus or on the Nodes tab, with its device name, its EDS file or "none, built-in CiA names", the source of its PDO layout ("set on the bus at …", "read from the device at …", "EDS defaults", "configuration", or "unknown"), and the actions **Choose EDS…** or **Change EDS…** (the EDS dialog, as in the Nodes table) and **Read PDOs from device**.
 
 **Read PDOs from device** SHALL be disabled with its reason without a live connection. While the connection bar reports another master, it SHALL ask first, saying that the other master's SDO transfers to the node can be mixed with the read.
 
@@ -2804,7 +2820,7 @@ The DBC files SHALL be remembered on this PC per project folder, and once for Co
 - **THEN** the Trace decodes with the same DBC files without asking
 
 #### Scenario: Fix a raw PDO from the panel
-- **WHEN** node 50's PDOs show as bytes and its layout source reads "unknown", and the user picks its EDS with Pick EDS…
+- **WHEN** node 50's PDOs show as bytes and its layout source reads "unknown", and the user picks its EDS with Choose EDS…
 - **THEN** its PDO rows decode with the EDS defaults and the source reads "EDS defaults"
 
 ### Requirement: Automatic PDO layout reads in Commission a device
@@ -2819,11 +2835,11 @@ On a live connection that can send in Commission a device, the page SHALL read t
 - **THEN** no PDO objects are read automatically, and the Decoding panel's node rows offer Read PDOs from device
 
 ### Requirement: PDO layout in the frame inspector
-For a PDO frame the frame inspector SHALL show a Layout line naming where the layout came from (configuration, DBC file, set on the bus at a time, read from the device at a time, or EDS defaults). Rows and inspectors decoded with EDS defaults SHALL carry an "assumed" tag whose tooltip says that the device may be mapped differently and how to make it certain. For a PDO frame shown as bytes, the Layout line SHALL say why and offer **Pick EDS…** and **Read PDOs from device** for its node.
+For a PDO frame the frame inspector SHALL show a Layout line naming where the layout came from (configuration, DBC file, set on the bus at a time, read from the device at a time, or EDS defaults). Rows and inspectors decoded with EDS defaults SHALL carry an "assumed" tag whose tooltip says that the device may be mapped differently and how to make it certain. For a PDO frame shown as bytes, the Layout line SHALL say why and offer **Choose EDS…** and **Read PDOs from device** for its node.
 
 #### Scenario: Raw PDO in the inspector
 - **WHEN** the user selects a TPDO1 row of node 50 that shows only bytes
-- **THEN** the inspector's Layout line says node 50 has no EDS and its PDOs were not read, with Pick EDS… and Read PDOs from device
+- **THEN** the inspector's Layout line says node 50 has no EDS and its PDOs were not read, with Choose EDS… and Read PDOs from device
 
 #### Scenario: Assumed layout
 - **WHEN** node 32's TPDO1 decodes with its EDS defaults
@@ -2999,17 +3015,17 @@ The standard dictionary SHALL list RPDO and TPDO 1-4. **Read all** SHALL read ea
 - **THEN** after Read all its standard dictionary shows RPDO 1-8
 
 ### Requirement: Parameters of a node without an EDS
-The Parameters tab of a node without an EDS SHALL say that back up, compare and restore need the device's EDS and offer the node's EDS matches and **Pick EDS file…**.
+The Parameters tab of a node without an EDS SHALL say that back up, compare and restore need the device's EDS and offer **Choose EDS…**, whose dialog lists the node's EDS matches first.
 
 #### Scenario: Parameters without an EDS
 - **WHEN** the user opens the Parameters tab of node 49, which has no EDS
-- **THEN** the tab says back up, compare and restore need the device's EDS and offers Pick EDS file…
+- **THEN** the tab says back up, compare and restore need the device's EDS and offers Choose EDS…
 
 ### Requirement: Change or clear a node's EDS
-In the Nodes table, a node whose EDS was picked, matched or added on the page (not from the config) SHALL show the EDS file name with **Change EDS…**. It SHALL ask, in a dialog, for one of the node's other EDS library matches, **Pick EDS file…** or **Clear EDS**. Changing SHALL reload the node's tabs from the new EDS, clearing SHALL return the node to the standard dictionary, and both SHALL be logged in the Commissioning log.
+In the Nodes table, a node whose EDS was picked, matched or added on the page (not from the config) SHALL show the EDS file name with **Change EDS…**. It SHALL open the EDS dialog, with the node's matches first and **Clear EDS** (or **Remove node** for a node only added on the page) beside **Use** and **Cancel**. Changing SHALL reload the node's tabs from the new EDS, clearing SHALL return the node to the standard dictionary, and both SHALL be logged in the Commissioning log.
 
 #### Scenario: Wrong EDS picked
-- **WHEN** node 23 shows an EDS file the user picked by mistake and the user picks another file through Change EDS…
+- **WHEN** node 23 shows an EDS file the user picked by mistake and the user picks another file in the Change EDS… dialog
 - **THEN** the EDS column shows the new file name and node 23's Object dictionary tab shows the new EDS's objects
 
 #### Scenario: Clear the EDS
@@ -3929,7 +3945,7 @@ Trace's **Start** while not connected SHALL open the connect panel and start the
 
 ### Requirement: Add node dialog
 **Add node…** SHALL open a dialog with:
-- the device description: the config's EDS files (product name, file name, nodes using it), the EDS library's files, and **Browse…**;
+- the device description: the list of "One EDS dialog", with the config's EDS files (product name, file name, nodes using it), the EDS library's files, and **Browse…**;
 - the node ID: the lowest free ID, checked as typed;
 - the name: from the EDS product name, unique in the network;
 - **Map the EDS's default PDOs**, ticked.
@@ -3943,6 +3959,10 @@ Trace's **Start** while not connected SHALL open the connect panel and start the
 #### Scenario: Taken node ID
 - **WHEN** the user types 6 as the node ID in the dialog on `io`
 - **THEN** the field says node 6 is already used and Add is disabled with that reason
+
+#### Scenario: Double-click adds
+- **WHEN** the node ID and name are valid and the user double-clicks `dio16.eds` in the list
+- **THEN** the node is added as if Add was pressed
 
 ### Requirement: Default PDOs of a new node
 With **Map the EDS's default PDOs** ticked, adding a node SHALL map, for each PDO the EDS enables by default (COB-ID without the invalid bit), the objects of its default mapping, leaving out dummy entries, with suggested names and, for targets that use locations, suggested free locations. Unticked, the node SHALL start with no PDO entries.
@@ -4073,3 +4093,66 @@ The header's mode badge SHALL show the folder's name for both projects and confi
 #### Scenario: Config folder
 - **WHEN** the config folder `/home/user/work/cs-machine` is open
 - **THEN** the badge reads "config cs-machine" and its tooltip the full path
+
+### Requirement: One EDS dialog
+Every place that picks an EDS SHALL use one dialog. Its list SHALL group the files as **Matches this device**, **Built here**, **In this project** and **EDS library**, in that order, each shown only when it has files, and show each file's product name and file name. **Browse…** SHALL open the page's file browser on EDS files and import the picked file; a dialog without other fields SHALL use it at once, others SHALL select it.
+
+#### Scenario: Same list in Configure and Commission
+- **WHEN** the config has `dio16.eds` used by node 6, an EDS library is set, and the user opens Add node… in Configure and Choose EDS… for an unconfigured node in Commission
+- **THEN** both dialogs list `dio16.eds` under In this project with its product name and "used by 1 node", and the library's files under EDS library
+
+#### Scenario: Matches first
+- **WHEN** the user opens Choose EDS… for a scanned node whose identity matches two library files, one with the exact revision
+- **THEN** the list starts with Matches this device, the exact-revision file first and selected, marked "exact revision"
+
+#### Scenario: Browse with a name clash
+- **WHEN** the user presses Browse… in the dialog and picks a file named like an EDS already in the config but with other content
+- **THEN** the page asks to replace it or keep both, and the kept file is selected in the list
+
+#### Scenario: Library file imported on use
+- **WHEN** the user selects an EDS library file and presses the dialog's main button
+- **THEN** the file is imported with the place's EDS lint and used, and Cancel before that imports nothing
+
+### Requirement: Selection in the EDS dialog
+The current EDS, else the best match, SHALL be selected when the EDS dialog opens.
+
+#### Scenario: Current EDS selected
+- **WHEN** the user opens Change EDS… on a node that uses `dio16.eds`
+- **THEN** `dio16.eds` is selected in the list
+
+### Requirement: Keyboard in the EDS dialog
+Enter or a double-click on an entry of the EDS dialog's list SHALL press the dialog's main button. The dialog SHALL open with focus in the list, or on **Browse…** when the list is empty, and focus SHALL return to the control that opened it when it closes.
+
+#### Scenario: Pick with Enter
+- **WHEN** the user moves to an entry with the arrow keys and presses Enter
+- **THEN** the dialog acts as if its main button (Add, Add node, Use) was pressed
+
+#### Scenario: Cancel
+- **WHEN** the user opens Change EDS… on a node's General tab, selects another file and presses Escape
+- **THEN** the node's EDS is unchanged, the draft is not marked changed, and focus is on Change EDS…
+
+### Requirement: One EDS field
+Where a page shows the EDS chosen for a node, slave or device, it SHALL show the product name and file name as text with **Choose EDS…** when there is none and **Change EDS…** when there is one, both opening the EDS dialog. No page SHALL show a dropdown of EDS file names or a browser file input for an EDS.
+
+#### Scenario: Node General tab
+- **WHEN** the user opens node 6's General tab
+- **THEN** the EDS reads as its product name and `dio16.eds` with Change EDS…, and there is no EDS dropdown
+
+#### Scenario: No file inputs left
+- **WHEN** the browser tests open every view of Configure, Commission, Trace and Simulation with a config that has a slave network and a node without an EDS match
+- **THEN** no visible `input[type=file]` accepts `.eds`, and no `select` lists EDS file names
+
+#### Scenario: Simulation extra device
+- **WHEN** the user presses Choose EDS… for a new extra device in the simulation view
+- **THEN** the dialog's Browse… accepts EDS and DCF files and In this project lists the folder's EDS and DCF files
+
+### Requirement: EDS chosen in one place per node
+In Commission a device, a node's EDS SHALL be chosen only through its EDS field in the Nodes table and its EDS dialog. The Parameters tab, the Trace Decoding panel and the frame inspector SHALL open that field's dialog for the node. **Add to config** and **Add to a config…** SHALL use the node's EDS on the page and open its dialog first only when it has none.
+
+#### Scenario: Trace uses the node's EDS
+- **WHEN** the user presses Choose EDS… for node 50 in the Trace Decoding panel and picks a file
+- **THEN** the Nodes table shows that EDS for node 50 and the trace decodes with it
+
+#### Scenario: Add to a config without an EDS
+- **WHEN** node 12 has no EDS on the page and the user presses Add to a config…
+- **THEN** the EDS dialog opens for node 12 first, and the config dialog follows with the picked EDS, without a file input

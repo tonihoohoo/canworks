@@ -180,21 +180,21 @@ async function addFound(devices) {
     if (configNode(d.node_id)) continue;
     const matches = d.eds_matches || [];
     let match = matches[0] || null;
-    let file = null;
-    if (matches.length > 1) {
-      const pick = el("select", { "aria-label": "EDS file", dataset: { nodes: "eds-pick" } }, matches.map((m, k) => el("option", { value: k }, m.name)));
-      const v = await modal(`Node ${d.node_id}: ${matches.length} EDS files match this device. Which one?`, [["use", "Use this EDS", true], ["cancel", "Skip"]], pick);
-      if (v !== "use") continue;
-      match = matches[Number(pick.value)];
-    } else if (!matches.length) {
-      const input = el("input", { type: "file", accept: ".eds,.EDS", "aria-label": "EDS file", dataset: { nodes: "eds-file" } });
-      const v = await modal(`Node ${d.node_id}: no EDS file in the project or the EDS library matches this device. Pick its EDS file:`,
-        [["use", "Add node", true], ["cancel", "Skip"]], input);
-      if (v !== "use" || !input.files[0]) continue;
-      file = input.files[0];
+    let imported = null;
+    // Several matches or none: the EDS dialog for this device (one-eds-picker).
+    if (matches.length !== 1) {
+      const a = await chooseEds({ title: `Node ${d.node_id}: ` + (matches.length ? `${matches.length} EDS files match this device. Which one?`
+        : "no EDS file in the project or the EDS library matches this device. Pick its EDS file."),
+      matches, lint: edsLint(), main: "Add node", cancelLabel: "Skip", dataset: { nodes: "eds-pick" } });
+      if (!a || !a.choice) continue;
+      const c = a.choice;
+      match = null;
+      if (c.kind === "match" || c.kind === "library") match = { path: c.path, name: c.name };
+      else imported = await edsIntoDraft(c, edsLint());
+      if (!match && !imported) continue;
     }
     const lss = !!(S.lssSet && S.lssSet[d.node_id]);
-    if (await addScannedNode(d, match, file, true, lss, true)) { added++; commLog(d.node_id, "Add to config", "added to the draft (unsaved)"); }
+    if (await addScannedNode(d, match, null, true, lss, true, imported)) { added++; commLog(d.node_id, "Add to config", "added to the draft (unsaved)"); }
   }
   S.nodesPicked = new Set();
   if (!added) { onlineRedraw(); return; }

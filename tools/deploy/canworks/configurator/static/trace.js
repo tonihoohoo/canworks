@@ -1604,25 +1604,22 @@ function decodingNodes(v) {
 
 function traceSeconds(us) { return `${(us / 1e6).toFixed(3)} s`; }
 
-// Pick EDS… (or Change EDS…) and Read PDOs from device for a node of Commission a device.
+// Choose EDS… (or Change EDS…) and Read PDOs from device for a node of
+// Commission a device; the EDS button opens the node's EDS dialog, as in
+// the Nodes table (one-eds-picker).
 function layoutActions(node, hasEds) {
-  const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { trace: "pick-eds" } });
-  input.addEventListener("change", () => { const f = input.files[0]; input.value = ""; if (f) tracePickEds(node, f); });
+  const pick = el("button", { type: "button", class: "small", dataset: { trace: "pick-eds" }, onclick: () => tracePickEds(node) },
+    hasEds ? "Change EDS…" : "Choose EDS…");
   const read = el("button", { type: "button", class: "small", dataset: { trace: "read-pdos" }, onclick: () => readPdoLayout(node, true) }, "Read PDOs from device");
   if (!S.adapterOn) Icons.disable(read, `Reading needs the ${connRemote() ? "adapter" : "USB adapter"} connection: Connect… in the connection bar`);
-  return el("div", { class: "row" }, el("label", { class: "file-button small" }, hasEds ? "Change EDS…" : "Pick EDS…", input), read);
+  return el("div", { class: "row" }, pick, read);
 }
 
-// The node's EDS, as the Nodes table's pick sets it, and the trace decodes again.
-async function tracePickEds(node, file) {
-  let res;
-  try {
-    res = await api("POST", "/api/eds", { name: file.name, data: await readBase64(file), on_conflict: "keep_both", eds_lint: edsLint() });
-  } catch (e) { banner(e.message, true); return; }
-  commNodes()[node] = Object.assign(commNodes()[node] || {}, { eds_path: res.name, eds_name: res.name });
-  S.onlineEds = Object.assign(S.onlineEds || {}, { [node]: res.name });
-  S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [node]: res.name });
-  await decodingAction({ action: "refresh" }, `Node ${node} decodes with ${res.name}.`);
+// The node's EDS, set as the Nodes table sets it, and the trace decodes again.
+async function tracePickEds(node) {
+  let picked = null;
+  await chooseCommEds(node, (m, d) => { setPageEds(d, m); picked = m; });
+  if (picked) await decodingAction({ action: "refresh" }, `Node ${node} decodes with ${picked.name}.`);
 }
 
 function otherMaster() {
