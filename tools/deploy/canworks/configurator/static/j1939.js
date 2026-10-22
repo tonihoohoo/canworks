@@ -17,7 +17,7 @@ function j1939Of(net, add) {
 // A new J1939 network's ECU: NAME fields left out are 0 (false).
 const J1939_ADDRESS = 128;
 function newJ1939Network(bitrate) {
-  return { protocol: "j1939", adapter: { type: "socketcan", bitrate: bitrate || 250000 },
+  return { protocol: "j1939", adapter: { type: "socketcan", bitrate: bitrate || DEFAULT_BITRATE.j1939 },
     j1939: { ecu: { name: { identity_number: 1 }, address: J1939_ADDRESS }, rx: [], tx: [] } };
 }
 
@@ -101,9 +101,10 @@ async function switchProtocol(protocol) {
     }
     for (const key of ["role", "master", "nodes", "slave", "j1939"]) delete net[key];
     if (net.adapter) delete net.adapter.listen_only;
+    switchDefaultRate(net, current, protocol);
     if (protocol === "none") net.protocol = "none";
     else if (protocol === "j1939") { net.protocol = "j1939"; net.j1939 = newJ1939Network().j1939; }
-    else { delete net.protocol; net.master = { node_id: 1, sync_period_us: 10000 }; net.nodes = []; }
+    else { delete net.protocol; net.master = newMaster(); net.nodes = []; }
     changed(true);
     return;
   }
@@ -118,6 +119,7 @@ async function switchProtocol(protocol) {
     const fresh = newJ1939Network();
     for (const key of ["role", "master", "nodes", "slave"]) delete net[key];
     if (net.adapter) delete net.adapter.simulate;
+    switchDefaultRate(net, current, protocol);
     net.protocol = "j1939";
     net.j1939 = fresh.j1939;
   } else {
@@ -127,9 +129,10 @@ async function switchProtocol(protocol) {
         [["canopen", "Make it CANopen", true], ["cancel", "Cancel"]]);
       if (v !== "canopen") { render(); return; }
     }
+    switchDefaultRate(net, current, protocol);
     delete net.protocol;
     delete net.j1939;
-    net.master = { node_id: 1, sync_period_us: 10000 };
+    net.master = newMaster();
     net.nodes = [];
   }
   changed(true);

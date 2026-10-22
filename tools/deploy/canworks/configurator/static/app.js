@@ -5,6 +5,15 @@
 
 const TOKEN = document.querySelector('meta[name="canworks-token"]').content;
 const BITRATES = [10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000];
+// A new network's bit rate per protocol (spec "Defaults of a new network").
+const DEFAULT_BITRATE = { canopen: 500000, j1939: 250000, none: 500000 };
+// A new CANopen master: node ID 1, no SYNC until the user turns it on.
+function newMaster() { return { node_id: 1 }; }
+// Switching protocol moves a rate still at the old protocol's default to
+// the new one's; a rate the user chose stays.
+function switchDefaultRate(net, from, to) {
+  if (net.adapter && net.adapter.bitrate === DEFAULT_BITRATE[from || "canopen"]) net.adapter.bitrate = DEFAULT_BITRATE[to || "canopen"];
+}
 const TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16",
   "UNSIGNED32", "UNSIGNED64", "REAL32", "REAL64"];
 
@@ -815,7 +824,7 @@ function toModel(cfg) {
     }
     networks = [net];
   }
-  if (!networks.length) networks.push({ adapter: { type: "socketcan", bitrate: 250000 }, master: { node_id: 1 }, nodes: [] });
+  if (!networks.length) networks.push({ adapter: { type: "socketcan", bitrate: DEFAULT_BITRATE.canopen }, master: newMaster(), nodes: [] });
   return { top, networks, diagnostics, cia309 };
 }
 
@@ -951,12 +960,11 @@ async function addNetwork() {
   const protocol = await modal("Add a network with its own CAN interface. Which protocol does it run?",
     [["cancel", "Cancel"]], protocolChoices());
   if (protocol !== "canopen" && protocol !== "j1939" && protocol !== "none") return;
-  const first = S.model.networks[0];
-  const rate = first && first.adapter && Number.isInteger(first.adapter.bitrate) ? first.adapter.bitrate : 250000;
-  // No interface: the user picks it (each network needs its own).
-  S.model.networks.push(protocol === "j1939" ? newJ1939Network(rate)
-    : protocol === "none" ? { protocol: "none", adapter: { type: "socketcan", bitrate: rate } }
-    : { adapter: { type: "socketcan", bitrate: rate }, master: { node_id: 1, sync_period_us: 10000 }, nodes: [] });
+  // No interface: the user picks it (each network needs its own). The rate
+  // is the protocol's default, not another network's.
+  S.model.networks.push(protocol === "j1939" ? newJ1939Network()
+    : protocol === "none" ? { protocol: "none", adapter: { type: "socketcan", bitrate: DEFAULT_BITRATE.none } }
+    : { adapter: { type: "socketcan", bitrate: DEFAULT_BITRATE.canopen }, master: newMaster(), nodes: [] });
   openNet(S.model.networks.length - 1);
   S.onlineNet = null;
   S.view = "bus";
@@ -1847,7 +1855,15 @@ function simSwitch(i) {
   return el("div", { class: "check-field" }, el("label", { class: "check" }, input, " Simulated"), hint(help));
 }
 
-// SYNC source: the timer's period and the PLC cycle count exclude each other.
+// SYNC source: off (no SYNC keys), the master's timer (a period) or the PLC
+// cycle (a cycle count); the period and the cycle count exclude each other.
+function syncSource(m) {
+  m = m || {};
+  if (m.sync_source === "plc_cycle") return "plc_cycle";
+  const us = m.sync_period_us;
+  return us !== undefined && us !== null && us !== "" && us !== 0 ? "timer" : undefined;
+}
+
 function switchSyncSource(source) {
   const m = S.config.master || (S.config.master = {});
   if (source === "plc_cycle") {
@@ -1856,8 +1872,24 @@ function switchSyncSource(source) {
   } else {
     delete m.sync_source;
     delete m.sync_cycles;
+    if (source === "timer") {
+      if (syncSource(m) !== "timer") m.sync_period_us = 10000;  // a starting period
+    } else delete m.sync_period_us;
   }
   changed(true);
+}
+
+// The SYNC period field; emptied, SYNC is off and the choice shows Off.
+function syncPeriodField() {
+  const f = field("SYNC period (ms)", "master.sync_period_us", "int", {
+    show: (us) => (typeof us === "number" ? us / 1000 : us),
+    parse: (t) => (/^[0-9]+(\.[0-9]+)?$/.test(t) ? Math.round(parseFloat(t) * 1000) : t),
+    placeholder: "off",
+    hint: "How often the master sends SYNC; synchronous PDOs move at this rate. Empty: SYNC off.",
+  });
+  const input = f.querySelector("input");
+  input.addEventListener("change", () => { if (!input.value.trim()) render(); });
+  return f;
 }
 
 // The CAN adapter of the open network (CANopen and J1939 alike).
@@ -1914,7 +1946,7 @@ function noNodesYet() {
 }
 
 function renderBus(view) {
-  const plcCycle = getPath("master.sync_source") === "plc_cycle";
+  const sync = syncSource(S.config.master);
   const slave = isSlave(S.config);
   view.append(
     el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
@@ -1929,20 +1961,15 @@ function renderBus(view) {
         field("Node ID", "master.node_id", "intstr", { placeholder: "1",
           hint: "Required, 1 to 127, and not used by any slave. New configs start with 1." }),
         choice("SYNC source", "master.sync_source", [
-          { value: undefined, literal: "timer", label: "Timer",
-            help: "Default. The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
+          { value: undefined, label: "Off",
+            help: "Default. The master sends no SYNC: every PDO needs an event-driven transmission type (254 or 255)." },
+          { value: "timer", label: "Timer",
+            help: "The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
           { value: "plc_cycle", label: "PLC cycle",
             help: "One SYNC at the start of every PLC cycle (or every N cycles): inputs are one cycle old and outputs reach the devices after a fixed delay. The SYNC period is the PLC task interval; give every task an interval that is a multiple of the fastest one." },
-        ], { onChange: switchSyncSource }),
-        plcCycle ? field("Every N PLC cycles", "master.sync_cycles", "intstr", { placeholder: "1",
-          hint: "1 to 1000. Empty: a SYNC every PLC cycle." }) :
-        field("SYNC period (ms)", "master.sync_period_us", "int", {
-          show: (us) => (typeof us === "number" ? us / 1000 : us),
-          parse: (t) => (/^[0-9]+(\.[0-9]+)?$/.test(t) ? Math.round(parseFloat(t) * 1000) : t),
-          placeholder: "off",
-          hint: "How often the master sends SYNC; synchronous PDOs move at this rate. Empty: no SYNC, and every PDO " +
-            "needs an event-driven transmission type (254 or 255). New configs start with 10 ms.",
-        }),
+        ], { onChange: switchSyncSource, current: sync || "" }),
+        sync === "plc_cycle" ? field("Every N PLC cycles", "master.sync_cycles", "intstr", { placeholder: "1",
+          hint: "1 to 1000. Empty: a SYNC every PLC cycle." }) : sync === "timer" ? syncPeriodField() : null,
         field("Master heartbeat (ms)", "master.heartbeat_ms", "intstr", { placeholder: "off",
           hint: "Empty: off. Set it when slaves should watch the master." }),
         choice("When the PLC stops", "master.on_plc_stop", [
@@ -2162,7 +2189,7 @@ async function switchRole(role) {
     }
     delete net.role;
     delete net.slave;
-    net.master = { node_id: 1, sync_period_us: 10000 };
+    net.master = newMaster();
     net.nodes = [];
   }
   changed(true);
@@ -7387,25 +7414,34 @@ async function addNode(edsName, id, name, map, report, closeFirst) {
   superviseNewNode(node, eds, S.net);
   S.config.nodes.push(node);
   const i = S.config.nodes.length - 1;
-  const mapped = map ? await mapDefaultPdos(i, eds) : 0;
+  const { count: mapped, eventDriven } = map ? await mapDefaultPdos(i, eds) : { count: 0, eventDriven: [] };
   S.view = "node:" + i;
   S.nodeTab = mapped ? "pdos" : "general";
   if (!mapped) S.focusName = i;
   const shown = report && report.name === edsName ? importReport(report) : null;
   if (shown) for (const x of shown.querySelectorAll('[data-report="readable"]')) x.remove();
+  if (eventDriven.length) {
+    const line = el("div", { dataset: { report: "event-driven" } }, `${eventDriven.join(", ")} ${eventDriven.length === 1 ? "has" : "have"} ` +
+      "transmission type 255 (event-driven): the EDS gives a synchronous type, and this network has no SYNC.");
+    if (shown) shown.append(line);
+    else banner(el("span", { dataset: { timed: "1" } }, line), "info");
+  }
   if (shown && shown.childElementCount) banner(shown, "info");
-  else banner("");
+  else if (!eventDriven.length) banner("");
   if (closeFirst) closeFirst();
   changed(true);
 }
 
 // The default mapping of every PDO the EDS turns on by default, without
 // dummy entries; a free PLC location for each entry, or a variable name
-// when the target has no locations. Returns how many PDOs were mapped.
+// when the target has no locations. On a network without SYNC, a mapped
+// PDO whose EDS type needs SYNC gets 255, unless the EDS fixes the type.
+// Returns how many PDOs were mapped and the ones made event-driven.
 async function mapDefaultPdos(i, eds) {
   const n = S.config.nodes[i];
   const locations = usedBy("nodes.tx_pdos.entries.iec_location");
   const names = new Set();
+  const eventDriven = [];
   let count = 0;
   for (const [dir, key] of [["input", "tx_pdos"], ["output", "rx_pdos"]]) {
     const total = eds && eds.pdo_count ? eds.pdo_count[dir] : 0;
@@ -7438,9 +7474,16 @@ async function mapDefaultPdos(i, eds) {
       const p = (n[key] || []).find((q) => num(q.number) === number);
       if (p && p.entries.length) count++;
       else if (p) n[key].splice(n[key].indexOf(p), 1);
+      if (p && p.entries.length && !syncSource(S.config.master)) {
+        const t = commSub(eds, dir, number, 2);
+        if (t && t.writable && Number.isInteger(t.value) && (t.value <= 240 || t.value === 252)) {
+          p.transmission = 255;
+          eventDriven.push(`${dir === "input" ? "TPDO" : "RPDO"} ${number}`);
+        }
+      }
     }
   }
-  return count;
+  return { count, eventDriven };
 }
 
 async function addEntry(i, o, dir, into) {

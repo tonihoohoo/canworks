@@ -215,7 +215,7 @@ class BridgePage(OnlineBase):
         self.assertIn("needs a PLC cycle, which the Modbus bridge does not have", pg.inner_text("#problem-list"))
         self.assertIn("needs a PLC cycle", pg.inner_text('.field-msg[data-for="master.sync_source"]'))
         self.assertEqual(pg.input_value('select[data-path="master.sync_source"]'), "plc_cycle")
-        pg.select_option('select[data-path="master.sync_source"]', "")
+        pg.select_option('select[data-path="master.sync_source"]', "timer")
         pg.fill('input[data-path="master.sync_period_us"]', "20")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
