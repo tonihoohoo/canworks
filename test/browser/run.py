@@ -11,7 +11,7 @@ needed, and the plugin's diagnostics channel on a free port of 127.0.0.1.
 Starts canworks-config (this checkout's tools/deploy) on the copy and drives
 it with Playwright through these steps:
 
-  connect      Commission: the connect panel with the host and the example's token, connected
+  connect      Commission: the connect panel with the host and the example's token in it, connected
   nodes        the node table shows nodes 5, 6 and 7 OPERATIONAL
   od           node 6: SDO read of 0x2000:0, a write (with force, after the
                page asks: node 6 is OPERATIONAL), the read gives it back
@@ -164,6 +164,10 @@ class Run:
                 pg.click('#ws [data-ws="commission"]')
             pg.click('#tool-tabs button[data-view="online"]')
         elif name in ("declarations", "simulation", "trace", "framelab"):
+            # Variable declarations is a Configure tool, the others Commission's.
+            ws = "configure" if name == "declarations" else "commission"
+            if pg.get_attribute('#ws [data-ws="%s"]' % ws, "aria-pressed") != "true":
+                pg.click('#ws [data-ws="%s"]' % ws)
             pg.click('#tool-tabs button[data-view="%s"]' % name)
         else:
             if pg.get_attribute('#ws [data-ws="configure"]', "aria-pressed") != "true":
@@ -256,10 +260,9 @@ class Run:
         pg.click('#conn-bar [data-conn="connect"]')
         form = '#conn-dialog '
         pg.fill(form + 'input[data-online="host"]', "127.0.0.1:%d" % self.port)
+        # The token goes in the connect panel itself.
+        pg.fill(form + 'input[data-online="runtime-token"]', TOKEN)
         pg.click(form + 'button[data-online="connect"]')
-        pg.wait_for_selector('#modal input[aria-label="Access token"]')
-        pg.fill('#modal input[aria-label="Access token"]', TOKEN)
-        pg.click('#modal button[data-value="set"]')
         pg.wait_for_selector("#online-conn .notice-done", timeout=STEP_TIMEOUT_MS)
         pg.wait_for_selector('#conn-bar [data-conn="allow"]:has-text("Changes allowed")')
 
