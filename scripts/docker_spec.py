@@ -10,6 +10,7 @@ or removes exactly the CANopen entries and leaves everything else as it was.
     docker_spec.py image SPEC            prints <repository>:<version>
     docker_spec.py add SPEC BIND ENV     adds the entries (once each)
     docker_spec.py remove SPEC BIND ENV  removes them
+    docker_spec.py has SPEC BIND ENV     exits 0 when both entries are there, else 3
 
 Writes go to a temporary file in the same directory and replace the spec
 atomically, keeping its mode.
@@ -59,6 +60,10 @@ def add(spec, bind, env):
     return spec
 
 
+def has(spec, bind, env):
+    return bind in spec.get("extraBinds", []) and env in spec.get("extraEnv", [])
+
+
 def remove(spec, bind, env):
     """Removes our entries; drops a list that becomes empty."""
     for key, keep in (("extraBinds", lambda v: v != bind), ("extraEnv", lambda v: v != env)):
@@ -104,6 +109,8 @@ def main(argv):
         spec = load(path)
         if cmd == "image" and len(argv) == 2:
             print(image(spec))
+        elif cmd == "has" and len(argv) == 4:
+            return 0 if has(spec, argv[2], argv[3]) else 3
         elif cmd in ("add", "remove") and len(argv) == 4:
             changed = (add if cmd == "add" else remove)(json.loads(json.dumps(spec)), argv[2], argv[3])
             if changed != spec:

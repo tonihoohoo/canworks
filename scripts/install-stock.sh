@@ -6,6 +6,7 @@
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
 #                                 [--without-canopen | --without-j1939]
 #                                 [--with-link] [--without-discovery] [--constraints FILE]
+#                                 [--force]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
@@ -57,6 +58,15 @@
 # --constraints FILE, else of tools/deploy/constraints.txt (install-runtime.sh
 # puts the release's there), else of an export of tools/deploy/uv.lock when uv
 # is installed; without any of them pip picks the newest versions the tools allow.
+#
+# Re-runs: <prefix>/lib/install-stamp records the version, the protocols, the
+# editor hook and the runtime (native: its git commit; Docker: its image id) of
+# the last finished install. A run that would install exactly that again, with
+# the plugin and its plugins.conf line or runtime spec entries still there,
+# builds nothing and leaves plugins.conf and the runtime (and so the PLC and its
+# program) alone; it still sets up the J1939 module, discovery and the link.
+# --force installs everything again. A checkout with local edits (-dirty) or an
+# unknown version always installs.
 
 set -euo pipefail
 
@@ -79,6 +89,7 @@ CONTAINER_PREFIX=/opt/canworks
 DOCKER_IMAGE=""
 IN_IMAGE=0
 CONSTRAINTS=""
+FORCE=0
 
 EDITOR_HOOK=1
 WITH_CANOPEN=1
@@ -100,7 +111,7 @@ MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 WITH_LINK=0
 DISCOVERY=1
 
-usage() { sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -118,6 +129,7 @@ while [ $# -gt 0 ]; do
         --with-link) WITH_LINK=1 ;;
         --without-discovery) DISCOVERY=0 ;;
         --constraints) CONSTRAINTS="$2"; shift ;;
+        --force) FORCE=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -171,7 +183,7 @@ resolve_constraints() {
 # the release's, else git describe, else what git archive wrote into
 # scripts/SOURCE_VERSION ("<describe>|<commit>"; a plain checkout keeps the
 # unexpanded $Format line).
-write_version() {
+plugin_version() {
     local v=${CANWORKS_PLUGIN_VERSION:-}
     [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || true)
     if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
@@ -182,7 +194,42 @@ write_version() {
             *'|'*) v=${s%%|*}; [ -n "$v" ] || v=${s#*|} ;;
         esac
     fi
-    v=${v:-unknown}; echo "${v#deploy-v}" > "$PREFIX/VERSION"
+    v=${v:-unknown}; echo "${v#deploy-v}"
+}
+write_version() { plugin_version > "$PREFIX/VERSION"; }
+
+# What a finished install recorded (skip-same-version-device-install): the
+# stamp for runtime $1 (native: its git commit; Docker: its image id).
+STAMP_FILE="$PREFIX/lib/install-stamp"
+stamp_text() {
+    local protocols=""
+    [ "$WITH_CANOPEN" -eq 0 ] || protocols=canopen
+    [ "$WITH_J1939" -eq 0 ] || protocols=${protocols:+$protocols,}j1939
+    printf 'version=%s\nprotocols=%s\neditor_hook=%s\nruntime=%s\n' \
+        "$(plugin_version)" "$protocols" "$EDITOR_HOOK" "$1"
+}
+# True when this run would install exactly what the stamp records for
+# runtime $1 and the plugin is still there; never for --force or for a
+# version that can stand for different code.
+same_install() {
+    [ "$FORCE" -eq 0 ] && [ "$1" != unknown ] || return 1
+    case $(plugin_version) in unknown|*-dirty) return 1 ;; esac
+    [ -f "$STAMP_FILE" ] && [ -f "$PREFIX/lib/libcanworks_plugin.so" ] || return 1
+    [ "$(cat "$STAMP_FILE")" = "$(stamp_text "$1")" ]
+}
+write_stamp() {
+    stamp_text "$1" > "$STAMP_FILE.new"
+    mv -f "$STAMP_FILE.new" "$STAMP_FILE"
+}
+# Ends a re-run that has nothing to install: only the host's own steps.
+skip_install() {
+    say "canworks $(plugin_version) ($PROTOCOLS) is already installed for this runtime; nothing to rebuild," \
+        "the PLC keeps running. --force installs it again."
+    setup_j1939_module
+    STEPS=$(access_steps)
+    [ "$STEPS" -eq 0 ] || step 1 "Setting up discovery and the remote link"
+    setup_remote_access
+    exit 0
 }
 
 [ "$WITH_CANOPEN" -eq 1 ] || [ "$WITH_J1939" -eq 1 ] ||
@@ -265,6 +312,7 @@ build_in_image() {
         docker pull "$image" >/dev/null || die "cannot pull $image"
     fi
     image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null || echo unknown)
+    BUILT_IMAGE_ID=$image_id
     mkdir -p "$PREFIX"
     # Slave networks keep what their master saves (0x1010, LSS) here, outside
     # the uploaded project; an uninstall without --purge keeps it.
@@ -359,6 +407,11 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
         say "Done. The runtime runs without canworks."
         exit 0
     fi
+    IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || echo unknown)
+    if spec_tool has "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" && same_install "$IMAGE_ID"; then
+        skip_install
+    fi
+    rm -f "$STAMP_FILE"
     STEPS=$((2 + $(access_steps)))
     step 1 "Building canworks in the runtime image (this takes a while on a Raspberry Pi)"
     build_in_image "$IMAGE"
@@ -373,6 +426,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
     setup_j1939_module
     step 2 "Restarting the runtime container (the PLC stops and comes back without a program)"
     recreate_runtime
+    write_stamp "$BUILT_IMAGE_ID"
     [ "$(access_steps)" -eq 0 ] || step 3 "Setting up discovery and the remote link"
     setup_remote_access
     cat <<EOF
@@ -509,6 +563,16 @@ if [ "$UNINSTALL" -eq 1 ]; then
     exit 0
 fi
 
+# --- Re-run with nothing new -------------------------------------------------
+
+COMMIT=$(git -C "$RUNTIME_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
+if [ "$IN_IMAGE" -eq 0 ]; then
+    if [ -f "$PLUGINS_CONF" ] && grep -q '^canworks,' "$PLUGINS_CONF" && same_install "$COMMIT"; then
+        skip_install
+    fi
+    rm -f "$STAMP_FILE"
+fi
+
 # --- Lely CANopen and dcfgen ------------------------------------------------
 
 # Native install steps: build tools, Lely, the plugin, plugins.conf and the
@@ -544,7 +608,6 @@ fi
 # --- The plugin ---------------------------------------------------------------
 
 COMMIT_FILE="$LIB_DIR/runtime-commit"
-COMMIT=$(git -C "$RUNTIME_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
 if [ -f "$COMMIT_FILE" ] && [ "$(cat "$COMMIT_FILE")" != "$COMMIT" ]; then
     echo "warning: the runtime changed since the last install ($(cat "$COMMIT_FILE") -> $COMMIT);" \
          "rebuilding the plugin against it" >&2
@@ -654,6 +717,7 @@ else
     (installed with --no-editor-hook)."
 fi
 
+write_stamp "$COMMIT"
 [ "$(access_steps)" -eq 0 ] || next_step "Setting up discovery and the remote link"
 setup_remote_access
 

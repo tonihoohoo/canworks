@@ -574,7 +574,10 @@ function devJobView(d, j) {
       const docker = ((DEV.probes[d.id] || {}).plan || {}).rows;
       const dockerRt = docker && /Docker/.test((docker.find((r) => r.part === "runtime") || {}).have || "");
       let text = DEV_ACTION_DONE[j.action] || "The job ended.";
-      if ((j.action === "install_plugin" || j.action === "install_openplc") && dockerRt) text += " Until then the PLC has no program.";
+      // install-stock.sh found this version already installed and changed nothing.
+      const skipped = j.action === "install_plugin" && j.lines.some((l) => /is already installed for this runtime/.test(l));
+      if (skipped) text = "This version was already installed: nothing was rebuilt, and the PLC keeps running its program.";
+      else if ((j.action === "install_plugin" || j.action === "install_openplc") && dockerRt) text += " Until then the PLC has no program.";
       const projectBridge = (j.action === "install_bridge" || j.action === "bridge_config") && DEV.list.instance;
       if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
       else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;

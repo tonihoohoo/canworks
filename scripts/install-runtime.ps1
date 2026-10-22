@@ -14,7 +14,9 @@
 #   -DryRun          print the ssh command, change nothing
 #
 # It only installs released code, never main. The newest release is found
-# from GitHub's releases/latest redirect, so no API token is needed.
+# from GitHub's releases/latest redirect, so no API token is needed. Running
+# the release that is already installed again builds nothing and leaves the
+# PLC and its program alone; -Options --force installs it again.
 
 param(
     [Parameter(Mandatory = $true)][string]$Ssh,
