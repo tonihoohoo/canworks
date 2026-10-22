@@ -10,6 +10,7 @@
 # Options:
 #   --version X    install release deploy-vX instead of the newest one
 #   --wheel FILE   install this local wheel instead of a release (CI)
+#   --constraints FILE  the dependency versions for --wheel (a release brings its own)
 #   --python V     the Python uv uses (default 3.14; a path to an installed Python works too)
 #   --no-shortcut  do not add the "canworks configurator" app shortcut
 #   --force        install even when this version is already installed
@@ -18,6 +19,8 @@
 #
 # It only installs released wheels, never the code on main. The newest release
 # is found from GitHub's releases/latest redirect, so no API token is needed.
+# A release installs the exact dependency versions CI tested: its
+# canworks-<version>-constraints.txt asset (docs/install-pc.md).
 # Behind a TLS-inspecting company proxy set UV_SYSTEM_CERTS=1 (uv before 0.11: UV_NATIVE_TLS=1; docs/install-pc.md).
 
 set -eu
@@ -30,6 +33,7 @@ API=${CANWORKS_API:-https://api.github.com/repos/tonihoohoo/canworks}
 UV_INSTALLER=${CANWORKS_UV_INSTALLER:-https://astral.sh/uv/install.sh}
 VERSION=""
 WHEEL=""
+CONSTRAINTS=""
 PYTHON=3.14
 # The first uv release that knows the default Python: an older uv is updated.
 UV_MIN=0.9.0
@@ -42,13 +46,14 @@ die() { echo "install-pc: $*" >&2; exit 1; }
 say() { echo "install-pc: $*"; }
 
 usage() {
-    if [ -f "$0" ]; then sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
+    if [ -f "$0" ]; then sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; else echo "see https://github.com/tonihoohoo/canworks/blob/main/scripts/install-pc.sh"; fi
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) [ $# -ge 2 ] || die "--version needs a version"; VERSION=${2#deploy-v}; VERSION=${VERSION#v}; shift 2 ;;
         --wheel) [ $# -ge 2 ] || die "--wheel needs a file"; WHEEL=$2; shift 2 ;;
+        --constraints) [ $# -ge 2 ] || die "--constraints needs a file"; CONSTRAINTS=$2; shift 2 ;;
         --python) [ $# -ge 2 ] || die "--python needs a version or path"; PYTHON=$2; shift 2 ;;
         --uninstall) UNINSTALL=1; shift ;;
         --no-shortcut) SHORTCUT=0; shift ;;
@@ -65,7 +70,7 @@ run() {
 
 command -v curl >/dev/null 2>&1 || die "curl is needed"
 
-# A folder for the uv installer and the overrides file, removed at the end.
+# A folder for the uv installer, the overrides and the constraints, removed at the end.
 TMP=$(mktemp -d 2>/dev/null || mktemp -d -t canworks-install) || die "could not make a temporary folder"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -147,7 +152,13 @@ if [ -n "$WHEEL" ]; then
     [ -f "$WHEEL" ] || die "no such wheel: $WHEEL"
     SPEC=$WHEEL
     say "installing $WHEEL"
+    if [ -n "$CONSTRAINTS" ]; then
+        [ -f "$CONSTRAINTS" ] || die "no such constraints file: $CONSTRAINTS"
+    else
+        say "the dependency versions are not locked: uv picks the newest ones the tools allow"
+    fi
 else
+    [ -z "$CONSTRAINTS" ] || die "--constraints goes with --wheel; a release brings its own"
     [ -n "$VERSION" ] || VERSION=$(latest_version)
     SPEC="canworks @ $REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-py3-none-any.whl"
     # Already this version on this Python (uv's own record, "canworks v0.94.2
@@ -174,6 +185,17 @@ else
     else
         say "installing canworks $VERSION"
     fi
+    # The release's locked dependency versions. A release from before them has
+    # no such asset (404) and installs unlocked, as it always did. Any other
+    # failure stops here, with the installed tools unchanged. Also in a dry
+    # run: the download changes nothing.
+    CONSTRAINTS_URL="$REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-constraints.txt"
+    code=$(curl -sSL -o "$TMP/constraints.txt" -w '%{http_code}' "$CONSTRAINTS_URL" 2>/dev/null) || code=000
+    case "$code" in
+        200) CONSTRAINTS="$TMP/constraints.txt" ;;
+        404) say "release $VERSION does not lock its dependency versions; uv picks the newest ones the tools allow" ;;
+        *) die "could not download canworks-$VERSION-constraints.txt from $CONSTRAINTS_URL (HTTP $code); nothing was changed" ;;
+    esac
 fi
 
 # Only runtime dependencies: can-j1939 lists pytest as one but never imports
@@ -186,7 +208,11 @@ USER_PATH=$PATH
 PATH="$BIN:$PATH"
 export PATH
 INSTALLED=1
-run "$UV" tool install --force --compile-bytecode --python "$PYTHON" --overrides "$OVERRIDES" "$SPEC" || INSTALLED=0
+if [ -n "$CONSTRAINTS" ]; then
+    run "$UV" tool install --force --compile-bytecode --python "$PYTHON" --overrides "$OVERRIDES" --constraints "$CONSTRAINTS" "$SPEC" || INSTALLED=0
+else
+    run "$UV" tool install --force --compile-bytecode --python "$PYTHON" --overrides "$OVERRIDES" "$SPEC" || INSTALLED=0
+fi
 PATH=$USER_PATH
 [ "$INSTALLED" = 1 ] || die "uv could not install the tools (see its message above)"
 

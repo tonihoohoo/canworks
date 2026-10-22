@@ -13,6 +13,7 @@
 set -euo pipefail
 
 PREFIX=/opt/canworks
+CONSTRAINTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dcf-tools-constraints.txt"
 REF=88848aa28599ea5d6d7e766a9ffa2054446821b5
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,7 +54,8 @@ echo "==> Building Lely CANopen into $LELY_DIR (a few minutes)"
 echo "==> Installing dcf-tools (dcfgen) into $VENV_DIR"
 python3 -m venv "$VENV_DIR"
 # dcfgen imports pkg_resources, which newer setuptools releases drop.
-"$VENV_DIR/bin/pip" install -q "setuptools<81" "$SRC_DIR/python/dcf-tools"
+# Exact versions (scripts/dcf-tools-constraints.txt, made for this Lely commit).
+"$VENV_DIR/bin/pip" install -q -c "$CONSTRAINTS" setuptools "$SRC_DIR/python/dcf-tools"
 
 echo "$REF" > "$LELY_DIR/.ref"
 echo "==> Lely CANopen ready: $LELY_DIR, $VENV_DIR/bin/dcfgen"

@@ -8,6 +8,9 @@ import re
 MIN_FREE_MB = 2048
 DOCKER_STOP = "The PLC stops and comes back without a program; upload it again afterwards."
 OPENPLC_INSTALLER = "https://runtime.getedge.me"
+# The OpenPLC runtime release CI tests canworks with
+# (docker/local-runtime/runtime-version; a test keeps the two the same).
+TESTED_RUNTIME = "v4.2.4"
 
 
 def version_tuple(text):
@@ -67,6 +70,15 @@ def _runtime_text(rt):
     return " · ".join(parts)
 
 
+def untested_runtime(rt):
+    """A note when the device runs a newer runtime than CI tests canworks
+    with; None for the tested one, an older one or an unknown version."""
+    have, tested = version_tuple(rt.get("version")), version_tuple(TESTED_RUNTIME)
+    if have and tested and have > tested:
+        return "canworks is tested with runtime %s; this device runs %s." % (TESTED_RUNTIME, rt["version"].strip())
+    return None
+
+
 def _main(action, label, version, confirm=(), **extra):
     out = {"action": action, "label": label, "version": version, "confirm": [c for c in confirm if c]}
     out.update(extra)
@@ -93,7 +105,8 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     need_rt = target == "openplc"
     rows.append({"part": "runtime", "label": "OpenPLC Runtime", "have": _runtime_text(rt),
                  "state": ("ok" if rt.get("kind") not in (None, "none") else ("warn" if need_rt else "off")),
-                 "needs": "needed" if need_rt else "not used by this project", "used": need_rt})
+                 "needs": "needed" if need_rt else "not used by this project", "used": need_rt,
+                 "hint": untested_runtime(rt)})
 
     # canworks plugin
     need_plugin = target == "openplc"
@@ -121,8 +134,8 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         if rt.get("kind") in (None, "none"):
             main = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
                          else "Install OpenPLC Runtime and canworks", latest,
-                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and the runtime."
-                          % OPENPLC_INSTALLER])
+                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and upstream's "
+                          "newest runtime (canworks is tested with %s)." % (OPENPLC_INSTALLER, TESTED_RUNTIME)])
         elif rt.get("kind") == "docker-other":
             notes.append("The runtime runs in a Docker container that no bootloader manages: install canworks "
                          "with install-stock.sh --docker-image (docs/install-stock.md).")

@@ -10,6 +10,7 @@
 #
 #   -Version X    install release deploy-vX instead of the newest one
 #   -Wheel FILE   install this local wheel instead of a release (CI)
+#   -Constraints FILE  the dependency versions for -Wheel (a release brings its own)
 #   -Python V     the Python uv uses (default 3.14; a path to an installed Python works too)
 #   -Force        install even when this version is already installed
 #   -NoShortcut   do not add the "canworks configurator" Start menu and desktop shortcut
@@ -18,6 +19,8 @@
 #
 # It only installs released wheels, never the code on main. The newest release
 # is found from GitHub's releases/latest redirect, so no API token is needed.
+# A release installs the exact dependency versions CI tested: its
+# canworks-<version>-constraints.txt asset (docs/install-pc.md).
 # A missing uv comes from uv's own release zip, checked against its SHA-256;
 # the script runs no downloaded code and starts no other PowerShell.
 # Behind a TLS-inspecting company proxy set UV_SYSTEM_CERTS=1 (uv before 0.11: UV_NATIVE_TLS=1; docs/install-pc.md).
@@ -25,6 +28,7 @@
 param(
     [string]$Version = "",
     [string]$Wheel = "",
+    [string]$Constraints = "",
     [string]$Python = "3.14",
     [switch]$Uninstall,
     [switch]$NoShortcut,
@@ -204,11 +208,18 @@ if ($Uninstall) {
     return
 }
 
+$Downloaded = ""
 if ($Wheel) {
     if (-not (Test-Path $Wheel)) { Fail "no such wheel: $Wheel" }
     $Spec = $Wheel
     Say "installing $Wheel"
+    if ($Constraints) {
+        if (-not (Test-Path $Constraints)) { Fail "no such constraints file: $Constraints" }
+    } else {
+        Say "the dependency versions are not locked: uv picks the newest ones the tools allow"
+    }
 } else {
+    if ($Constraints) { Fail "-Constraints goes with -Wheel; a release brings its own" }
     if (-not $Version) { $Version = Get-LatestVersion }
     $Spec = "canworks @ $Repo/releases/download/deploy-v$Version/canworks-$Version-py3-none-any.whl"
     # Already this version on this Python: nothing to do, unless -Force. The
@@ -232,16 +243,38 @@ if ($Wheel) {
     } else {
         Say "installing canworks $Version"
     }
+    # The release's locked dependency versions. A release from before them has
+    # no such asset (404) and installs unlocked, as it always did. Any other
+    # failure stops here, with the installed tools unchanged. Also in a dry
+    # run: the download changes nothing.
+    $ConstraintsUrl = "$Repo/releases/download/deploy-v$Version/canworks-$Version-constraints.txt"
+    $Downloaded = Join-Path ([System.IO.Path]::GetTempPath()) ("canworks-constraints-" + [guid]::NewGuid().ToString("N") + ".txt")
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $ConstraintsUrl -OutFile $Downloaded
+        $Constraints = $Downloaded
+    } catch {
+        $status = 0
+        if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+        if ($status -eq 404) {
+            Say "release $Version does not lock its dependency versions; uv picks the newest ones the tools allow"
+        } else {
+            Remove-Item -Force $Downloaded -ErrorAction SilentlyContinue
+            Fail "could not download canworks-$Version-constraints.txt from $ConstraintsUrl ($($_.Exception.Message)); nothing was changed"
+        }
+    }
 }
 
 # Only runtime dependencies: can-j1939 lists pytest as one but never imports
 # it, so an override drops it (docs/install-pc.md).
 $Overrides = Join-Path ([System.IO.Path]::GetTempPath()) ("canworks-overrides-" + [guid]::NewGuid().ToString("N") + ".txt")
 Set-Content -Path $Overrides -Value "pytest; sys_platform == 'never'" -Encoding ASCII
+$InstallArgs = @("tool", "install", "--force", "--compile-bytecode", "--python", $Python, "--overrides", $Overrides)
+if ($Constraints) { $InstallArgs += @("--constraints", $Constraints) }
 try {
-    Invoke-Step $Uv @("tool", "install", "--force", "--compile-bytecode", "--python", $Python, "--overrides", $Overrides, $Spec)
+    Invoke-Step $Uv ($InstallArgs + @($Spec))
 } finally {
     Remove-Item -Force $Overrides -ErrorAction SilentlyContinue
+    if ($Downloaded) { Remove-Item -Force $Downloaded -ErrorAction SilentlyContinue }
 }
 
 $Bin = Get-BinDir

@@ -70,6 +70,11 @@ def wheel_url(version):
     return "%s/releases/download/deploy-v%s/canworks-%s-py3-none-any.whl" % (repo(), version, version)
 
 
+def constraints_url(version):
+    """The release's locked dependency versions (the installers' --constraints)."""
+    return "%s/releases/download/deploy-v%s/canworks-%s-constraints.txt" % (repo(), version, version)
+
+
 def install_command(platform=None):
     """The one-line install command of the README for this system."""
     if (platform or sys.platform) == "win32":
@@ -343,6 +348,7 @@ class Updates:
             shortcut_paths = [shortcut.macos_app(os.environ)] if sys.platform == "darwin" \
                 else [shortcut.linux_paths(os.environ)[0]]
         return {"from": __version__, "to": target, "wheel": wheel_url(target), "old_wheel": wheel_url(__version__),
+                "constraints": constraints_url(target), "old_constraints": constraints_url(__version__),
                 "uv": info["uv"], "python": info["python"], "env": info["env"], "bin": info["bin"],
                 "pid": pid, "port": port, "token": token, "restart": bool(restart),
                 "restart_cmd": restart_cmd, "check_cmd": [exe("canworks-deploy"), "--version"],

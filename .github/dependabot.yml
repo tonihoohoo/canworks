@@ -1,6 +1,7 @@
-# Keeps the SHA pins of the GitHub Actions current (each workflow names the
-# release tag next to its pin). Actions only: pip updates would add CI runs
-# for the PC tools' floors, which are raised by hand.
+# Keeps the SHA pins of the GitHub Actions and the PC tools' locked
+# dependency versions (tools/deploy/uv.lock) current: one grouped pull request
+# a month each, plus security updates when an advisory names a locked version
+# (lock-dependency-versions). The floors in pyproject.toml are raised by hand.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -9,4 +10,11 @@ updates:
       interval: monthly
     groups:
       actions:
+        patterns: ["*"]
+  - package-ecosystem: uv
+    directory: /tools/deploy
+    schedule:
+      interval: monthly
+    groups:
+      python:
         patterns: ["*"]

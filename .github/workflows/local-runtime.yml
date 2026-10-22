@@ -17,6 +17,8 @@ on:
       - "CMakeLists.txt"
       - "scripts/install-stock.sh"
       - "scripts/build-lely.sh"
+      - "scripts/dcf-tools-constraints.txt"
+      - "tools/deploy/uv.lock"
       - "tools/editor-hook/**"
       - "tools/deploy/canworks/localruntime.py"
       - "tools/deploy/canworks/cli.py"
@@ -42,6 +44,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/locked-versions
 
       - name: Build the image
         run: |
@@ -95,6 +99,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/locked-versions
 
       - name: Build the arm64 image
         run: |

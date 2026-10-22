@@ -264,3 +264,10 @@ When no `--prefix` is given and the default prefix `/opt/canworks` holds a Pytho
 #### Scenario: PLC device with a remote link
 - **WHEN** the bridge is installed with `--with-link line3` on a device whose remote link serves `/opt/canworks/lib/canworks.json`
 - **THEN** the link keeps serving that config and the output says the link step was skipped
+
+### Requirement: Bridge installs locked dependency versions
+`install-bridge.sh` SHALL take `--constraints FILE` and install the tools into the bridge's venv with it, falling back as `install-stock.sh` does when none is given. A release install through `install-runtime.sh` or the bridge's one-line install SHALL pass the release's constraints file. The bridge image SHALL be built with the constraints exported from `uv.lock` of the commit it is built from.
+
+#### Scenario: Bridge image
+- **WHEN** the bridge image is built on `main`
+- **THEN** its venv holds the dependency versions of that commit's `uv.lock`

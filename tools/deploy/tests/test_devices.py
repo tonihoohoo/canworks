@@ -97,6 +97,29 @@ class Plan(unittest.TestCase):
         self.assertIn("off", row(p, "plugin")["have"])
         self.assertIn("built for v4.2.4", p["notes"][0])
 
+    # lock-dependency-versions: a runtime newer than the tested one is a note, not a block.
+    def test_newer_runtime_than_tested(self):
+        major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
+        newer = "v%d.%d.%d" % (major, minor, patch + 1)
+        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": newer},
+                            plugin={"version": "0.98.0", "built_for": plan.TESTED_RUNTIME, "enabled": True}),
+                      "openplc", "0.98.0")
+        self.assertEqual(row(p, "runtime")["hint"],
+                         "canworks is tested with runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, newer))
+        self.assertEqual(p["main"]["label"], "Rebuild for runtime %s" % newer)
+
+    def test_tested_older_or_unknown_runtime_no_note(self):
+        major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
+        for version in (plan.TESTED_RUNTIME, "v%d.%d.0" % (major, minor - 1) if minor else "v0.0.1", None, "development"):
+            p = plan.plan(probe(runtime={"kind": "docker-managed", "version": version}), "openplc", "0.98.0")
+            self.assertIsNone(row(p, "runtime")["hint"], version)
+
+    def test_runtime_install_names_newest(self):
+        p = plan.plan(probe(runtime={"kind": "none"}), "openplc", "0.98.0")
+        self.assertEqual(p["main"]["action"], "install_openplc")
+        self.assertIn("installs Docker and upstream's newest runtime (canworks is tested with %s)" % plan.TESTED_RUNTIME,
+                      p["main"]["confirm"][0])
+
     def test_up_to_date(self):
         p = plan.plan(probe(plugin={"version": "0.98.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
         self.assertIsNone(p["main"])

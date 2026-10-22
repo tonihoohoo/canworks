@@ -10,7 +10,8 @@ Standard library only, for the same reason.
 Its one argument is the run file (update-run.json in the settings folder)
 the configurator wrote; see configurator/update.py for its fields. The steps:
 wait for the configurator to end; on Windows, check that no other process
-runs a program file of the tools; install the new wheel with uv, with the one-line
+runs a program file of the tools; download the new and the old release's
+locked dependency versions; install the new wheel with uv, with the one-line
 installers' arguments; on a failure that changed the install, install the
 old version again; refresh the app shortcut (macOS and Linux); write the
 result into the run file; start the configurator again when asked to.
@@ -22,16 +23,22 @@ It never downloads or runs an install script, and starts no shell.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 
 # The arguments and the override the one-line installers use
 # (scripts/install-pc.sh, install-pc.ps1): a test keeps the three the same.
 UV_INSTALL = ["tool", "install", "--force", "--compile-bytecode"]
 OVERRIDE = "pytest; sys_platform == 'never'"
 SPEC = "canworks @ %s"
+# A release's locked dependency versions (lock-dependency-versions), passed
+# as --constraints; a release from before them has none (404).
+CONSTRAINTS = "--constraints"
 
 WAIT_PID_S = 30.0  # the configurator stops in about a second; then the update is given up
 LOCK_WAIT_S = 10.0  # Windows: how long other processes get to let go of the tools' files
@@ -172,8 +179,33 @@ def installed_version(run):
     return words[-1] if r.returncode == 0 and words else None
 
 
-def uv_install(run, wheel, overrides):
-    cmd = [run.data["uv"]] + UV_INSTALL + ["--python", run.data["python"], "--overrides", overrides, SPEC % wheel]
+class DownloadError(Exception):
+    pass
+
+
+def fetch_constraints(run, url, path):
+    """The release's constraints file at `url` into `path`: the path, or None
+    when the release has none (404). Any other failure raises DownloadError."""
+    if not url:
+        return None
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(path, "wb") as f:
+            f.write(r.read())
+        return path
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            run.say("%s: none (this release does not lock its dependency versions)" % url)
+            return None
+        raise DownloadError("%s: HTTP %d" % (url, e.code))
+    except (OSError, ValueError) as e:
+        raise DownloadError("%s: %s" % (url, e))
+
+
+def uv_install(run, wheel, overrides, constraints=None):
+    cmd = [run.data["uv"]] + UV_INSTALL + ["--python", run.data["python"], "--overrides", overrides]
+    if constraints:
+        cmd += [CONSTRAINTS, constraints]
+    cmd.append(SPEC % wheel)
     run.say("running: %s" % " ".join(cmd))
     kw = {"creationflags": NO_WINDOW} if WINDOWS else {}
     # The user's environment: proxy settings and UV_SYSTEM_CERTS apply.
@@ -253,8 +285,18 @@ def update(run):
     overrides = os.path.join(work, "overrides.txt")
     with open(overrides, "w", encoding="ascii") as f:
         f.write(OVERRIDE + "\n")
+    new_constraints = os.path.join(work, "constraints-new.txt")
+    old_constraints = os.path.join(work, "constraints-old.txt")
     try:
-        code, tail = uv_install(run, d["wheel"], overrides)
+        try:
+            new_c = fetch_constraints(run, d.get("constraints"), new_constraints)
+            old_c = fetch_constraints(run, d.get("old_constraints"), old_constraints)
+        except DownloadError as e:
+            run.finish("failed", "The update to %s could not download its dependency versions (%s). "
+                       "Nothing was changed." % (new, e), old)
+            restart(run)
+            return 1
+        code, tail = uv_install(run, d["wheel"], overrides, new_c)
         now = installed_version(run)
         if code == 0 and now == new:
             refresh_shortcut(run)
@@ -268,7 +310,7 @@ def update(run):
             restart(run)
             return 1
         run.say("the install changed but is not %s (%s): installing %s again" % (new, now, old))
-        code2, _ = uv_install(run, d["old_wheel"], overrides)
+        code2, _ = uv_install(run, d["old_wheel"], overrides, old_c)
         if code2 == 0 and installed_version(run) == old:
             run.finish("rolled-back", "The update to %s failed: %s. %s was installed again." % (new, why, old), old)
             restart(run)
@@ -279,11 +321,7 @@ def update(run):
         message_window(msg)
         return 2
     finally:
-        try:
-            os.remove(overrides)
-            os.rmdir(work)
-        except OSError:
-            pass
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def refresh_shortcut(run):

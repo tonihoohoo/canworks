@@ -28,6 +28,8 @@ On the Linux device that has the CAN interfaces, as root. It downloads the newes
 curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
 ```
 
+The bridge's EDS lint gets the exact dependency versions the release was tested with (the release's `canworks-<version>-constraints.txt`); from a checkout, `--constraints FILE` or an export of `tools/deploy/uv.lock` when `uv` is installed, else pip picks the newest allowed versions and says so.
+
 To also set up and start a bridge:
 
 ```sh

@@ -27,13 +27,19 @@ IN_CI = bool(os.environ.get("CI"))
 
 class _Releases(http.server.BaseHTTPRequestHandler):
     """releases/latest redirects to releases/tag/deploy-v1.2.3, like GitHub;
-    `files` are served as they are (a stand-in uv installer)."""
+    `files` are served as they are (a stand-in uv installer); `status`
+    answers a path with that HTTP error code."""
     seen = []
     files = {}
+    status = {}
 
     def do_GET(self):
         self.seen.append(self.path)
-        if self.path in self.files:
+        if self.path in self.status:
+            self.send_response(self.status[self.path])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif self.path in self.files:
             body = self.files[self.path]
             body = body if isinstance(body, bytes) else body.encode()
             self.send_response(200)
@@ -79,6 +85,7 @@ class _Base(unittest.TestCase):
     def setUp(self):
         _Releases.seen = []
         _Releases.files = {}
+        _Releases.status = {}
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.home = os.path.join(self.tmp, "home")
@@ -137,8 +144,10 @@ class InstallPcSh(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("installing canworks 1.2.3", r.stdout)
         self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.14 --overrides \S+overrides\.txt "
+                         r"--constraints \S+constraints\.txt "
                          + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
                                      % self.repo_url))
+        self.assertIn("/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt", _Releases.seen)
         self.assertNotIn("uv.example", r.stdout)
         self.assertIn("/owner/canworks/releases/latest", _Releases.seen)
         # The app shortcut, after the install.
@@ -222,7 +231,8 @@ class InstallPcSh(_Base):
         r = self.run_script(["sh", self.script, "--dry-run", "--version", "deploy-v0.9.0"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("deploy-v0.9.0/canworks-0.9.0-py3-none-any.whl", r.stdout)
-        self.assertEqual(_Releases.seen, [])
+        # No releases/latest lookup; only the release's constraints file.
+        self.assertEqual(_Releases.seen, ["/owner/canworks/releases/download/deploy-v0.9.0/canworks-0.9.0-constraints.txt"])
 
     def test_local_wheel(self):
         self.fake_uv()
@@ -232,7 +242,41 @@ class InstallPcSh(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.13 --overrides \S+ "
                          + re.escape(wheel))
+        self.assertIn("the dependency versions are not locked", r.stdout)
         self.assertEqual(_Releases.seen, [])
+
+    # lock-dependency-versions: the release's constraints, or none.
+    def test_local_wheel_with_constraints(self):
+        self.fake_uv()
+        wheel = os.path.join(self.tmp, "canworks-1.0.0-py3-none-any.whl")
+        constraints = os.path.join(self.tmp, "c.txt")
+        open(wheel, "w").close()
+        open(constraints, "w").close()
+        r = self.run_script(["sh", self.script, "--dry-run", "--wheel", wheel, "--constraints", constraints])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertRegex(r.stdout, r"--overrides \S+ --constraints " + re.escape(constraints + " " + wheel))
+        self.assertNotIn("not locked", r.stdout)
+        r = self.run_script(["sh", self.script, "--dry-run", "--constraints", constraints])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--constraints goes with --wheel", r.stdout)
+
+    def test_release_without_constraints(self):
+        self.fake_uv()
+        _Releases.status["/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"] = 404
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("release 1.2.3 does not lock its dependency versions", r.stdout)
+        self.assertNotIn("--constraints", r.stdout)
+        self.assertIn("tool install --force", r.stdout)
+
+    def test_constraints_download_fails(self):
+        self.fake_uv()
+        _Releases.status["/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"] = 502
+        r = self.run_script(["sh", self.script, "--dry-run"])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("could not download canworks-1.2.3-constraints.txt", r.stdout)
+        self.assertIn("HTTP 502", r.stdout)
+        self.assertNotIn("tool install", r.stdout)
 
     def test_installs_uv_when_missing(self):
         r = self.run_script(["sh", self.script, "--dry-run"])
@@ -297,6 +341,7 @@ case "$1 $2" in
         prev=""
         for a in "$@"; do
             [ "$prev" = --overrides ] && cp "$a" "$log/overrides"
+            [ "$prev" = --constraints ] && cp "$a" "$log/constraints"
             prev=$a
         done
         case ":$PATH:" in
@@ -322,7 +367,15 @@ exit 0
         self.assertIn("--overrides", self.read_log("args"))
         self.assertEqual(self.read_log("overrides").strip(), "pytest; sys_platform == 'never'")
         self.assertIn("canworks-deploy --version", self.read_log("tools"))
-        self.assertEqual(os.listdir(tmpdir), [], "the overrides file is removed at the end")
+        self.assertEqual(os.listdir(tmpdir), [], "the overrides and constraints files are removed at the end")
+
+    def test_locked_versions_installed(self):
+        self.stub_uv(self.bin)
+        _Releases.files["/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"] = \
+            "cantools==45.1.0\n"
+        r = self.run_script(["sh", self.script, "--version", "1.2.3"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.read_log("constraints"), "cantools==45.1.0\n")
 
     def test_no_uv_path_warning_over_ssh(self):
         # A non-login shell: uv's bin folder is not on PATH.
@@ -389,14 +442,20 @@ class UpdaterMatchesInstallers(unittest.TestCase):
         sh = self.read("scripts", "install-pc.sh")
         ps = self.read("scripts", "install-pc.ps1")
         self.assertIn('run "$UV" %s "$PYTHON" --overrides "$OVERRIDES" "$SPEC"' % want, sh)
-        self.assertIn('@(%s, $Python, "--overrides", $Overrides, $Spec)'
+        self.assertIn('run "$UV" %s "$PYTHON" --overrides "$OVERRIDES" %s "$CONSTRAINTS" "$SPEC"'
+                      % (want, u["CONSTRAINTS"]), sh)
+        self.assertIn('@(%s, $Python, "--overrides", $Overrides)'
                       % ", ".join('"%s"' % a for a in u["UV_INSTALL"] + ["--python"]), ps)
+        self.assertIn('$InstallArgs += @("%s", $Constraints)' % u["CONSTRAINTS"], ps)
+        self.assertIn('/releases/download/deploy-v$VERSION/canworks-$VERSION-constraints.txt"', sh)
+        self.assertIn('/releases/download/deploy-v$Version/canworks-$Version-constraints.txt"', ps)
         self.assertIn('echo "%s" > "$OVERRIDES"' % u["OVERRIDE"], sh)
         self.assertIn('-Value "%s"' % u["OVERRIDE"], ps)
         self.assertIn('SPEC="%s"' % (u["SPEC"] % "$REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-py3-none-any.whl"), sh)
         self.assertIn('$Spec = "%s"' % (u["SPEC"] % "$Repo/releases/download/deploy-v$Version/canworks-$Version-py3-none-any.whl"), ps)
         conf = self.read("tools", "deploy", "canworks", "configurator", "update.py")
         self.assertIn('"%s/releases/download/deploy-v%s/canworks-%s-py3-none-any.whl"', conf)
+        self.assertIn('"%s/releases/download/deploy-v%s/canworks-%s-constraints.txt"', conf)
 
 
 @POSIX_ONLY
@@ -407,6 +466,8 @@ class InstallRuntimeSh(_Base):
         r = self.run_script(["bash", self.script, "--dry-run", "--with-link", "--runtime-dir", "/srv/my runtime"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("would download: %s/archive/refs/tags/deploy-v1.2.3.tar.gz" % self.repo_url, r.stdout)
+        self.assertIn("would download: %s/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
+                      % self.repo_url, r.stdout)
         self.assertIn("install-stock.sh --with-link --runtime-dir /srv/my\\ runtime", r.stdout)
 
     def test_over_ssh(self):
@@ -430,6 +491,7 @@ class InstallRuntimeSh(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("deploy-v0.9.0.tar.gz", r.stdout)
         self.assertIn("install-stock.sh --uninstall", r.stdout)
+        self.assertNotIn("constraints", r.stdout)
         self.assertEqual(_Releases.seen, [])
 
     @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "runs as root here; the refusal is for non-root users")
@@ -478,6 +540,25 @@ class InstallRuntimeSh(_Base):
         self.assertIn("the OpenPLC runtime install failed (see above); canworks was not installed", r.stdout)
         self.assertFalse(any(p.endswith(".tar.gz") for p in _Releases.seen), "no canworks download")
 
+    # lock-dependency-versions: the release's constraints come first, so a
+    # failed download changes nothing; a release without them goes on.
+    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
+    def test_constraints_download(self):
+        asset = "/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
+        _Releases.files = {"/openplc-installer": "#!/bin/sh\necho upstream ran\nexit 3\n"}
+        env = self.runtime_env()
+        env["CANWORKS_OPENPLC_INSTALLER"] = "http://127.0.0.1:%d/openplc-installer" % self.server.server_address[1]
+        _Releases.status[asset] = 502
+        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("could not download canworks-1.2.3-constraints.txt", r.stdout)
+        self.assertIn("nothing was changed", r.stdout)
+        self.assertNotIn("upstream ran", r.stdout)
+        _Releases.status[asset] = 404
+        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
+        self.assertIn("release 1.2.3 does not lock its dependency versions", r.stdout)
+        self.assertIn("upstream ran", r.stdout)
+
 @POSIX_ONLY
 class InstallBridgeSh(_Base):
     """install-bridge.sh run as from GitHub: the script alone, outside a checkout."""
@@ -501,12 +582,15 @@ class InstallBridgeSh(_Base):
         self.assertIn("would download: %s/archive/refs/tags/deploy-v1.2.3.tar.gz" % self.repo_url, r.stdout)
         self.assertIn("install-bridge.sh --without-j1939 --prefix /opt/my\\ bridge", r.stdout)
         self.assertIn("/owner/canworks/releases/latest", _Releases.seen)
+        self.assertIn("would download: %s/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
+                      % self.repo_url, r.stdout)
 
     def test_given_version_and_uninstall(self):
         r = self.run_script(["bash", self.script, "--dry-run", "--version", "deploy-v0.9.0", "--uninstall", "--purge"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("deploy-v0.9.0.tar.gz", r.stdout)
         self.assertIn("install-bridge.sh --uninstall --purge", r.stdout)
+        self.assertNotIn("constraints", r.stdout)
         self.assertEqual(_Releases.seen, [])
 
     def test_instance_on_the_device(self):
@@ -547,6 +631,7 @@ class InstallBridgeSh(_Base):
                 (["--instance", "a/b", "--config", self.cfg], "letters, digits"),
                 (["--instance", "x", "--config", self.tmp], "has no canworks.json"),
                 (["--port", "22"], "--port and --identity need --ssh"),
+                (["--ssh", "pi@rpi.local", "--constraints", "c.txt"], "--constraints names a file here"),
                 (["--remove-config-dir", "--instance", "x", "--config", self.cfg], "only for an uploaded config")):
             r = self.run_script(["bash", self.script, "--dry-run"] + argv)
             self.assertNotEqual(r.returncode, 0, argv)
@@ -735,9 +820,22 @@ class PowerShellScripts(_Base):
         r = self.pwsh("install-pc.ps1", "-DryRun")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertRegex(r.stdout, r"tool install --force --compile-bytecode --python 3\.14 --overrides \S+\.txt "
+                         r"--constraints \S+\.txt "
                          + re.escape("canworks @ %s/releases/download/deploy-v1.2.3/canworks-1.2.3-py3-none-any.whl"
                                      % self.repo_url))
         self.assertIn("canworks-config.exe --create-shortcut", r.stdout)
+        asset = "/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
+        _Releases.status[asset] = 404
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("release 1.2.3 does not lock its dependency versions", r.stdout)
+        self.assertNotIn("--constraints", r.stdout)
+        _Releases.status[asset] = 502
+        r = self.pwsh("install-pc.ps1", "-DryRun")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("could not download canworks-1.2.3-constraints.txt", r.stdout)
+        self.assertNotIn("tool install", r.stdout)
+        del _Releases.status[asset]
         r = self.pwsh("install-pc.ps1", "-DryRun", "-NoShortcut")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertNotIn("shortcut", r.stdout)
