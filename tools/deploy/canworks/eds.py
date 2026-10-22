@@ -314,8 +314,8 @@ def transmission_needs_sync(t):
 
 
 def sync_needed_message(transmission, from_eds):
-    return ("transmission type %d%s needs SYNC, but the master produces none; set master.sync_period_us, "
-            "\"sync_source\": \"plc_cycle\" or \"transmission\": 254 or 255"
+    return ("transmission type %d%s needs SYNC, but the master produces none; set master.sync_period_us or "
+            "\"transmission\": 254 or 255"
             % (transmission, " (from the EDS)" if from_eds else ""))
 
 
@@ -384,7 +384,7 @@ def _check_comm(label, kind, eds, eds_name, node_id, comm, pdo, report):
         # a node with a fixed COB-ID only takes when it is the same.
         have = cob.value(node_id)
         if have is not None and ((have & 0x7FF) != default or have & 0x80000000):
-            report("%s: %s %d: %s fixes the COB-ID at 0x%03X%s (0x%04X subindex 1 is %s), but the plugin uses the "
+            report("%s: %s %d: %s fixes the COB-ID at 0x%03X%s (0x%04X subindex 1 is %s), but canworks uses the "
                    "CiA 301 default 0x%03X; set 'cob_id' to the EDS value"
                    % (label, kind, pdo["number"], eds_name, have & 0x7FF,
                       " with the PDO switched off" if have & 0x80000000 else "", comm, cob.access, default), "cob_id")

@@ -137,7 +137,7 @@ void check_comm_params(const NodeConfig& n, const co_dev_t* dev, bool is_tx, con
         ((eds & 0x7FF) != cob || (eds & 0x80000000u))) {
       char buf[320];
       std::snprintf(buf, sizeof(buf),
-                    "%s: %s %u: %s fixes the COB-ID at 0x%03llX%s (0x%04X subindex 1 is %s), but the plugin uses "
+                    "%s: %s %u: %s fixes the COB-ID at 0x%03llX%s (0x%04X subindex 1 is %s), but canworks uses "
                     "the CiA 301 default 0x%03X; set 'cob_id' to the EDS value",
                     n.label().c_str(), kind, p.number, n.eds.c_str(), (unsigned long long)(eds & 0x7FF),
                     (eds & 0x80000000u) ? " with the PDO switched off" : "", comm,

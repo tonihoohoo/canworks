@@ -3,7 +3,7 @@
 #
 #   test/trace/run.sh [--build-dir build] [--iface vcan0]
 #
-# Runs the ping-pong (tutorial slave, node 2) with the real plugin through
+# Runs the ping-pong (tutorial slave, node 2) with the canworks engine in
 # canopen_host and read-only diagnostics on 127.0.0.1, then records traces
 # with `canworks-diag trace` (this checkout's deploy tool). Passes
 # (exit 0) when:
@@ -13,7 +13,7 @@
 #     from other devices, marked R, are checked on real hardware);
 #   - a trace with --filter 0x180/0x780 holds only identifiers 0x180-0x1FF;
 #   - the same frames come out as pcapng and ASC (convert);
-#   - a client that stops fetching has its trace ended after 10 s (plugin log);
+#   - a client that stops fetching has its trace ended after 10 s (engine log);
 #   - the ping-pong itself passes (status bit and counter, as test/pingpong).
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh).
@@ -35,10 +35,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
-for f in "$PLUGIN" "$HOST" "$SLAVE"; do
+for f in "$HOST" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -70,8 +69,9 @@ def verifier(token):  # diag.token_verifier: SCRAM-SHA-256 (docs/diagnostics.md)
     b = lambda x: base64.b64encode(x).decode()
     return "SCRAM-SHA-256$4096:%s$%s:%s" % (b(salt), b(hashlib.sha256(key(b"Client Key")).digest()), b(key(b"Server Key")))
 cfg = json.load(open(sys.argv[1]))
-cfg["adapter"]["interface"] = sys.argv[3]
-cfg["master"]["diagnostics"] = {"token_verifier": verifier("trace-test"), "port": 7539, "bind": "127.0.0.1"}
+net = cfg["networks"][0]
+net["adapter"]["interface"] = sys.argv[3]
+cfg["diagnostics"] = {"token_verifier": verifier("trace-test"), "port": 7539, "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
 grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
@@ -80,8 +80,8 @@ grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not ad
 PIDS+=($!)
 sleep 0.5
 
-echo "==> Running the plugin on $IFACE for 30 s with read-only diagnostics on 127.0.0.1:7539"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 30 > "$WORK/host.log" 2>&1 &
+echo "==> Running the engine on $IFACE for 30 s with read-only diagnostics on 127.0.0.1:7539"
+"$HOST" "$WORK/canopen_config.json" 30 > "$WORK/host.log" 2>&1 &
 HOST_PID=$!
 sleep 3
 
@@ -133,6 +133,6 @@ wait "$HOST_PID"
 HOST_RC=$?
 echo "==> Plugin log (trace lines):"
 grep -i "trace" "$WORK/host.log" || true
-grep -q "trace of 127.0.0.1 ended: no fetch" "$WORK/host.log" || fail "the plugin did not log the ended idle trace"
+grep -q "trace of 127.0.0.1 ended: no fetch" "$WORK/host.log" || fail "the engine did not log the ended idle trace"
 [ "$HOST_RC" -eq 0 ] || { tail -20 "$WORK/host.log"; fail "the ping-pong failed while tracing (exit $HOST_RC)"; }
 exit $RC

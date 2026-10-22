@@ -20,8 +20,7 @@ from .diag import DiagError
 SCENARIO_DONE = ("passed", "failed", "stopped")
 POLL_S = 0.2
 CLEAR_KINDS = ("all", "emcy", "heartbeat", "power", "sdo-abort", "sdo-delay", "refuse-write-operational",
-               "tpdo-stop", "identity", "device-type", "drive-input")
-DRIVE_INPUTS = ("blocked", "positive_limit", "negative_limit", "home_switch")
+               "tpdo-stop", "identity", "device-type")
 IDENTITY_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 
 
@@ -146,15 +145,6 @@ def _common():
     return c
 
 
-def _bool_flags(p, names):
-    """--NAME and --no-NAME for each boolean drive input."""
-    for name in names:
-        flag = name.replace("_", "-")
-        p.add_argument("--" + flag, dest=name, action="store_const", const=True, default=None,
-                       help="set %s" % flag)
-        p.add_argument("--no-" + flag, dest=name, action="store_const", const=False, help="clear %s" % flag)
-
-
 def add_parser(sub):
     common = _common()
     s = sub.add_parser("sim", parents=[common], help="control simulated devices (see docs/simulator.md)",
@@ -224,8 +214,6 @@ def add_parser(sub):
     k = kind("device-type", "0x1000 reads this value")
     k.add_argument("value", type=_u32("device type"))
     kind("forget-node-id", "the device loses its node ID and waits for LSS")
-    k = kind("drive-input", "inputs of the CiA 402 drive model")
-    _bool_flags(k, DRIVE_INPUTS)
     k = kind("json", "a fault in its JSON form")
     k.add_argument("fault", type=_json_object, metavar="JSON")
 
@@ -318,12 +306,6 @@ def fault_object(args):
         return {"device_type": args.value}
     if k == "forget-node-id":
         return {"forget_node_id": True}
-    if k == "drive-input":
-        f = {key: getattr(args, key) for key in DRIVE_INPUTS if getattr(args, key) is not None}
-        if not f:
-            raise DiagError("usage", "drive-input: give at least one of --blocked, --positive-limit, "
-                                     "--negative-limit, --home-switch (or their --no- forms)")
-        return {"drive_input": f}
     return args.fault  # json
 
 

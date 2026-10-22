@@ -25,9 +25,9 @@
 // by at least 5 during the last half of the run.
 //
 // slave: test/slave/run.sh, a master network and canworks' own slave network
-// joined by cangw; the master computes `%QW10 := %IW10 + 1` and the slave
+// joined by cangw; the master computes `%QW12 := %IW12 + 1` and the slave
 // echoes `%QW300 := %IW300`. Exits 0 if the master's status bit %IX10.0 and
-// the slave's comm OK bit %IX303.0 are TRUE at the end and %IW10 rose by at
+// the slave's comm OK bit %IX303.0 are TRUE at the end and %IW12 rose by at
 // least 5 during the last half of the run.
 //
 // fixed: the fixed-mapping I/O module of test/fixed/run.sh; computes
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
   int first_pressure = -1;
   bool fixed_in_range = true, fixed_moved = false;
   uint8_t fixed_first = 0;
-  if (argc > 3 && !rtd && !bus && !fixed && !two && !slave && !j1939 && std::strcmp(argv[4], "pingpong") != 0) {
+  if (argc > 3 && !rtd && !bus && !fixed && !two && !slave && !j1939 && std::strcmp(argv[3], "pingpong") != 0) {
     std::fprintf(stderr, "canopen_host: unknown program '%s'\n", argv[3]);
     return 2;
   }
@@ -275,7 +275,7 @@ int main(int argc, char** argv) {
     else if (fixed)
       img->byte_out[40] = img->byte_in[40];  // %QB40 := %IB40
     else if (slave) {
-      img->int_out[10] = static_cast<uint16_t>(img->int_in[10] + 1);  // master: %QW10 := %IW10 + 1
+      img->int_out[12] = static_cast<uint16_t>(img->int_in[12] + 1);  // master: %QW12 := %IW12 + 1
       img->int_out[300] = img->int_in[300];                            // slave: %QW300 := %IW300
     } else
       img->dint_out[100] = img->dint_in[100] + 1;  // %QD100 := %ID100 + 1
@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
     }
     if (!have_mid && clock::now() >= half) {
       mid = img->dint_in[100];
-      mid2 = slave ? img->int_in[10] : img->dint_in[104];
+      mid2 = slave ? img->int_in[12] : img->dint_in[104];
       rtd_first = ai(0);
       fixed_first = img->byte_in[40];
       have_mid = true;
@@ -337,7 +337,7 @@ int main(int argc, char** argv) {
         std::printf("t=%2lds  AI0..AI3=%.1f %.1f %.1f %.1f degC  alarm=%d  %%IX10.0=%d\n", t, ai(0) / 10.0,
                     ai(1) / 10.0, ai(2) / 10.0, ai(3) / 10.0, (int)img->bool_out[100][0], (int)img->bool_in[10][0]);
       else if (slave)
-        std::printf("t=%2lds  %%IW10=%u  %%IX10.0=%d  %%IW300=%u  %%IX303.0=%d\n", t, (unsigned)img->int_in[10],
+        std::printf("t=%2lds  %%IW12=%u  %%IX10.0=%d  %%IW300=%u  %%IX303.0=%d\n", t, (unsigned)img->int_in[12],
                     (int)img->bool_in[10][0], (unsigned)img->int_in[300], (int)img->bool_in[303][0]);
       else if (two)
         std::printf("t=%2lds  %%ID100=%u  %%IX10.0=%d  %%ID104=%u  %%IX10.1=%d\n", t, (unsigned)img->dint_in[100],
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_until(next);
   }
 
-  const uint32_t last = img->dint_in[100], last2 = slave ? img->int_in[10] : img->dint_in[104];
+  const uint32_t last = img->dint_in[100], last2 = slave ? img->int_in[12] : img->dint_in[104];
   const bool slave_ok = img->bool_in[303][0] != 0;
   const bool up = img->bool_in[10][0] != 0, up2 = img->bool_in[10][1] != 0;
   const bool pressures_at_end = img->bool_in[202][0] != 0;
@@ -395,7 +395,7 @@ int main(int argc, char** argv) {
   }
   if (slave) {
     const bool ok = up && slave_ok && have_mid && last2 >= mid2 + 5;
-    std::printf("%s: master status bit %s, slave comm OK %s, %%IW10 went from %u to %u in the last half\n",
+    std::printf("%s: master status bit %s, slave comm OK %s, %%IW12 went from %u to %u in the last half\n",
                 ok ? "PASS" : "FAIL", up ? "TRUE" : "FALSE", slave_ok ? "TRUE" : "FALSE", (unsigned)mid2,
                 (unsigned)last2);
     return ok ? 0 : 1;

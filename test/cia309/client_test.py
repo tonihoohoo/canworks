@@ -1,5 +1,5 @@
 """The CiA 309-3 gateway end to end (canopen-cia309-gateway): a Python client
-(canworks.cia309) against the real plugin, loaded by canopen_host on a
+(canworks.cia309) against the canworks engine in canopen_host on a
 simulated bus with the ping-pong device and a simulated LSS device without a
 node ID, over the loopback port and through canworks-diag gateway; then the
 same client against canworks-bridge with the Modbus bridge example while a
@@ -81,8 +81,8 @@ def run_cli(*argv, token):
     return p.returncode, p.stdout, p.stderr
 
 
-def plugin_test(build, repo, work):
-    print("==> The plugin (canopen_host) on a simulated bus")
+def engine_test(build, repo, work):
+    print("==> The engine (canopen_host) on a simulated bus")
     token = diag.new_token()
     dport, gport = free_port(), free_port()
     shutil.copy(os.path.join(repo, "config", "pingpong", "cpp-slave.eds"), work)
@@ -90,13 +90,14 @@ def plugin_test(build, repo, work):
     shutil.copy(os.path.join(repo, "config", "rtd-sensor", "rtd8.eds"), work)
     with open(os.path.join(repo, "config", "pingpong", "canopen_config.json")) as f:
         cfg = json.load(f)
-    cfg["adapter"] = {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": True}
+    net = cfg["networks"][0]
+    net["adapter"] = {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": True}
     # allow_changes for the simulator commands; the gateway has its own.
-    cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1",
-                                    "allow_changes": True}
+    cfg["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1",
+                          "allow_changes": True}
     # A second node whose device name (0x1008, "RTD-8") is longer than an expedited transfer.
-    cfg["nodes"].append({"node_id": 5, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 100})
-    cfg["master"]["cia309"] = {"port": gport, "allow_changes": True}
+    net["nodes"].append({"node_id": 5, "name": "rtd", "eds": "rtd8.eds", "heartbeat_ms": 100})
+    cfg["cia309"] = {"port": gport, "allow_changes": True}
     with open(os.path.join(work, "canopen_config.json"), "w") as f:
         json.dump(cfg, f, indent=2)
     with open(os.path.join(repo, "config", "pingpong", "simulation.json")) as f:
@@ -108,12 +109,11 @@ def plugin_test(build, repo, work):
     log_path = os.path.join(work, "host.log")
     log = open(log_path, "w")
     proc = subprocess.Popen([os.path.join(build, "test", "canopen_host"),
-                             os.path.join(build, "plugins", "libcanworks_plugin.so"),
                              os.path.join(work, "canopen_config.json"), "60"], stdout=log, stderr=subprocess.STDOUT)
     try:
         check(wait_port(gport, proc), "the plain gateway port listens")
         text = open(log_path).read()
-        check(re.search(r"CiA 309-3 gateway listens on 127\.0\.0\.1:%d .*changes allowed.*networks 1 = the network"
+        check(re.search(r"CiA 309-3 gateway listens on 127\.0\.0\.1:%d .*changes allowed.*networks 1 = sim0"
                         % gport, text) is not None, "the log names the address, the changes and the numbering")
         g = gateway(gport)
         # Node 2 boots: wait for its device type to answer.
@@ -213,7 +213,7 @@ def plugin_test(build, repo, work):
         after = c.status().get("sync") or {}
         c.close()
         check(sum(counts) > 40, "four sessions read in a loop", counts)
-        period = cfg["master"]["sync_period_us"]
+        period = net["master"]["sync_period_us"]
         check(after.get("late_pdos", 0) == before.get("late_pdos", 0), "no late PDOs while they read")
         check(after.get("max_us", 0) < 3 * period, "the SYNC interval stays (max %s us, period %s us)"
               % (after.get("max_us"), period))
@@ -298,7 +298,7 @@ def main():
     build, repo = sys.argv[1], sys.argv[2]
     work = tempfile.mkdtemp(prefix="canworks-cia309-")
     try:
-        plugin_test(build, repo, work)
+        engine_test(build, repo, work)
         bridge_test(build, repo, work)
     except Exception as e:  # a crash is a failure with the logs kept
         check(False, "the test ran to the end", repr(e))

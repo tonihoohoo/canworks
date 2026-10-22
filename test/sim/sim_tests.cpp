@@ -5755,7 +5755,7 @@ TEST(sim_stop_all_nodes_restart_node_back_in_session) {
     CHECK_MSG(nmt_blk->gs.BOOT_ERROR.get() == 0, "node " + std::to_string(id) + " boot error " +
                                                      std::string(1, char(nmt_blk->gs.BOOT_ERROR.get())));
   }
-  CHECK(count_logs("it boots no node until the plugin restarts") == 1);
+  CHECK(count_logs("it boots no node until canworks restarts") == 1);
   CHECK(!logged("not answering"));
   CHECK(!logged("holds the whole network in PRE-OPERATIONAL"));
   CHECK_MSG(sim->ib(21) == 4, "master state " + std::to_string(sim->ib(21)) + " after a session restart");

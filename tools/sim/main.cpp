@@ -89,8 +89,7 @@ void print_usage(bool full) {
       "                                        sdo-delay MS [--object OBJECT] | refuse-write-operational\n"
       "                                        tpdo-stop N | identity [--vendor-id V] [--product-code P]\n"
       "                                        [--revision-number R] [--serial-number S] | device-type V\n"
-      "                                        forget-node-id | drive-input [--blocked] [--positive-limit]\n"
-      "                                        [--negative-limit] [--home-switch] | json '{...}'\n"
+      "                                        forget-node-id | json '{...}'\n"
       "  clear NODE FAULT [OBJECT|TPDO]        FAULT: a fault name (dashes or underscores) or all\n"
       "  scenario list | start NAME | stop NAME\n");
 }

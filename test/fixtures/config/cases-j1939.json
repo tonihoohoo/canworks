@@ -508,7 +508,7 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": [
-        "networks[1]: j1939: tx[0]: signals[2].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out"
+        "networks[1]: j1939: tx[0]: signals[2].iec_location: canworks sets switch Line when pages is \"all\"; leave it out"
       ]
     },
     {

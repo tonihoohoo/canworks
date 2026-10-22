@@ -48,7 +48,7 @@ A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs
 
 In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `canworks-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
 
-A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches the plugin's own slave. A simulated bus takes one master network and one slave network.
+A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches canworks' own slave. A simulated bus takes one master network and one slave network.
 
 #### Simulated devices on a real network
 

@@ -502,7 +502,7 @@ class SlcanAdapter : public CanAdapter {
     }
     if (rc == 0) {
       problem_ = "CAN interface " + cfg_.interface +
-                 " already exists and was not created by the plugin; stop the program that created it (such as an "
+                 " already exists and was not created by canworks; stop the program that created it (such as an "
                  "slcand service) or use adapter type socketcan with configure_link false";
       return AdapterState::Failed;
     }

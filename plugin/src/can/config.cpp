@@ -760,10 +760,10 @@ class Parser {
                        : protocol == "none" ? Protocol::None
                                             : Protocol::CANopen;
         if (pj && !protocol_built_in(cfg.protocol))
-          error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this plugin (built with: " +
+          error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this canworks (built with: " +
                         built_in_protocols() + ")");
         else if (!pj && !protocol_built_in(Protocol::CANopen))
-          error("", "CANopen is not built into this plugin (built with: " + built_in_protocols() +
+          error("", "CANopen is not built into this canworks (built with: " + built_in_protocols() +
                         "); a network without 'protocol' is a CANopen network");
         std::string role = "master";
         if (cfg.is_j1939()) {
@@ -1018,7 +1018,7 @@ class Parser {
   }
 
   // `switch_mode`: the pages mode ("all", "rotate") of a tx entry whose
-  // switches the plugin sets, "" when its `pages` was wrong, else nullptr.
+  // switches canworks sets, "" when its `pages` was wrong, else nullptr.
   void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, const char* switch_mode,
                            std::vector<J1939Signal>& out) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(msg, "signals");
@@ -1080,10 +1080,10 @@ class Parser {
       get_number(sj, "offset", sw, -1e300, 1e300, s.offset);
       get_string(sj, "unit", sw, false, s.unit);
       if (s.mux.is_switch && switch_mode) {
-        // The plugin sets this switch; an empty mode: `pages` was wrong.
+        // canworks sets this switch; an empty mode: `pages` was wrong.
         s.has_location = false;
         if (cJSON_GetObjectItemCaseSensitive(sj, "iec_location") && *switch_mode)
-          error(where, "signals[" + std::to_string(index) + "].iec_location: the plugin sets switch " + s.name +
+          error(where, "signals[" + std::to_string(index) + "].iec_location: canworks sets switch " + s.name +
                            " when pages is \"" + switch_mode + "\"; leave it out");
       } else if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
         error(where, me + ": field 'iec_location' is missing");
@@ -3021,7 +3021,7 @@ class Parser {
       for (const auto& sv : n.sdo_variables) {
         const char* what = sv.is_read() ? nullptr : plugin_owned_object(sv.index);
         if (!what) continue;
-        warning(n.label(), sv.label() + " writes an object the plugin configures itself; the program can override " +
+        warning(n.label(), sv.label() + " writes an object canworks configures itself; the program can override " +
                                what);
       }
   }
@@ -3116,7 +3116,7 @@ class Parser {
         if (s.index >= 0x1400 && s.index <= 0x17FF && n.linked_rpdos.count((s.index & 0x1FFu) + 1))
           what = "the consumer RPDO of a PDO link ('links')";
         else if (s.index >= 0x1400 && s.index <= 0x1BFF)
-          what = "the PDO settings (the plugin sets up every PDO of the node)";
+          what = "the PDO settings (canworks sets up every PDO of the node)";
         else if (s.index == 0x1017 && s.subindex == 0 && n.has_heartbeat && v != n.heartbeat_ms)
           what = "heartbeat_ms";
         else if (s.index == 0x100C && s.subindex == 0 && n.guard_time_ms && v != n.guard_time_ms)

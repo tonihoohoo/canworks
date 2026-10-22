@@ -1340,7 +1340,7 @@ class Page(unittest.TestCase):
         pg.click('button[data-sdo-var="0x1017:0"]')
         pg.wait_for_selector('input[data-path="nodes[0].sdo_variables[1].iec_location"]')
         self.settled()
-        self.assertIn("plugin configures itself",
+        self.assertIn("canworks configures itself",
                       pg.inner_text('.field-msg[data-for="nodes[0].sdo_variables[1]"]'))
         pg.fill('input[aria-label="SDO variable index"]', "0x7FFF")
         pg.click("text=Add variable")

@@ -57,8 +57,6 @@ class Arguments(unittest.TestCase):
                          {"identity": {"product_code": 0x99, "serial_number": 7}})
         self.assertEqual(self.fault("device-type", "0x20192"), {"device_type": 0x20192})
         self.assertEqual(self.fault("forget-node-id"), {"forget_node_id": True})
-        self.assertEqual(self.fault("drive-input", "--blocked", "--no-home-switch"),
-                         {"drive_input": {"blocked": True, "home_switch": False}})
         self.assertEqual(self.fault("json", '{"heartbeat": "stop"}'), {"heartbeat": "stop"})
 
     def test_fault_kind_names_match_the_simulator(self):
@@ -68,7 +66,7 @@ class Arguments(unittest.TestCase):
             self.fault("nmt", "preop")  # the simulator's name is nmt-state
 
     def test_fault_usage_errors(self):
-        for argv in (("identity",), ("drive-input",), ("power", "on", "--off-ms", "10"),
+        for argv in (("identity",), ("power", "on", "--off-ms", "10"),
                      ("emcy", "0x5000", "--register", "0x100"), ("emcy", "1", "--period-ms", "5"),
                      ("emcy", "0x0000", "--period-ms", "100")):
             with self.assertRaises(diag.DiagError, msg=argv) as cm:

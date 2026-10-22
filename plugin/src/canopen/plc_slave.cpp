@@ -596,9 +596,9 @@ void PlcSlave::ServiceDiag() {
   if (!diag_ || stopped_) return;
   std::vector<DiagRequest> reqs;
   diag_->take(reqs);
-  diag_->set_operational(nmt_state() == 5 ? "the plugin's own slave" : "");
+  diag_->set_operational(nmt_state() == 5 ? "canworks' own slave" : "");
   // The guard of hand-sent frames: the PDO COB-IDs as the dictionary has them now.
-  if (diag_->ids_due()) diag_->set_used_ids(dictionary_id_uses(dev(), "the plugin's own slave"));
+  if (diag_->ids_due()) diag_->set_used_ids(dictionary_id_uses(dev(), "canworks' own slave"));
   for (auto& r : reqs) {
     if (r.op == "status")
       DiagStatus(r);

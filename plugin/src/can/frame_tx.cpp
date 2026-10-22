@@ -120,7 +120,7 @@ std::string cob_id_use(const Config& cfg, uint32_t id, bool ext) {
     if (id == (cfg.master.has_time_cob_id ? cfg.master.time_producer_cob_id() : 0x100u)) return "TIME";
     if (!cfg.slave.lss || cfg.slave.node_id) {
       const uint32_t nid = cfg.slave.node_id;
-      const std::string who = " of the plugin's own slave (node " + std::to_string(nid) + ")";
+      const std::string who = " of canworks' own slave (node " + std::to_string(nid) + ")";
       if (id == 0x80 + nid) return "EMCY" + who;
       for (unsigned k = 0; k < 4; ++k) {
         if (id == 0x180 + 0x100 * k + nid) return "TPDO" + std::to_string(k + 1) + who;

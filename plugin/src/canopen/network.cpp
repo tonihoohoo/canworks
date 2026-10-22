@@ -339,9 +339,9 @@ void Network::Start() {
     // a new session does not lift that (canopen-plc-nmt "Master stop by
     // stop_all_nodes lasts for the run").
     log_error("the master stays STOPPED: a mandatory node was lost earlier in this PLC run (master.stop_all_nodes); "
-              "NMT STOP to every node, no PDOs are exchanged until the plugin restarts");
+              "NMT STOP to every node, no PDOs are exchanged until canworks restarts");
     log_info("the master is STOPPED after a mandatory node was lost (master.stop_all_nodes): it boots no node until "
-             "the plugin restarts");
+             "canworks restarts");
     Command(NmtCommand::STOP, static_cast<uint8_t>(cfg_.master.node_id));
     Command(NmtCommand::STOP, 0);
     // Each node reads STOPPED until its heartbeat or boot-up says otherwise.
@@ -896,7 +896,7 @@ void Network::HandleCommand(NmtCommand cs) {
       std::lock_guard<lely::util::BasicLockable> lock(*this);
       SkipSlaveBoots();
     }
-    log_error("master is STOPPED: no PDOs are exchanged until the plugin restarts");
+    log_error("master is STOPPED: no PDOs are exchanged until canworks restarts");
   }
   // A reset of the stopped master (not one it left STOPPED for first).
   if (run_->master_stopped && was_stopped && (cs == NmtCommand::RESET_COMM || cs == NmtCommand::RESET_NODE))

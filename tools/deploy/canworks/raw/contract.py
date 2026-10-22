@@ -145,7 +145,7 @@ def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings, switch_m
         if is_switch and switch_mode is not None:
             # The plugin sets the switch; an empty mode was reported at `pages`.
             if "iec_location" in s and switch_mode:
-                errors.append('%s.iec_location: the plugin sets switch %s when pages is "%s"; leave it out'
+                errors.append('%s.iec_location: canworks sets switch %s when pages is "%s"; leave it out'
                               % (p, label, switch_mode))
         else:
             t = o.text("iec_location")

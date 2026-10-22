@@ -277,7 +277,7 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. After the master's own reset its output PDOs stay off until each node is up again, and then carry the program's current outputs (never the device configuration's defaults). |
-| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included, and the master boots no node until the plugin restarts ([plc-nmt.md](plc-nmt.md)). Takes precedence over `reset_all_nodes`. |
+| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included, and the master boots no node until canworks restarts ([plc-nmt.md](plc-nmt.md)). Takes precedence over `reset_all_nodes`. |
 | `boot_time_ms` | 0x1F89 | Time allowed for all mandatory nodes to boot; 0 or left out: no limit. |
 | `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity reads, PDO and startup SDO downloads and `restore_configuration`. Raise it for a device that answers late, for example one that saves each parameter to flash first; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
 
@@ -703,7 +703,7 @@ node 23 (valve): SDO variable 0x2020:1 (setpoint): write aborted, abort code 0x0
 
 Transfers do not change the node's NMT state, status bit or state byte.
 
-Writing an object the plugin configures itself (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80) is accepted with a warning, because the program can then override that setting until the node boots again.
+Writing an object canworks configures itself (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80) is accepted with a warning, because the program can then override that setting until the node boots again.
 
 **Bus load.** The master runs one SDO transfer per node at a time, picking a triggered transfer first, then an owned write, then a read after boot, then a periodic read. Each transfer is two CAN frames for up to 4 bytes. A few periodic reads per node at 100 ms or slower hardly load a 500 kbit/s bus; for values that change every scan, map them in a PDO instead. Requests are picked up every 10 ms and at each SYNC (when the master produces SYNC).
 

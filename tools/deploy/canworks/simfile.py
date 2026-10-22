@@ -688,7 +688,7 @@ def describe_simulated(cfg):
         if net["role"] == "slave":
             text = ("the slave runs on simulated bus %s" % iface) if net["adapter"].get("simulate") is True else None
         else:
-            # The plugin's own slave on the same simulated bus serves its node ID.
+            # canworks' own slave on the same simulated bus serves its node ID.
             served = {}
             if net["adapter"].get("simulate") is True and isinstance(iface, str) and iface:
                 for other in nets:
@@ -1369,9 +1369,6 @@ def _check_fault(f, dev, at, err):
         if not dev.eds.has(0x1800 + n - 1):
             err(w + ".tpdo_stop", "%s: TPDO %d does not exist in %s (no object 0x%04X)"
                 % (dev.label, n, dev.eds_name, 0x1800 + n - 1))
-    if "drive_input" in f and dev.eds is not None and not dev.eds.has(0x6041):
-        err(w + ".drive_input", "%s: drive_input needs a CiA 402 drive (no statusword 0x6041 in %s)"
-            % (dev.label, dev.eds_name))
 
 
 def _check_condition(cond, at, step_dev, devices, err):

@@ -42,7 +42,7 @@ def load_cases(name="cases.json"):
 
 class SharedFixtures(unittest.TestCase):
     def test_cases(self):
-        self.run_cases(load_cases(), contract.schema(), 20)
+        self.run_cases(load_cases(), contract.schema(2), 20)
 
     def test_cases_v2(self):
         # Several networks (test/fixtures/config/cases-v2.json).
@@ -50,7 +50,7 @@ class SharedFixtures(unittest.TestCase):
 
     def test_cases_links(self):
         # PDO links and heartbeat watch (test/fixtures/config/cases-links.json).
-        self.run_cases(load_cases("cases-links.json"), contract.schema(), 30)
+        self.run_cases(load_cases("cases-links.json"), contract.schema(2), 30)
 
     def test_cases_j1939(self):
         # J1939 networks (test/fixtures/config/cases-j1939.json).
@@ -113,18 +113,9 @@ class Examples(unittest.TestCase):
         self.assertGreater(found, 0)
 
     def test_node_id_out_of_range_names_path_and_range(self):
-        cfg = patched(load_cases()["base"], [["set", "nodes/0/node_id", 200]])
+        cfg = patched(load_cases()["base"], [["set", "networks/0/nodes/0/node_id", 200]])
         r = contract.check_config(cfg, "canworks.json", eds_dir=os.path.join(FIXTURES, "eds"))
-        self.assertIn("canworks.json: nodes[0].node_id: node ID must be 1 to 127", "\n".join(r.errors))
-
-
-class InterfaceNames(unittest.TestCase):
-    def test_old_style_interface_checked(self):
-        # The pre-contract top-level interface goes through the same check.
-        cfg = patched(load_cases()["base"], [["delete", "adapter"], ["set", "interface", "vcan0 --up"],
-                                             ["set", "bitrate", 125000]])
-        r = contract.check_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
-        self.assertIn('interface "vcan0 --up" must be 1-15 characters', "\n".join(r.errors))
+        self.assertIn("canworks.json: networks[0]: nodes[0].node_id: node ID must be 1 to 127", "\n".join(r.errors))
 
 
 class AutoCobIds(unittest.TestCase):
@@ -228,18 +219,18 @@ class EmcyCobIds(unittest.TestCase):
 
     def config(self, emcy=None, sdo=None, second_emcy=None):
         cfg = load_cases()["base"]
-        cfg["nodes"][0]["eds"] = "emcy-slave.eds"  # EMCY fields need 0x1014 in the EDS
-        second = copy.deepcopy(cfg["nodes"][0])
+        cfg["networks"][0]["nodes"][0]["eds"] = "emcy-slave.eds"  # EMCY fields need 0x1014 in the EDS
+        second = copy.deepcopy(cfg["networks"][0]["nodes"][0])
         second.update(node_id=3, name="second", status_location="%IX10.1")
         second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"
         second["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD104"
-        cfg["nodes"].append(second)
+        cfg["networks"][0]["nodes"].append(second)
         if emcy is not None:
-            cfg["nodes"][0]["emcy_cob_id"] = emcy
+            cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = emcy
         if second_emcy is not None:
             second["emcy_cob_id"] = second_emcy
         if sdo is not None:
-            cfg["nodes"][0]["sdo"].append({"index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": sdo})
+            cfg["networks"][0]["nodes"][0]["sdo"].append({"index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": sdo})
         return cfg
 
     def check(self, cfg):
@@ -268,13 +259,13 @@ class EmcyCobIds(unittest.TestCase):
         for v in ("dev", True, -5, [1], "0xZZ"):
             with self.subTest(v):
                 msg, paths = self.error(self.config(v))
-                self.assertEqual(msg, "canworks.json: nodes[0]: node 2 (pingpong): field 'emcy_cob_id' must be "
+                self.assertEqual(msg, "canworks.json: networks[0]: nodes[0]: node 2 (pingpong): field 'emcy_cob_id' must be "
                                       "\"device\", \"eds\" or a COB-ID")
-                self.assertEqual(paths, ["nodes[0].emcy_cob_id"])
+                self.assertEqual(paths, ["networks[0].nodes[0].emcy_cob_id"])
 
     def test_bit_31(self):
         msg, _ = self.error(self.config(0x80000085))
-        self.assertEqual(msg, "canworks.json: nodes[0]: node 2 (pingpong): emcy_cob_id 0x80000085 has bit 31 set "
+        self.assertEqual(msg, "canworks.json: networks[0]: nodes[0]: node 2 (pingpong): emcy_cob_id 0x80000085 has bit 31 set "
                               "(EMCY not valid); give the COB-ID the device sends on")
 
     def test_not_11_bit(self):
@@ -286,9 +277,9 @@ class EmcyCobIds(unittest.TestCase):
 
     def test_restricted(self):
         msg, paths = self.error(self.config(1537))
-        self.assertEqual(msg, "canworks.json: nodes[0]: node 2 (pingpong): emcy_cob_id 0x601 is a restricted "
+        self.assertEqual(msg, "canworks.json: networks[0]: nodes[0]: node 2 (pingpong): emcy_cob_id 0x601 is a restricted "
                               "CAN-ID (CiA 301)")
-        self.assertEqual(paths, ["nodes[0].emcy_cob_id"])
+        self.assertEqual(paths, ["networks[0].nodes[0].emcy_cob_id"])
         for v in (0, 0x7F, 0x101, 0x180, 0x581, 0x5FF, 0x67F, 0x6E0, 0x6FF, 0x701):
             with self.subTest(hex(v)):
                 self.assertIn("is a restricted CAN-ID", self.error(self.config(v))[0])
@@ -308,26 +299,26 @@ class EmcyCobIds(unittest.TestCase):
 
     def test_clash_with_the_masters_time_cob_id(self):
         cfg = self.config(0x190)
-        cfg["master"]["time_cob_id"] = "0x40000190"
+        cfg["networks"][0]["master"]["time_cob_id"] = "0x40000190"
         self.assertIn("emcy_cob_id 0x190 clashes with TIME", self.error(cfg)[0])
 
     def test_clash_with_a_moved_emcy(self):
         cfg = self.config(0xC5, second_emcy=0xC5)
         r = self.check(cfg)
         self.assertEqual(r.errors, [
-            "canworks.json: nodes[0]: node 2 (pingpong): emcy_cob_id 0x0C5 clashes with the EMCY of node 3 (second)",
-            "canworks.json: nodes[1]: node 3 (second): emcy_cob_id 0x0C5 clashes with the EMCY of node 2 (pingpong)"])
+            "canworks.json: networks[0]: nodes[0]: node 2 (pingpong): emcy_cob_id 0x0C5 clashes with the EMCY of node 3 (second)",
+            "canworks.json: networks[0]: nodes[1]: node 3 (second): emcy_cob_id 0x0C5 clashes with the EMCY of node 2 (pingpong)"])
 
     def test_auto_cob_id(self):
         cfg = self.config(0x57F)
-        cfg["nodes"][1]["tx_pdos"][0].update(number=5, cob_id="auto")
+        cfg["networks"][0]["nodes"][1]["tx_pdos"][0].update(number=5, cob_id="auto")
         self.assertIn("emcy_cob_id 0x57F clashes with node 3 (second) TPDO 5", self.error(cfg)[0])
 
     def test_startup_sdo(self):
         msg, paths = self.error(self.config(sdo="0x183"))
-        self.assertEqual(msg, "canworks.json: nodes[0]: node 2 (pingpong): EMCY COB-ID 0x183 from the startup SDO "
+        self.assertEqual(msg, "canworks.json: networks[0]: nodes[0]: node 2 (pingpong): EMCY COB-ID 0x183 from the startup SDO "
                               "to 0x1014 clashes with node 3 (second) TPDO 1")
-        self.assertEqual(paths, ["nodes[0].sdo[1]"])
+        self.assertEqual(paths, ["networks[0].nodes[0].sdo[1]"])
         self.assertIn("EMCY COB-ID 0x20000085 from the startup SDO to 0x1014 is not an 11-bit CAN-ID",
                       self.error(self.config(sdo=0x20000085))[0])
         # Bit 31: ignored, no COB-ID taken.
@@ -339,9 +330,9 @@ class EmcyCobIds(unittest.TestCase):
 
     def test_last_startup_sdo_counts(self):
         cfg = self.config(sdo="0x183")
-        cfg["nodes"][0]["sdo"].append({"index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": 0xC5})
+        cfg["networks"][0]["nodes"][0]["sdo"].append({"index": "0x1014", "subindex": 0, "type": "UNSIGNED32", "value": 0xC5})
         self.assertEqual(self.emcy_errors(cfg), [])
-        cfg["nodes"][0]["sdo"][-1]["value"] = 0x800000C5  # bit 31: no COB-ID taken at all
+        cfg["networks"][0]["nodes"][0]["sdo"][-1]["value"] = 0x800000C5  # bit 31: no COB-ID taken at all
         self.assertEqual(self.emcy_errors(cfg), [])
 
     def test_configured_value(self):

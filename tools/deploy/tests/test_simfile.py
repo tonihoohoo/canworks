@@ -511,7 +511,7 @@ class Simulated(unittest.TestCase):
                          "node 5 is a simulated device on the real network can0")
 
     def test_describe_shared_simulated_bus(self):
-        # The plugin's own slave on the master's simulated bus serves node 10.
+        # canworks' own slave on the master's simulated bus serves node 10.
         master = dict(self.cfg(True, ((10, False), (5, None))), name="plc")
         master["adapter"]["interface"] = "sim0"
         slave = {"name": "line", "role": "slave",

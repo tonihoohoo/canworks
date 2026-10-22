@@ -182,18 +182,6 @@ cJSON* build_fault(const std::string& kind_in, std::vector<std::string>& pos, si
   } else if (kind == "device_type") {
     check_opts(o, {}, kind_in);
     cJSON_AddItemToObject(f, "device_type", number_arg(need(pos, i, "the device type"), "the device type"));
-  } else if (kind == "drive_input") {
-    check_opts(o, {"--blocked", "--positive-limit", "--negative-limit", "--home-switch", "--no-blocked",
-                   "--no-positive-limit", "--no-negative-limit", "--no-home-switch"},
-               kind_in);
-    if (o.list.empty()) usage("fault drive-input needs --blocked, --positive-limit, --negative-limit or --home-switch (--no-... for false)");
-    cJSON* a = cJSON_AddObjectToObject(f, "drive_input");
-    for (const auto& kv : o.list) {
-      bool off = kv.first.compare(0, 5, "--no-") == 0;
-      std::string name = underscores(kv.first.substr(off ? 5 : 2));
-      cJSON_DeleteItemFromObjectCaseSensitive(a, name.c_str());
-      cJSON_AddBoolToObject(a, name.c_str(), !off);
-    }
   } else {
     cJSON_Delete(f);
     usage("unknown fault kind \"" + kind_in + "\"");

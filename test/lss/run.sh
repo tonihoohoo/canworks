@@ -6,10 +6,10 @@
 #
 # Starts the tutorial ping-pong slave as an LSS device without a node ID
 # (test/lss/lss_slave, EDS test/fixtures/eds/lss-slave.eds with serial
-# number 0x00001234), then loads the real libcanworks_plugin.so through
+# number 0x00001234), then runs the canworks engine in
 # canopen_host with the ping-pong program and node 2 configured with
 # "serial_number" and "lss": { "assign": true }. Passes (exit 0) when the
-# plugin logs that it assigned node ID 2, the ping-pong runs on node 2
+# engine logs that it assigned node ID 2, the ping-pong runs on node 2
 # (status bit %IX10.0 TRUE, %ID100 counting) and, with candump, no LSS
 # "store configuration" (0x7E5 17) was sent.
 #
@@ -34,10 +34,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/lss_slave"
-for f in "$PLUGIN" "$HOST" "$SLAVE"; do
+for f in "$HOST" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -59,24 +58,29 @@ awk '/^\[/ { sec = $0 } sec == "[1018sub4]" && /^DefaultValue=/ { $0 = "DefaultV
     "$ROOT/test/fixtures/eds/lss-slave.eds" > "$WORK/lss-slave.eds"
 cat > "$WORK/canopen_config.json" <<JSON
 {
-  "schema_version": 1,
-  "adapter": { "type": "socketcan", "interface": "$IFACE", "bitrate": 125000, "configure_link": false },
-  "master": { "node_id": 1, "sync_period_us": 100000 },
-  "nodes": [
+  "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
+  "networks": [
     {
-      "node_id": 2,
-      "name": "pingpong",
-      "eds": "lss-slave.eds",
-      "serial_number": "0x00001234",
-      "lss": { "assign": true },
-      "heartbeat_ms": 100,
-      "heartbeat_timeout_ms": 300,
-      "status_location": "%IX10.0",
-      "tx_pdos": [
-        { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
-      ],
-      "rx_pdos": [
-        { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] }
+      "adapter": { "type": "socketcan", "interface": "$IFACE", "bitrate": 125000, "configure_link": false },
+      "master": { "node_id": 1, "sync_period_us": 100000 },
+      "nodes": [
+        {
+          "node_id": 2,
+          "name": "pingpong",
+          "eds": "lss-slave.eds",
+          "serial_number": "0x00001234",
+          "lss": { "assign": true },
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX10.0",
+          "tx_pdos": [
+            { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
+          ],
+          "rx_pdos": [
+            { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] }
+          ]
+        }
       ]
     }
   ]
@@ -91,14 +95,14 @@ fi
 PIDS+=($!)
 sleep 0.5
 
-echo "==> Running the plugin on $IFACE for ${SECONDS_RUN}s (LSS slave without a node ID, assigned node ID 2)"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" 2>&1 | tee "$WORK/host.log"
+echo "==> Running the engine on $IFACE for ${SECONDS_RUN}s (LSS slave without a node ID, assigned node ID 2)"
+"$HOST" "$WORK/canopen_config.json" "$SECONDS_RUN" 2>&1 | tee "$WORK/host.log"
 RC=${PIPESTATUS[0]}
 echo "==> Slave:"
 cat "$WORK/slave.log"
 
 if ! grep -q "node 2 (pingpong): LSS assigned node ID 2 (previous: none)" "$WORK/host.log"; then
-    echo "FAIL: the plugin did not log the LSS assignment of node ID 2" >&2
+    echo "FAIL: the engine did not log the LSS assignment of node ID 2" >&2
     RC=1
 fi
 if [ -f "$WORK/candump.log" ]; then

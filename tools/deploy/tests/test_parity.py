@@ -103,7 +103,7 @@ class Parity(unittest.TestCase):
         # The entries' starting point (cases.json's base, simulated, with a
         # value source the plugin takes), so the refusals are the entries' own.
         cfg = load_cases()["base"]
-        cfg["adapter"]["simulate"] = True
+        cfg["networks"][0]["adapter"]["simulate"] = True
         doc = {"description": "base", "config": cfg,
                "simulation": {"schema_version": 1, "nodes": {"2": {"sources": {"0x4001:0": {"constant": 1}}}}}}
         folder = self.write(doc)
@@ -119,17 +119,17 @@ class Parity(unittest.TestCase):
         desc = {"device_name": "six", "vendor_id": 0, "product_code": 1, "date": "2026-01-01",
                 "objects": [{"name": "v%d" % i, "type": "UNSIGNED64", "direction": "to_master"} for i in range(6)]}
         cfg = load_cases()["base"]
-        two = cfg["nodes"][0]
+        two = cfg["networks"][0]["nodes"][0]
         two["eds"] = "six.eds"
         del two["rx_pdos"]
         two["tx_pdos"] = [{"number": 6, "cob_id": "auto", "entries": [
             {"index": "0x2100", "subindex": 6, "type": "UNSIGNED64", "iec_location": "%IL20"}]}]
-        three = json.loads(json.dumps(load_cases()["base"]["nodes"][0]))
+        three = json.loads(json.dumps(load_cases()["base"]["networks"][0]["nodes"][0]))
         three.update(node_id=3, name="three", status_location="%IX10.1")
         three["tx_pdos"][0].update(cob_id="0x682")
         three["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"
         three["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD104"
-        cfg["nodes"].append(three)
+        cfg["networks"][0]["nodes"].append(three)
         doc = {"description": "auto", "config": cfg}
         folder = self.write(doc)
         with open(os.path.join(folder, "six.eds"), "w", encoding="utf-8") as f:
@@ -151,7 +151,7 @@ class Parity(unittest.TestCase):
                           ("TIME_OF_DAY", "DataType=0x000C\nAccessType=rw\nDefaultValue=0 0\nPDOMapping=0\n")):
             with self.subTest(name):
                 cfg = load_cases()["base"]
-                cfg["nodes"][0]["eds"] = "forms.eds"
+                cfg["networks"][0]["nodes"][0]["eds"] = "forms.eds"
                 doc = {"description": name, "config": cfg, "eds_files": {"forms.eds": {"from": "cpp-slave.eds", "replace": [
                     ["SupportedObjects=2\n1=0x4000\n2=0x4001\n", "SupportedObjects=3\n1=0x4000\n2=0x4001\n3=0x4002\n"],
                     ["PDOMapping=1\n", "PDOMapping=1\n\n[4002]\nParameterName=form\n" + obj]]}}}

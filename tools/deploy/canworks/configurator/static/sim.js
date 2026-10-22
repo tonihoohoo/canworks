@@ -31,19 +31,14 @@ const FAULT_KINDS = [["emcy", "EMCY…", true], ["heartbeat", "Heartbeat stop"],
   ["reset_comm", "Reset communication"], ["nmt_state", "NMT state…", true], ["sdo_abort", "SDO abort…", true],
   ["sdo_delay", "SDO delay…", true], ["refuse_write_operational", "Refuse writes while operational"],
   ["tpdo_stop", "TPDO stop…", true], ["identity", "Identity…", true], ["device_type", "Device type…", true],
-  ["forget_node_id", "Forget node ID"], ["drive_input", "Drive inputs…", true]];
+  ["forget_node_id", "Forget node ID"]];
 const FAULT_FIXED = { heartbeat: { heartbeat: "stop" }, power_off: { power: "off" }, power_on: { power: "on" },
   reset_node: { reset: "node" }, reset_comm: { reset: "comm" }, refuse_write_operational: { refuse_write_operational: true },
   forget_node_id: { forget_node_id: true } };
 const CLEAR_NAMES = ["all", "emcy", "heartbeat", "power", "sdo_abort", "sdo_delay", "refuse_write_operational", "tpdo_stop",
-  "identity", "device_type", "drive_input"];
+  "identity", "device_type"];
 const IDENTITY_KEYS = [["vendor_id", "Vendor ID"], ["product_code", "Product code"], ["revision_number", "Revision"],
   ["serial_number", "Serial number"]];
-const DRIVE_INPUTS = [["blocked", "Blocked"], ["positive_limit", "Positive limit"], ["negative_limit", "Negative limit"],
-  ["home_switch", "Home switch"]];
-const DRIVE_FIELDS = [["max_velocity", "Max velocity (counts/s)", "100000"], ["max_acceleration", "Max acceleration (counts/s²)", "1000000"],
-  ["lag_ms", "Lag (ms)", "5"], ["start_position", "Start position", "0"],
-  ["torque_accel", "Torque gain (counts/s² per ‰)", "10000"]];
 const STEP_ACTIONS = [["set", "Set"], ["override", "Override"], ["release", "Release"], ["source", "Source"], ["fault", "Fault"],
   ["clear", "Clear"], ["wait", "Wait"], ["expect", "Expect"], ["log", "Log"], ["repeat", "Repeat"]];
 const NODE_ACTIONS = ["set", "override", "release", "source", "fault", "clear"];
@@ -200,14 +195,12 @@ function simTidy(ref) {
   if (e) {
     if (e.sources && !Object.keys(e.sources).length) delete e.sources;
     if (e.faults && !e.faults.length) delete e.faults;
-    if (e.drive && !Object.keys(e.drive).length) delete e.drive;
     if (!Object.keys(e).length) delete doc.nodes[String(ref)];
     if (doc.nodes && !Object.keys(doc.nodes).length) delete doc.nodes;
   }
   for (const d of doc.extra_devices || []) {
     if (d.sources && !Object.keys(d.sources).length) delete d.sources;
     if (d.faults && !d.faults.length) delete d.faults;
-    if (d.drive && !Object.keys(d.drive).length) delete d.drive;
   }
 }
 
@@ -626,7 +619,7 @@ function simDevicePanel() {
       simPinPicker(ref),
       hint("Objects in the device's PDOs, and those with a source, an override or a pin. A slider, switch or bit holds its value as an override until Release; Set writes it once (a source moves it again).")),
     el("fieldset", { dataset: { sim: "faults" } }, el("legend", null, "Faults"),
-      el("div", { class: "toolbar sim-fault-buttons" }, FAULT_KINDS.filter(([k]) => k !== "drive_input" || simProfile(ref) === 402).map(([k, label, form]) =>
+      el("div", { class: "toolbar sim-fault-buttons" }, FAULT_KINDS.map(([k, label, form]) =>
         el("button", { type: "button", disabled: !allow, title: allow ? null : simNoChanges(), dataset: { simFault: k },
           onclick: () => (form ? simFaultForm(ref, k) : simInject(ref, FAULT_FIXED[k], label)) }, label))),
       el("div", { id: "sim-fault-form" }),
@@ -1135,15 +1128,6 @@ function faultFields(kind, f, ref) {
     box.append(l);
     return { el: box, value: () => ({ device_type: simCode(i.value, "device type") }) };
   }
-  if (kind === "drive_input") {
-    const boxes = DRIVE_INPUTS.map(([k, label]) => {
-      const cb = el("input", { type: "checkbox", dataset: { simField: k } });
-      cb.checked = !!p[k];
-      box.append(el("label", { class: "check" }, cb, " " + label));
-      return [k, cb];
-    });
-    return { el: box, value() { const out = {}; for (const [k, cb] of boxes) out[k] = cb.checked; return { drive_input: out }; } };
-  }
   return { el: box, value() { throw new Error("Unknown fault " + kind); } };
 }
 
@@ -1296,7 +1280,7 @@ function simDeviceFile(ref, title, note) {
     const faultBox = el("div");
     put(box, el("legend", null, title), note ? el("p", { class: "muted" }, note) : null,
       el("div", { class: "check-field" }, el("label", { class: "check" }, dflt, " Default behaviour"),
-        hint(profile === 401 ? "CiA 401: outputs loop back to inputs." : profile === 404 ? "CiA 404: mapped inputs move slowly (a sine)." : profile === 402 ? "CiA 402: the drive model." : "This device's profile has no default behaviour.")),
+        hint(profile === 401 ? "CiA 401: outputs loop back to inputs." : profile === 404 ? "CiA 404: mapped inputs move slowly (a sine)." : "This device's profile has no default behaviour.")),
       el("h3", null, "Value sources"),
       sources.length ? el("table", { class: "od" }, el("tbody", null, sources.map(([o, s]) => el("tr", { dataset: { simFileSource: o } },
         el("td", { class: "mono" }, o), el("td", null, (simObjInfo(ref, simKey(o)) || {}).name || ""), el("td", null, sourceText(s)),
@@ -1312,8 +1296,7 @@ function simDeviceFile(ref, title, note) {
       el("h3", null, "Faults at start"),
       faults.length ? el("ul", { class: "sim-faults" }, faults.map((f, k) => el("li", null, faultText(f), " ",
         el("button", { type: "button", class: "small", onclick: () => { simEntry(ref, false).faults.splice(k, 1); simTidy(ref); simChanged(); draw(); } }, "Remove")))) : el("p", { class: "muted" }, "None."),
-      simAddFileFault(ref, faultBox, draw), faultBox,
-      profile === 402 ? simDriveFields(ref) : null);
+      simAddFileFault(ref, faultBox, draw), faultBox);
   };
   draw();
   return box;
@@ -1368,36 +1351,6 @@ function simAddFileFault(ref, target, redraw) {
       } }, "Add"), msg)));
   });
   return el("div", { class: "toolbar" }, sel);
-}
-
-function simDriveFields(ref) {
-  const cur = (simEntry(ref, false) || {}).drive || {};
-  return el("div", null, el("h3", null, "Drive model"), el("div", { class: "grid" }, DRIVE_FIELDS.map(([k, label, dflt]) => {
-    const [l, i] = simInput(label, cur[k], "drive-" + k, { placeholder: dflt });
-    i.addEventListener("input", () => {
-      const entry = simEntry(ref, true);
-      entry.drive = entry.drive || {};
-      const t = i.value.trim();
-      if (!t) delete entry.drive[k]; else entry.drive[k] = /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : t;
-      simTidy(ref);
-      simChanged();
-    });
-    return l;
-  }), simWatchdogField(ref, cur)));
-}
-
-// "sync_watchdog": false switches the drive's SYNC watchdog off (cyclic modes).
-function simWatchdogField(ref, cur) {
-  const box = el("input", { type: "checkbox", dataset: { sim: "drive-sync_watchdog" } });
-  box.checked = cur.sync_watchdog !== false;
-  box.addEventListener("change", () => {
-    const entry = simEntry(ref, true);
-    entry.drive = entry.drive || {};
-    if (box.checked) delete entry.drive.sync_watchdog; else entry.drive.sync_watchdog = false;
-    simTidy(ref);
-    simChanged();
-  });
-  return el("label", null, box, " SYNC watchdog (cyclic modes)");
 }
 
 function simExtraDevices() {

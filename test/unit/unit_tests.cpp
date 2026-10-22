@@ -914,7 +914,7 @@ int run_fixture_file(const std::string& file) {
     }
     cJSON_Delete(cfg_json_copy);
     if (has_j1939) {
-      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this plugin"), name + join(errors));
+      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this canworks"), name + join(errors));
       ++count;
       continue;
     }
@@ -1232,7 +1232,7 @@ TEST(slcan_name_taken) {
   SlcanFixture f;
   f.link->links["can0"] = LinkInfo{true, "can", 500000};  // made by an slcand service
   CHECK(f.prepare() == AdapterState::Failed);
-  CHECK_MSG(f.adapter->problem().find("CAN interface can0 already exists and was not created by the plugin; stop "
+  CHECK_MSG(f.adapter->problem().find("CAN interface can0 already exists and was not created by canworks; stop "
                                       "the program that created it (such as an slcand service)") == 0,
             f.adapter->problem());
   CHECK(f.serial->calls.empty() && f.link->calls.empty());  // neither the device nor can0 touched
@@ -5067,19 +5067,19 @@ TEST(diag_guard_map_effective_ids) {
   co_dev_t* dev = co_dev_create_from_dcf_file((dir + "/slave.eds").c_str());
   CHECK(dev != nullptr);
   if (!dev) return;
-  auto ids = dictionary_id_uses(reinterpret_cast<const __co_dev*>(dev), "the plugin's own slave");
+  auto ids = dictionary_id_uses(reinterpret_cast<const __co_dev*>(dev), "canworks' own slave");
   co_dev_destroy(dev);
-  CHECK(ids[id_use_key(0x18FF000A, true)] == "TPDO1 of the plugin's own slave");
-  CHECK(ids[id_use_key(0x30A, false)] == "RPDO1 of the plugin's own slave");
+  CHECK(ids[id_use_key(0x18FF000A, true)] == "TPDO1 of canworks' own slave");
+  CHECK(ids[id_use_key(0x30A, false)] == "RPDO1 of canworks' own slave");
   CHECK(!ids.count(id_use_key(0x18FF000A, false)));
   // The server refuses such an identifier without force, naming it.
   TxFixture f;
   CHECK(wait_port(*f.server));
-  f.hub->set_used_ids({{id_use_key(0x18FF000A, true), "TPDO1 of the plugin's own slave"}});
+  f.hub->set_used_ids({{id_use_key(0x18FF000A, true), "TPDO1 of canworks' own slave"}});
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
   std::string a = c.ask(R"({"op":"send_frame","can_id":"0x18FF000A","ext":true,"data":"01"})");
-  CHECK_MSG(has(a, "0x18FF000A is TPDO1 of the plugin's own slave") && has(a, "force needed"), a);
+  CHECK_MSG(has(a, "0x18FF000A is TPDO1 of canworks' own slave") && has(a, "force needed"), a);
   CHECK(f.count() == 0);
   f.hub->detach();
   CHECK(f.hub->used_id(0x18FF000A, true).empty());

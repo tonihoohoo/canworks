@@ -89,7 +89,7 @@ The upper master writes the network, node, object, value and length, then the co
 
 ## Trying it without an upper master
 
-On a simulated bus ([simulator.md](simulator.md)) a master network of the same config can play the upper master: give it the upper slave network's simulated interface and the slave's node ID as a node with `"simulate": false` (the plugin's own slave answers as that node). That network configures the gateway's PDOs, starts it, supervises it and lets the program act as the machine controller. It stands in for the upper master and is not a field network: it has no place in the field node status, routes may not end on it, and EMCYs from its nodes are not forwarded up (the gateway's own EMCY would come back up again and again). Its PDO entries see what a real upper master would. [`examples/virtual-plant`](../examples/virtual-plant/README.md) uses this with network `host`.
+On a simulated bus ([simulator.md](simulator.md)) a master network of the same config can play the upper master: give it the upper slave network's simulated interface and the slave's node ID as a node with `"simulate": false` (canworks' own slave answers as that node). That network configures the gateway's PDOs, starts it, supervises it and lets the program act as the machine controller. It stands in for the upper master and is not a field network: it has no place in the field node status, routes may not end on it, and EMCYs from its nodes are not forwarded up (the gateway's own EMCY would come back up again and again). Its PDO entries see what a real upper master would. [`examples/virtual-plant`](../examples/virtual-plant/README.md) uses this with network `host`.
 
 ## Checks
 

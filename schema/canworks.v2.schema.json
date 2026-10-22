@@ -199,7 +199,6 @@
       "properties": {
         "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string" },
         "program_override_protocol": { "description": "The program's CAN_SEND and CAN_SEND_CYCLIC may use identifiers the network's protocol uses.", "type": "boolean" },
-        "scan_watchdog_ms": { "description": "A plain CAN network (\"protocol\": \"none\") only: close the outputs gate (no raw transmit messages or program frames; inputs keep running) when the PLC scan has not finished a cycle for this long while the PLC runs, 10-60000 ms; 0 turns it off. Default 1000.", "anyOf": [ { "const": 0 }, { "type": "integer", "minimum": 10, "maximum": 60000 } ] },
         "rx": { "description": "Messages received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/raw_rx" } },
         "tx": { "description": "Messages the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/raw_tx" } }
       }
@@ -295,8 +294,7 @@
         "rx": { "description": "PGNs received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/j1939_rx" } },
         "tx": { "description": "PGNs the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/j1939_tx" } },
         "requests": { "description": "Requests (PGN 59904) the PLC sends periodically; answers are received like any rx PGN.", "type": "array", "items": { "$ref": "#/$defs/j1939_request" } },
-        "diagnostics": { "$ref": "#/$defs/j1939_diagnostics" },
-        "scan_watchdog_ms": { "description": "Close the outputs gate (no J1939 or raw transmit messages; inputs and address claim keep running) when the PLC scan has not finished a cycle for this long while the PLC runs, 10-60000 ms; 0 turns it off. Default 1000.", "anyOf": [ { "const": 0 }, { "type": "integer", "minimum": 10, "maximum": 60000 } ] }
+        "diagnostics": { "$ref": "#/$defs/j1939_diagnostics" }
       },
       "required": [ "ecu" ]
     },
@@ -465,7 +463,6 @@
         "config_check": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/config_check" },
         "store_configuration": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/store_configuration" },
         "lss": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/lss" },
-        "axis": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/axis" },
         "tx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_tx_pdo" } },
         "rx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_rx_pdo" } },
         "sdo": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/sdo" },

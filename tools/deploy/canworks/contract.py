@@ -12,7 +12,6 @@ import os
 import functools
 import re
 
-from . import axis as axis_mod
 from . import bridgecheck
 from . import eds as eds_mod
 from . import edslint
@@ -32,9 +31,6 @@ _V1_REF = "canworks.v1.schema.json#"
 NETWORK_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
 # A Linux interface name the plugin can open or create (IFNAMSIZ - 1).
 INTERFACE_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
-# Entries per table of the runtime's I/O image (the plugin's default
-# buffer_size; a bridge config's image is bridgecheck.IMAGE_BYTES bytes).
-IMAGE_ENTRIES = 1024
 ON_PLC_STOP = ("preop", "stop", "keep")
 
 
@@ -89,7 +85,7 @@ def _local_refs(node):
     return node
 
 
-def schema(version=1):
+def schema(version=2):
     """The published schema of a version, ready to validate with. Version 2
     refers to version 1's definitions by file name; here they are copied in
     so the references resolve without loading anything else."""
@@ -232,16 +228,10 @@ def networks(cfg):
     J1939 network, "j1939"), `protocol` ("canopen" or "j1939"), `adapter`,
     `master` and `nodes` (empty for a slave or J1939 network), `slave` (the
     slave object, empty for the others), `j1939` (the j1939 object of a
-    J1939 network, else empty) and `byte_mode` (a bridge config, whose
-    locations count bytes). A version 2 network without a name is named
-    after its interface."""
-    out = _networks(cfg)
-    for n in out:
-        n["byte_mode"] = isinstance(cfg, dict) and "bridge" in cfg
-    return out
-
-
-def _networks(cfg):
+    J1939 network, else empty). A version 2 network without a name is
+    named after its interface. A version 1 file (of the removed OpenPLC
+    plugin) reads as its one network, so the configurator can show and
+    switch it."""
     if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
         adapter = cfg.get("adapter")
         if adapter is None and "interface" in cfg:
@@ -947,7 +937,7 @@ def sdo_override(node, entry, data, linked_rpdos=()):
     if 0x1400 <= index <= 0x17FF and (index & 0x1FF) + 1 in linked_rpdos:
         return "the consumer RPDO of a PDO link ('links')"
     if 0x1400 <= index <= 0x1BFF:
-        return "the PDO settings (the plugin sets up every PDO of the node)"
+        return "the PDO settings (canworks sets up every PDO of the node)"
     if sub == 0 and index == 0x1017 and "heartbeat_ms" in node and value != _uint(node["heartbeat_ms"]):
         return "heartbeat_ms"
     guard = _uint(node.get("guard_time_ms", 0)) or 0
@@ -993,12 +983,18 @@ def plugin_owned_object(index):
     }.get(index)
 
 
-SYNC_NEEDED = " needs 'sync_period_us' or \"sync_source\": \"plc_cycle\" (without them the master produces no SYNC)"
+SYNC_NEEDED = " needs 'sync_period_us' (without it the master produces no SYNC)"
+# A config with neither 'bridge' nor 'codesys' (canopen-config-contract
+# "Config target"; config.cpp kNotBridgeConfig).
+NOT_BRIDGE_MESSAGE = ("this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to "
+                      "OpenPLC through Modbus")
+PLC_CYCLE_MESSAGE = ("\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
+                     "\"sync_period_us\" (timer SYNC)")
 
 
 def produces_sync(master):
-    """Whether the master sends SYNC: a timer period or PLC-cycle SYNC (plugin: MasterConfig::produces_sync)."""
-    return bool(_uint(master.get("sync_period_us", 0)) or 0) or master.get("sync_source") == "plc_cycle"
+    """Whether the master sends SYNC: a timer period (engine: MasterConfig::produces_sync)."""
+    return bool(_uint(master.get("sync_period_us", 0)) or 0)
 
 
 def sdo_variable_label(entry, name=""):
@@ -1082,6 +1078,11 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
                 % (v, SUPPORTED_VERSION))
             return r
         version = v
+    # Version 1 held one network for the removed OpenPLC plugin; the bridge
+    # serves version 2 configs only.
+    if version == 1:
+        err("", NOT_BRIDGE_MESSAGE)
+        return r
 
     s = schema(version)
     validator = validator_class()(s)
@@ -1101,29 +1102,8 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
     # words (an unknown field there is an error, not a warning).
     found = [(where, key) for where, key in found if not CIA309_PATH.match(where)]
     schema_errors = [e for e in schema_errors if not _cia309_error(e)]
-    if version == 1:
-        if "cia309" in cfg:
-            err("", "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309), or at the top level "
-                    "in schema_version 2", ["cia309"])
-        # Slave networks and the gateway exist only in version 2 (canopen-
-        # config-contract: "Slave network role").
-        for key in V2_ONLY_KEYS:
-            if key in cfg:
-                err("", "field '%s' needs schema_version 2: slave networks are entries of 'networks' with "
-                        "\"role\": \"slave\"" % key, [key])
-        for key in J1939_V2_KEYS + ("bridge", "codesys"):
-            if key in cfg:
-                err("", "field '%s' needs schema_version 2" % key, [key])
-        found = [(where, key) for where, key in found
-                 if where not in V2_ONLY_KEYS + J1939_V2_KEYS + ("bridge", "codesys")]
-        _check_network(r, cfg, "", 1, [(list(e.absolute_path), e) for e in schema_errors], **args)
-        if r.ok:
-            # Two uses of one location (plugin: check_overlaps), as a
-            # version 2 file checks them across its networks.
-            _report_overlaps(location_uses(networks(cfg)[0]), "nodes", err)
-    else:
-        _check_v2(r, cfg, schema_errors, err, warn, args)
-    check_cia309(cfg, version, err)
+    _check_v2(r, cfg, schema_errors, err, warn, args)
+    check_cia309(cfg, err)
     if isinstance(cfg.get("bridge"), dict) and isinstance(cfg.get("codesys"), dict):
         err("", targets.BOTH_MESSAGE, ["bridge", "codesys"])
     if r.ok and targets.target(cfg) != targets.CODESYS:
@@ -1184,20 +1164,15 @@ def cia309_object(cfg):
     return master.get("cia309") if isinstance(master, dict) else None
 
 
-def check_cia309(cfg, version, err):
-    """The plugin's cia309 rules (canopen-cia309-gateway "CiA 309-3 gateway
+def check_cia309(cfg, err):
+    """The engine's cia309 rules (canopen-cia309-gateway "CiA 309-3 gateway
     is opt-in")."""
-    if version > 1:
-        for i, net in enumerate(cfg.get("networks") or []):
-            if isinstance(net, dict) and isinstance(net.get("master"), dict) and "cia309" in net["master"]:
-                err("networks[%d]: master" % i, "field 'cia309' is a top-level object in schema_version 2, not part "
-                                                "of a network's master", ["networks[%d].master.cia309" % i])
-        g = cfg.get("cia309")
-        w = "cia309"
-    else:
-        master = cfg.get("master")
-        g = master.get("cia309") if isinstance(master, dict) else None
-        w = "master.cia309"
+    for i, net in enumerate(cfg.get("networks") or []):
+        if isinstance(net, dict) and isinstance(net.get("master"), dict) and "cia309" in net["master"]:
+            err("networks[%d]: master" % i, "field 'cia309' is a top-level object in schema_version 2, not part "
+                                            "of a network's master", ["networks[%d].master.cia309" % i])
+    g = cfg.get("cia309")
+    w = "cia309"
     if g is None:
         return
     if not isinstance(g, dict):
@@ -1230,9 +1205,7 @@ def check_cia309(cfg, version, err):
     numbers = {}
     nets = g.get("nets")
     if "nets" in g:
-        if version == 1:
-            err(w, "field 'nets' needs schema_version 2 (a version 1 file has one network, number 1)", [w + ".nets"])
-        elif not isinstance(nets, dict):
+        if not isinstance(nets, dict):
             err(w, "field 'nets' must be an object of network numbers and names, like {\"1\": \"io\"}", [w + ".nets"])
         else:
             seen = {}
@@ -1253,7 +1226,7 @@ def check_cia309(cfg, version, err):
                     continue
                 seen[name] = key
                 numbers[int(key)] = name
-    if not ("nets" in g and isinstance(nets, dict) and version > 1):
+    if not ("nets" in g and isinstance(nets, dict)):
         numbers = {i + 1: n for i, n in enumerate(names)}
     if "default_net" in g:
         v = _uint(g["default_net"])
@@ -1263,34 +1236,25 @@ def check_cia309(cfg, version, err):
             listed = ", ".join("%d = %s" % (k, numbers[k] or "the network") for k in sorted(numbers)) or "none"
             err(w, "field 'default_net' is %d, which is not a gateway network number (%s)" % (v, listed),
                 [w + ".default_net"])
-    d = cfg.get("diagnostics") if version > 1 else (cfg.get("master") or {}).get("diagnostics")
+    d = cfg.get("diagnostics")
     if isinstance(d, dict) and port and _uint(d.get("port", 7531)) == port:
         err(w, "field 'port' %d is the diagnostics channel's port; give the gateway another one (default 7533)" % port,
             [w + ".port"])
 
 
-# Top-level keys a version 1 file may not have.
-V2_ONLY_KEYS = ("role", "slave", "gateway")
-J1939_V2_KEYS = ("protocol", "j1939", "raw")
-
+# Top-level keys of a version 1 file, and where version 2 has them.
 MOVED_V1_KEYS = (("adapter", "networks[].adapter"), ("master", "networks[].master"), ("nodes", "networks[].nodes"),
                  ("interface", "networks[].adapter.interface"), ("bitrate", "networks[].adapter.bitrate"))
 
 
 def _check_image(cfg, err):
-    """Every location inside the runtime's I/O image, as the plugin checks
-    it (Parser::get_location): index below IMAGE_ENTRIES, or in a bridge
-    config, all its bytes below bridgecheck.IMAGE_BYTES."""
-    byte_mode = "bridge" in cfg
-    limit = bridgecheck.IMAGE_BYTES if byte_mode else IMAGE_ENTRIES
+    """Every location inside the I/O image, as the engine checks it
+    (Parser::get_location): all its bytes below bridgecheck.IMAGE_BYTES."""
+    limit = bridgecheck.IMAGE_BYTES
     for net in networks(cfg):
         for _, _, at, text in location_uses(net):
             loc = parse_location(text)
-            if loc is None:
-                continue
-            if byte_mode and loc.index + bridgecheck.SIZE_BYTES[loc.size] <= limit:
-                continue
-            if not byte_mode and loc.index < limit:
+            if loc is None or loc.index + bridgecheck.SIZE_BYTES[loc.size] <= limit:
                 continue
             err("", "%s: %s lies outside the runtime I/O image (index must be below %d)" % (at, loc, limit), [at])
 
@@ -1299,6 +1263,8 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
     """A version 2 file: the top level, each network (master or slave), then
     the checks across networks (canopen-networks spec) and the gateway
     (canopen-gateway spec)."""
+    if not isinstance(cfg.get("bridge"), dict) and not isinstance(cfg.get("codesys"), dict):
+        err("", NOT_BRIDGE_MESSAGE)
     for key, where in MOVED_V1_KEYS:
         if key in cfg:
             err("", "field '%s' belongs in %s in schema_version 2" % (key, where), [key])
@@ -1326,6 +1292,9 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             continue  # reported above
         if where == "schema_version":
             err("", "field 'schema_version' must be 2 in a file with 'networks'", ["schema_version"])
+            continue
+        if ".remote_link.relays[" in where and e.validator == "pattern":
+            err(where, "relay URLs must use https, like https://relay.example.com")
             continue
         err(where, plain_schema_message(e, schema(2)))
     diag = isinstance(cfg.get("diagnostics"), dict)
@@ -1401,13 +1370,9 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             errors = [(p, e) for p, e in errors if not (p == ["adapter"] and e.validator in ("required", "if"))]
         _check_network(r, net, prefix, 2, errors, diag=diag, before=before, role=role, routed=routed,
                        net_name=name if isinstance(name, str) else "", slaves=slaves, net_index=i,
-                       codesys=codesys, byte_mode="bridge" in cfg, **args)
+                       codesys=codesys, **args)
         raw_errors, raw_warnings, _ = raw_contract.check_raw(net.get("raw"), prefix + ".raw",
                                                              adapter.get("listen_only") is True)
-        if not plain and isinstance(net.get("raw"), dict) and "scan_watchdog_ms" in net["raw"]:
-            raw_errors.append("%s.raw.scan_watchdog_ms: only a plain CAN network takes it; %s" % (
-                prefix, "a J1939 network has j1939.scan_watchdog_ms" if j1939
-                else "a CANopen master has master.scan_watchdog_ms"))
         for m in raw_errors:
             r.add("error", "%s: %s" % (args["path"], m), [_raw_path(m)])
         for m in raw_warnings:
@@ -1560,7 +1525,7 @@ def location_uses(net, prefix=""):
     if net.get("role") == "plain":
         return out
     if net.get("role") == "j1939":
-        _j1939_location_uses(net.get("j1939") or {}, add, 4 if net.get("byte_mode") else 1)
+        _j1939_location_uses(net.get("j1939") or {}, add)
         return out
     s = net.get("slave") or {}
     for key in SLAVE_LOCATION_KEYS:
@@ -1612,10 +1577,9 @@ def location_uses(net, prefix=""):
     return out
 
 
-def _j1939_location_uses(j, add, dword_step=1):
-    """location_uses() of a J1939 network, in the plugin's order and words.
-    `dword_step` is how far apart consecutive double words lie: 4 in a
-    bridge config, whose locations count bytes."""
+def _j1939_location_uses(j, add):
+    """location_uses() of a J1939 network, in the engine's order and words
+    (a trouble code list's double words lie 4 bytes apart)."""
     ecu = j.get("ecu") if isinstance(j.get("ecu"), dict) else {}
     for key, who in (("state_location", "ECU state"), ("address_location", "ECU address")):
         if key in ecu:
@@ -1647,7 +1611,7 @@ def _j1939_location_uses(j, add, dword_step=1):
         loc = parse_location(m["dtcs_location"]) if isinstance(m.get("dtcs_location"), str) else None
         if loc is not None and loc.size == "D" and n:
             for k in range(min(n, J1939_MAX_DM_RX_CODES)):
-                add("%%%sD%d" % (loc.area, loc.index + k * dword_step), "%s code %d" % (who, k), at + ".dtcs_location")
+                add("%%%sD%d" % (loc.area, loc.index + k * 4), "%s code %d" % (who, k), at + ".dtcs_location")
     for i, c in enumerate(d.get("dtcs") if isinstance(d.get("dtcs"), list) else []):
         if isinstance(c, dict) and "active_location" in c:
             add(c["active_location"], "diagnostics SPN %s FMI %s active_location" % (_uint(c.get("spn")),
@@ -1660,19 +1624,14 @@ def _j1939_location_uses(j, add, dword_step=1):
 
 def _check_bits(e, loc, is_tx, unlocated, where, at, what, err):
     """An entry's bit channels (canopen-pdo-io "Bit channels of a PDO
-    entry"), in the plugin's words (Parser::parse_bits). `unlocated`:
-    "bridge" or "CODESYS" for a config whose bits have no location."""
+    entry"), in the engine's words (Parser::parse_bits). `unlocated`:
+    "bridge" or "CODESYS", whose bits have no location of their own."""
     bits = e["bits"]
     if not isinstance(bits, list) or not bits:
         err(where, "field 'bits' must be a non-empty array", [at + ".bits"])
         return
     if e["type"] in ("BOOLEAN", "REAL32", "REAL64"):
         err(where, "%s: bits need an integer entry, not %s" % (what, e["type"]), [at + ".bits"])
-        return
-    # On the bridge the bits only name parts of the entry's own location.
-    if not is_tx and loc is not None and unlocated != "bridge":
-        err(where, "%s: an RPDO entry with bits has no iec_location of its own (both would write the same bits; "
-                   "remove the iec_location or the bits)" % what, [at + ".iec_location", at + ".bits"])
         return
     size = CO_TYPES[e["type"]][1]
     seen = set()
@@ -1689,26 +1648,16 @@ def _check_bits(e, loc, is_tx, unlocated, where, at, what, err):
             err(bw, "%s is listed twice" % me, [ba + ".bit"])
             continue
         seen.add(v)
-        if unlocated:
-            if "iec_location" in b:
-                err(bw, "%s: a bit has no iec_location in a %s config (%s)"
-                    % (me, unlocated, "the bridge serves it in the entry's own location" if unlocated == "bridge"
-                       else "CODESYS assigns the address"), [ba + ".iec_location"])
-            continue
-        bl = parse_location(b.get("iec_location"))
-        if "iec_location" not in b:
-            err(bw, "missing required field 'iec_location'", [ba + ".iec_location"])
-        elif bl is not None and (bl.area != ("I" if is_tx else "Q") or bl.size != "X"):
-            err(bw, "%s: needs %s, not %s" % (me, "an input bit location (%IX...)" if is_tx
-                                             else "an output bit location (%QX...)", bl), [ba + ".iec_location"])
+        if "iec_location" in b:
+            err(bw, "%s: a bit has no iec_location in a %s config (%s)"
+                % (me, unlocated, "the bridge serves it in the entry's own location" if unlocated == "bridge"
+                   else "CODESYS assigns the address"), [ba + ".iec_location"])
 
 
 def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths, diag=False, before=None,
-                   role="master", routed=(), net_name="", slaves=None, net_index=0, codesys=False,
-                   byte_mode=False):
-    """One network: the version 1 top level, or one networks[] entry of a
-    version 2 file (`prefix` "networks[i]", in front of every message's
-    place and every path). `schema_errors`: (path inside the network,
+                   role="master", routed=(), net_name="", slaves=None, net_index=0, codesys=False):
+    """One networks[] entry of a version 2 file (`prefix` "networks[i]", in
+    front of every message's place and every path). `schema_errors`: (path inside the network,
     error). A slave network (`role` "slave") gets the slave checks, and its
     EDS and bindings go into `slaves` under `net_index` for the gateway
     check. `routed` holds the field entries gateway routes name
@@ -1808,7 +1757,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue  # reported above as missing
         if where in ("adapter.interface", "interface") and e.validator in ("pattern", "maxLength"):
             continue  # reported above, in the plugin's words
-        if where in ("master.on_plc_stop", "master.scan_watchdog_ms") or re.match(r"^nodes\[\d+\]\.emcy_cob_id$",
+        if where == "master.on_plc_stop" or re.match(r"^nodes\[\d+\]\.emcy_cob_id$",
                                                                                      where):
             continue  # reported below, in the plugin's words
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
@@ -1833,8 +1782,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
                 version > 1 and where == "nodes" and e.validator == "minItems"):
             # The schema's rule for an empty node list, in the plugin's words.
-            err("", "field 'nodes' lists no slave nodes (an empty list needs %s, for a scan-only configuration)"
-                % ("master.diagnostics" if version == 1 else "a top-level 'diagnostics'"), ["nodes"])
+            err("", "field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a "
+                    "scan-only configuration)", ["nodes"])
             continue
         if re.match(r"^links\[\d+\]\.to\[\d+\]\.entries\[\d+\]$", where) and e.validator == "not":
             full_path = (prefix + "." if prefix else "") + where + ".iec_location"
@@ -1887,15 +1836,11 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             err("master", "field '%s' must be a multiple of 100: %d" % (f, v), ["master." + f])
     if _uint(master.get("sync_counter_overflow", 0)) == 1 or (_uint(master.get("sync_counter_overflow", 0)) or 0) > 240:
         err("master", "field 'sync_counter_overflow' must be 0 (no counter) or 2-240", ["master.sync_counter_overflow"])
-    plc_cycle = master.get("sync_source") == "plc_cycle"
-    if "sync_cycles" in master and not plc_cycle:
-        err("master", "field 'sync_cycles' needs \"sync_source\": \"plc_cycle\"", ["master.sync_cycles"])
-    if plc_cycle and (_uint(master.get("sync_period_us", 0)) or 0):
-        err("master", "field 'sync_period_us' cannot be used with \"sync_source\": \"plc_cycle\": the SYNC period "
-                      "comes from the PLC cycle", ["master.sync_period_us", "master.sync_source"])
-    if plc_cycle and "sync_cycles" in master and not 1 <= (_uint(master["sync_cycles"]) or 0) <= 1000:
-        err("master", "field 'sync_cycles' must be 1-1000", ["master.sync_cycles"])
-    # Neither a timer period nor PLC-cycle SYNC: the master produces no SYNC.
+    # PLC-cycle SYNC went with the OpenPLC plugin: the bridge has no PLC
+    # cycle ("sync_source" is an unknown field now).
+    if master.get("sync_source") == "plc_cycle":
+        err("master", PLC_CYCLE_MESSAGE, ["master.sync_source"])
+    # No timer period: the master produces no SYNC.
     sync_period = produces_sync(master)
     if not sync_period:
         for f in ("sync_window_us", "sync_counter_overflow"):
@@ -1913,12 +1858,6 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                            "with bit 31)", ["master.time_period_ms"])
     if "on_plc_stop" in master and master["on_plc_stop"] not in ON_PLC_STOP:
         err("master", "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"", ["master.on_plc_stop"])
-    if "scan_watchdog_ms" in master:
-        watchdog = _uint(master["scan_watchdog_ms"])
-        if watchdog is None:
-            err("master", "field 'scan_watchdog_ms' must be a non-negative integer", ["master.scan_watchdog_ms"])
-        elif watchdog and not 10 <= watchdog <= 60000:
-            err("master", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % watchdog, ["master.scan_watchdog_ms"])
     _error_behavior(master, "master", err)
     if master.get("start") is False:
         warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC "
@@ -2055,7 +1994,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                             ["%s.%s[%d].entries[%d]" % (w, key, j, k)])
                     elif loc is None:
                         if "bits" in e:
-                            if byte_mode:
+                            if not codesys:
                                 err("%s: entries[%d]" % (pw, k),
                                     "%s, object 0x%04X:%d: the bridge serves an entry's bits in its own location; give "
                                     "the entry an iec_location" % (label, entry["index"], entry["subindex"]),
@@ -2075,8 +2014,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                                loc, SIZE_BITS[loc.size]),
                             ["%s.%s[%d].entries[%d].iec_location" % (w, key, j, k)])
                     if "bits" in e:
-                        target = "bridge" if byte_mode else "CODESYS" if codesys else None
-                        _check_bits(e, loc, key == "tx_pdos", target,
+                        _check_bits(e, loc, key == "tx_pdos", "CODESYS" if codesys else "bridge",
                                     "%s: entries[%d]" % (pw, k), "%s.%s[%d].entries[%d]" % (w, key, j, k),
                                     "%s, object 0x%04X:%d" % (label, entry["index"], entry["subindex"]), err)
                     bits += CO_TYPES[e["type"]][1]
@@ -2115,7 +2053,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     ["%s.sdo_variables[%d]" % (w, j)])
             what = plugin_owned_object(entry["index"]) if entry["direction"] == "write" else None
             if what:
-                warn(label, "%s writes an object the plugin configures itself; the program can override %s"
+                warn(label, "%s writes an object canworks configures itself; the program can override %s"
                      % (vlabel, what), ["%s.sdo_variables[%d]" % (w, j)])
             node["sdo_variables"].append(entry)
         nodes.append(node)
@@ -2168,9 +2106,6 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     # after the "auto" COB-IDs, with the plugin's messages.
     check_emcy_cob_ids(cfg["nodes"], nodes, master, master_id, err)
 
-    # CiA 402 axes: the standard objects the motion blocks' drive bridge needs.
-    axis_mod.check(cfg, err, warn)
-
     if len(r.errors) > before:
         return
 
@@ -2213,13 +2148,6 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             if not period:
                 messages.append(supervision_message(label))
                 where.append(".heartbeat_ms")
-        profile = axis_mod.device_type_warning(cfg["nodes"][i], eds)
-        if profile:
-            warnings.append((profile, ".axis"))
-        cyc_errors, cyc_warnings = axis_mod.cyclic_eds_check(cfg["nodes"][i], node, eds)
-        messages += [m for m, _ in cyc_errors]
-        where += [sub for _, sub in cyc_errors]
-        warnings += cyc_warnings
         if not eds.has(0x1014):
             for key in ("emcy_code_location", "error_register_location", "emcy_cob_id"):
                 if key in src:
@@ -2767,9 +2695,6 @@ class _J1939Parser:
         out = {"ecu": None, "dbc": None, "rx": [], "tx": [], "requests": [], "diagnostics": None}
         out["ecu"] = self.ecu(j)
         out["dbc"] = self.string(j, "dbc", "j1939", "j1939")
-        wd = self.uint(j, "scan_watchdog_ms", "j1939", "j1939")
-        if wd is not None and wd != 0 and not 10 <= wd <= 60000:
-            self.err("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: %d" % wd, ["j1939.scan_watchdog_ms"])
         for key in ("rx", "tx", "requests"):
             arr = j.get(key)
             if key in j and not isinstance(arr, list):
@@ -3065,7 +2990,7 @@ class _J1939Parser:
             if is_switch and switch_mode is not None:
                 # The plugin sets the switch; an empty mode was reported at `pages`.
                 if "iec_location" in sj and switch_mode:
-                    self.err(where, 'signals[%d].iec_location: the plugin sets switch %s when pages is "%s"; '
+                    self.err(where, 'signals[%d].iec_location: canworks sets switch %s when pages is "%s"; '
                              'leave it out' % (i, name, switch_mode), [sp + ".iec_location"])
             elif "iec_location" not in sj:
                 self.err(where, "%s: field 'iec_location' is missing" % me, [sp + ".iec_location"])

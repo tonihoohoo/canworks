@@ -235,7 +235,7 @@ jobs:
 
       - name: PLC-cycle SYNC on vcan0
         if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
-        run: test/pingpong/run.sh --seconds 6 --plc-cycle
+        run: test/pingpong/run.sh --seconds 6
 
       - name: LSS node ID assignment on vcan0 (slave without a node ID)
         if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'

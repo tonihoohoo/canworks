@@ -46,7 +46,7 @@ def _canopen_use(net):
                 return "TIME"
             if not nid:
                 return ""
-            who = " of the plugin's own slave (node %d)" % nid
+            who = " of canworks' own slave (node %d)" % nid
             if ident == 0x80 + nid:
                 return "EMCY" + who
             for k in range(4):

@@ -775,7 +775,7 @@
       "schema": "valid",
       "verdict": "accept",
       "warnings": [
-        "node 2 (pingpong): startup SDO to 0x1800 subindex 2 runs last and overrides the PDO settings (the plugin sets up every PDO of the node)"
+        "node 2 (pingpong): startup SDO to 0x1800 subindex 2 runs last and overrides the PDO settings (canworks sets up every PDO of the node)"
       ]
     },
     {
@@ -1182,7 +1182,7 @@
       "schema": "valid",
       "verdict": "accept",
       "warnings": [
-        "node 2 (pingpong): SDO variable 0x1017:0 writes an object the plugin configures itself; the program can override the node's heartbeat setting"
+        "node 2 (pingpong): SDO variable 0x1017:0 writes an object canworks configures itself; the program can override the node's heartbeat setting"
       ]
     },
     {
@@ -1298,7 +1298,7 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": [
-        "node 2 (pingpong): TPDO 2: fixed-io.eds fixes the COB-ID at 0x382 (0x1801 subindex 1 is ro), but the plugin uses the CiA 301 default 0x282; set 'cob_id' to the EDS value"
+        "node 2 (pingpong): TPDO 2: fixed-io.eds fixes the COB-ID at 0x382 (0x1801 subindex 1 is ro), but canworks uses the CiA 301 default 0x282; set 'cob_id' to the EDS value"
       ]
     },
     {

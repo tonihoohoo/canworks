@@ -3,11 +3,11 @@
 #
 #   test/bus/run.sh [--build-dir build] [--iface vcan0]
 #
-# Loads the real libcanworks_plugin.so through canopen_host with the ping-pong
+# Runs the canworks engine in canopen_host with the ping-pong
 # config plus master.bus_state_location %IB110, then takes the interface down
 # and brings it up again (sudo). Passes (exit 0) when %IB110 reads 1 while
 # the bus runs, 0 while the interface is down, and 1 again after it is back.
-# Run it as a user without CAP_NET_ADMIN, so the plugin cannot bring the
+# Run it as a user without CAP_NET_ADMIN, so the engine cannot bring the
 # interface up itself.
 # The config also has master.time_period_ms 60000: with candump, the test
 # checks that a TIME message (COB-ID 0x100) went out when the bus came up and
@@ -30,9 +30,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-for f in "$PLUGIN" "$HOST"; do
+for f in "$HOST"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -56,9 +55,10 @@ cp "$CONFIG/cpp-slave.eds" "$WORK/"
 python3 - "$CONFIG/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
-cfg["adapter"]["interface"] = sys.argv[3]
-cfg["master"]["bus_state_location"] = "%IB110"
-cfg["master"]["time_period_ms"] = 60000
+net = cfg["networks"][0]
+net["adapter"]["interface"] = sys.argv[3]
+net["master"]["bus_state_location"] = "%IB110"
+net["master"]["time_period_ms"] = 60000
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
 
@@ -66,8 +66,8 @@ if command -v candump >/dev/null; then
     candump -L "$IFACE,100:7FF" > "$WORK/time.log" 2>/dev/null &
     DUMP_PID=$!
 fi
-echo "==> Running the plugin on $IFACE; taking it down at 3 s and up again at 5 s"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 9 bus &
+echo "==> Running the engine on $IFACE; taking it down at 3 s and up again at 5 s"
+"$HOST" "$WORK/canopen_config.json" 9 bus &
 HOST_PID=$!
 sleep 3
 sudo ip link set "$IFACE" down
@@ -75,7 +75,7 @@ sleep 2
 sudo ip link set "$IFACE" up
 if [ -n "$DUMP_PID" ]; then
     # candump stops reading when the interface goes down: listen again for the TIME
-    # the plugin sends once it has reopened the interface.
+    # the engine sends once it has reopened the interface.
     kill "$DUMP_PID" 2>/dev/null; wait "$DUMP_PID" 2>/dev/null
     candump -L "$IFACE,100:7FF" >> "$WORK/time.log" 2>/dev/null &
     DUMP_PID=$!

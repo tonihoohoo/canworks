@@ -376,8 +376,6 @@ class Live(View):
         pg.select_option(form + 'select[data-sim-field="on"]', "write")
         pg.fill(form + 'input[data-sim-field="count"]', "1")
         pg.click(form + 'button[data-sim="at-start"]')
-        # A drive only gets drive inputs; this device is CiA 404.
-        self.assertEqual(pg.locator('button[data-sim-fault="drive_input"]').count(), 0)
         self.assertEqual(pg.locator('button[data-sim-fault]').count(), 15)
         pg.wait_for_selector('#sim-active-faults button[data-sim-clear="emcy"]')
         pg.click('#sim-active-faults button[data-sim-clear="emcy"]')

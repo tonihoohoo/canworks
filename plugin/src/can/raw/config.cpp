@@ -165,7 +165,7 @@ bool parse_signals(const cJSON* list, const std::string& path, IecArea area, uns
       sig.has_loc = false;
       // An empty mode: `pages` itself was wrong (reported there).
       if (o.get("iec_location") && *switch_mode)
-        errors.push_back(at(p, "iec_location") + ": the plugin sets switch " + label + " when pages is \"" +
+        errors.push_back(at(p, "iec_location") + ": canworks sets switch " + label + " when pages is \"" +
                          switch_mode + "\"; leave it out");
     } else if (o.text("iec_location", t)) {
       std::string err;

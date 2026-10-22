@@ -567,25 +567,6 @@
         },
         "forget_node_id": {
           "const": true
-        },
-        "drive_input": {
-          "type": "object",
-          "additionalProperties": false,
-          "minProperties": 1,
-          "properties": {
-            "blocked": {
-              "type": "boolean"
-            },
-            "positive_limit": {
-              "type": "boolean"
-            },
-            "negative_limit": {
-              "type": "boolean"
-            },
-            "home_switch": {
-              "type": "boolean"
-            }
-          }
         }
       },
       "oneOf": [
@@ -647,11 +628,6 @@
         {
           "required": [
             "forget_node_id"
-          ]
-        },
-        {
-          "required": [
-            "drive_input"
           ]
         }
       ],
@@ -727,35 +703,6 @@
         }
       }
     },
-    "drive": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "max_velocity": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "max_acceleration": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "lag_ms": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 10000
-        },
-        "start_position": {
-          "type": "number"
-        },
-        "torque_accel": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "sync_watchdog": {
-          "type": "boolean"
-        }
-      }
-    },
     "node": {
       "type": "object",
       "additionalProperties": false,
@@ -776,9 +723,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/source"
           }
-        },
-        "drive": {
-          "$ref": "#/$defs/drive"
         },
         "faults": {
           "type": "array",
@@ -828,9 +772,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/source"
           }
-        },
-        "drive": {
-          "$ref": "#/$defs/drive"
         },
         "faults": {
           "type": "array",
@@ -1269,8 +1210,7 @@
                   "refuse_write_operational",
                   "tpdo_stop",
                   "identity",
-                  "device_type",
-                  "drive_input"
+                  "device_type"
                 ]
               }
             },

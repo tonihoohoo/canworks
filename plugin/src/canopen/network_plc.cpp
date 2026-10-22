@@ -87,8 +87,8 @@ void Network::ServiceProgram(clock::time_point now) {
   // NMT requests first: their own slots, so queued SDO transfers never delay them.
   ServiceNmtProgram();
   if (uint32_t v = api.take_unknown_version())
-    log_warn("the PLC program's canworks library asks for CANopen block API version %u, this plugin offers version %u; "
-             "update the plugin (install-stock.sh) or use the library that comes with it",
+    log_warn("the PLC program's canworks library asks for CANopen block API version %u, this canworks offers version %u; "
+             "update canworks",
              v, CANOPEN_PLC_API_VERSION);
   api.expire(now);
   prog_taken_.clear();
@@ -168,7 +168,7 @@ void Network::StartProgram(unsigned id, NodeState* n, clock::time_point now) {
   const canopen_plc_request& r = job.req;
   if (n && r.write && plugin_owned_object(r.index) &&
       prog_owned_warned_.insert(object_key(id, r.index, r.subindex)).second)
-    log_warn("%s: the PLC program writes 0x%04X sub %u, which the plugin configures (%s); the program overrides "
+    log_warn("%s: the PLC program writes 0x%04X sub %u, which canworks configures (%s); the program overrides "
              "the configured value",
              n->cfg->label().c_str(), r.index, r.subindex, plugin_owned_object(r.index));
   auto left = std::chrono::duration_cast<std::chrono::milliseconds>(job.deadline - now);
@@ -297,8 +297,8 @@ constexpr uint8_t kMasterStopped = 4;
 void Network::ServiceNmtProgram() {
   PlcRequests& api = PlcRequests::instance();
   if (uint32_t v = api.take_unknown_nmt_version())
-    log_warn("the PLC program's canworks library asks for NMT block API version %u, this plugin offers version %u; "
-             "the program's library needs a newer plugin (install-stock.sh), or use the library that comes with it",
+    log_warn("the PLC program's canworks library asks for NMT block API version %u, this canworks offers version %u; "
+             "the program's library needs a newer canworks",
              v, CANOPEN_PLC_NMT_API_VERSION);
   nmt_taken_.clear();
   api.take_nmt(cfg_.network_index, nmt_taken_);
@@ -366,7 +366,7 @@ void Network::ProgramStart(uint32_t handle, const canopen_plc_nmt_request&) {
   if (master_state_ == kMasterStopped) {
     // The configuration's safety reaction to a lost mandatory node.
     log_error("CO_NETWORK_START refused: the master is STOPPED after a mandatory node was lost "
-              "(master.stop_all_nodes); the plugin must restart (stop and start the PLC)");
+              "(master.stop_all_nodes); canworks must restart");
     api.finish_nmt(handle, CANOPEN_PLC_ERR_REFUSED);
     return;
   }

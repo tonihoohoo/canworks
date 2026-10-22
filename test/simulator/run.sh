@@ -5,16 +5,16 @@
 #
 # 1. Run mode: the CANopen simulator simulates node 2 of the ping-pong
 #    config (config/pingpong) on vcan0, with a simulation file that loops
-#    0x4000 back to 0x4001; the real libcanworks_plugin.so in canopen_host
+#    0x4000 back to 0x4001; the canworks engine in canopen_host
 #    boots it and runs the ping-pong program. While it runs, the control
-#    subcommands are checked against the plugin's view: status, get, source,
+#    subcommands are checked against the engine's view: status, get, source,
 #    set and override (the PLC's answer comes back through the RPDO),
-#    release, fault/clear emcy and heartbeat-stop (the plugin logs the EMCY
+#    release, fault/clear emcy and heartbeat-stop (the engine logs the EMCY
 #    and the lost and resumed heartbeat), and the remote test mode
 #    (test --runtime) against the simulator's control channel. SIGTERM must
 #    stop the simulator cleanly.
 # 2. Test mode: canworks-canopen-sim test with a passing and a failing
-#    scenario next to the plugin; exit codes 1 and 0, and the JUnit file's
+#    scenario next to the engine; exit codes 1 and 0, and the JUnit file's
 #    structure.
 # 3. Real-bus checks on vcan1: an interface that is not vcan is refused
 #    without --real-bus, and with it a node ID that is already on the bus
@@ -23,17 +23,17 @@
 #    override CANWORKS_SIM_TREAT_AS_REAL=vcan1 (tools/sim/sim_run.cpp);
 #    users never set it.
 #
-# 4. Simulated nodes in the plugin on a real interface (vcan0): a real
-#    ping-pong node 2 (separate process) next to a node 5 the plugin
+# 4. Simulated nodes in the engine on a real interface (vcan0): a real
+#    ping-pong node 2 (separate process) next to a node 5 the engine
 #    simulates; an outside listener sees node 5's heartbeat. Then node 2
 #    marked simulated while another process holds node ID 2: not started,
-#    conflict logged; and the plugin's node 5 powers off when another
+#    conflict logged; and the engine's node 5 powers off when another
 #    process starts sending as node 5.
 # 5. A standalone device started without a node ID on vcan1: refused for an
 #    EDS without LSS; with lss-slave.eds the PC's local bus finds it and gives
 #    it node ID 70 by LSS, and `fault 70` then reaches it (its name too).
 #
-# Needs a build of this repo (cmake -B build -DOPENPLC_ROOT=... && cmake
+# Needs a build of this repo (cmake -B build && cmake
 # --build build) and vcan0 UP (sudo scripts/dev-setup.sh); vcan1 is created
 # with sudo when missing.
 
@@ -52,11 +52,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SIM="$BUILD/bin/canworks-canopen-sim"
 SLAVE="$BUILD/test/pingpong_slave"
-for f in "$PLUGIN" "$HOST" "$SIM" "$SLAVE"; do
+for f in "$HOST" "$SIM" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show vcan0 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -127,12 +126,12 @@ cat > "$WORK/simulation.json" <<'JSON'
 }
 JSON
 
-echo "==> 1. Run mode on vcan0 next to the plugin"
+echo "==> 1. Run mode on vcan0 next to the engine"
 "$SIM" "$WORK/canopen_config.json" --state-dir "$WORK/state" > "$WORK/sim.log" 2>&1 &
 SIM_PID=$!
 PIDS+=($SIM_PID)
 wait_for "node 2: powered on" 10 "$WORK/sim.log" && ok "the simulator started node 2" || fail "the simulator did not start node 2"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 30 > "$WORK/host.out" 2> "$WORK/host.log" &
+"$HOST" "$WORK/canopen_config.json" 30 > "$WORK/host.out" 2> "$WORK/host.log" &
 HOST_PID=$!
 PIDS+=($HOST_PID)
 
@@ -141,7 +140,7 @@ for i in $(seq 1 150); do
     if "$SIM" status 2>/dev/null | grep -q "node 2 (pingpong): power on, operational"; then booted=1; break; fi
     sleep 0.1
 done
-[ $booted -eq 1 ] && ok "the plugin booted node 2 (status: operational)" || fail "node 2 did not become operational"
+[ $booted -eq 1 ] && ok "the engine booted node 2 (status: operational)" || fail "node 2 did not become operational"
 sleep 2
 v1=$(value 2 0x4000); sleep 1; v2=$(value 2 0x4000)
 [ -n "$v1" ] && [ -n "$v2" ] && [ "$v2" -gt "$v1" ] && ok "get: 0x4000 counts ($v1 -> $v2)" || fail "get: 0x4000 does not count ($v1 -> $v2)"
@@ -157,7 +156,7 @@ fi
 "$SIM" set 2 0x4001 450 > /dev/null && ok "set" || fail "set"
 [ "$(value 2 0x4001)" = 450 ] && ok "get after set: 0x4001 = 450" || fail "get after set: 0x4001 = $(value 2 0x4001)"
 sleep 1
-[ "$(value 2 0x4000)" = 451 ] && ok "the PLC answered 451 through the plugin (0x4000)" || fail "0x4000 = $(value 2 0x4000), not 451"
+[ "$(value 2 0x4000)" = 451 ] && ok "the PLC answered 451 through the engine (0x4000)" || fail "0x4000 = $(value 2 0x4000), not 451"
 "$SIM" source 2 0x4001 '{"expr": "[0x4000] * 2"}' > /dev/null && ok "source expr" || fail "source expr"
 "$SIM" override 2 0x4001 1500 > /dev/null && ok "override" || fail "override"
 sleep 1
@@ -171,13 +170,13 @@ v=$(value 2 0x4000)
 if "$SIM" get 2 0x9999 > /dev/null 2>&1; then fail "get of a missing object exited 0"; else ok "get of a missing object exits 1"; fi
 
 "$SIM" fault 2 emcy 0x5000 --register 1 --msef 0100000000 > /dev/null && ok "fault emcy" || fail "fault emcy"
-wait_for "EMCY 0x5000" 3 "$WORK/host.log" && ok "the plugin logged EMCY 0x5000" || fail "the plugin did not log EMCY 0x5000"
+wait_for "EMCY 0x5000" 3 "$WORK/host.log" && ok "the engine logged EMCY 0x5000" || fail "the engine did not log EMCY 0x5000"
 "$SIM" clear 2 emcy > /dev/null && ok "clear emcy" || fail "clear emcy"
-wait_for "EMCY error reset" 3 "$WORK/host.log" && ok "the plugin logged the EMCY error reset" || fail "no EMCY error reset in the plugin log"
+wait_for "EMCY error reset" 3 "$WORK/host.log" && ok "the engine logged the EMCY error reset" || fail "no EMCY error reset in the engine log"
 "$SIM" fault 2 heartbeat-stop > /dev/null && ok "fault heartbeat-stop" || fail "fault heartbeat-stop"
-wait_for "lost: no heartbeat" 3 "$WORK/host.log" && ok "the plugin lost node 2's heartbeat" || fail "the plugin did not lose node 2's heartbeat"
+wait_for "lost: no heartbeat" 3 "$WORK/host.log" && ok "the engine lost node 2's heartbeat" || fail "the engine did not lose node 2's heartbeat"
 "$SIM" clear 2 heartbeat > /dev/null && ok "clear heartbeat" || fail "clear heartbeat"
-wait_for "heartbeat resumed\|node 2 (pingpong).*boot" 5 "$WORK/host.log" && ok "the plugin saw the heartbeat again" || fail "the heartbeat did not come back"
+wait_for "heartbeat resumed\|node 2 (pingpong).*boot" 5 "$WORK/host.log" && ok "the engine saw the heartbeat again" || fail "the heartbeat did not come back"
 
 # Every check is done: once node 2 is operational again, stop the host (it
 # prints its result on SIGTERM) instead of waiting out its 30 s.
@@ -189,7 +188,7 @@ sleep 1
 kill -TERM "$HOST_PID" 2>/dev/null
 wait "$HOST_PID"
 HOST_RC=$?
-# The heartbeat fault makes the plugin boot node 2 again, which restarts the
+# The heartbeat fault makes the engine boot node 2 again, which restarts the
 # count, so only the status bit at the end is checked here.
 grep -q "status bit TRUE" "$WORK/host.out" && ok "canopen_host: status bit TRUE at the end" \
     || fail "canopen_host exited $HOST_RC: $(tail -3 "$WORK/host.out")"
@@ -198,8 +197,8 @@ wait "$SIM_PID"
 SIM_RC=$?
 [ $SIM_RC -eq 0 ] && grep -q "stopped" "$WORK/sim.log" && ok "SIGTERM stopped the simulator cleanly" || fail "the simulator exited $SIM_RC on SIGTERM"
 
-echo "==> 2. Test mode next to the plugin"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 90 > "$WORK/host2.out" 2> "$WORK/host2.log" &
+echo "==> 2. Test mode next to the engine"
+"$HOST" "$WORK/canopen_config.json" 90 > "$WORK/host2.out" 2> "$WORK/host2.log" &
 HOST_PID=$!
 PIDS+=($HOST_PID)
 "$SIM" test "$WORK/canopen_config.json" --junit "$WORK/junit.xml" --start-timeout 15 --timeout 40 > "$WORK/test.out" 2>&1
@@ -279,16 +278,17 @@ grep -q "seen 0x390" "$WORK/raw-only.out" && ok "--real-bus: a file of raw devic
     || fail "raw devices only on a real bus: $(cat "$WORK/raw-only.log")"
 kill "$RAW_PID" 2>/dev/null; wait "$RAW_PID" 2>/dev/null
 
-echo "==> 4. Simulated nodes in the plugin next to a real node on vcan0"
+echo "==> 4. Simulated nodes in the engine next to a real node on vcan0"
 python3 - "$WORK/canopen_config.json" "$WORK/mixed.json" "$WORK/conflict.json" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 node5 = {"node_id": 5, "name": "simulated", "eds": "cpp-slave.eds", "simulate": True,
          "heartbeat_ms": 100, "heartbeat_timeout_ms": 300, "status_location": "%IX10.1"}
-mixed = dict(cfg, nodes=cfg["nodes"] + [node5])
-json.dump(mixed, open(sys.argv[2], "w"), indent=2)
-conflict = dict(cfg, nodes=[dict(cfg["nodes"][0], simulate=True)])
-json.dump(conflict, open(sys.argv[3], "w"), indent=2)
+def with_nodes(nodes):
+    return dict(cfg, networks=[dict(cfg["networks"][0], nodes=nodes)])
+nodes = cfg["networks"][0]["nodes"]
+json.dump(with_nodes(nodes + [node5]), open(sys.argv[2], "w"), indent=2)
+json.dump(with_nodes([dict(nodes[0], simulate=True)]), open(sys.argv[3], "w"), indent=2)
 PY
 # Outside listener: node 5's heartbeat (0x705) on vcan0, from another socket.
 python3 - > "$WORK/listen.out" 2>&1 <<'PY' &
@@ -311,11 +311,11 @@ PIDS+=($LISTEN_PID)
 SLAVE_PID=$!
 PIDS+=($SLAVE_PID)
 sleep 0.5
-"$HOST" "$PLUGIN" "$WORK/mixed.json" 15 > "$WORK/host4.out" 2> "$WORK/host4.log"
+"$HOST" "$WORK/mixed.json" 15 > "$WORK/host4.out" 2> "$WORK/host4.log"
 RC=$?
 [ $RC -eq 0 ] && ok "mixed: real node 2 runs the ping-pong program" || fail "mixed: canopen_host exited $RC"
-grep -q "node 5.*powered on" "$WORK/host4.log" && ok "mixed: the plugin started simulated node 5" || fail "mixed: node 5 was not started"
-grep -q "node 5 (simulated) is operational" "$WORK/host4.log" && ok "mixed: the plugin booted simulated node 5" || fail "mixed: node 5 was not booted"
+grep -q "node 5.*powered on" "$WORK/host4.log" && ok "mixed: the engine started simulated node 5" || fail "mixed: node 5 was not started"
+grep -q "node 5 (simulated) is operational" "$WORK/host4.log" && ok "mixed: the engine booted simulated node 5" || fail "mixed: node 5 was not booted"
 wait "$LISTEN_PID"
 grep -q "seen 0x705" "$WORK/listen.out" && ok "mixed: an outside listener on vcan0 sees node 5's heartbeat" || fail "mixed: no 0x705 on vcan0"
 kill "$SLAVE_PID" 2>/dev/null; wait "$SLAVE_PID" 2>/dev/null
@@ -328,16 +328,16 @@ JSON
 HOLDER_PID=$!
 PIDS+=($HOLDER_PID)
 wait_for "node 2: powered on" 10 "$WORK/holder2.log" || fail "the holder of node 2 did not start"
-"$HOST" "$PLUGIN" "$WORK/conflict.json" 5 > "$WORK/host5.out" 2> "$WORK/host5.log"
+"$HOST" "$WORK/conflict.json" 5 > "$WORK/host5.out" 2> "$WORK/host5.log"
 grep -q "node 2.*is taken by a device on vcan0" "$WORK/host5.log" && ok "conflict: simulated node 2 not started, conflict logged" \
     || fail "conflict: no conflict for node 2: $(grep -i 'node 2' "$WORK/host5.log" | head -5)"
 kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
 
-# The running guard: the plugin's node 5 powers off when another process sends as node 5.
+# The running guard: the engine's node 5 powers off when another process sends as node 5.
 "$SLAVE" vcan0 "$WORK/cpp-slave.eds" 2 > "$WORK/slave2.log" 2>&1 &
 SLAVE_PID=$!
 PIDS+=($SLAVE_PID)
-"$HOST" "$PLUGIN" "$WORK/mixed.json" 12 > "$WORK/host6.out" 2> "$WORK/host6.log" &
+"$HOST" "$WORK/mixed.json" 12 > "$WORK/host6.out" 2> "$WORK/host6.log" &
 HOST_PID=$!
 PIDS+=($HOST_PID)
 wait_for "node 5 (simulated) is operational" 8 "$WORK/host6.log" || fail "guard: node 5 was not booted"
