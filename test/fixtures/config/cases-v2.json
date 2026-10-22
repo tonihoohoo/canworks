@@ -5,6 +5,7 @@
   ],
   "base": {
     "schema_version": 2,
+    "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
     "networks": [
       {
         "name": "io",
@@ -33,188 +34,1166 @@
             "eds": "cpp-slave.eds",
             "heartbeat_ms": 100,
             "status_location": "%IX10.1",
-            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID101" } ] } ],
-            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD101" } ] } ]
+            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID104" } ] } ],
+            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD104" } ] } ]
           }
         ]
       }
     ]
   },
   "cases": [
-    {"name": "cia309: gateway with explicit numbers", "patch": [["set", "cia309", {"port": 7533, "allow_changes": true, "nets": {"1": "io", "2": "drives"}, "default_net": 2}]], "schema": "valid", "verdict": "accept"},
-    {"name": "cia309: empty object (read-only, loopback 7533)", "patch": [["set", "cia309", {}]], "schema": "valid", "verdict": "accept"},
-    {"name": "cia309: plain port on the network", "patch": [["set", "cia309", {"bind": "0.0.0.0"}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309.bind: the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"0.0.0.0\""]},
-    {"name": "cia309: unknown field", "patch": [["set", "cia309", {"allow_change": true}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: unknown field 'allow_change'"]},
-    {"name": "cia309: nets names an unknown network", "patch": [["set", "cia309", {"nets": {"1": "io", "2": "motion"}}]], "schema": "valid", "verdict": "reject", "messages": ["cia309.nets: network 2 names \"motion\", which is not a network of this file"]},
-    {"name": "cia309: two numbers for one network", "patch": [["set", "cia309", {"nets": {"1": "io", "3": "io"}}]], "schema": "valid", "verdict": "reject", "messages": ["cia309.nets: network \"io\" has two numbers (1 and 3)"]},
-    {"name": "cia309: default_net not in nets", "patch": [["set", "cia309", {"nets": {"10": "drives"}, "default_net": 1}]], "schema": "valid", "verdict": "reject", "messages": ["cia309: field 'default_net' is 1, which is not a gateway network number (10 = drives)"]},
-    {"name": "cia309: inside a network's master", "patch": [["set", "networks/0/master/cia309", {}]], "schema": "valid", "verdict": "reject", "messages": ["field 'cia309' is a top-level object in schema_version 2, not part of a network's master"]},
-    {"name": "cia309: port below 1024", "patch": [["set", "cia309", {"port": 80}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: field 'port' must be 0 (no plain port) or 1024-65535"]},
-    {"name": "cia309: idle timeout, and 0 for none", "patch": [["set", "cia309", {"idle_timeout_s": 60}], ["set", "cia309/idle_timeout_s", 0]], "schema": "valid", "verdict": "accept"},
-    {"name": "cia309: idle timeout over a day", "patch": [["set", "cia309", {"idle_timeout_s": 86401}]], "schema": "invalid", "verdict": "reject", "messages": ["cia309: field 'idle_timeout_s' must be 0 (no limit) to 86400"]},
-    { "name": "v2: two networks, same node ID and COB-IDs on both", "patch": [], "schema": "valid", "verdict": "accept" },
-    { "name": "v2: one network without a name", "patch": [ ["delete", "networks/1"], ["delete", "networks/0/name"] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "v2: no networks", "patch": [ ["set", "networks", []] ],
-      "schema": "invalid", "verdict": "reject", "messages": [ "field 'networks' lists no networks" ] },
-    { "name": "v2: too many networks",
-      "patch": [ ["set", "networks/2", { "name": "n2", "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/3", { "name": "n3", "adapter": { "type": "socketcan", "interface": "vcan3", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/4", { "name": "n4", "adapter": { "type": "socketcan", "interface": "vcan4", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/5", { "name": "n5", "adapter": { "type": "socketcan", "interface": "vcan5", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/6", { "name": "n6", "adapter": { "type": "socketcan", "interface": "vcan6", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/7", { "name": "n7", "adapter": { "type": "socketcan", "interface": "vcan7", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "networks/8", { "name": "n8", "adapter": { "type": "socketcan", "interface": "vcan8", "bitrate": 125000 }, "master": { "node_id": 1 }, "nodes": [] }],
-                 ["set", "diagnostics", { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=" }] ],
-      "schema": "invalid", "verdict": "reject", "messages": [ "field 'networks' lists 9 networks; at most 8 are supported" ] },
-    { "name": "v2: duplicate names ignoring case", "patch": [ ["set", "networks/1/name", "IO"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0] and networks[1] are both named \"IO\" (names must differ, ignoring case)" ] },
-    { "name": "v2: name not usable", "patch": [ ["set", "networks/1/name", "1st-bus"] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "network name \"1st-bus\" must start with a letter and hold only letters, digits and '_', at most 16 characters" ] },
-    { "name": "v2: interface without a usable name",
-      "patch": [ ["delete", "networks/1/name"], ["set", "networks/1/adapter/interface", "can-x.1"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[1]: interface \"can-x.1\" is not usable as a network name; give the network a 'name'" ] },
-    { "name": "v2: name defaults to the interface",
-      "patch": [ ["delete", "networks/0/name"], ["delete", "networks/1/name"] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "v2: same interface twice", "patch": [ ["set", "networks/1/adapter/interface", "vcan0"] ],
-      "schema": "valid", "verdict": "reject", "messages": [ "networks[0] (io) and networks[1] (drives) both use interface vcan0" ] },
-    { "name": "v2: same serial device twice",
-      "patch": [ ["set", "networks/0/adapter", { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan0", "bitrate": 125000 }],
-                 ["set", "networks/1/adapter", { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan1", "bitrate": 500000 }] ],
-      "schema": "valid", "verdict": "reject", "messages": [ "networks[0] (io) and networks[1] (drives) both use serial device /dev/ttyACM0" ] },
-    { "name": "v2: location clash between networks",
-      "patch": [ ["set", "networks/1/nodes/0/tx_pdos/0/entries/0/iec_location", "%ID100"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0] (io) node 2 (pingpong) TPDO 1 object 0x4001:0 and networks[1] (drives) node 2 (pingpong) TPDO 1 object 0x4001:0 both map to %ID100" ] },
-    { "name": "v2: duplicate node ID inside one network",
-      "patch": [ ["set", "networks/1/nodes/1", { "node_id": 2, "eds": "cpp-slave.eds" }] ],
-      "schema": "valid", "verdict": "reject", "messages": [ "networks[1]: nodes: node ID 2 is used by more than one slave" ] },
-    { "name": "v2: version 1 keys at the top level", "patch": [ ["set", "nodes", []] ],
-      "schema": "invalid", "verdict": "reject", "messages": [ "field 'nodes' belongs in networks[].nodes in schema_version 2" ] },
-    { "name": "v2: diagnostics inside a network",
-      "patch": [ ["set", "networks/0/master/diagnostics", { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=" }] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "networks[0]: master: field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master" ] },
-    { "name": "v2: top-level diagnostics and a scan-only network",
-      "patch": [ ["set", "networks/1/nodes", []],
-                 ["set", "diagnostics", { "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg=" }] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "v2: empty node list without diagnostics", "patch": [ ["set", "networks/1/nodes", []] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "networks[1]: field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a scan-only configuration)" ] },
-    { "name": "v2: interface and bitrate inside a network",
-      "patch": [ ["set", "networks/1/interface", "vcan1"] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "networks[1]: field 'interface' belongs in 'adapter' in schema_version 2" ] },
-    { "name": "v2: unknown field in a network", "patch": [ ["set", "networks/1/colour", "blue"] ],
-      "schema": "valid", "verdict": "accept",
-      "warnings": [ "unknown field 'colour' (networks[1].colour) ignored" ] },
-    { "name": "v2: removed software_file in a network's node is an unknown field",
-      "patch": [ ["set", "networks/1/nodes/0/software_file", "fw/node2.bin"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "node 2 (pingpong): unknown field 'software_file' (networks[1].nodes[0].software_file)" ] },
-    { "name": "v2: node option error names the network",
-      "patch": [ ["set", "networks/1/master/heartbeat_ms", 0], ["set", "networks/1/nodes/0/heartbeat_consumer", true] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[1]: nodes[0]: 'heartbeat_consumer' needs a master heartbeat (master 'heartbeat_ms' above 0)" ] },
-    { "name": "slave: a slave network next to two masters",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "slave: node ID null waits for LSS",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/slave/node_id", null] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "slave: %I location on an object the master cannot write",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/slave/objects/1/iec_location", "%IW302"] ],
-      "schema": "valid", "verdict": "reject",
+    {
+      "name": "cia309: gateway with explicit numbers",
+      "patch": [
+        [
+          "set",
+          "cia309",
+          { "port": 7533, "allow_changes": true, "nets": { "1": "io", "2": "drives" }, "default_net": 2 }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "cia309: empty object (read-only, loopback 7533)",
+      "patch": [ [ "set", "cia309", {} ] ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "cia309: plain port on the network",
+      "patch": [ [ "set", "cia309", { "bind": "0.0.0.0" } ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "cia309.bind: the plain gateway port listens on loopback only (127.0.0.1 or ::1), not \"0.0.0.0\"" ]
+    },
+    {
+      "name": "cia309: unknown field",
+      "patch": [ [ "set", "cia309", { "allow_change": true } ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "cia309: unknown field 'allow_change'" ]
+    },
+    {
+      "name": "cia309: nets names an unknown network",
+      "patch": [ [ "set", "cia309", { "nets": { "1": "io", "2": "motion" } } ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "cia309.nets: network 2 names \"motion\", which is not a network of this file" ]
+    },
+    {
+      "name": "cia309: two numbers for one network",
+      "patch": [ [ "set", "cia309", { "nets": { "1": "io", "3": "io" } } ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "cia309.nets: network \"io\" has two numbers (1 and 3)" ]
+    },
+    {
+      "name": "cia309: default_net not in nets",
+      "patch": [ [ "set", "cia309", { "nets": { "10": "drives" }, "default_net": 1 } ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "cia309: field 'default_net' is 1, which is not a gateway network number (10 = drives)" ]
+    },
+    {
+      "name": "cia309: inside a network's master",
+      "patch": [ [ "set", "networks/0/master/cia309", {} ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "field 'cia309' is a top-level object in schema_version 2, not part of a network's master" ]
+    },
+    {
+      "name": "cia309: port below 1024",
+      "patch": [ [ "set", "cia309", { "port": 80 } ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "cia309: field 'port' must be 0 (no plain port) or 1024-65535" ]
+    },
+    {
+      "name": "cia309: idle timeout, and 0 for none",
+      "patch": [ [ "set", "cia309", { "idle_timeout_s": 60 } ], [ "set", "cia309/idle_timeout_s", 0 ] ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "cia309: idle timeout over a day",
+      "patch": [ [ "set", "cia309", { "idle_timeout_s": 86401 } ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "cia309: field 'idle_timeout_s' must be 0 (no limit) to 86400" ]
+    },
+    {
+      "name": "v2: two networks, same node ID and COB-IDs on both",
+      "patch": [],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "v2: one network without a name",
+      "patch": [ [ "delete", "networks/1" ], [ "delete", "networks/0/name" ] ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "v2: no networks",
+      "patch": [ [ "set", "networks", [] ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "field 'networks' lists no networks" ]
+    },
+    {
+      "name": "v2: too many networks",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "n2",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/3",
+          {
+            "name": "n3",
+            "adapter": { "type": "socketcan", "interface": "vcan3", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/4",
+          {
+            "name": "n4",
+            "adapter": { "type": "socketcan", "interface": "vcan4", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/5",
+          {
+            "name": "n5",
+            "adapter": { "type": "socketcan", "interface": "vcan5", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/6",
+          {
+            "name": "n6",
+            "adapter": { "type": "socketcan", "interface": "vcan6", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/7",
+          {
+            "name": "n7",
+            "adapter": { "type": "socketcan", "interface": "vcan7", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "networks/8",
+          {
+            "name": "n8",
+            "adapter": { "type": "socketcan", "interface": "vcan8", "bitrate": 125000 },
+            "master": { "node_id": 1 },
+            "nodes": []
+          }
+        ],
+        [
+          "set",
+          "diagnostics",
+          {
+            "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "field 'networks' lists 9 networks; at most 8 are supported" ]
+    },
+    {
+      "name": "v2: duplicate names ignoring case",
+      "patch": [ [ "set", "networks/1/name", "IO" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[0] and networks[1] are both named \"IO\" (names must differ, ignoring case)" ]
+    },
+    {
+      "name": "v2: name not usable",
+      "patch": [ [ "set", "networks/1/name", "1st-bus" ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "network name \"1st-bus\" must start with a letter and hold only letters, digits and '_', at most 16 characters"
+      ]
+    },
+    {
+      "name": "v2: interface without a usable name",
+      "patch": [ [ "delete", "networks/1/name" ], [ "set", "networks/1/adapter/interface", "can-x.1" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: interface \"can-x.1\" is not usable as a network name; give the network a 'name'" ]
+    },
+    {
+      "name": "v2: name defaults to the interface",
+      "patch": [ [ "delete", "networks/0/name" ], [ "delete", "networks/1/name" ] ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "v2: same interface twice",
+      "patch": [ [ "set", "networks/1/adapter/interface", "vcan0" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[0] (io) and networks[1] (drives) both use interface vcan0" ]
+    },
+    {
+      "name": "v2: same serial device twice",
+      "patch": [
+        [
+          "set",
+          "networks/0/adapter",
+          { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan0", "bitrate": 125000 }
+        ],
+        [
+          "set",
+          "networks/1/adapter",
+          { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan1", "bitrate": 500000 }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[0] (io) and networks[1] (drives) both use serial device /dev/ttyACM0" ]
+    },
+    {
+      "name": "v2: location clash between networks",
+      "patch": [ [ "set", "networks/1/nodes/0/tx_pdos/0/entries/0/iec_location", "%ID100" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0] (io) node 2 (pingpong) TPDO 1 object 0x4001:0 (%ID100) and networks[1] (drives) node 2 (pingpong) TPDO 1 object 0x4001:0 (%ID100) overlap in input bytes 100 and 101 and 102 and 103"
+      ]
+    },
+    {
+      "name": "v2: duplicate node ID inside one network",
+      "patch": [ [ "set", "networks/1/nodes/1", { "node_id": 2, "eds": "cpp-slave.eds" } ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: nodes: node ID 2 is used by more than one slave" ]
+    },
+    {
+      "name": "v2: version 1 keys at the top level",
+      "patch": [ [ "set", "nodes", [] ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "field 'nodes' belongs in networks[].nodes in schema_version 2" ]
+    },
+    {
+      "name": "v2: diagnostics inside a network",
+      "patch": [
+        [
+          "set",
+          "networks/0/master/diagnostics",
+          {
+            "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0]: master: field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master"
+      ]
+    },
+    {
+      "name": "v2: top-level diagnostics and a scan-only network",
+      "patch": [
+        [ "set", "networks/1/nodes", [] ],
+        [
+          "set",
+          "diagnostics",
+          {
+            "token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "v2: empty node list without diagnostics",
+      "patch": [ [ "set", "networks/1/nodes", [] ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "networks[1]: field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a scan-only configuration)"
+      ]
+    },
+    {
+      "name": "v2: interface and bitrate inside a network",
+      "patch": [ [ "set", "networks/1/interface", "vcan1" ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: field 'interface' belongs in 'adapter' in schema_version 2" ]
+    },
+    {
+      "name": "v2: unknown field in a network",
+      "patch": [ [ "set", "networks/1/colour", "blue" ] ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [ "unknown field 'colour' (networks[1].colour) ignored" ]
+    },
+    {
+      "name": "v2: removed software_file in a network's node is an unknown field",
+      "patch": [ [ "set", "networks/1/nodes/0/software_file", "fw/node2.bin" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "node 2 (pingpong): unknown field 'software_file' (networks[1].nodes[0].software_file)" ]
+    },
+    {
+      "name": "v2: node option error names the network",
+      "patch": [ [ "set", "networks/1/master/heartbeat_ms", 0 ], [ "set", "networks/1/nodes/0/heartbeat_consumer", true ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: nodes[0]: 'heartbeat_consumer' needs a master heartbeat (master 'heartbeat_ms' above 0)" ]
+    },
+    {
+      "name": "slave: a slave network next to two masters",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "slave: node ID null waits for LSS",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/node_id", null ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "slave: %I location on an object the master cannot write",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/objects/1/iec_location", "%IW302" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
       "plugin_messages": [ "the master reads 0x2100:1 (access" ],
-      "tool_messages": [ "it needs a %Q location, not %IW302" ] },
-    { "name": "slave: object not in the EDS",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/slave/objects/0/index", "0x2050"] ],
-      "schema": "valid", "verdict": "reject",
+      "tool_messages": [ "it needs a %Q location, not %IW302" ]
+    },
+    {
+      "name": "slave: object not in the EDS",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/objects/0/index", "0x2050" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
       "plugin_messages": [ "slave object 0x2050:1 (speed): not in the EDS openplc-slave.eds" ],
-      "tool_messages": [ "slave object 0x2050:1 (speed) is not defined in openplc-slave.eds" ] },
-    { "name": "slave: location smaller than the object",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/slave/objects/0/iec_location", "%IB300"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "slave object 0x2000:1 (speed): type UNSIGNED16 (16 bit) does not fit location %IB300 (8 bit)" ] },
-    { "name": "slave: master fields on a slave network",
-      "patch": [ ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/master", {"node_id": 1}] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "networks[2]: field 'master' belongs to a master network; a slave network (\"role\": \"slave\") has" ] },
-    { "name": "slave: slave field on a master network",
-      "patch": [ ["set", "networks/0/slave", {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}], "state_location": "%IB301", "comm_ok_location": "%IX300.0"}] ],
-      "schema": "invalid", "verdict": "reject",
-      "messages": [ "networks[0]: field 'slave' belongs to a slave network" ] },
-    { "name": "gateway: routes, status, EMCY and SDO bridge",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "gateway", {"upper": "upper", "routes": [{"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4001", "subindex": 0}, "name": "pong"}, {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4000", "subindex": 0}, "name": "ping"}], "status": {"index": "0x5E00"}, "emcy_forward": true, "on_upper_loss": "stop_nodes", "sdo_bridge": true}], ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"] ],
-      "schema": "valid", "verdict": "accept",
-      "warnings": [ "gateway status of network \"drives\" is not published: objects 0x5E01 and 0x5E11 are not in the EDS openplc-gateway.eds" ] },
-    { "name": "gateway: a routed RPDO entry with its own output location",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "gateway", {"upper": "upper", "routes": [{"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4001", "subindex": 0}, "name": "pong"}, {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4000", "subindex": 0}, "name": "ping"}], "status": {"index": "0x5E00"}, "emcy_forward": true, "on_upper_loss": "stop_nodes", "sdo_bridge": true}] ],
-      "schema": "valid", "verdict": "reject",
+      "tool_messages": [ "slave object 0x2050:1 (speed) is not defined in openplc-slave.eds" ]
+    },
+    {
+      "name": "slave: location smaller than the object",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/objects/0/iec_location", "%IB300" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "slave object 0x2000:1 (speed): type UNSIGNED16 (16 bit) does not fit location %IB300 (8 bit)" ]
+    },
+    {
+      "name": "slave: master fields on a slave network",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ],
+              "state_location": "%IB304",
+              "comm_ok_location": "%IX305.0"
+            }
+          }
+        ],
+        [ "set", "networks/2/master", { "node_id": 1 } ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "networks[2]: field 'master' belongs to a master network; a slave network (\"role\": \"slave\") has" ]
+    },
+    {
+      "name": "slave: slave field on a master network",
+      "patch": [
+        [
+          "set",
+          "networks/0/slave",
+          {
+            "node_id": 10,
+            "eds": "openplc-slave.eds",
+            "objects": [
+              { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
+              { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+            ],
+            "state_location": "%IB304",
+            "comm_ok_location": "%IX305.0"
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "networks[0]: field 'slave' belongs to a slave network" ]
+    },
+    {
+      "name": "gateway: routes, status, EMCY and SDO bridge",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [
+          "set",
+          "gateway",
+          {
+            "upper": "upper",
+            "routes": [
+              {
+                "slave": { "index": "0x2101", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4001", "subindex": 0 },
+                "name": "pong"
+              },
+              {
+                "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4000", "subindex": 0 },
+                "name": "ping"
+              }
+            ],
+            "status": { "index": "0x5E00" },
+            "emcy_forward": true,
+            "on_upper_loss": "stop_nodes",
+            "sdo_bridge": true
+          }
+        ],
+        [ "delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location" ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [
+        "gateway status of network \"drives\" is not published: objects 0x5E01 and 0x5E11 are not in the EDS openplc-gateway.eds"
+      ]
+    },
+    {
+      "name": "gateway: a routed RPDO entry with its own output location",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [
+          "set",
+          "gateway",
+          {
+            "upper": "upper",
+            "routes": [
+              {
+                "slave": { "index": "0x2101", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4001", "subindex": 0 },
+                "name": "pong"
+              },
+              {
+                "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4000", "subindex": 0 },
+                "name": "ping"
+              }
+            ],
+            "status": { "index": "0x5E00" },
+            "emcy_forward": true,
+            "on_upper_loss": "stop_nodes",
+            "sdo_bridge": true
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
       "messages": [ "gateway: routes[1]: " ],
       "plugin_messages": [ "writes node 2 (pingpong) RPDO entry 0x4000:0 on network \"io\", which also has %QD100" ],
-      "tool_messages": [ "is written by routes[1] and by %QD100" ] },
-    { "name": "gateway: upper is a master network",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "gateway", {"upper": "upper", "routes": [{"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4001", "subindex": 0}, "name": "pong"}, {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4000", "subindex": 0}, "name": "ping"}], "status": {"index": "0x5E00"}, "emcy_forward": true, "on_upper_loss": "stop_nodes", "sdo_bridge": true}], ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"], ["set", "gateway/upper", "drives"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "must be a slave network (\"role\": \"slave\")" ] },
-    { "name": "gateway: route ends of different types",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "gateway", {"upper": "upper", "routes": [{"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4001", "subindex": 0}, "name": "pong"}, {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4000", "subindex": 0}, "name": "ping"}], "status": {"index": "0x5E00"}, "emcy_forward": true, "on_upper_loss": "stop_nodes", "sdo_bridge": true}], ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"], ["set", "gateway/routes/0/slave/index", "0x2100"] ],
-      "schema": "valid", "verdict": "reject",
+      "tool_messages": [ "is written by routes[1] and by %QD100" ]
+    },
+    {
+      "name": "gateway: upper is a master network",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [
+          "set",
+          "gateway",
+          {
+            "upper": "upper",
+            "routes": [
+              {
+                "slave": { "index": "0x2101", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4001", "subindex": 0 },
+                "name": "pong"
+              },
+              {
+                "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4000", "subindex": 0 },
+                "name": "ping"
+              }
+            ],
+            "status": { "index": "0x5E00" },
+            "emcy_forward": true,
+            "on_upper_loss": "stop_nodes",
+            "sdo_bridge": true
+          }
+        ],
+        [ "delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location" ],
+        [ "set", "gateway/upper", "drives" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "must be a slave network (\"role\": \"slave\")" ]
+    },
+    {
+      "name": "gateway: route ends of different types",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [
+          "set",
+          "gateway",
+          {
+            "upper": "upper",
+            "routes": [
+              {
+                "slave": { "index": "0x2101", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4001", "subindex": 0 },
+                "name": "pong"
+              },
+              {
+                "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4000", "subindex": 0 },
+                "name": "ping"
+              }
+            ],
+            "status": { "index": "0x5E00" },
+            "emcy_forward": true,
+            "on_upper_loss": "stop_nodes",
+            "sdo_bridge": true
+          }
+        ],
+        [ "delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location" ],
+        [ "set", "gateway/routes/0/slave/index", "0x2100" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
       "plugin_messages": [ "is UNSIGNED32 but slave object 0x2100:1 is BOOLEAN" ],
-      "tool_messages": [ "0x4001:0 (UNSIGNED32) and slave object 0x2100:1 (BOOLEAN) need the same data type" ] },
-    { "name": "gateway: field end not in a configured PDO",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "gateway", {"upper": "upper", "routes": [{"slave": {"index": "0x2101", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4001", "subindex": 0}, "name": "pong"}, {"slave": {"index": "0x2000", "subindex": 1}, "field": {"network": "io", "node": 2, "index": "0x4000", "subindex": 0}, "name": "ping"}], "status": {"index": "0x5E00"}, "emcy_forward": true, "on_upper_loss": "stop_nodes", "sdo_bridge": true}], ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"], ["set", "gateway/routes/0/field/index", "0x1017"] ],
-      "schema": "valid", "verdict": "reject",
+      "tool_messages": [ "0x4001:0 (UNSIGNED32) and slave object 0x2100:1 (BOOLEAN) need the same data type" ]
+    },
+    {
+      "name": "gateway: field end not in a configured PDO",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [
+          "set",
+          "gateway",
+          {
+            "upper": "upper",
+            "routes": [
+              {
+                "slave": { "index": "0x2101", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4001", "subindex": 0 },
+                "name": "pong"
+              },
+              {
+                "slave": { "index": "0x2000", "subindex": 1 },
+                "field": { "network": "io", "node": 2, "index": "0x4000", "subindex": 0 },
+                "name": "ping"
+              }
+            ],
+            "status": { "index": "0x5E00" },
+            "emcy_forward": true,
+            "on_upper_loss": "stop_nodes",
+            "sdo_bridge": true
+          }
+        ],
+        [ "delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location" ],
+        [ "set", "gateway/routes/0/field/index", "0x1017" ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
       "messages": [ "gateway: routes[0]: " ],
       "plugin_messages": [ "has no PDO entry 0x1017:0" ],
-      "tool_messages": [ "0x1017:0 is not an entry of the node's tx_pdos or rx_pdos" ] },
-    { "name": "gateway: status objects missing from the slave EDS",
-      "patch": [ ["set", "networks/2", {"name": "upper", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "slave": {"node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX300.0"}}], ["set", "networks/2/slave/eds", "openplc-slave.eds"], ["set", "gateway", {"upper": "upper", "routes": [], "status": {"index": "0x5E00"}}] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "gateway status of network \"io\" needs object 0x5E00" ] },
-    { "name": "gateway: PDO entry without iec_location and no route",
-      "patch": [ ["delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location"] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0]: nodes[0]: rx_pdos[0]: entries[0]: ", "(only an entry a gateway route or a PDO link uses may leave it out)" ] },
-    { "name": "simulated bus: a master and a slave network share one bus",
-      "patch": [ ["set", "networks/0/adapter/interface", "sim0"], ["set", "networks/0/adapter/simulate", true], ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}]}}] ],
-      "schema": "valid", "verdict": "accept" },
-    { "name": "simulated bus: two master networks on one bus",
-      "patch": [ ["set", "networks/0/adapter/interface", "sim0"], ["set", "networks/0/adapter/simulate", true], ["set", "networks/1/adapter/interface", "sim0"], ["set", "networks/1/adapter/simulate", true] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0] (io) and networks[1] (drives) are both master networks on simulated bus sim0 (a simulated bus takes one master network and one slave network)" ] },
-    { "name": "simulated bus: the master's node for the slave is simulated too",
-      "patch": [ ["set", "networks/0/adapter/interface", "sim0"], ["set", "networks/0/adapter/simulate", true], ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}]}}], ["set", "networks/2/slave/node_id", 2] ],
-      "schema": "valid", "verdict": "reject",
-      "messages": [ "networks[0] (io) node 2 is networks[2] (line) on simulated bus sim0; set \"simulate\": false on the node, or the simulator answers in its place" ] },
-    { "name": "simulated bus: the master's node for the slave is not simulated",
-      "patch": [ ["set", "networks/0/adapter/interface", "sim0"], ["set", "networks/0/adapter/simulate", true], ["set", "networks/2", {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true}, "slave": {"node_id": 10, "eds": "openplc-slave.eds", "objects": [{"index": "0x2000", "subindex": 1, "iec_location": "%IW300"}, {"index": "0x2100", "subindex": 1, "iec_location": "%QW300"}]}}], ["set", "networks/2/slave/node_id", 2], ["set", "networks/0/nodes/0/simulate", false] ],
-      "schema": "valid", "verdict": "accept" },
-    {"name": "plain: a plain CAN network next to a master", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"rx": [{"name": "Joystick", "id": 384, "timeout_ms": 300, "status_location": "%IX20.0", "signals": [{"name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200"}]}]}}]], "schema": "valid", "verdict": "accept"},
-    {"name": "plain: CANopen keys do not belong", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"rx": [{"name": "Joystick", "id": 384, "timeout_ms": 300, "status_location": "%IX20.0", "signals": [{"name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200"}]}]}, "master": {"node_id": 1}}]], "schema": "invalid", "verdict": "reject", "messages": ["networks[2]: field 'master' does not belong to a plain CAN network (\"protocol\": \"none\"), which has only 'adapter' and 'raw'"]},
-    {"name": "plain: listen-only", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000, "listen_only": true}, "raw": {"rx": [{"name": "Joystick", "id": 384, "timeout_ms": 300, "status_location": "%IX20.0", "signals": [{"name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200"}]}]}}]], "schema": "valid", "verdict": "accept"},
-    {"name": "plain: a listen-only network cannot send", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000, "listen_only": true}, "raw": {"tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}}]], "schema": "valid", "verdict": "reject", "messages": ["networks[2].raw.tx: a listen-only network cannot send"]},
-    {"name": "plain: scan watchdog of a plain-CAN-only project", "patch": [["set", "networks", [{"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"scan_watchdog_ms": 250, "tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}}]]], "schema": "valid", "verdict": "accept"},
-    {"name": "plain: scan watchdog off", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"scan_watchdog_ms": 0, "tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}}]], "schema": "valid", "verdict": "accept"},
-    {"name": "plain: scan watchdog too short", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"scan_watchdog_ms": 5, "tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}}]], "schema": "invalid", "verdict": "reject", "messages": ["networks[2].raw.scan_watchdog_ms: must be 0 or 10-60000: 5"]},
-    {"name": "plain: scan watchdog too long", "patch": [["set", "networks/2", {"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "vcan2", "bitrate": 250000}, "raw": {"scan_watchdog_ms": 60001, "tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}}]], "schema": "invalid", "verdict": "reject", "messages": ["networks[2].raw.scan_watchdog_ms: must be a whole number 0..60000"]},
-    {"name": "raw: scan watchdog on a CANopen network", "patch": [["set", "networks/0/raw", {"scan_watchdog_ms": 500}]], "schema": "valid", "verdict": "reject", "messages": ["networks[0].raw.scan_watchdog_ms: only a plain CAN network takes it; a CANopen master has master.scan_watchdog_ms"]},
-    {"name": "listen_only on a CANopen network", "patch": [["set", "networks/0/adapter/listen_only", true]], "schema": "invalid", "verdict": "reject", "messages": ["networks[0]: adapter: field 'listen_only' needs a plain CAN network (\"protocol\": \"none\"): a CANopen network must send"]},
-    {"name": "raw: a message on a CANopen network", "patch": [["set", "networks/0/raw", {"rx": [{"name": "Panel", "id": 1536, "data_location": "%IL200"}], "tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200"}]}]], "schema": "valid", "verdict": "accept"},
-    {"name": "raw: a signal on a PDO entry's location", "patch": [["set", "networks/0/raw", {"rx": [{"id": 1536, "signals": [{"start_bit": 0, "length": 32, "iec_location": "%ID100"}]}]}]], "schema": "valid", "verdict": "reject", "messages": ["networks[0].raw.rx[0].signals[0].iec_location and", "both map to %ID100"]},
-    {"name": "raw: sending on an identifier the protocol uses", "patch": [["set", "networks/0/raw", {"tx": [{"name": "Ping", "id": 514, "period_ms": 100, "data_location": "%QL200"}]}]], "schema": "valid", "verdict": "reject", "messages": ["networks[0].raw.tx[0]: 0x202 is RPDO1 of node 2 (pingpong); set override_protocol to send it as a raw message"]},
-    {"name": "raw: overriding the protocol's identifier", "patch": [["set", "networks/0/raw", {"tx": [{"name": "Ping", "id": 514, "period_ms": 100, "override_protocol": true, "data_location": "%QL200"}]}]], "schema": "valid", "verdict": "accept"},
-    {"name": "raw: a signal past the image", "patch": [["set", "networks/0/raw", {"tx": [{"name": "Lamp", "id": 1281, "period_ms": 100, "signals": [{"name": "Red", "start_bit": 0, "length": 16, "iec_location": "%QW5000"}]}]}]], "schema": "valid", "verdict": "reject", "messages": ["networks[0].raw.tx[0].signals[0].iec_location: %QW5000 lies outside the runtime I/O image (index must be below 1024)"]},
-    {"name": "raw: every location kind past the image", "patch": [["set", "networks/0/raw", {"rx": [{"id": 1536, "status_location": "%IX1024.0", "counter_location": "%IW1024", "id_location": "%ID1024", "dlc_location": "%IB1024", "data_location": "%IL1024"}], "tx": [{"id": 1281, "trigger_location": "%QX1024.0", "enable_location": "%QX1025.0", "data_location": "%QL1024"}]}]], "schema": "valid", "verdict": "reject", "messages": ["networks[0].raw.rx[0].status_location: %IX1024.0 lies outside", "networks[0].raw.rx[0].counter_location: %IW1024 lies outside", "networks[0].raw.rx[0].id_location: %ID1024 lies outside", "networks[0].raw.rx[0].dlc_location: %IB1024 lies outside", "networks[0].raw.rx[0].data_location: %IL1024 lies outside", "networks[0].raw.tx[0].trigger_location: %QX1024.0 lies outside", "networks[0].raw.tx[0].enable_location: %QX1025.0 lies outside", "networks[0].raw.tx[0].data_location: %QL1024 lies outside"]},
-    {"name": "raw: the last entry of the image", "patch": [["set", "networks/0/raw", {"rx": [{"id": 1536, "data_location": "%IL1023"}]}]], "schema": "valid", "verdict": "accept"},
-    {"name": "v2: interface name too long", "patch": [["set", "networks/1/adapter/interface", "can_machine_main_bus"]], "schema": "invalid", "verdict": "reject", "messages": ["networks[1]: adapter: interface \"can_machine_main_bus\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character limit of Linux interface names)"]},
-    {"name": "plain: interface name checked", "patch": [["set", "networks/1", {"name": "panel", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can 1", "bitrate": 250000}}]], "schema": "invalid", "verdict": "reject", "messages": ["networks[1]: adapter: interface \"can 1\" must be 1-15 characters"]},
-    {"name": "slave: interface name checked", "patch": [["set", "networks/1", {"name": "line", "role": "slave", "adapter": {"type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan_line_controller", "bitrate": 250000}, "slave": {"node_id": 10, "eds": "openplc-slave.eds"}}]], "schema": "invalid", "verdict": "reject", "messages": ["networks[1]: adapter: interface \"slcan_line_controller\" must be 1-15 characters"]}
+      "tool_messages": [ "0x1017:0 is not an entry of the node's tx_pdos or rx_pdos" ]
+    },
+    {
+      "name": "gateway: status objects missing from the slave EDS",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "upper",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "slave": { "node_id": 20, "eds": "openplc-gateway.eds", "comm_ok_location": "%IX305.0" }
+          }
+        ],
+        [ "set", "networks/2/slave/eds", "openplc-slave.eds" ],
+        [ "set", "gateway", { "upper": "upper", "routes": [], "status": { "index": "0x5E00" } } ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "gateway status of network \"io\" needs object 0x5E00" ]
+    },
+    {
+      "name": "gateway: PDO entry without iec_location and no route",
+      "patch": [ [ "delete", "networks/0/nodes/0/rx_pdos/0/entries/0/iec_location" ] ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0]: nodes[0]: rx_pdos[0]: entries[0]: ",
+        "(only an entry a gateway route or a PDO link uses may leave it out)"
+      ]
+    },
+    {
+      "name": "simulated bus: a master and a slave network share one bus",
+      "patch": [
+        [ "set", "networks/0/adapter/interface", "sim0" ],
+        [ "set", "networks/0/adapter/simulate", true ],
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ]
+            }
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "simulated bus: two master networks on one bus",
+      "patch": [
+        [ "set", "networks/0/adapter/interface", "sim0" ],
+        [ "set", "networks/0/adapter/simulate", true ],
+        [ "set", "networks/1/adapter/interface", "sim0" ],
+        [ "set", "networks/1/adapter/simulate", true ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0] (io) and networks[1] (drives) are both master networks on simulated bus sim0 (a simulated bus takes one master network and one slave network)"
+      ]
+    },
+    {
+      "name": "simulated bus: the master's node for the slave is simulated too",
+      "patch": [
+        [ "set", "networks/0/adapter/interface", "sim0" ],
+        [ "set", "networks/0/adapter/simulate", true ],
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ]
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/node_id", 2 ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0] (io) node 2 is networks[2] (line) on simulated bus sim0; set \"simulate\": false on the node, or the simulator answers in its place"
+      ]
+    },
+    {
+      "name": "simulated bus: the master's node for the slave is not simulated",
+      "patch": [
+        [ "set", "networks/0/adapter/interface", "sim0" ],
+        [ "set", "networks/0/adapter/simulate", true ],
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 125000, "simulate": true },
+            "slave": {
+              "node_id": 10,
+              "eds": "openplc-slave.eds",
+              "objects": [
+                { "index": "0x2000", "subindex": 1, "iec_location": "%IW300" },
+                { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" }
+              ]
+            }
+          }
+        ],
+        [ "set", "networks/2/slave/node_id", 2 ],
+        [ "set", "networks/0/nodes/0/simulate", false ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "plain: a plain CAN network next to a master",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "cab",
+            "protocol": "none",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "raw": {
+              "rx": [
+                {
+                  "name": "Joystick",
+                  "id": 384,
+                  "timeout_ms": 300,
+                  "status_location": "%IX20.0",
+                  "signals": [ { "name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200" } ]
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "plain: CANopen keys do not belong",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "cab",
+            "protocol": "none",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000 },
+            "raw": {
+              "rx": [
+                {
+                  "name": "Joystick",
+                  "id": 384,
+                  "timeout_ms": 300,
+                  "status_location": "%IX20.0",
+                  "signals": [ { "name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200" } ]
+                }
+              ]
+            },
+            "master": { "node_id": 1 }
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "networks[2]: field 'master' does not belong to a plain CAN network (\"protocol\": \"none\"), which has only 'adapter' and 'raw'"
+      ]
+    },
+    {
+      "name": "plain: listen-only",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "cab",
+            "protocol": "none",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000, "listen_only": true },
+            "raw": {
+              "rx": [
+                {
+                  "name": "Joystick",
+                  "id": 384,
+                  "timeout_ms": 300,
+                  "status_location": "%IX20.0",
+                  "signals": [ { "name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW200" } ]
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "plain: a listen-only network cannot send",
+      "patch": [
+        [
+          "set",
+          "networks/2",
+          {
+            "name": "cab",
+            "protocol": "none",
+            "adapter": { "type": "socketcan", "interface": "vcan2", "bitrate": 250000, "listen_only": true },
+            "raw": { "tx": [ { "name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200" } ] }
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [ "networks[2].raw.tx: a listen-only network cannot send" ]
+    },
+    {
+      "name": "listen_only on a CANopen network",
+      "patch": [ [ "set", "networks/0/adapter/listen_only", true ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0]: adapter: field 'listen_only' needs a plain CAN network (\"protocol\": \"none\"): a CANopen network must send"
+      ]
+    },
+    {
+      "name": "raw: a message on a CANopen network",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          {
+            "rx": [ { "name": "Panel", "id": 1536, "data_location": "%IL200" } ],
+            "tx": [ { "name": "Lamp", "id": 1281, "period_ms": 100, "data_location": "%QL200" } ]
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "raw: a signal on a PDO entry's location",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          { "rx": [ { "id": 1536, "signals": [ { "start_bit": 0, "length": 32, "iec_location": "%ID100" } ] } ] }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0].raw.rx[0].signals[0].iec_location (%ID100) and",
+        "overlap in input bytes 100 and 101 and 102 and 103"
+      ]
+    },
+    {
+      "name": "raw: sending on an identifier the protocol uses",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          { "tx": [ { "name": "Ping", "id": 514, "period_ms": 100, "data_location": "%QL200" } ] }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0].raw.tx[0]: 0x202 is RPDO1 of node 2 (pingpong); set override_protocol to send it as a raw message"
+      ]
+    },
+    {
+      "name": "raw: overriding the protocol's identifier",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          {
+            "tx": [ { "name": "Ping", "id": 514, "period_ms": 100, "override_protocol": true, "data_location": "%QL200" } ]
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "raw: a signal past the image",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          {
+            "tx": [
+              {
+                "name": "Lamp",
+                "id": 1281,
+                "period_ms": 100,
+                "signals": [ { "name": "Red", "start_bit": 0, "length": 16, "iec_location": "%QW9000" } ]
+              }
+            ]
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0].raw.tx[0].signals[0].iec_location: %QW9000 lies outside the runtime I/O image (index must be below 8192)"
+      ]
+    },
+    {
+      "name": "raw: every location kind past the image",
+      "patch": [
+        [
+          "set",
+          "networks/0/raw",
+          {
+            "rx": [
+              {
+                "id": 1536,
+                "status_location": "%IX8192.0",
+                "counter_location": "%IW8192",
+                "id_location": "%ID8192",
+                "dlc_location": "%IB8192",
+                "data_location": "%IL8192"
+              }
+            ],
+            "tx": [
+              {
+                "id": 1281,
+                "trigger_location": "%QX8192.0",
+                "enable_location": "%QX8193.0",
+                "data_location": "%QL8192"
+              }
+            ]
+          }
+        ]
+      ],
+      "schema": "valid",
+      "verdict": "reject",
+      "messages": [
+        "networks[0].raw.rx[0].status_location: %IX8192.0 lies outside",
+        "networks[0].raw.rx[0].counter_location: %IW8192 lies outside",
+        "networks[0].raw.rx[0].id_location: %ID8192 lies outside",
+        "networks[0].raw.rx[0].dlc_location: %IB8192 lies outside",
+        "networks[0].raw.rx[0].data_location: %IL8192 lies outside",
+        "networks[0].raw.tx[0].trigger_location: %QX8192.0 lies outside",
+        "networks[0].raw.tx[0].enable_location: %QX8193.0 lies outside",
+        "networks[0].raw.tx[0].data_location: %QL8192 lies outside"
+      ]
+    },
+    {
+      "name": "raw: the last entry of the image",
+      "patch": [ [ "set", "networks/0/raw", { "rx": [ { "id": 1536, "data_location": "%IL8184" } ] } ] ],
+      "schema": "valid",
+      "verdict": "accept"
+    },
+    {
+      "name": "v2: interface name too long",
+      "patch": [ [ "set", "networks/1/adapter/interface", "can_machine_main_bus" ] ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [
+        "networks[1]: adapter: interface \"can_machine_main_bus\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character limit of Linux interface names)"
+      ]
+    },
+    {
+      "name": "plain: interface name checked",
+      "patch": [
+        [
+          "set",
+          "networks/1",
+          {
+            "name": "panel",
+            "protocol": "none",
+            "adapter": { "type": "socketcan", "interface": "can 1", "bitrate": 250000 }
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: adapter: interface \"can 1\" must be 1-15 characters" ]
+    },
+    {
+      "name": "slave: interface name checked",
+      "patch": [
+        [
+          "set",
+          "networks/1",
+          {
+            "name": "line",
+            "role": "slave",
+            "adapter": { "type": "slcan", "device": "/dev/ttyACM0", "interface": "slcan_line_controller", "bitrate": 250000 },
+            "slave": { "node_id": 10, "eds": "openplc-slave.eds" }
+          }
+        ]
+      ],
+      "schema": "invalid",
+      "verdict": "reject",
+      "messages": [ "networks[1]: adapter: interface \"slcan_line_controller\" must be 1-15 characters" ]
+    }
   ]
 }

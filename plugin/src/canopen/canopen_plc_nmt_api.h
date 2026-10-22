@@ -74,9 +74,6 @@ typedef struct {
   uint16_t (*get_state)(uint8_t network, uint8_t node, canopen_plc_nmt_state* out);
 } canopen_plc_nmt_api_v1;
 
-/* The table for `version`, or NULL when this plugin does not offer it. */
-const void* canopen_plc_nmt_api(uint32_t version);
-
 #ifdef __cplusplus
 }
 #endif

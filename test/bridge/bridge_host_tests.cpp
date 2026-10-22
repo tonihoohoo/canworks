@@ -504,7 +504,7 @@ TEST(rejects_plain_configs) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy([](cJSON* r) { cJSON_DeleteItemFromObject(r, "bridge"); });
   EXPECT(!BridgeHost::check(path));
-  EXPECT(logged("not a bridge config"));
+  EXPECT(logged("this config is for the removed OpenPLC plugin"));
   path = example_copy([](cJSON* r) {
     cJSON* m = cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "master");
     cJSON_AddStringToObject(m, "sync_source", "plc_cycle");
@@ -661,7 +661,6 @@ TEST(map_hash_vectors) {
   std::vector<std::string> errors;
   canopen_plugin::ImageLimits limits;
   limits.buffer_size = BridgeHost::kImageLimit;
-  limits.bridge_host = true;
   EXPECT(canopen_plugin::load_config_set(std::string(OPENPLC_EXAMPLE_DIR) + "/canworks.json", limits, set, errors));
   std::string expected = read_file(std::string(FIXTURES_DIR) + "/modbus/openplc-hash.txt");
   EXPECT(canopen_plugin::map_hash_text(set) == expected);

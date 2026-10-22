@@ -42,7 +42,7 @@
 #include "diag.h"
 #include "eds_check.h"
 #include "eds_lint.h"
-#include "fake_runtime.hpp"
+#include "fake_host.hpp"
 #include "gateway.h"
 #include "log.h"
 #include "network.h"
@@ -208,7 +208,7 @@ class SlaveSim {
     errors_ = errors;
     for (const auto& e : errors) std::printf("  setup: %s\n", e.c_str());
     if (!ok_) return;
-    fake_runtime::attach(fake_, rt_);
+    fake_host::attach(fake_, rt_);
     if (set_.gateway.enabled) gw_.reset(new GatewayLink(set_));
     for (size_t i = 0; i < set_.networks.size(); ++i) {
       const Config& cfg = set_.networks[i];
@@ -265,7 +265,6 @@ class SlaveSim {
     for (auto& n : nets_) {
       n->net.reset();
       n->dev.reset();
-      n->run.end_run();  // as MasterRuntime::stop
     }
     PlcRequests::instance().close();
   }
@@ -274,7 +273,7 @@ class SlaveSim {
   const std::vector<std::string>& errors() const { return errors_; }
   Net& net(size_t i) { return *nets_[i]; }
   PlcSlave& dev(size_t i) { return *nets_[i]->dev; }
-  fake_runtime::Image& plc() { return fake_; }
+  fake_host::Image& plc() { return fake_; }
 
   // Starts every network: slaves first, so the masters find them.
   void Start() {
@@ -405,7 +404,7 @@ class SlaveSim {
     RunUntil([] { return false; }, d);
   }
 
-  void SetProgram(std::function<void(fake_runtime::Image&)> p) { program_ = std::move(p); }
+  void SetProgram(std::function<void(fake_host::Image&)> p) { program_ = std::move(p); }
   void PauseScan(milliseconds d) { pause_until_ = steady_clock::now() + d; }
 
   // An SDO transfer through the program's request path on network `net`.
@@ -508,9 +507,9 @@ class SlaveSim {
   std::vector<std::unique_ptr<Box>> boxes_;
   std::vector<std::unique_ptr<io::VirtualCanChannel>> old_chans_;
   std::vector<std::unique_ptr<DiagHub>> hubs_;
-  fake_runtime::Image fake_;
-  plugin_runtime_args_t rt_;
-  std::function<void(fake_runtime::Image&)> program_;
+  fake_host::Image fake_;
+  fake_host::Runtime rt_;
+  std::function<void(fake_host::Image&)> program_;
   steady_clock::time_point pause_until_{};
   std::string state_dir_;
   std::vector<std::string> errors_;
@@ -522,24 +521,24 @@ class SlaveSim {
 // 0x2001:1 into its RPDO 1... seen from the slave; the slave's 0x2100:1/2 come back.
 std::string slave_json(const std::string& master_node_extra = "", const std::string& slave_extra = "",
                        const std::string& master_extra = "", const std::string& tx_extra = "") {
-  return R"({ "schema_version": 2, "networks": [
+  return R"({ "schema_version": 2, "bridge": { "listen": "127.0.0.1:1502", "writers": ["127.0.0.1"] }, "networks": [
     { "name": "plc", "adapter": { "type": "socketcan", "interface": "line.m", "bitrate": 250000 },
       "master": { "node_id": 1, "heartbeat_ms": 50 )" + master_extra + R"( },
       "nodes": [ { "node_id": 10, "name": "openplc", "eds": "openplc-slave.eds" )" + master_node_extra + R"(,
         "tx_pdos": [ { "number": 1, )" + tx_extra + R"( "entries": [
             { "index": "0x2100", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%IW10" },
-            { "index": "0x2100", "subindex": 2, "type": "UNSIGNED16", "iec_location": "%IW11" } ] } ],
+            { "index": "0x2100", "subindex": 2, "type": "UNSIGNED16", "iec_location": "%IW12" } ] } ],
         "rx_pdos": [ { "number": 1, "entries": [
             { "index": "0x2000", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%QW10" } ] } ] } ] },
     { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "line.s", "bitrate": 250000 },
       "slave": { "node_id": 10, "eds": "openplc-slave.eds",
         "objects": [
           { "index": "0x2000", "subindex": 1, "iec_location": "%IW300", "name": "speed" },
-          { "index": "0x2001", "subindex": 1, "iec_location": "%IB300", "name": "mode" },
+          { "index": "0x2001", "subindex": 1, "iec_location": "%IB302", "name": "mode" },
           { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" },
-          { "index": "0x2100", "subindex": 2, "iec_location": "%QW301" } ],
-        "state_location": "%IB301", "comm_ok_location": "%IX300.0", "sync_count_location": "%IW301",
-        "emcy_code_location": "%QW302", "error_register_location": "%QB300" )" + slave_extra + R"( } } ] })";
+          { "index": "0x2100", "subindex": 2, "iec_location": "%QW302" } ],
+        "state_location": "%IB303", "comm_ok_location": "%IX304.0", "sync_count_location": "%IW306",
+        "emcy_code_location": "%QW304", "error_register_location": "%QB306" )" + slave_extra + R"( } } ] })";
 }
 
 std::unique_ptr<SlaveSim> start_slave_sim(const std::string& json, const std::string& state_dir = "") {
@@ -549,7 +548,7 @@ std::unique_ptr<SlaveSim> start_slave_sim(const std::string& json, const std::st
   return sim;
 }
 
-bool slave_up(SlaveSim& s) { return s.plc().byte_in[301] == 5 && s.plc().bool_in[300][0]; }
+bool slave_up(SlaveSim& s) { return s.plc().byte_in[303] == 5 && s.plc().bool_in[304][0]; }
 
 }  // namespace
 
@@ -558,9 +557,9 @@ TEST(slave_boot_and_pdos) {
   auto sim = start_slave_sim(slave_json());
   if (!sim->ok()) return;
   sim->Sniff("line");
-  sim->SetProgram([](fake_runtime::Image& p) {
-    p.int_out[300] = static_cast<IEC_UINT>(p.int_in[300] + 1);  // slave: speed + 1 back
-    p.int_out[301] = 77;
+  sim->SetProgram([](fake_host::Image& p) {
+    p.int_out[300] = static_cast<uint16_t>(p.int_in[300] + 1);  // slave: speed + 1 back
+    p.int_out[302] = 77;
   });
   sim->Start();
   CHECK(sim->RunUntil([&] { return sim->frames(0x70A) > 0; }, seconds(2)));  // boot-up of node 10
@@ -568,7 +567,7 @@ TEST(slave_boot_and_pdos) {
   // Master %QW10 -> RPDO -> slave %IW300; program +1 -> %QW300 -> TPDO -> master %IW10.
   sim->plc().int_out[10] = 1234;
   CHECK(sim->RunUntil([&] { return sim->plc().int_in[300] == 1234; }, seconds(2)));
-  CHECK(sim->RunUntil([&] { return sim->plc().int_in[10] == 1235 && sim->plc().int_in[11] == 77; }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return sim->plc().int_in[10] == 1235 && sim->plc().int_in[12] == 77; }, seconds(2)));
   // The heartbeat comes from the EDS (0x1017 = 500 ms).
   int hb = sim->frames(0x70A);
   sim->RunFor(milliseconds(1100));
@@ -581,9 +580,9 @@ TEST(slave_sdo_to_bound_object_and_remap) {
   if (!sim->ok()) return;
   sim->Start();
   CHECK(sim->RunUntil([&] { return slave_up(*sim); }, seconds(5)));
-  // 0x2001:1 is in no RPDO the master set: an SDO download still reaches %IB300.
+  // 0x2001:1 is in no RPDO the master set: an SDO download still reaches %IB302.
   CHECK(sim->Sdo(0, 10, 0x2001, 1, true, 3, 1) == 0);
-  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[300] == 3; }, seconds(1)));
+  CHECK(sim->RunUntil([&] { return sim->plc().byte_in[302] == 3; }, seconds(1)));
   // The master remapped RPDO 1 to 0x2000:1 alone (its config) and TPDO 1 to 0x2100:1/2.
   uint64_t v = 0;
   CHECK(sim->Sdo(0, 10, 0x1600, 0, false, 0, 0, &v) == 0 && v == 1);
@@ -601,13 +600,13 @@ TEST(slave_sdo_to_bound_object_and_remap) {
 TEST(slave_sync_tpdo_and_sync_count) {
   auto sim = start_slave_sim(slave_json("", "", R"(, "sync_period_us": 20000)", R"("transmission": 1,)"));
   if (!sim->ok()) return;
-  sim->SetProgram([](fake_runtime::Image& p) { p.int_out[300] = 500; });
+  sim->SetProgram([](fake_host::Image& p) { p.int_out[300] = 500; });
   sim->Start();
   CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().int_in[10] == 500; }, seconds(5)));
-  uint16_t c0 = sim->plc().int_in[301];
+  uint16_t c0 = sim->plc().int_in[306];
   sim->RunFor(milliseconds(200));
-  CHECK_MSG(sim->plc().int_in[301] - c0 >= 5, std::to_string(sim->plc().int_in[301] - c0));
-  sim->SetProgram([](fake_runtime::Image& p) { p.int_out[300] = 600; });
+  CHECK_MSG(sim->plc().int_in[306] - c0 >= 5, std::to_string(sim->plc().int_in[306] - c0));
+  sim->SetProgram([](fake_host::Image& p) { p.int_out[300] = 600; });
   CHECK(sim->RunUntil([&] { return sim->plc().int_in[10] == 600; }, milliseconds(200)));
 }
 
@@ -621,8 +620,8 @@ TEST(slave_nmt_stop_holds_or_zeroes_inputs) {
     CHECK(sim->RunUntil([&] { return sim->plc().int_in[300] == 321; }, seconds(2)));
     // The other PLC stops the node: NMT stop (0x02) to node 10.
     sim->Send("line", 0x000, {0x02, 10});
-    CHECK(sim->RunUntil([&] { return sim->plc().byte_in[301] == 4; }, seconds(1)));
-    CHECK(!sim->plc().bool_in[300][0]);
+    CHECK(sim->RunUntil([&] { return sim->plc().byte_in[303] == 4; }, seconds(1)));
+    CHECK(!sim->plc().bool_in[304][0]);
     sim->RunFor(milliseconds(50));
     CHECK_MSG(sim->plc().int_in[300] == (zero ? 0 : 321), std::to_string(sim->plc().int_in[300]));
   }
@@ -636,7 +635,7 @@ TEST(slave_master_heartbeat_lost) {
   sim->Start();
   CHECK(sim->RunUntil([&] { return slave_up(*sim); }, seconds(5)));
   sim->Unplug(0);
-  CHECK(sim->RunUntil([&] { return !sim->plc().bool_in[300][0]; }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return !sim->plc().bool_in[304][0]; }, seconds(2)));
   CHECK(logged("lost the heartbeat of node 1"));
 }
 
@@ -646,8 +645,8 @@ TEST(slave_emcy_from_program) {
   sim->Sniff("line");
   sim->Start();
   CHECK(sim->RunUntil([&] { return slave_up(*sim); }, seconds(5)));
-  sim->plc().int_out[302] = 0x5000;
-  sim->plc().byte_out[300] = 1;
+  sim->plc().int_out[304] = 0x5000;
+  sim->plc().byte_out[306] = 1;
   CHECK(sim->RunUntil([&] { return !sim->frames_of(0x08A).empty(); }, seconds(1)));
   sim->RunFor(milliseconds(100));
   auto e = sim->frames_of(0x08A);
@@ -655,7 +654,7 @@ TEST(slave_emcy_from_program) {
   CHECK(e[0].data[0] == 0x00 && e[0].data[1] == 0x50 && e[0].data[2] == 0x01);
   uint64_t v = 0;
   CHECK(sim->Sdo(0, 10, 0x1001, 0, false, 0, 0, &v) == 0 && v == 1);
-  sim->plc().int_out[302] = 0;
+  sim->plc().int_out[304] = 0;
   CHECK(sim->RunUntil([&] { return sim->frames_of(0x08A).size() == 2; }, seconds(1)));
   e = sim->frames_of(0x08A);
   CHECK(e[1].data[0] == 0 && e[1].data[1] == 0);
@@ -853,17 +852,17 @@ TEST(slave_diag_status_and_local_od) {
 // heartbeat time 0x1017 to 0 stops the heartbeat, and the master loses the node.
 TEST(slave_diag_write_runs_handlers) {
   clear_logs();
-  auto sim = start_slave_sim(slave_json(R"(, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150, "status_location": "%IX10.0")"));
+  auto sim = start_slave_sim(slave_json(R"(, "heartbeat_ms": 50, "heartbeat_timeout_ms": 150, "status_location": "%IX20.0")"));
   if (!sim->ok()) return;
   sim->EnableDiag(1);
   sim->Start();
-  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[10][0]; }, seconds(5)));
+  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[20][0]; }, seconds(5)));
   DiagRequest w = diag_req("sdo_write", 10, 0x1017, 0);
   w.data = {0, 0};
   cJSON* a = sim->Ask(w);
   CHECK_MSG(cJSON_IsTrue(field(field(a, "result"), "success")), text(a));
   cJSON_Delete(a);
-  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[10][0]; }, seconds(2)),
+  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[20][0]; }, seconds(2)),
             "the slave kept sending its heartbeat after 0x1017 was written 0");
 }
 
@@ -874,11 +873,11 @@ TEST(slave_diag_write_runs_handlers) {
 TEST(slave_start_not_confirmed) {
   clear_logs();
   auto sim = start_slave_sim(
-      slave_json(R"(, "heartbeat_ms": 300, "heartbeat_timeout_ms": 900, "status_location": "%IX10.0")"));
+      slave_json(R"(, "heartbeat_ms": 300, "heartbeat_timeout_ms": 900, "status_location": "%IX20.0")"));
   if (!sim->ok()) return;
   sim->EnableDiag(1);
   sim->Start();
-  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[10][0]; }, seconds(5)));
+  CHECK(sim->RunUntil([&] { return slave_up(*sim) && sim->plc().bool_in[20][0]; }, seconds(5)));
   // The slave consumes the master's 50 ms heartbeat with a 30 ms timeout: it
   // drops to PRE-OPERATIONAL (0x1029) within 30 ms of every start, long
   // before its next 300 ms heartbeat.
@@ -887,7 +886,7 @@ TEST(slave_start_not_confirmed) {
   cJSON* a = sim->Ask(w);
   CHECK_MSG(cJSON_IsTrue(field(field(a, "result"), "success")), text(a));
   cJSON_Delete(a);
-  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[10][0]; }, seconds(5)),
+  CHECK_MSG(sim->RunUntil([&] { return !sim->plc().bool_in[20][0]; }, seconds(5)),
             "the master kept node 10 operational");
   CHECK(logged("did not report OPERATIONAL in its heartbeat after the start command"));
 }
@@ -902,27 +901,27 @@ TEST(slave_start_not_confirmed) {
 namespace {
 
 std::string gateway_json(const std::string& gw_extra = "", const std::string& upper_node_extra = "") {
-  return R"({ "schema_version": 2, "networks": [
+  return R"({ "schema_version": 2, "bridge": { "listen": "127.0.0.1:1502", "writers": ["127.0.0.1"] }, "networks": [
     { "name": "field", "adapter": { "type": "socketcan", "interface": "field", "bitrate": 125000 },
       "master": { "node_id": 1, "sync_period_us": 10000 },
       "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50,
         "heartbeat_timeout_ms": 150, "state_location": "%IB40",
-        "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID40" } ] } ],
+        "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID44" } ] } ],
         "rx_pdos": [ { "entries": [ { "index": "0x4000", "type": "UNSIGNED32" } ] } ] } ] },
     { "name": "plc", "adapter": { "type": "socketcan", "interface": "top.m", "bitrate": 250000 },
       "master": { "node_id": 1, "heartbeat_ms": 50 },
       "nodes": [ { "node_id": 20, "name": "gateway", "eds": "openplc-gateway.eds" )" + upper_node_extra + R"(,
         "tx_pdos": [ { "number": 1, "entries": [
             { "index": "0x2100", "subindex": 1, "type": "BOOLEAN", "iec_location": "%IX20.0" },
-            { "index": "0x2101", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID20" } ] },
+            { "index": "0x2101", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID24" } ] },
           { "number": 2, "entries": [
-            { "index": "0x5E10", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID21" } ] } ],
+            { "index": "0x5E10", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%ID28" } ] } ],
         "rx_pdos": [ { "number": 1, "entries": [
             { "index": "0x2000", "subindex": 1, "type": "UNSIGNED32", "iec_location": "%QD20" } ] } ] } ] },
     { "name": "top", "role": "slave", "adapter": { "type": "socketcan", "interface": "top.s", "bitrate": 250000 },
       "slave": { "node_id": 20, "eds": "openplc-gateway.eds",
         "objects": [ { "index": "0x2100", "subindex": 1, "iec_location": "%QX300.0" } ],
-        "comm_ok_location": "%IX300.1", "emcy_code_location": "%QW300", "error_register_location": "%QB300" } } ],
+        "comm_ok_location": "%IX300.1", "emcy_code_location": "%QW302", "error_register_location": "%QB304" } } ],
   "gateway": { "upper": "top",
     "routes": [
       { "slave": { "index": "0x2101", "subindex": 1 },
@@ -950,15 +949,15 @@ TEST(gateway_routes_up_and_down) {
   sim->Start();
   CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
   // Upper master %QD20 -> gateway 0x2000:1 -> field RPDO 0x4000 -> ping-pong
-  // copies it to 0x4001 -> field TPDO -> gateway 0x2101:1 -> upper %ID20.
+  // copies it to 0x4001 -> field TPDO -> gateway 0x2101:1 -> upper %ID24.
   sim->plc().dint_out[20] = 4242;
-  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[20] == 4242; }, seconds(2)));
-  CHECK(sim->plc().dint_in[40] == 4242);  // the field PLC input sees it too
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[24] == 4242; }, seconds(2)));
+  CHECK(sim->plc().dint_in[44] == 4242);  // the field PLC input sees it too
   // Routes keep running while the scan stalls.
   sim->PauseScan(milliseconds(400));
   sim->RunFor(milliseconds(20));
   sim->plc().dint_out[20] = 777;  // the scan is paused: this goes nowhere until it resumes
-  uint32_t before = sim->plc().dint_in[20];
+  uint32_t before = sim->plc().dint_in[24];
   CHECK(before == 4242);
   CHECK(sim->Sdo(1, 20, 0x2000, 1, true, 99, 4) == 0);  // the upper master writes over SDO meanwhile
   CHECK(sim->RunUntil([&] { uint64_t v = 0; return sim->Sdo(1, 20, 0x2101, 1, false, 0, 0, &v) == 0 && v == 99; },
@@ -975,7 +974,7 @@ TEST(gateway_status_and_emcy_forwarding) {
   sim->AddPingPong("field", 2);
   sim->Sniff("top");
   sim->Start();
-  CHECK(sim->RunUntil([&] { return gateway_up(*sim) && (sim->plc().dint_in[21] & 0x4); }, seconds(8)));
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim) && (sim->plc().dint_in[28] & 0x4); }, seconds(8)));
   uint64_t v = 0;
   CHECK(sim->Sdo(1, 20, 0x5E00, 2, false, 0, 0, &v) == 0 && v == 5);
   // A field EMCY goes up with the field network's place and the node ID.
@@ -987,8 +986,8 @@ TEST(gateway_status_and_emcy_forwarding) {
   CHECK(e[0].data[0] == 0x00 && e[0].data[1] == 0x50 && e[0].data[2] == 0x01);
   CHECK_MSG(e[0].data[3] == 0 && e[0].data[4] == 2, std::to_string(e[0].data[3]) + " " + std::to_string(e[0].data[4]));
   // The program's own EMCY too; 0x1001 is the OR of both.
-  sim->plc().int_out[300] = 0x6000;
-  sim->plc().byte_out[300] = 0x04;
+  sim->plc().int_out[302] = 0x6000;
+  sim->plc().byte_out[304] = 0x04;
   CHECK(sim->RunUntil([&] { return sim->frames_of(0x094).size() >= 2; }, seconds(1)));
   CHECK(sim->Sdo(1, 20, 0x1001, 0, false, 0, 0, &v) == 0 && v == 0x05);
   // The field node's error reset clears its entry; the program's stays.
@@ -998,7 +997,7 @@ TEST(gateway_status_and_emcy_forwarding) {
   CHECK(sim->Sdo(1, 20, 0x1001, 0, false, 0, 0, &v) == 0 && (v & 0x04));
   // Node lost: its status goes to 0 and its bit clears.
   sim->Unplug(0);  // the field master loses node 2
-  CHECK(sim->RunUntil([&] { return !(sim->plc().dint_in[21] & 0x4); }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return !(sim->plc().dint_in[28] & 0x4); }, seconds(2)));
   CHECK(sim->Sdo(1, 20, 0x5E00, 2, false, 0, 0, &v) == 0 && v == 0);
 }
 
@@ -1046,10 +1045,10 @@ TEST(gateway_upper_loss) {
     sim->Start();
     CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
     sim->plc().dint_out[20] = 55;
-    CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+    CHECK(sim->RunUntil([&] { return sim->plc().dint_in[44] == 55; }, seconds(2)));
     sim->Unplug(1);  // the upper master is gone
     if (std::string(mode) == "zero") {
-      CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 0; }, seconds(2)));
+      CHECK(sim->RunUntil([&] { return sim->plc().dint_in[44] == 0; }, seconds(2)));
       CHECK(logged("routed outputs set to 0"));
     } else {
       CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 4; }, seconds(2)));
@@ -1058,7 +1057,7 @@ TEST(gateway_upper_loss) {
     // Back: the gateway went to PRE-OPERATIONAL (0x1029); the upper master
     // sees that in its heartbeat and starts it again.
     sim->Replug(1);
-    CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 5 && sim->plc().dint_in[40] == 55; }, seconds(8)));
+    CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 5 && sim->plc().dint_in[44] == 55; }, seconds(8)));
   }
 }
 
@@ -1106,12 +1105,12 @@ TEST(gateway_field_restart_keeps_route) {
   sim->Start();
   CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
   sim->plc().dint_out[20] = 55;
-  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[44] == 55; }, seconds(2)));
   sim->StopMaster(0);
   sim->StartMaster(0);
   CHECK(sim->RunUntil([&] { return sim->plc().byte_in[40] == 5; }, seconds(8)));
   sim->RunFor(milliseconds(1000));
-  CHECK_MSG(sim->plc().dint_in[40] == 55, "field node got " + std::to_string(sim->plc().dint_in[40]) + " after a field session restart, upper still sends 55");
+  CHECK_MSG(sim->plc().dint_in[44] == 55, "field node got " + std::to_string(sim->plc().dint_in[44]) + " after a field session restart, upper still sends 55");
 }
 
 // "hold" (the default): the upper master is lost and the gateway gets NMT
@@ -1127,11 +1126,11 @@ TEST(gateway_hold_upper_reset_node) {
   sim->Start();
   CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
   sim->plc().dint_out[20] = 55;
-  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[44] == 55; }, seconds(2)));
   sim->Unplug(1);  // the upper master goes quiet (so it does not boot the gateway again)
   sim->Send("top", 0x000, {0x81, 20});  // NMT RESET NODE of the gateway (from another tool on the upper bus)
   sim->RunFor(milliseconds(500));
-  CHECK_MSG(sim->plc().dint_in[40] == 55, "hold broken: field output became " + std::to_string(sim->plc().dint_in[40]) + " while the upper master is lost");
+  CHECK_MSG(sim->plc().dint_in[44] == 55, "hold broken: field output became " + std::to_string(sim->plc().dint_in[44]) + " while the upper master is lost");
 }
 
 // CO_NETWORK_STOP while the gateway holds the field node: when the upper
@@ -1172,16 +1171,16 @@ TEST(gateway_hold_slave_session_restart) {
   sim->Start();
   CHECK(sim->RunUntil([&] { return gateway_up(*sim); }, seconds(8)));
   sim->plc().dint_out[20] = 55;
-  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[40] == 55; }, seconds(2)));
+  CHECK(sim->RunUntil([&] { return sim->plc().dint_in[44] == 55; }, seconds(2)));
   sim->Unplug(1);  // the upper master goes quiet
   sim->Restart(2);
   sim->RunFor(milliseconds(500));
-  CHECK_MSG(sim->plc().dint_in[40] == 55, "field output " + std::to_string(sim->plc().dint_in[40]));
+  CHECK_MSG(sim->plc().dint_in[44] == 55, "field output " + std::to_string(sim->plc().dint_in[44]));
   // Back: the upper master boots the gateway again and its value goes down,
   // also one equal to the EDS value.
   sim->plc().dint_out[20] = 0;
   sim->Replug(1);
-  CHECK(sim->RunUntil([&] { return gateway_up(*sim) && sim->plc().dint_in[40] == 0; }, seconds(8)));
+  CHECK(sim->RunUntil([&] { return gateway_up(*sim) && sim->plc().dint_in[44] == 0; }, seconds(8)));
 }
 
 // The gateway's stop_nodes hold is kept the same way on every path: the

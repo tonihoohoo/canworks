@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Configurator and plugin agree on bad configs
-A test in the tools job SHALL run a corpus of invalid configs through both the configurator's check and the bridge's config loader (the `canopen_check` build of the engine) and SHALL fail when one refuses a config the other accepts. The corpus SHALL cover at least: a missing interface, out-of-range values in hex and decimal, duplicate COB-IDs, a simulation source on an RPDO entry, a word location in a bridge config, and a config with neither `bridge` nor `codesys`.
+A test in the tools job SHALL run a corpus of invalid configs through both the configurator's check and the bridge's config loader (the `canopen_check` build of the engine) and SHALL fail when one refuses a config the other accepts. The corpus SHALL cover at least: a missing interface, out-of-range values in hex and decimal, duplicate COB-IDs, a simulation source on an RPDO entry, overlapping words in a byte-addressed config, and a config with neither `bridge` nor `codesys`.
 
 #### Scenario: New plugin check without a configurator check
 - **WHEN** the bridge starts refusing a value that the configurator still accepts

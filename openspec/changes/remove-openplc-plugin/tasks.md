@@ -8,10 +8,11 @@
 
 - [ ] 1.1 Delete `plugin.cpp`, `scan_watchdog.*`, `runtime_version.*`, the `canworks_plugin` target, and the C interface tables and their exported functions (`can_plc_api.h`, `canopen_plc_api.h`, `canopen_plc_nmt_api.h`, `j1939_plc_api.*`, the exports and PLC-thread glue in `plc_api.cpp` and the files that fill the tables); keep the services of 0.3 compiling and unit tested
 - [ ] 1.2 Delete `network_plc.cpp` and PLC-cycle SYNC; `sync_source`/`sync_cycles` handling leaves `config.cpp`; `"plc_cycle"` refused with the timer SYNC message
-- [ ] 1.3 Replace `plugin_runtime_args_t`, the runtime's `IEC_*` types and its log callback with canworks' byte image and log interface; delete the table-addressed image mode in `config.cpp` and `image_io.h`; word locations refused
+- [ ] 1.3 Replace `plugin_runtime_args_t`, the runtime's `IEC_*` types and its log callback with canworks' byte image and log interface; delete the table-addressed image mode in `config.cpp` and `image_io.h` (every config is byte-addressed)
 - [ ] 1.4 Config target rule: a config with neither `bridge` nor `codesys` refused by the bridge with the contract's message
 - [ ] 1.5 `CMakeLists.txt` without `OPENPLC_ROOT`; `install-bridge.sh` and `docker/bridge/Dockerfile` without the runtime archive; delete `docker/local-runtime/runtime-sha256`; CI check that no engine source includes a runtime header
-- [ ] 1.6 Tests: `fake_host.hpp` over the byte image replaces `fake_runtime.hpp` in `test/unit`, `test/sim`, `test/slave`, `test/j1939_unit`, `test/host/canopen_host.cpp`; delete `test/host/plugin_lifecycle.cpp`, `test/plc_sdo/`, `test/j1939_blocks/`, `test/stock/`, `test/docker/`
+- [ ] 1.6 Every config in `config/`, `examples/`, `test/fixtures/` and the tool test data becomes a bridge config (`bridge` object, locations repacked for byte addressing); the vcan test scripts run `canworks-bridge`, and `canopen_host` becomes a stand-in PLC that reads and writes the bridge over Modbus TCP
+- [ ] 1.7 Tests: `fake_host.hpp` over the byte image replaces `fake_runtime.hpp` in `test/unit`, `test/sim`, `test/slave`, `test/j1939_unit`, `test/host/canopen_host.cpp`; delete `test/host/plugin_lifecycle.cpp`, `test/plc_sdo/`, `test/j1939_blocks/`, `test/stock/`, `test/docker/`
 
 ## 2. CiA 402
 
@@ -60,7 +61,7 @@
 - [ ] 8.2 `integration.yml`: delete the stock, docker and single-protocol jobs; add a J1939 network to change 1's OpenPLC-through-Modbus job config
 - [ ] 8.3 `local-runtime.yml` (no image build; end-to-end test), `release-deploy.yml` (no local runtime image), `bridge-image.yml` (no runtime archive), `browser.yml` (configurator against the bridge with the virtual plant)
 - [ ] 8.4 `runtime-watch.yml`: newest release plus upstream's Modbus master config model and the editor's remote device format and generator, with a recorded state
-- [ ] 8.5 Bad-config parity corpus: word location in a bridge config, config with neither marker
+- [ ] 8.5 Bad-config parity corpus: overlapping words in a byte-addressed config, config with neither marker
 - [ ] 8.6 CI time: wall and summed job time against the median of the last five green `main` runs, both in the PR, neither higher
 
 ## 9. Specs and wording

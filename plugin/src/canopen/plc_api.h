@@ -166,10 +166,10 @@ class PlcRequests {
   bool unknown_nmt_logged_ = false;
 };
 
-// What canopen_plc_api(version) returns: the function table for `version`,
-// or null (noted for the log) when this plugin does not offer it.
+// The function table for `version` (canopen_plc_api.h), or null (noted for
+// the log) when canworks does not offer it.
 const void* plc_api_table(uint32_t version);
-// The same for canopen_plc_nmt_api(version).
+// The same for the NMT table (canopen_plc_nmt_api.h).
 const void* plc_nmt_api_table(uint32_t version);
 
 }  // namespace canopen_plugin

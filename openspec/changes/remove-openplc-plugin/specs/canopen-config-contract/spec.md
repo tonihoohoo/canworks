@@ -16,15 +16,15 @@ A config SHALL target one system: OpenPLC through Modbus when it has a top-level
 - **THEN** it exits non-zero with the message naming **Switch to OpenPLC through Modbus**, and nothing is started or uploaded
 
 ### Requirement: Bridge configs are byte-addressed
-A config with a `bridge` object SHALL be a bridge config. Its locations SHALL be byte-addressed and checked as the modbus-bridge capability describes. Word, double and long locations (`%IW`, `%QD` and the like) SHALL be refused, naming the field.
+A config with a `bridge` object SHALL be a bridge config. Its locations SHALL be byte-addressed (`%IW2` is input bytes 2 and 3) and checked as the modbus-bridge capability describes. Since every config the bridge runs is a bridge config, there is no other addressing.
 
 #### Scenario: Bridge config uploaded to OpenPLC
 - **WHEN** `canworks-deploy --config bridge.json --runtime HOST` is run with a bridge config
 - **THEN** it fails as for any unknown option, since the deploy tool no longer uploads to an OpenPLC runtime
 
-#### Scenario: Word location
-- **WHEN** a bridge config's node has `status_location` `%IW10`
-- **THEN** the bridge and the PC tools refuse it, naming the field and saying locations are byte-addressed
+#### Scenario: Overlapping words
+- **WHEN** a bridge config maps one entry at `%IW10` and another at `%IW11`
+- **THEN** the bridge and the PC tools refuse it, naming both, since the two words share byte 11
 
 ## REMOVED Requirements
 

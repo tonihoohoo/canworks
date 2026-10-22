@@ -1,5 +1,6 @@
 {
   "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
   "networks": [
     {
       "name": "field",
@@ -13,12 +14,8 @@
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
           "status_location": "%IX10.0",
-          "tx_pdos": [
-            { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
-          ],
-          "rx_pdos": [
-            { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32" } ] }
-          ]
+          "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+          "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32" } ] } ]
         }
       ]
     },
@@ -29,9 +26,7 @@
       "slave": {
         "node_id": 20,
         "eds": "openplc-gateway.eds",
-        "objects": [
-          { "index": "0x2100", "subindex": 1, "iec_location": "%QX300.0" }
-        ],
+        "objects": [ { "index": "0x2100", "subindex": 1, "iec_location": "%QX300.0" } ],
         "comm_ok_location": "%IX300.0"
       }
     }
@@ -39,10 +34,16 @@
   "gateway": {
     "upper": "upper",
     "routes": [
-      { "slave": { "index": "0x2101", "subindex": 1 },
-        "field": { "network": "field", "node": 2, "index": "0x4001", "subindex": 0 }, "name": "pong" },
-      { "slave": { "index": "0x2000", "subindex": 1 },
-        "field": { "network": "field", "node": 2, "index": "0x4000", "subindex": 0 }, "name": "ping" }
+      {
+        "slave": { "index": "0x2101", "subindex": 1 },
+        "field": { "network": "field", "node": 2, "index": "0x4001", "subindex": 0 },
+        "name": "pong"
+      },
+      {
+        "slave": { "index": "0x2000", "subindex": 1 },
+        "field": { "network": "field", "node": 2, "index": "0x4000", "subindex": 0 },
+        "name": "ping"
+      }
     ],
     "status": { "index": "0x5E00" },
     "emcy_forward": true,

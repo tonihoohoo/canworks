@@ -114,9 +114,6 @@ typedef struct {
                    canopen_plc_emcy_info* info);
 } canopen_plc_api_v2;
 
-/* The table for `version`, or NULL when this plugin does not offer it. */
-const void* canopen_plc_api(uint32_t version);
-
 #ifdef __cplusplus
 }
 #endif

@@ -95,9 +95,7 @@ typedef struct {
   int (*bus_info)(uint8_t network, canworks_can_bus_info* info, uint16_t* error_id);
 } canworks_can_api_v1;
 
-/* The table for `version`, or NULL when this plugin does not offer it. */
-const void* canworks_can_api(uint32_t version);
-/* The same inside the plugin's code (the plugin exports it as the above). */
+/* The table for `version`, or NULL when canworks does not offer it. */
 const void* canworks_can_api_table(uint32_t version);
 
 #ifdef __cplusplus

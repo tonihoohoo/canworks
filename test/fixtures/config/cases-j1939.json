@@ -5,11 +5,12 @@
   ],
   "base": {
     "schema_version": 2,
+    "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
     "networks": [
       {
         "name": "io",
-        "adapter": {"type": "socketcan", "interface": "vcan0", "bitrate": 125000},
-        "master": {"node_id": 1, "sync_period_us": 100000},
+        "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+        "master": { "node_id": 1, "sync_period_us": 100000 },
         "nodes": [
           {
             "node_id": 2,
@@ -17,15 +18,15 @@
             "eds": "cpp-slave.eds",
             "heartbeat_ms": 100,
             "status_location": "%IX10.0",
-            "tx_pdos": [{"entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100"}]}],
-            "rx_pdos": [{"entries": [{"index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100"}]}]
+            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ]
           }
         ]
       },
       {
         "name": "machine",
         "protocol": "j1939",
-        "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 250000},
+        "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 250000 },
         "j1939": {
           "ecu": {
             "name": {
@@ -36,7 +37,7 @@
               "arbitrary_address_capable": true
             },
             "address": 128,
-            "address_range": [128, 135],
+            "address_range": [ 128, 135 ],
             "state_location": "%IB200",
             "address_location": "%IB201"
           },
@@ -57,7 +58,7 @@
                   "iec_location": "%IW210",
                   "valid_location": "%IX202.1"
                 },
-                {"name": "Temp", "start_bit": 16, "length": 8, "signed": true, "iec_location": "%IB204"}
+                { "name": "Temp", "start_bit": 16, "length": 8, "signed": true, "iec_location": "%IB204" }
               ]
             }
           ],
@@ -68,75 +69,75 @@
               "priority": 6,
               "period_ms": 100,
               "signals": [
-                {"name": "Setpoint", "start_bit": 0, "length": 16, "iec_location": "%QW210"},
-                {"name": "Run", "start_bit": 16, "length": 1, "iec_location": "%QX202.0"}
+                { "name": "Setpoint", "start_bit": 0, "length": 16, "iec_location": "%QW210" },
+                { "name": "Run", "start_bit": 16, "length": 1, "iec_location": "%QX202.0" }
               ]
             }
           ],
-          "requests": [{"pgn": 65282, "destination": 0, "period_ms": 1000}]
+          "requests": [ { "pgn": 65282, "destination": 0, "period_ms": 1000 } ]
         }
       }
     ]
   },
   "cases": [
-    {"name": "j1939: CANopen and J1939 networks", "patch": [], "schema": "valid", "verdict": "accept"},
+    { "name": "j1939: CANopen and J1939 networks", "patch": [], "schema": "valid", "verdict": "accept" },
     {
       "name": "j1939: only a J1939 network",
-      "patch": [["delete", "networks/0"]],
+      "patch": [ [ "delete", "networks/0" ] ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: protocol canopen is the default",
-      "patch": [["set", "networks/0/protocol", "canopen"]],
+      "patch": [ [ "set", "networks/0/protocol", "canopen" ] ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: unknown protocol",
-      "patch": [["set", "networks/1/protocol", "nmea2000"]],
+      "patch": [ [ "set", "networks/1/protocol", "nmea2000" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: field 'protocol' must be \"canopen\", \"j1939\" or \"none\""]
+      "messages": [ "networks[1]: field 'protocol' must be \"canopen\", \"j1939\" or \"none\"" ]
     },
     {
       "name": "j1939: J1939 network with nodes",
-      "patch": [["set", "networks/1/nodes", []]],
+      "patch": [ [ "set", "networks/1/nodes", [] ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: field 'nodes' belongs to a CANopen network; a J1939 network has 'j1939'"]
+      "messages": [ "networks[1]: field 'nodes' belongs to a CANopen network; a J1939 network has 'j1939'" ]
     },
     {
       "name": "j1939: J1939 network with master",
-      "patch": [["set", "networks/1/master", {"node_id": 1}]],
+      "patch": [ [ "set", "networks/1/master", { "node_id": 1 } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: field 'master' belongs to a CANopen network; a J1939 network has 'j1939'"]
+      "messages": [ "networks[1]: field 'master' belongs to a CANopen network; a J1939 network has 'j1939'" ]
     },
     {
       "name": "j1939: J1939 network with role",
-      "patch": [["set", "networks/1/role", "slave"]],
+      "patch": [ [ "set", "networks/1/role", "slave" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: field 'role' belongs to a CANopen network; a J1939 network has 'j1939'"]
+      "messages": [ "networks[1]: field 'role' belongs to a CANopen network; a J1939 network has 'j1939'" ]
     },
     {
       "name": "j1939: J1939 network without j1939",
-      "patch": [["delete", "networks/1/j1939"]],
+      "patch": [ [ "delete", "networks/1/j1939" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: a J1939 network needs a 'j1939' object"]
+      "messages": [ "networks[1]: a J1939 network needs a 'j1939' object" ]
     },
     {
       "name": "j1939: CANopen network with j1939",
-      "patch": [["set", "networks/0/j1939", {"ecu": {"name": {}, "address": 1}}]],
+      "patch": [ [ "set", "networks/0/j1939", { "ecu": { "name": {}, "address": 1 } } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[0]: field 'j1939' belongs to a J1939 network (\"protocol\": \"j1939\")"]
+      "messages": [ "networks[0]: field 'j1939' belongs to a J1939 network (\"protocol\": \"j1939\")" ]
     },
     {
       "name": "j1939: simulated J1939 network",
-      "patch": [["set", "networks/1/adapter/simulate", true]],
+      "patch": [ [ "set", "networks/1/adapter/simulate", true ] ],
       "schema": "invalid",
       "verdict": "reject",
       "messages": [
@@ -145,69 +146,69 @@
     },
     {
       "name": "j1939: shares the CANopen network's interface",
-      "patch": [["set", "networks/1/adapter/interface", "vcan0"]],
+      "patch": [ [ "set", "networks/1/adapter/interface", "vcan0" ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[0] (io) and networks[1] (machine) both use interface vcan0"]
+      "messages": [ "networks[0] (io) and networks[1] (machine) both use interface vcan0" ]
     },
     {
       "name": "j1939: no ecu",
-      "patch": [["delete", "networks/1/j1939/ecu"]],
+      "patch": [ [ "delete", "networks/1/j1939/ecu" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: field 'ecu' is missing"]
+      "messages": [ "networks[1]: j1939: field 'ecu' is missing" ]
     },
     {
       "name": "j1939: address 254",
-      "patch": [["set", "networks/1/j1939/ecu/address", 254]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/address", 254 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: ecu: address 254 is out of range 0..253"]
+      "messages": [ "networks[1]: j1939: ecu: address 254 is out of range 0..253" ]
     },
     {
       "name": "j1939: NAME field out of range",
-      "patch": [["set", "networks/1/j1939/ecu/name/identity_number", 2097152]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/name/identity_number", 2097152 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: ecu: name: identity_number 2097152 is out of range 0..2097151"]
+      "messages": [ "networks[1]: j1939: ecu: name: identity_number 2097152 is out of range 0..2097151" ]
     },
     {
       "name": "j1939: NAME fields default to 0",
-      "patch": [["set", "networks/1/j1939/ecu/name", {}], ["delete", "networks/1/j1939/ecu/address_range"]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/name", {} ], [ "delete", "networks/1/j1939/ecu/address_range" ] ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: range without arbitrary address capability",
-      "patch": [["set", "networks/1/j1939/ecu/name/arbitrary_address_capable", false]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/name/arbitrary_address_capable", false ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: ecu: address_range needs a NAME with arbitrary_address_capable true"]
+      "messages": [ "networks[1]: j1939: ecu: address_range needs a NAME with arbitrary_address_capable true" ]
     },
     {
       "name": "j1939: range upside down",
-      "patch": [["set", "networks/1/j1939/ecu/address_range", [135, 128]]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/address_range", [ 135, 128 ] ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: ecu: address_range [135, 128] must be [low, high] within 0..253"]
+      "messages": [ "networks[1]: j1939: ecu: address_range [135, 128] must be [low, high] within 0..253" ]
     },
     {
       "name": "j1939: state location is not a byte input",
-      "patch": [["set", "networks/1/j1939/ecu/state_location", "%QB200"]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/state_location", "%QB200" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: ecu: state_location %QB200 must be a byte input (%IB)"]
+      "messages": [ "networks[1]: j1939: ecu: state_location %QB200 must be a byte input (%IB)" ]
     },
     {
       "name": "j1939: PGN out of range",
-      "patch": [["set", "networks/1/j1939/rx/0/pgn", 262144]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/pgn", 262144 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: pgn 262144 is out of range 0..262143 (0x3FFFF)"]
+      "messages": [ "networks[1]: j1939: rx[0]: pgn 262144 is out of range 0..262143 (0x3FFFF)" ]
     },
     {
       "name": "j1939: PDU1 PGN with a destination byte",
-      "patch": [["set", "networks/1/j1939/rx/0/pgn", 61187]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/pgn", 61187 ] ],
       "schema": "valid",
       "verdict": "reject",
       "messages": [
@@ -216,7 +217,7 @@
     },
     {
       "name": "j1939: PDU1 PGN received",
-      "patch": [["set", "networks/1/j1939/rx/0/pgn", 61184]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/pgn", 61184 ] ],
       "schema": "valid",
       "verdict": "accept"
     },
@@ -229,7 +230,7 @@
           {
             "pgn": 65280,
             "source": 3,
-            "signals": [{"name": "Pressure3", "start_bit": 0, "length": 16, "iec_location": "%IW212"}]
+            "signals": [ { "name": "Pressure3", "start_bit": 0, "length": 16, "iec_location": "%IW212" } ]
           }
         ]
       ],
@@ -239,40 +240,40 @@
     {
       "name": "j1939: same PGN twice without a filter",
       "patch": [
-        ["delete", "networks/1/j1939/rx/0/source"],
+        [ "delete", "networks/1/j1939/rx/0/source" ],
         [
           "set",
           "networks/1/j1939/rx/1",
-          {"pgn": 65280, "signals": [{"name": "Pressure3", "start_bit": 0, "length": 16, "iec_location": "%IW212"}]}
+          { "pgn": 65280, "signals": [ { "name": "Pressure3", "start_bit": 0, "length": 16, "iec_location": "%IW212" } ] }
         ]
       ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0] and rx[1] both receive PGN 65280 (0xFF00) with the same source filter"]
+      "messages": [ "networks[1]: j1939: rx[0] and rx[1] both receive PGN 65280 (0xFF00) with the same source filter" ]
     },
     {
       "name": "j1939: source and source_name",
-      "patch": [["set", "networks/1/j1939/rx/0/source_name", "0x8000000000000000"]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/source_name", "0x8000000000000000" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: give 'source' or 'source_name', not both"]
+      "messages": [ "networks[1]: j1939: rx[0]: give 'source' or 'source_name', not both" ]
     },
     {
       "name": "j1939: source_name filter",
       "patch": [
-        ["delete", "networks/1/j1939/rx/0/source"],
-        ["set", "networks/1/j1939/rx/0/source_name", "0x00000000000004D2"],
-        ["set", "networks/1/j1939/rx/0/source_name_mask", "0x00000000001FFFFF"]
+        [ "delete", "networks/1/j1939/rx/0/source" ],
+        [ "set", "networks/1/j1939/rx/0/source_name", "0x00000000000004D2" ],
+        [ "set", "networks/1/j1939/rx/0/source_name_mask", "0x00000000001FFFFF" ]
       ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: source out of range",
-      "patch": [["set", "networks/1/j1939/rx/0/source", 254]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/source", 254 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: source 254 is out of range 0..253"]
+      "messages": [ "networks[1]: j1939: rx[0]: source 254 is out of range 0..253" ]
     },
     {
       "name": "j1939: TX PGN twice",
@@ -280,102 +281,102 @@
         [
           "set",
           "networks/1/j1939/tx/1",
-          {"pgn": 65281, "signals": [{"name": "Other", "start_bit": 0, "length": 8, "iec_location": "%QB220"}]}
+          { "pgn": 65281, "signals": [ { "name": "Other", "start_bit": 0, "length": 8, "iec_location": "%QB220" } ] }
         ]
       ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0] and tx[1] both send PGN 65281 (0xFF01)"]
+      "messages": [ "networks[1]: j1939: tx[0] and tx[1] both send PGN 65281 (0xFF01)" ]
     },
     {
       "name": "j1939: destination on a PDU2 PGN",
-      "patch": [["set", "networks/1/j1939/tx/0/destination", 3]],
+      "patch": [ [ "set", "networks/1/j1939/tx/0/destination", 3 ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: PGN 65281 (0xFF01) is a PDU2 PGN and always broadcast; remove 'destination'"]
+      "messages": [ "networks[1]: j1939: tx[0]: PGN 65281 (0xFF01) is a PDU2 PGN and always broadcast; remove 'destination'" ]
     },
     {
       "name": "j1939: destination on a PDU1 PGN",
-      "patch": [["set", "networks/1/j1939/tx/0/pgn", 61184], ["set", "networks/1/j1939/tx/0/destination", 3]],
+      "patch": [ [ "set", "networks/1/j1939/tx/0/pgn", 61184 ], [ "set", "networks/1/j1939/tx/0/destination", 3 ] ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: priority out of range",
-      "patch": [["set", "networks/1/j1939/tx/0/priority", 8]],
+      "patch": [ [ "set", "networks/1/j1939/tx/0/priority", 8 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: priority 8 is out of range 0..7"]
+      "messages": [ "networks[1]: j1939: tx[0]: priority 8 is out of range 0..7" ]
     },
     {
       "name": "j1939: signal past the message length",
       "patch": [
-        ["set", "networks/1/j1939/tx/0/length", 8],
-        ["set", "networks/1/j1939/tx/0/signals/1/start_bit", 60],
-        ["set", "networks/1/j1939/tx/0/signals/1/length", 8],
-        ["set", "networks/1/j1939/tx/0/signals/1/iec_location", "%QB222"]
+        [ "set", "networks/1/j1939/tx/0/length", 8 ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/start_bit", 60 ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/length", 8 ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/iec_location", "%QB222" ]
       ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: signal Run (start bit 60, 8 bits) does not fit in 8 bytes"]
+      "messages": [ "networks[1]: j1939: tx[0]: signal Run (start bit 60, 8 bits) does not fit in 8 bytes" ]
     },
     {
       "name": "j1939: long message",
       "patch": [
-        ["set", "networks/1/j1939/tx/0/signals/1/start_bit", 320],
-        ["set", "networks/1/j1939/tx/0/signals/1/length", 8],
-        ["set", "networks/1/j1939/tx/0/signals/1/iec_location", "%QB222"]
+        [ "set", "networks/1/j1939/tx/0/signals/1/start_bit", 320 ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/length", 8 ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/iec_location", "%QB222" ]
       ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: message length out of range",
-      "patch": [["set", "networks/1/j1939/tx/0/length", 1786]],
+      "patch": [ [ "set", "networks/1/j1939/tx/0/length", 1786 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: length 1786 is out of range 1..1785"]
+      "messages": [ "networks[1]: j1939: tx[0]: length 1786 is out of range 1..1785" ]
     },
     {
       "name": "j1939: signal length 65",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/0/length", 65]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/signals/0/length", 65 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signal Pressure: length 65 is out of range 1..64"]
+      "messages": [ "networks[1]: j1939: rx[0]: signal Pressure: length 65 is out of range 1..64" ]
     },
     {
       "name": "j1939: location too small",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/0/iec_location", "%IB10"]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/signals/0/iec_location", "%IB10" ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signal Pressure (16 bits) does not fit location %IB10 (8 bit)"]
+      "messages": [ "networks[1]: j1939: rx[0]: signal Pressure (16 bits) does not fit location %IB10 (8 bit)" ]
     },
     {
       "name": "j1939: received signal on an output",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/0/iec_location", "%QW230"]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/signals/0/iec_location", "%QW230" ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signal Pressure: location %QW230 must be an input (%I)"]
+      "messages": [ "networks[1]: j1939: rx[0]: signal Pressure: location %QW230 must be an input (%I)" ]
     },
     {
       "name": "j1939: sent signal on an input",
-      "patch": [["set", "networks/1/j1939/tx/0/signals/0/iec_location", "%IW230"]],
+      "patch": [ [ "set", "networks/1/j1939/tx/0/signals/0/iec_location", "%IW230" ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: signal Setpoint: location %IW230 must be an output (%Q)"]
+      "messages": [ "networks[1]: j1939: tx[0]: signal Setpoint: location %IW230 must be an output (%Q)" ]
     },
     {
       "name": "j1939: overlapping signals",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/1/start_bit", 8]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/signals/1/start_bit", 8 ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signals Pressure and Temp overlap"]
+      "messages": [ "networks[1]: j1939: rx[0]: signals Pressure and Temp overlap" ]
     },
     {
       "name": "j1939: big-endian signal",
       "patch": [
-        ["set", "networks/1/j1939/rx/0/signals/0/byte_order", "big"],
-        ["set", "networks/1/j1939/rx/0/signals/0/start_bit", 7]
+        [ "set", "networks/1/j1939/rx/0/signals/0/byte_order", "big" ],
+        [ "set", "networks/1/j1939/rx/0/signals/0/start_bit", 7 ]
       ],
       "schema": "valid",
       "verdict": "accept"
@@ -383,284 +384,387 @@
     {
       "name": "j1939: big-endian signal past the end",
       "patch": [
-        ["set", "networks/1/j1939/tx/0/length", 8],
-        ["set", "networks/1/j1939/tx/0/signals/0/byte_order", "big"],
-        ["set", "networks/1/j1939/tx/0/signals/0/start_bit", 60]
+        [ "set", "networks/1/j1939/tx/0/length", 8 ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/byte_order", "big" ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/start_bit", 60 ]
       ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: signal Setpoint (start bit 60, 16 bits) does not fit in 8 bytes"]
+      "messages": [ "networks[1]: j1939: tx[0]: signal Setpoint (start bit 60, 16 bits) does not fit in 8 bytes" ]
     },
     {
       "name": "j1939: request period too short",
-      "patch": [["set", "networks/1/j1939/requests/0/period_ms", 50]],
+      "patch": [ [ "set", "networks/1/j1939/requests/0/period_ms", 50 ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: requests[0]: period_ms 50 is out of range 100..600000"]
+      "messages": [ "networks[1]: j1939: requests[0]: period_ms 50 is out of range 100..600000" ]
     },
     {
       "name": "j1939: clash with a CANopen PDO",
       "patch": [
-        ["set", "networks/1/j1939/rx/0/signals/0/iec_location", "%ID100"],
-        ["set", "networks/1/j1939/rx/0/signals/0/length", 32]
+        [ "set", "networks/1/j1939/rx/0/signals/0/iec_location", "%ID100" ],
+        [ "set", "networks/1/j1939/rx/0/signals/0/length", 32 ]
       ],
       "schema": "valid",
       "verdict": "reject",
       "messages": [
-        "networks[0] (io) node 2 (pingpong) TPDO 1 object 0x4001:0 and networks[1] (machine) PGN 65280 signal Pressure both map to %ID100"
+        "networks[0] (io) node 2 (pingpong) TPDO 1 object 0x4001:0 (%ID100) and networks[1] (machine) PGN 65280 signal Pressure (%ID100) overlap in input bytes 100 and 101 and 102 and 103"
       ]
     },
     {
       "name": "j1939: clash inside the J1939 network",
-      "patch": [["set", "networks/1/j1939/ecu/address_location", "%IB204"]],
+      "patch": [ [ "set", "networks/1/j1939/ecu/address_location", "%IB204" ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1] (machine) ECU address and networks[1] (machine) PGN 65280 signal Temp both map to %IB204"]
-    },
-    {
-      "name": "j1939: protocol in a version 1 file",
-      "patch": [
-        ["set", "schema_version", 1],
-        ["delete", "networks"],
-        ["set", "protocol", "j1939"],
-        ["set", "adapter", {"type": "socketcan", "interface": "vcan0", "bitrate": 125000}],
-        ["set", "master", {"node_id": 1}],
-        ["set", "nodes", [{"node_id": 2, "eds": "cpp-slave.eds", "heartbeat_ms": 100}]]
-      ],
-      "schema": "invalid",
-      "verdict": "reject",
-      "messages": ["field 'protocol' needs schema_version 2"]
+      "messages": [
+        "networks[1] (machine) ECU address (%IB204) and networks[1] (machine) PGN 65280 signal Temp (%IB204) overlap in input byte 204"
+      ]
     },
     {
       "name": "j1939: interface name checked",
-      "patch": [["set", "networks/1/adapter/interface", "j1939_machine_bus"]],
+      "patch": [ [ "set", "networks/1/adapter/interface", "j1939_machine_bus" ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: adapter: interface \"j1939_machine_bus\" must be 1-15 characters"]
+      "messages": [ "networks[1]: adapter: interface \"j1939_machine_bus\" must be 1-15 characters" ]
     },
     {
       "name": "j1939: multiplexed signals share bits",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/rx/0/signals/1/mux", {"values": [2]}], ["set", "networks/1/j1939/rx/0/signals/1/start_bit", 0]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/rx/0/signals/2",
+          { "name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205" }
+        ],
+        [ "set", "networks/1/j1939/rx/0/signals/0/mux", { "values": [ 1 ] } ],
+        [ "set", "networks/1/j1939/rx/0/signals/1/mux", { "values": [ 2 ] } ],
+        [ "set", "networks/1/j1939/rx/0/signals/1/start_bit", 0 ]
+      ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: overlap within one page",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/rx/0/signals/1/mux", {"values": [1, 2]}], ["set", "networks/1/j1939/rx/0/signals/1/start_bit", 0]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/rx/0/signals/2",
+          { "name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205" }
+        ],
+        [ "set", "networks/1/j1939/rx/0/signals/0/mux", { "values": [ 1 ] } ],
+        [ "set", "networks/1/j1939/rx/0/signals/1/mux", { "values": [ 1, 2 ] } ],
+        [ "set", "networks/1/j1939/rx/0/signals/1/start_bit", 0 ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signals Pressure and Temp overlap"]
+      "messages": [ "networks[1]: j1939: rx[0]: signals Pressure and Temp overlap" ]
     },
     {
       "name": "j1939: unknown switch name",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/2", {"name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205"}], ["set", "networks/1/j1939/rx/0/signals/0/mux", {"on": "Pgae", "values": [1]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/rx/0/signals/2",
+          { "name": "Page", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%IB205" }
+        ],
+        [ "set", "networks/1/j1939/rx/0/signals/0/mux", { "on": "Pgae", "values": [ 1 ] } ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signals[0].mux.on: no switch named 'Pgae' in this message"]
+      "messages": [ "networks[1]: j1939: rx[0]: signals[0].mux.on: no switch named 'Pgae' in this message" ]
     },
     {
       "name": "j1939: mux without a switch",
-      "patch": [["set", "networks/1/j1939/rx/0/signals/0/mux", {"values": [1]}]],
+      "patch": [ [ "set", "networks/1/j1939/rx/0/signals/0/mux", { "values": [ 1 ] } ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: rx[0]: signals[0].mux: the message has no switch (multiplexer: true)"]
+      "messages": [ "networks[1]: j1939: rx[0]: signals[0].mux: the message has no switch (multiplexer: true)" ]
     },
     {
       "name": "j1939: send all pages",
-      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/signals/1/mux", {"values": [2]}], ["set", "networks/1/j1939/tx/0/pages", "all"]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/tx/0/signals/2",
+          { "name": "Line", "start_bit": 24, "length": 8, "multiplexer": true }
+        ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/mux", { "values": [ 1 ] } ],
+        [ "set", "networks/1/j1939/tx/0/signals/1/mux", { "values": [ 2 ] } ],
+        [ "set", "networks/1/j1939/tx/0/pages", "all" ]
+      ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: switch location in all mode",
-      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%QB212"}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/pages", "all"]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/tx/0/signals/2",
+          { "name": "Line", "start_bit": 24, "length": 8, "multiplexer": true, "iec_location": "%QB212" }
+        ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/mux", { "values": [ 1 ] } ],
+        [ "set", "networks/1/j1939/tx/0/pages", "all" ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: signals[2].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out"]
+      "messages": [
+        "networks[1]: j1939: tx[0]: signals[2].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out"
+      ]
     },
     {
       "name": "j1939: bad pages",
-      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [1]}], ["set", "networks/1/j1939/tx/0/pages", "every"]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/tx/0/signals/2",
+          { "name": "Line", "start_bit": 24, "length": 8, "multiplexer": true }
+        ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/mux", { "values": [ 1 ] } ],
+        [ "set", "networks/1/j1939/tx/0/pages", "every" ]
+      ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: pages: must be \"program\", \"all\" or \"rotate\""]
+      "messages": [ "networks[1]: j1939: tx[0]: pages: must be \"program\", \"all\" or \"rotate\"" ]
     },
     {
       "name": "j1939: too many pages",
-      "patch": [["set", "networks/1/j1939/tx/0/signals/2", {"name": "Line", "start_bit": 24, "length": 8, "multiplexer": true}], ["set", "networks/1/j1939/tx/0/signals/0/mux", {"values": [[0, 99]]}], ["set", "networks/1/j1939/tx/0/pages", "rotate"]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/tx/0/signals/2",
+          { "name": "Line", "start_bit": 24, "length": 8, "multiplexer": true }
+        ],
+        [ "set", "networks/1/j1939/tx/0/signals/0/mux", { "values": [ [ 0, 99 ] ] } ],
+        [ "set", "networks/1/j1939/tx/0/pages", "rotate" ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: tx[0]: 100 pages; pages \"all\" and \"rotate\" send at most 64 (use pages \"program\")"]
+      "messages": [ "networks[1]: j1939: tx[0]: 100 pages; pages \"all\" and \"rotate\" send at most 64 (use pages \"program\")" ]
     },
     {
       "name": "j1939: diagnostics",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "status_location": "%IX220.0", "lamps_location": "%IB221", "flash_location": "%IB223", "count_location": "%IB222", "dtcs_location": "%ID56", "dtcs": 4}], "dtcs": [{"spn": 520192, "fmi": 3, "active_location": "%QX230.0", "lamps": ["amber"]}, {"spn": 520193, "fmi": 1, "active_location": "%QX230.1", "lamps": ["red"], "flash": "fast"}], "lamps_location": "%QB231", "clear_location": "%IB232", "accept_clear": true, "dm13": true}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          {
+            "rx": [
+              {
+                "source": 0,
+                "status_location": "%IX220.0",
+                "lamps_location": "%IB221",
+                "flash_location": "%IB223",
+                "count_location": "%IB222",
+                "dtcs_location": "%ID56",
+                "dtcs": 4
+              }
+            ],
+            "dtcs": [
+              { "spn": 520192, "fmi": 3, "active_location": "%QX230.0", "lamps": [ "amber" ] },
+              { "spn": 520193, "fmi": 1, "active_location": "%QX230.1", "lamps": [ "red" ], "flash": "fast" }
+            ],
+            "lamps_location": "%QB231",
+            "clear_location": "%IB232",
+            "accept_clear": true,
+            "dm13": true
+          }
+        ]
+      ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: diagnostics own codes only",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 0, "fmi": 31, "active_location": "%QX230.0"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "dtcs": [ { "spn": 0, "fmi": 31, "active_location": "%QX230.0" } ] } ] ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: diagnostics watch by NAME",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source_name": "0x10", "source_name_mask": "0xFF", "count_location": "%IB222"}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          { "rx": [ { "source_name": "0x10", "source_name_mask": "0xFF", "count_location": "%IB222" } ] }
+        ]
+      ],
       "schema": "valid",
       "verdict": "accept"
     },
     {
       "name": "j1939: diagnostics not an object",
-      "patch": [["set", "networks/1/j1939/diagnostics", []]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", [] ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: field 'diagnostics' must be an object"]
+      "messages": [ "networks[1]: j1939: field 'diagnostics' must be an object" ]
     },
     {
       "name": "j1939: diagnostics SPN out of range",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 600000, "fmi": 3, "active_location": "%QX230.0"}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          { "dtcs": [ { "spn": 600000, "fmi": 3, "active_location": "%QX230.0" } ] }
+        ]
+      ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: spn 600000 is out of range 0..524287"]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0]: spn 600000 is out of range 0..524287" ]
     },
     {
       "name": "j1939: diagnostics FMI out of range",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 32, "active_location": "%QX230.0"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "dtcs": [ { "spn": 1, "fmi": 32, "active_location": "%QX230.0" } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: fmi 32 is out of range 0..31"]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0]: fmi 32 is out of range 0..31" ]
     },
     {
       "name": "j1939: diagnostics code without active_location",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "dtcs": [ { "spn": 1, "fmi": 3 } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'active_location' is missing"]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0]: field 'active_location' is missing" ]
     },
     {
       "name": "j1939: diagnostics active_location not a bit output",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QB230"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "dtcs": [ { "spn": 1, "fmi": 3, "active_location": "%QB230" } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: active_location %QB230 must be a bit output (%QX)"]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0]: active_location %QB230 must be a bit output (%QX)" ]
     },
     {
       "name": "j1939: diagnostics unknown lamp",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QX230.0", "lamps": ["green"]}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          { "dtcs": [ { "spn": 1, "fmi": 3, "active_location": "%QX230.0", "lamps": [ "green" ] } ] }
+        ]
+      ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'lamps' must be a list of \"mil\", \"red\", \"amber\" and \"protect\""]
+      "messages": [
+        "networks[1]: j1939: diagnostics: dtcs[0]: field 'lamps' must be a list of \"mil\", \"red\", \"amber\" and \"protect\""
+      ]
     },
     {
       "name": "j1939: diagnostics bad flash",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 1, "fmi": 3, "active_location": "%QX230.0", "flash": "blink"}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          { "dtcs": [ { "spn": 1, "fmi": 3, "active_location": "%QX230.0", "flash": "blink" } ] }
+        ]
+      ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0]: field 'flash' must be \"slow\" or \"fast\""]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0]: field 'flash' must be \"slow\" or \"fast\"" ]
     },
     {
       "name": "j1939: diagnostics duplicate own code",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"dtcs": [{"spn": 520192, "fmi": 3, "active_location": "%QX230.0"}, {"spn": 520192, "fmi": 3, "active_location": "%QX230.1"}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          {
+            "dtcs": [
+              { "spn": 520192, "fmi": 3, "active_location": "%QX230.0" },
+              { "spn": 520192, "fmi": 3, "active_location": "%QX230.1" }
+            ]
+          }
+        ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: dtcs[0] and dtcs[1] both report SPN 520192 FMI 3"]
+      "messages": [ "networks[1]: j1939: diagnostics: dtcs[0] and dtcs[1] both report SPN 520192 FMI 3" ]
     },
     {
       "name": "j1939: diagnostics rx without source",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"count_location": "%IB222"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "count_location": "%IB222" } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0]: give 'source' or 'source_name': the ECU whose DM1 the program sees"]
+      "messages": [ "networks[1]: j1939: diagnostics: rx[0]: give 'source' or 'source_name': the ECU whose DM1 the program sees" ]
     },
     {
       "name": "j1939: diagnostics rx without locations",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "source": 0 } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0]: needs at least one of status_location, lamps_location, flash_location, count_location and dtcs_location"]
+      "messages": [
+        "networks[1]: j1939: diagnostics: rx[0]: needs at least one of status_location, lamps_location, flash_location, count_location and dtcs_location"
+      ]
     },
     {
       "name": "j1939: diagnostics dtcs_location without dtcs",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "source": 0, "dtcs_location": "%ID56" } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0]: field 'dtcs' is missing: the number of codes at dtcs_location (1..32)"]
+      "messages": [
+        "networks[1]: j1939: diagnostics: rx[0]: field 'dtcs' is missing: the number of codes at dtcs_location (1..32)"
+      ]
     },
     {
       "name": "j1939: diagnostics too many codes",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56", "dtcs": 33}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "source": 0, "dtcs_location": "%ID56", "dtcs": 33 } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0]: dtcs 33 is out of range 1..32"]
+      "messages": [ "networks[1]: j1939: diagnostics: rx[0]: dtcs 33 is out of range 1..32" ]
     },
     {
       "name": "j1939: diagnostics dtcs_location not a double word",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%IW56", "dtcs": 2}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "source": 0, "dtcs_location": "%IW56", "dtcs": 2 } ] } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0]: dtcs_location %IW56 must be a double word input (%ID)"]
+      "messages": [ "networks[1]: j1939: diagnostics: rx[0]: dtcs_location %IW56 must be a double word input (%ID)" ]
     },
     {
       "name": "j1939: diagnostics same source twice",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "count_location": "%IB222"}, {"source": 0, "lamps_location": "%IB221"}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          { "rx": [ { "source": 0, "count_location": "%IB222" }, { "source": 0, "lamps_location": "%IB221" } ] }
+        ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: rx[0] and rx[1] have the same source filter"]
+      "messages": [ "networks[1]: j1939: diagnostics: rx[0] and rx[1] have the same source filter" ]
     },
     {
       "name": "j1939: diagnostics location clash with a signal",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "lamps_location": "%IB204"}]}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "rx": [ { "source": 0, "lamps_location": "%IB204" } ] } ] ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["%IB204"]
+      "messages": [ "%IB204" ]
     },
     {
       "name": "j1939: diagnostics code slots clash",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"rx": [{"source": 0, "dtcs_location": "%ID56", "dtcs": 4}, {"source": 1, "dtcs_location": "%ID58", "dtcs": 1}]}]],
+      "patch": [
+        [
+          "set",
+          "networks/1/j1939/diagnostics",
+          {
+            "rx": [ { "source": 0, "dtcs_location": "%ID56", "dtcs": 4 }, { "source": 1, "dtcs_location": "%ID58", "dtcs": 1 } ]
+          }
+        ]
+      ],
       "schema": "valid",
       "verdict": "reject",
-      "messages": ["%ID58"]
+      "messages": [ "%ID58" ]
     },
     {
       "name": "j1939: diagnostics lamps_location not an output byte",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"lamps_location": "%IB231"}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "lamps_location": "%IB231" } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: lamps_location %IB231 must be a byte output (%QB)"]
-    },
-    {
-      "name": "j1939: scan watchdog of a J1939-only project",
-      "patch": [["delete", "networks/0"], ["set", "networks/0/j1939/scan_watchdog_ms", 250]],
-      "schema": "valid",
-      "verdict": "accept"
-    },
-    {
-      "name": "j1939: scan watchdog off",
-      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", 0]],
-      "schema": "valid",
-      "verdict": "accept"
-    },
-    {
-      "name": "j1939: scan watchdog too short",
-      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", 9]],
-      "schema": "invalid",
-      "verdict": "reject",
-      "messages": ["networks[1]: j1939: field 'scan_watchdog_ms' must be 0 or 10-60000: 9"]
-    },
-    {
-      "name": "j1939: scan watchdog not a number",
-      "patch": [["set", "networks/1/j1939/scan_watchdog_ms", "1000"]],
-      "schema": "invalid",
-      "verdict": "reject",
-      "messages": ["networks[1]: j1939: field 'scan_watchdog_ms' must be a non-negative integer"]
+      "messages": [ "networks[1]: j1939: diagnostics: lamps_location %IB231 must be a byte output (%QB)" ]
     },
     {
       "name": "j1939: diagnostics accept_clear not a boolean",
-      "patch": [["set", "networks/1/j1939/diagnostics", {"accept_clear": "no"}]],
+      "patch": [ [ "set", "networks/1/j1939/diagnostics", { "accept_clear": "no" } ] ],
       "schema": "invalid",
       "verdict": "reject",
-      "messages": ["networks[1]: j1939: diagnostics: field 'accept_clear' must be true or false"]
+      "messages": [ "networks[1]: j1939: diagnostics: field 'accept_clear' must be true or false" ]
     }
   ]
 }

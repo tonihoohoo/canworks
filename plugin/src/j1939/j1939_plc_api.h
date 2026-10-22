@@ -159,9 +159,7 @@ typedef struct {
                   uint16_t* error_id);
 } canworks_j1939_api_v2;
 
-/* The table for `version`, or NULL when this plugin does not offer it. */
-const void* canworks_j1939_api(uint32_t version);
-/* The same inside the plugin's code (the plugin exports it as the above). */
+/* The table for `version`, or NULL when canworks does not offer it. */
 const void* canworks_j1939_api_table(uint32_t version);
 
 #ifdef __cplusplus

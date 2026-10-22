@@ -1,5 +1,6 @@
 {
   "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
   "networks": [
     {
       "name": "io",
@@ -13,12 +14,8 @@
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
           "status_location": "%IX10.0",
-          "tx_pdos": [
-            { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
-          ],
-          "rx_pdos": [
-            { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] }
-          ]
+          "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+          "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ]
         }
       ]
     },
@@ -34,12 +31,8 @@
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
           "status_location": "%IX10.1",
-          "tx_pdos": [
-            { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID101" } ] }
-          ],
-          "rx_pdos": [
-            { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD101" } ] }
-          ]
+          "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID104" } ] } ],
+          "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD104" } ] } ]
         }
       ]
     }
