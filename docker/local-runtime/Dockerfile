@@ -12,6 +12,9 @@
 # --docker-image; the final stage is the unchanged upstream image plus
 # /opt/canworks, two environment entries, and the HTTPS certificate
 # moved into the data volume.
+# The tools' dependency versions come from tools/deploy/constraints.txt when
+# the build context has it (the image workflows export it from
+# tools/deploy/uv.lock); without it pip picks the newest allowed versions.
 
 ARG RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:v4.2.4
 

@@ -17,11 +17,12 @@
 | `install-pc.sh` / `.ps1` (release) | downloads `releases/download/deploy-v<X>/canworks-<X>-constraints.txt` into its temp folder |
 | `install-pc.* --wheel FILE` | `--constraints FILE` if given, else unlocked with a note |
 | Configurator updater | downloads the same asset as the installers (the "same arguments" test grows to cover `--constraints`) |
-| `install-runtime.sh` / `.ps1` | downloads the asset, passes `--constraints` to `install-stock.sh` / `install-bridge.sh` |
-| `install-stock.sh` / `install-bridge.sh` from a checkout | `--constraints FILE`; without it, when `uv` is on PATH they export from `tools/deploy/uv.lock`, else unlocked with a note |
+| `install-runtime.sh` (and `.ps1`, which runs it over SSH) | downloads the asset into the release source's `tools/deploy/constraints.txt` before anything else (before the OpenPLC install, so a failed download changes nothing) |
+| `install-bridge.sh` release form | downloads the asset into the release source's `tools/deploy/constraints.txt`; `--constraints` is refused with `--ssh` (the file is on the PC) |
+| `install-stock.sh` / `install-bridge.sh` from a checkout | `--constraints FILE`, else `tools/deploy/constraints.txt` when present, else an export of `tools/deploy/uv.lock` into `<prefix>/constraints.txt` when `uv` is on PATH, else unlocked with a note. In Docker mode `install-stock.sh` copies the file into the build copy, so the in-image build finds it |
 | Bridge and local runtime images | the image workflows export from `uv.lock` into the build context and pass it to the scripts |
 
-When the release has no constraints asset (a release from before this change, installed with `--version`), the PC installers and `install-runtime.sh` print one line, "this release does not lock its dependency versions", and install as today. A download error for an asset that exists fails the install. A missing file must not be confused with a network problem, so the scripts check the release's asset list (the same redirect check the scripts already use) before deciding.
+When the release has no constraints asset (a release from before this change, installed with `--version`), the PC installers and `install-runtime.sh` print one line, "this release does not lock its dependency versions", and install as today. A download error for an asset that exists fails the install. A missing file must not be confused with a network problem, so only an HTTP 404 counts as "no file"; any other answer, or none, stops the install. The download also runs in a dry run: it changes nothing, and the tests use it.
 
 ## Skip check and self-update
 
@@ -33,8 +34,8 @@ The "already installed" skip compares only the canworks version and Python, as t
 
 ## CI
 
-- A lint step `uv lock --check --project tools/deploy` runs in the light job only when `tools/deploy/pyproject.toml` or `uv.lock` changed (path filter). It adds about 5 s to those runs and nothing to others.
-- Jobs that `pip install` the tools' dependencies install with `-c` from one exported file, made once per job by `uv export` (uv is already on the runners through `setup-uv`, or is a single static download). Test-only packages (Playwright, pytest) stay unlocked; they never ship.
+- `scripts/check-lock.py` runs `uv lock --check` in the `changes` job only when `tools/deploy/pyproject.toml` or `uv.lock` changed (or the base is unknown). It adds a few seconds to those runs and nothing to others. `uv.lock` records the project's own version, so a plain `uv lock --check` would fail on every version bump. The script checks a temporary copy whose canworks version follows `pyproject.toml`, so a version bump alone needs no new lock.
+- A composite action, `.github/actions/locked-versions`, exports the lock once per job, sets `PIP_CONSTRAINT` for every later `pip install`, and copies the file to `tools/deploy/constraints.txt`, where the install scripts and the image builds (`COPY . /src`) pick it up. `build-plugin` runs it first, and the jobs without `build-plugin` run it themselves. Test-only packages (Playwright, pytest) stay unlocked; they never ship. The PC tools job installs with `--constraints` and runs its tests with `uv run --with-requirements` on the exported file (`uv run` has no constraints option).
 - `ci-minutes-budget`: no new jobs. Dependabot adds about one CI run a month, plus rare security PRs.
 
 ## Dependabot
@@ -50,10 +51,10 @@ Security updates use the repository's Dependabot security updates setting (Toni 
 
 ## Tested runtime
 
-- `canworks/tested_runtime.py` holds `TESTED_RUNTIME = "v4.2.4"`. A unit test keeps it equal to `docker/local-runtime/runtime-version`, so bumping one without the other fails CI.
+- `canworks/devices/plan.py` holds `TESTED_RUNTIME = "v4.2.4"`, next to the rest of the Devices page's rules. A unit test (`tests/test_locked_versions.py`) keeps it equal to `docker/local-runtime/runtime-version`, so bumping one without the other fails CI.
 - Devices page, runtime row: when the probe's runtime version is newer than `TESTED_RUNTIME`, show one muted line, "canworks is tested with runtime v4.2.4; this device runs v4.2.5." Actions are unchanged (Rebuild is still offered). An older or equal version, or an unknown one, shows nothing extra.
 - The **Install OpenPLC Runtime and canworks** confirmation already names upstream's installer. It adds that the installer installs upstream's newest runtime.
-- `runtime-watch.yml`: runs monthly and on manual dispatch. It reads the newest release tag of the upstream runtime repository from the GitHub API and compares it with `runtime-version`. When upstream is newer, it opens one issue titled "OpenPLC runtime vX is out (tested: vY)", or updates the open one with the label `runtime-update`. Permissions: `contents: read`, `issues: write`. It doesn't bump anything by itself, because a bump needs the archive's sha256 and a full CI run.
+- `runtime-watch.yml`: runs monthly and on manual dispatch. It reads the newest `vX.Y.Z` tag of the upstream runtime repository (`git ls-remote`, no API token) and compares it with `runtime-version`. When upstream is newer, it opens one issue titled "OpenPLC runtime vX is out (tested: vY)", or updates the open one with the label `runtime-update`. Permissions: `contents: read`, `issues: write`. It doesn't bump anything by itself, because a bump needs the archive's sha256 and a full CI run.
 
 ## Risks
 

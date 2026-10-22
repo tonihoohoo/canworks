@@ -34,6 +34,8 @@ inputs:
 runs:
   using: composite
   steps:
+    - uses: ./.github/actions/locked-versions
+
     - name: The pinned upstream runtime release
       id: runtime
       shell: bash
@@ -97,7 +99,7 @@ runs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: /opt/canworks
-        key: lely-${{ runner.os }}-${{ hashFiles('scripts/build-lely.sh') }}
+        key: lely-${{ runner.os }}-${{ hashFiles('scripts/build-lely.sh', 'scripts/dcf-tools-constraints.txt') }}
 
     - name: Build Lely CANopen and dcfgen
       if: steps.lely-cache.outputs.cache-hit != 'true'

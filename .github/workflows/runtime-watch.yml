@@ -1,0 +1,53 @@
+name: OpenPLC runtime watch
+
+# Upstream's newest OpenPLC runtime release against the one CI tests canworks
+# with (docker/local-runtime/runtime-version; canopen-ci, Runtime release
+# watch). When upstream is newer, one open issue labelled runtime-update says
+# so; a later run updates it instead of opening another. Nothing is bumped
+# here: a bump needs the archive's sha256 and a full CI run.
+on:
+  schedule:
+    - cron: "17 6 3 * *"  # monthly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compare and open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: https://github.com/Autonomy-Logic/openplc-runtime
+        run: |
+          tested=$(cat docker/local-runtime/runtime-version)
+          newest=$(git ls-remote --tags --refs "$UPSTREAM" 'v*' | sed 's|.*refs/tags/||' |
+            grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          [ -n "$newest" ] || { echo "::error::no release tags found at $UPSTREAM"; exit 1; }
+          echo "tested $tested, upstream's newest $newest"
+          if [ "$(printf '%s\n%s\n' "$tested" "$newest" | sort -V | tail -n 1)" = "$tested" ]; then
+            echo "CI tests the newest runtime; nothing to do"
+            exit 0
+          fi
+          title="OpenPLC runtime $newest is out (tested: $tested)"
+          body="Upstream released OpenPLC runtime $newest ($UPSTREAM/releases/tag/$newest). CI tests canworks with $tested (docker/local-runtime/runtime-version).
+
+          To move CI to it: set docker/local-runtime/runtime-version and runtime-sha256 (the sha256 of $UPSTREAM/archive/$newest.tar.gz), TESTED_RUNTIME in tools/deploy/canworks/devices/plan.py, and let the full CI run. Devices running a newer runtime than the tested one show a note on the configurator's Devices page.
+
+          Opened by .github/workflows/runtime-watch.yml."
+          gh label create runtime-update --color c5def5 --description "A newer OpenPLC runtime than CI tests" --force
+          number=$(gh issue list --label runtime-update --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --title "$title" --body "$body"
+            echo "updated issue #$number"
+          else
+            gh issue create --title "$title" --body "$body" --label runtime-update
+          fi

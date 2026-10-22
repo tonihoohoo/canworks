@@ -5,7 +5,7 @@
 #   sudo scripts/install-stock.sh [--runtime-dir DIR] [--prefix /opt/canworks]
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
 #                                 [--without-canopen | --without-j1939]
-#                                 [--with-link] [--without-discovery]
+#                                 [--with-link] [--without-discovery] [--constraints FILE]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
@@ -52,6 +52,11 @@
 # network (mDNS, _canworks._tcp) unless --without-discovery; --with-link also
 # installs the remote link service (scripts/install-link.sh). --uninstall
 # removes both.
+#
+# Dependency versions: pip installs the tools with the locked versions of
+# --constraints FILE, else of tools/deploy/constraints.txt (install-runtime.sh
+# puts the release's there), else of an export of tools/deploy/uv.lock when uv
+# is installed; without any of them pip picks the newest versions the tools allow.
 
 set -euo pipefail
 
@@ -73,6 +78,7 @@ BOOTLOADER_CONTAINER=openplc-bootloader
 CONTAINER_PREFIX=/opt/canworks
 DOCKER_IMAGE=""
 IN_IMAGE=0
+CONSTRAINTS=""
 
 EDITOR_HOOK=1
 WITH_CANOPEN=1
@@ -111,6 +117,7 @@ while [ $# -gt 0 ]; do
         --without-j1939) WITH_J1939=0 ;;
         --with-link) WITH_LINK=1 ;;
         --without-discovery) DISCOVERY=0 ;;
+        --constraints) CONSTRAINTS="$2"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -132,6 +139,32 @@ step() {
 # The steps discovery and the link add: 1 when either is installed or removed.
 access_steps() {
     if [ "$WITH_LINK" -eq 1 ] || [ "$DISCOVERY" -eq 1 ]; then echo 1; else echo 0; fi
+}
+
+# The locked dependency versions for pip (lock-dependency-versions), once:
+# PIP_C holds pip's -c option, or nothing when no versions are locked.
+PIP_C=()
+CONSTRAINTS_RESOLVED=0
+resolve_constraints() {
+    [ "$CONSTRAINTS_RESOLVED" -eq 0 ] || return 0
+    CONSTRAINTS_RESOLVED=1
+    if [ -n "$CONSTRAINTS" ]; then
+        [ -f "$CONSTRAINTS" ] || die "no such constraints file: $CONSTRAINTS"
+        CONSTRAINTS="$(cd "$(dirname "$CONSTRAINTS")" && pwd)/$(basename "$CONSTRAINTS")"
+    elif [ -f "$REPO/tools/deploy/constraints.txt" ]; then
+        CONSTRAINTS="$REPO/tools/deploy/constraints.txt"
+    elif command -v uv >/dev/null 2>&1 && [ -f "$REPO/tools/deploy/uv.lock" ]; then
+        mkdir -p "$PREFIX"
+        CONSTRAINTS="$PREFIX/constraints.txt"
+        uv export --project "$REPO/tools/deploy" --frozen --no-hashes --no-emit-project --no-dev \
+            --format requirements-txt -q -o "$CONSTRAINTS" ||
+            die "could not export the locked dependency versions from tools/deploy/uv.lock"
+    else
+        [ "$IN_IMAGE" -eq 1 ] ||
+            say "The dependency versions are not locked (no --constraints and no uv): pip picks the newest ones the tools allow"
+        return 0
+    fi
+    PIP_C=(-c "$CONSTRAINTS")
 }
 
 # The installed version, readable on the host without the runtime container.
@@ -229,6 +262,11 @@ build_in_image() {
     SRC_COPY=$(mktemp -d)
     trap 'rm -rf "${SRC_COPY:?}"' EXIT
     cp -a "$REPO/." "$SRC_COPY/"
+    # The build inside picks the locked versions up from there.
+    resolve_constraints
+    if [ -n "$CONSTRAINTS" ] && [ "$CONSTRAINTS" != "$REPO/tools/deploy/constraints.txt" ]; then
+        cp "$CONSTRAINTS" "$SRC_COPY/tools/deploy/constraints.txt"
+    fi
     local args=(--in-image --lely-ref "$LELY_REF")
     [ "$WITH_CANOPEN" -eq 1 ] || args+=(--without-canopen)
     [ "$WITH_J1939" -eq 1 ] || args+=(--without-j1939)
@@ -470,7 +508,8 @@ if [ "$WITH_CANOPEN" -eq 1 ]; then
     next_step "Building Lely CANopen and dcfgen"
     "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
     say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
-    "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"
+    resolve_constraints
+    "$PREFIX/venv/bin/python" -m pip install -q ${PIP_C[@]+"${PIP_C[@]}"} "$REPO/tools/deploy"
 elif [ ! -x "$PREFIX/venv/bin/python" ]; then
     # J1939 only: no Lely or dcfgen; the venv holds the editor hook.
     python3 -m venv "$PREFIX/venv"
@@ -549,7 +588,8 @@ fi
 
 install_hook_package() {
     say "Installing the editor hook into $PREFIX/venv"
-    "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/editor-hook"
+    resolve_constraints
+    "$PREFIX/venv/bin/python" -m pip install -q ${PIP_C[@]+"${PIP_C[@]}"} "$REPO/tools/editor-hook"
     rm -rf "${HOOK_DIR:?}.new"
     mkdir -p "$HOOK_DIR.new"
     cp -R "$REPO/tools/editor-hook/canworks_hook" "$HOOK_DIR.new/"

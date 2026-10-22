@@ -30,6 +30,7 @@
 #   --runtime-dir DIR | --runtime-ref REF [--runtime-sha256 HASH]
 #   --lely-ref COMMIT  --no-deps  --without-canopen | --without-j1939
 #   --binary FILE      --with-link NAME
+#   --constraints FILE install the tools with these locked dependency versions (not with --ssh)
 #   --uninstall [--purge]
 #
 # Install: builds Lely CANopen and dcfgen into <prefix> (scripts/build-lely.sh)
@@ -71,6 +72,12 @@
 # The one-line forms only install released code, never main. The newest
 # release is found from GitHub's releases/latest redirect, so no API token is
 # needed.
+#
+# Dependency versions: a release installs the tools with the exact versions
+# it was tested with (its canworks-<version>-constraints.txt). A checkout uses
+# --constraints FILE, else tools/deploy/constraints.txt, else an export of
+# tools/deploy/uv.lock when uv is installed; without any of them pip picks
+# the newest versions the tools allow.
 
 set -euo pipefail
 
@@ -102,6 +109,7 @@ PURGE=0
 WITH_CANOPEN=1
 WITH_J1939=1
 BINARY=""
+CONSTRAINTS=""
 UNIT_DIR=${CANWORKS_UNIT_DIR:-/etc/systemd/system}
 CONF_DIR=${CANWORKS_BRIDGE_CONF_DIR:-/etc/canworks-bridge}
 SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
@@ -158,6 +166,7 @@ while [ $# -gt 0 ]; do
         --lely-ref) need "$1" $#; LELY_REF="$2"; PASS+=("$1" "$2"); shift ;;
         --binary) need "$1" $#; BINARY="$2"; PASS+=("$1" "$2"); shift ;;
         --with-link) need "$1" $#; LINK_NAME="$2"; PASS+=("$1" "$2"); shift ;;
+        --constraints) need "$1" $#; CONSTRAINTS="$2"; PASS+=("$1" "$2"); shift ;;
         --no-deps) DEPS=0; PASS+=("$1") ;;
         --without-canopen) WITH_CANOPEN=0; PASS+=("$1") ;;
         --without-j1939) WITH_J1939=0; PASS+=("$1") ;;
@@ -184,6 +193,9 @@ if [ -n "$INSTANCE$CONFIG_DIR" ]; then
 fi
 if [ -z "$SSH_TARGET" ] && [ -n "$SSH_PORT$SSH_IDENTITY" ]; then
     die "--port and --identity need --ssh USER@HOST"
+fi
+if [ -n "$SSH_TARGET" ] && [ -n "$CONSTRAINTS" ]; then
+    die "--constraints names a file here, not on $SSH_TARGET; the release installs its own locked versions"
 fi
 if [ -n "$UPLOAD_DIR" ]; then
     # Only ever the folder the PC side made with mktemp.
@@ -223,6 +235,19 @@ latest_version() {
     echo "${tag#deploy-v}"
 }
 
+# The release's locked dependency versions into $2 (lock-dependency-versions).
+# A release from before them has none (404) and installs unlocked; any other
+# failure stops the install before it changes anything.
+fetch_release_constraints() {
+    local url="$GITHUB/releases/download/deploy-v$1/canworks-$1-constraints.txt" code
+    code=$(curl -sSL -o "$2" -w '%{http_code}' "$url" 2>/dev/null) || code=000
+    case "$code" in
+        200) ;;
+        404) rm -f "$2"; say "Release $1 does not lock its dependency versions: pip picks the newest ones the tools allow" ;;
+        *) rm -f "$2"; die "could not download canworks-$1-constraints.txt from $url (HTTP $code); nothing was changed" ;;
+    esac
+}
+
 # The regular files of the config folder (its EDS and DBC files sit next to it).
 config_files() {
     local f
@@ -247,6 +272,8 @@ release_install() {
     local tarball="$GITHUB/archive/refs/tags/$tag.tar.gz"
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "would download: $tarball"
+        [ "$UNINSTALL" -eq 1 ] || [ -n "$CONSTRAINTS" ] ||
+            echo "would download: $GITHUB/releases/download/$tag/canworks-$VERSION-constraints.txt"
         printf 'would run: bash <source>/scripts/install-bridge.sh'; printf ' %q' "${args[@]+"${args[@]}"}"; echo
         return 0
     fi
@@ -257,6 +284,9 @@ release_install() {
     curl -fsSL "$tarball" | tar -xz -C "$SRC" --strip-components=1 ||
         die "could not download $tarball"
     [ -f "$SRC/scripts/install-bridge.sh" ] || die "$tarball has no scripts/install-bridge.sh"
+    # Where the release's install-bridge.sh looks for them.
+    [ "$UNINSTALL" -eq 1 ] || [ -n "$CONSTRAINTS" ] ||
+        fetch_release_constraints "$VERSION" "$SRC/tools/deploy/constraints.txt"
     # The source has no git history: the bridge reports the release's version.
     CANWORKS_STEP_BASE=1 CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
 }
@@ -324,6 +354,27 @@ link_is_ours() {
 cleanup() {
     [ -z "$BUILD_DIR" ] || rm -rf "$BUILD_DIR"
     [ -z "$UPLOAD_DIR" ] || rm -rf "$UPLOAD_DIR"
+}
+
+# The locked dependency versions for pip: sets PIP_C to pip's -c option, or
+# to nothing when no versions are locked.
+resolve_constraints() {
+    PIP_C=()
+    if [ -n "$CONSTRAINTS" ]; then
+        [ -f "$CONSTRAINTS" ] || die "no such constraints file: $CONSTRAINTS"
+        CONSTRAINTS="$(cd "$(dirname "$CONSTRAINTS")" && pwd)/$(basename "$CONSTRAINTS")"
+    elif [ -f "$REPO/tools/deploy/constraints.txt" ]; then
+        CONSTRAINTS="$REPO/tools/deploy/constraints.txt"
+    elif command -v uv >/dev/null 2>&1 && [ -f "$REPO/tools/deploy/uv.lock" ]; then
+        CONSTRAINTS="$PREFIX/constraints.txt"
+        uv export --project "$REPO/tools/deploy" --frozen --no-hashes --no-emit-project --no-dev \
+            --format requirements-txt -q -o "$CONSTRAINTS" ||
+            die "could not export the locked dependency versions from tools/deploy/uv.lock"
+    else
+        say "The dependency versions are not locked (no --constraints and no uv): pip picks the newest ones the tools allow"
+        return 0
+    fi
+    PIP_C=(-c "$CONSTRAINTS")
 }
 
 # --- From a checkout ---------------------------------------------------------------
@@ -427,7 +478,8 @@ if [ "$WITH_CANOPEN" -eq 1 ]; then
         "$REPO/scripts/build-lely.sh" --prefix "$PREFIX" --ref "$LELY_REF"
     fi
     say "Installing the deploy tool into $PREFIX/venv (EDS lint)"
-    "$PREFIX/venv/bin/python" -m pip install -q "$REPO/tools/deploy"
+    resolve_constraints
+    "$PREFIX/venv/bin/python" -m pip install -q ${PIP_C[@]+"${PIP_C[@]}"} "$REPO/tools/deploy"
 fi
 
 # --- canworks-bridge ----------------------------------------------------------

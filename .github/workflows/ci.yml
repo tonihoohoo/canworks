@@ -42,6 +42,25 @@ jobs:
           MAIN_PUSH: ${{ github.event_name == 'push' && '--main-push' || '' }}
         run: python3 .github/scripts/ci_changes.py $MAIN_PUSH "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
 
+      - name: Did the tools' dependencies or their lock change?
+        id: lock
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # An unknown base (new branch, force push) checks the lock too.
+          if ! changed=$(git diff --name-only "$BASE" "$HEAD" 2>/dev/null) ||
+              echo "$changed" | grep -Eqx 'tools/deploy/(pyproject\.toml|uv\.lock)'; then
+            echo "check=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: steps.lock.outputs.check == 'true'
+
+      - name: tools/deploy/uv.lock matches pyproject.toml (lock-dependency-versions; uv lock updates it)
+        if: steps.lock.outputs.check == 'true'
+        run: python3 scripts/check-lock.py
+
   banned-words:
     # Words from a private list must not reach the repository. The list is
     # the BANNED_WORDS secret, so it is not in
@@ -308,6 +327,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: ./.github/actions/locked-versions
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
@@ -397,6 +418,8 @@ jobs:
     name: configurator-page (${{ matrix.shard }}/4)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/locked-versions
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

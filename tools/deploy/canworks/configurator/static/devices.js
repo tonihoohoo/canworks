@@ -213,7 +213,7 @@ function devRows(d, plan, job) {
     el("thead", null, el("tr", null, thCells(["Part", "On the device", "This project", ""]))),
     el("tbody", null, plan.rows.map((r) => el("tr", { class: r.used ? null : "muted-row", dataset: { part: r.part } },
       el("td", null, Icons.stateIcon(DEV_PART_ICON[r.state] || "unknown", { label: false }), " ", r.label),
-      el("td", null, r.have),
+      el("td", null, r.have, r.hint ? el("div", { class: "muted", dataset: { devices: "hint" } }, r.hint) : null),
       el("td", null, r.needs),
       el("td", null, r.uninstall ? el("button", { type: "button", class: "small", dataset: { devicesUninstall: r.part },
         disabled: running ? "An install is running." : null,

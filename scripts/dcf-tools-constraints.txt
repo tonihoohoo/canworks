@@ -1,0 +1,8 @@
+# The dcf-tools (dcfgen) venv's exact versions, for Lely commit
+# lely-ref: 88848aa28599ea5d6d7e766a9ffa2054446821b5
+# (scripts/build-lely.sh). Update them together with
+# tools/deploy/canworks/_lely_dcf/VERSION; a test ties the two.
+# setuptools stays below 81: dcfgen imports pkg_resources.
+empy==4.2.1
+pyyaml==6.0.3
+setuptools==80.10.2

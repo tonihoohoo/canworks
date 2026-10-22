@@ -1,0 +1,21 @@
+name: Locked dependency versions
+description: >
+  Exports tools/deploy/uv.lock as a pip constraints file and sets
+  PIP_CONSTRAINT for the rest of the job, so every pip install of the tools'
+  dependencies gets the locked versions, as a release installs them
+  (lock-dependency-versions). The same file goes to
+  tools/deploy/constraints.txt, where the install scripts and the image
+  builds look for it. Test-only packages are not in the lock and stay
+  unlocked.
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+    - name: Export the lock and set PIP_CONSTRAINT
+      shell: bash
+      run: |
+        uv export --project tools/deploy --frozen --no-hashes --no-emit-project --no-dev \
+          --format requirements-txt -q -o "$RUNNER_TEMP/constraints.txt"
+        cp "$RUNNER_TEMP/constraints.txt" tools/deploy/constraints.txt
+        echo "PIP_CONSTRAINT=$RUNNER_TEMP/constraints.txt" >> "$GITHUB_ENV"
