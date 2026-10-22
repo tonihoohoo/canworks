@@ -43,8 +43,10 @@
 
 ## 7. Desktop checks (after release; two consecutive releases are needed)
 
-- [ ] 7.1 Windows, Toni's own session (not a Remote Control shell): start from the Start menu shortcut, Update to the next release; the same tab comes back in the new version and the desktop and Start menu shortcuts still work.
-- [ ] 7.2 Windows: with `canworks-diag` open in a terminal, Update shows the "close other windows" message and the old version keeps working.
+- [x] 7.1 Windows, Toni's own session (not a Remote Control shell): start from the Start menu shortcut, Update to the next release; the same tab comes back in the new version and the desktop and Start menu shortcuts still work.
+  - Result 2026-10-22 (Toni, own Windows session, after reinstalling 0.106.0 from his own PowerShell): passed. Update now from the Start menu configurator came back in the same tab on the newest release; the Start menu and desktop shortcuts start the new version.
+- [x] 7.2 Windows: with `canworks-diag` open in a terminal, Update shows the "close other windows" message and the old version keeps working.
+  - Result 2026-10-22 (Toni): passed. With `canworks-diag discover --wait 600` running, Update now gave "Another canworks program still runs from this install (canworks-diag, a simulator, another configurator window): close it and press Update again. Nothing was changed." Side finding: Ctrl+C did not stop `discover` on Windows; fixed in this PR (select waits at most 0.5 s).
 - [x] 7.3 macOS: Update from the `.app`; the app opens the new version afterwards.
   - Result: PASS on macOS 2026-10-22 (0.106.0 to 0.106.1): the configurator opened from the .app updated with `canworks-config --update --yes`, came back in about 3 s on the same port; update.log result ok and "shortcut: Added"; the app's Info.plist version became 0.106.1 and the app reopened the new version.
 - [x] 7.4 Linux desktop (or headless): `canworks-config --update --yes` and the Update button.
