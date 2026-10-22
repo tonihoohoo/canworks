@@ -97,3 +97,16 @@ jobs:
           version=$(uv run --no-project --python 3.14 --managed-python python -c \
             "import re; print(re.search(r'^version = \"(.+)\"', open('tools/deploy/pyproject.toml').read(), re.M).group(1))")
           uv run --no-project --python 3.14 --managed-python python test/pc-tools/smoke.py "$version"
+
+      - name: Update from inside the tools, end to end (pc-tools-self-update)
+        # A running configurator updates to a made-up newer release served by a
+        # local stand-in for GitHub and comes back on the same port with the same
+        # session; on Windows a process held open in the tools' environment
+        # first stops the update cleanly. Runs last: it installs the version
+        # under test again at the end.
+        env:
+          UV_MANAGED_PYTHON: "1"
+        run: |
+          version=$(uv run --no-project --python 3.14 --managed-python python -c \
+            "import re; print(re.search(r'^version = \"(.+)\"', open('tools/deploy/pyproject.toml').read(), re.M).group(1))")
+          uv run --no-project --python 3.14 --managed-python python test/pc-tools/update_e2e.py "$version" "$(ls dist/*.whl)"

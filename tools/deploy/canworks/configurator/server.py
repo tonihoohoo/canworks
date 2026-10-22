@@ -56,6 +56,7 @@ from ..devices import service as devices_service
 from ..userdirs import FileLockedError, config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
 from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
+from . import update as update_mod
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 TOKEN_HEADER = "X-CANopen-Token"
@@ -132,7 +133,8 @@ THEMES = ("auto", "light", "dark")
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
                "workspace": (("configure", "commission", "devices"), "configure"), "panel": (("open", "closed"), "open"),
-               "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general")}
+               "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general"),
+               "update_check": (("on", "off"), "on")}
 
 # The network tree's folded networks: a list of network names (or "#<index>").
 TREE_FOLDED_MAX = 8
@@ -2602,11 +2604,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                from_shortcut=body.get("shortcut") is True)
             elif path == "/api/instance/page":
                 out = {"opened": not self.server.start_code_waiting(str(body.get("code") or ""))}
+            elif path == "/api/instance/update":
+                # canworks-config --update while this configurator runs: it updates (the guard applies).
+                if body.get("go") is True:
+                    out = self.server.update_now(body.get("version"))
+                else:
+                    out = self.server.updates.view(load_ui()["update_check"] == "on")
             else:
                 raise ApiError(404, "no such API: POST %s" % path)
         except ApiError as e:
             return self._send(e.status, e.body)
         self._send(200, out)
+        if out.get("updating"):
+            self.wfile.flush()
+            threading.Thread(target=self.server.stop, args=("update",), daemon=True).start()
 
     def _body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -2674,6 +2685,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # The page took a second start's PATH, or its user said no.
                 self.server.open_taken(self._body().get("id"))
                 return self._send(200, {})
+            if url.path == "/api/update" or url.path.startswith("/api/update/"):
+                body = self._body() if method == "POST" else {}
+                out = self._update((method, url.path), body)
+                self._send(200, out)
+                if out.get("updating"):
+                    # As Quit: only after the answer is out.
+                    self.wfile.flush()
+                    threading.Thread(target=self.server.stop, args=("update",), daemon=True).start()
+                return None
             if url.path in ("/api/explain", "/api/explain/build"):
                 body = self._body() if method == "POST" else {}
                 return self._send(200, self._explain((method, url.path), body))
@@ -2869,6 +2889,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:  # pragma: no cover - the page gets one sentence, the terminal the details
             traceback.print_exc()
             self._send(500, {"error": UNEXPECTED_ERROR})
+
+    def _update(self, route, body):
+        """The update check and Update (pc-tools-self-update)."""
+        u = self.server.updates
+        ui_on = load_ui()["update_check"] == "on"
+        if route == ("GET", "/api/update"):
+            return u.view(ui_on)
+        if route == ("POST", "/api/update/check"):
+            threading.Thread(target=u.check, daemon=True, name="update-check").start()
+            return dict(u.view(ui_on), checking=True)
+        if route == ("POST", "/api/update/dismiss"):
+            try:
+                u.dismiss(body.get("version"))
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            return u.view(ui_on)
+        if route == ("POST", "/api/update/start"):
+            when = body.get("when") or "now"
+            if when == "now":
+                return self.server.update_now(body.get("version"))
+            if when == "quit":
+                self.server.update_target(body.get("version"))
+                u.on_quit = body.get("version")
+                return u.view(ui_on)
+            if when == "cancel":
+                u.on_quit = None
+                return u.view(ui_on)
+            raise ApiError(400, "when must be now, quit or cancel")
+        raise ApiError(404, "no such API: %s %s" % route)
 
     @staticmethod
     def _need_open(s):
@@ -4337,6 +4386,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.open_epoch = 0  # +1 when a second start opened a folder: the pages show it
         self.stopped_why = None
         self.watch_stop = threading.Event()
+        self.updates = update_mod.Updates()  # run() hands in the one that read the last update's result
 
     # -- pages, and stopping without them -----------------------------------
     def heartbeat(self, page, unsaved=False, now=None):
@@ -4548,9 +4598,53 @@ class Server(http.server.ThreadingHTTPServer):
         self.sim_connection.close()
         self.sender.close()
 
+    # -- updates (pc-tools-self-update) -----------------------------------------
+    def update_target(self, version):
+        """`version` when it is the newer release the check found, else ApiError."""
+        view = self.updates.view()
+        if isinstance(version, str) and update_mod.is_newer(version) and version != view["latest"]:
+            self.updates.check()  # canworks-config --update found it first, or the check is old
+            view = self.updates.view()
+        if not view["newer"] or version != view["latest"]:
+            raise ApiError(409, "%s is not the newer release this configurator knows of; check for updates again"
+                           % (version or "No version"))
+        if view["kind"] != "uv-tool":
+            raise ApiError(409, "This copy cannot update itself: %s." % view["why"], kind=view["kind"],
+                           command=view["command"])
+        return version
+
+    def update_now(self, version):
+        """Update now: refused with the reasons while work would be lost;
+        else the updater starts and this configurator stops (the caller,
+        after answering)."""
+        self.update_target(version)
+        why = update_mod.guard(self)
+        if why:
+            raise ApiError(409, "Not now: %s." % "; ".join(why), reasons=why, on_quit=True)
+        try:
+            data = self.updates.run_file(version, os.getpid(), self.server_port, self.token, restart=True)
+            self.updates.start_updater(data)
+        except (OSError, ValueError) as e:
+            raise ApiError(409, "The update could not start: %s" % (getattr(e, "strerror", None) or e))
+        return {"updating": True, "version": version, "boot": self.updates.boot}
+
+    def _update_on_stop(self, why):
+        """Update when I quit: the stop runs the update, without a restart."""
+        version = self.updates.on_quit
+        if not version or why == "update" or why.startswith("it was told"):
+            return
+        self.updates.on_quit = None
+        try:
+            self.update_target(version)
+            data = self.updates.run_file(version, os.getpid(), None, None, restart=False)
+            self.updates.start_updater(data)
+        except (ApiError, OSError, ValueError) as e:
+            print("canworks-config: the update chosen for quitting did not start: %s" % e, flush=True)
+
     def stop(self, why):
         """Quit, or no page left: serving ends (main() then closes the
         rest) and every connection closes."""
+        self._update_on_stop(why)
         self.stopped_why = why
         print("canworks-config stopped: %s." % why, flush=True)
         self.shutdown()
@@ -4600,12 +4694,23 @@ def run(args, mode, timing=None):
     background configurator a terminal started), "shortcut" (the app
     shortcut's process, itself in the background) or "foreground"."""
     background = mode in ("terminal", "shortcut")
+    # The last update's result; after an update, its port and the session
+    # token, so the open tab reloads into this version.
+    updates = update_mod.Updates()
+    resume = updates.take_result(getattr(args, "resume", None))
+    server = None
+    if resume:
+        try:
+            server = Server(resume["port"], token=resume["token"], verbose=args.verbose)
+        except OSError:
+            resume = None  # the port was taken meanwhile: a new address and a new tab
     try:
-        server = Server(args.port, verbose=args.verbose)
+        server = server or Server(args.port, verbose=args.verbose)
     except OSError as e:
         print("canworks-config: cannot listen on 127.0.0.1:%d: %s" % (args.port, e.strerror or e),
               file=sys.stderr)
         return 2
+    server.updates = updates
     server.timing, server.timing_how = timing, mode
     if timing is not None:
         timing.mark("listening")
@@ -4647,7 +4752,11 @@ def run(args, mode, timing=None):
         print("canworks configurator started on 127.0.0.1:%d (pid %d, version %s%s)"
               % (server.server_port, os.getpid(), __version__, ", from the app shortcut" if mode == "shortcut" else ""),
               flush=True)
-    if mode == "shortcut":
+    if updates.result:
+        print("canworks-config: last update: %s" % updates.result.get("message"), flush=True)
+    if resume:
+        print("canworks-config: started again after an update; the open tab reloads", flush=True)
+    elif mode == "shortcut":
         url = server.url
         server.asked_browser(url, from_shortcut=True)
         webbrowser.open(url)
@@ -4668,6 +4777,7 @@ def run(args, mode, timing=None):
         except (AttributeError, ValueError, OSError):
             pass  # not on this system, or not the main thread
     server.start_watch()
+    updates.check_in_background(ui_on=load_ui()["update_check"] == "on")
     return serve(server)
 
 

@@ -126,7 +126,8 @@ async function quitStops() {
 
 async function quitConfigurator() {
   const stops = await quitStops();
-  const after = stops ? " " + stops : "";
+  const update = updateOnQuitText();
+  const after = (stops ? " " + stops : "") + (update ? " " + update : "");
   const canSave = S.dirty && S.state && S.state.mode && !S.state.commission;
   let v;
   if (unsavedWork()) {
@@ -147,6 +148,12 @@ async function quitConfigurator() {
     return;
   }
   showStopped();
+}
+
+// "canworks 1.2.3 is installed after it stops.", when Update when I quit was chosen (update.js).
+function updateOnQuitText() {
+  const v = typeof UPD !== "undefined" ? UPD.view : null;
+  return v && v.on_quit ? `canworks ${v.on_quit} is installed after it stops.` : "";
 }
 
 // After Quit, or when the configurator has gone ("gone": it did not answer
@@ -170,6 +177,8 @@ function showStopped(how) {
       el("p", null, again))
     : el("main", { id: "stopped", class: "stopped", role: "status" },
       el("h1", null, "canworks-config has stopped. You can close this tab."),
+      updateOnQuitText() ? el("p", { dataset: { updateOnQuit: "1" } }, updateOnQuitText().replace(" after it stops.",
+        " now; give it a minute before you start the configurator again.")) : null,
       el("p", null, again));
   if (unsaved) {
     box.append(el("p", { class: "stopped-unsaved" }, "This page's unsaved changes could not be saved."));
