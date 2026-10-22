@@ -204,12 +204,14 @@ def python_program(path, source):
     return path
 
 
-def fake_editor_cli(dir_, fail=False):
+def fake_editor_cli(dir_, fail=False, delay_s=0):
     """A stand-in `openplc-cli` whose `create` writes what OpenPLC Editor 4.3.2
-    writes for a new Structured Text project, and logs its arguments to
+    writes for a new Structured Text project (into an existing folder only
+    with --force, as the real one), and logs its arguments to
     <dir_>/cli-args.json."""
-    return python_program(os.path.join(dir_, "openplc-cli"), """import json, os, sys
+    return python_program(os.path.join(dir_, "openplc-cli"), """import json, os, sys, time
 args = sys.argv[1:]
+time.sleep(%(delay)r)
 with open(%(log)r, "w") as f:
     json.dump(args, f)
 if %(fail)r:
@@ -219,10 +221,10 @@ assert args[0] == "create", args
 name = args[1]
 flags = dict(a[2:].split("=", 1) for a in args[2:] if "=" in a)
 root = os.path.join(flags["path"], name)
-if os.path.exists(root):
+if os.path.exists(root) and "--force" not in args:
     sys.exit(2)
 for d in ("devices", "pous/functions", "pous/function-blocks", "pous/programs", "datatypes"):
-    os.makedirs(os.path.join(root, d))
+    os.makedirs(os.path.join(root, d), exist_ok=True)
 project = {"meta": {"name": name, "type": "plc-project"},
            "data": {"pous": [], "dataTypes": [], "libraries": [], "configuration": {"resource": {
                "tasks": [{"name": "task0", "triggering": "Cyclic", "interval": flags.get("time", "T#20ms"),
@@ -239,7 +241,7 @@ with open(os.path.join(root, "devices", "pin-mapping.json"), "w") as f:
 with open(os.path.join(root, "pous", "programs", "main.st"), "w") as f:
     f.write("PROGRAM main\\n  VAR\\n  END_VAR\\n\\n\\n\\nEND_PROGRAM")
 print('Created "%%s" at %%s' %% (name, root))
-""" % {"log": os.path.join(dir_, "cli-args.json"), "fail": fail})
+""" % {"log": os.path.join(dir_, "cli-args.json"), "fail": fail, "delay": delay_s})
 
 
 # -- the configurator page's network tree and node tabs ---------------------

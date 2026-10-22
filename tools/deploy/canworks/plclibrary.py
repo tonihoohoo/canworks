@@ -15,6 +15,7 @@ import os
 import sys
 
 from . import __version__
+from .userdirs import replace_file
 
 NAME = "canworks"
 FILE_NAME = NAME + ".stlib"
@@ -158,4 +159,4 @@ def _write(path, text):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
-    os.replace(tmp, path)
+    replace_file(tmp, path)

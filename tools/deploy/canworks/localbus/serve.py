@@ -358,7 +358,7 @@ class AdapterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
             tmp = "%s.%d.tmp" % (self.status_path, os.getpid())
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.status(), f, indent=2)
-            replace_file(tmp, self.status_path)
+            replace_file(tmp, self.status_path, deadline_s=1.0)
         except OSError:
             pass
 

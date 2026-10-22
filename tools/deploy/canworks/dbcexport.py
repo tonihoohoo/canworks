@@ -22,6 +22,7 @@ from . import eds as eds_mod
 from . import links as links_mod
 from .iec import CO_TYPES, CO_TYPE_BY_CODE, parse_location
 from .raw.mux import merge as mux_merge
+from .userdirs import replace_file
 
 SDO_OPTIONS = ("none", "config", "all")
 MASTER = "Master"
@@ -824,7 +825,7 @@ def write_file(text, path):
     try:
         with os.fdopen(fd, "w", encoding="ascii", newline="") as f:
             f.write(text)
-        os.replace(tmp, path)
+        replace_file(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)

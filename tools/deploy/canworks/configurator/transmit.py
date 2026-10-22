@@ -15,6 +15,8 @@ import json
 import os
 import threading
 
+from ..userdirs import replace_file
+
 FORMAT = "canworks-transmit"
 VERSION = 1
 STORE = "trace.json"
@@ -136,7 +138,7 @@ class Store:
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, indent=1)
-        os.replace(tmp, self.path)
+        replace_file(tmp, self.path)
 
     # -- the transmit list ----------------------------------------------------
     def rows(self, folder, network):

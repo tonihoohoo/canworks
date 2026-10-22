@@ -24,6 +24,7 @@ from . import notes as notes_mod
 from . import eds as eds_mod
 from . import links as links_mod
 from .iec import CO_TYPE_BY_CODE, parse_location
+from .userdirs import replace_file
 
 DOC_SCHEMA_VERSION = 2
 DEFAULT_TITLE = "CAN network documentation"
@@ -1492,7 +1493,7 @@ def write_file(text, path):
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
-        os.replace(tmp, path)
+        replace_file(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)

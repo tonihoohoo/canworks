@@ -95,19 +95,73 @@ class Create(unittest.TestCase):
         main = read(os.path.join(self.target, "pous", "programs", "main.st"))
         self.assertTrue(main.startswith("PROGRAM main\n  VAR\n  END_VAR\n"), main)
 
-    def test_existing_folder_untouched(self):
+    def test_existing_project_or_config_refused(self):
+        # (windows-safe-new-config 2.2) a file the editor writes, or a
+        # project or config already there: refused, nothing run or changed.
+        for rel in ("project.json", os.path.join("devices", "configuration.json"),
+                    os.path.join("pous", "programs", "main.st"), "canworks.json", os.path.join("canworks", "x")):
+            folder = os.path.join(self.dir, "work", "taken-" + rel.replace(os.sep, "-"))
+            os.makedirs(os.path.dirname(os.path.join(folder, rel)), exist_ok=True)
+            with open(os.path.join(folder, rel), "w") as f:
+                f.write("mine")
+            before = sorted(os.walk(folder))
+            with self.assertRaises(editorproject.NewProjectError) as e:
+                editorproject.create(load(RTD_CONFIG), RTD_CONFIG, folder)
+            self.assertIn("already has " + rel.split(os.sep)[0] if rel.startswith("canworks") else
+                          "already has " + rel, str(e.exception))
+            self.assertEqual(sorted(os.walk(folder)), before)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "cli-args.json")))
+
+    def test_existing_empty_folder(self):
         os.makedirs(self.target)
+        editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)
+        self.assertIn("--force", self.args())
+        self.assertTrue(os.path.isfile(os.path.join(self.target, "canworks", "canworks.json")))
+        self.assertEqual(load(os.path.join(self.target, "devices", "configuration.json"))["deviceBoard"],
+                         "OpenPLC Runtime v4")
+
+    def test_new_folder_not_forced(self):
+        editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)
+        self.assertNotIn("--force", self.args())
+
+    def test_existing_folder_keeps_other_files(self):
+        os.makedirs(os.path.join(self.target, "devices"))
         with open(os.path.join(self.target, "keep.txt"), "w") as f:
             f.write("mine")
-        with self.assertRaisesRegex(editorproject.NewProjectError, "already exists"):
+        with open(os.path.join(self.target, "devices", "notes.txt"), "w") as f:
+            f.write("mine too")
+        editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)
+        self.assertEqual(read(os.path.join(self.target, "keep.txt")), "mine")
+        self.assertEqual(read(os.path.join(self.target, "devices", "notes.txt")), "mine too")
+        self.assertTrue(os.path.isfile(os.path.join(self.target, "project.json")))
+
+    def test_failure_in_existing_folder_removes_only_what_was_added(self):
+        os.makedirs(os.path.join(self.target, "devices"))
+        with open(os.path.join(self.target, "keep.txt"), "w") as f:
+            f.write("mine")
+        with open(os.path.join(self.target, "devices", "notes.txt"), "w") as f:
+            f.write("mine too")
+        before = sorted(os.walk(self.target))
+        with mock.patch("canworks.project.write",
+                        side_effect=editorproject.project_mod.ProjectError("disk full")):
+            with self.assertRaisesRegex(editorproject.NewProjectError, "disk full.*added to the folder was removed"):
+                editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)
+        self.assertEqual(sorted(os.walk(self.target)), before)
+
+    def test_cli_runs_without_console_window(self):
+        real = subprocess.run
+        drop = os.name != "nt"  # creationflags exists on Windows only
+        with mock.patch.object(editorproject, "NO_WINDOW", {"creationflags": 0x08000000}), \
+                mock.patch("subprocess.run", side_effect=lambda cmd, **kw: real(
+                    cmd, **{k: v for k, v in kw.items() if not (drop and k == "creationflags")})) as run:
             editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target)
-        self.assertEqual(os.listdir(self.target), ["keep.txt"])
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "cli-args.json")))
-        # An empty folder is refused too: openplc-cli create refuses it.
-        empty = os.path.join(self.dir, "work", "empty")
-        os.makedirs(empty)
-        with self.assertRaisesRegex(editorproject.NewProjectError, "already exists"):
-            editorproject.create(load(RTD_CONFIG), RTD_CONFIG, empty)
+        kw = run.call_args.kwargs
+        self.assertEqual(kw["creationflags"], 0x08000000)
+        self.assertIs(kw["stdin"], subprocess.DEVNULL)
+        if os.name == "nt":
+            self.assertEqual(editorproject.NO_WINDOW, {"creationflags": subprocess.CREATE_NO_WINDOW})
+        else:
+            self.assertEqual(editorproject.NO_WINDOW, {})
 
     def test_invalid_config_runs_nothing(self):
         cfg = load(RTD_CONFIG)

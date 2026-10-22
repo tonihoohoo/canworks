@@ -25,6 +25,7 @@ from . import __version__, _lely_dcf, bundle, cia306, contract, edslint
 from . import eds as eds_mod
 from . import links as links_mod
 from ._lely_dcf.parse import parse_file as _parse_file
+from .userdirs import replace_file
 
 NETWORK_NAME = "OpenPLC CANopen"
 # CiA 306 bit rates for [DeviceComissioning] Baudrate (kbit/s).
@@ -878,7 +879,7 @@ def write_files(files, out_dir):
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write(text)
-            os.replace(tmp, path)
+            replace_file(tmp, path)
         except BaseException:
             if os.path.exists(tmp):
                 os.remove(tmp)

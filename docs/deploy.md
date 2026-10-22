@@ -90,7 +90,7 @@ Master diagnostics come first, then each node in config order: diagnostics, inpu
 
 With `--blocks` the project also enables the `canworks` function block library (CANopen, CiA 402, CAN and J1939 blocks, [plc-library.md](plc-library.md)), and the library is installed into the editor on this PC if it is missing or older than the tools; if that cannot be done (the editor has never run here), the output says how to install it.
 
-The project is written once: later config changes do not touch `main`. Declare new locations from the configurator's "not yet declared" block. An existing folder (even an empty one) is refused, and a failure after `openplc-cli create` removes the new folder. The command needs `openplc-cli` (the editor installs it on first run, or run `openplc-cli install-cli`; `$OPENPLC_CLI` names another program). Nothing is uploaded.
+The project is written once: later config changes do not touch `main`. Declare new locations from the configurator's "not yet declared" block. An existing folder becomes the project when it has none of the editor's files (`project.json`, `devices/configuration.json`, `devices/pin-mapping.json`, `pous/programs/main.st`) and no `canworks.json` or `canworks/`; otherwise it is refused, naming the file. A failure after `openplc-cli create` removes the new folder, or in an existing folder only what was added. The command needs `openplc-cli` (the editor installs it on first run, or run `openplc-cli install-cli`; `$OPENPLC_CLI` names another program). Nothing is uploaded.
 
 ## The function block library
 

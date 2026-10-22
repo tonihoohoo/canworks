@@ -209,10 +209,16 @@ class NewProject(unittest.TestCase):
         os.makedirs(self.target)
         with open(os.path.join(self.target, "x"), "w") as f:
             f.write("x")
+        # windows-safe-new-config: a folder without editor or canworks files
+        # becomes the project and keeps its other files; one with them is refused.
+        code, _, err = deploy("--config", self.config, "--new-project", self.target, env=self.env)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.target, "x")) as f:
+            self.assertEqual(f.read(), "x")
+        self.assertTrue(os.path.isfile(os.path.join(self.target, "canworks", "canworks.json")))
         code, _, err = deploy("--config", self.config, "--new-project", self.target, env=self.env)
         self.assertEqual(code, 1)
-        self.assertIn("already exists", err)
-        self.assertEqual(os.listdir(self.target), ["x"])
+        self.assertIn("already has project.json", err)
 
     def test_interval_needs_new_project(self):
         code, _, err = deploy("--config", self.config, "--check-only", "--bundle", self.dir, "--task-interval",

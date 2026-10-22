@@ -277,6 +277,17 @@ function modal(text, buttons, extra) {
   });
 }
 
+// The dialog just answered, shown again while its request runs: one
+// disabled button with `label`, Escape ignored. Returns the call that closes it.
+function modalWorking(label) {
+  const dlg = $("#modal");
+  $("#modal-buttons").replaceChildren(el("button", { type: "button", class: "primary", disabled: true,
+    dataset: { value: "working" } }, label));
+  dlg.dataset.working = "1";
+  if (!dlg.open) dlg.showModal();
+  return () => { delete dlg.dataset.working; if (dlg.open) dlg.close(); };
+}
+
 // A control that runs a request: disabled with a busy label until the
 // request settles, so a second click meanwhile does nothing.
 async function busy(button, label, fn) {
@@ -1266,7 +1277,7 @@ async function newConfig(folder) {
   name.setAttribute("aria-describedby", nameErr.id);
   where.setAttribute("aria-describedby", whereErr.id);
   const form = el("div", { class: "new-config", dataset: { newConfig: "form" } }, targets,
-    el("label", null, "Name (the new folder)", name), nameErr,
+    el("label", null, "Name (its folder: new, or an existing empty one)", name), nameErr,
     el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose), whereErr),
     projectBox);
   where.id = "new-config-location";
@@ -1294,10 +1305,13 @@ async function newConfig(folder) {
     fail(null);
     const path = joinPath(loc, nm);
     const withProject = target() === "openplc" && project.checked && !project.disabled;
+    const finish = withProject ? modalWorking("Creating the editor project…") : () => {};
     try {
       banner("");
       await api("POST", "/api/new", { path, editor_project: withProject, target: target() });
+      finish();
     } catch (e) {
+      finish();
       if (e.body && (e.body.has_config || e.body.is_project)) {
         const o = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
         if (o === "open") await openFolder(e.body.path || path, "auto");
@@ -8105,7 +8119,7 @@ async function newEditorProject() {
     return [el("label", null, label, input), input];
   };
   const [pl, parent] = field("Folder to create it in", S.state.home, "Parent folder");
-  const [nl, name] = field("Project name (its folder)", "", "Project name");
+  const [nl, name] = field("Project name (its folder: new, or an existing empty one)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
   const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
   const sl = el("label", { class: "inline", title: "Enables the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks) in the project and installs it into the editor" },
@@ -8118,10 +8132,13 @@ async function newEditorProject() {
     const v = await modal(text, [["create", "Create project", true], ["cancel", "Cancel"]], form);
     if (v !== "create") return;
     let r;
+    const finish = modalWorking("Creating the editor project…");
     try {
       r = await api("POST", "/api/new_project", { parent: parent.value.trim(), name: name.value.trim(),
         interval: interval.value.trim(), blocks: blocks.checked });
+      finish();
     } catch (e) {
+      finish();
       text = "Not created: " + e.message;
       continue;
     }
@@ -8201,6 +8218,7 @@ function wire() {
   });
   wireTree();
   $("#banner-close").onclick = () => banner("");
+  $("#modal").addEventListener("cancel", (e) => { if ($("#modal").dataset.working) e.preventDefault(); });
   $("#modal").addEventListener("cancel", () => { const r = modalResolve; modalResolve = null; if (r) r(null); });
   // Enter in a dialog's field picks its primary button (never a danger
   // one); a dialog closed any other way still answers, with null.

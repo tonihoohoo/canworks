@@ -16,6 +16,7 @@ import os
 
 from .. import contract, diag, simclient
 from ..contract import best_match
+from ..userdirs import replace_file
 
 SIM_FILE = "simulation.json"
 DEFAULT_ADDRESS = "127.0.0.1:%d" % simclient.SIM_PORT
@@ -191,7 +192,7 @@ def write(path, doc):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(canonical(doc), f, indent=2, ensure_ascii=False)
         f.write("\n")
-    os.replace(tmp, path)
+    replace_file(tmp, path)
 
 
 def eds_files(canopen_dir):

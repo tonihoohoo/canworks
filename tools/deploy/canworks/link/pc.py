@@ -20,6 +20,7 @@ from .. import diag
 from ..userdirs import config_dir
 from . import ALPN, DEFAULT_LINK_PORT, UNAVAILABLE, available, protocol
 from .protocol import LinkError, LineReader, encode
+from ..userdirs import replace_file
 
 CONNECT_TIMEOUT = 15.0
 DIRECT_HEAD_START = 0.3   # seconds the direct path gets before the link starts
@@ -54,7 +55,7 @@ def load_key():
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
-    os.replace(path + ".tmp", path)
+    replace_file(path + ".tmp", path)
     return data
 
 
@@ -87,7 +88,7 @@ def _save(items):
     tmp = _runtimes_path() + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"runtimes": items}, f, indent=2)
-    os.replace(tmp, _runtimes_path())
+    replace_file(tmp, _runtimes_path())
 
 
 def find(text):

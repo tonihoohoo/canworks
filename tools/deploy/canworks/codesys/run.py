@@ -10,6 +10,7 @@ import sys
 import tempfile
 
 from . import plan as plan_mod
+from ..userdirs import replace_file
 
 # Where CODESYS installs itself on Windows: <root>\CODESYS <version>\CODESYS\Common\CODESYS.exe
 PROGRAM_ROOTS = ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432")
@@ -29,7 +30,7 @@ def write_folder(files, out_dir):
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write(text)
-            os.replace(tmp, path)
+            replace_file(tmp, path)
         except BaseException:
             if os.path.exists(tmp):
                 os.remove(tmp)
