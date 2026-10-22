@@ -525,6 +525,14 @@ class Client:
         except socket.timeout:
             self.close()
             raise old
+        except (ssl.SSLEOFError, ssl.SSLZeroReturnError, ConnectionResetError, BrokenPipeError):
+            # Closed before sending a byte: an older plugin answers the TLS
+            # hello with an error line instead, so nothing serves the port
+            # (a container's or tunnel's port forward with no plugin behind it).
+            self.close()
+            raise DiagError("unreachable", "%s accepted the connection but closed it without answering: no canworks "
+                                           "diagnostics run there (no PLC program with the plugin is running yet, "
+                                           "or a port forward leads nowhere)" % self.where)
         except (ssl.SSLError, OSError):
             self.close()
             raise old
