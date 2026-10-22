@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import tempfile
 import textwrap
 import unittest
@@ -120,9 +121,6 @@ class Run(unittest.TestCase):
         self.assertEqual(len(hits), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_timings_file_and_class_times(self):
         path = os.path.join(self.dir, "times.json")
         with open(path, "w") as f:
@@ -132,3 +130,108 @@ if __name__ == "__main__":
         line = [x for x in log.splitlines() if x.startswith("class times: ")][0]
         times = json.loads(line[len("class times: "):])
         self.assertEqual(sorted(times), sorted([f"{self.pkg}.test_one.A", f"{self.pkg}.test_two.B", f"{self.pkg}.test_page.P"]))
+
+    def ran(self, log):
+        return sorted(line.split(" ")[0] for line in log.splitlines() if re.match(r"test_\w+ \(", line))
+
+    def test_workers_run_every_test_once(self):
+        rc, log = self.run_shard("--shard", "1/1", "--exclude", "test_bad$", "--jobs", "3")
+        self.assertEqual(rc, 0, log)
+        self.assertIn("3 workers", log)
+        self.assertEqual(self.ran(log), ["test_a", "test_b", "test_c", "test_p"])
+        self.assertEqual(log.count("== worker "), 3)
+        times = json.loads([x for x in log.splitlines() if x.startswith("class times: ")][0][len("class times: "):])
+        self.assertEqual(len(times), 3)
+
+    def test_a_failing_worker_fails_the_run(self):
+        rc, log = self.run_shard("--shard", "1/1", "--jobs", "4")
+        self.assertEqual(rc, 1)
+        self.assertIn("boom", log)
+        self.assertIn("boom", log[log.index("== failed workers =="):])  # repeated at the end
+        self.assertEqual(self.ran(log), ["test_a", "test_b", "test_c", "test_p", "test_x"])
+
+    def test_a_worker_that_dies_fails_the_run(self):
+        with open(os.path.join(self.dir, self.pkg, "test_die.py"), "w") as f:
+            f.write("import os, unittest\nclass D(unittest.TestCase):\n    def test_d(self): os._exit(3)\n")
+        rc, log = self.run_shard("--shard", "1/1", "--exclude", "test_bad$", "--jobs", "2")
+        self.assertEqual(rc, 1)
+        self.assertIn("ended without a result (exit 3)", log)
+
+    def test_workers_have_their_own_temporary_folder(self):
+        with open(os.path.join(self.dir, self.pkg, "test_tmp.py"), "w") as f:
+            f.write(textwrap.dedent("""\
+                import os, tempfile, unittest
+                class T1(unittest.TestCase):
+                    def test_t1(self): print("TMP", os.environ["CANWORKS_TEST_WORKER"], tempfile.gettempdir())
+                class T2(unittest.TestCase):
+                    def test_t2(self): print("TMP", os.environ["CANWORKS_TEST_WORKER"], tempfile.gettempdir())
+                """))
+        rc, log = self.run_shard("--shard", "1/1", "--pattern", "test_tmp.py", "--jobs", "2")
+        self.assertEqual(rc, 0, log)
+        seen = re.findall(r"TMP (\d) (\S+)", log)  # printed after the test's "... " on its line
+        self.assertEqual(sorted(w for w, _ in seen), ["1", "2"])
+        self.assertNotEqual(seen[0][1], seen[1][1])
+
+    def test_workers_see_no_terminal_and_absolute_module_paths(self):
+        with open(os.path.join(self.dir, self.pkg, "test_env.py"), "w") as f:
+            f.write(textwrap.dedent("""\
+                import os, sys, unittest
+                class E1(unittest.TestCase):
+                    def test_e1(self): print("ENV", sys.stdin.isatty(), sys.stdin.read() == "", os.path.isabs(__file__))
+                class E2(unittest.TestCase):
+                    def test_e2(self): pass
+                """))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):  # --top relative, as CI passes it
+            rc = shard.main(["--start", os.path.join(self.dir, self.pkg), "--top", os.path.relpath(self.dir),
+                             "--shard", "1/1", "--pattern", "test_env.py", "--jobs", "2"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("ENV False True True", out.getvalue())
+
+    def test_split_class_runs_each_method_once_with_its_own_setup(self):
+        with open(os.path.join(self.dir, self.pkg, "test_big.py"), "w") as f:
+            f.write(textwrap.dedent("""\
+                import unittest
+                class Big(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls): print("SETUP")
+                """) + "".join(f"    def test_m{i}(self): pass\n" for i in range(6)))
+        path = os.path.join(self.dir, "times.json")
+        with open(path, "w") as f:
+            json.dump({f"{self.pkg}.test_big.Big": 90}, f)
+        rc, log = self.run_shard("--shard", "1/1", "--pattern", "test_big.py", "--timings", path,
+                                 "--split-over", "30", "--jobs", "3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.ran(log), [f"test_m{i}" for i in range(6)])
+        self.assertEqual(log.count("SETUP"), 3)
+        times = json.loads([x for x in log.splitlines() if x.startswith("class times: ")][0][len("class times: "):])
+        self.assertEqual(list(times), [f"{self.pkg}.test_big.Big"])
+
+    def test_serial_classes_run_after_the_workers(self):
+        rc, log = self.run_shard("--shard", "1/1", "--exclude", "test_bad$", "--jobs", "2", "--serial", r"\.test_page\.P$")
+        self.assertEqual(rc, 0, log)
+        self.assertIn("then 1 alone", log)
+        self.assertEqual(self.ran(log), ["test_a", "test_b", "test_c", "test_p"])
+        self.assertGreater(log.index("test_p ("), max(log.index("test_a ("), log.index("test_c (")))
+
+
+class Parts(unittest.TestCase):
+    def test_large_class_cut_into_parts(self):
+        found = {"m.Big": list(range(7)), "m.Small": [1]}
+        tests, size = shard.parts(found, {"m.Big": 100, "m.Small": 5}, 30)
+        self.assertEqual(sorted(tests), ["m.Big[1/4]", "m.Big[2/4]", "m.Big[3/4]", "m.Big[4/4]", "m.Small"])
+        self.assertEqual(sorted(t for k, v in tests.items() if k.startswith("m.Big") for t in v), list(range(7)))
+        self.assertEqual(size["m.Big[1/4]"], 25)
+
+    def test_no_more_parts_than_tests_and_together_never_cut(self):
+        tests, _ = shard.parts({"m.Two": [1, 2], "p.Parity": [1, 2, 3]}, {"m.Two": 300, "p.Parity": 300}, 30,
+                               r"^p\.Parity$")
+        self.assertEqual(sorted(tests), ["m.Two[1/2]", "m.Two[2/2]", "p.Parity"])
+
+    def test_without_a_limit_nothing_is_cut(self):
+        tests, size = shard.parts({"m.Big": [1, 2, 3]}, {"m.Big": 1000})
+        self.assertEqual(tests, {"m.Big": [1, 2, 3]})
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -161,7 +161,8 @@ class DevicesPage(OnlineBase):
         self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
         self.assertIn("Until then the PLC has no program.", pg.inner_text("[data-devices=done]"))
         pg.click("[data-devices=log] summary")
-        self.assertIn("args: --version 0.98.0 --pinned-runtime --with-link", pg.inner_text("[data-devices=log] pre"))
+        # the log text arrives after the click (a busy machine shows that)
+        pg.wait_for_selector("[data-devices=log] pre:has-text('args: --version 0.98.0 --pinned-runtime --with-link')")
         pg.wait_for_selector("[data-devices=up-to-date]")
         self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="plugin"]'))
         # The status bar drops the job at its next look (a poll in flight may still list it).

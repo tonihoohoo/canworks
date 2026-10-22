@@ -2604,6 +2604,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _deny(self, why):
+        # Read the unread request body first: Windows resets a connection
+        # closed with unread data, and the client then sees no 403 at all.
+        length = int(self.headers.get("Content-Length") or 0)
+        if 0 < length <= MAX_BODY:
+            self.rfile.read(length)
         self._send(403, {"error": why})
 
     def do_GET(self):
@@ -3427,7 +3432,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))
         if route == ("POST", "/api/online/status"):
             try:
-                used, st = call(lambda c: (picked(c), c.status()))
+                # The hello from the same client: conn.info is None when another
+                # request closed the connection in between.
+                used, st, info = call(lambda c: (picked(c), c.status(), c.info))
             except ApiError as e:
                 if e.status != 502:
                     raise
@@ -3435,7 +3442,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return dict(e.body, reachable=False)
             prints = online.fingerprints(config_path)
             same = st.get("config_sha256") in prints
-            out = {"hello": conn.info, "status": st, "networks": (conn.info or {}).get("networks") or [],
+            out = {"hello": info, "status": st, "networks": (info or {}).get("networks") or [],
                    "network": used, "config": "none" if not prints else ("same" if same else "different")}
             # The path the connection took (LAN, internet direct or relayed)
             # and its round trip; the background pairing's line, once.

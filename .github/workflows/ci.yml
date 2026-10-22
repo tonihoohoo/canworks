@@ -307,7 +307,8 @@ jobs:
   tools:
     # Deploy tool and configurator tests without a browser (the page tests run
     # in configurator-page), with the DCF export compared to the C++ build,
-    # split over three runners by test class (.github/scripts/test_shard.py).
+    # split over two runners by test class (.github/scripts/test_shard.py), and
+    # on each runner over one worker process per CPU (--jobs auto).
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -315,14 +316,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    name: tools (${{ matrix.shard }}/3)
+        shard: [1, 2]
+    name: tools (${{ matrix.shard }}/2)
     env:
       # The classes that run build/canopen_check stay on one shard, split by recorded class times
       # (.github/ci/tool-test-times.json; refresh it from the shards' "class times:" lines when they drift).
       SHARD_ARGS: >-
-        --start tools/deploy/tests --top tools/deploy --exclude test_configurator_(.*page|layout)$
-        --timings .github/ci/tool-test-times.json
+        --start tools/deploy/tests --top tools/deploy --exclude (_page|\.test_configurator_layout)$
+        --timings .github/ci/tool-test-times.json --split-over 30
         --together ^tests\.(test_parity\.\w+|test_dcfexport\.Parity|test_project\.IntoProject)$
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -344,7 +345,7 @@ jobs:
         id: parity
         run: |
           set -f  # SHARD_ARGS holds regexes: no globbing
-          if python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3 $SHARD_ARGS \
+          if python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/2 $SHARD_ARGS \
               --contains '^tests\.(test_parity|test_dcfexport\.Parity|test_project\.IntoProject)\.'; then
             echo "here=true" >> "$GITHUB_OUTPUT"
           fi
@@ -359,7 +360,7 @@ jobs:
         id: bustrace
         run: |
           set -f  # SHARD_ARGS holds regexes: no globbing
-          if python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3 $SHARD_ARGS \
+          if python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/2 $SHARD_ARGS \
               --contains '\.test_bustrace\..*\.test_wireshark_decodes_canopen$'; then
             echo "here=true" >> "$GITHUB_OUTPUT"
           fi
@@ -384,7 +385,7 @@ jobs:
           CANWORKS_REQUIRE_TSHARK: ${{ steps.bustrace.outputs.here == 'true' && '1' || '' }}
         run: |
           set -f  # SHARD_ARGS holds regexes: no globbing
-          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3 $SHARD_ARGS
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/2 $SHARD_ARGS --jobs auto
 
       - name: Release tag check (deploy-v<version> must match the package version)
         if: matrix.shard == 1
@@ -399,13 +400,15 @@ jobs:
         run: PYTHONPATH=tools/editor-hook:tools/deploy python -m unittest discover -v -s tools/editor-hook/tests -t tools/editor-hook
 
       - name: Install-script Docker mode and runtime spec edits (stub docker)
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         # last: runs as root (it may leave root-owned files)
         run: sudo python3 -m unittest discover -v -s test/docker
 
   configurator-page:
-    # The configurator's pages in Chromium, split over four runners by test
-    # class (three kept the run's wall time above the main baseline). Needs no plugin build. Skipped when nothing the pages use changed
+    # The configurator's pages in Chromium (every test_*_page.py and the layout
+    # test), split over three runners by test class, classes over 30 s cut into
+    # parts, and on each runner over one worker process (and browser) per CPU.
+    # Needs no plugin build. Skipped when nothing the pages use changed
     # (needs.changes.outputs.ui).
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.ui == 'true'
@@ -414,8 +417,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-    name: configurator-page (${{ matrix.shard }}/4)
+        shard: [1, 2, 3]
+    name: configurator-page (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -462,12 +465,13 @@ jobs:
       - name: Configurator page and layout tests
         # Split by recorded class times (.github/ci/page-test-times.json; a class not in it counts as the
         # median). Each shard prints its "class times:" line; refresh the file from those when shards drift.
+        # One Chromium per worker: the tests mostly wait, so 4 workers on 4 CPUs take about 1/2.7 of the time.
         env:
           CANWORKS_REQUIRE_BROWSER: "1"  # fail instead of skipping without Playwright/Chromium
         run: >
-          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/4
-          --start tools/deploy/tests --top tools/deploy --timings .github/ci/page-test-times.json
-          --pattern 'test_configurator_*page.py' --pattern 'test_configurator_layout.py'
+          python .github/scripts/test_shard.py --shard ${{ matrix.shard }}/3 --jobs auto
+          --start tools/deploy/tests --top tools/deploy --timings .github/ci/page-test-times.json --split-over 30
+          --pattern 'test_*_page.py' --pattern 'test_configurator_layout.py'
 
   ci-ok:
     # The one check a branch ruleset needs: green when every job above passed
