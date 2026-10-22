@@ -12,6 +12,8 @@ on:
       - "scripts/install-stock.sh"
       - "scripts/docker_spec.py"
       - "scripts/build-lely.sh"
+      - "scripts/dcf-tools-constraints.txt"
+      - "tools/deploy/uv.lock"
       - "test/stock/**"
       - "test/docker/**"
       - "tools/editor-hook/**"

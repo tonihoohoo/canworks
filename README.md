@@ -63,6 +63,8 @@ macOS and Linux (Terminal):
 curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh | sh
 ```
 
+Each release installs the exact dependency versions it was tested with, so an install made months later gets the same libraries ([docs/install-pc.md](docs/install-pc.md#dependency-versions)).
+
 Then open the configurator, from the **canworks configurator** shortcut the installer adds or in a new terminal:
 
 ```sh
@@ -244,12 +246,15 @@ Security issues: see [SECURITY.md](SECURITY.md). [docs/development.md](docs/deve
 `.github/workflows/pc-tools.yml` installs the PC tools with the one-line installer (`scripts/install-pc.sh`, `install-pc.ps1`; uv underneath) on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main` (the release waits for it), on `deploy-v<version>` tags and on "Run workflow" (start it on a pull request's branch when a change needs those systems checked). On your own PC, from a checkout (bash; Git Bash on Windows):
 
 ```sh
-uv build --wheel --out-dir dist tools/deploy && sh scripts/install-pc.sh --wheel dist/*.whl
-uv run --no-project --python 3.14 --with jsonschema --with cantools python -m unittest discover -s tools/deploy/tests -t tools/deploy
+uv export --project tools/deploy --frozen --no-hashes --no-emit-project --no-dev --format requirements-txt -q -o constraints.txt
+uv build --wheel --out-dir dist tools/deploy && sh scripts/install-pc.sh --wheel dist/*.whl --constraints constraints.txt
+uv run --no-project --python 3.14 --with-requirements constraints.txt python -m unittest discover -s tools/deploy/tests -t tools/deploy
 uv run --no-project --python 3.14 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 
-A `deploy-v<version>` release publishes the tools as a wheel on GitHub and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`). Its notes are `tools/deploy/release-notes.md` plus what each pull request since the previous release changed, and only the newest four releases are kept ([docs/install-pc.md](docs/install-pc.md#releases)).
+The tools' dependency versions are locked in `tools/deploy/uv.lock` (run `uv lock --project tools/deploy` after changing a dependency; CI checks it). Dependabot proposes one update of the lock a month. A monthly workflow opens an issue when upstream releases a newer OpenPLC runtime than CI tests with, and the configurator's **Devices** page notes devices that run one.
+
+A `deploy-v<version>` release publishes the tools as a wheel on GitHub (with `canworks-<version>-constraints.txt`, its locked dependency versions) and the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (`release-deploy.yml`). Its notes are `tools/deploy/release-notes.md` plus what each pull request since the previous release changed, and only the newest four releases are kept ([docs/install-pc.md](docs/install-pc.md#releases)).
 
 ## License
 

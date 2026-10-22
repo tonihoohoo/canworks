@@ -20,7 +20,9 @@
 #                      (managed Docker, https://runtime.getedge.me) first
 #
 # It only installs released code, never main. The newest release is found
-# from GitHub's releases/latest redirect, so no API token is needed.
+# from GitHub's releases/latest redirect, so no API token is needed. The tools
+# go in with the exact dependency versions the release was tested with (its
+# canworks-<version>-constraints.txt asset).
 
 set -euo pipefail
 
@@ -128,11 +130,31 @@ step() { echo "::canworks-step $1/? $2"; }
 
 say "installing canworks $VERSION"
 TARBALL="$REPO/archive/refs/tags/$TAG.tar.gz"
+CONSTRAINTS_URL="$REPO/releases/download/$TAG/canworks-$VERSION-constraints.txt"
+UNINSTALLING=0
+for a in "${PASS[@]+"${PASS[@]}"}"; do [ "$a" != --uninstall ] || UNINSTALLING=1; done
 if [ "$DRY_RUN" = 1 ]; then
     [ "$INSTALL_OPENPLC" = 0 ] || echo "would install the OpenPLC runtime: curl -fsSL $OPENPLC_INSTALLER | bash"
+    [ "$UNINSTALLING" = 1 ] || echo "would download: $CONSTRAINTS_URL"
     echo "would download: $TARBALL"
     printf 'would run: CANWORKS_PLUGIN_VERSION=%s bash <source>/scripts/install-stock.sh' "$VERSION"; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
     exit 0
+fi
+
+SRC=$(mktemp -d /tmp/canworks-install.XXXXXX)
+trap 'rm -rf "$SRC"' EXIT
+# The release's locked dependency versions, where its install-stock.sh looks
+# for them; first, so a failed download changes nothing. A release from
+# before them has none (404) and installs unlocked.
+if [ "$UNINSTALLING" = 0 ]; then
+    mkdir -p "$SRC/tools/deploy"
+    code=$(curl -sSL -o "$SRC/tools/deploy/constraints.txt" -w '%{http_code}' "$CONSTRAINTS_URL" 2>/dev/null) || code=000
+    case "$code" in
+        200) ;;
+        404) rm -f "$SRC/tools/deploy/constraints.txt"
+             say "release $VERSION does not lock its dependency versions: pip picks the newest ones the tools allow" ;;
+        *) die "could not download canworks-$VERSION-constraints.txt from $CONSTRAINTS_URL (HTTP $code); nothing was changed" ;;
+    esac
 fi
 
 if [ "$INSTALL_OPENPLC" = 1 ]; then
@@ -149,8 +171,6 @@ if [ "$INSTALL_OPENPLC" = 1 ]; then
 fi
 
 step "$BASE" "Downloading canworks $VERSION"
-SRC=$(mktemp -d /tmp/canworks-install.XXXXXX)
-trap 'rm -rf "$SRC"' EXIT
 curl -fsSL "$TARBALL" | tar -xz -C "$SRC" --strip-components=1 ||
     die "could not download $TARBALL"
 [ -f "$SRC/scripts/install-stock.sh" ] || die "$TARBALL has no scripts/install-stock.sh"

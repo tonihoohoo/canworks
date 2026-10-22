@@ -18,13 +18,15 @@ macOS and Linux (Terminal):
 curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh | sh
 ```
 
+It installs the exact dependency versions the release was tested with: each release carries `canworks-<version>-constraints.txt` (made from `tools/deploy/uv.lock`), and the installer passes it to `uv tool install --constraints`. An install made today and one made months later get the same libraries, even after a library has a new major release. A release from before 0.108.0 has no such file; the installer then says that its versions are not locked and lets uv pick the newest ones the tools allow, as before. See [Dependency versions](#dependency-versions).
+
 It installs only what the tools need to run: `can-j1939` (the J1939 simulator and trouble-code tools) lists `pytest` as a requirement although it never imports it, so the installer drops it with a uv override (`pytest; sys_platform == 'never'` passed to `uv tool install --overrides`). `iroh` is installed on purpose: it is the remote link of the configurator and `canworks-diag` to runtimes ([remote-access.md](remote-access.md)), and its wheels need nothing else. When uv's bin folder is not on PATH (a new install, or a non-login SSH shell), the installer prints its own hint to open a new terminal once, and uv's PATH warning stays quiet.
 
 It also adds the **canworks configurator** app shortcut, which starts the configurator with no terminal or console window: in the Start menu and on the desktop on Windows, in `~/Applications` on macOS (made on the Mac, so Gatekeeper lets it start), among the applications on Linux. Its uninstall removes the shortcut too.
 
 Both scripts come from the newest release's files on GitHub, so you run released code, never what is on `main`. The Windows line saves the script to a file and runs that file: it pipes nothing into `iex`, and when uv is missing the script downloads uv's own release zip and checks it against uv's published SHA-256 instead of running uv's install script, so it starts no other PowerShell. If an antivirus still stops it, use the manual steps below.
 
-Options: a given release (`--version 0.82.0`), install again (`--force`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`), another Python (`--python 3.15` or `--python PATH`; the default is 3.14). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Force`, `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Python PATH`). Run again, the line does nothing when the newest version is already installed on the chosen Python, and installs it again when the tools are on an older Python (so a PC moves to 3.14 on its next update). A uv older than 0.9.0 does not know Python 3.14: the scripts update it with `uv self update`, or, when another tool installed uv (Homebrew, winget), stop and say to update it there. The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
+Options: a given release (`--version 0.82.0`), install again (`--force`), uninstall (`--uninstall`), no shortcut (`--no-shortcut`), a local wheel (`--wheel FILE`, with `--constraints FILE` for its locked versions), another Python (`--python 3.15` or `--python PATH`; the default is 3.14). On macOS and Linux they follow `sh -s --` (`curl ... | sh -s -- --version 0.82.0`); on Windows they follow the file name (`... -File $f -Version 0.82.0`; `-Force`, `-Uninstall`, `-NoShortcut`, `-Wheel FILE`, `-Constraints FILE`, `-Python PATH`). Run again, the line does nothing when the newest version is already installed on the chosen Python, and installs it again when the tools are on an older Python (so a PC moves to 3.14 on its next update). A uv older than 0.9.0 does not know Python 3.14: the scripts update it with `uv self update`, or, when another tool installed uv (Homebrew, winget), stop and say to update it there. The scripts only install released wheels and find the newest release without the GitHub API. To pin the script to a release, put `download/deploy-v<version>` in place of `latest/download` (`https://github.com/tonihoohoo/canworks/releases/download/deploy-v0.92.0/install-pc.sh`; releases from 0.92.0 on carry the scripts, and a newer script installs older versions with `--version`). To read the script before running it, download it first (`curl -LsSfO https://github.com/tonihoohoo/canworks/releases/latest/download/install-pc.sh`, then `sh install-pc.sh`; on Windows open `$f` before the `powershell` part). Then check as in step 2 below. The manual steps follow.
 
 ## 1. Install uv (once per PC)
 
@@ -46,11 +48,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 2. Install the tools
 
-Download `canworks-<version>-py3-none-any.whl` from the repository's **Releases** page (the newest `deploy-v<version>` release; or use `gh release download deploy-v<version>`). The same file is for every operating system. Then, in the folder you downloaded it to:
+Download `canworks-<version>-py3-none-any.whl` and `canworks-<version>-constraints.txt` from the repository's **Releases** page (the newest `deploy-v<version>` release; or use `gh release download deploy-v<version>`). The same files are for every operating system. Then, in the folder you downloaded them to:
 
 ```sh
-uv tool install --compile-bytecode --python 3.14 canworks-<version>-py3-none-any.whl
+uv tool install --compile-bytecode --python 3.14 --constraints canworks-<version>-constraints.txt canworks-<version>-py3-none-any.whl
 ```
+
+Without `--constraints` uv picks the newest dependency versions the tools allow instead of the tested ones.
 
 `--compile-bytecode` compiles the tools at install, so the first start is as fast as later ones.
 
@@ -79,7 +83,7 @@ Windows Defender Firewall may show "Windows Defender Firewall has blocked some f
 
 Once a day the configurator asks GitHub which release is the newest (one request to `github.com/tonihoohoo/canworks/releases/latest`, which only redirects to the newest release; nothing else is sent). When a newer one exists, a chip **Update: 0.x.0** shows in the header. It opens a dialog with a link to what's new and four choices:
 
-- **Update now** stops the configurator, installs the new version with uv (the same `uv tool install` as the one-line installer) and starts it again. The open tab comes back by itself in about a minute, and a message says how it went. It is refused while there are unsaved changes, an online connection, a trace, a simulator or a job on the bus: finish or save first, or pick the next choice.
+- **Update now** stops the configurator, installs the new version with uv (the same `uv tool install` as the one-line installer, with the new release's locked dependency versions) and starts it again. The open tab comes back by itself in about a minute, and a message says how it went. It is refused while there are unsaved changes, an online connection, a trace, a simulator or a job on the bus: finish or save first, or pick the next choice.
 - **Update when I quit** installs it after Quit or after the last tab closes. The configurator does not start again; the next start shows the result.
 - **Skip this version** hides the chip until a newer release comes out. **Not now** leaves it.
 
@@ -101,7 +105,7 @@ What happens on each system:
 The one-line installer above updates when run again (and uninstalls with `--uninstall`). By hand:
 
 ```sh
-uv tool install --force --compile-bytecode --python 3.14 canworks-<new version>-py3-none-any.whl
+uv tool install --force --compile-bytecode --python 3.14 --constraints canworks-<new version>-constraints.txt canworks-<new version>-py3-none-any.whl
 canworks-config --remove-shortcut    # before uninstalling, when the shortcut was added
 uv tool uninstall canworks
 ```
@@ -145,13 +149,21 @@ canworks-deploy --help
 
 A pip, pipx or manual `uv tool install` also gets `pytest`, which `can-j1939` lists as a requirement (the tools never use it); add `--overrides` with a file holding `pytest; sys_platform == 'never'` to `uv tool install` to leave it out, as the one-line installer does.
 
+pip picks the newest dependency versions the tools allow. For the tested ones add `-c canworks-<version>-constraints.txt` (from the release) or, in a checkout, `-c` with the output of `uv export --project tools/deploy --frozen --no-hashes --no-emit-project --no-dev --format requirements-txt`.
+
 Without installing: `PYTHONPATH=tools/deploy python3 -m canworks --help` (needs `python3 -m pip install jsonschema`).
 
 Debian 12 and later, Ubuntu 23.04 and later and other distributions that mark their Python as externally managed (PEP 668) refuse a plain `pip install` with "externally-managed-environment". Use uv as above, pipx (`sudo apt install pipx`), or a virtual environment (`python3 -m venv ~/.venvs/canworks && ~/.venvs/canworks/bin/pip install ./tools/deploy`).
 
+## Dependency versions
+
+`tools/deploy/pyproject.toml` gives each dependency only a lowest version, so the package stays easy to install next to other software. The versions that are tested and shipped are locked in `tools/deploy/uv.lock`, for every supported system and Python 3.11 and newer. CI installs those versions, each release exports them to `canworks-<version>-constraints.txt`, and every install uses that file: the one-line installers, the configurator's update, `install-runtime.sh` and `install-bridge.sh` on a device, and the container images. A CI check (`scripts/check-lock.py`) fails when `uv.lock` no longer matches `pyproject.toml`; run `uv lock --project tools/deploy` after changing a dependency. A version bump alone needs no new lock.
+
+New versions arrive on purpose. Dependabot opens one pull request a month that updates `uv.lock`, plus a security update when an advisory names a locked version. CI tests it like any other change, and it reaches users with the next release. The dcf-tools on a device (dcfgen) have exact versions too, in `scripts/dcf-tools-constraints.txt`, which goes with the pinned Lely commit.
+
 ## Releases
 
-Releases are automatic. Merging a change that raises the version in `tools/deploy/pyproject.toml` (and `canworks/__init__.py`, which must match) releases it: once CI and the PC tools run (Windows, macOS, Linux) pass on that commit on `main`, the **Release PC tools** workflow creates the tag `deploy-v<version>` there and a GitHub release of that name with the wheel and `canworks.stlib`, then publishes the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (both also `:latest`) for amd64 and arm64. `canworks-sim-runtime` uses the image of its own version. Commits that keep the version publish nothing, a failed check publishes nothing for that commit, and an existing release is never replaced.
+Releases are automatic. Merging a change that raises the version in `tools/deploy/pyproject.toml` (and `canworks/__init__.py`, which must match) releases it: once CI and the PC tools run (Windows, macOS, Linux) pass on that commit on `main`, the **Release PC tools** workflow creates the tag `deploy-v<version>` there and a GitHub release of that name with the wheel, its locked dependency versions (`canworks-<version>-constraints.txt`) and `canworks.stlib`, then publishes the local simulator runtime image `ghcr.io/tonihoohoo/canworks-sim-runtime:<version>` and the Modbus bridge image `ghcr.io/tonihoohoo/canworks-bridge:<version>` (both also `:latest`) for amd64 and arm64. `canworks-sim-runtime` uses the image of its own version. Commits that keep the version publish nothing, a failed check publishes nothing for that commit, and an existing release is never replaced.
 
 Fallbacks: **Run workflow** on the Release PC tools workflow releases the current `main` if its version has no release yet (same checks), and pushing a tag `deploy-v<version>` by hand releases that commit; a hand-pushed tag that does not match the package version fails without publishing. The tools are tested installed with uv as above on Windows, macOS and Linux (x86_64 and ARM64) on version bumps on `main`, on release tags and on **Run workflow**; pull requests run the same tests on Linux in CI.
 

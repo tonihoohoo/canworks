@@ -13,6 +13,9 @@
 # the same Debian release. The base comes through Google's Docker Hub mirror,
 # since anonymous Docker Hub pulls from CI runners hit its rate limit
 # (--build-arg DEBIAN=debian pulls from Docker Hub itself).
+# The tools' dependency versions come from tools/deploy/constraints.txt when
+# the build context has it (the image workflows export it from
+# tools/deploy/uv.lock); without it pip picks the newest allowed versions.
 
 ARG DEBIAN=mirror.gcr.io/library/debian
 FROM ${DEBIAN}:bookworm AS build

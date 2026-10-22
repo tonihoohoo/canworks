@@ -31,6 +31,7 @@ canopen tools/deploy/canworks/notes.py
 canopen tools/deploy/canworks/builtin_notes/*
 canopen tools/deploy/tests/test_notes.py
 canopen scripts/build-lely.sh
+canopen scripts/dcf-tools-constraints.txt
 canopen config/*
 canopen test/bus/*
 canopen test/cia402/*

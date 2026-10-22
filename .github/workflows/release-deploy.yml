@@ -131,6 +131,15 @@ jobs:
         if: steps.gate.outputs.go == 'true'
         run: uv build --wheel --out-dir dist tools/deploy
 
+      - name: The locked dependency versions (canworks-<version>-constraints.txt, the installers' --constraints)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          out="dist/canworks-${{ steps.version.outputs.version }}-constraints.txt"
+          uv export --project tools/deploy --frozen --no-hashes --no-emit-project --no-dev \
+            --format requirements-txt -q -o "$out"
+          grep -q '^cantools==' "$out"
+          ! grep -q '^canworks' "$out"
+
       - name: Exactly one platform-independent wheel
         if: steps.gate.outputs.go == 'true'
         run: |
@@ -159,7 +168,7 @@ jobs:
           # them from releases/latest/download/, so users run released code.
           cp scripts/install-pc.sh scripts/install-pc.ps1 scripts/install-runtime.sh scripts/install-runtime.ps1 \
              scripts/install-bridge.sh scripts/install-bridge.ps1 tools/deploy/canworks/devices/device-probe.sh dist/
-          gh release create "$TAG" dist/*.whl dist/canworks.stlib \
+          gh release create "$TAG" dist/*.whl dist/canworks.stlib dist/canworks-$VERSION-constraints.txt \
             dist/install-pc.sh dist/install-pc.ps1 dist/install-runtime.sh dist/install-runtime.ps1 \
             dist/install-bridge.sh dist/install-bridge.ps1 dist/device-probe.sh \
             --target "$SHA" \
@@ -186,6 +195,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release.outputs.sha }}
+
+      - uses: ./.github/actions/locked-versions
 
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

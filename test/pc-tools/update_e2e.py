@@ -91,6 +91,10 @@ def build_new_wheel(work):
 
 class Release(http.server.BaseHTTPRequestHandler):
     wheels = {}
+    # The made-up release's locked dependency versions (the exported uv.lock,
+    # CANWORKS_E2E_CONSTRAINTS); the version under test has none, so the
+    # updater's rollback path meets a release without them.
+    constraints = {}
 
     def log_message(self, *args):
         pass
@@ -105,9 +109,11 @@ class Release(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        m = re.match(r"^/releases/download/deploy-v([0-9.]+)/(canworks-[0-9.]+-py3-none-any\.whl)$", self.path)
-        if m and m.group(2) in self.wheels:
-            with open(self.wheels[m.group(2)], "rb") as f:
+        m = re.match(r"^/releases/download/deploy-v([0-9.]+)/(canworks-[0-9.]+-(?:py3-none-any\.whl|constraints\.txt))$",
+                     self.path)
+        files = dict(self.wheels, **self.constraints)
+        if m and m.group(2) in files:
+            with open(files[m.group(2)], "rb") as f:
                 data = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
@@ -218,6 +224,8 @@ def main(version, dist_wheel):
     Release.wheels = {os.path.basename(dist_wheel): dist_wheel}
     new_wheel = build_new_wheel(work)
     Release.wheels[os.path.basename(new_wheel)] = new_wheel
+    if os.environ.get("CANWORKS_E2E_CONSTRAINTS"):
+        Release.constraints = {"canworks-%s-constraints.txt" % NEW: os.environ["CANWORKS_E2E_CONSTRAINTS"]}
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Release)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     env = dict(os.environ, CANWORKS_REPO="http://127.0.0.1:%d" % httpd.server_port, CANWORKS_CONFIG_DIR=cfg,
@@ -267,7 +275,10 @@ def main(version, dist_wheel):
     p.wait(timeout=30)
     log = os.path.join(cfg, "update.log")
     with open(log, encoding="utf-8") as f:
-        say("update.log has %d lines" % len(f.read().splitlines()))
+        text = f.read()
+    say("update.log has %d lines" % len(text.splitlines()))
+    if Release.constraints and "--constraints" not in text:
+        fail("the update did not install the release's locked dependency versions (no --constraints in update.log)")
 
     # Back to the version under test, then canworks-config --update with no
     # configurator running: in the terminal (macOS, Linux) or in the

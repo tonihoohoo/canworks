@@ -396,6 +396,72 @@ class Updater(unittest.TestCase):
         with open(os.path.join(self.dir, "update.log")) as f:
             self.assertIn("uv says: done", f.read())
 
+    def constraints_server(self, files):
+        """A local release host: `files` maps a path to its body; anything
+        else is 404, and a path whose body is None is 500."""
+
+        class Assets(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = files.get(self.path, b"")
+                code = 404 if self.path not in files else 500 if body is None else 200
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body or b"")))
+                self.end_headers()
+                self.wfile.write(body or b"")
+
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Assets)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        return "http://127.0.0.1:%d" % httpd.server_address[1]
+
+    def test_locked_versions(self):
+        """The new release's constraints go to uv as --constraints, after the
+        overrides, as in the installers."""
+        host = self.constraints_server({"/new.txt": b"cantools==45.1.0\n", "/old.txt": b"cantools==44.0.0\n"})
+        uv = self.fake_uv({"new.whl": (0, "9.1.0")})
+        seen = os.path.join(self.dir, "seen-constraints")
+        path = self.run_file(uv, constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        real_install = updater.uv_install
+
+        def spy(run, wheel, overrides, constraints=None):
+            with open(constraints) as c, open(seen, "w") as out:
+                out.write(c.read())
+            return real_install(run, wheel, overrides, constraints)
+
+        with mock.patch.object(updater, "uv_install", spy):
+            self.assertEqual(updater.main([path]), 0)
+        with open(self.uv_log) as f:
+            args = json.load(f)[0]
+        self.assertEqual(args[6], "--overrides")
+        self.assertEqual(args[8], updater.CONSTRAINTS)
+        self.assertEqual(args[10], "canworks @ http://x/new.whl")
+        with open(seen) as f:
+            self.assertEqual(f.read(), "cantools==45.1.0\n")
+
+    def test_release_without_locked_versions(self):
+        host = self.constraints_server({})
+        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}),
+                             constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        self.assertEqual(updater.main([path]), 0)
+        with open(self.uv_log) as f:
+            self.assertNotIn(updater.CONSTRAINTS, json.load(f)[0])
+        with open(os.path.join(self.dir, "update.log")) as f:
+            self.assertIn("does not lock its dependency versions", f.read())
+
+    def test_locked_versions_unreachable(self):
+        host = self.constraints_server({"/new.txt": None})
+        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}),
+                             constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        self.assertEqual(updater.main([path]), 1)
+        r = self.result(path)
+        self.assertEqual((r["state"], r["version"]), ("failed", "0.1.0"))
+        self.assertIn("Nothing was changed", r["message"])
+        self.assertFalse(os.path.exists(self.uv_log))  # uv never ran
+
     def test_failed_unchanged(self):
         path = self.run_file(self.fake_uv({"new.whl": (1, None)}))
         self.assertEqual(updater.main([path]), 1)

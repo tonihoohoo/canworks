@@ -4,3 +4,7 @@ build/
 .canworks/
 __pycache__/
 *.egg-info/
+# The locked dependency versions an install uses (install-runtime.sh puts a
+# release's here; the image workflows export them from tools/deploy/uv.lock).
+/tools/deploy/constraints.txt
+/constraints.txt
