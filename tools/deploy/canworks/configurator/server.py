@@ -509,13 +509,18 @@ def eds_summary(eds, path=None):
         objects.append(obj)
     # Each PDO's mapping object: whether the master can write it, and the
     # device's default mapping (for "Set by the device" and "Map all").
+    # `enabled`: the PDO is on as the device starts (COB-ID bit 31 clear), for
+    # the default PDOs of a new node.
     pdo_maps = {}
-    for direction, base in (("input", 0x1A00), ("output", 0x1600)):
+    for direction, base, comm in (("input", 0x1A00, 0x1800), ("output", 0x1600, 0x1400)):
         pdo_maps[direction] = {}
         for k in range(eds.pdo_count(direction)):
             m = eds_mod.mapping_info(eds, base + k)
+            cob = eds.find(comm + k, 1)
+            cob_value = cob.value(1) if cob is not None else None
             pdo_maps[direction][str(k + 1)] = {
                 "writable": m["writable"], "has_default": m["has_default"],
+                "enabled": cob_value is not None and not cob_value & 0x80000000,
                 "defaults": [{"index": "0x%04X" % (v >> 16), "subindex": (v >> 8) & 0xFF, "bits": v & 0xFF}
                              for v in m["defaults"]]}
     # [DeviceInfo]: identity and LSS_Supported.
@@ -3168,6 +3173,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return view()
         if route == ("POST", "/api/online/use_eds"):
             return self._use_eds(s, settings, canopen_dir, body.get("path"), body.get("eds_lint"))
+        if route == ("POST", "/api/online/eds_library"):
+            # The Add node dialog's library list: the files with their product names.
+            return {"library": settings.eds_library or "",
+                    "files": self.server.eds_index.listing([("library", settings.eds_library)])}
         if route == ("POST", "/api/online/watch"):
             return self._watch(settings, folder, body)
 

@@ -576,6 +576,17 @@ class EdsIndex:
         self.cache[path] = (mtime, info)
         return info
 
+    def listing(self, folders, limit=500):
+        """Every EDS file of the folders with its product and vendor name,
+        sorted by product name; at most `limit` files."""
+        out = []
+        for where, path in self.files(folders)[:limit]:
+            info = self.info(path) or {}
+            out.append({"path": path, "name": os.path.basename(path), "where": where,
+                        "product_name": info.get("product_name") or "", "vendor_name": info.get("vendor_name") or ""})
+        out.sort(key=lambda m: ((m["product_name"] or m["name"]).lower(), m["name"].lower()))
+        return out
+
     def matches(self, folders, vendor_id, product_code, revision=None):
         """EDS files whose VendorNumber and ProductNumber match, an exact
         RevisionNumber first, then project files before library files."""

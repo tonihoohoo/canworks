@@ -1878,7 +1878,7 @@ function adapterFieldset() {
 // (spec "Empty network is a warning").
 function noNodesYet() {
   return el("p", { class: "empty-state", dataset: { emptyNodes: "1" } }, "No nodes yet: ",
-    el("button", { type: "button", dataset: { emptyAdd: "1" }, onclick: () => $("#eds-input").click() }, "Add node…"),
+    el("button", { type: "button", dataset: { emptyAdd: "1" }, onclick: () => addNodeDialog() }, "Add node…"),
     ", or find the devices on the bus in Commission.");
 }
 
@@ -2945,13 +2945,13 @@ function supervisionFields(i) {
   return out;
 }
 
-// The generated variable name part of a PDO entry (the part its `name`
-// replaces), from the last check's declarations; "" without one.
+// The variable name a PDO entry gets, whole (`io_rtd_AI0_Input_PV`), from the
+// last check's declarations; "" without one.
 function entryVariable(ep, prefix) {
   const decls = (S.check && S.check.declarations) || [];
   const want = prefix + ep + ".iec_location";
   const d = decls.find((x) => x.kind === "pdo" && x.path === want);
-  return d ? d.entry_name || "" : "";
+  return d ? d.name || "" : "";
 }
 
 function declNote(path) {
@@ -3021,7 +3021,8 @@ function renderPdos(i, key, dir, title, eds) {
           el("span", { class: "field-msg", dataset: { for: ep + ".bits" } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep } }),
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
-        locations ? el("td", { dataset: { label: targetText("location_column") } }, loc, el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
+        locations ? el("td", { dataset: { label: targetText("location_column") } }, loc, unmappedMark(i, dir, ep, e),
+          el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
           el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } }),
           declNote(ep + ".iec_location")) : null,
         el("td", { dataset: { label: "PDO" } }, move),
@@ -3037,6 +3038,19 @@ function renderPdos(i, key, dir, title, eds) {
   });
   fs.append(objectPicker(i, eds, dir));
   return fs;
+}
+
+// An entry with no PLC location and no bits reaches no variable: said in
+// warning text, with Suggest filling a free location.
+function unmappedMark(i, dir, ep, e) {
+  if (e.iec_location || hasBits(e)) return null;
+  const suggest = el("button", { type: "button", class: "small", dataset: { suggestLocation: ep }, onclick: () => busy(suggest, "Suggesting…", async () => {
+    const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: dir, type: e.type });
+    if (!r.location) { banner(`No free location: ${r.reason || "the location tables are full"}.`, true); return; }
+    setPath(ep + ".iec_location", r.location);
+    render();
+  }) }, "Suggest");
+  return el("span", { class: "unmapped", dataset: { unmapped: ep } }, el("span", { class: "warning-text" }, "not mapped to the PLC"), " ", suggest);
 }
 
 // -- bit channels (canworks.json `bits`): single bits of an integer entry as
@@ -7168,41 +7182,252 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
 // ---------------------------------------------------------------------------
 // Edits
 
-async function addNodeFromEds(file) {
-  const data = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result.split(",")[1] || "");
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
-  let res;
+// An EDS file picked with Browse… into the project, asking on a name
+// conflict. Returns the /api/eds answer, or null.
+async function importEdsFile(file) {
+  const data = await readBase64(file);
   try {
-    res = await api("POST", "/api/eds", { name: file.name, data, eds_lint: edsLint() });
+    return await api("POST", "/api/eds", { name: file.name, data, eds_lint: edsLint() });
   } catch (e) {
     if (e.status === 409 && e.body.conflict) {
       const v = await modal(e.message + ". Replace it, or keep both under a new name?",
         [["cancel", "Cancel"], ["replace", "Replace", { danger: true }], ["keep_both", "Keep both", true]]);
-      if (!v || v === "cancel") return;
-      res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: v, eds_lint: edsLint() });
-    } else {
-      banner(e.message, true);
-      return;
+      if (!v || v === "cancel") return null;
+      try { return await api("POST", "/api/eds", { name: file.name, data, on_conflict: v, eds_lint: edsLint() }); }
+      catch (e2) { banner(e2.message, true); return null; }
+    }
+    banner(e.message, true);
+    return null;
+  }
+}
+
+// -- the Add node dialog (add-node-dialog) -------------------------------------
+
+// The lowest node ID the open network has free (not a node's, not the master's).
+function freeNodeId() {
+  const used = new Set([num(S.config.master && S.config.master.node_id), ...(S.config.nodes || []).map((n) => num(n.node_id))]);
+  for (let id = 1; id <= 127; id++) if (!used.has(id)) return id;
+  return null;
+}
+
+// Why a node ID cannot be used on the open network, or "".
+function nodeIdProblem(text) {
+  const id = /^[0-9]+$/.test(text.trim()) ? Number(text.trim()) : NaN;
+  if (!Number.isInteger(id) || id < 1 || id > 127) return "A node ID is 1 to 127.";
+  if (id === num(S.config.master && S.config.master.node_id)) return `${id} is the master's node ID.`;
+  const n = (S.config.nodes || []).find((x) => num(x.node_id) === id);
+  return n ? `${id} is taken by ${n.name || "another node"}.` : "";
+}
+
+// An identifier from a product or file name, unique among the network's nodes.
+function nodeNameFor(text) {
+  let base = String(text || "").replace(/\.eds$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+  if (!base) base = "node";
+  if (/^[0-9]/.test(base)) base = "n" + base;
+  const taken = new Set((S.config.nodes || []).map((n) => n.name));
+  let name = base;
+  for (let k = 2; taken.has(name); k++) name = `${base}_${k}`;
+  return name;
+}
+
+// The project's EDS files a node can use: not a slave network's own description.
+function projectEdsChoices() {
+  const own = new Set(Object.keys((S.state && S.state.slave_descriptions) || {}));
+  const uses = {};
+  for (const net of S.model ? S.model.networks : [S.config]) {
+    for (const n of net.nodes || []) if (n.eds) uses[n.eds] = (uses[n.eds] || 0) + 1;
+  }
+  return Object.entries((S.state && S.state.eds) || {}).filter(([name, e]) => !own.has(name) && e && !e.error)
+    .map(([name, e]) => ({ name, product: (e.device && e.device.product_name) || "", uses: uses[name] || 0 }))
+    .sort((a, b) => (a.product || a.name).localeCompare(b.product || b.name));
+}
+
+// "+ Add node…": the device description (the project's EDS files, the EDS
+// library, Browse…), the node ID, the name and the default PDOs, then Add.
+// `picked`: an EDS just imported (a file dropped on #eds-input).
+async function addNodeDialog(picked) {
+  const err = msgBar({ addNode: "msg" }, "");
+  const list = el("select", { size: 8, "aria-label": "Device description", dataset: { addNode: "eds" } });
+  const library = {};  // option value -> library path
+  const fill = (libFiles) => {
+    const keep = list.value;
+    const mine = projectEdsChoices();
+    list.replaceChildren(
+      mine.length ? el("optgroup", { label: "In this project" }, mine.map((c) => el("option", { value: c.name },
+        (c.product ? `${c.product} (${c.name})` : c.name) + (c.uses ? `, used by ${c.uses} node${c.uses === 1 ? "" : "s"}` : "")))) : null,
+      libFiles && libFiles.length ? el("optgroup", { label: "EDS library" }, libFiles.map((f) => {
+        library["lib:" + f.path] = f;
+        return el("option", { value: "lib:" + f.path }, f.product_name ? `${f.product_name} (${f.name})` : f.name);
+      })) : null);
+    if (keep && [...list.options].some((o) => o.value === keep)) list.value = keep;
+    else if (list.options.length) list.selectedIndex = 0;
+  };
+  fill();
+  if (picked) list.value = picked;
+  const empty = el("p", { class: "muted", dataset: { addNode: "empty" } }, "No EDS file in this project yet: Browse… for the device's EDS file.");
+  const browse = el("button", { type: "button", dataset: { addNode: "browse" } }, "Browse…");
+  const file = el("input", { type: "file", accept: ".eds,.EDS", hidden: true, dataset: { addNode: "file" } });
+  const id = el("input", { type: "text", inputmode: "numeric", class: "short", "aria-label": "Node ID", dataset: { addNode: "id" } });
+  id.value = String(freeNodeId() ?? "");
+  const idMsg = el("span", { class: "field-msg", dataset: { addNode: "id-msg" }, "aria-live": "polite" });
+  const name = el("input", { type: "text", spellcheck: "false", "aria-label": "Name", dataset: { addNode: "name" } });
+  let nameTyped = false;
+  name.addEventListener("input", () => { nameTyped = true; });
+  const mapBox = el("input", { type: "checkbox", checked: true, dataset: { addNode: "map" } });
+  const locations = usedBy("nodes.tx_pdos.entries.iec_location");
+  const choice = () => list.value.startsWith("lib:") ? library[list.value] : null;
+  const update = () => {
+    empty.hidden = list.options.length > 0;
+    const v = list.value;
+    if (!nameTyped) {
+      const lib = choice();
+      const e = v && !lib ? (S.state.eds || {})[v] : null;
+      name.value = nodeNameFor(lib ? lib.product_name || lib.name : (e && e.device && e.device.product_name) || v);
+    }
+    const p = nodeIdProblem(id.value);
+    idMsg.textContent = p;
+    id.setAttribute("aria-invalid", p ? "true" : "false");
+  };
+  list.addEventListener("change", update);
+  id.addEventListener("input", update);
+  const add = el("button", { type: "button", class: "primary", dataset: { addNode: "add" } }, "Add");
+  const cancel = el("button", { type: "button", dataset: { addNode: "cancel" } }, "Cancel");
+  const dlg = el("dialog", { class: "add-node-dialog", "aria-labelledby": "add-node-title", dataset: { addNode: "dialog" } },
+    el("h2", { id: "add-node-title" }, `Add a node to ${netName(S.config) || "the network"}`),
+    err,
+    el("div", { class: "grid" },
+      el("label", { class: "wide" }, "Device description", list, el("div", { class: "row" }, browse, file), empty),
+      el("label", null, "Node ID", id, idMsg),
+      el("label", null, "Name", name, hint("The node's name in the config and the PLC variable names.")),
+      el("div", { class: "check-field wide" }, el("label", { class: "check" }, mapBox, " Map the EDS's default PDOs"),
+        hint(locations ? "Every PDO the device sends or receives by default, with its default mapping and a free PLC location for each entry."
+          : "Every PDO the device sends or receives by default, with its default mapping and a variable name for each entry."))),
+    el("menu", null, cancel, add));
+  file.addEventListener("change", async () => {
+    const f = file.files[0];
+    file.value = "";
+    if (!f) return;
+    const res = await busy(browse, "Adding…", () => importEdsFile(f));
+    if (!res) return;
+    S.state.eds = S.state.eds || {};
+    S.state.eds[res.name] = res.summary;
+    S.addedReport = res;
+    fill(lastLib);
+    list.value = res.name;
+    nameTyped = false;
+    update();
+    list.focus();
+  });
+  browse.onclick = () => file.click();
+  let lastLib = null;
+  if (S.online && S.online.eds_library) {
+    api("POST", "/api/online/eds_library", {}).then((r) => { lastLib = r.files; fill(lastLib); update(); }).catch(() => {});
+  }
+  update();
+  const opener = document.activeElement;
+  document.body.append(dlg);
+  const answer = await new Promise((resolve) => {
+    add.onclick = () => {
+      if (!list.value) { err.say("Pick the device's EDS file, or Browse… for it."); list.focus(); return; }
+      const p = nodeIdProblem(id.value);
+      if (p) { err.say(p); id.focus(); return; }
+      if (!name.value.trim()) { err.say("Give the node a name."); name.focus(); return; }
+      if ((S.config.nodes || []).some((n) => n.name === name.value.trim())) { err.say(`${name.value.trim()} is the name of another node of this network.`); name.focus(); return; }
+      resolve({ eds: list.value, lib: choice(), id: Number(id.value.trim()), name: name.value.trim(), map: mapBox.checked });
+    };
+    for (const x of [id, name]) x.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add.click(); } });
+    cancel.onclick = () => resolve(null);
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); resolve(null); });
+    dlg.showModal();
+    (list.options.length ? list : browse).focus();
+  });
+  const finish = () => { dlg.close(); dlg.remove(); };
+  if (!answer) { finish(); S.addedReport = null; if (opener && opener.isConnected) opener.focus(); return; }
+  // The dialog stays, its Add busy, until the node and its PDOs are in.
+  add.disabled = cancel.disabled = true;
+  add.textContent = "Adding…";
+  let res = null;
+  try {
+    if (answer.lib) {
+      res = await api("POST", "/api/online/use_eds", { path: answer.lib.path, eds_lint: edsLint() });
+      S.state.eds = S.state.eds || {};
+      S.state.eds[res.name] = res.summary;
+    }
+    await addNode(res ? res.name : answer.eds, answer.id, answer.name, answer.map, res || S.addedReport, finish);
+  } catch (e) {
+    banner(e.message, true);
+  } finally {
+    S.addedReport = null;
+    if (dlg.isConnected) finish();
+  }
+}
+
+// Adds the node, maps the EDS's default PDOs when asked, and opens it on
+// PDOs (General when nothing was mapped). `report`: the EDS import's answer,
+// whose findings are shown in words; a clean EDS shows nothing.
+// `closeFirst`: closes the dialog before the page draws the node, so the
+// focus goes to the node page, not back to what opened the dialog.
+async function addNode(edsName, id, name, map, report, closeFirst) {
+  const eds = (S.state.eds || {})[edsName];
+  S.config.nodes = S.config.nodes || [];
+  const node = { node_id: id, name, eds: edsName };
+  superviseNewNode(node, eds, S.net);
+  S.config.nodes.push(node);
+  const i = S.config.nodes.length - 1;
+  const mapped = map ? await mapDefaultPdos(i, eds) : 0;
+  S.view = "node:" + i;
+  S.nodeTab = mapped ? "pdos" : "general";
+  if (!mapped) S.focusName = i;
+  const shown = report && report.name === edsName ? importReport(report) : null;
+  if (shown) for (const x of shown.querySelectorAll('[data-report="readable"]')) x.remove();
+  if (shown && shown.childElementCount) banner(shown, "info");
+  else banner("");
+  if (closeFirst) closeFirst();
+  changed(true);
+}
+
+// The default mapping of every PDO the EDS turns on by default, without
+// dummy entries; a free PLC location for each entry, or a variable name
+// when the target has no locations. Returns how many PDOs were mapped.
+async function mapDefaultPdos(i, eds) {
+  const n = S.config.nodes[i];
+  const locations = usedBy("nodes.tx_pdos.entries.iec_location");
+  const names = new Set();
+  let count = 0;
+  for (const [dir, key] of [["input", "tx_pdos"], ["output", "rx_pdos"]]) {
+    const total = eds && eds.pdo_count ? eds.pdo_count[dir] : 0;
+    for (let number = 1; number <= total; number++) {
+      const m = pdoMap(eds, dir, number);
+      if (!m || !m.enabled || !m.has_default) continue;
+      const entries = [];
+      for (const d of m.defaults) {
+        if (isDummy(d)) continue;
+        const info = objectInfo(eds, d.index, d.subindex);
+        if (!info || !info.type) continue;
+        const e = { index: info.index, subindex: info.subindex, type: info.type };
+        if (locations) {
+          // A location per entry, placed against the config as it grows.
+          n[key] = n[key] || [];
+          let p = n[key].find((q) => num(q.number) === number);
+          if (!p) { p = { number, entries: [] }; n[key].push(p); }
+          const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: dir, type: info.type });
+          e.iec_location = r.location;
+          p.entries.push(e);
+        } else {
+          let v = nodeNameFor(info.name || `${info.index}_${info.subindex}`).replace(/^node$/, "value");
+          for (let k = 2; names.has(v); k++) v = `${v}_${k}`;
+          names.add(v);
+          e.name = v;
+          entries.push(e);
+        }
+      }
+      if (!locations && entries.length) { n[key] = n[key] || []; n[key].push({ number, entries }); }
+      const p = (n[key] || []).find((q) => num(q.number) === number);
+      if (p && p.entries.length) count++;
+      else if (p) n[key].splice(n[key].indexOf(p), 1);
     }
   }
-  S.state.eds = S.state.eds || {};
-  S.state.eds[res.name] = res.summary;
-  const used = new Set([num(S.config.master && S.config.master.node_id), ...(S.config.nodes || []).map((n) => num(n.node_id))]);
-  let id = 2;
-  while (used.has(id) && id < 127) id++;
-  const stem = res.name.replace(/\.eds$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase();
-  S.config.nodes = S.config.nodes || [];
-  const node = { node_id: id, name: stem, eds: res.name };
-  superviseNewNode(node, res.summary, S.net);
-  S.config.nodes.push(node);
-  S.view = "node:" + (S.config.nodes.length - 1);
-  S.focusName = S.config.nodes.length - 1;
-  banner(importReport(res), "info");
-  changed(true);
+  return count;
 }
 
 async function addEntry(i, o, dir, into) {
@@ -7636,14 +7861,17 @@ async function wireDbc() {
 function applyCheck() {
   for (const x of document.querySelectorAll(".invalid, .warned")) x.classList.remove("invalid", "warned");
   for (const x of document.querySelectorAll(".field-msg[data-for]")) x.textContent = "";
+  // One name per entry: the Variable placeholder is the name the declarations
+  // use; "declared as" only when the editor project declares it otherwise.
+  const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
   for (const x of document.querySelectorAll(".decl")) {
     const name = declaredAs(x.dataset.declFor);
-    x.textContent = name ? ` declared as ${name}` : "";
+    const d = ((S.check && S.check.declarations) || []).find((y) => y.path === prefix + x.dataset.declFor);
+    x.textContent = name && (!d || d.name !== name) ? ` declared as ${name}` : "";
   }
-  const entries = document.querySelectorAll("input[data-entry-variable]");
-  if (entries.length) {
-    const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
-    for (const x of entries) x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
+  for (const x of document.querySelectorAll("input[data-entry-variable]")) {
+    x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
+    x.title = x.placeholder;
   }
   // A bit's default name follows its entry's name (and the declaration's, when declared).
   for (const x of document.querySelectorAll("input[data-bit-of]")) {
@@ -8214,7 +8442,15 @@ function wire() {
   $("#eds-input").addEventListener("change", (e) => {
     const f = e.target.files[0];
     e.target.value = "";
-    if (f) busy($("#eds-input").closest("label"), "Adding…", () => addNodeFromEds(f));
+    // A file given straight to the input (a drop): imported, then the Add node dialog with it picked.
+    if (f) busy($("#eds-input").closest("label"), "Adding…", async () => {
+      const res = await importEdsFile(f);
+      if (!res) return;
+      S.state.eds = S.state.eds || {};
+      S.state.eds[res.name] = res.summary;
+      S.addedReport = res;
+      await addNodeDialog(res.name);
+    });
   });
   wireTree();
   $("#banner-close").onclick = () => banner("");

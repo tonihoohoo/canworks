@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab
+from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node
 
 try:
     from playwright.sync_api import sync_playwright
@@ -90,7 +90,7 @@ class Page(unittest.TestCase):
         default to none, which the checks refuse (no supervision). Leaves the
         node's Supervision tab open."""
         n = self.page.evaluate("() => S.config.nodes.length")
-        self.page.set_input_files("#eds-input", eds)
+        add_node(self.page, eds)
         self.page.wait_for_selector('[data-node-heading="%d"]' % n)
         node_tab(self.page, "supervision")
         self.page.wait_for_selector('select[data-supervision="%d"]' % n)
@@ -452,7 +452,7 @@ class Page(unittest.TestCase):
         def upload(eds):
             # Not add_node: opening another node tab clears the banner with the report.
             n = pg.evaluate("() => S.config.nodes.length")
-            pg.set_input_files("#eds-input", eds)
+            add_node(pg, eds)
             pg.wait_for_selector('[data-node-heading="%d"]' % n)
         # Accepted findings: one line, the list collapsed and grouped by object.
         upload(os.path.join(DRIVES, "servo-drive.eds"))
@@ -480,9 +480,9 @@ class Page(unittest.TestCase):
         upload(path)
         self.assertEqual(pg.locator('#banner [data-report="corrections"] li').all_text_contents(),
                          ['1 value written "<number>+$NODEID" is read as "$NODEID+<number>"'])
-        # A clean file is just readable.
+        # A clean file says nothing (add-node-dialog "EDS check after adding a node").
         upload(os.path.join(PINGPONG, "cpp-slave.eds"))
-        pg.wait_for_selector('#banner [data-report="readable"]')
+        self.assertEqual(pg.locator('#banner [data-report]').count(), 0)
         # A finding in a communication object: refused, no node added.
         nodes = pg.locator("#tree [data-node]").count()
         pg.set_input_files("#eds-input", os.path.join(LINT, "comm-broken.eds"))
