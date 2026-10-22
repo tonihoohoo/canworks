@@ -183,7 +183,7 @@ def run_workers(groups, top, base):
                                  "--result", os.path.join(wdir, "result.json"), "--top", top],
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env)
         procs.append((i, proc, log, wdir, time.monotonic()))
-    ok, times, waiting, said = True, {}, list(procs), time.monotonic()
+    ok, times, waiting, said, failed = True, {}, list(procs), time.monotonic(), []
     while waiting:
         for item in list(waiting):
             i, proc, log, wdir, start = item
@@ -194,15 +194,21 @@ def run_workers(groups, top, base):
             print(f"== worker {i}/{len(groups)}: {len(groups[i - 1])} tests, exit {proc.returncode}, "
                   f"{time.monotonic() - start:.0f} s ==", flush=True)
             with open(os.path.join(wdir, "log.txt"), errors="replace") as f:
-                sys.stdout.write(f.read())
+                text = f.read()
+            sys.stdout.write(text)
             sys.stdout.flush()
             try:
                 with open(os.path.join(wdir, "result.json")) as f:
                     result = json.load(f)
             except (OSError, ValueError):
                 print(f"worker {i} ended without a result (exit {proc.returncode})", file=sys.stderr, flush=True)
+                failed.append(f"worker {i} ended without a result (exit {proc.returncode}); its log is above")
                 ok = False
                 continue
+            if not (result["ok"] and proc.returncode == 0):
+                # unittest's failure report starts at its first "=====" line
+                start = text.find("\n" + "=" * 70 + "\n")
+                failed.append(f"worker {i}:" + (text[start:] if start >= 0 else f" exit {proc.returncode}\n"))
             ok = ok and result["ok"] and proc.returncode == 0
             for key, v in result["times"].items():
                 times[key] = times.get(key, 0.0) + v
@@ -211,6 +217,9 @@ def run_workers(groups, top, base):
                 said = time.monotonic()
                 print("(workers still running: %s)" % ", ".join(str(item[0]) for item in waiting), flush=True)
             time.sleep(0.2)
+    if failed:
+        # again at the end, where the log's tail shows it
+        print("== failed workers ==\n" + "\n".join(failed), flush=True)
     return ok, times
 
 

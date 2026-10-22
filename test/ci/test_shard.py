@@ -147,6 +147,7 @@ class Run(unittest.TestCase):
         rc, log = self.run_shard("--shard", "1/1", "--jobs", "4")
         self.assertEqual(rc, 1)
         self.assertIn("boom", log)
+        self.assertIn("boom", log[log.index("== failed workers =="):])  # repeated at the end
         self.assertEqual(self.ran(log), ["test_a", "test_b", "test_c", "test_p", "test_x"])
 
     def test_a_worker_that_dies_fails_the_run(self):
