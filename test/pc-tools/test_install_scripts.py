@@ -361,6 +361,45 @@ exit 0
 
 
 @POSIX_ONLY
+class UpdaterMatchesInstallers(unittest.TestCase):
+    """The configurator's updater (tools/deploy/canworks/updater.py,
+    pc-tools-self-update) runs the same `uv tool install` as the one-line
+    installers: the same options in the same order, the same override, the
+    same wheel spec. A change to one alone fails here."""
+
+    @staticmethod
+    def read(*parts):
+        with open(os.path.join(REPO, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    def updater(self):
+        import ast
+        tree = ast.parse(self.read("tools", "deploy", "canworks", "updater.py"))
+        out = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                try:
+                    out[node.targets[0].id] = ast.literal_eval(node.value)
+                except ValueError:
+                    pass
+        return out
+
+    def test_same_arguments(self):
+        u = self.updater()
+        want = " ".join(u["UV_INSTALL"] + ["--python"])
+        sh = self.read("scripts", "install-pc.sh")
+        ps = self.read("scripts", "install-pc.ps1")
+        self.assertIn('run "$UV" %s "$PYTHON" --overrides "$OVERRIDES" "$SPEC"' % want, sh)
+        self.assertIn('@(%s, $Python, "--overrides", $Overrides, $Spec)'
+                      % ", ".join('"%s"' % a for a in u["UV_INSTALL"] + ["--python"]), ps)
+        self.assertIn('echo "%s" > "$OVERRIDES"' % u["OVERRIDE"], sh)
+        self.assertIn('-Value "%s"' % u["OVERRIDE"], ps)
+        self.assertIn('SPEC="%s"' % (u["SPEC"] % "$REPO/releases/download/deploy-v$VERSION/canworks-$VERSION-py3-none-any.whl"), sh)
+        self.assertIn('$Spec = "%s"' % (u["SPEC"] % "$Repo/releases/download/deploy-v$Version/canworks-$Version-py3-none-any.whl"), ps)
+        conf = self.read("tools", "deploy", "canworks", "configurator", "update.py")
+        self.assertIn('"%s/releases/download/deploy-v%s/canworks-%s-py3-none-any.whl"', conf)
+
+
 class InstallRuntimeSh(_Base):
     script = os.path.join(SCRIPTS, "install-runtime.sh")
 

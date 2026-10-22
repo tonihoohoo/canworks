@@ -48,26 +48,28 @@ On Windows this is required. On macOS and Linux the files could be replaced unde
 Alternative rejected: download and run the release's `install-pc.ps1` / `install-pc.sh`. That is one code path with the installers, but on Windows it means a hidden Python starting PowerShell on a downloaded script, which is the pattern the Windows installer change removed because Defender flagged it. The cost of calling uv directly is that the uv arguments live in two places. A test reads both scripts and `updater.py` and fails when the `uv tool install` arguments differ.
 
 **5. The hand-off.**
-The configurator writes `update-run.json` in the settings folder (user-readable only, like `instance.json`): target version, old version, wheel URL, Python request (from the receipt, or the running interpreter's `major.minor`), uv path, the tools' bin folder, the configurator's pid and port, and a one-time resume code. It starts the updater with the file's path, answers the page `{"updating": true}`, and stops as Quit does. The page shows "Updating to 0.x.0. This tab comes back by itself." and polls the same address every second.
+The configurator writes `update-run.json` in the settings folder (user-readable only, like `instance.json`): target version, old version, both wheel URLs, Python request (from the receipt, or the running interpreter's `major.minor`), uv path, the tools' environment and bin folder, the commands to check the installed version and to start the configurator again, the configurator's pid, its port and its session token. It starts the updater with the file's path, answers the page `{"updating": true}`, and stops as Quit does. The page shows "Updating to 0.x.0. This tab comes back by itself." and polls the same address every second.
 
 **6. The updater's steps.**
 1. Wait for the pid to end (30 s, then give up and start nothing: the old configurator still runs).
 2. Windows only, the lock probe: rename the tool environment folder to `<name>.update-check` and back. Windows refuses to rename a folder while any file in it is open. On failure it retries for 10 s, then stops with "Close canworks-diag and other canworks windows, then press Update again" and starts the old configurator again.
 3. `uv tool install --force --compile-bytecode --python <P> --overrides <file> "canworks @ <wheel URL>"`, with the user's environment (so `UV_SYSTEM_CERTS` and proxy variables apply). Output goes to `update.log` next to `configurator.log` (one older file kept).
-4. `canworks-config --create-shortcut` from the bin folder (not fatal).
-5. Start the new configurator: `canworks-config --from-shortcut --resume <update-run.json>` without a browser of its own.
+4. macOS and Linux: `canworks-config --create-shortcut` from the bin folder when the shortcut exists (not fatal). The Windows `.lnk` files point at the environment's `pythonw.exe` and its icon, paths a reinstall keeps, and writing them needs PowerShell, which the updater does not start.
+5. Start the new configurator as the shortcut does (`canworks-config --from-shortcut`, on Windows the environment's `pythonw.exe -m canworks.configurator.start --from-shortcut`) with `--resume <update-run.json>`, without a browser of its own. Only for Update now: after Update when I quit, nothing starts.
 6. On a uv failure after uv started: install the old version from its release with the same arguments. If that fails as well, show the platform message window (the one `launch.message_window` uses) with the one-line install command.
 
 The result (`ok`, `failed` with a reason, `rolled-back`) goes into `update-run.json`, and the next configurator start shows it in a message bar ("Updated to 0.x.0" / "Update failed: ... Still on 0.y.0 (update.log)") and then deletes the file.
 
 **7. The open tab comes back.**
-With `--resume`, the new configurator binds the old port when it is free and accepts the resume code once, within 2 minutes, in place of the start code. The old page's poll sees an answer with a new version and loads `/?code=<resume code>`, which swaps it for a session cookie as a normal start does. When the port is taken, the new configurator opens a new tab as a shortcut start does, and the old tab says "The new version opened in a new tab".
+With `--resume`, the new configurator takes the port and the session token from the run file when the result is less than 2 minutes old, binds that port when it is free, and removes the file. The old page keeps its token and its cookie (the cookie is per port), so it needs no new start code: it polls `GET /api/update` every second, and when the answer carries another start id (`boot`, new at every start) it reloads. The reloaded page shows the result once (sessionStorage). When the port is taken, the new configurator starts on a new port with a new token and opens a new tab as a shortcut start does; after 3 minutes without an answer the old tab says to use the other tab or start the configurator again. A token in a user-only file for a minute is no weaker than the token in the page and the start URL.
+
+The first idea, a one-time resume code exchanged for a new cookie, was dropped: keeping the token is simpler and needs no new route.
 
 **8. Guard and "Update when I quit".**
 `/api/update/start` refuses, with the reason, while: the config has unsaved changes, an online connection or local bus is open, a trace runs, a simulator runs in this process, or a Devices job runs. The page then offers "Update when I quit". That stores the target in the server, and the stop path (Quit, or the last tab closing) runs the hand-off instead of a plain stop. It also covers the case of a tab closed during the 15 s grace time.
 
 **9. `canworks-config --update`.**
-Runs the check, prints the current and newest version, and when newer and `uv-tool`: asks a running configurator to update (`/api/instance/update` with the instance secret, which applies the guard) or, when none runs, runs the updater steps in this terminal and does not start a configurator. `--update --yes` skips the question.
+Runs the check, prints the current and newest version, and when newer and `uv-tool`: asks a running configurator to update (`/api/instance/update` with the instance secret, which applies the guard) or, when none runs, runs the updater in this terminal (macOS, Linux) and does not start a configurator. On Windows the command's own process holds the tools' files while it runs, so there it starts the updater detached, waiting for its own pid, says that `update.log` shows the progress, and ends. `--update --yes` skips the question; without a terminal and without `--yes` it refuses.
 
 ## Risks / Trade-offs
 

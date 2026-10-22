@@ -169,7 +169,7 @@ class Access(Running):
 
 
 UI_DEFAULTS = {"theme": "auto", "dbc_sdo": "none", "workspace": "configure", "panel": "open",
-               "node_tab": "general", "tree_folded": [], "box_heights": {}}
+               "node_tab": "general", "update_check": "on", "tree_folded": [], "box_heights": {}}
 
 
 def ui(**changes):

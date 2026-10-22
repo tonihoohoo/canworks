@@ -42,7 +42,7 @@ The Update action SHALL be offered only for a uv tool install (uv's `uv-receipt.
 
 ### Requirement: Update from the configurator
 
-Pressing Update SHALL install the newest release and restart the configurator in its new version on Windows, macOS and Linux, without a terminal or admin rights. The configurator SHALL stop before anything is installed. An updater on the tools' base interpreter, importing nothing from the tools' environment, SHALL call uv with the installers' `uv tool install` arguments, refresh the app shortcut, log to `update.log` and start the new configurator. It SHALL NOT download or run an install script.
+Update now SHALL install the newest release and restart the configurator in its new version on every system, without a terminal or admin rights. The configurator SHALL stop before anything is installed. An updater on the tools' base interpreter, importing nothing of the tools, SHALL call uv with the installers' `uv tool install` arguments, refresh the macOS and Linux shortcut, log to `update.log` and start the new configurator, never running an install script.
 
 #### Scenario: Update succeeds
 - **WHEN** the configurator 0.101.0 with no unsaved changes and nothing online has Update pressed, and 0.102.0 is the newest release
@@ -98,7 +98,7 @@ Update SHALL be refused, with the reason, while the configurator has unsaved cha
 
 ### Requirement: Update from the command line
 
-`canworks-config --update` SHALL print the running and newest versions and, when a newer one exists and the tools are a uv tool install, update them after a yes (or at once with `--yes`). When a configurator runs, it SHALL ask that configurator to update, which applies the same guard; otherwise it SHALL run the updater in the terminal and SHALL NOT start a configurator. It SHALL exit 0 when the newest version is installed at the end and non-zero otherwise.
+`canworks-config --update` SHALL print the running and newest versions and, when a newer one exists and the tools are a uv tool install, update them after a yes (or at once with `--yes`). When a configurator runs, it SHALL ask that configurator to update, which applies the same guard; otherwise it SHALL run the updater without starting a configurator: in the terminal on macOS and Linux, in the background on Windows. It SHALL exit non-zero when it cannot update.
 
 #### Scenario: Headless update
 - **WHEN** `canworks-config --update --yes` runs on a Linux machine with no configurator running and a newer release exists

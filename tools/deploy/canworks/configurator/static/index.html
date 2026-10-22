@@ -15,6 +15,7 @@
 <header id="top">
   <div class="top-row">
   <h1>canworks configurator</h1>
+  <button id="update-chip" type="button" class="update-chip" hidden></button>
   <div id="ws" class="segmented" role="group" aria-label="Workspace" hidden>
     <button type="button" data-ws="configure" title="Edit the config: networks, nodes, PDOs, exports">Configure</button><button type="button" data-ws="commission" data-view="online" title="Work on the live bus through the runtime">Commission</button><button type="button" data-ws="devices" data-view="devices" title="Install canworks on a Linux device over SSH">Devices</button>
   </div>
@@ -65,6 +66,10 @@
       <div id="theme" class="segmented" role="group" aria-label="Theme">
         <button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button><button type="button" data-theme-choice="auto">Auto</button>
       </div></div>
+      <div class="menu-row update-row"><span class="muted">Updates</span>
+        <label class="check" title="Asks GitHub once a day which PC tools release is the newest; nothing else is sent"><input id="update-check" type="checkbox"> Check for updates</label>
+        <button id="update-check-now" type="button" class="item">Check now</button></div>
+      <p id="update-status" class="muted update-status" aria-live="polite"></p>
       <details id="legend-box"><summary>Colours and icons</summary><div id="legend"></div></details>
     </div>
   </details>
@@ -148,6 +153,7 @@
 <script src="links.js"></script>
 <script src="tracewin.js"></script>
 <script src="life.js"></script>
+<script src="update.js"></script>
 <script src="boot.js"></script>
 </body>
 </html>

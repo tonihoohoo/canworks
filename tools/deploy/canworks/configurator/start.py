@@ -44,6 +44,11 @@ def parser():
     p.add_argument("--create-shortcut", action="store_true",
                    help="add an app shortcut that starts the configurator without a terminal, and exit")
     p.add_argument("--remove-shortcut", action="store_true", help="remove that shortcut, and exit")
+    p.add_argument("--update", action="store_true",
+                   help="install the newest release when it is newer (a running configurator updates and comes "
+                        "back), and exit")
+    p.add_argument("--yes", action="store_true", help="with --update: do not ask first")
+    p.add_argument("--resume", metavar="FILE", help=argparse.SUPPRESS)  # started again by the updater
     p.add_argument(launch.CHILD, action="store_true", help=argparse.SUPPRESS)  # the background configurator itself
     p.add_argument(SHORTCUT, action="store_true", help=argparse.SUPPRESS)  # started by the app shortcut
     p.add_argument("--verbose", action="store_true", help="log every request")
@@ -60,6 +65,9 @@ def main(argv=None, serving=None):
     if args.create_shortcut or args.remove_shortcut:
         from . import shortcut
         return shortcut.main(remove=args.remove_shortcut)
+    if args.update:
+        from . import update
+        return update.cli(yes=args.yes)
     child, from_shortcut = args.child_background, args.from_shortcut
     if child:
         launch.log_to_file()
