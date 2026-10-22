@@ -365,6 +365,20 @@ def pick_network(page, k):
     page.locator('select[data-online="network"]:visible').select_option(name)
 
 
+def browse_eds(page, path):
+    """Browse… in an EDS dialog (one-eds-picker): the page's file browser,
+    opened on the file's folder, then the file."""
+    path = os.path.abspath(path)
+    page.click('[data-eds="browse"]:visible')
+    page.wait_for_selector('dialog[data-folder="dialog"][open]')
+    page.fill('[data-folder="path"]', os.path.dirname(path))
+    page.press('[data-folder="path"]', "Enter")
+    page.click('dialog[data-folder="dialog"] [data-file-path="%s"]' % path)
+    page.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+    # The file is being added: done, or asking Replace or Keep both.
+    page.wait_for_function("() => !document.querySelector('[data-eds=browse][data-busy]') || document.querySelector('#modal[open]')")
+
+
 def add_node(page, eds, map_pdos=False, node_id=None, name=None):
     """Adds a node from an EDS file as a user does: the file into the Add
     node dialog (add-node-dialog), its fields, then Add. The dialog's "Map

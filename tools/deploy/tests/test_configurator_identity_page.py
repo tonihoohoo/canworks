@@ -7,7 +7,7 @@ import os
 import struct
 import unittest
 
-from .helpers import REPO, back_to_nodes
+from .helpers import REPO, back_to_nodes, browse_eds
 from .test_configurator_localbus_page import AdapterPage
 
 EDS = os.path.join(REPO, "config", "gateway", "cpp-slave.eds")
@@ -104,9 +104,8 @@ class IdentityPage(AdapterPage):
             pg.click('details[data-od-group="communication"] > summary')
         pg.wait_for_selector('tr[data-od-key="%d:0"]:has-text("Not on this device")' % 0x1013)
         # The device's EDS replaces the standard objects.
-        with pg.expect_file_chooser() as fc:
-            pg.click('[data-eds-choices="od"] label.file-button')
-        fc.value.set_files(EDS)
+        pg.click('[data-eds-choices="od"] button[data-eds-choose]')
+        browse_eds(pg, EDS)
         pg.wait_for_selector('[data-online="od-standard"]', state="detached")
         pg.wait_for_selector('[data-online="od"] tr[data-od-key]', state="attached")
         back_to_nodes(pg)
@@ -132,37 +131,38 @@ class IdentityPage(AdapterPage):
     def test_change_and_clear_the_eds(self):
         self.device(7, heartbeat_s=0.05, name="valve")
         pg = self.connected(7)
-        pg.set_input_files('tr[data-online-node="7"] input[data-online="pick-eds"]', EDS)
+        pg.click('tr[data-online-node="7"] button[data-eds-pick="7"]')
+        browse_eds(pg, EDS)
         pg.wait_for_selector('[data-online="node-header"]')
         back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("cpp-slave.eds")')
         # The EDS column shows the file, not the device's name.
         self.assertNotIn("valve", pg.inner_text('tr[data-online-node="7"] [data-node-eds="7"]'))
         pg.click('tr[data-online-node="7"] button[data-change-eds="7"]')
-        with pg.expect_file_chooser() as fc:
-            pg.click('#modal button[data-value="pick"]')
-        fc.value.set_files(OTHER_EDS)
+        browse_eds(pg, OTHER_EDS)
         pg.wait_for_selector('[data-online="node-header"]')
         back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="7"] [data-node-eds="7"]:has-text("openplc-slave.eds")')
         self.assertTrue(pg.evaluate("S.commLog.some((e) => e.what.includes('cpp-slave.eds → openplc-slave.eds'))"))
         # Clear: back to the EDS choices and the standard objects.
         pg.click('tr[data-online-node="7"] button[data-change-eds="7"]')
-        pg.click('#modal button[data-value="clear"]')
-        pg.wait_for_selector('tr[data-online-node="7"] input[data-online="pick-eds"]', state="attached")
+        pg.click('[data-eds="dialog"] button[data-eds-action="clear"]')
+        pg.wait_for_selector('tr[data-online-node="7"] button[data-eds-pick="7"]')
         pg.click('button[data-open-node="7"]')
         pg.click('button[data-online-tab="od"]')
         pg.wait_for_selector('[data-online="od-standard"]')
         # A node only added from an EDS is removed instead.
-        pg.set_input_files('input[data-online="add-eds-file"]', EDS)
+        back_to_nodes(pg)
+        pg.click('button[data-online="add-eds"]')
+        browse_eds(pg, EDS)
         pg.fill('input[data-online="add-node-id"]', "40")
-        pg.click('#modal button[data-value="add"]')
+        pg.click('[data-eds="use"]')
         pg.wait_for_selector('[data-online="node-heading"]:has-text("40")')
         back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="40"]')
         pg.click('tr[data-online-node="40"] button[data-change-eds="40"]')
-        self.assertEqual(pg.query_selector_all('#modal button[data-value="clear"]'), [])
-        pg.click('#modal button[data-value="remove"]')
+        self.assertEqual(pg.query_selector_all('[data-eds="dialog"] button[data-eds-action="clear"]'), [])
+        pg.click('[data-eds="dialog"] button[data-eds-action="remove"]')
         pg.wait_for_selector('tr[data-online-node="40"]', state="detached")
 
     def test_parameters_without_an_eds(self):
@@ -171,7 +171,7 @@ class IdentityPage(AdapterPage):
         pg.click('button[data-open-node="7"]')
         pg.click('button[data-online-tab="params"]')
         pg.wait_for_selector('[data-online="no-eds"]:has-text("need the device\'s EDS")')
-        pg.wait_for_selector('[data-eds-choices="params"] label.file-button')
+        pg.wait_for_selector('[data-eds-choices="params"] button[data-eds-choose]')
 
 
 if __name__ == "__main__":

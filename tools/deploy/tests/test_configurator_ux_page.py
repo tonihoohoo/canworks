@@ -14,7 +14,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
+from .helpers import PINGPONG, browse_eds, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -424,7 +424,7 @@ class Probes(Layout):
         self.assertEqual(pg.evaluate("() => document.activeElement.dataset.action"), "add-node")
         pg.keyboard.press("Space")
         pg.wait_for_selector('[data-add-node="dialog"][open]')
-        pg.set_input_files('[data-add-node="file"]', os.path.join(RTD, "rtd8.eds"))
+        browse_eds(pg, os.path.join(RTD, "rtd8.eds"))
         pg.wait_for_function("() => document.querySelector('[data-add-node=eds]').value")
         pg.click('[data-add-node="add"]')
         pg.wait_for_selector('#tree [data-node="3"]')
