@@ -32,7 +32,7 @@ const DEV_ACTION_DONE = {
   uninstall_plugin: "The canworks plugin was uninstalled.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
   remove_all: "canworks was removed from the device.",
-  link_on: "The remote link is on. PCs pair with it as before (docs/remote-access.md).",
+  link_on: "The remote link is on. PCs pair with it as before, by logging in to the runtime on the local network.",
   link_off: "The remote link is off. Its key and paired PCs stay on the device for when it is turned on again.",
   link_start: "The remote link was started.",
   discovery_on: "The device is advertised on the local network again.",
@@ -599,7 +599,7 @@ function devJobView(d, j) {
     return el("li", { dataset: { step: s.n }, "aria-current": current ? "step" : null }, icon, " ", s.text,
       took ? el("span", { class: "muted" }, ` ${devDuration(took - s.at)}`) : null);
   }), !steps.length && !j.done ? el("li", null, Icons.stateIcon("busy", { label: false, spinning: true }), " Starting…") : null));
-  if (total) box.append(el("p", { class: "muted" }, `Step ${steps[steps.length - 1].n} of ${total}`));
+  if (total && !j.done) box.append(el("p", { class: "muted" }, `Step ${steps[steps.length - 1].n} of ${total}`));
   if (j.done) {
     if (!failed && j.exit === 0) {
       const docker = ((DEV.probes[d.id] || {}).plan || {}).rows;
