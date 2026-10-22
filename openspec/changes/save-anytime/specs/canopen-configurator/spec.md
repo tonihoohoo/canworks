@@ -177,7 +177,7 @@ Each CANopen master network SHALL have a Links page with one row per link: name,
 - **THEN** the configurator asks to delete the link too, defaulting to cancel
 
 ### Requirement: EMCY section follows the EDS
-When the node's EDS has no object 0x1014, the Emergency (EMCY) section SHALL hold only one line saying that the EDS has no EMCY COB-ID (0x1014), so the device sends no emergency messages, and no controls. Such a node SHALL be saved without EMCY fields. A loaded node that still has one SHALL show the plugin's message and offer to remove the EMCY settings; saving SHALL be refused until they are removed.
+When the node's EDS has no object 0x1014, the Emergency (EMCY) section SHALL hold only one line saying that the EDS has no EMCY COB-ID (0x1014), so the device sends no emergency messages, and no controls. Such a node SHALL be saved without EMCY fields. A loaded node that still has one SHALL show the plugin's message and offer to remove the EMCY settings; the hand-off steps SHALL refuse the config until they are removed.
 
 #### Scenario: Device without EMCY
 - **WHEN** the user opens the Supervision tab of a node whose EDS has no 0x1014
@@ -193,6 +193,21 @@ An empty or invalid raw signal length SHALL be reported as a field problem; the 
 #### Scenario: Cleared length
 - **WHEN** the user clears a raw signal's Length
 - **THEN** Problems shows the length error and the hand-off steps refuse the config
+
+### Requirement: Heartbeat consumer choice follows the EDS
+When the node's EDS has no object 0x1016 with a writable sub-index, "Watches the master heartbeat" SHALL show "EDS default", be disabled, and say in hint text that the EDS has no consumer heartbeat time (0x1016), so the device cannot watch the master's heartbeat. The node's Heartbeat watch block SHALL NOT be shown while the node watches nobody. A loaded node that still has `heartbeat_consumer` or `heartbeat_watch` SHALL show the plugin's message and offer to remove it; the hand-off steps SHALL refuse the config until it is removed. The Heartbeat watch block SHALL span the section, with its heading and hint each on a line of their own.
+
+#### Scenario: Device without 0x1016
+- **WHEN** the user opens Advanced node settings of a node whose EDS has no 0x1016
+- **THEN** the choice is disabled on "EDS default" with the reason, and the saved node has no `heartbeat_consumer`
+
+#### Scenario: No heartbeat watch without 0x1016
+- **WHEN** node 23's EDS has no 0x1016, it watches nobody, and the network has node 5
+- **THEN** node 23's Supervision tab has no Heartbeat watch block
+
+#### Scenario: Heartbeat watch layout
+- **WHEN** node 5's EDS has a writable 0x1016 and the user opens its Supervision tab
+- **THEN** "Heartbeat watch" is a heading on its own line above its hint, across the section's width
 
 ## ADDED Requirements
 

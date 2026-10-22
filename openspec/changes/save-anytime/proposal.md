@@ -28,7 +28,7 @@ The errors exist for a good reason: the plugin, the bridge and CODESYS refuse su
   - else, the supervision problem stays.
 - **Problems with a quick fix.** A problem can carry actions. The supervision problem offers **Use heartbeat 1000 ms** (or **Use guarding** when that is all the EDS offers) and **Accept no supervision** (writes `heartbeat_ms: 0`). Its text names fields in UI words: "Node 2 dio16 has no heartbeat or guarding, so its loss would never be detected. Set the heartbeat period on Supervision." Each quick fix is one undo step.
 - **New config dialog errors** show under the field they concern, which is marked and focused. The dialog's title stays.
-- The scenarios that said "the save is refused" or "Save is disabled" for a problem (adapter bit rate, startup SDO range, editor-project overlap, LSS serial number, CiA 402 axis, missing CAN interface, PDO links, EMCY section, raw signal length) now say the hand-off steps refuse the config.
+- The scenarios that said "the save is refused" or "Save is disabled" for a problem (adapter bit rate, startup SDO range, editor-project overlap, LSS serial number, CiA 402 axis, missing CAN interface, PDO links, EMCY section, heartbeat consumer left over, raw signal length) now say the hand-off steps refuse the config.
 - Not in this change: **Save to simulation file** keeps refusing a simulation file with errors, because the plugin refuses a whole network's simulation for one bad source.
 - PC tools minor version bump; README and docs/configurator.md (Save and problems).
 
@@ -40,7 +40,7 @@ None.
 
 ### Modified Capabilities
 
-- `canopen-configurator`: "Validate before save" (save with errors, hand-off steps refuse), "Busy states and the Save button" (labels), "Target of a new config" (Create writes the folder). Their scenarios in "SocketCAN adapter settings", "Startup SDO writes", "Check addresses against the editor project", "LSS node settings", "CiA 402 axis setting", "The check refuses what the plugin refuses", "Links table", "EMCY section follows the EDS" and "Raw signal length errors". New requirements: "Hand-off steps need a config without errors", "Empty network is a warning", "Supervision of a new node", "Quick fixes in Problems", "Errors in the New config dialog".
+- `canopen-configurator`: "Validate before save" (save with errors, hand-off steps refuse), "Busy states and the Save button" (labels), "Target of a new config" (Create writes the folder). Their scenarios in "SocketCAN adapter settings", "Startup SDO writes", "Check addresses against the editor project", "LSS node settings", "CiA 402 axis setting", "The check refuses what the plugin refuses", "Links table", "EMCY section follows the EDS", "Heartbeat consumer choice follows the EDS" and "Raw signal length errors". New requirements: "Hand-off steps need a config without errors", "Empty network is a warning", "Supervision of a new node", "Quick fixes in Problems", "Errors in the New config dialog".
 
 ## Impact
 
