@@ -1,16 +1,24 @@
-"""canworks-deploy: add a CANopen config to an OpenPLC editor build,
-check it, and upload it to an OpenPLC Runtime v4.
+"""canworks-deploy: check a canworks config, put it on canworks-bridge,
+export it, or make an OpenPLC Editor project from it.
 
-  canworks-deploy --bundle <project>/build/"OpenPLC Runtime v4"/src \\
-      --config canworks.json --runtime 192.168.1.20 --user openplc --fingerprint AB:CD:...
+  canworks-deploy --config canworks.json --check
 
-The runtime switches the CANopen plugin on because the upload carries
-conf/canworks.json, exactly as it does for EtherCAT. See docs/deploy.md.
+runs the checks the bridge runs at load (schema, EDS files, simulation file)
+and uploads nothing.
+
+  canworks-deploy --config canworks.json --bridge HOST[:PORT] [--token TOKEN]
+
+uploads the config and every file it names to canworks-bridge over its
+diagnostics channel (put_config), which restarts on it. HOST may be a
+remembered device's name (link:NAME over the remote link only), or `local`
+for the local runtime's bridge (canworks-local-runtime). See docs/deploy.md.
 
   canworks-deploy --config canworks.json --into-project <project>
 
-copies the config and its EDS files into the project's canworks/ folder
-instead, for runtimes with the editor hook (docs/install-stock.md).
+copies the config and its files into an OpenPLC Editor project's canworks/
+folder and, for an OpenPLC through Modbus config, writes the editor's remote
+device, the canworks_in and canworks_out programs and the `canworks`
+variable list (docs/modbus-bridge.md).
 
   canworks-deploy --config canworks.json --export-dcf <dir>
 
@@ -36,10 +44,10 @@ Uploads nothing.
   canworks-deploy --config canworks.json --new-project <dir> [--task-interval T#10ms]
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
-OpenPLC Runtime v4, the config in its canworks/ folder, and a program main
-declaring every CANopen location. Uploads nothing. With --blocks the
-project also enables the canworks function block library (CANopen, CiA 402,
-CAN and J1939 blocks).
+OpenPLC Runtime v4, the config in its canworks/ folder and, for an OpenPLC
+through Modbus config, the editor files of --into-project. Uploads nothing.
+With --blocks the project also enables the canworks function block library
+(the CO_* blocks over the bridge and the CAN and J1939 helpers).
 
   canworks-deploy --config canworks.json --export-codesys <dir> [--codesys-net NAME=N]
   canworks-deploy --config canworks.json --codesys-import [<project.project>] [--codesys-new TYPE:ID:VERSION]
@@ -53,20 +61,20 @@ these settings itself; the options override them.
 
 A simulation file (simulation.json next to the config, or --sim FILE) is
 checked and travels with the config (docs/simulator.md). A config that
-simulates the network or any node is uploaded only after a confirmation,
---yes or --simulated.
+simulates the network or any node is uploaded to a bridge only after a
+confirmation, --yes or --simulated.
 
   canworks-deploy library [--out DIR] [--install] [--project DIR]
 
-writes the canworks function block library for the PLC program (CANopen,
-CiA 402, CAN and J1939 blocks) as canworks.stlib into DIR, installs it
+writes the canworks function block library for the PLC program (the CO_*
+blocks over the bridge, CAN and J1939 helpers) as canworks.stlib into DIR, installs it
 into OpenPLC Editor on this computer, and/or enables it in an editor
 project. See docs/plc-library.md.
 
   canworks-deploy slave-eds slave.json -o canworks/openplc-slave.eds [--gateway canworks.json [--update-config]]
 
-writes the EDS of OpenPLC as a CANopen slave from a description of its
-objects (docs/slave.md), checked with the plugin's EDS lint; with --gateway
+writes the EDS of a canworks slave from a description of its objects
+(docs/slave.md), checked with the bridge's EDS lint; with --gateway
 it adds the gateway's route, status and SDO bridge objects (docs/gateway.md).
 
   canworks-deploy notes skeleton [--all] [--index LOW-HIGH] valve.eds [-o FILE]
@@ -80,30 +88,16 @@ configurator shows for a notes file (docs/configurator.md, Device notes).
 """
 
 import argparse
-import getpass
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
 
-from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
-               editorproject, localruntime, modbusmap, nodered, notes, project, runtime, plclibrary, simfile, slaveeds,
-               targets)
+from . import (__version__, bundle, contract, dbcexport, dcfexport, diag, docexport, editorproject,
+               localruntime, modbusmap, nodered, notes, project, plclibrary, simfile, slaveeds, targets)
 from .userdirs import replace_file
-
-EDITOR_WARNING = (
-    "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
-    "runtime switches CANopen off until you deploy with canworks-deploy again.")
-EDITOR_HOOK_NOTE = (
-    "Note: this runtime has the CANopen editor hook, so the editor's own \"Build and upload\" keeps CANopen on if "
-    "the project has a canworks/ folder (canworks-deploy --into-project) and switches it off if not.")
-# Logged by the editor hook (tools/editor-hook) for an upload that carries conf/canworks.json.
-HOOK_LOG_LINE = "CANopen: the upload carries conf/canworks.json"
-
-DEFAULT_TARGET = "OpenPLC Runtime v4"
 
 
 class Failure(Exception):
@@ -123,22 +117,20 @@ class MissingProject(Failure):
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-deploy",
-        description="Add a CANopen config and its EDS files to an OpenPLC editor build, check them, and upload "
-                    "the program to an OpenPLC Runtime v4.",
-        epilog=EDITOR_WARNING)
+        description="Check a canworks config, put it on canworks-bridge, export it, or make an OpenPLC Editor "
+                    "project from it.")
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--bundle", metavar="DIR",
-                     help="the editor's \"Build only\" output: <project>/build/<target>/src")
+    src.add_argument("--check", action="store_true",
+                     help="run the checks the bridge runs at load (schema, EDS files, simulation file) and stop")
     src.add_argument("--bridge", metavar="HOST[:PORT]",
-                     help="upload a Modbus bridge config (one with a \"bridge\" object) to canworks-bridge over its "
-                          "diagnostics channel (default port %d; needs allow_changes and allow_config_upload)"
-                          % diag.DEFAULT_PORT)
-    src.add_argument("--project", metavar="DIR",
-                     help="an editor project: build it with openplc-cli compile first")
+                     help="upload the config to canworks-bridge over its diagnostics channel (default port %d; "
+                          "needs allow_changes and allow_config_upload). A remembered device's name connects "
+                          "directly or over the remote link, link:NAME over the link only, and `local` is the "
+                          "local runtime's bridge (canworks-local-runtime)" % diag.DEFAULT_PORT)
     src.add_argument("--into-project", metavar="DIR",
-                     help="copy the config and its EDS files into this editor project's canworks/ folder instead of "
-                          "deploying, so the editor's own \"Build and upload\" carries them (needs the editor hook "
-                          "on the runtime)")
+                     help="copy the config and its files into this editor project's canworks/ folder; for an "
+                          "OpenPLC through Modbus config also write the editor's remote device, canworks_in, "
+                          "canworks_out and the canworks variable list")
     src.add_argument("--export-dcf", metavar="DIR",
                      help="write each node's configuration as a CiA 306 DCF (node_<id>.dcf) into DIR instead of "
                           "deploying; nothing is built or uploaded")
@@ -166,10 +158,11 @@ def parser():
                           "names (Windows, CODESYS installed)")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
-                          "and declares its I/O in the program main")
+                          "and, for an OpenPLC through Modbus config, the editor files of --into-project")
     p.add_argument("--blocks", action="store_true",
-                   help="with --new-project: enable the canworks function block library (CANopen, CiA 402, "
-                        "CAN and J1939 blocks for the program) in the project, and install it into the editor if it is missing or older")
+                   help="with --new-project: enable the canworks function block library (the CO_* blocks over "
+                        "the bridge, CAN and J1939 helpers) in the project, and install it into the editor if it is "
+                        "missing or older")
     p.add_argument("--task-interval", metavar="T#...",
                    help="with --new-project: the task interval (default: %s)" % editorproject.DEFAULT_INTERVAL)
     p.add_argument("--nodered-host", metavar="HOST[:PORT]",
@@ -213,29 +206,9 @@ def parser():
                         "the configuration writes or maps) or all")
     p.add_argument("--doc-embed-eds", action="store_true",
                    help="with --export-html: embed each node's EDS file so it can be saved from the document")
-    p.add_argument("--doc-cycle-ms", metavar="MS", type=float,
-                   help="with --export-html: the PLC task interval, for the bus-load estimate of a network whose "
-                        "SYNC follows the PLC cycle (default: the editor project's task interval)")
     p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canworks/ folder")
-    p.add_argument("--target", default=DEFAULT_TARGET,
-                   help="board target for --project (default: %(default)s)")
     p.add_argument("--config", required=True, metavar="FILE",
                    help="the config (canworks.json); EDS and DBC paths are relative to it")
-    p.add_argument("--runtime", metavar="HOST[:PORT]",
-                   help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
-                        "runtime of canworks-local-runtime, with its saved user, password and fingerprint; a "
-                        "remembered runtime's name connects directly or over the remote link, link:NAME over "
-                        "the link only (docs/remote-access.md)")
-    p.add_argument("--user",
-                   help="runtime user (default: the local runtime's saved user with --runtime local, else "
-                        "$OPENPLC_USER); the password comes from $OPENPLC_PASSWORD or a prompt")
-    p.add_argument("--allow-clash", action="store_true",
-                   help="report input address clashes with other plugins as warnings instead of errors")
-    tls = p.add_mutually_exclusive_group()
-    tls.add_argument("--ca", metavar="FILE", help="verify the runtime's certificate against this CA/certificate file")
-    tls.add_argument("--fingerprint", metavar="SHA256",
-                     help="verify the runtime's certificate by its SHA-256 fingerprint")
-    tls.add_argument("--insecure", action="store_true", help="do not verify the runtime's certificate")
     p.add_argument("--token", help="with --bridge: the diagnostics token (default: $%s, else a prompt)" % diag.TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="with --bridge: read the diagnostics token from this file")
     p.add_argument("--sim", metavar="FILE",
@@ -244,39 +217,9 @@ def parser():
     p.add_argument("--simulated", action="store_true",
                    help="upload a config that simulates the network or some nodes without asking")
     p.add_argument("--yes", action="store_true", help="do not ask for confirmation")
-    p.add_argument("--output", metavar="ZIP", help="also write the program zip to this file")
-    p.add_argument("--check-only", action="store_true", help="check and assemble, but do not upload")
-    start = p.add_mutually_exclusive_group()
-    start.add_argument("--start", action="store_true",
-                       help="start the PLC after the upload even when it was stopped before, or the build log does "
-                            "not say whether the canworks plugin is enabled")
-    start.add_argument("--no-start", action="store_true",
-                       help="leave the PLC stopped after the upload (by default the tool starts it when it was "
-                            "running before or had no program)")
-    p.add_argument("--timeout", type=float, default=900.0, metavar="S",
-                   help="how long to wait for the runtime's build (default: %(default)s s)")
+    p.add_argument("--check-only", action="store_true", help="with --bridge: check and assemble, but do not upload")
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     return p
-
-
-def build_project(project, target, out):
-    # openplc-cli treats a path that is not absolute as a cloud project id and
-    # builds into its own scratch directory instead of <project>/build.
-    project = os.path.abspath(project)
-    cli = editorproject.cli_program()
-    cmd = (editorproject.cli_command(cli) or [cli]) + ["compile", project, "--target", target, "--no-json"]
-    unsafe = editorproject.unsafe_for_cmd(cmd)
-    if unsafe:
-        raise Failure(unsafe)
-    out("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
-    try:
-        rc = subprocess.call(cmd)
-    except OSError as e:
-        raise Failure("cannot run %s: %s (install it from the editor with 'openplc-cli install-cli', or set "
-                      "$OPENPLC_CLI)" % (cli, e))
-    if rc != 0:
-        raise Failure("openplc-cli compile failed (exit %d)" % rc)
-    return os.path.join(project, "build", target, "src")
 
 
 def _ask(question):
@@ -328,8 +271,8 @@ def _export_nodered(config, path, host, poll_ms, out):
 
 
 def bridge_files(cfg, config_path, sim_path=None):
-    """The files canworks-bridge gets for a config, as the runtime's conf/
-    folder holds them: {path: bytes} with "canworks.json" the config."""
+    """The files canworks-bridge gets for a config: {path: bytes} with
+    "canworks.json" the config (bundle.files)."""
     try:
         deployed, eds_by_name = bundle.rewrite(cfg, config_path)
         sim = None
@@ -337,34 +280,28 @@ def bridge_files(cfg, config_path, sim_path=None):
             sim_data, sim_eds, sim_csv = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
             bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
             sim = (sim_data, sim_csv)
+        return bundle.files(deployed, eds_by_name, sim)
     except (bundle.BundleError, simfile.SimFileError) as e:
         raise Failure(str(e))
-    work = bundle.temp_dir()
-    try:
-        empty = os.path.join(work, "empty")
-        os.makedirs(empty)
-        staged, _ = bundle.assemble(empty, deployed, eds_by_name, work, sim)
-        conf = os.path.join(staged, "conf")
-        files = {}
-        for root, dirs, names in os.walk(conf):
-            dirs.sort()
-            for name in sorted(names):
-                full = os.path.join(root, name)
-                with open(full, "rb") as f:
-                    files[os.path.relpath(full, conf).replace(os.sep, "/")] = f.read()
-        return files
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (e.filename, e.strerror))
 
 
-def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0):
+def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0, local=None):
     """Uploads a bridge config to canworks-bridge (put_config) and reads back
-    whether it started."""
+    whether it started. To the local runtime's bridge (`local`, its saved
+    settings) the files go in through the container engine."""
     files = bridge_files(cfg, args.config, sim_path)
     size = sum(len(v) for v in files.values())
     out("ok: %d file%s, %d bytes for canworks-bridge" % (len(files), "" if len(files) == 1 else "s", size))
     if args.check_only:
         out("not uploaded (--check-only)")
+        return 0
+    if local is not None:
+        try:
+            localruntime.put_config(local, files, out, timeout=wait_s)
+        except localruntime.LocalRuntimeError as e:
+            raise Failure(str(e))
         return 0
     try:
         host, port = diag.parse_runtime(args.bridge)
@@ -376,9 +313,7 @@ def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0):
         info = client.connect()
         if info.get("host") != "bridge":
             client.close()
-            raise Failure("%s is not canworks-bridge (it is %s): upload this config with --runtime to an OpenPLC "
-                          "runtime only after removing its 'bridge' object" % (client.where, info.get("host") or
-                                                                              "an OpenPLC runtime"))
+            raise Failure("%s is not canworks-bridge (it is %s)" % (client.where, info.get("host") or "unknown"))
         if not info.get("allow_config_upload"):
             client.close()
             raise Failure("config upload is off on %s: its running config needs \"allow_changes\": true and "
@@ -483,7 +418,7 @@ def _codesys(args, cfg, network, out, runner=None):
     return 0
 
 
-def run(args, out=print, err=None, password_source=None, confirm_source=None):
+def run(args, out=print, err=None, confirm_source=None):
     err = err or (lambda m: print(m, file=sys.stderr))
 
     if not getattr(args, "export_nodered", None) and (getattr(args, "nodered_host", None)
@@ -491,38 +426,32 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         raise Failure("--nodered-host and --nodered-poll-ms go with --export-nodered")
     map_file = getattr(args, "export_modbus_map", None)
     if map_file:
-        if args.runtime or args.output or args.check_only:
-            raise Failure("--export-modbus-map only writes the register map; leave out --runtime, --output and "
-                          "--check-only")
+        if args.check_only:
+            raise Failure("--export-modbus-map only writes the register map; leave out --check-only")
         return _export_modbus_map(args.config, map_file, out)
 
     flow_file = getattr(args, "export_nodered", None)
     if flow_file:
-        if args.runtime or args.output or args.check_only:
-            raise Failure("--export-nodered only writes the Node-RED flow; leave out --runtime, --output and "
-                          "--check-only")
+        if args.check_only:
+            raise Failure("--export-nodered only writes the Node-RED flow; leave out --check-only")
         return _export_nodered(args.config, flow_file, args.nodered_host, args.nodered_poll_ms, out)
     into = getattr(args, "into_project", None)
     export_dir = getattr(args, "export_dcf", None)
-    if export_dir and (args.runtime or args.output or args.check_only):
-        raise Failure("--export-dcf only writes DCF files; leave out --runtime, --output and --check-only")
+    if export_dir and (args.check_only):
+        raise Failure("--export-dcf only writes DCF files; leave out --check-only")
     dbc_file = getattr(args, "export_dbc", None)
     dbc_sdo = getattr(args, "dbc_sdo", None)
     if dbc_sdo and not dbc_file:
         raise Failure("--dbc-sdo needs --export-dbc")
-    if dbc_file and (args.runtime or args.output or args.check_only):
-        raise Failure("--export-dbc only writes a DBC file; leave out --runtime, --output and --check-only")
+    if dbc_file and (args.check_only):
+        raise Failure("--export-dbc only writes a DBC file; leave out --check-only")
     html_file = getattr(args, "export_html", None)
     for opt, given in (("--doc-title", getattr(args, "doc_title", None)), ("--doc-od", getattr(args, "doc_od", None)),
-                       ("--doc-embed-eds", getattr(args, "doc_embed_eds", False)),
-                       ("--doc-cycle-ms", getattr(args, "doc_cycle_ms", None))):
+                       ("--doc-embed-eds", getattr(args, "doc_embed_eds", False))):
         if given and not html_file:
             raise Failure("%s needs --export-html" % opt)
-    if html_file and (args.runtime or args.output or args.check_only):
-        raise Failure("--export-html only writes an HTML document; leave out --runtime, --output and --check-only")
-    cycle = getattr(args, "doc_cycle_ms", None)
-    if cycle is not None and not cycle > 0:
-        raise Failure("--doc-cycle-ms must be a positive number of milliseconds")
+    if html_file and (args.check_only):
+        raise Failure("--export-html only writes an HTML document; leave out --check-only")
     codesys_dir = getattr(args, "export_codesys", None)
     importing = getattr(args, "codesys_import", None) is not None
     codesys = bool(codesys_dir) or importing
@@ -535,8 +464,8 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
                      ("--codesys-exe", "codesys_exe"), ("--codesys-profile", "codesys_profile")):
         if getattr(args, key, None) and not importing:
             raise Failure("%s needs --codesys-import" % opt)
-    if codesys and (args.runtime or args.output or args.check_only):
-        raise Failure("the CODESYS export uploads nothing; leave out --runtime, --output and --check-only")
+    if codesys and (args.check_only):
+        raise Failure("the CODESYS export uploads nothing; leave out --check-only")
     network = getattr(args, "network", None)
     if network and not export_dir and not dbc_file and not html_file and not codesys:
         raise Failure("--network needs --export-dcf, --export-dbc, --export-html or --export-codesys")
@@ -547,18 +476,15 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     blocks = getattr(args, "blocks", False)
     if blocks and not new_project:
         raise Failure("--blocks needs --new-project")
-    if new_project and (args.runtime or args.output or args.check_only):
-        raise Failure("--new-project only creates an editor project; leave out --runtime, --output and --check-only")
+    if new_project and (args.check_only):
+        raise Failure("--new-project only creates an editor project; leave out --check-only")
     bridge_target = getattr(args, "bridge", None)
-    if bridge_target and (args.runtime or args.output):
-        raise Failure("--bridge uploads to canworks-bridge; leave out --runtime and --output")
     if (getattr(args, "token", None) or getattr(args, "token_file", None)) and not bridge_target:
         raise Failure("--token and --token-file go with --bridge")
-    if not into and not export_dir and not dbc_file and not html_file and not new_project and not args.check_only \
-            and not args.runtime and not bridge_target and not codesys:
-        raise Failure("give --runtime to upload, or --check-only")
+    if args.check_only and not bridge_target:
+        raise Failure("--check-only goes with --bridge (--check runs the checks alone)")
     local = None
-    if localruntime.is_local(getattr(args, "runtime", None)):
+    if localruntime.is_local(bridge_target):
         try:
             local = localruntime.target()
         except localruntime.LocalRuntimeError as e:
@@ -581,17 +507,9 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
     if not result.ok:
         raise Failure("\n".join(result.errors))
     out("ok: %s passes the schema and EDS checks" % args.config)
-    if targets.target(cfg) == targets.CODESYS and (args.runtime or args.bundle or args.project or into or new_project
-                                                   or bridge_target):
-        raise Failure("%s is a CODESYS config (it has a 'codesys' object): CODESYS runs it, not the OpenPLC plugin "
-                      "or canworks-bridge; build it into a CODESYS project with --codesys-import" % args.config)
-    is_bridge = bridgecheck.is_bridge_config(cfg)
-    if bridge_target and not is_bridge:
-        raise Failure("%s has no top-level \"bridge\" object, so canworks-bridge does not run it: upload it to an "
-                      "OpenPLC runtime with --bundle or --project and --runtime" % args.config)
-    if is_bridge and (args.runtime or args.bundle or args.project or into or new_project):
-        raise Failure("%s is a Modbus bridge config (it has a 'bridge' object): canworks-bridge runs it, not the "
-                      "OpenPLC plugin; upload it with --bridge HOST" % args.config)
+    if targets.target(cfg) == targets.CODESYS and (into or new_project or bridge_target):
+        raise Failure("%s is a CODESYS config (it has a 'codesys' object): CODESYS runs it, not canworks-bridge; "
+                      "build it into a CODESYS project with --codesys-import" % args.config)
 
     # The simulation file and what the config simulates (not for the exports).
     sim_path = None
@@ -610,15 +528,14 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
                 raise Failure("\n".join(sim_result.errors))
             out("ok: %s passes the simulation file checks" % sim_path)
         simulated = simfile.describe_simulated(cfg)
-        uploading = not into and not new_project and not args.check_only
+        uploading = bool(bridge_target) and not args.check_only
         if simulated:
             err("warning: this config simulates devices: %s. Outputs to a simulated device go nowhere; never leave "
                 "a machine's config simulated." % simulated)
         if local and uploading:
-            out("local runtime: every network runs simulated there, whatever the config says")
+            out("local runtime: every network runs simulated on its bridge, whatever the config says")
         if simulated and uploading and not local and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
-            answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?"
-                                              % (bridge_target or args.runtime))
+            answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?" % bridge_target)
             if answer is None:
                 raise Failure("not uploaded: %s. Pass --simulated (or --yes) to upload it anyway" % simulated)
             if not answer:
@@ -656,8 +573,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
             text, warnings = docexport.export(
                 cfg, args.config, names=dbcexport.project_names(args.config), network=network,
                 title=getattr(args, "doc_title", None), od=getattr(args, "doc_od", None) or "used",
-                embed_eds=getattr(args, "doc_embed_eds", False),
-                plc_cycle_ms=cycle or docexport.project_cycle_ms(args.config))
+                embed_eds=getattr(args, "doc_embed_eds", False))
         except docexport.ExportFailed as e:
             raise Failure("\n".join(m for m, _ in e.problems) + "\nno HTML document was written")
         for w in warnings:
@@ -668,16 +584,16 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
 
     if new_project:
         try:
-            path, decls = editorproject.create(cfg, args.config, new_project,
+            path, written = editorproject.create(cfg, args.config, new_project,
                                                interval=interval or editorproject.DEFAULT_INTERVAL, progress=out,
                                                sim_path=sim_path, blocks=blocks)
         except editorproject.NewProjectError as e:
             raise Failure(str(e))
-        out("created %s with %d CANopen variable%s declared in main" % (path, len(decls),
-                                                                       "" if len(decls) == 1 else "s"))
+        out("created %s" % path)
+        for line in editor_lines(written):
+            out(line)
         if blocks or editorproject.uses_library(cfg):
-            out("the project enables the %s function block library (CANopen, CiA 402, CAN and J1939 blocks)"
-                % plclibrary.NAME)
+            out("the project enables the %s function block library" % plclibrary.NAME)
             ok, message = plclibrary.ensure_installed()
             (out if ok else err)(message if ok else "warning: " + message)
         return 0
@@ -694,118 +610,30 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
         if report.get("backup"):
             out("kept the old folder as %s" % report["backup"])
         out("wrote %s" % ", ".join(written))
-        out("The editor's \"Build and upload\" now carries this config, on a runtime with the CANopen editor hook "
-            "(docs/install-stock.md).")
+        try:
+            synced = editorproject.write_editor_files(cfg, args.config, into, force=args.force)
+        except editorproject.NewProjectError as e:
+            raise Failure(str(e))
+        for line in editor_lines(synced):
+            out(line)
         return 0
 
-    if bridge_target:
-        return _deploy_bridge(args, cfg, sim_path, out, err)
+    if args.check:
+        return 0
+    return _deploy_bridge(args, cfg, sim_path, out, err, local=local)
 
-    # 2. The bundle.
-    bundle_dir = build_project(args.project, args.target, out) if args.project else args.bundle
-    try:
-        bundle.check_editor_bundle(bundle_dir)
-        deployed, eds_by_name = bundle.rewrite(cfg, args.config)
-        sim = None
-        if sim_path:
-            sim_data, sim_eds, sim_csv = bundle.sim_rewrite(simfile.load(sim_path), sim_path)
-            bundle.merge_by_name(eds_by_name, sim_eds, "EDS files")
-            sim = (sim_data, sim_csv)
-    except (bundle.BundleError, simfile.SimFileError) as e:
-        raise Failure(str(e))
-    work = bundle.temp_dir()
-    try:
-        staged, converted = bundle.assemble(bundle_dir, deployed, eds_by_name, work, sim)
-        for name in converted:
-            out("converted %s from CP1252 to UTF-8 in the bundle" % name)
 
-        # 3. Address clashes with the other plugins in the bundle.
-        uses, problems = clash.bundle_uses(staged)
-        for p in problems:
-            err("warning: " + p)
-        errors, warnings = clash.check(uses, args.allow_clash)
-        for w in warnings:
-            err("warning: " + w)
-        if errors:
-            raise Failure("\n".join(errors) + "\n(use --allow-clash to deploy anyway)")
-        others = sorted({u.file for u in uses} - {"conf/canworks.json"})
-        out("ok: no address clashes%s" % (" with " + ", ".join(others) if others else ""))
-
-        zip_path = os.path.join(work, "program.zip")
-        names = bundle.make_zip(staged, zip_path)
-        out("ok: bundle of %d files with conf/canworks.json and %d EDS file%s%s"
-            % (len(names), len(eds_by_name), "" if len(eds_by_name) == 1 else "s",
-               ", conf/%s%s" % (bundle.SIM_FILE, " and %d CSV file%s" % (len(sim[1]), "" if len(sim[1]) == 1 else "s")
-                                if sim[1] else "")
-               if sim else ""))
-        if args.output:
-            shutil.copyfile(zip_path, args.output)
-            out("wrote %s" % args.output)
-        if args.check_only:
-            return 0
-        with open(zip_path, "rb") as f:
-            data = f.read()
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-
-    # 4. Upload.
-    user = args.user or (local or {}).get("user") or os.environ.get("OPENPLC_USER")
-    if not user:
-        raise Failure("give --user (or set $OPENPLC_USER)")
-    where = "127.0.0.1:%d" % local["port"] if local else args.runtime
-    fingerprint = args.fingerprint
-    if local and not (fingerprint or args.ca or args.insecure):
-        fingerprint = local.get("fingerprint")
-    client = runtime.Client(where, ca=args.ca, fingerprint=fingerprint, insecure=args.insecure)
-    if args.insecure:
-        err("warning: --insecure: the runtime's certificate is not checked")
-    sent = False
-    try:
-        try:
-            client._connect().close()  # certificate first, before any credentials
-        except runtime.CertificateError as e:
-            if local and fingerprint == local.get("fingerprint"):
-                raise Failure(localruntime.certificate_changed(local["port"], fingerprint,
-                                                               client._peek_fingerprint() or "unknown"))
-            raise
-        password = local["password"] if local and user == local.get("user") else os.environ.get("OPENPLC_PASSWORD")
-        if password is None:
-            password = (password_source or getpass.getpass)("Password for %s on %s: " % (user, args.runtime))
-        client.login(user, password)
-        before = client.plc_status()  # an upload stops the PLC; a stopped one stays stopped
-        out("uploading to %s:%d" % (client.host, client.port))
-        client.upload(data)
-        sent = True
-        ok, logs = client.wait_for_build(lambda line: out("  | " + line.rstrip("\n")), timeout=args.timeout)
-    except runtime.RuntimeError_ as e:
-        raise Failure(str(e), uploaded=sent)
-    if not ok:
-        raise Failure("the runtime's build failed (log above)", uploaded=True)
-    state = runtime.canopen_state(logs)
-    if state is False:
-        raise Failure("the build succeeded, but the runtime did not enable the canworks plugin: is it installed on "
-                      "the runtime (scripts/install-stock.sh)?", uploaded=True)
-    errors = runtime.canopen_errors(logs)
-    if errors:
-        raise Failure("the build succeeded, but CANopen was turned off: %s" % errors[-1].split("CANopen: ", 1)[1],
-                      uploaded=True)
-    built = "program built%s" % (" and the canworks plugin enabled" if state else "")
-    if args.no_start:
-        out("ok: %s; the PLC is stopped (--no-start)" % built)
-    elif state is None and not args.start:
-        out("ok: program built, but the build log does not say whether the canworks plugin is enabled; the PLC "
-            "stays stopped (start it with --start)")
-    elif before in ("STOPPED", "ERROR") and not args.start:
-        out("ok: %s; the PLC was %s before the upload and stays stopped (start it with --start)"
-            % (built, "stopped" if before == "STOPPED" else "in ERROR"))
-    else:
-        try:
-            client.start_plc()
-        except runtime.RuntimeError_ as e:
-            raise Failure("the %s, but %s" % (built, str(e)[0].lower() + str(e)[1:]), uploaded=True)
-        out("ok: %s; the PLC is running" % built)
-    out(EDITOR_HOOK_NOTE if any(HOOK_LOG_LINE in line for line in logs) else EDITOR_WARNING)
-    return 0
+def editor_lines(synced):
+    """What --new-project and --into-project say about the editor files of
+    an OpenPLC through Modbus config (editorproject.write_editor_files)."""
+    if not synced:
+        return []
+    out = ["wrote the editor's remote device, canworks_in, canworks_out and the canworks variable list (%d Modbus "
+           "request%s per poll, I/O from %%IW%d/%%QW%d)" % (synced["requests"], "" if synced["requests"] == 1 else "s",
+                                                           synced["iec_base"], synced["iec_base"])]
+    if synced.get("warning"):
+        out.append("warning: " + synced["warning"])
+    return out
 
 
 def library_parser():

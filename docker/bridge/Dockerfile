@@ -38,7 +38,7 @@ RUN apt-get update -qq && \
 COPY --from=build /opt/canworks /opt/canworks
 VOLUME /etc/canworks-bridge
 ENTRYPOINT ["/opt/canworks/bin/canworks-bridge"]
-CMD ["--config", "/etc/canworks-bridge/canworks.json"]
+CMD ["--config", "/etc/canworks-bridge/canworks.json", "--wait"]
 LABEL org.opencontainers.image.title="canworks-bridge" \
       org.opencontainers.image.description="CANopen and J1939 networks served as Modbus TCP registers" \
       org.opencontainers.image.source="https://github.com/tonihoohoo/canworks" \

@@ -1,44 +1,24 @@
-"""Bundle assembly: an editor build output plus conf/canworks.json, the EDS
-files under conf/canworks/eds/, zipped the way the runtime's upload expects.
-A simulation file goes to conf/canworks/simulation.json; the EDS/DCF files of its extra
-devices join the node EDS files in conf/canworks/eds/ (its `eds` values become
-eds/<file>, relative to the simulation file), its CSV files go to
-conf/canworks/sim/ (`file` values sim/<file>).
-
-The editor's "Build only" (and `openplc-cli compile`) writes the runtime v4
-bundle to <project>/build/<target>/src/: generated.hpp, the generated *.cpp,
-strucpp_runtime/include/ and conf/ with the other plugins' configs. The
-runtime extracts the zip to core/generated/ and compiles it there.
+"""The files canworks-bridge gets for a config: canworks.json, the EDS
+files under canworks/eds/ (the config's `eds` values rewritten to them), and
+a simulation file as canworks/simulation.json, the EDS/DCF files of its extra
+devices joining the node EDS files in canworks/eds/ (its `eds` values become
+eds/<file>, relative to the simulation file) and its CSV files in
+canworks/sim/ (`file` values sim/<file>).
 """
 
-import glob
 import json
 import os
-import shutil
-import tempfile
-import zipfile
 
 from .contract import all_nodes, eds_users
 from .eds import to_utf8
 
-EDS_DIR = "canworks/eds"  # under conf/, and as the rewritten `eds` value prefix
-SIM_FILE = "canworks/simulation.json"  # under conf/
-SIM_CSV_DIR = "canworks/sim"  # under conf/: the simulation file's CSV files
+EDS_DIR = "canworks/eds"  # also the rewritten `eds` value prefix
+SIM_FILE = "canworks/simulation.json"
+SIM_CSV_DIR = "canworks/sim"  # the simulation file's CSV files
 
 
 class BundleError(Exception):
     pass
-
-
-def check_editor_bundle(path):
-    """Raises BundleError unless `path` is a runtime v4 bundle directory."""
-    if not os.path.isdir(path):
-        raise BundleError("%s is not a directory" % path)
-    if not os.path.isfile(os.path.join(path, "generated.hpp")) or not glob.glob(os.path.join(path, "*.cpp")):
-        raise BundleError(
-            "%s is not an editor build output: it has no generated.hpp and *.cpp program sources for the runtime "
-            "to compile. Build the project with the editor's \"Build only\" for the OpenPLC Runtime v4 target "
-            "(or openplc-cli compile) and pass <project>/build/<target>/src" % path)
 
 
 def eds_files(cfg, config_path):
@@ -117,61 +97,22 @@ def sim_rewrite(sim_data, sim_path):
     return out, eds_by, csv_by
 
 
-def assemble(bundle_dir, deployed_cfg, eds_by_name, work_dir, sim=None):
-    """Copies the bundle to work_dir/bundle and adds the CANopen files, each
-    EDS as UTF-8 (see eds.to_utf8). Every other file is copied unchanged.
-    sim: (deployed simulation file, {CSV name: source}), whose extra devices'
-    EDS files are already in eds_by_name.
-    Returns (staged directory, names of the EDS files converted to UTF-8)."""
-    staged = os.path.join(work_dir, "bundle")
-    shutil.copytree(bundle_dir, staged, symlinks=False)
-    conf = os.path.join(staged, "conf")
-    os.makedirs(conf, exist_ok=True)
-    shutil.rmtree(os.path.join(conf, "canworks"), ignore_errors=True)
-    eds_dir = os.path.join(conf, *EDS_DIR.split("/"))
-    os.makedirs(eds_dir)
-    converted = []
+def files(deployed_cfg, eds_by_name, sim=None):
+    """{path: bytes} of the config, its EDS files (each as UTF-8, see
+    eds.to_utf8) and, with `sim` (deployed simulation file, {CSV name:
+    source}), the simulation file and its CSV files; the extra devices' EDS
+    files are already in eds_by_name."""
+    out = {}
     for name, src in sorted(eds_by_name.items()):
         with open(src, "rb") as f:
-            data, was = to_utf8(f.read())
-        if was:
-            converted.append(name)
-        with open(os.path.join(eds_dir, name), "wb") as f:
-            f.write(data)
+            out[EDS_DIR + "/" + name] = to_utf8(f.read())[0]
     if sim is not None:
         sim_data, csv_by_name = sim
-        if csv_by_name:
-            csv_dir = os.path.join(conf, *SIM_CSV_DIR.split("/"))
-            os.makedirs(csv_dir)
-            for name, src in sorted(csv_by_name.items()):
-                shutil.copyfile(src, os.path.join(csv_dir, name))
-        with open(os.path.join(conf, *SIM_FILE.split("/")), "w", encoding="utf-8", newline="\n") as f:
-            json.dump(sim_data, f, indent=2)
-            f.write("\n")
-    # LF on every OS: the configurator compares the runtime's SHA-256 of this
+        for name, src in sorted(csv_by_name.items()):
+            with open(src, "rb") as f:
+                out[SIM_CSV_DIR + "/" + name] = f.read()
+        out[SIM_FILE] = (json.dumps(sim_data, indent=2) + "\n").encode("utf-8")
+    # LF on every OS: the configurator compares the bridge's SHA-256 of this
     # file with the LF form (online.fingerprints).
-    with open(os.path.join(conf, "canworks.json"), "w", encoding="utf-8", newline="\n") as f:
-        json.dump(deployed_cfg, f, indent=2)
-        f.write("\n")
-    return staged, converted
-
-
-def make_zip(staged, zip_path):
-    """Zips the staged bundle with its files at the zip root."""
-    entries = []
-    for root, dirs, files in os.walk(staged):
-        dirs.sort()
-        for name in sorted(files):
-            full = os.path.join(root, name)
-            rel = os.path.relpath(full, staged).replace(os.sep, "/")
-            if ":" in rel or ".." in rel.split("/"):
-                raise BundleError("%s: the runtime rejects this file name" % rel)
-            entries.append((full, rel))
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for full, rel in entries:
-            z.write(full, rel)
-    return [rel for _, rel in entries]
-
-
-def temp_dir():
-    return tempfile.mkdtemp(prefix="canworks-deploy-")
+    out["canworks.json"] = (json.dumps(deployed_cfg, indent=2) + "\n").encode("utf-8")
+    return out

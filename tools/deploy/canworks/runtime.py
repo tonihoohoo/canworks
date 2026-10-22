@@ -1,4 +1,5 @@
-"""The OpenPLC Runtime v4 REST API, as the editor uses it:
+"""The OpenPLC Runtime v4 REST API, as the editor uses it (the local runtime
+logs in with it, and its CI test uploads a program with it):
 
   POST /api/login               {"username", "password"} -> {"access_token"}
   POST /api/upload-file         multipart field "file" (the program zip)
@@ -226,23 +227,3 @@ class Client:
                 raise RuntimeError_("the PLC is still %s %d s after the start" % (state, timeout))
             sleep(interval)
 
-
-def canopen_state(logs):
-    """From the build log's "Final state - <plugin>: enabled=..." lines:
-    True/False for the canworks plugin, or None if the log does not say."""
-    seen_any = False
-    for line in logs:
-        if "Final state - " not in line:
-            continue
-        seen_any = True
-        rest = line.split("Final state - ", 1)[1]
-        if rest.startswith("canworks:"):
-            return "enabled=True" in rest
-    return False if seen_any else None
-
-
-def canopen_errors(logs):
-    """The build log's "[ERROR] CANopen: ..." lines: the editor hook turned the
-    canworks plugin off after the runtime enabled it (Docker: built for another
-    runtime version)."""
-    return [line.strip() for line in logs if "[ERROR] CANopen:" in line]
