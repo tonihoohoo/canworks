@@ -26,7 +26,11 @@
 
 ## 5. Windows and hardware checks (after release)
 
-- [ ] 5.1 Windows PC, new Python path, Toni's own PowerShell install: open the Devices view and the connect box. No firewall question appears, and the Pi is listed (Private profile, and Public if it can be switched).
+- [x] 5.1 Windows PC, new Python path, Toni's own PowerShell install: open the Devices view and the connect box. No firewall question appears, and the Pi is listed (Private profile, and Public if it can be switched).
+  - Result 2026-10-22 on 0.99.0: the one-line installer ran from a normal (non-sandboxed) session. `canworks-diag discover` ran on a fresh uv CPython 3.11.17 that had no firewall rule, with the Ethernet profile set to Public. It listed the runtime with its IPv4 and IPv6 addresses and the remote link. No new window and no firewall question appeared. The configurator page itself was not opened: it calls the same `browse()`.
 - [ ] 5.2 Windows: connect to the Pi with the token (pairing). Note whether the firewall question appears, press Cancel, then confirm that online access works and that `canworks-diag --runtime link:<name> status` connects over the LAN.
-- [ ] 5.3 Mac: the connect box lists the Pi, and `canworks-diag discover` lists it with its link ID.
-- [ ] 5.4 Linux (container or Pi side, no PLC changes): `canworks-diag discover` finds an adapter server advertised through Avahi.
+  - Open: this PC's own settings hold no saved token for the runtime (earlier Windows runs ran sandboxed), so the token login needs a hand check in the configurator.
+- [x] 5.3 Mac: the connect box lists the Pi, and `canworks-diag discover` lists it with its link ID.
+  - Result 2026-10-22: `canworks-diag discover` (0.99.0 wheel via `uv tool run`) on macOS listed the runtime with its IPv6 ULA and IPv4 address, ports and remote link. Whether a macOS dialog appeared was not seen (run over a remote session).
+- [x] 5.4 Linux (container or Pi side, no PLC changes): `canworks-diag discover` finds an adapter server advertised through Avahi.
+  - Result 2026-10-22: tested with a real avahi-daemon on Linux (Avahi service files from `avahi_service` and `avahi_adapter_service`). `canworks-diag discover` listed both the runtime (with remote link) and the adapter server (slcan:0 at 500 kbit/s) from Avahi's legacy unicast answers.
