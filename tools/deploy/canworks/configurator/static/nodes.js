@@ -363,7 +363,7 @@ function lockedNote(dataKey, focus, prefix) {
 async function unlock(focus, btn) {
   const c = S.onlineLast && S.onlineLast.conn;
   if (!connAdapter() || (c && c.allow_changes_source && c.allow_changes_source !== "switch")) {
-    await modal("This runtime decides whether changes are allowed. Turn on Allow changes in Configure → Online access, save and upload the config; it takes effect after the upload.",
+    await modal("This runtime decides whether changes are allowed. Turn on Allow changes in Configure → Project → Online access, save and upload the config; it takes effect after the upload.",
       [["ok", "OK", true]]);
     if (btn && btn.isConnected) btn.focus();
     return;
@@ -408,7 +408,7 @@ function simPanel(id) {
     el("div", { class: "table-scroll", dataset: { box: "sim_values", boxLabel: "the values" } }, el("table", { class: "od sim-values" },
       el("thead", null, el("tr", null, thCells(["Object", "Name", "Value", "Set to", ""]))),
       el("tbody", { dataset: { simPanelRows: id } }))),
-    hint("Override holds a value until Release. The simulation file, scenarios and the other faults are in the Simulation tab."));
+    hint("Override holds a value until Release. The simulation file is under Configure → Simulation file; scenarios and the other faults are in the Simulation tab."));
   S.simPanelSeq = (S.simPanelSeq || 0) + 1;
   simPanelPoll(id, S.simPanelSeq);
   return box;

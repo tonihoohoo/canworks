@@ -13,7 +13,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_sim_page import TOKEN, FakeSim
-from .helpers import tmpdir, tree_node, tree_view, header_action
+from .helpers import tmpdir, tree_node, tree_view, header_action, tool_tab, network_tab, pick_network
 from .test_configurator_page import FIXTURE, REQUIRED, RTD, load, sync_playwright
 
 BANNER_END = "must not be uploaded to a machine as it is"
@@ -131,7 +131,7 @@ class Network(Base):
 
     def node_switch(self, i, on):
         if not self.page.is_visible("#tree"):
-            self.page.click('#tool-tabs button[data-view="network"]')
+            network_tab(self.page)
         tree_node(self.page, i, "general")
         box = self.page.locator('input[data-sim="node"]')
         if on:
@@ -153,11 +153,11 @@ class Network(Base):
         self.assertIn(BANNER_END, text)
         # The banner is on every page.
         for view in (lambda: tree_node(pg, 1), lambda: pg.click('button[data-view="declarations"]'),
-                     lambda: pg.click('button[data-view="trace"]')):
+                     lambda: tool_tab(pg, "trace")):
             view()
             self.assertIn("The network is simulated", self.banner_text())
-        pg.click('#tool-tabs button[data-view="network"]')
-        tree_view(pg, "access")
+        network_tab(pg)
+        tree_view(pg, "project")
         self.assertTrue(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
         saved = self.save()
         self.assertEqual(saved["adapter"],
@@ -220,12 +220,12 @@ class Network(Base):
         cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
         self.write_config(cfg)
         header_action(pg, "#btn-reload")
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         pg.wait_for_selector('input[data-online="enable"]:checked')
         tree_view(pg, "bus")
         pg.click('button[data-sim="all"]')
         self.assertIn("Nodes 5, 6, 7 are simulated", self.banner_text())
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         self.assertFalse(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
 
 
@@ -248,7 +248,7 @@ class View(Base):
 
     def sim_view(self):
         self.open()
-        self.page.click('button[data-view="simulation"]')
+        tool_tab(self.page, "simulation")
         self.page.wait_for_selector('tr[data-sim-object="0x7130:1"] [data-sim="value"]:has-text("215")')
 
     def row(self, obj):
@@ -270,9 +270,9 @@ class Live(View):
         # The bar says what is connected; the view only what is particular to simulation.
         self.assertEqual(pg.inner_text("#sim-conn"), "Real network can0, 1 simulated device, changes allowed.")
         self.assertTrue(pg.is_hidden('[data-sim="readonly"]'))
-        # The three pages of the Simulation view.
+        # The pages of the live Simulation view; the file is Configure's Simulation file.
         self.assertEqual(pg.eval_on_selector_all("button[data-sim-tab]", "els => els.map(e => e.dataset.simTab)"),
-                         ["live", "file", "scenarios"])
+                         ["live", "scenarios"])
         self.assertIn("AI0_Input_PV", pg.inner_text(self.row("0x7130:1")))
         # Live values come in by themselves.
         self.fake.set_value(5, "0x7130:2", 233)
@@ -337,8 +337,8 @@ class Live(View):
         self.assertIn("Saved", pg.inner_text('[data-sim="file-state"]'))
         # Reloading the project reads it back.
         header_action(pg, "#btn-reload")
-        pg.click('button[data-view="simulation"]')
-        pg.click('button[data-sim-tab="file"]')
+        tool_tab(pg, "simulation")
+        tool_tab(pg, "simfile")
         self.assertIn("sine 200 to 260, 10 s", pg.inner_text('[data-sim-file="5"]'))
 
     def test_fault_buttons(self):
@@ -394,8 +394,8 @@ class Live(View):
     def test_extra_device_and_file_settings(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="simulation"]')
-        pg.click('button[data-sim-tab="file"]')
+        tool_tab(pg, "simulation")
+        tool_tab(pg, "simfile")
         pg.uncheck('[data-sim-file="5"] input[data-sim-field="default_behaviour"]')
         pg.select_option('select[data-sim="extra-eds"]', "rtd8.eds")
         pg.click('button[data-sim="add-extra"]')
@@ -417,7 +417,7 @@ class Live(View):
         pg = self.page
         with FakeSim(token="", standalone=True, simulated_network=True) as other:
             self.open()
-            pg.click('button[data-view="simulation"]')
+            tool_tab(pg, "simulation")
             # The runtime connection opens by itself; Disconnect, then the standalone
             # simulator is a target of the connect panel, connected from the bar.
             pg.click('#conn-bar [data-conn="disconnect"]')
@@ -468,7 +468,7 @@ class Networks(View):
         self.fake.devices = {6: dev}
         self.fake.values = {(6, "0x7130:1"): (300, "INTEGER16")}
         self.fake.pdo = {6: ["0x7130:1"]}
-        pg.click('#tool-tabs .net-pick[data-net="1"]')  # a tool's network picker
+        pick_network(pg, 1)  # a tool's network picker
         pg.wait_for_selector('#sim-device h2:has-text("Node 6")')
         pg.wait_for_selector(self.row("0x7130:1") + ' [data-sim="value"]:has-text("300")')
         self.assertEqual(pg.locator(self.row("0x2000:0")).count(), 0)  # io's pin stays on io
@@ -563,7 +563,7 @@ class Scenarios(View):
     def test_check_shows_problems_and_delete(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="simulation"]')
+        tool_tab(pg, "simulation")
         pg.click('button[data-sim-tab="scenarios"]')
         pg.fill('[data-sim="new-scenario"]', "bad name!")
         pg.click('[data-sim="create-scenario"]')
@@ -601,8 +601,8 @@ class FileSections(Base):
         self.write_config({"schema_version": 2, "networks": [io, line]})
 
     def file_tab(self):
-        self.page.click('button[data-view="simulation"]')
-        self.page.click('button[data-sim-tab="file"]')
+        tool_tab(self.page, "simulation")
+        tool_tab(self.page, "simfile")
 
     def test_each_network_its_section(self):
         pg = self.page
@@ -610,7 +610,7 @@ class FileSections(Base):
         self.file_tab()
         self.assertIn("Network io", pg.inner_text('[data-sim="file-section"]'))
         pg.uncheck('[data-sim-file="5"] input[data-sim-field="default_behaviour"]')
-        pg.click('#tool-tabs .net-pick[data-net="1"]')
+        pick_network(pg, 1)
         self.file_tab()
         self.assertIn("Network line", pg.inner_text('[data-sim="file-section"]'))
         pg.uncheck('[data-sim-file="6"] input[data-sim-field="default_behaviour"]')

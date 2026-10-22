@@ -49,6 +49,7 @@ class CodesysPage(OnlineBase):
     def to_codesys(self):
         # No question: what CODESYS does not use goes, the banner says so (target-cleans-up).
         pg = self.page
+        tree_view(pg, "project")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
         self.assertEqual(pg.locator("#tree #nav-codesys").count(), 0)
         pg.select_option('select[data-target="1"]', "codesys")
@@ -56,6 +57,7 @@ class CodesysPage(OnlineBase):
         self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
         self.assertIn("CODESYS does not use removed", pg.inner_text("#banner"))
         pg.wait_for_selector("#tree #nav-codesys")
+        tree_view(pg, "bus")
         self.checked()
 
     def test_eds_corrections_for_codesys(self):
@@ -96,9 +98,11 @@ class CodesysPage(OnlineBase):
         self.assertEqual(pg.eval_on_selector_all('select[data-path="role"] option', "os => os.map(o => o.value)"), [""])
         pg.fill('input[data-path="codesys.net_id"]', "0")
         self.assertEqual(pg.evaluate("() => S.config.codesys"), {"net_id": 0})
-        # The tree: no CAN messages, no Online access; the CODESYS page.
+        # The tree: no CAN messages; the Project page: no Online access.
         self.assertEqual(pg.locator('#tree [data-view="raw"]').count(), 0)
-        self.assertEqual(pg.locator("#tree #nav-access").count(), 0)
+        tree_view(pg, "project")
+        self.assertEqual(pg.locator('#view [data-section="online"]').count(), 0)
+        tree_view(pg, "bus")
         self.assertFalse(pg.is_visible('#tool-tabs [data-view="declarations"]'))
         # The header: Build and Download, no editor project actions.
         self.assertTrue(pg.is_visible("#btn-codesys-build"))
@@ -134,18 +138,20 @@ class CodesysPage(OnlineBase):
             pg.click("#btn-codesys-download")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
         # Back to OpenPLC: every entry gets a location, the names stay.
+        tree_view(pg, "project")
         pg.select_option('select[data-target="1"]', "openplc")
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         self.assertIn("got a location", pg.inner_text("#banner"))
         pg.wait_for_selector("#tree #nav-codesys", state="detached")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
-        self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.assertFalse(pg.is_visible("#btn-codesys-build"))
-        # One undo step brings CODESYS back: the banner's Undo.
+        self.assertIsNone(pg.evaluate("() => unusedWhy('master.scan_watchdog_ms')"))  # the Bus page shows it again
+        # One undo step brings CODESYS back: the banner's Undo, on the Project page.
         pg.click("#banner [data-undo]")
         pg.wait_for_selector("#tree #nav-codesys")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "codesys")
+
 
     def test_leftover_values_in_a_codesys_config(self):
         """Values CODESYS does not use: hidden, no bar, no problem, no unsaved
@@ -326,6 +332,7 @@ class NewCodesysConfig(OnlineBase):
         new_config(pg, folder, "codesys")
         pg.wait_for_selector("#editor:not([hidden])")
         pg.wait_for_selector("#tree #nav-codesys")
+        tree_view(pg, "project")
         self.assertEqual(pg.input_value('select[data-target="1"]'), "codesys")
         cfg = pg.evaluate("() => fileConfig()")
         self.assertEqual((cfg["schema_version"], cfg["codesys"]), (2, {}))

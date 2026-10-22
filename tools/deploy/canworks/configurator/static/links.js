@@ -314,7 +314,7 @@ function consumerBox(i, k, l, prod) {
     ...parts);
 }
 
-// The NMT state of a node from the Online view's last status, when there is one.
+// The NMT state of a node from the Commission Nodes view's last status, when there is one.
 function linkLiveState(id) {
   const st = S.onlineLast && S.onlineLast.status;
   if (!st || !Array.isArray(st.nodes)) return null;
@@ -378,7 +378,7 @@ function renderLinks(view) {
   view.append(el("h2", null, "PDO links"),
     el("p", { class: "muted" }, "A link sends one node's TPDO straight to RPDOs of other nodes (CiA 301 producer/consumer): " +
       targetText("links") + " See docs/config.md, PDO links."));
-  if (S.onlineLast && S.onlineLast.status) view.append(el("p", { class: "muted small" }, "States from the Online view's last status."));
+  if (S.onlineLast && S.onlineLast.status) view.append(el("p", { class: "muted small" }, "States from Commission's last status."));
   view.append(...linkList().map((l, i) => linkBox(l, i)));
   if (!linkList().length) view.append(el("p", { class: "muted" }, targetText("links_none")));
   view.append(el("button", { type: "button", dataset: { linkNew: "1" }, onclick: addLink }, "Add link"));
@@ -395,7 +395,7 @@ function linkPlace(net, path) {
   return parts;
 }
 
-// The Online view's links table (canopen-configurator "Links in the online view").
+// The Commission Nodes view's links table (canopen-configurator "Links in the online view").
 function linksLive(st) {
   const links = (onlineConfig().links || []);
   if (!links.length) return el("div");

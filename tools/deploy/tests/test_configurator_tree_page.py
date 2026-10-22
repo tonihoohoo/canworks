@@ -82,7 +82,7 @@ class Tree(unittest.TestCase):
     def test_entries_and_marks(self):
         pg = self.page
         top = pg.evaluate("() => [...document.querySelectorAll('#tree > li')].map((li) => li.dataset.key)")
-        self.assertEqual(top, ["0", "1", "2", "3", "access", "gateway", "addnet"])
+        self.assertEqual(top, ["project", "0", "1", "2", "3", "gateway", "addnet"])
         self.assertIn("CANopen slave", pg.inner_text('#tree [data-key="2"] > .tree-row .proto'))
         io = pg.evaluate("() => [...document.querySelectorAll('#tree [data-key=\"0\"] > ul > li > .tree-row .name')].map((e) => e.textContent)")
         self.assertEqual(io, ["Bus and master", "5 rtd (simulated)", "6 dio (simulated)", "7 new_io (simulated)",
@@ -109,7 +109,7 @@ class Tree(unittest.TestCase):
         pg = self.page
         tree_node(pg, 0)
         tabs = self.names(".node-tabs [role=tab]")
-        self.assertEqual(tabs, ["General", "PDOs", "SDOs", "Supervision", "Simulation", "Notes", "Advanced"])
+        self.assertEqual(tabs, ["General", "PDOs", "SDOs", "Supervision", "Simulated device", "Notes", "Advanced"])
         self.assertEqual(pg.get_attribute('.node-tabs [data-node-tab="general"]', "aria-selected"), "true")
         audit(pg, "node General tab")
         # A tab stays when another node opens, and after a reload.
@@ -267,10 +267,14 @@ class Tree(unittest.TestCase):
         pg.click("#modal-buttons .danger")
         pg.wait_for_selector('#tree [data-key="4"]', state="detached")
 
-    def test_online_access_entry(self):
+    def test_project_entry(self):
+        # The Project page holds the target and Online access; no Bus page has the target.
         pg = self.page
-        tree_view(pg, "access")
-        pg.wait_for_selector("#view h2:text-is('Online access')")
+        self.assertNotIn("Project target", pg.inner_text("#view"))
+        tree_view(pg, "project")
+        pg.wait_for_selector("#view h2:text-is('Project')")
+        self.assertTrue(pg.is_visible('#view select[data-target="1"]'))
+        self.assertTrue(pg.is_visible('#view h3:text-is("Online access")'))
         self.assertTrue(pg.is_visible('#view [data-section="online"]'))
         tree_view(pg, "bus")
         pg.wait_for_selector('#view [data-section="online"]', state="detached")

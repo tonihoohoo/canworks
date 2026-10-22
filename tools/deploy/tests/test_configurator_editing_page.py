@@ -14,7 +14,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir, tree_node, new_config, header_action
+from .helpers import REPO, tmpdir, tree_node, new_config, header_action, tool_tab
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 PLANT = os.path.join(REPO, "examples", "virtual-plant")
@@ -221,7 +221,7 @@ class ProjectFiles(Base):
         target = os.path.join(project, "canworks")
         self.assertEqual(load(os.path.join(target, "simulation.json")), load(os.path.join(folder, "simulation.json")))
         self.assertTrue(os.path.isfile(os.path.join(target, "cell_eds.json")))
-        pg.click('#tool-tabs button[data-view="simulation"]')
+        tool_tab(pg, "simulation")
         pg.wait_for_selector('[data-sim="file-state"]:has-text("Saved")')
 
     def test_slave_eds_from_its_description(self):

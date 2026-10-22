@@ -1499,7 +1499,10 @@ function render() {
     : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
   badge.title = S.state.config_path;
   if (!S.state.commission && S.model) {
-    badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · " + TARGET_TITLE[projectTarget()]));
+    // The target opens the Project page, where it is switched.
+    badge.append(el("span", { class: "target-mark", dataset: { targetMark: projectTarget() } }, " · ",
+      el("button", { type: "button", class: "link", dataset: { openProject: "1" }, title: "Open the Project page: target and Online access",
+        onclick: () => { switchWorkspace("configure"); showView("project"); } }, TARGET_TITLE[projectTarget()])));
   }
   if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
@@ -1528,11 +1531,10 @@ function render() {
   }
   // A J1939 network has no nodes or simulated devices.
   if (!commission) {
-    if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation")) S.view = "bus";
+    if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation" || S.view === "simfile")) S.view = "bus";
     if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
     if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
     if (S.view === "codesys" && !codesysOn()) S.view = "bus";
-    if (S.view === "access" && !usedBy("ui:runtime")) S.view = "bus";
     if (S.view === "raw" && !usedBy("raw")) S.view = "bus";
     if (S.view === "gateway" && !usedBy("/gateway")) S.view = "bus";
     if (S.view === "declarations" && !usedBy("ui:declarations")) S.view = "bus";
@@ -1546,16 +1548,13 @@ function render() {
   // The connection stays open across views until Disconnect (connection.js);
   // the views only stop their own timers.
   stopOnline();
-  stopSim(S.view === "simulation");
+  stopSim(S.view === "simulation" || S.view === "simfile");
   stopTrace();
   const view = $("#view");
   view.replaceChildren();
   view.classList.toggle("wide-cols", S.view === "bus");
   if (S.view === "bus") {
     (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
-    // The project target (target.js) leads every bus page: it is the whole project's.
-    const h = view.querySelector("h2");
-    if (h) h.after(targetField());
   }
   else if (S.view === "raw") renderCanMessages(view);
   else if (S.view === "declarations") renderDeclarations(view);
@@ -1563,10 +1562,10 @@ function render() {
   else if (S.view === "nodes") renderCommNodes(view);
   else if (S.view === "trace") renderTrace(view);
   else if (S.view === "gateway") renderGateway(view);
-  else if (S.view === "access") renderAccess(view);
+  else if (S.view === "project") renderProject(view);
   else if (S.view === "bridge") renderBridge(view);
   else if (S.view === "codesys") renderCodesys(view);
-  else if (S.view === "simulation") renderSimulation(view);
+  else if (S.view === "simulation" || S.view === "simfile") renderSimulation(view);
   else if (S.view === "framelab") renderFrameLab(view);
   else if (S.view === "links") renderLinks(view);
   else if (S.view === "devices") renderDevices(view);
@@ -1726,7 +1725,7 @@ async function simulationNeedsOnline() {
     }
     S.model.diagnostics = { token_verifier: await verifierForToken(), allow_changes: true };
     await checkToken();
-    banner("Online access is now on with Allow changes, so the Simulation view can control the simulated devices. Save and upload to use it.", "info");
+    banner("Online access is now on with Allow changes, so Commission → Simulation can control the simulated devices. Save and upload to use it.", "info");
   } catch (e) { banner(e.message, true); }
 }
 
@@ -1770,7 +1769,7 @@ function networkSettings() {
         ? (sim.length ? `Simulated: ${plural(sim, "node", "nodes")} ${nodeIds(sim)}.` : "No node is simulated.") : "No nodes yet."),
       el("button", { type: "button", dataset: { sim: "all" }, disabled: !nodes.length, onclick: () => simulateAll(true) }, "Simulate all"),
       el("button", { type: "button", dataset: { sim: "none" }, disabled: !nodes.length, onclick: () => simulateAll(false) }, "Simulate none")),
-    hint("A simulated device is built from the node's EDS. Its behaviour, faults and scenarios are set in the Simulation view (simulation.json)."));
+    hint("A simulated device is built from the node's EDS. Its behaviour, faults and scenarios are set in Simulation file (simulation.json)."));
 }
 
 // A slave network on the simulated bus (docs/slave.md, "Simulated bus").
@@ -1936,8 +1935,12 @@ function renderBus(view) {
 
 // Online access (the plugin's diagnostics channel, with the CiA 309-3
 // gateway part): one setting for the whole config, its own tree entry.
-function renderAccess(view) {
-  view.append(el("h2", null, "Online access"),
+// The Project page: what the whole project is, not one network. The target
+// (target.js) and, when the target runs canworks, Online access.
+function renderProject(view) {
+  view.append(el("h2", null, "Project"), targetField());
+  if (!usedBy("ui:runtime")) return;
+  view.append(el("h3", { id: "online-access" }, "Online access"),
     el("p", { class: "muted" }, "The runtime's encrypted diagnostics channel, for the Commission workspace, Trace and Simulation. One setting for every network of this config."),
     onlineAccessSettings(),
     cia309Settings());
@@ -4228,9 +4231,9 @@ async function saveHost(host, say) {
   } catch (e) { if (say) say(e.message); else banner(e.message, true); return false; }
 }
 
-// withList: the connect box, which also lists the runtimes found on the
-// local network and the ones this PC remembers.
-function hostField(withList) {
+// The runtime host on the Project page: typed, or "local" for the local
+// simulator runtime. The connect panel has the combobox (runtimeHost).
+function hostField() {
   const input = el("input", { type: "text", spellcheck: "false", placeholder: "for example plc.local", "aria-label": "Runtime host",
     dataset: { online: "host" } });
   input.value = S.online.host || "";
@@ -4238,47 +4241,71 @@ function hostField(withList) {
   const local = el("button", { type: "button", class: "small", dataset: { online: "local" },
     title: "The local simulator runtime started with canworks-sim-runtime start" }, "Local simulator runtime");
   local.addEventListener("click", () => { input.value = "local"; saveHost("local"); });
-  return el("label", null, "Runtime host", withList ? runtimeList(input) : null, input, local,
-    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), ${withList ? "a runtime picked from the list, " : ""}or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+  return el("label", null, "Runtime host", input, local,
+    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
 }
 
-// The connect box's runtimes (canopen-configurator, Discovered and remembered
-// runtimes): the ones that answer on the local network, by name and
-// address, and the ones this PC remembers, by name. Picking one fills the
-// host: a discovered runtime's address, or a remembered runtime's name, which
-// connects by the automatic path choice (the local network first, the
-// remote link when this PC is paired).
-function runtimeList(input) {
-  const list = el("select", { "aria-label": "Runtimes", dataset: { online: "runtime-list" } },
-    el("option", { value: "" }, "Looking…"));
-  list.addEventListener("change", () => {
-    if (!list.value) return;
-    input.value = list.value;
-    saveHost(list.value);
-  });
+// The connect panel's runtime host (canopen-configurator, Connect panel):
+// one combobox. Its list has the runtimes that answer on the local network,
+// by name and address, the ones this PC remembers, by name, and the local
+// simulator runtime; any host can be typed. A discovered runtime fills its
+// address, a remembered one its name, which connects by the automatic path
+// choice (the local network first, the remote link when this PC is paired).
+let RUNTIME_LIST_ID = 0;
+function runtimeHost() {
+  const id = "runtime-options-" + (++RUNTIME_LIST_ID);
+  const local = () => el("option", { value: "local", dataset: { kind: "local" } }, "Local simulator runtime");
+  const list = el("datalist", { id, dataset: { online: "runtime-list" } }, local());
+  const input = el("input", { type: "text", spellcheck: "false", placeholder: "pick a runtime or type its host, for example plc.local",
+    "aria-label": "Runtime host", list: id, autocomplete: "off", dataset: { online: "host" } });
+  input.value = S.online.host || "";
+  input.addEventListener("change", () => saveHost(input.value.trim()));
+  const status = el("span", { class: "muted", "aria-live": "polite", dataset: { online: "runtime-status" } }, "Looking for runtimes…");
   const fill = async () => {
-    list.replaceChildren(el("option", { value: "" }, "Looking…"));
+    status.textContent = "Looking for runtimes…";
     let r;
     try { r = await api("GET", "/api/online/runtimes"); } catch (e) {
-      list.replaceChildren(el("option", { value: "" }, "Not available"));
+      status.textContent = "Finding runtimes is not available.";
       return;
     }
     const found = (r.discovered || []).filter((d) => d.address);
     const mem = r.remembered || [];
-    // Short texts: the list sits next to the host field and must not clip.
-    const none = r.discovery ? "None found" : "None remembered";
-    list.title = r.discovery ? "Runtimes on this network and remembered ones"
-      : "Remembered runtimes (finding runtimes on the network is not available)";
-    list.replaceChildren(el("option", { value: "" }, found.length || mem.length ? "Pick a runtime…" : none),
-      found.length ? el("optgroup", { label: "On this network" }, found.map((d) =>
-        el("option", { value: d.address, dataset: { runtime: d.name, kind: "discovered" } }, `${d.name}  ${d.address}`))) : null,
-      mem.length ? el("optgroup", { label: "Remembered" }, mem.map((m) =>
-        el("option", { value: m.name, dataset: { runtime: m.name, kind: "remembered" } },
-          m.name + (m.hosts.length ? `  ${m.hosts[0]}` : "") + (m.paired ? (m.internet ? ", paired, from other networks" : ", paired") : "")))) : null);
+    list.replaceChildren(
+      ...found.map((d) => el("option", { value: d.address, dataset: { runtime: d.name, kind: "discovered" } }, `${d.name}, on this network`)),
+      ...mem.map((m) => el("option", { value: m.name, dataset: { runtime: m.name, kind: "remembered" } },
+        "remembered" + (m.hosts.length ? `, ${m.hosts[0]}` : "") + (m.paired ? (m.internet ? ", paired, from other networks" : ", paired") : ""))),
+      local());
+    const parts = [];
+    if (found.length) parts.push(`${found.length} on this network`);
+    if (mem.length) parts.push(`${mem.length} remembered`);
+    status.textContent = parts.length ? parts.join(", ") + ": pick one from the list." : r.discovery ? "No runtime found on this network." : "Finding runtimes on the network is not available.";
   };
   const refresh = el("button", { type: "button", class: "small", dataset: { online: "runtime-refresh" }, onclick: fill }, "Refresh");
   fill();
-  return el("div", { class: "row" }, list, refresh);
+  return el("label", null, "Runtime", el("div", { class: "row" }, input, refresh), list, status,
+    hint(`A runtime from the list, a host as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+}
+
+// A token typed into the connect panel: kept on this PC when it matches the
+// config's verifier. Returns the error text, or "" when it was taken.
+async function takeToken(value) {
+  try {
+    const r = await api("POST", "/api/online/token", Object.assign({ action: "set", token: value }, configToken(diagConfig())));
+    S.online = Object.assign(S.online, r);
+    await checkToken();
+    return S.online.tokenOk ? "" : "The token does not match this config.";
+  } catch (e) { return e.message; }
+}
+
+// A password field with Show, for a token.
+function secretField(attrs) {
+  const input = el("input", Object.assign({ type: "password", autocomplete: "off", spellcheck: "false" }, attrs));
+  const show = el("button", { type: "button", class: "small", "aria-pressed": "false", onclick: () => {
+    const on = input.type === "password";
+    input.type = on ? "text" : "password";
+    show.setAttribute("aria-pressed", String(on));
+  } }, "Show");
+  return [input, show];
 }
 
 function onlineAccessSettings() {
@@ -4534,7 +4561,7 @@ async function removePc(button, p, you, reload) {
 }
 
 // ---------------------------------------------------------------------------
-// Online view
+// The Commission Nodes view
 
 // Stops the online view's own timers. The connection stays open until
 // Disconnect (connection.js); a view change never closes it.
@@ -4562,7 +4589,7 @@ function renderOnline(view) {
   // An adapter on another machine needs no online access in the config.
   if (!connAdapter() && !diagConfig()) {
     view.append(notice("info", ["Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("project"); } }, "Project → Online access"),
       ", save, and upload the program to the runtime."], { live: false, dataset: { online: "access-off" } }));
     return;
   }
@@ -7119,7 +7146,7 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
   S.focusName = S.config.nodes.length - 1;
   banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}). Map its PDOs here, then save. `,
     noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
-    lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to the online view") : null),
+    lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to Nodes") : null),
   importReport(res)));
   changed(true);
 }
@@ -7888,7 +7915,7 @@ function focusPath(w) {
   unfoldFor(entry);
   const m = /^nodes\[(\d+)\]/.exec(path);
   if (m && tab) { const have = nodeTabs(Number(m[1])).map(([k]) => k); setNodeTab(have.includes(tab) ? tab : "general"); }
-  const want = m ? "node:" + m[1] : entry === "access" ? "access" : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
+  const want = m ? "node:" + m[1] : entry === "project" ? "project" : path.startsWith("gateway") ? "gateway" : path.startsWith("bridge") ? "bridge"
     : entry === "codesys" ? "codesys" : path.startsWith("links") ? "links"
     : (path.startsWith("adapter") || path.startsWith("master") || path.startsWith("slave") || path.startsWith("j1939") ||
       path.startsWith("codesys") || path === "role" || path === "protocol" ? "bus" : S.view);

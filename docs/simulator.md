@@ -1,6 +1,6 @@
 # Simulator
 
-Simulated devices are CANopen nodes built from their EDS files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. The configurator's **Simulation** view drives them.
+Simulated devices are CANopen nodes built from their EDS files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. The configurator's **Simulation** tab in Commission drives them, and **Simulation file** in Configure edits what they do.
 
 They are for CANopen networks. A J1939 network does not run on the simulated bus (`adapter.simulate` is refused there); `canworks-j1939-sim` plays its other ECUs from a DBC file instead ([j1939.md](j1939.md#simulator)).
 
@@ -27,7 +27,7 @@ That gives four combinations:
 | real | some (`"simulate": true` on them) | The simulated devices run inside the plugin on the real interface, next to the real devices. Real devices on the wire and the master see them as any other node. |
 | real | all | Every node is simulated, and their frames go out on the real interface. |
 
-A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, whose network tree marks simulated nodes hollow and absent ones dashed, and a question before the deploy tool uploads it. A simulated node's **Simulation** tab in the configurator edits its part of the [simulation file](#the-simulation-file) (value sources, faults at start, default behaviour). Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
+A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, whose network tree marks simulated nodes hollow and absent ones dashed, and a question before the deploy tool uploads it. A simulated node's **Simulated device** tab in the configurator edits its part of the [simulation file](#the-simulation-file) (value sources, faults at start, default behaviour). Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
 #### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
 
@@ -350,7 +350,7 @@ Devices that speak neither CANopen nor J1939, such as a joystick or a display th
 | `send[].signals[]` multiplexing | A send may be multiplexed as in the config ([raw-can.md](raw-can.md#multiplexed-messages)): a switch signal has `"multiplexer": true` and no `source` (the simulator sets it per page), dependent signals have `mux`. `pages` is `all` (default: every page each period, one frame per page) or `rotate` (one page per period, in turn). At most 64 pages. |
 | `replies[]` | Answers: a frame matching `on` (`id`, and the first bytes `data`, with an optional bit `mask` per byte) makes the device send `send` after `delay_ms`. |
 
-A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick, a pedal, a multiplexed sensor sending two pages and a scenario that stops the joystick. The configurator's **Simulation** view lists the devices on its **File** tab.
+A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"stop": true}` stops its frames and replies, `"fault": {"wrong_dlc": N}` sends its frames with N data bytes, and `"clear"` takes `"stop"`, `"wrong_dlc"` or `"all"`. On a plain CAN network these steps, `log` and `repeat` are the only ones, since there are no nodes. [`examples/raw-can/cab.sim.json`](../examples/raw-can/cab.sim.json) has a joystick, a pedal, a multiplexed sensor sending two pages and a scenario that stops the joystick. The configurator's **Simulation file** tab (Configure) lists the devices.
 
 ### Control protocol
 

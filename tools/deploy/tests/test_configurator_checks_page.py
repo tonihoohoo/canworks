@@ -15,7 +15,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, add_network, show_path, tmpdir, tree_node, tree_view
+from .helpers import REPO, add_network, show_path, tmpdir, tree_node, tree_view, tool_tab
 from .test_configurator_page import REQUIRED, load, sync_playwright
 from .test_configurator_sim_page import Base as SimBase, View as SimView, rtd_config
 
@@ -214,8 +214,8 @@ class SimulationFile(SimBase):
             json.dump({"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1},
                                                                          "0x7130:1": {"constant": 2}}}}}, f)
         self.open()
-        pg.click('button[data-view="simulation"]')
-        pg.click('button[data-sim-tab="file"]')
+        tool_tab(pg, "simulation")
+        tool_tab(pg, "simfile")
         pg.fill('input[data-sim-field="file-tick"]', "20")
         box = pg.wait_for_selector('[data-sim-problems=""] li')
         self.assertIn("node 5 (rtd): 0x6110:1 is written by the master (startup SDO); a value source cannot drive it",

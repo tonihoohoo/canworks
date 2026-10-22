@@ -91,7 +91,6 @@ function renderBridge(view) {
   view.append(el("h2", null, "Modbus bridge"),
     el("p", { class: "muted" }, "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
       "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way."),
-    targetField(),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { bridge: "install-device" },
       title: "Install the bridge on a Linux device over SSH and start it with this project's saved config",
       onclick: () => installOnDevice(null) }, "Install on device…")),

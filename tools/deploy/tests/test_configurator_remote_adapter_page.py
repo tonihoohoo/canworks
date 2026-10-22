@@ -17,6 +17,7 @@ from canworks.localbus import core as core_mod
 from canworks.localbus import parse, serve
 
 from . import fake_tls
+from .helpers import tool_tab
 from .test_configurator_localbus_page import AdapterPage
 
 TOKEN = "page-adapter-token"
@@ -51,9 +52,11 @@ class RemotePage(AdapterPage):
 
     def pick_server(self):
         pg = self.page
-        pg.wait_for_selector('#conn-dialog select[data-online="server-list"] option[value="%s"]' % self.address,
+        # One combobox: the found servers are its list, picking one fills the host.
+        pg.wait_for_selector('#conn-dialog datalist[data-online="server-list"] option[value="%s"]' % self.address,
                              state="attached")
-        pg.select_option('#conn-dialog select[data-online="server-list"]', self.address)
+        pg.wait_for_selector('#conn-dialog [data-online="server-status"]:has-text("1 found")')
+        pg.fill('#conn-dialog input[data-online="remote-host"]', self.address)
 
     def pick_remote(self):
         pg = self.page
@@ -170,7 +173,7 @@ class RemoteWords(RemotePage):
         self.commission()
         self.connect_remote()
         pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("on %s")' % self.address)
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.click("[data-trace=start-stop]")
         pg.wait_for_selector('#trace-stats:has-text("dropped by")', timeout=20000)
         stats = pg.inner_text("#trace-stats")
