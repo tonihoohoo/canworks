@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Stock-runtime install test (canopen-stock-install), on a checkout of the
 # upstream runtime:
-#   1. scripts/install-stock.sh twice: one disabled canworks line, no modified
+#   1. scripts/install-stock.sh twice: the second run (same version) changes
+#      nothing, --force installs again; one disabled canworks line, no modified
 #      tracked runtime files; an install from before the rename is removed
 #   2. the runtime's own upload handling on a deploy-tool bundle (enables
 #      the canworks plugin, config next to the library, EDS from core/generated/conf) and
@@ -57,7 +58,17 @@ grep -q "Removed /usr/local/bin/canworks-sim " "$WORK/old-names.log" || fail "th
 ! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "the old canopen line was left"  # rename-keep
 [ ! -e "$SITE/openplc_canopen_hook.pth" ] || fail "the old editor hook was left"  # rename-keep
 [ ! -e "$OLD_PREFIX" ] || fail "the old install folder was left"
-"$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME"
+# The same version again changes nothing (skip-same-version-device-install):
+# an upload's enabled line stays; --force installs again (disabled line).
+sed -i 's|^canworks,\(.*\),0,1,|canworks,\1,1,1,|' "$RUNTIME/plugins.conf"
+ENABLED=$(grep '^canworks,' "$RUNTIME/plugins.conf")
+"$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >"$WORK/again.log"
+grep -q "is already installed for this runtime" "$WORK/again.log" || { cat "$WORK/again.log"; fail "the same version was installed again"; }
+! grep -q "Building the plugin" "$WORK/again.log" || fail "the same version rebuilt the plugin"
+[ "$(grep '^canworks,' "$RUNTIME/plugins.conf")" = "$ENABLED" ] || fail "the skipped run changed plugins.conf"
+"$REPO/scripts/install-stock.sh" --no-deps --force --runtime-dir "$RUNTIME" >"$WORK/force.log"
+grep -q "Building the plugin" "$WORK/force.log" || fail "--force did not rebuild the plugin"
+grep -q "^version=" /opt/canworks/lib/install-stamp || fail "no install stamp"
 [ "$(grep -c '^canworks,' "$RUNTIME/plugins.conf")" = 1 ] || fail "expected exactly one canworks line"
 grep -qx 'canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib/canworks.json,' \
     "$RUNTIME/plugins.conf" || fail "unexpected canworks line"

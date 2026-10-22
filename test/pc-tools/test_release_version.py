@@ -76,7 +76,7 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(self.state(completed("success")), "success")
         self.assertEqual(self.state(completed("failure")), "failure")
         self.assertEqual(self.state(completed("cancelled")), "failure")
-        # Newest run first, as gh run list orders them.
+        # Newest run first, as the runs API orders them.
         self.assertEqual(self.state(completed("success") + completed("failure")), "success")
 
     def test_both_green(self):

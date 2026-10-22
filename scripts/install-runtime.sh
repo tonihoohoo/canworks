@@ -22,7 +22,9 @@
 # It only installs released code, never main. The newest release is found
 # from GitHub's releases/latest redirect, so no API token is needed. The tools
 # go in with the exact dependency versions the release was tested with (its
-# canworks-<version>-constraints.txt asset).
+# canworks-<version>-constraints.txt asset). Running the release that is
+# already installed again builds nothing and leaves the PLC and its program
+# alone; --force (an install-stock.sh option) installs it again.
 
 set -euo pipefail
 
@@ -53,7 +55,7 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY_RUN=1 ;;
         --with-openplc) WITH_OPENPLC=1 ;;
         -h|--help)
-            if [ -f "$0" ]; then sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
+            if [ -f "$0" ]; then sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
             exit 0 ;;
         --) ;;
         *) PASS+=("$1") ;;

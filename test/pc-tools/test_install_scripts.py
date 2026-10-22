@@ -472,14 +472,14 @@ class InstallRuntimeSh(_Base):
 
     def test_over_ssh(self):
         r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
-                             "--identity", "/k/id", "--with-link"])
+                             "--identity", "/k/id", "--with-link", "--force"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("installing canworks 1.2.3 on admin@plc.local", r.stdout)
         line = [l for l in r.stdout.splitlines() if l.startswith("would run:")][0]
         self.assertIn("ssh -t -p 2222 -i /k/id admin@plc.local", line)
         # The device fetches the script of the release it installs, pinned to it.
         self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh", line)
-        self.assertIn("sudo bash -s -- --version 1.2.3 --with-link", line)
+        self.assertIn("sudo bash -s -- --version 1.2.3 --with-link --force", line)
 
     def test_ssh_options_need_ssh(self):
         r = self.run_script(["bash", self.script, "--dry-run", "--port", "22"])
@@ -939,11 +939,11 @@ class PowerShellScripts(_Base):
 
     def test_install_runtime_over_ssh(self):
         r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",
-                      "-Options", "--with-link")
+                      "-Options", "--force")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("ssh -t -p 2222 admin@plc.local", r.stdout)
         self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh' | sudo bash -s -- "
-                      "--version '1.2.3' '--with-link'", r.stdout)
+                      "--version '1.2.3' '--force'", r.stdout)
 
     def test_install_bridge_over_ssh(self):
         r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",

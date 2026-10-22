@@ -6,7 +6,7 @@ This page covers native installs (`./install.sh --native`) first; for upstream's
 
 ## Install or update with one line
 
-On the device, as root; it downloads the newest release (not `main`) and runs its `scripts/install-stock.sh`, with no git checkout. Running it again updates to the newest release:
+On the device, as root; it downloads the newest release (not `main`) and runs its `scripts/install-stock.sh`, with no git checkout. Running it again updates to the newest release. When that release is already installed for the same runtime, the run builds nothing and leaves `plugins.conf` and the runtime alone, so the PLC keeps running its program (it still sets up `--with-link` and discovery); `--force` installs it again:
 
 ```sh
 curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | sudo bash
@@ -69,7 +69,7 @@ Both protocols are built by default. `--without-j1939` builds CANopen only (no k
 
 The installed release's version is in `/opt/canworks/VERSION` (`--uninstall` removes it). While it runs, the script prints its steps as lines of the form `::canworks-step N/M text` (`N/?` while the total is not known yet), which the configurator shows as progress.
 
-It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again rebuilds the plugin and still leaves exactly one `canworks` line. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
+It changes no file the runtime's git checkout tracks (`plugins.conf` is the runtime's own untracked, runtime-managed file). Running it again with a newer version, other protocols or `--no-editor-hook`, or after a runtime update, rebuilds the plugin and still leaves exactly one `canworks` line; a run that would install the same again (recorded in `/opt/canworks/lib/install-stamp`) builds nothing and leaves `plugins.conf` and the runtime alone, and `--force` installs anyway. A checkout with local edits (`git describe` ends in `-dirty`) always installs. It records the runtime commit it built against in `/opt/canworks/lib/runtime-commit` and warns when the runtime has changed since: the plugin interface is not versioned, so re-run the script after updating the runtime. When the runtime runs in Docker it installs in [Docker mode](#docker-installs) instead.
 
 The line survives runtime updates as long as `plugins.conf` is kept: the runtime only recreates it from `plugins_default.conf` when it is missing.
 
@@ -91,7 +91,7 @@ It:
 - adds two entries to the bootloader's runtime spec, through the same `extraBinds`/`extraEnv` keys upstream's installer writes for `--mount`/`--env`, and leaves every other entry as it was:
   - `extraBinds`: `/opt/canworks:/opt/canworks`
   - `extraEnv`: `PYTHONPATH=/opt/canworks/lib/sitecustomize` (loads the editor hook in the runtime's webserver)
-- recreates the runtime container (`docker rm -f openplc-runtime`, `docker restart openplc-bootloader`) so the bootloader applies them. **The PLC stops, and the new container has no program**: it comes back with the PLC empty until you upload the program again (the deploy tool starts the PLC after the upload).
+- recreates the runtime container (`docker rm -f openplc-runtime`, `docker restart openplc-bootloader`) so the bootloader applies them; a re-run with the same version, protocols and runtime image skips the build and this step (`--force` does both). **The PLC stops, and the new container has no program**: it comes back with the PLC empty until you upload the program again (the deploy tool starts the PLC after the upload).
 
 Then upload as on a native install (the runtime's certificate is new with each new container, so a pinned `--fingerprint` changes too): `canworks-deploy`, or the editor's **Build and upload** with a `canworks/` folder in the project. The CAN side needs nothing Docker-specific: upstream runs the runtime container privileged, on the host network, with `/dev` mounted, so `can0`, an slcan adapter's serial device, the plugin's link setup and the diagnostics port 7531 work as on a native install.
 
