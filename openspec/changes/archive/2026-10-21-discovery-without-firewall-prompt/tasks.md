@@ -1,7 +1,9 @@
 ## 1. Check on Windows first
 
-- [ ] 1.1 On the Windows PC, with a Python path the firewall has no rule for yet (for example a new `uv python install` patch version, or a copied interpreter folder), run a throwaway script that sends a QU PTR question for `_canworks._tcp.local` to 224.0.0.251:5353 from an unbound UDP socket per interface (`IP_MULTICAST_IF`) and prints the answers. Record: whether a firewall question appears (screenshot or "none"), whether the Pi answers, and the network profile (Private/Public). Try both profiles if possible. If a question appears, stop and update this proposal to the fallback in design.md (discovery on request).
-- [ ] 1.2 With the same new Python, run `Zeroconf()` alone and confirm that it does make the question appear (baseline).
+- [x] 1.1 On the Windows PC, with a Python path the firewall has no rule for yet (for example a new `uv python install` patch version, or a copied interpreter folder), run a throwaway script that sends a QU PTR question for `_canworks._tcp.local` to 224.0.0.251:5353 from an unbound UDP socket per interface (`IP_MULTICAST_IF`) and prints the answers. Record: whether a firewall question appears (screenshot or "none"), whether the Pi answers, and the network profile (Private/Public). Try both profiles if possible. If a question appears, stop and update this proposal to the fallback in design.md (discovery on request).
+  - Result 2026-10-22, system CPython 3.13.2 with no firewall rule, Ethernet profile Public: questions went out on three interfaces (link-local, LAN, WSL vEthernet) from ephemeral ports. The Pi answered by unicast from its LAN address with name, ports and link ID. No new window and no firewall question appeared. Only the Public profile was tried.
+- [x] 1.2 With the same new Python, run `Zeroconf()` alone and confirm that it does make the question appear (baseline).
+  - Result: binding UDP 5353 the way zeroconf does brought up "Windows Firewall has blocked some features of Python on all public and private networks" right away (photo in the thread).
 
 ## 2. Discovery
 
