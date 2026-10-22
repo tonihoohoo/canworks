@@ -71,7 +71,7 @@ jobs:
           sudo ip link set vcan0 up
 
       - name: Build in the runtime image, ping-pong and the runtime container
-        run: sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest
+        run: sudo test/docker/run.sh  # the pinned runtime image (docker/local-runtime/runtime-version)
 
   single-protocol:
     # The plugin built with one protocol only (CANWORKS_WITH_CANOPEN /

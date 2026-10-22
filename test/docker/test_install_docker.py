@@ -49,6 +49,7 @@ STUB_DOCKER = textwrap.dedent("""\
     case "$1" in
         image) [ "$2" = inspect ] && { echo sha256:feed; exit 0; } ;;
         ps) printf '%s' "$STUB_CONTAINERS"; exit 0 ;;
+        pull) [ -n "$STUB_PULL_FAILS" ] && exit 1; exit 0 ;;
         inspect) echo ghcr.io/autonomy-logic/openplc-runtime:v4.2.4; exit 0 ;;
         run)
             [ -n "$STUB_RUN_FAILS" ] && exit 1
@@ -109,6 +110,15 @@ class SpecTool(unittest.TestCase):
         self.assertEqual(spec["extraEnv"], before["extraEnv"] + [self.ENV])
         self.tool("remove", self.BIND, self.ENV)
         self.assertEqual(json.loads(self.read()), before)
+
+    def test_version(self):
+        self.write(SPEC_WITH_MOUNT)
+        out = subprocess.run([sys.executable, docker_spec.__file__, "version", self.path], capture_output=True, text=True)
+        self.assertEqual(out.stdout, "v4.2.4\n")
+        self.assertEqual(self.tool("set-version", "v4.3.1"), 0)
+        self.assertEqual(json.loads(self.read()), dict(json.loads(SPEC_WITH_MOUNT), version="v4.3.1"))
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), "0o640")
+        self.assertEqual(self.tool("set-version", "latest"), 1)
 
     def test_has(self):
         self.write(UPSTREAM_SPEC)
@@ -271,6 +281,59 @@ class Installer(unittest.TestCase):
         self.write_spec()
         p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.8")
         self.assertNotIn("already installed", p.stdout)
+
+    # freeze-openplc-runtime: --runtime-version puts the runtime on that version.
+    def test_runtime_version_switch(self):
+        self.write_spec(SPEC_WITH_MOUNT)
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.run_script("--runtime-version", "v4.3.1", CANWORKS_PLUGIN_VERSION="9.8.7")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        spec = json.loads(self.read_spec())
+        self.assertEqual(spec["version"], "v4.3.1")
+        self.assertEqual(spec["extraBinds"], ["/lib/modules:/lib/modules:ro", self.bind])
+        self.assertEqual(spec["extraEnv"], ["TZ=Europe/Helsinki", self.env_entry])
+        self.assertEqual((spec["repository"], spec["dataDir"], spec["bootloaderPort"]),
+                         ("ghcr.io/autonomy-logic/openplc-runtime", "/var/lib/openplc-runtime", 8445))
+        calls = self.calls()
+        pull = calls.index("pull ghcr.io/autonomy-logic/openplc-runtime:v4.3.1")
+        run = [i for i, c in enumerate(calls) if c.startswith("run ")][-1]
+        self.assertLess(pull, run)
+        self.assertIn("openplc-runtime:v4.3.1 /src/scripts/install-stock.sh --in-image", calls[run])
+        self.assertEqual(self.recreates(), 2)  # the switch builds and recreates even with the same stamp
+
+        # Already on it: the same-version skip applies.
+        p = self.run_script("--runtime-version", "v4.3.1", CANWORKS_PLUGIN_VERSION="9.8.7")
+        self.assertIn("already installed", p.stdout)
+        self.assertEqual(self.recreates(), 2)
+
+    def test_runtime_version_pull_fails(self):
+        self.write_spec()
+        p = self.run_script("--runtime-version", "v4.3.1", STUB_PULL_FAILS="1")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("the device cannot download OpenPLC runtime v4.3.1", p.stderr)
+        self.assertIn("nothing was changed", p.stderr)
+        self.assertEqual(self.read_spec(), UPSTREAM_SPEC)
+        self.assertEqual((self.builds(), self.recreates()), (0, 0))
+
+    def test_runtime_version_failed_build_keeps_the_spec(self):
+        self.write_spec()
+        p = self.run_script("--runtime-version", "v4.3.1", STUB_RUN_FAILS="1")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(self.read_spec(), UPSTREAM_SPEC)
+        self.assertEqual(self.recreates(), 0)
+
+    def test_runtime_version_only_for_managed_docker(self):
+        for args, spec in ((["--runtime-version", "v4.3.1"], False),
+                           (["--runtime-version", "v4.3.1", "--docker-image", "x:y"], True)):
+            p = self.run_script(*args, spec=spec)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("--runtime-version is for the managed Docker runtime", p.stderr)
+        self.write_spec()
+        p = self.run_script("--runtime-version", "latest")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("needs a runtime release such as v4.3.1", p.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_unknown_or_dirty_version_always_installs(self):
         self.write_spec()

@@ -11,6 +11,8 @@ or removes exactly the CANopen entries and leaves everything else as it was.
     docker_spec.py add SPEC BIND ENV     adds the entries (once each)
     docker_spec.py remove SPEC BIND ENV  removes them
     docker_spec.py has SPEC BIND ENV     exits 0 when both entries are there, else 3
+    docker_spec.py version SPEC          prints the runtime version (the image tag)
+    docker_spec.py set-version SPEC VER  sets the runtime version, nothing else
 
 Writes go to a temporary file in the same directory and replace the spec
 atomically, keeping its mode.
@@ -18,6 +20,7 @@ atomically, keeping its mode.
 
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -76,6 +79,14 @@ def remove(spec, bind, env):
     return spec
 
 
+def set_version(spec, version):
+    """The runtime version (freeze-openplc-runtime): a release tag only."""
+    if not re.match(r"^v\d+\.\d+\.\d+$", version):
+        raise SpecError("not an OpenPLC runtime release version: %r" % version)
+    spec["version"] = version
+    return spec
+
+
 def save(path, spec):
     directory = os.path.dirname(os.path.abspath(path))
     fd, tmp = tempfile.mkstemp(prefix=".runtime-spec.", dir=directory)
@@ -109,6 +120,12 @@ def main(argv):
         spec = load(path)
         if cmd == "image" and len(argv) == 2:
             print(image(spec))
+        elif cmd == "version" and len(argv) == 2:
+            print(spec["version"])
+        elif cmd == "set-version" and len(argv) == 3:
+            changed = set_version(json.loads(json.dumps(spec)), argv[2])
+            if changed != spec:
+                save(path, changed)
         elif cmd == "has" and len(argv) == 4:
             return 0 if has(spec, argv[2], argv[3]) else 3
         elif cmd in ("add", "remove") and len(argv) == 4:

@@ -17,7 +17,14 @@
 #   --identity FILE    SSH key (with --ssh)
 #   --dry-run          print what would run, change nothing
 #   --with-openplc     when the device has no OpenPLC runtime, install upstream's
-#                      (managed Docker, https://runtime.getedge.me) first
+#                      (managed Docker, https://runtime.getedge.me) first, at the
+#                      runtime and bootloader versions this release is pinned to
+#                      (its docker/local-runtime/runtime-version and bootloader-version)
+#   --pinned-runtime   on the managed Docker runtime, put the runtime on the version
+#                      this release is pinned to (install-stock.sh --runtime-version)
+#
+# CANWORKS_RUNTIME_VERSION and CANWORKS_BOOTLOADER_VERSION replace the pins, to
+# try another runtime by hand; canworks is only tested with the pinned one.
 #
 # It only installs released code, never main. The newest release is found
 # from GitHub's releases/latest redirect, so no API token is needed. The tools
@@ -41,6 +48,7 @@ SSH_PORT=""
 SSH_IDENTITY=""
 DRY_RUN=0
 WITH_OPENPLC=0
+PINNED_RUNTIME=0
 PASS=()
 
 die() { echo "install-runtime: $*" >&2; exit 1; }
@@ -54,8 +62,9 @@ while [ $# -gt 0 ]; do
         --identity) [ $# -ge 2 ] || die "--identity needs a file"; SSH_IDENTITY=$2; shift ;;
         --dry-run) DRY_RUN=1 ;;
         --with-openplc) WITH_OPENPLC=1 ;;
+        --pinned-runtime) PINNED_RUNTIME=1 ;;
         -h|--help)
-            if [ -f "$0" ]; then sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
+            if [ -f "$0" ]; then sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
             exit 0 ;;
         --) ;;
         *) PASS+=("$1") ;;
@@ -96,6 +105,7 @@ if [ -n "$SSH_TARGET" ]; then
     # release pinned, so both sides agree on the version.
     remote="curl -LsSf $(printf '%q' "$RAW/$TAG/scripts/install-runtime.sh") | sudo bash -s -- --version $(printf '%q' "$VERSION")"
     [ "$WITH_OPENPLC" = 0 ] || remote+=" --with-openplc"
+    [ "$PINNED_RUNTIME" = 0 ] || remote+=" --pinned-runtime"
     for a in "${PASS[@]+"${PASS[@]}"}"; do remote+=" $(printf '%q' "$a")"; done
     cmd=(ssh -t)
     [ -z "$SSH_PORT" ] || cmd+=(-p "$SSH_PORT")
@@ -135,10 +145,33 @@ TARBALL="$REPO/archive/refs/tags/$TAG.tar.gz"
 CONSTRAINTS_URL="$REPO/releases/download/$TAG/canworks-$VERSION-constraints.txt"
 UNINSTALLING=0
 for a in "${PASS[@]+"${PASS[@]}"}"; do [ "$a" != --uninstall ] || UNINSTALLING=1; done
+# The runtime and bootloader this release is pinned to (canopen-ci "One
+# runtime pin"); a dry run reads them from the release's raw files.
+PIN_RT=${CANWORKS_RUNTIME_VERSION:-}
+PIN_BL=${CANWORKS_BOOTLOADER_VERSION:-}
+read_pins() {  # $1: the folder holding runtime-version and bootloader-version, or a URL
+    local rt bl
+    if [ -d "$1" ]; then
+        rt=$(sed -n 1p "$1/runtime-version" 2>/dev/null || true); bl=$(sed -n 1p "$1/bootloader-version" 2>/dev/null || true)
+    else
+        rt=$(curl -fsSL "$1/runtime-version" 2>/dev/null | sed -n 1p || true)
+        bl=$(curl -fsSL "$1/bootloader-version" 2>/dev/null | sed -n 1p || true)
+    fi
+    [ -n "$PIN_RT" ] || PIN_RT=$rt
+    [ -n "$PIN_BL" ] || PIN_BL=$bl
+    [[ $PIN_RT =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "release $VERSION names no pinned OpenPLC runtime version"
+    [[ $PIN_BL =~ ^[A-Za-z0-9._-]+$ ]] || die "release $VERSION names no pinned OpenPLC bootloader version"
+}
+NEED_PINS=0
+{ [ "$INSTALL_OPENPLC" = 1 ] || [ "$PINNED_RUNTIME" = 1 ]; } && [ "$UNINSTALLING" = 0 ] && NEED_PINS=1
 if [ "$DRY_RUN" = 1 ]; then
-    [ "$INSTALL_OPENPLC" = 0 ] || echo "would install the OpenPLC runtime: curl -fsSL $OPENPLC_INSTALLER | bash"
+    [ "$NEED_PINS" = 0 ] || read_pins "$RAW/$TAG/docker/local-runtime"
     [ "$UNINSTALLING" = 1 ] || echo "would download: $CONSTRAINTS_URL"
     echo "would download: $TARBALL"
+    [ "$INSTALL_OPENPLC" = 0 ] || echo "would install the OpenPLC runtime: curl -fsSL $OPENPLC_INSTALLER | bash -s -- --runtime-version $PIN_RT --bootloader-version $PIN_BL"
+    if [ "$PINNED_RUNTIME" = 1 ] && [ "$UNINSTALLING" = 0 ] && { [ "$INSTALL_OPENPLC" = 1 ] || [ -f "$BOOTLOADER_SPEC" ]; }; then
+        PASS+=(--runtime-version "$PIN_RT")
+    fi
     printf 'would run: CANWORKS_PLUGIN_VERSION=%s bash <source>/scripts/install-stock.sh' "$VERSION"; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
     exit 0
 fi
@@ -159,10 +192,16 @@ if [ "$UNINSTALLING" = 0 ]; then
     esac
 fi
 
+step 1 "Downloading canworks $VERSION"
+curl -fsSL "$TARBALL" | tar -xz -C "$SRC" --strip-components=1 ||
+    die "could not download $TARBALL"
+[ -f "$SRC/scripts/install-stock.sh" ] || die "$TARBALL has no scripts/install-stock.sh"
+[ "$NEED_PINS" = 0 ] || read_pins "$SRC/docker/local-runtime"
+
 if [ "$INSTALL_OPENPLC" = 1 ]; then
-    step 1 "Installing the OpenPLC runtime (upstream's installer, with Docker)"
-    say "no OpenPLC runtime found: installing it with $OPENPLC_INSTALLER"
-    curl -fsSL "$OPENPLC_INSTALLER" | bash || die "the OpenPLC runtime install failed (see above); canworks was not installed"
+    step 2 "Installing OpenPLC runtime $PIN_RT (upstream's installer, with Docker)"
+    say "no OpenPLC runtime found: installing OpenPLC runtime $PIN_RT with $OPENPLC_INSTALLER"
+    curl -fsSL "$OPENPLC_INSTALLER" | bash -s -- --runtime-version "$PIN_RT" --bootloader-version "$PIN_BL" || die "the OpenPLC runtime install failed (see above); canworks was not installed"
     say "waiting for the runtime to answer at $RUNTIME_URL"
     waited=0
     until [ "$(curl -ks -o /dev/null -w '%{http_code}' "$RUNTIME_URL" 2>/dev/null || true)" != 000 ]; do
@@ -172,10 +211,10 @@ if [ "$INSTALL_OPENPLC" = 1 ]; then
     done
 fi
 
-step "$BASE" "Downloading canworks $VERSION"
-curl -fsSL "$TARBALL" | tar -xz -C "$SRC" --strip-components=1 ||
-    die "could not download $TARBALL"
-[ -f "$SRC/scripts/install-stock.sh" ] || die "$TARBALL has no scripts/install-stock.sh"
+# The managed Docker runtime goes on the pinned version (device-install).
+if [ "$PINNED_RUNTIME" = 1 ] && [ "$UNINSTALLING" = 0 ] && [ -f "$BOOTLOADER_SPEC" ]; then
+    PASS+=(--runtime-version "$PIN_RT")
+fi
 # The source has no git history: the plugin reports the release's version.
 CANWORKS_STEP_BASE=$BASE CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-stock.sh" "${PASS[@]+"${PASS[@]}"}"
 }

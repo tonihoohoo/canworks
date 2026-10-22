@@ -230,6 +230,19 @@ class Service(Device):
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
 
+    # freeze-openplc-runtime: plugin jobs on managed Docker keep the runtime on the pin.
+    def test_plugin_job_pins_the_runtime(self):
+        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        seen = []
+        real = jobs.start
+        jobs.start = lambda conn, mode, pw, action, lines, paths, job_id=None: seen.append(lines) or "20261022T000000Z-abcd"
+        self.addCleanup(setattr, jobs, "start", real)
+        for kind, pinned in (("docker-managed", True), ("native", False)):
+            self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd",
+                                                   runtime={"kind": kind, "version": "v4.3.2"}))
+            self.devices.start(self.did, "install_plugin", {}, None)
+            self.assertEqual("--pinned-runtime" in seen[-1][0], pinned, kind)
+
     def test_probe_on_a_dropped_kept_connection(self):
         self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
         conn, _ = self.devices.connection(self.did)

@@ -209,7 +209,8 @@ class Devices:
                               discovery=discovery, purge=options.get("purge") is True,
                               link_config=link_config, runtime_port=runtime_port,
                               instance=instance if action in ("install_bridge", "bridge_config") else None,
-                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
+                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"),
+                              pinned_runtime=(probe.get("runtime") or {}).get("kind") == "docker-managed")
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)
         self.store.update(did, job={"id": job_id, "action": action, "version": version})
         self.running[did] = job_id

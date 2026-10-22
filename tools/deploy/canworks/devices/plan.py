@@ -8,9 +8,12 @@ import re
 MIN_FREE_MB = 2048
 DOCKER_STOP = "The PLC stops and comes back without a program; upload it again afterwards."
 OPENPLC_INSTALLER = "https://runtime.getedge.me"
-# The OpenPLC runtime release CI tests canworks with
-# (docker/local-runtime/runtime-version; a test keeps the two the same).
-TESTED_RUNTIME = "v4.2.4"
+# The OpenPLC runtime release canworks is pinned to: CI tests it, installs and
+# every Docker-mode plugin job put devices on it, and the upstream bootloader
+# pinned with it (docker/local-runtime/runtime-version and bootloader-version;
+# a test keeps them the same).
+TESTED_RUNTIME = "v4.3.1"
+PINNED_BOOTLOADER = "bootloader-v1.1.0"
 
 
 def version_tuple(text):
@@ -71,12 +74,28 @@ def _runtime_text(rt):
 
 
 def untested_runtime(rt):
-    """A note when the device runs a newer runtime than CI tests canworks
-    with; None for the tested one, an older one or an unknown version."""
+    """A note when the device runs another runtime than the pinned one, newer
+    or older; None for the pinned one or an unknown version."""
     have, tested = version_tuple(rt.get("version")), version_tuple(TESTED_RUNTIME)
-    if have and tested and have > tested:
-        return "canworks is tested with runtime %s; this device runs %s." % (TESTED_RUNTIME, rt["version"].strip())
+    if have and tested and have != tested:
+        return "canworks runs on runtime %s; this device runs %s." % (TESTED_RUNTIME, rt["version"].strip())
     return None
+
+
+def runtime_off_pin(rt):
+    """The managed Docker runtime's version when it is not the pinned one (the
+    main action then puts it back); None otherwise."""
+    have = version_tuple(rt.get("version"))
+    if rt.get("kind") == "docker-managed" and have and have != version_tuple(TESTED_RUNTIME):
+        return rt["version"].strip()
+    return None
+
+
+def switch_text(off_pin):
+    """The confirmation line of a job that puts the runtime back on the pin."""
+    if not off_pin:
+        return ""
+    return "The runtime goes from %s back to %s, the version canworks is tested with." % (off_pin, TESTED_RUNTIME)
 
 
 def _main(action, label, version, confirm=(), **extra):
@@ -157,6 +176,7 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     # canworks plugin
     need_plugin = target == "openplc"
     rebuild = rebuild_needed(probe)
+    off_pin = runtime_off_pin(rt)
     if plugin:
         have = [plugin.get("version") or "unknown"]
         if plugin.get("built_for"):
@@ -180,23 +200,29 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         if rt.get("kind") in (None, "none"):
             main = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
                          else "Install OpenPLC Runtime and canworks", latest,
-                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and upstream's "
-                          "newest runtime (canworks is tested with %s)." % (OPENPLC_INSTALLER, TESTED_RUNTIME)])
+                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
+                          "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)])
         elif rt.get("kind") == "docker-other":
             notes.append("The runtime runs in a Docker container that no bootloader manages: install canworks "
                          "with install-stock.sh --docker-image (docs/install-stock.md).")
         elif not plugin:
             main = _main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks", latest,
-                         [DOCKER_STOP if docker else ""])
+                         [switch_text(off_pin), DOCKER_STOP if docker else ""])
         elif cur and new and cur < new:
             main = _main("install_plugin", "Update %s → %s" % (plugin.get("version"), latest), latest,
-                         [DOCKER_STOP if docker else ""])
+                         [switch_text(off_pin), DOCKER_STOP if docker else ""])
+        elif off_pin:
+            main = _main("install_plugin", "Switch runtime to %s" % TESTED_RUNTIME, latest,
+                         [switch_text(off_pin), DOCKER_STOP])
         elif rebuild:
             main = _main("install_plugin", "Rebuild for runtime %s" % rebuild, latest,
                          [DOCKER_STOP if docker else ""])
         elif not cur and new:
-            main = _main("install_plugin", "Install canworks %s" % latest, latest, [DOCKER_STOP if docker else ""])
-        if plugin and rebuild:
+            main = _main("install_plugin", "Install canworks %s" % latest, latest, [switch_text(off_pin), DOCKER_STOP if docker else ""])
+        if plugin and rebuild and off_pin:
+            notes.insert(0, "canworks is off on this device: the runtime is %s and canworks runs on %s. "
+                            "Switch the runtime back, then upload the program." % (off_pin, TESTED_RUNTIME))
+        elif plugin and rebuild:
             notes.insert(0, "canworks is off on this device: the runtime is %s and the plugin was built for %s. "
                             "Rebuild it, then upload the program." % (rebuild, plugin.get("built_for")))
 

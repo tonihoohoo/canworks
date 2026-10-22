@@ -21,7 +21,7 @@ def probe(**over):
     """A probe result: a Linux device with the managed Docker runtime and nothing of canworks."""
     out = {"probe": 1, "os": "Debian GNU/Linux 12 (bookworm)", "arch": "aarch64", "systemd": True,
            "disk_free_mb": 20000, "mem_mb": 8000, "internet": True, "sudo": "password",
-           "runtime": {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True},
+           "runtime": {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True},
            "plugin": None, "bridge": None, "link": None, "discovery": False, "can": [], "vcan": [],
            "serial": [], "j1939_module": False, "install_job": None}
     out.update(over)
@@ -34,7 +34,7 @@ def row(p, part):
 
 class Plan(unittest.TestCase):
     def test_old_plugin_is_updated(self):
-        p = plan.plan(probe(plugin={"version": "0.93.4", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
+        p = plan.plan(probe(plugin={"version": "0.93.4", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.98.0")
         self.assertIn("0.93.4", row(p, "plugin")["have"])
         self.assertEqual(row(p, "plugin")["needs"], "newest 0.98.0")
         self.assertEqual(p["main"]["action"], "install_plugin")
@@ -43,7 +43,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["main"]["confirm"], [plan.DOCKER_STOP])
 
     def test_native_update_needs_no_confirmation(self):
-        rt = {"kind": "native", "version": "v4.2.4", "commit": "abc", "answers": True}
+        rt = {"kind": "native", "version": "v4.3.1", "commit": "abc", "answers": True}
         p = plan.plan(probe(runtime=rt, plugin={"version": "0.93.4", "built_for": "abc", "enabled": True}),
                       "openplc", "0.98.0")
         self.assertEqual(p["main"]["confirm"], [])
@@ -90,38 +90,53 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["main"]["action"], "install_bridge")
         self.assertEqual(p["main"]["label"], "Update deploy-v0.32.0-192-g0bd645be → 0.98.2")
 
-    def test_runtime_moved_on(self):
-        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.2.5"},
-                            plugin={"version": "0.98.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
+    def test_native_runtime_moved_on(self):
+        p = plan.plan(probe(runtime={"kind": "native", "version": "v4.2.5", "commit": "def"},
+                            plugin={"version": "0.98.0", "built_for": "abc", "enabled": True}), "openplc", "0.98.0")
         self.assertEqual(p["main"]["label"], "Rebuild for runtime v4.2.5")
         self.assertIn("off", row(p, "plugin")["have"])
-        self.assertIn("built for v4.2.4", p["notes"][0])
+        self.assertIn("built for abc", p["notes"][0])
 
-    # lock-dependency-versions: a runtime newer than the tested one is a note, not a block.
-    def test_newer_runtime_than_tested(self):
+    # freeze-openplc-runtime: a managed Docker runtime off the pin goes back to it.
+    def test_runtime_moved_on_from_the_editor(self):
         major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
         newer = "v%d.%d.%d" % (major, minor, patch + 1)
         p = plan.plan(probe(runtime={"kind": "docker-managed", "version": newer},
                             plugin={"version": "0.98.0", "built_for": plan.TESTED_RUNTIME, "enabled": True}),
                       "openplc", "0.98.0")
         self.assertEqual(row(p, "runtime")["hint"],
-                         "canworks is tested with runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, newer))
-        self.assertEqual(p["main"]["label"], "Rebuild for runtime %s" % newer)
+                         "canworks runs on runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, newer))
+        self.assertEqual(p["main"]["label"], "Switch runtime to %s" % plan.TESTED_RUNTIME)
+        self.assertEqual(p["main"]["action"], "install_plugin")
+        self.assertEqual(p["main"]["confirm"], [
+            "The runtime goes from %s back to %s, the version canworks is tested with." % (newer, plan.TESTED_RUNTIME),
+            plan.DOCKER_STOP])
+        self.assertIn("Switch the runtime back", p["notes"][0])
 
-    def test_tested_older_or_unknown_runtime_no_note(self):
+    def test_update_also_switches_back(self):
+        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.2.4"},
+                            plugin={"version": "0.97.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
+        self.assertEqual(p["main"]["label"], "Update 0.97.0 → 0.98.0")
+        self.assertIn("back to %s" % plan.TESTED_RUNTIME, p["main"]["confirm"][0])
+
+    def test_other_runtime_note(self):
         major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
-        for version in (plan.TESTED_RUNTIME, "v%d.%d.0" % (major, minor - 1) if minor else "v0.0.1", None, "development"):
+        older = "v%d.%d.0" % (major, minor - 1) if minor else "v0.0.1"
+        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": older}), "openplc", "0.98.0")
+        self.assertEqual(row(p, "runtime")["hint"],
+                         "canworks runs on runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, older))
+        for version in (plan.TESTED_RUNTIME, None, "development"):
             p = plan.plan(probe(runtime={"kind": "docker-managed", "version": version}), "openplc", "0.98.0")
             self.assertIsNone(row(p, "runtime")["hint"], version)
 
-    def test_runtime_install_names_newest(self):
+    def test_runtime_install_names_the_pin(self):
         p = plan.plan(probe(runtime={"kind": "none"}), "openplc", "0.98.0")
         self.assertEqual(p["main"]["action"], "install_openplc")
-        self.assertIn("installs Docker and upstream's newest runtime (canworks is tested with %s)" % plan.TESTED_RUNTIME,
+        self.assertIn("installs Docker and OpenPLC runtime %s, the version canworks is tested with" % plan.TESTED_RUNTIME,
                       p["main"]["confirm"][0])
 
     def test_up_to_date(self):
-        p = plan.plan(probe(plugin={"version": "0.98.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.98.0")
+        p = plan.plan(probe(plugin={"version": "0.98.0", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.98.0")
         self.assertIsNone(p["main"])
         self.assertTrue(p["up_to_date"])
         self.assertEqual(row(p, "plugin")["state"], "ok")
@@ -133,17 +148,17 @@ class Plan(unittest.TestCase):
         self.assertEqual(row(p, "bridge")["needs"], "not used by this project")
 
     def test_pc_tools_older_than_the_device(self):
-        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.0",
+        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.99.0",
                       pc_version="0.98.0")
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "plugin")["state"], "ok")
         self.assertEqual(p["pc_older"], {"pc": "0.98.0", "device": "0.99.0"})
 
     def test_pc_tools_older_by_a_patch_only(self):
-        p = plan.plan(probe(plugin={"version": "0.99.2", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.2",
+        p = plan.plan(probe(plugin={"version": "0.99.2", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.99.2",
                       pc_version="0.99.0")
         self.assertIsNone(p["pc_older"])
-        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.0",
+        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.99.0",
                       pc_version="0.99.0")
         self.assertIsNone(p["pc_older"])
 
@@ -220,10 +235,10 @@ class PlanWithoutConfig(unittest.TestCase):
         self.assertEqual(p["roles"][0]["main"]["label"], "Install canworks 0.110.0")
 
     def test_installed_plugin_picks_the_action(self):
-        p = plan.plan(probe(plugin={"version": "0.105.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        p = plan.plan(probe(plugin={"version": "0.105.0", "built_for": "v4.3.1", "enabled": True}), None, "0.110.0")
         self.assertIsNone(p["roles"])
         self.assertEqual(p["main"]["label"], "Update 0.105.0 → 0.110.0")
-        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.3.1", "enabled": True}), None, "0.110.0")
         self.assertIsNone(p["main"])
         self.assertTrue(p["up_to_date"])
 
@@ -241,7 +256,7 @@ class PlanWithoutConfig(unittest.TestCase):
     def test_the_other_part_installs_from_its_row(self):
         # A PLC device can get the bridge too (and a bridge device the plugin):
         # its row has Install, the main action stays the installed part's.
-        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.3.1", "enabled": True}), None, "0.110.0")
         self.assertIsNone(p["main"])
         self.assertEqual((row(p, "bridge")["actions"][0]["action"], row(p, "bridge")["actions"][0]["label"]),
                          ("install_bridge", "Install the bridge 0.110.0"))
@@ -253,15 +268,15 @@ class PlanWithoutConfig(unittest.TestCase):
         p = plan.plan(probe(bridge=b), None, "0.110.0")
         self.assertEqual(row(p, "plugin")["actions"][0]["label"], "Install canworks 0.110.0")
         # With a config, the project's target decides: no extra Install.
-        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.110.0")
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.3.1", "enabled": True}), "openplc", "0.110.0")
         self.assertNotIn("actions", row(p, "bridge"))
-        p = plan.plan(probe(internet=False, plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}),
+        p = plan.plan(probe(internet=False, plugin={"version": "0.110.0", "built_for": "v4.3.1", "enabled": True}),
                       None, "0.110.0")
         self.assertIn("github.com", p["blocked"])
 
     def test_link_and_discovery_switches(self):
         # device-link-switches: the rows' own actions and what the link serves.
-        on = {"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}
+        on = {"version": "0.110.0", "built_for": "v4.3.1", "enabled": True}
         p = plan.plan(probe(plugin=on), None, "0.110.0")
         self.assertEqual([a["action"] for a in row(p, "link")["actions"]], ["link_on"])
         self.assertEqual([a["action"] for a in row(p, "discovery")["actions"]], ["discovery_on"])
@@ -339,7 +354,9 @@ class Jobs(unittest.TestCase):
             "curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.98.0/scripts/"
             "install-runtime.sh | bash -s -- --version 0.98.0 --with-link"])
         self.assertTrue(jobs.commands("install_openplc", "0.98.0", self.paths, link=False, discovery=False)[0]
-                        .endswith("--version 0.98.0 --with-openplc --without-discovery"))
+                        .endswith("--version 0.98.0 --with-openplc --pinned-runtime --without-discovery"))
+        self.assertTrue(jobs.commands("install_plugin", "0.98.0", self.paths, pinned_runtime=True)[0]
+                        .endswith("--version 0.98.0 --pinned-runtime --with-link"))
         line = jobs.commands("install_bridge", "0.98.0", self.paths, instance="line3",
                              upload="/tmp/canworks-bridge-upload.abc")[0]
         self.assertIn("install-bridge.sh | bash -s -- --version 0.98.0 --instance line3 --config "
@@ -404,6 +421,8 @@ class Jobs(unittest.TestCase):
         self.assertIn("disk is full", jobs.hint(["cp: write error: No space left on device"]))
         self.assertIn("apt is locked", jobs.hint(["E: Could not get lock /var/lib/dpkg/lock-frontend"]))
         self.assertIn("github.com", jobs.hint(["curl: (6) Could not resolve host: github.com"]))
+        self.assertIn("OpenPLC runtime image", jobs.hint(["error: the device cannot download OpenPLC runtime v4.3.1 "
+                                                          "(ghcr.io/x:v4.3.1); nothing was changed"]))
         self.assertIsNone(jobs.hint(["something else"]))
 
 
@@ -472,18 +491,18 @@ class Probe(unittest.TestCase):
         self.assertEqual(p["vcan"], [])
 
     def test_docker_layout(self):
-        self.write("var/lib/openplc-bootloader/runtime-spec.json", '{\n  "image": "x",\n  "version": "v4.2.4"\n}\n')
+        self.write("var/lib/openplc-bootloader/runtime-spec.json", '{\n  "image": "x",\n  "version": "v4.3.1"\n}\n')
         self.write("opt/canworks/lib/libcanworks_plugin.so", "")
         self.write("opt/canworks/VERSION", "0.98.0\n")
-        self.write("opt/canworks/lib/runtime-version", "v4.2.4\n")
+        self.write("opt/canworks/lib/runtime-version", "v4.3.1\n")
         self.write("opt/canworks/lib/plugins-line", "canworks,/opt/canworks/lib/libcanworks_plugin.so,0,0,,\n")
         self.write("etc/systemd/system/canworks-link.service", "")
         self.write("etc/canworks-link/link.json", '{"config": "/opt/canworks/lib/canworks.json", "peers": []}\n')
         self.write("etc/avahi/services/canworks.service", "")
         p = self.run_probe()
         self.assertEqual(p["link_config"], "/opt/canworks/lib/canworks.json")
-        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True})
-        self.assertEqual(p["plugin"], {"version": "0.98.0", "built_for": "v4.2.4", "enabled": False})
+        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True})
+        self.assertEqual(p["plugin"], {"version": "0.98.0", "built_for": "v4.3.1", "enabled": False})
         self.assertEqual(p["link"], "active")
         self.assertTrue(p["discovery"])
 
@@ -494,16 +513,16 @@ class Probe(unittest.TestCase):
         self.write("home/pi/rt/plugins.conf", "canworks,/opt/canworks/lib/libcanworks_plugin.so,0,0,,\n")
         os.makedirs(os.path.join(self.root, "var", "lib", "openplc-bootloader"))
         self.write("opt/canworks/lib/libcanworks_plugin.so", "")
-        self.write("opt/canworks/lib/runtime-version", "v4.2.4\n")
+        self.write("opt/canworks/lib/runtime-version", "v4.3.1\n")
         self.write("opt/canworks/lib/plugins-line", "canworks,/opt/canworks/lib/libcanworks_plugin.so,1,1,,\n")
         self.stub("systemctl", 'case $1 in is-active) echo inactive ;; esac')
         self.stub("sudo", '[ "$1 $2" = "-n true" ] && exit 0\n'
-                          '[ "$2" = cat ] && { echo \'{"version": "v4.2.4"}\'; exit 0; }\nexit 1')
+                          '[ "$2" = cat ] && { echo \'{"version": "v4.3.1"}\'; exit 0; }\nexit 1')
         sudo = {"CANWORKS_PROBE_SUDO": os.path.join(self.bin, "sudo"), "CANWORKS_PROBE_UID": "1000"}
         p = self.run_probe(**sudo)
         self.assertEqual(p["sudo"], "nopasswd")
-        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.2.4", "commit": None, "answers": True})
-        self.assertEqual(p["plugin"], {"version": "unknown", "built_for": "v4.2.4", "enabled": True})
+        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True})
+        self.assertEqual(p["plugin"], {"version": "unknown", "built_for": "v4.3.1", "enabled": True})
         # sudo needs a password: still managed Docker, its version unknown.
         self.stub("sudo", "exit 1")
         p = self.run_probe(**sudo)
