@@ -281,7 +281,7 @@ build_in_image() {
     local args=(--in-image --lely-ref "$LELY_REF")
     [ "$WITH_CANOPEN" -eq 1 ] || args+=(--without-canopen)
     [ "$WITH_J1939" -eq 1 ] || args+=(--without-j1939)
-    say "Building in $image (this takes a while on a Raspberry Pi)"
+    say "Building in $image (this takes a while on a small Linux device)"
     docker run --rm --network host \
         -v "$PREFIX:$CONTAINER_PREFIX" -v "$SRC_COPY:/src" \
         -e CANWORKS_IMAGE="$image" -e CANWORKS_IMAGE_ID="$image_id" \
@@ -360,7 +360,7 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
         exit 0
     fi
     STEPS=$((2 + $(access_steps)))
-    step 1 "Building canworks in the runtime image (this takes a while on a Raspberry Pi)"
+    step 1 "Building canworks in the runtime image (this takes a while on a small Linux device)"
     build_in_image "$IMAGE"
     write_version
     if grep -qF "$OLD_CONTAINER_PREFIX" "$BOOTLOADER_SPEC"; then
@@ -528,7 +528,7 @@ if [ "$DEPS" -eq 1 ]; then
 fi
 # The diagnostics channel's TLS (plugin/src/can/secure_channel.cpp) needs OpenSSL 3.
 pkg-config --atleast-version=3 openssl 2>/dev/null ||
-    die "OpenSSL 3 development files are missing: apt-get install libssl-dev (Debian 12 or newer, Raspberry Pi OS bookworm or newer, Ubuntu 22.04 or newer)"
+    die "OpenSSL 3 development files are missing: apt-get install libssl-dev (Debian 12 or newer, Ubuntu 22.04 or newer)"
 mkdir -p "$PREFIX" "$PREFIX/state"  # state: slave networks' saved parameters
 if [ "$WITH_CANOPEN" -eq 1 ]; then
     next_step "Building Lely CANopen and dcfgen"

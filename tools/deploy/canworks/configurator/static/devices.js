@@ -266,6 +266,13 @@ function devPagePane() {
   }
   const plan = p.plan;
   for (const n of plan.notes || []) slot.append(notice("info", n, { live: false }));
+  if (plan.pc_older) {
+    const o = plan.pc_older;
+    slot.append(notice("info", `canworks on this device (${o.device}) is newer than these PC tools (${o.pc}). `
+      + "Update the PC tools so they know everything the device can do.", { live: false, dataset: { devices: "pc-older" },
+      actions: [el("button", { type: "button", dataset: { devices: "update-pc" },
+        onclick: (e) => updatePcTools(e.currentTarget) }, "Update PC tools…")] }));
+  }
   pane.append(devRows(d, plan, job));
   if (job) pane.append(devJobView(d, job));
   if (!job || job.done) pane.append(devMain(d, plan));

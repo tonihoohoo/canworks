@@ -137,7 +137,15 @@ class Plan(unittest.TestCase):
                       pc_version="0.98.0")
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "plugin")["state"], "ok")
-        self.assertEqual(len([n for n in p["notes"] if "older than canworks on this device (0.99.0)" in n]), 1)
+        self.assertEqual(p["pc_older"], {"pc": "0.98.0", "device": "0.99.0"})
+
+    def test_pc_tools_older_by_a_patch_only(self):
+        p = plan.plan(probe(plugin={"version": "0.99.2", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.2",
+                      pc_version="0.99.0")
+        self.assertIsNone(p["pc_older"])
+        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.0",
+                      pc_version="0.99.0")
+        self.assertIsNone(p["pc_older"])
 
     def test_no_internet(self):
         p = plan.plan(probe(internet=False), "openplc", "0.98.0")

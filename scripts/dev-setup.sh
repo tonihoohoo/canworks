@@ -6,7 +6,7 @@
 #
 #   sudo scripts/dev-setup.sh [--lely-ref <git ref>] [--no-vcan]
 #
-# Debian/Ubuntu/Raspberry Pi OS. Idempotent: an existing Lely build with the
+# Debian and Ubuntu. Idempotent: an existing Lely build with the
 # same ref is kept.
 
 set -euo pipefail

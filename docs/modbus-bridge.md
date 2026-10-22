@@ -41,18 +41,18 @@ curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/insta
 From a PC onto the device over SSH (the PC needs only `ssh` and `scp`; `sudo` on the device may ask for its password). macOS and Linux:
 
 ```sh
-curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--instance line1 --config ./line1]
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | bash -s -- --ssh admin@plc.local [--port 22] [--identity ~/.ssh/id_ed25519] [--instance line1 --config ./line1]
 ```
 
 Windows (PowerShell, with the OpenSSH client built into Windows 10 and 11):
 
 ```powershell
-$f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local -Instance line1 -Config .\line1
+$f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local -Instance line1 -Config .\line1
 ```
 
 `-Port`, `-Identity` and `-Options --without-j1939` go after the file name too.
 
-The bridge's version is in `/opt/canworks-bridge/VERSION` (the bridge's prefix; `--uninstall` removes it). Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a Raspberry Pi; the [container image](#container-image) is the quick route where Docker runs.
+The bridge's version is in `/opt/canworks-bridge/VERSION` (the bridge's prefix; `--uninstall` removes it). Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a small Linux device; the [container image](#container-image) is the quick route where Docker runs.
 
 ### From a checkout
 

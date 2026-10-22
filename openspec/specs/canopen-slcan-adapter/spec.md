@@ -8,7 +8,7 @@ Drives a serial-line CAN adapter (CANable and other slcan firmware) directly fro
 ### Requirement: slcan adapter configuration
 The adapter type `slcan` SHALL describe a serial-line CAN adapter (CANable with slcan firmware, Lawicel CANUSB and compatibles) with `device` (required, absolute path of the serial device), `interface` (required, the network interface name to create), `bitrate` (required, the same CiA 301 rates as `socketcan`) and `serial_baudrate` (optional, positive integer). `configure_link` and `restart_ms` SHALL NOT be accepted with `slcan`. The plugin, the published JSON Schema and the deploy tool SHALL apply the same rules.
 
-#### Scenario: CANable on the Pi
+#### Scenario: CANable on the device
 - **WHEN** the config has `"adapter": {"type": "slcan", "device": "/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7-if00", "interface": "can0", "bitrate": 500000}`
 - **THEN** the config loads and validates against the schema
 

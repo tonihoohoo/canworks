@@ -3482,7 +3482,7 @@ A project SHALL have one target: "OpenPLC" (default), "Modbus bridge" or "CODESY
 - **THEN** the Project page's Project target field and the header show CODESYS
 
 ### Requirement: Only what the target uses is shown
-The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Pi, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
+The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the plugin, the Linux device, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only, and the Variable declarations page SHALL be OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets.
 
 #### Scenario: CODESYS project
 - **WHEN** the project's target is CODESYS
@@ -3514,7 +3514,7 @@ The page SHALL hide every field, table column, choice option, fieldset, node tab
 
 #### Scenario: Wording guard
 - **WHEN** the browser tests open every page and node tab of a config with every setting set, once per target
-- **THEN** no field the target does not use is visible, no node tab is blank, and no visible text uses another target's words (for CODESYS: the plugin, the Pi, PLC location, an IEC address, scan watchdog, OpenPLC), apart from the Project target field's help
+- **THEN** no field the target does not use is visible, no node tab is blank, and no visible text uses another target's words (for CODESYS: the plugin, the Linux device, PLC location, an IEC address, scan watchdog, OpenPLC), apart from the Project target field's help
 
 ### Requirement: Switching the target
 Picking another target SHALL switch at once, without a dialog, as one undo step, and a message SHALL say what was done and that Undo restores the previous target:
@@ -3899,7 +3899,7 @@ When the window is 800 px high or less, the header and tab rows SHALL use compac
 - **THEN** the work area is at least 60 % of the window height
 
 ### Requirement: Header target action
-The header SHALL hold the target's hand-off actions as one primary split button: Build into CODESYS project… with Download for CODESYS for CODESYS, Install on device… for the Modbus bridge. At 1280 px and wider the header SHALL be one row for every target. Under 1500 px, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu.
+The header SHALL hold the target's hand-off actions as one primary split button: Build into CODESYS project… with Download for CODESYS for CODESYS, Install on device… for the Modbus bridge. At 1280 px and wider the header SHALL be one row for every target. Under 1500 px with a config open, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu; with no config open (start page, Devices without a config) they SHALL stay buttons in the header.
 
 #### Scenario: CODESYS at 1366 px
 - **WHEN** a CODESYS config is open at 1366 px wide

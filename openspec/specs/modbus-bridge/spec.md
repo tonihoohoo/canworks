@@ -209,7 +209,7 @@ CI SHALL run `shellcheck` on the script and test, without network access, its re
 - **THEN** the newest release's bridge is built and installed with its unit `canworks-bridge@.service`, `canworks-bridge --version` prints the release, and no source folder of the release is left behind
 
 #### Scenario: Install from a Windows PC
-- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh pi@rpi.local`
+- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh admin@plc.local`
 - **THEN** an SSH session asks for the `sudo` password when needed, the newest release's bridge is installed on the device, and the PowerShell command ends with the device side's exit status
 
 #### Scenario: Not root
@@ -221,7 +221,7 @@ CI SHALL run `shellcheck` on the script and test, without network access, its re
 `install-bridge.sh` SHALL take `--instance NAME --config DIR` (`-Instance`, `-Config` in `install-bridge.ps1`), where `DIR` holds a `canworks.json` and the files it names. After installing, it SHALL run the bridge's `--check-only` on `DIR/canworks.json`, and when the check passes copy the folder's regular files to `/etc/canworks-bridge/NAME/` and enable and start (or restart) `canworks-bridge@NAME`. When the check fails it SHALL leave the instance folder and its service as they were, print the check's messages and exit non-zero. `NAME` SHALL be a plain name (letters, digits, `-`, `_`), and either option without the other SHALL be refused before anything is installed. With `--ssh`, the PC side SHALL first copy `DIR` to a temporary folder on the device with `scp` (same port and key), pass that folder to the device side, and the device side SHALL remove it afterwards.
 
 #### Scenario: Bridge set up from a Mac
-- **WHEN** a Mac user runs `install-bridge.sh --ssh pi@rpi.local --instance line1 --config ./line1`
+- **WHEN** a Mac user runs `install-bridge.sh --ssh admin@plc.local --instance line1 --config ./line1`
 - **THEN** the device has `/etc/canworks-bridge/line1/canworks.json` with the folder's EDS files, `canworks-bridge@line1` is enabled and running, and no temporary upload folder is left on the device
 
 #### Scenario: Config that fails its check

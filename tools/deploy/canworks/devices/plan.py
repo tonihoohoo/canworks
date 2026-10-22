@@ -249,11 +249,13 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     pc = version_tuple(pc_version)
     seen = [v for v in (version_tuple((plugin or {}).get("version")), version_tuple((bridge or {}).get("version"))) if v]
     newest_here = max(seen) if seen else None
-    if pc and newest_here and pc < newest_here:
-        notes.append("These PC tools (%s) are older than canworks on this device (%s). Update the PC tools "
-                     "with the one-line installer." % (pc_version, ".".join(map(str, newest_here))))
+    # Only a newer major or minor on the device is worth a word: patch
+    # releases of the PC tools and the device do not depend on each other.
+    pc_older = None
+    if pc and newest_here and pc[:2] < newest_here[:2]:
+        pc_older = {"pc": pc_version, "device": ".".join(map(str, newest_here))}
     job = probe.get("install_job")
-    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "job": job,
+    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
             "up_to_date": main is None and not roles and target != "codesys",
             "sudo": probe.get("sudo"), "header": header(probe)}
 
