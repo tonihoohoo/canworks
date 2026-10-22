@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
-# The local simulator runtime (docs/local-runtime.md; spec canopen-local-runtime):
+# The local runtime (docs/local-runtime.md; spec canopen-local-runtime):
 # upstream's OpenPLC Runtime v4 image with the CANopen plugin, dcfgen, the
 # device simulator and the editor hook built in, every CANopen network forced
 # to run simulated. Build from the repository root:
 #
 #   docker build -f docker/local-runtime/Dockerfile \
 #       --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) \
-#       --build-arg TOOLS_VERSION=<PC tools version> -t canworks-sim-runtime:dev .
+#       --build-arg TOOLS_VERSION=<PC tools version> -t canworks-local-runtime:dev .
 #
 # The build stage runs the same in-image build as scripts/install-stock.sh
 # --docker-image; the final stage is the unchanged upstream image plus
@@ -35,7 +35,7 @@ ARG TOOLS_VERSION=dev
 COPY --from=build /opt/canworks /opt/canworks
 # The webserver makes its HTTPS certificate at first start next to its code;
 # keep it in the data volume instead, so its fingerprint (pinned by the PC
-# tools, accepted in the editor) survives `canworks-sim-runtime update`.
+# tools, accepted in the editor) survives `canworks-local-runtime update`.
 RUN set -e; cd /workdir/webserver; \
     for f in certOPENPLC.pem keyOPENPLC.pem; do \
         if [ -e "$f" ]; then echo "unexpected $f in the runtime image" >&2; exit 1; fi; \
@@ -46,7 +46,7 @@ RUN set -e; cd /workdir/webserver; \
 ENV PYTHONPATH=/opt/canworks/lib/sitecustomize
 # Every network runs simulated, whatever the uploaded config says.
 ENV CANWORKS_FORCE_SIMULATE=1
-LABEL org.opencontainers.image.title="canworks-sim-runtime" \
+LABEL org.opencontainers.image.title="canworks-local-runtime" \
       org.opencontainers.image.description="OpenPLC Runtime v4 with the CANopen plugin; every CANopen network runs simulated" \
       org.opencontainers.image.source="https://github.com/tonihoohoo/canworks" \
       org.opencontainers.image.version="${TOOLS_VERSION}" \

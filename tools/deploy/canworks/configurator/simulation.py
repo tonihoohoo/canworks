@@ -5,7 +5,7 @@ The simulation file (canworks/simulation.json): reading it with the project,
 checking it against schema/canworks-sim.v1.schema.json (or v2, one section per
 network) and writing it with the configurator's save rules. The live requests
 go to the runtime's simulated devices through the online access settings, or
-to a standalone simulator by address; its address and token are kept on this
+to a CANopen simulator by address; its address and token are kept on this
 PC (online.json), never in the project.
 """
 

@@ -1,5 +1,5 @@
-// sim_tool.h - canworks-sim, the standalone simulator
-// (docs/simulator.md, "canworks-sim"): its modes and shared helpers.
+// sim_tool.h - canworks-canopen-sim, the CANopen simulator
+// (docs/simulator.md, "canworks-canopen-sim"): its modes and shared helpers.
 
 #ifndef CANWORKS_SIM_TOOL_H
 #define CANWORKS_SIM_TOOL_H
@@ -37,9 +37,9 @@ class Args {
   size_t i_ = 0;
 };
 
-// Run mode: canworks-sim [CONFIG] [options].
+// Run mode: canworks-canopen-sim [CONFIG] [options].
 int run_main(Args& args);
-// Test mode: canworks-sim test ...
+// Test mode: canworks-canopen-sim test ...
 int test_main(Args& args);
 // Control subcommands (status, get, set, ...): `cmd` is the subcommand.
 int command_main(const std::string& cmd, Args& args);

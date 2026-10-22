@@ -16,13 +16,13 @@ Times and cycle figures in a container say nothing about a real target.
    canworks-deploy library --install
    ```
 
-4. The local simulator runtime:
+4. The local runtime:
 
    ```sh
-   canworks-sim-runtime start
+   canworks-local-runtime start
    ```
 
-   It prints the address `localhost:8443` and the user for the editor; `canworks-sim-runtime status --show-password` prints the password.
+   It prints the address `localhost:8443` and the user for the editor; `canworks-local-runtime status --show-password` prints the password.
 5. The example: download the repository (**Code → Download ZIP** on GitHub, or `git clone`) and copy `examples/virtual-plant` to where you keep editor projects.
 
 The diagnostics token of the example is `virtual-plant-demo`. Set it for the command line in this terminal:
@@ -67,9 +67,9 @@ canworks-deploy slave-eds canworks/cell_eds.json -o cell.eds --gateway canworks/
 
 ## 4. Upload and the debugger
 
-In the editor: open the project folder, set the device to OpenPLC Runtime v4 at `localhost:8443` with the printed user and the password from `canworks-sim-runtime status --show-password`, and **Build and Upload** ([local-runtime.md](local-runtime.md#use-it)). The `canworks/` folder travels with the upload.
+In the editor: open the project folder, set the device to OpenPLC Runtime v4 at `localhost:8443` with the printed user and the password from `canworks-local-runtime status --show-password`, and **Build and Upload** ([local-runtime.md](local-runtime.md#use-it)). The `canworks/` folder travels with the upload.
 
-`canworks-sim-runtime logs` shows the start: each network's simulated bus, `node 7 (new_io): LSS assigned node ID 7 (previous: none)`, then every node OPERATIONAL, `host: node 20 (cell) is operational` and `cell: gateway: the upper master started this node; routes run`.
+`canworks-local-runtime logs` shows the start: each network's simulated bus, `node 7 (new_io): LSS assigned node ID 7 (previous: none)`, then every node OPERATIONAL, `host: node 20 (cell) is operational` and `cell: gateway: the upper master started this node; routes run`.
 
 Start the debugger on `main`. You see:
 
@@ -83,7 +83,7 @@ The deploy tool does the same upload from a command line: `canworks-deploy --run
 
 ## 5. Online diagnostics
 
-In the configurator, switch to **Commission** at the top and press **Connect…** in the connection bar, the one place to connect: press **Local simulator runtime**, then **Connect**, and enter the token `virtual-plant-demo` when the page asks for it ([configurator.md](configurator.md#online-access)). The connection bar under the tabs then shows the runtime and **Disconnect**. Pick a network on the tree (the bar's network picker follows, and the other way round) for its Nodes table, and click a node for its tabs ([configurator.md](configurator.md#online-view)):
+In the configurator, switch to **Commission** at the top and press **Connect…** in the connection bar, the one place to connect: press **Local runtime**, then **Connect**, and enter the token `virtual-plant-demo` when the page asks for it ([configurator.md](configurator.md#online-access)). The connection bar under the tabs then shows the runtime and **Disconnect**. Pick a network on the tree (the bar's network picker follows, and the other way round) for its Nodes table, and click a node for its tabs ([configurator.md](configurator.md#online-view)):
 
 - `io`: master and bus state, nodes 5, 6, 7 OPERATIONAL (the filled circle on the tree and in the Nodes table; **Settings** → **Colours and icons** lists every icon). Node 5 → **Status**: the TPDO 1 receive timeout, and every 60 s an EMCY 0x5000 (the simulation's wire-break timeline) in its **Emergency history**; a small flag marks node 5 on the tree until you open its **Status**. Node 6 → **Status**: its SDO variables.
 - `cell`: the plugin's own device, node 20: its state, SYNC count, PDOs with the gateway routes, and the gateway row: 2 routes, upper master present.
@@ -161,7 +161,7 @@ canworks-diag --runtime local sim test --network motion --scenario drive-moves
 
 Each prints PASS or FAIL with the step and value that failed, and `--junit` writes a report for a CI system ([diagnostics.md](diagnostics.md#simulated-devices-sim)). Change the alarm limit in the program to 30.0 °C, upload, and `alarm` fails. CI runs the same tests on every change to the plugin or the example ([`test/virtual-example/run.sh`](../test/virtual-example/run.sh)).
 
-When you are done: `canworks-sim-runtime stop`, or `remove --data` to delete it.
+When you are done: `canworks-local-runtime stop`, or `remove --data` to delete it.
 
 ## What needs hardware
 

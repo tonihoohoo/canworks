@@ -38,14 +38,14 @@ class LinkPage(base.OnlineBase):
             pg.click('button[data-view="online"]')
             # The connect panel from the bar's Connect… is the one place to connect.
             pg.click('#conn-bar [data-conn="connect"]')
-            # One host combobox: found and remembered runtimes and the local simulator runtime.
+            # One host combobox: found and remembered runtimes and the local runtime.
             sel = 'datalist[data-online="runtime-list"]'
             pg.wait_for_selector(sel + ' option[data-kind="discovered"]', state="attached")
             pg.wait_for_selector('[data-online="runtime-status"]:has-text("1 on this network, 1 remembered")')
             opts = pg.eval_on_selector_all(sel + " option", "os => os.map((o) => [o.value, o.textContent])")
             self.assertEqual(opts, [["10.0.0.7:7600", "bench, on this network"],
                                     ["line3", "remembered, 192.168.1.50, paired, from other networks"],
-                                    ["local", "Local simulator runtime"]])
+                                    ["local", "Local runtime"]])
             self.assertEqual(pg.get_attribute('input[data-online="host"]', "list"), pg.get_attribute(sel, "id"))
             # A discovered runtime is its address, a remembered one its name.
             pg.fill('input[data-online="host"]', "line3")

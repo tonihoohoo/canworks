@@ -104,7 +104,7 @@ A DCF installs in the device repository under the product's vendor ID, product c
 ## canworks next to a CODESYS master
 
 - **Bus trace and commissioning:** the PC tools join a CODESYS-run bus through a USB adapter, read-only until changes are allowed ([pc-adapter.md](pc-adapter.md)). SDO, NMT and LSS from canworks talk to the same nodes as CODESYS's manager, so keep them to commissioning.
-- **Simulated devices:** `canworks-sim` runs simulated nodes on a SocketCAN interface for any master, so a CODESYS controller on Linux can run against them ([simulator.md](simulator.md#canworks-sim)).
+- **Simulated devices:** `canworks-canopen-sim` runs simulated nodes on a SocketCAN interface for any master, so a CODESYS controller on Linux can run against them ([simulator.md](simulator.md#canworks-canopen-sim)).
 
 ## Requirements and limits
 

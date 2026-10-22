@@ -430,7 +430,7 @@ class Live(View):
             pg.click('#conn-dialog button[data-conn-target="simulator"]')
             pg.fill('#conn-dialog input[data-sim="address"]', other.address)
             pg.click('#conn-dialog button[data-online="connect"]')
-            pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("Standalone simulator %s")' % other.address)
+            pg.wait_for_selector('#conn-bar [data-conn="target"]:has-text("CANopen simulator %s")' % other.address)
             pg.wait_for_selector("#sim-conn:has-text('Simulated network')")
             pg.wait_for_selector(self.row("0x7130:1"))
             self.assertTrue(other.sent("sim_status"))

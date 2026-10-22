@@ -1,6 +1,6 @@
 # Virtual plant: every feature without hardware
 
-An OpenPLC Editor project that runs on the [local simulator runtime](../../docs/local-runtime.md) with no CAN adapter and no devices. Every network is simulated (`adapter.simulate`), and every device is made up. [docs/tour.md](../../docs/tour.md) walks through it.
+An OpenPLC Editor project that runs on the [local runtime](../../docs/local-runtime.md) with no CAN adapter and no devices. Every network is simulated (`adapter.simulate`), and every device is made up. [docs/tour.md](../../docs/tour.md) walks through it.
 
 ## The networks
 
@@ -36,4 +36,4 @@ The diagnostics channel is on with changes allowed. Its token is `virtual-plant-
 | `canworks/rtd8.eds`, `canworks/servo402.eds` | Copies from [`config/rtd-sensor`](../../config/rtd-sensor/README.md) and [`config/cia402-drive`](../../config/cia402-drive/README.md). |
 | `canworks/cell_eds.json`, `canworks/cell.eds` | The cell slave's description and its EDS: `canworks-deploy slave-eds canworks/cell_eds.json -o canworks/cell.eds --gateway canworks/canworks.json`. |
 
-CI deploys the example to the local simulator runtime image and runs its test scenarios ([`test/virtual-example/run.sh`](../../test/virtual-example/run.sh)).
+CI deploys the example to the local runtime image and runs its test scenarios ([`test/virtual-example/run.sh`](../../test/virtual-example/run.sh)).

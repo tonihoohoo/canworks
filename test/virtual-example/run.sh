@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The virtual example (examples/virtual-plant, docs/tour.md) end to end on the
-# local simulator runtime, the command-line steps of the tour:
+# local runtime, the command-line steps of the tour:
 #
 #   test/virtual-example/run.sh --image <image> --strucpp <strucpp command> [--engine docker|podman]
 #
@@ -9,7 +9,7 @@
 # 2. the deploy tool's check with no warning beyond the simulation notice,
 #    and the exports: HTML network document, DCF files, DBC file
 # 3. the program compiles with STruC++ and the canworks library
-# 4. `canworks-sim-runtime start`, the example deployed with
+# 4. `canworks-local-runtime start`, the example deployed with
 #    `--runtime local`: every configured node OPERATIONAL (node 20 on host
 #    included), node 7 given its node ID by LSS, the gateway started by the
 #    stand-in master
@@ -48,13 +48,13 @@ WORK=$(mktemp -d)
 export CANWORKS_CONFIG_DIR="$WORK/settings"
 export CANWORKS_ENGINE="$ENGINE"
 export CANWORKS_TOKEN=virtual-plant-demo  # the example's documented demo token
-RT=(canworks-sim-runtime)
+RT=(canworks-local-runtime)
 cleanup() {
     "${RT[@]}" remove --data >/dev/null 2>&1
     rm -rf "$WORK"
 }
 trap cleanup EXIT
-logs() { local text; text=$("$ENGINE" logs canworks-sim-runtime 2>&1); printf '%s\n' "$text"; }
+logs() { local text; text=$("$ENGINE" logs canworks-local-runtime 2>&1); printf '%s\n' "$text"; }
 in_logs() { local text; text=$(logs); grep -q "$1" <<<"$text"; }
 CONFIG="$EXAMPLE/canworks/canworks.json"
 
@@ -98,7 +98,7 @@ python3 "$ROOT/test/virtual-example/ci_program.py" "$EXAMPLE" "$WORK/program.st"
     node "$ROOT/test/local-runtime/build_program.mjs" "$STRUCPP" "$WORK/program.st" "$WORK/bundle" --lib "$LIBRARY" \
         >/dev/null && ok "runtime bundle (SDO blocks left out)" || fail "build_program.mjs"
 
-echo "4. deploy to the local simulator runtime"
+echo "4. deploy to the local runtime"
 if "${RT[@]}" start --image "$IMAGE" > "$WORK/start.log" 2>&1; then ok "started"; else
     cat "$WORK/start.log"; fail "start"; exit 1; fi
 for _ in $(seq 1 15); do

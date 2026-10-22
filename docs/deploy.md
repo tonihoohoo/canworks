@@ -212,9 +212,9 @@ An empty config, such as the zero-byte `conf/ethercat.json` the editor writes in
 
 A config with a top-level `bridge` object runs on [canworks-bridge](modbus-bridge.md), not in OpenPLC: the tool refuses to upload it to a runtime and says so. `--bridge HOST[:PORT]` uploads it to a running bridge over its diagnostics channel (`--token` or `--token-file`), `--export-modbus-map FILE.csv|.json|.st` writes its register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)).
 
-## The local simulator runtime
+## The local runtime
 
-`--runtime local` deploys to the [local simulator runtime](local-runtime.md) on this PC (`canworks-sim-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run canworks-sim-runtime start first`.
+`--runtime local` deploys to the [local runtime](local-runtime.md) on this PC (`canworks-local-runtime start`): the tool takes its address, user, password and certificate fingerprint from the saved `local-runtime.json`, so no `--fingerprint` or password is needed (`--user`, `$OPENPLC_PASSWORD` and the certificate options still win when given). Every network runs simulated there, so the tool says so and does not ask the [simulated-config question](#simulated-devices). Without a local runtime it stops with `no local runtime: run canworks-local-runtime start first`.
 
 `--runtime NAME` with the name of a remembered runtime deploys directly when it answers and over the [remote link](remote-access.md) otherwise; `--runtime link:NAME` uses only the link. The certificate checks below are the same on both paths.
 

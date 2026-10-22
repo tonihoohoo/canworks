@@ -407,7 +407,7 @@ function showTraceHeader(st) {
   if (!rec.running && !onlineReady()) {
     const commission = !!(S.state && S.state.commission);
     notes.push(noteBar("info",
-      (connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
+      (connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a CANopen simulator. "
         : commission ? `Recording needs the ${connRemote() ? "adapter" : "USB adapter"} connection: connect with Connect… in the connection bar above. `
         : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
         : "Recording needs online access: turn it on in Configure → Project → Online access, save and upload. ") +

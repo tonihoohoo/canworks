@@ -3,7 +3,7 @@
 // connection for every view, shown in the connection bar under the header
 // and made only in the connect panel that the bar's Connect… opens.
 // Commission a device connects through a USB adapter on this PC (with the
-// bit rate check), a config to its runtime or to a standalone simulator, and
+// bit rate check), a config to its runtime or to a CANopen simulator, and
 // both to an adapter on another machine (an adapter server, the same bit
 // rate check on that machine; S.online.remote_adapter).
 // The Commission pages, Trace, Simulation and the PDO test all use it; no
@@ -13,7 +13,7 @@
 // S.adapterOn / S.adapterEnded: the adapter connection is open / why the
 // last one was refused or ended (commission.js). S.runtimeOn: the runtime
 // connection is open; S.runtimeOff: the user disconnected it, so nothing
-// opens it again until Connect. S.simOn: the standalone simulator is the
+// opens it again until Connect. S.simOn: the CANopen simulator is the
 // connection (only the Simulation view uses it); one connection at a time.
 
 const CONN = { timer: null, seq: 0, error: null, entered: false, target: null };
@@ -41,7 +41,7 @@ function connReady() {
 
 function connIsOn() { return connAdapter() ? !!S.adapterOn : !!S.runtimeOn; }
 
-// The standalone simulator is the connection (a config only).
+// The CANopen simulator is the connection (a config only).
 function connSimOn() { return !connAdapter() && !!S.simOn; }
 
 function simAddress() {
@@ -53,7 +53,7 @@ function simAddress() {
 // one place to connect.
 function connNeeds(what, attrs) {
   const text = connSimOn()
-    ? `${what} needs a connection to the runtime; the connection bar is connected to a standalone simulator.`
+    ? `${what} needs a connection to the runtime; the connection bar is connected to a CANopen simulator.`
     : `${what} needs a connection. Connect with Connect… in the connection bar above.`;
   return notice("info", text, { live: false, dataset: Object.assign({ conn: "needs" }, (attrs || {}).dataset || {}) });
 }
@@ -154,7 +154,7 @@ async function connDisconnect() {
   render();
 }
 
-// Closes the runtime connection (Disconnect, or the standalone simulator
+// Closes the runtime connection (Disconnect, or the CANopen simulator
 // taking its place).
 async function runtimeClose() {
   connStop();
@@ -204,7 +204,7 @@ function connBar() {
   if (connSimOn()) {
     if (simErr) raise(2);
     parts.push(simErr ? Icons.stateIcon("error", { label: false }) : Icons.stateIcon("operational", { label: "Connected" }));
-    parts.push(el("strong", { dataset: { conn: "target" } }, `Standalone simulator ${simAddress()}`));
+    parts.push(el("strong", { dataset: { conn: "target" } }, `CANopen simulator ${simAddress()}`));
     if (S.model && several()) parts.push(netPicker());
     if (simErr) parts.push(el("span", { dataset: { conn: "state" } }, `not answering (${simErr}), retrying`));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "change" }, onclick: () => openConnect() }, "Change…"));
@@ -340,7 +340,7 @@ function allowControl(c) {
 
 function openConnect(message) {
   const dlg = $("#conn-dialog");
-  // The panel remembers the last target of a config (Runtime or Standalone simulator).
+  // The panel remembers the last target of a config (Runtime or CANopen simulator).
   if (!connNative() && typeof SIM !== "undefined" && !SIM.settings) {
     loadSimSettings().then(() => openConnect(message));
     return;
@@ -383,14 +383,14 @@ function simSavedTarget() {
 
 // The panel's content: the recent connections first, then the target choice
 // (USB adapter / Adapter on another machine in Commission a device; Runtime /
-// Standalone simulator / Adapter on another machine with a config) and the
+// CANopen simulator / Adapter on another machine with a config) and the
 // chosen target's form.
-const CONN_TARGETS = { usb: "USB adapter", remote: "Adapter on another machine", runtime: "Runtime", simulator: "Standalone simulator" };
+const CONN_TARGETS = { usb: "USB adapter", remote: "Adapter on another machine", runtime: "Runtime", simulator: "CANopen simulator" };
 function connPanel(message) {
   const body = $("#conn-dialog-body");
   const t = CONN.target;
   $("#conn-dialog-title").textContent = { usb: "Connect to a USB adapter", remote: "Connect to an adapter on another machine",
-    simulator: "Connect to a standalone simulator" }[t] || "Connect to the runtime";
+    simulator: "Connect to a CANopen simulator" }[t] || "Connect to the runtime";
   const form = t === "usb" ? adapterBox(message) : t === "remote" ? remoteBox(message) : t === "simulator" ? simulatorBox(message) : runtimeBox(message);
   const choice = el("div", { class: "segmented", role: "group", "aria-label": "Connect to", dataset: { conn: "targets" } },
     (connNative() ? ["usb", "remote"] : ["runtime", "simulator", "remote"]).map((k) => [k, CONN_TARGETS[k]]).map(([k, label]) =>
@@ -446,7 +446,7 @@ function connectRecent(r) {
   box.querySelector("[data-online=connect]").click();
 }
 
-// The standalone simulator: a running canworks-sim by address and token,
+// The CANopen simulator: a running canworks-canopen-sim by address and token,
 // both kept on this PC (online.json, per project folder).
 function simulatorBox(message) {
   const st = (typeof SIM !== "undefined" && SIM.settings) || {};
@@ -471,7 +471,7 @@ function simulatorBox(message) {
   return el("div", { dataset: { conn: "simulator-box" } },
     msg,
     el("div", { class: "grid" },
-      el("label", null, "Simulator address", address, hint("HOST[:PORT] of a running canworks-sim, port 7532 when not given. Kept on this PC, not in the project.")),
+      el("label", null, "Simulator address", address, hint("HOST[:PORT] of a running canworks-canopen-sim, port 7532 when not given. Kept on this PC, not in the project.")),
       el("label", null, "Token", token, hint("Only when the simulator was started with a token."))),
     el("div", { class: "toolbar" },
       st.token_set ? el("button", { type: "button", dataset: { sim: "forget-token" }, onclick: async () => {
@@ -487,7 +487,7 @@ function closeConnect() {
 }
 
 // The runtime: one host combobox (found and remembered runtimes, the local
-// simulator runtime, a typed host), and the token field in the panel when
+// local runtime, a typed host), and the token field in the panel when
 // this PC has none that matches the config. No second dialog.
 function runtimeBox(message) {
   if (!diagConfig()) {

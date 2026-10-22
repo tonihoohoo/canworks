@@ -3787,10 +3787,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _sim(self, route, body):
         """/api/sim/*: the Simulation view. The simulation file of this
         project, and requests to the runtime's simulated devices (online
-        access settings) or to a standalone simulator (address and token kept
+        access settings) or to a CANopen simulator (address and token kept
         on this PC), through the online view's kept-open connection."""
         # The runtime's simulated devices go through the shared connection (the
-        # connection bar's); a standalone simulator has a connection of its
+        # connection bar's); a CANopen simulator has a connection of its
         # own, so the Simulation view never closes or retargets the runtime's.
         s, conn, simconn = self.server.session, self.server.connection, self.server.sim_connection
         settings = online.Settings(config_dir())
@@ -3853,7 +3853,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def hello(kind):
             info = dict((simconn if kind == "simulator" else conn).info or {})
             standalone = bool(info.get("simulator"))
-            # The standalone simulator takes changes from anyone with its token.
+            # The CANopen simulator takes changes from anyone with its token.
             return {"hello": info, "target": kind, "standalone": standalone,
                     "allow_changes": True if standalone else bool(info.get("allow_changes"))}
 
@@ -4455,7 +4455,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.codesys_runner = None  # tests: runs the CODESYS command line instead of CODESYS
         self.sender = online.Sender()
         self.devices = devices_service.Devices(config_dir())
-        self.sim_connection = online.Connection()  # the Simulation view's standalone simulator
+        self.sim_connection = online.Connection()  # the Simulation view's CANopen simulator
         self.eds_index = online.EdsIndex()
         self.spn_cache = {}  # Handler._spn_names
         self.traces = tracing.Traces()

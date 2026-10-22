@@ -1,5 +1,5 @@
-// Run mode and test mode of canworks-sim (docs/simulator.md,
-// "canworks-sim" and "Test mode").
+// Run mode and test mode of canworks-canopen-sim (docs/simulator.md,
+// "canworks-canopen-sim" and "Test mode").
 //
 // One thread: the Lely loop runs in 10 ms slices, and between slices the
 // control channel is polled and the signal flag checked, so every engine call
@@ -106,7 +106,7 @@ void warn(const std::string& m) {
 }
 void error(const std::string& m) { std::fprintf(stderr, "%s error: %s\n", stamp().c_str(), m.c_str()); }
 // Before the simulation runs: plain messages.
-void fail(const std::string& m) { std::fprintf(stderr, "canworks-sim: %s\n", m.c_str()); }
+void fail(const std::string& m) { std::fprintf(stderr, "canworks-canopen-sim: %s\n", m.c_str()); }
 
 // The plugin's log (config, EDS lint) and Lely's diagnostics.
 void plugin_log(canopen_plugin::LogLevel l, const char* msg) {
@@ -392,7 +392,7 @@ bool prepare_interface(const Options& o, bool& real) {
       return false;
     }
     std::string add = "ip link add dev " + o.iface + " type vcan";
-    std::printf("canworks-sim: %s\n", add.c_str());
+    std::printf("canworks-canopen-sim: %s\n", add.c_str());
     if (std::system(add.c_str()) != 0) {
       fail("cannot create " + o.iface + " (--setup-vcan needs root and the vcan kernel module: sudo modprobe vcan)");
       return false;
@@ -413,7 +413,7 @@ bool prepare_interface(const Options& o, bool& real) {
   if (!info.up) {
     if (is_vcan && o.setup_vcan) {
       std::string up = "ip link set " + o.iface + " up";
-      std::printf("canworks-sim: %s\n", up.c_str());
+      std::printf("canworks-canopen-sim: %s\n", up.c_str());
       if (std::system(up.c_str()) != 0 || ops->get(o.iface, info) != 0 || !info.up) {
         fail("cannot bring " + o.iface + " up (needs root)");
         return false;
@@ -526,7 +526,7 @@ class Session {
     };
     // Prepared EDS copies of the lint live here while the simulator runs.
     const char* tmpdir = std::getenv("TMPDIR");
-    std::string t = std::string(tmpdir && *tmpdir ? tmpdir : "/tmp") + "/canworks-sim.XXXXXX";
+    std::string t = std::string(tmpdir && *tmpdir ? tmpdir : "/tmp") + "/canworks-canopen-sim.XXXXXX";
     std::vector<char> buf(t.begin(), t.end());
     buf.push_back(0);
     if (!mkdtemp(buf.data())) return report("cannot create a work directory " + t + ": " + std::strerror(errno));
@@ -733,7 +733,7 @@ class Session {
       sim_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) {
         if (on_end) on_end(r);
       };
-      say(std::string("canworks-sim ") + CANWORKS_PLUGIN_VERSION + ": " + std::to_string(count) + " device" +
+      say(std::string("canworks-canopen-sim ") + CANWORKS_PLUGIN_VERSION + ": " + std::to_string(count) + " device" +
           (count == 1 ? "" : "s") + " on " + (virtual_bus ? std::string("an in-process virtual bus") : o.iface) +
           (real ? " (REAL bus)" : "") + (server_ ? ", control on " + server_->address() : ""));
       if (!sim_->Start(errors)) return report("the simulation does not start");
@@ -858,12 +858,12 @@ class TestQueue {
     for (const auto& o : outcomes_) failed += o.passed ? 0 : 1;
     std::ofstream out(path);
     out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    out << "<testsuite name=\"canworks-sim\" tests=\"" << outcomes_.size() << "\" failures=\"" << failed
+    out << "<testsuite name=\"canworks-canopen-sim\" tests=\"" << outcomes_.size() << "\" failures=\"" << failed
         << "\" errors=\"0\" skipped=\"0\" time=\"" << fmt_seconds(total_) << "\">\n";
     for (const auto& name : names_) {
       for (const auto& o : outcomes_) {
         if (o.name != name) continue;
-        out << "  <testcase classname=\"canworks-sim\" name=\"" << xml_escape(o.name) << "\" time=\""
+        out << "  <testcase classname=\"canworks-canopen-sim\" name=\"" << xml_escape(o.name) << "\" time=\""
             << fmt_seconds(o.seconds) << "\"";
         if (o.passed) {
           out << "/>\n";
@@ -977,7 +977,7 @@ std::string jstr(const cJSON* o, const char* k) {
 }
 
 // --runtime: the scenarios run in the plugin's simulated devices (or, with an
-// explicit port, in another standalone simulator), over the diagnostics
+// explicit port, in another CANopen simulator), over the diagnostics
 // channel's sim_ requests.
 int test_remote(const Options& o) {
   std::string host, err, token;

@@ -19,7 +19,8 @@ class Mapping(unittest.TestCase):
         cases = {
             "import openplc_canopen_deploy.diag": "import canworks.diag",
             "openplc-canopen-diag status": "canworks-diag status",
-            "openplc-canopen-sim-runtime start": "canworks-sim-runtime start",
+            "openplc-canopen-sim-runtime start": "canworks-local-runtime start",
+            "openplc-canopen-sim --eds x.eds": "canworks-canopen-sim --eds x.eds",
             "/opt/openplc-canopen/lib/libcanopen_plugin.so": "/opt/canworks/lib/libcanworks_plugin.so",
             "OPENPLC_CANOPEN_TOKEN": "CANWORKS_TOKEN",
             "CANOPEN_FORCE_SIMULATE=1": "CANWORKS_FORCE_SIMULATE=1",
@@ -45,6 +46,22 @@ class Mapping(unittest.TestCase):
         }
         for old, new in cases.items():
             self.assertEqual(rn.rename_text(old), new, old)
+
+    def test_retired_simulator_names(self):
+        cases = {
+            "canworks-sim-runtime start": "canworks-local-runtime start",
+            "ghcr.io/o/canworks-sim-runtime:1.0": "ghcr.io/o/canworks-local-runtime:1.0",
+            "canworks-sim --eds drive.eds --node 4": "canworks-canopen-sim --eds drive.eds --node 4",
+            "run `canworks-sim`.": "run `canworks-canopen-sim`.",
+        }
+        for old, new in cases.items():
+            self.assertEqual(rn.rename_text(old), new, old)
+            self.assertTrue(rn.OLD.search(old), old)
+            self.assertIsNone(rn.OLD.search(new), new)
+        for text in ("schema/canworks-sim.v2.schema.json", '"canworks-sim.v%d.schema.json" % v',
+                     "`canworks-sim.v${v}.schema.json`", "/tmp/canworks-sim-state-XXXXXX", "canworks-canopen-sim"):
+            self.assertEqual(rn.rename_text(text), text, text)
+            self.assertIsNone(rn.OLD.search(text), text)
 
     def test_canopen_itself_kept(self):
         for text in ("config/pingpong/canopen_config.json", "openspec/specs/canopen-pdo-io/spec.md",

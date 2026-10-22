@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rename the project from openplc-canopen to canworks (change
-rename-to-canworks).
+rename-to-canworks), and the simulator names retired by clear-simulator-names
+(canworks-sim-runtime, canworks-sim).
 
   rename_to_canworks.py [--root DIR]   rename paths and text in place
   rename_to_canworks.py --check        list old project names, exit 1 if any
@@ -34,6 +35,7 @@ SKIP_PREFIXES = (
 SKIP_FILES = {
     "LICENSE",
     "openspec/specs/toolkit-names/spec.md",  # names the old names it retires
+    "openspec/specs/canopen-stock-install/spec.md",  # names the old simulator binary its install removes
     "scripts/rename_to_canworks.py",
     "test/ci/test_rename.py",
 }
@@ -49,8 +51,9 @@ RULES = [
     (r"openplc_canopen_hook", "canworks_hook"),
     (r"openplc_canopen_trace", "canworks_trace"),
     (r"openplc-canopen-editor-hook", "canworks-editor-hook"),
-    (r"openplc-canopen-sim-runtime", "canworks-sim-runtime"),
-    (r"openplc-canopen-(deploy|config|diag|sim)\b", r"canworks-\1"),
+    (r"openplc-canopen-sim-runtime", "canworks-local-runtime"),
+    (r"openplc-canopen-sim\b", "canworks-canopen-sim"),
+    (r"openplc-canopen-(deploy|config|diag)\b", r"canworks-\1"),
     (r"openplc_canopen", "canworks"),
     (r"/opt/openplc-canopen\b", "/opt/canworks"),
     # The repository and plain folder names; not the private repository and
@@ -64,6 +67,10 @@ RULES = [
     (r"(?:(?<=-D)|\b)CANOPEN_(%s)\b" % "|".join(SETTINGS), r"CANWORKS_\1"),
     (r"(?<![\w-])canopen-(token|doc-theme|doc)(?![\w-])", r"canworks-\1"),
     (r"libcanopen_plugin", "libcanworks_plugin"),
+    # The simulator names retired by clear-simulator-names; the simulation
+    # file schemas (canworks-sim.v1, canworks-sim.v2) keep theirs.
+    (r"canworks-sim-runtime", "canworks-local-runtime"),
+    (r"canworks-sim(?!\.v(?:\d|%d|\$\{))(?![\w-])", "canworks-canopen-sim"),
     # Schema files, also where the version is filled in (%d, ${v}).
     (r"(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema", r"canworks\1.v\2.schema"),
     (r"(?<![\w.-])canopen\.json", "canworks.json"),
@@ -82,7 +89,8 @@ BUILD_FILE = re.compile(r"(^|/)(CMakeLists\.txt|[^/]*\.cmake|[^/]*\.sh|[^/]*\.ya
 OLD = re.compile(r"openplc[-_]canopen(?!-private)|OPENPLC_CANOPEN_|CANOPEN_FORCE_SIMULATE|libcanopen_plugin"
                  r"|(?:(?<=-D)|\b)CANOPEN_(%s)\b|(?<![\w-])canopen-(token|doc-theme|doc)(?![\w-])" % "|".join(SETTINGS) +
                  r"|(?<![\w.-])canopen(\\)?\.json|conf/canopen/"
-                 r"|(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema")
+                 r"|(?<![\w-])canopen(-sim|-machine)?\.v(\d+|%d|\$\{\w+\})\.schema"
+                 r"|canworks-sim-runtime|canworks-sim(?!\.v(?:\d|%d|\$\{))(?![\w-])")
 
 _RULES = [(re.compile(p), r) for p, r in RULES]
 _BUILD = [(re.compile(p), r) for p, r in BUILD_RULES]
@@ -151,7 +159,8 @@ def apply(root):
 def check(root):
     found = []
     # Main specs are synced from the change's deltas when it is archived.
-    pending = os.path.isdir(os.path.join(root, "openspec", "changes", "rename-to-canworks"))
+    pending = any(os.path.isdir(os.path.join(root, "openspec", "changes", c))
+                  for c in ("rename-to-canworks", "clear-simulator-names"))
     for path in tracked(root):
         if skipped(path) or (pending and path.startswith("openspec/specs/")):
             continue

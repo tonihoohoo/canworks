@@ -47,7 +47,13 @@ mkdir -p "$OLD_PREFIX/lib"
 [ -f "$RUNTIME/plugins.conf" ] || cp "$RUNTIME/plugins_default.conf" "$RUNTIME/plugins.conf"
 echo "canopen,$OLD_PREFIX/lib/libcanopen_plugin.so,0,1,$OLD_PREFIX/lib/canopen.json," >> "$RUNTIME/plugins.conf"  # rename-keep
 touch "$SITE/openplc_canopen_hook.pth"  # rename-keep
-CANWORKS_OLD_PREFIX="$OLD_PREFIX" "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >/dev/null
+# and the simulator's name from before clear-simulator-names
+mkdir -p /opt/canworks/lib
+touch /opt/canworks/lib/canworks-sim  # rename-keep
+ln -sfn /opt/canworks/lib/canworks-sim /usr/local/bin/canworks-sim  # rename-keep
+CANWORKS_OLD_PREFIX="$OLD_PREFIX" "$REPO/scripts/install-stock.sh" --no-deps --runtime-dir "$RUNTIME" >"$WORK/old-names.log"
+grep -q "Removed /usr/local/bin/canworks-sim " "$WORK/old-names.log" || fail "the old simulator link removal was not named"  # rename-keep
+[ ! -e /opt/canworks/lib/canworks-sim ] && [ ! -L /usr/local/bin/canworks-sim ] || fail "the old simulator name was left"  # rename-keep
 ! grep -q '^canopen,' "$RUNTIME/plugins.conf" || fail "the old canopen line was left"  # rename-keep
 [ ! -e "$SITE/openplc_canopen_hook.pth" ] || fail "the old editor hook was left"  # rename-keep
 [ ! -e "$OLD_PREFIX" ] || fail "the old install folder was left"
@@ -59,10 +65,10 @@ grep -qx 'canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib
 grep -qx can-j1939 "$CANWORKS_MODULES_LOAD_DIR/canworks-j1939.conf" || fail "can-j1939 boot entry not written"
 # The simulator and the plugin take their version from the same CMake value
 # (git describe of the checkout they were built from).
-SIM_VERSION=$(canworks-sim --version | awk '{print $2}')
+SIM_VERSION=$(canworks-canopen-sim --version | awk '{print $2}')
 PLUGIN_VERSION=$(git -C "$REPO" describe --always --tags --dirty)
 [ "$SIM_VERSION" = "$PLUGIN_VERSION" ] ||
-    fail "canworks-sim --version ($SIM_VERSION) is not the plugin version ($PLUGIN_VERSION)"
+    fail "canworks-canopen-sim --version ($SIM_VERSION) is not the plugin version ($PLUGIN_VERSION)"
 [ -z "$(git -C "$RUNTIME" status --porcelain --untracked-files=no)" ] || {
     git -C "$RUNTIME" status --short; fail "tracked runtime files were modified"; }
 
@@ -115,8 +121,8 @@ echo "==> uninstall"
 [ ! -e /opt/canworks/lib ] || fail "library directory left behind"
 [ ! -e "$PTH" ] || fail "uninstall left $PTH"
 [ ! -e "$CANWORKS_MODULES_LOAD_DIR/canworks-j1939.conf" ] || fail "uninstall left the can-j1939 boot entry"
-[ ! -e /usr/local/bin/canworks-sim ] && [ ! -L /usr/local/bin/canworks-sim ] ||
-    fail "uninstall left /usr/local/bin/canworks-sim"
+[ ! -e /usr/local/bin/canworks-canopen-sim ] && [ ! -L /usr/local/bin/canworks-canopen-sim ] ||
+    fail "uninstall left /usr/local/bin/canworks-canopen-sim"
 [ -z "$(hook_log)" ] || fail "uninstall: the hook still logs"
 [ -x /opt/canworks/venv/bin/dcfgen ] || fail "uninstall without --purge removed dcfgen"
 [ -z "$(git -C "$RUNTIME" status --porcelain --untracked-files=no)" ] || fail "tracked runtime files were modified"

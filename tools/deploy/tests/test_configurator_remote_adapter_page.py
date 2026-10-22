@@ -195,7 +195,7 @@ class ConfigRemote(RemotePage):
         pg.click('#conn-bar [data-conn="connect"]')
         pg.wait_for_selector('#conn-dialog [data-conn="targets"] button[data-conn-target="remote"]')
         targets = [b.inner_text() for b in pg.query_selector_all('#conn-dialog [data-conn="targets"] button')]
-        self.assertEqual(targets, ["Runtime", "Standalone simulator", "Adapter on another machine"])
+        self.assertEqual(targets, ["Runtime", "CANopen simulator", "Adapter on another machine"])
         self.assertIn("Online access is off", pg.inner_text("#conn-dialog"))
         self.connect_remote()
         # The warning is in the panel before Connect, and on the page after.

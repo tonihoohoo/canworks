@@ -5,7 +5,7 @@
 #
 #   test/commissioning/run.sh [--build-dir build] [--iface vcan0]
 #
-# 1. The standalone simulator simulates the RTD module's EDS
+# 1. The CANopen simulator simulates the RTD module's EDS
 #    (config/rtd-sensor, node 5) with a state folder, so what it stores
 #    outlives a power cycle. Through the adapter: a dry run writes nothing;
 #    configure from the config's node 5 (its TPDO1 remapped to two entries)
@@ -40,7 +40,7 @@ done
 
 PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-SIM="$BUILD/bin/canworks-sim"
+SIM="$BUILD/bin/canworks-canopen-sim"
 for f in "$PLUGIN" "$HOST" "$SIM"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done

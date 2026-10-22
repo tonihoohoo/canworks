@@ -1,12 +1,12 @@
 # canopen-local-runtime Specification
 
 ## Purpose
-A local OpenPLC Runtime v4 with the CANopen plugin on the engineering PC (Windows, macOS, Linux), run in a container by `canworks-sim-runtime` with every network simulated, so a CANopen project can be uploaded, debugged and diagnosed without a Linux device, CAN adapter or real devices. The editor's own simulator cannot run runtime plugins.
+A local OpenPLC Runtime v4 with the CANopen plugin on the engineering PC (Windows, macOS, Linux), run in a container by `canworks-local-runtime` with every network simulated, so a CANopen project can be uploaded, debugged and diagnosed without a Linux device, CAN adapter or real devices. The editor's own simulator cannot run runtime plugins.
 
 ## Requirements
 
 ### Requirement: Simulator runtime image
-The project SHALL publish a container image `ghcr.io/tonihoohoo/canworks-sim-runtime` for `linux/amd64` and `linux/arm64`, built from the upstream runtime image of the version pinned in `docker/local-runtime/runtime-version`, with the CANopen plugin, `dcfgen`, the device simulator and the editor hook installed under `/opt/canworks` exactly as the in-image build of `scripts/install-stock.sh` installs them. The image SHALL change nothing in the upstream image other than adding these files, the environment entries `PYTHONPATH` (editor hook) and `CANWORKS_FORCE_SIMULATE=1`, and links that keep the runtime's generated certificate and key in the data volume. The image SHALL carry the upstream runtime version and the PC tools version as labels, and the plugin in it SHALL report the PC tools version as its version in the diagnostics status.
+The project SHALL publish a container image `ghcr.io/tonihoohoo/canworks-local-runtime` for `linux/amd64` and `linux/arm64`, built from the upstream runtime image of the version pinned in `docker/local-runtime/runtime-version`, with the CANopen plugin, `dcfgen`, the device simulator and the editor hook installed under `/opt/canworks` exactly as the in-image build of `scripts/install-stock.sh` installs them. The image SHALL change nothing in the upstream image other than adding these files, the environment entries `PYTHONPATH` (editor hook) and `CANWORKS_FORCE_SIMULATE=1`, and links that keep the runtime's generated certificate and key in the data volume. The image SHALL carry the upstream runtime version and the PC tools version as labels, and the plugin in it SHALL report the PC tools version as its version in the diagnostics status.
 
 #### Scenario: Editor upload into the image
 - **WHEN** a container of the image runs and the editor's Build and Upload sends a project that has a `canworks/` folder
@@ -21,21 +21,21 @@ Each PC tools release `deploy-v<version>` SHALL be followed by a push of the ima
 
 #### Scenario: Release of 0.30.0
 - **WHEN** the wheel `deploy-v0.30.0` is released from a `main` commit
-- **THEN** `ghcr.io/tonihoohoo/canworks-sim-runtime:0.30.0` exists for amd64 and arm64, built from that commit, and `latest` points at it
+- **THEN** `ghcr.io/tonihoohoo/canworks-local-runtime:0.30.0` exists for amd64 and arm64, built from that commit, and `latest` points at it
 
 #### Scenario: Re-run for a released version
 - **WHEN** the release workflow runs again for 0.30.0
 - **THEN** the `0.30.0` image tag is left unchanged
 
 ### Requirement: Start the local runtime
-`canworks-sim-runtime start` SHALL run the image with a container engine: the one given by `--engine`, else `$CANWORKS_ENGINE`, else the first of `docker` and `podman` whose `info` succeeds, and on Windows then `docker` and `podman` inside the default WSL distribution (`wsl -e ...`). When none is usable it SHALL fail with a message that names what was looked for and points to the setup docs, without changing anything. By default it SHALL use the image tag equal to its own package version (`--image` overrides). It SHALL create a container named `canworks-sim-runtime` that publishes the runtime's port 8443 (host port 8443, `--port` to change) and the plugin's diagnostics port 7531 (the same number on both sides, `--diag-port` to change) on `127.0.0.1` only, keeps runtime data in the named volume `canworks-sim-runtime-data` (or the volume saved in `local-runtime.json` for a runtime taken over from the earlier name), restarts unless stopped, and gets the `SYS_NICE` and `SYS_RESOURCE` capabilities and an unlimited memlock limit for the runtime's real-time scheduling and memory locking. When the container exists and is stopped it SHALL start it. When it exists with another image than the default, it SHALL keep that image and say that `update` switches it; when `--image` names another image than the container's, it SHALL change nothing and name `update`. It SHALL NOT need administrator rights beyond what the engine itself needs.
+`canworks-local-runtime start` SHALL run the image with a container engine: the one given by `--engine`, else `$CANWORKS_ENGINE`, else the first of `docker` and `podman` whose `info` succeeds, and on Windows then `docker` and `podman` inside the default WSL distribution (`wsl -e ...`). When none is usable it SHALL fail with a message that names what was looked for and points to the setup docs, without changing anything. By default it SHALL use the image tag equal to its own package version (`--image` overrides). It SHALL create a container named `canworks-local-runtime` that publishes the runtime's port 8443 (host port 8443, `--port` to change) and the plugin's diagnostics port 7531 (the same number on both sides, `--diag-port` to change) on `127.0.0.1` only, keeps runtime data in the named volume `canworks-local-runtime-data` (or the volume saved in `local-runtime.json` for a runtime taken over from the earlier name), restarts unless stopped, and gets the `SYS_NICE` and `SYS_RESOURCE` capabilities and an unlimited memlock limit for the runtime's real-time scheduling and memory locking. When the container exists and is stopped it SHALL start it. When it exists with another image than the default, it SHALL keep that image and say that `update` switches it; when `--image` names another image than the container's, it SHALL change nothing and name `update`. It SHALL NOT need administrator rights beyond what the engine itself needs.
 
 #### Scenario: First start with Podman only
-- **WHEN** a PC has `podman` working and no `docker`, and the user runs `canworks-sim-runtime start`
+- **WHEN** a PC has `podman` working and no `docker`, and the user runs `canworks-local-runtime start`
 - **THEN** the container runs under Podman, the runtime answers on `https://localhost:8443`, and the command prints the editor connection settings
 
 #### Scenario: Windows with Docker Engine in WSL2
-- **WHEN** a Windows PC has no `docker` or `podman` on its PATH and Docker Engine runs in the default WSL2 distribution, and the user runs `canworks-sim-runtime start` in PowerShell
+- **WHEN** a Windows PC has no `docker` or `podman` on its PATH and Docker Engine runs in the default WSL2 distribution, and the user runs `canworks-local-runtime start` in PowerShell
 - **THEN** the container runs in WSL2 through `wsl -e docker`, and the editor on Windows reaches the runtime at `localhost:8443`
 
 #### Scenario: No engine
@@ -59,7 +59,7 @@ On a start that finds the runtime without users, the command SHALL create a runt
 
 #### Scenario: Credentials file deleted
 - **WHEN** `local-runtime.json` was deleted and the volume still holds the runtime's user
-- **THEN** `start` runs the container, reports that the credentials are lost and names `canworks-sim-runtime remove --data`
+- **THEN** `start` runs the container, reports that the credentials are lost and names `canworks-local-runtime remove --data`
 
 ### Requirement: Manage the local runtime
 The command SHALL offer `stop` (stop the container), `status` (engine, image, container state, the runtime's address, PLC state, and the last CANopen lines of the runtime log), `logs` (`-f` to follow), `update` (pull the image for its own version, or use a copy already on the PC when the pull fails, recreate the container on the same volume and ports with the same credentials, and say that the PLC program must be uploaded again) and `remove` (delete the container; with `--data` also the volume and `local-runtime.json`). Each subcommand SHALL say plainly when there is nothing to act on.
@@ -73,7 +73,7 @@ The command SHALL offer `stop` (stop the container), `status` (engine, image, co
 - **THEN** the container, the volume and `local-runtime.json` are gone, and a later `start` creates new credentials
 
 ### Requirement: Local runtime as a target
-`canworks-deploy --runtime local` SHALL take URL, user, password and fingerprint from `local-runtime.json`; options the user gives explicitly SHALL win. Without the file it SHALL fail with a message naming `canworks-sim-runtime start`. `canworks-diag --runtime local` and the configurator's online access host `local` (set by its "Local simulator runtime" button) SHALL connect to `127.0.0.1` at the saved diagnostics port (7531 without a saved file), with the project's access token as for any runtime.
+`canworks-deploy --runtime local` SHALL take URL, user, password and fingerprint from `local-runtime.json`; options the user gives explicitly SHALL win. Without the file it SHALL fail with a message naming `canworks-local-runtime start`. `canworks-diag --runtime local` and the configurator's online access host `local` (set by its "Local simulator runtime" button) SHALL connect to `127.0.0.1` at the saved diagnostics port (7531 without a saved file), with the project's access token as for any runtime.
 
 #### Scenario: Deploy to the local runtime
 - **WHEN** the user runs `canworks-deploy --runtime local` with an editor project after `start`
@@ -88,7 +88,7 @@ The command SHALL offer `stop` (stop the container), `status` (engine, image, co
 
 #### Scenario: Mac without Docker Desktop
 - **WHEN** a user follows the macOS section on an M-series Mac without Docker Desktop
-- **THEN** the steps install Colima and the Docker CLI with Homebrew, and `canworks-sim-runtime start` works afterwards
+- **THEN** the steps install Colima and the Docker CLI with Homebrew, and `canworks-local-runtime start` works afterwards
 
 ### Requirement: Local runtime tested in CI
 CI SHALL build the amd64 image and run an end-to-end test of the command with Docker on changes to the image, the plugin, the install script, the editor hook or the command: start, the credentials file, an upload of `config/pingpong` (real adapter in the config) with `--runtime local` and a PLC program compiled by STruC++, the forced-simulation warning, node 2 operational, diagnostics through the published port, PDO values moving, stop and start and update with the same fingerprint, and remove with data. CI SHALL also build the arm64 image on an arm64 runner and check that the plugin library resolves its libraries there.
@@ -98,7 +98,7 @@ CI SHALL build the amd64 image and run an end-to-end test of the command with Do
 - **THEN** the local runtime CI job fails
 
 ### Requirement: Certificate changes are refused
-The saved certificate fingerprint SHALL be replaced only by `canworks-sim-runtime start` right after it created or recreated the container itself. Any other time the local runtime answers with a different certificate, the tools SHALL stop before sending credentials and name `canworks-sim-runtime start`. The password SHALL be printed only by `status --show-password`.
+The saved certificate fingerprint SHALL be replaced only by `canworks-local-runtime start` right after it created or recreated the container itself. Any other time the local runtime answers with a different certificate, the tools SHALL stop before sending credentials and name `canworks-local-runtime start`. The password SHALL be printed only by `status --show-password`.
 
 #### Scenario: Another program on the port
 - **WHEN** another program answers on the local runtime's port with its own certificate and `canworks-deploy --runtime local` runs

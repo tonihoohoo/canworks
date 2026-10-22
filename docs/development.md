@@ -22,7 +22,7 @@ test/lss/run.sh                                 # LSS node ID assignment
 test/params/run.sh                              # device parameter backup, compare and restore
 test/commissioning/run.sh                       # write a configuration to one device, PDO test
 test/localbus/run.sh                            # the PC tools on vcan0 without a runtime
-test/simulator/run.sh                           # canworks-sim against the plugin (needs vcan1)
+test/simulator/run.sh                           # canworks-canopen-sim against the plugin (needs vcan1)
 test/trace/run.sh                               # bus trace and its export formats
 test/rawframes/run.sh                           # raw frames sent by hand, raw messages, replay, removed bit rate detection ops
 test/bus/run.sh                                 # bus state byte with vcan0 taken down and up
@@ -34,7 +34,7 @@ test/j1939/run.sh                               # the J1939 ECU against the J193
 
 The configurator and the plugin refuse the same configs: `tools/deploy/tests/test_parity.py` runs every entry of `test/fixtures/config/bad/` (a config, and optionally its simulation file) through the deploy tool's checks and through `build/canopen_check --no-dcfgen`, and fails naming the entry when one of them accepts it. An entry's optional `message` is a text both refusals must contain; `config_text` in place of `config` gives the file as text, for what a parsed config cannot hold (a repeated key); `eds_files` (`{"name.eds": "text"}`) adds EDS files next to `test/fixtures/eds`, for EDS-level entries. It skips without the build unless `CANWORKS_REQUIRE_PARITY=1`. In CI the tools job keeps the classes that need `build/canopen_check` (`test_parity`, `test_dcfexport.Parity`, `test_project.IntoProject`) on one shard with `test_shard.py --together`, and only that shard builds it and sets `CANWORKS_REQUIRE_PARITY=1`. A new test class that runs the build joins that `--together` pattern in `.github/workflows/ci.yml`. Both test jobs split by recorded class times (`.github/ci/tool-test-times.json`, `.github/ci/page-test-times.json`); refresh them from the shards' "class times:" lines when the shards drift apart. **A pull request that makes the plugin refuse something new adds a corpus file for it**, and the configurator's check that refuses it too.
 
-Python versions: the deploy tool also runs on the runtime (EDS lint, the remote link), on the runtime image's Python 3.11, so the package needs 3.11 or newer and may not use anything newer. CI runs the jobs that test code the runtime runs (plugin, vcan, tools, integration) on 3.11 and the PC-only jobs (configurator pages, browser run, local simulator runtime, PC tools on Windows and macOS) on 3.14, the one-line installer's Python.
+Python versions: the deploy tool also runs on the runtime (EDS lint, the remote link), on the runtime image's Python 3.11, so the package needs 3.11 or newer and may not use anything newer. CI runs the jobs that test code the runtime runs (plugin, vcan, tools, integration) on 3.11 and the PC-only jobs (configurator pages, browser run, local runtime, PC tools on Windows and macOS) on 3.14, the one-line installer's Python.
 
 The CiA 402 tests use the editor's ST compiler, STruC++ (needs Node 22):
 
@@ -104,14 +104,14 @@ sudo test/docker/run.sh --image ghcr.io/autonomy-logic/openplc-runtime:latest   
 
 Use a development machine, not one running your PLC: the stock test installs into `/opt/canworks` and the runtime checkout, and the Docker test starts runtime containers on the host network.
 
-## Local simulator runtime image
+## Local runtime image
 
-`.github/workflows/local-runtime.yml` builds the image of [local-runtime.md](local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `canworks-sim-runtime` against it with a PLC program compiled by STruC++, then deploys the virtual example to it and runs its test scenarios (`test/virtual-example/run.sh`), on pull requests that change the image, the plugin, the command or the example, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
+`.github/workflows/local-runtime.yml` builds the image of [local-runtime.md](local-runtime.md) from the pinned upstream runtime (`docker/local-runtime/runtime-version`) and runs `canworks-local-runtime` against it with a PLC program compiled by STruC++, then deploys the virtual example to it and runs its test scenarios (`test/virtual-example/run.sh`), on pull requests that change the image, the plugin, the command or the example, weekly and on "Run workflow"; an arm64 runner builds the arm64 image. Locally (needs Docker and Node 22):
 
 ```sh
-docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t canworks-sim-runtime:dev .
-test/local-runtime/run.sh --image canworks-sim-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
-test/virtual-example/run.sh --image canworks-sim-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
+docker build -f docker/local-runtime/Dockerfile --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) -t canworks-local-runtime:dev .
+test/local-runtime/run.sh --image canworks-local-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
+test/virtual-example/run.sh --image canworks-local-runtime:dev --strucpp "$(scripts/fetch-strucpp.sh)"
 ```
 
 ## Repository layout
@@ -124,7 +124,7 @@ plugin/            native plugin source: src/can/ the shared CAN core (config, a
                    kernel sockets, signals), src/can/raw/ raw CAN messages, plain networks
                    and the frame blocks' interface, src/canopen/sim/ the device simulator
                    engine (simulated devices, value sources, expressions, CiA 402 drive model, faults,
-                   scenarios), used by the plugin and canworks-sim; src/bridge/
+                   scenarios), used by the plugin and canworks-canopen-sim; src/bridge/
                    canworks-bridge, the Modbus TCP bridge (Modbus server, byte image, bridge
                    registers, the host that runs the shared engine without OpenPLC)
 schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema.json (one network),
@@ -143,12 +143,12 @@ config/            example configurations: config/pingpong/ (the ping-pong slave
                    config/slave/ (OpenPLC as slave node 10, its EDS description and a demo program),
                    config/gateway/ (the ping-pong node on a field network, OpenPLC as a gateway above it)
 tools/             canopen_check.cpp: validates a config and its EDS files without starting the PLC;
-                   tools/sim/: canworks-sim, the standalone device simulator for the runtime host
+                   tools/sim/: canworks-canopen-sim, the CANopen simulator for the runtime host
 tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks-config
                    (the configurator), canworks-diag (online diagnostics, parameters, trace),
                    canworks-j1939-sim (the J1939 ECU simulator)
 docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
-docker/local-runtime/ the local simulator runtime image (stock runtime + plugin, forced simulation) and
+docker/local-runtime/ the local runtime image (stock runtime + plugin, forced simulation) and
                    the pinned upstream runtime release and its archive's sha256 (the plugin and
                    bridge builds in CI and scripts/install-bridge.sh use it; the weekly stock install
                    test runs against upstream development)
@@ -174,7 +174,7 @@ test/lss/          LSS node ID assignment to a slave without a node ID on vcan0
 test/params/       device parameter backup, compare and restore on vcan0
 test/commissioning/ writing a configuration to one device from the PC on vcan0
 test/localbus/     the PC tools straight on a SocketCAN interface (no runtime) on vcan0
-test/simulator/    canworks-sim against the plugin on vcan0 and vcan1
+test/simulator/    canworks-canopen-sim against the plugin on vcan0 and vcan1
 test/trace/        bus trace recording, filters and export formats on vcan0
 test/rawframes/    raw frames sent by hand (guards, cyclic jobs), raw messages and replay on vcan0 and the simulated bus
 test/bus/          the bus state byte while vcan0 goes down and up
@@ -193,7 +193,7 @@ test/fixtures/     config and EDS fixtures shared by the plugin's and the deploy
                    (test/fixtures/eds/drives/: two made-up CiA 402 drives)
 test/stock/        install-stock.sh, the editor hook and the upstream runtime's upload rules, end to end
 test/docker/       install-stock.sh in Docker mode and the runtime spec edits
-test/local-runtime/ canworks-sim-runtime against the image with a compiled PLC program (run.sh)
+test/local-runtime/ canworks-local-runtime against the image with a compiled PLC program (run.sh)
 test/virtual-example/ the virtual example on the image: checks, exports, every node up, test scenarios
 test/pc-tools/     the release tag check; test/ci/: the CI change classification and areas
 scripts/           dev-setup.sh (Lely, dcfgen, vcan0), build-lely.sh, install-stock.sh, install-bridge.sh,

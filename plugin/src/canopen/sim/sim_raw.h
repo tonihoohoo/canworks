@@ -5,7 +5,7 @@
 // The engine owns the timing: it asks due() for the frames to send now,
 // hands every received frame to on_frame() and sends the replies when
 // they fall due. Nothing here touches a socket, so the same code runs on the
-// simulated bus and in the standalone simulator.
+// simulated bus and in the CANopen simulator.
 
 #ifndef CANOPEN_SIM_RAW_H
 #define CANOPEN_SIM_RAW_H

@@ -212,19 +212,19 @@ set_target_properties(canworks_plugin PROPERTIES
 target_link_options(canworks_plugin PRIVATE -Wl,-soname,libcanworks_plugin.so)
 
 if(CANWORKS_WITH_CANOPEN)
-# canworks-sim, the standalone simulator (docs/simulator.md): the
+# canworks-canopen-sim, the CANopen simulator (docs/simulator.md): the
 # simulator engine of canopen_core on a SocketCAN interface. It reports the
 # plugin's version.
-add_executable(canworks-sim
+add_executable(canworks-canopen-sim
     ${PROJECT_SOURCE_DIR}/tools/sim/main.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_run.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
 )
-target_compile_definitions(canworks-sim PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
-target_compile_options(canworks-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(canworks-sim PRIVATE canopen_core)
-set_target_properties(canworks-sim PROPERTIES
+target_compile_definitions(canworks-canopen-sim PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
+target_compile_options(canworks-canopen-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(canworks-canopen-sim PRIVATE canopen_core)
+set_target_properties(canworks-canopen-sim PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     BUILD_RPATH "${LELY_LIBRARY_DIRS}"
     INSTALL_RPATH "${LELY_LIBRARY_DIRS}"

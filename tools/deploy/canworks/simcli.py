@@ -1,6 +1,6 @@
 """canworks-diag sim: live control of simulated devices
 (docs/simulator.md, "Control subcommands"), in the plugin with --runtime or
-in a standalone canworks-sim with --sim HOST[:PORT] (default: the
+in a standalone canworks-canopen-sim with --sim HOST[:PORT] (default: the
 local simulator, 127.0.0.1:7532).
 
   canworks-diag sim status --runtime plc.local
@@ -136,7 +136,7 @@ def _common():
     s = argparse.SUPPRESS
     c.add_argument("--runtime", default=s, metavar="HOST[:PORT]", help="the plugin's simulated devices")
     c.add_argument("--sim", dest="sim_addr", default=s, metavar="HOST[:PORT]",
-                   help="a standalone simulator (default 127.0.0.1:%d)" % simclient.SIM_PORT)
+                   help="a CANopen simulator (default 127.0.0.1:%d)" % simclient.SIM_PORT)
     c.add_argument("--network", default=s, metavar="NAME",
                    help="with --runtime: the network whose simulated devices to talk to (needed when the "
                         "runtime runs several)")
@@ -159,7 +159,7 @@ def add_parser(sub):
     common = _common()
     s = sub.add_parser("sim", parents=[common], help="control simulated devices (see docs/simulator.md)",
                        description="Live control of simulated devices: the plugin's (--runtime HOST) or a "
-                                   "standalone canworks-sim's (--sim HOST[:PORT], default 127.0.0.1:%d)."
+                                   "standalone canworks-canopen-sim's (--sim HOST[:PORT], default 127.0.0.1:%d)."
                                    % simclient.SIM_PORT)
     ss = s.add_subparsers(dest="sim_command", metavar="SIMCOMMAND")
     ss.required = True
@@ -439,7 +439,7 @@ def print_values(values, out):
 
 def connect(args):
     """A connected SimClient for --runtime or --sim (default: the local
-    standalone simulator)."""
+    CANopen simulator)."""
     runtime = getattr(args, "runtime", None)
     sim_addr = getattr(args, "sim_addr", None)
     if runtime and sim_addr:
@@ -458,7 +458,7 @@ def connect(args):
         return simclient.SimClient.for_simulator(host, port, token, timeout)
     except DiagError as e:
         if e.kind == "closed":
-            raise DiagError("closed", "no simulator listens on %s:%d (start canworks-sim, or give --sim "
+            raise DiagError("closed", "no simulator listens on %s:%d (start canworks-canopen-sim, or give --sim "
                                       "HOST[:PORT] or --runtime HOST)" % (host, port))
         raise
 
@@ -651,7 +651,7 @@ def _test_line(r):
     return line
 
 
-def write_junit(results, path, suite="canworks-sim"):
+def write_junit(results, path, suite="canworks-canopen-sim"):
     """A JUnit XML report: one testcase per scenario; failed, stopped and
     timed out ones have a <failure>, ones not run are <skipped>."""
     failures = sum(1 for r in results if r.state in ("failed", "stopped", "timeout"))

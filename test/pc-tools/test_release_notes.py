@@ -44,7 +44,7 @@ class TemplateCoverageTest(unittest.TestCase):
 
     def test_container_images(self):
         images = set(re.findall(r'repo="ghcr\.io/.*/([a-z0-9-]+)"\s*$', self.workflow, re.M))
-        self.assertGreaterEqual(images, {"canworks-sim-runtime", "canworks-bridge"})
+        self.assertGreaterEqual(images, {"canworks-local-runtime", "canworks-bridge"})
         for image in images:
             self.assertIn("ghcr.io/{owner}/%s:{version}" % image, self.template,
                           "the release publishes the image %s; name it in the release notes template" % image)
@@ -64,7 +64,7 @@ class TemplateCoverageTest(unittest.TestCase):
                       "canworks-1.2.3-py3-none-any.whl", text)
         self.assertIn("https://github.com/Owner/canworks/releases/download/deploy-v1.2.3/install-pc.sh | sh -s -- --version 1.2.3",
                       text)
-        self.assertIn("ghcr.io/owner/canworks-sim-runtime:1.2.3", text)
+        self.assertIn("ghcr.io/owner/canworks-local-runtime:1.2.3", text)
         self.assertIn("https://github.com/Owner/canworks/blob/deploy-v1.2.3/docs/install-pc.md", text)
 
 

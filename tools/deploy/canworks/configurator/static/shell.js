@@ -40,9 +40,10 @@ function toolsOf(ws = workspace()) {
   if (S.state && S.state.commission) return ["trace", "framelab"];
   if (ws === "devices") return [];
   // A target that does not run canworks has no simulated devices or located declarations (target.js).
-  const sim = !isJ1939(S.config) && (!S.model || simulationShown());
+  // A J1939 network keeps Simulation, which points to canworks-j1939-sim, but has no simulation file.
+  const sim = !S.model || simulationShown();
   const decl = !S.model || usedBy("ui:declarations");
-  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim ? ["simfile"] : []);
+  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim && !isJ1939(S.config) ? ["simfile"] : []);
   return (sim ? ["simulation"] : []).concat(["trace", "framelab"]);
 }
 

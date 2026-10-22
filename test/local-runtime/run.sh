@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The local simulator runtime end to end (canopen-local-runtime): the image,
-# canworks-sim-runtime and the `local` target, with a real PLC program.
+# The local runtime end to end (canopen-local-runtime): the image,
+# canworks-local-runtime and the `local` target, with a real PLC program.
 #
 #   test/local-runtime/run.sh --image <image> --strucpp <strucpp command> [--engine docker|podman]
 #
@@ -44,7 +44,7 @@ WORK=$(mktemp -d)
 export CANWORKS_CONFIG_DIR="$WORK/settings"
 export CANWORKS_ENGINE="$ENGINE"
 SETTINGS="$CANWORKS_CONFIG_DIR/local-runtime.json"
-RT=(canworks-sim-runtime)
+RT=(canworks-local-runtime)
 cleanup() {
     "${RT[@]}" remove --data >/dev/null 2>&1
     rm -rf "$WORK"
@@ -52,7 +52,7 @@ cleanup() {
 trap cleanup EXIT
 saved() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$SETTINGS" "$1"; }
 # Captured first: `grep -q` closing a pipe early fails the pipeline under pipefail.
-logs() { local text; text=$("$ENGINE" logs canworks-sim-runtime 2>&1); printf '%s\n' "$text"; }
+logs() { local text; text=$("$ENGINE" logs canworks-local-runtime 2>&1); printf '%s\n' "$text"; }
 in_logs() { local text; text=$(logs); grep -q "$1" <<<"$text"; }
 
 echo "1. start"
@@ -100,7 +100,7 @@ if canworks-deploy --bundle "$WORK/bundle" --config "$WORK/project/canopen_confi
 else
     cat "$WORK/deploy.log"; fail "deploy"
 fi
-grep -q "local simulator runtime: every network runs simulated" "$WORK/deploy.log" && ok "deploy says it" ||
+grep -q "local runtime: every network runs simulated" "$WORK/deploy.log" && ok "deploy says it" ||
     fail "no local runtime notice"
 grep -q "the PLC is running" "$WORK/deploy.log" && ok "PLC running" || fail "PLC not running"
 for _ in $(seq 1 60); do
@@ -132,8 +132,8 @@ grep -q "^PLC: [A-Z]" <<<"$out" && ok "saved credentials log in ($(grep '^PLC:' 
 
 echo "5. remove --data"
 "${RT[@]}" remove --data >/dev/null 2>&1
-"$ENGINE" container inspect canworks-sim-runtime >/dev/null 2>&1 && fail "container left" || ok "container gone"
-"$ENGINE" volume inspect canworks-sim-runtime-data >/dev/null 2>&1 && fail "volume left" || ok "volume gone"
+"$ENGINE" container inspect canworks-local-runtime >/dev/null 2>&1 && fail "container left" || ok "container gone"
+"$ENGINE" volume inspect canworks-local-runtime-data >/dev/null 2>&1 && fail "volume left" || ok "volume gone"
 [ -f "$SETTINGS" ] && fail "credentials left" || ok "credentials gone"
 
 [ "$FAILS" -eq 0 ] && echo OK || echo "$FAILS failure(s)"

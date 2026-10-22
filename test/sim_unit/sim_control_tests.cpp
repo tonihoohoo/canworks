@@ -1,4 +1,4 @@
-// Unit tests of the standalone simulator's control channel: with a token,
+// Unit tests of the CANopen simulator's control channel: with a token,
 // TLS and the SCRAM login of secure_channel.h; without one, plain lines.
 
 #include <algorithm>
