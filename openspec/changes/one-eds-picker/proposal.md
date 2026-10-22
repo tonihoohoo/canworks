@@ -22,22 +22,34 @@ Each one offers different sources (project, library, matches, a file), shows fil
 
 ## What Changes
 
-- **One EDS dialog.** Every place that picks an EDS opens the same dialog, built from the Add node dialog's list. The list groups, in this order, each shown only when it has files:
-  - **Matches this device**: the scan or identity matches, best first, with "exact revision" where it applies (Commission, LSS, found devices);
-  - **Built here**: EDS files generated for a slave of this config (slave page only);
-  - **In this project**: the config's EDS files (and DCF files where the place takes them), with the nodes using each;
-  - **EDS library**: the library's files, when a library is set.
+Fewer places pick an EDS, and those that remain use one dialog.
 
-  Each entry shows the product name and the file name. **Browse…** opens the system file picker (EDS, plus DCF where the place takes it), imports the file (asking to replace or keep both on a name clash) and selects it. The current EDS, else the best match, is selected when the dialog opens. A library file is imported when the main button is pressed. Enter or a double-click on an entry presses the main button. Focus starts in the list, or on **Browse…** when it is empty, and goes back to the opener on close.
-- **One EDS field.** Where a page shows a chosen EDS (node General tab, slave device page, Commission Nodes table and node pages, LSS result, Add to a config…, Trace, Simulation extra devices), it shows the product name and file name as text, with **Choose EDS…** when there is none and **Change EDS…** when there is one. No page shows a dropdown of EDS file names or a browser file input any more.
-- **Dialogs that pick more than the EDS** carry the list inside them, with their own fields:
-  - **+ Add node…** (Configure): as today, now on the shared list;
-  - **Add node from EDS…** (Commission): the list plus the node ID, with **Add node**; no file picker first;
-  - **Add to config** for found devices: one dialog per device that has several or no matches, with **Add node** and **Skip**;
-  - **Change EDS…** (Commission): the list plus **Clear EDS**, or **Remove node** for a node only added on the page.
-- **Labels.** "Pick EDS file…", "Pick EDS…", "Use an EDS file…" and "Use <file>" become **Choose EDS…**; "Change EDS…" stays.
-- What each place does with the picked EDS does not change (draft edit, Commission-only node, trace decoding, simulation file).
-- PC tools minor version bump; README (adding a node, Commission) and docs/configurator.md, docs/slave.md where they name the old controls.
+**After the change there are two entry points, both opening the same EDS dialog:**
+
+1. **Add node…**, in Configure and in Commission (today "Add node from EDS…"): the EDS list plus node ID (and, in Configure, the name and default PDOs).
+2. **The EDS field** of one node, slave or extra device: product name and file name as text, **Choose EDS…** when there is none and **Change EDS…** when there is one. It is on the node General tab, the slave page, the Commission node (Nodes table EDS column and node header, the same field), and a simulation extra device.
+
+**Places that stop picking on their own:**
+
+| Today | After |
+|---|---|
+| Commission node page and Parameters tab: "Use <match>" buttons + Pick EDS file… | link to the node's EDS field (same dialog, matches first) |
+| Trace Decoding panel and frame inspector: Pick EDS… / Change EDS… file input | link to the node's EDS field |
+| LSS result: dropdown of matches | the best match as text; after Set node ID the node is in the Nodes table with that EDS, changed there if needed |
+| Add to config for found devices: dropdown or file input dialog per device | uses the node's EDS on the page; a device with none or several matches opens the EDS dialog for that node first |
+| Add to a config…: file input in the dialog | uses the node's EDS on the page; opens the EDS dialog first when it has none |
+| Commission "Change EDS…" button dialog | the EDS dialog with **Clear EDS** / **Remove node** |
+| Node General tab, slave page, extra devices: dropdowns + file inputs | the EDS field |
+
+**The EDS dialog.** One list, grouped in this order, each group shown only when it has files: **Matches this device** (scan or identity matches, best first, "exact revision"), **Built here** (EDS generated for a slave of this config, slave page only), **In this project** (the config's EDS files, DCF too for extra devices, with the nodes using each), **EDS library**. Each entry shows product name and file name. The current EDS, else the best match, is selected. Enter or a double-click presses the main button; focus starts in the list and returns to the opener.
+
+**Browse… uses the page's file browser**, the same folder dialog as Choose folder… for the EDS library and Open, listing `.eds` files (and `.dcf` where taken). It starts in the folder last browsed, else the EDS library. Because the page then knows the file's folder, notes next to it can come along (below). Dropping EDS files on the page keeps working.
+
+**Notes come with the EDS automatically.** When an EDS is taken from a folder (Browse…, the EDS library, the commissioning folder), its notes file next to it (`<eds>.notes.json`) is imported with it when the config has no notes for that EDS yet. When the config already has notes for it, they are kept and the message says the other notes file can be brought in with **Import notes…** (as "Add to a config…" does today). A `<eds>.datasheet.notes.json` next to the EDS is not imported by itself; the message points to Import notes…, where its preview shows the changes. Dropping an EDS together with its `<eds>.notes.json` imports both. No separate "import notes" step is needed in the dialog.
+
+What each place does with the picked EDS does not change (draft edit, Commission-only node, trace decoding, simulation file).
+
+PC tools minor version bump; README (adding a node, Commission) and docs/configurator.md, docs/slave.md where they name the old controls.
 
 ## Capabilities
 
@@ -47,12 +59,14 @@ None.
 
 ### Modified Capabilities
 
-- `canopen-configurator`: new requirements "One EDS dialog", "Keyboard in the EDS dialog", "One EDS field". Modified: "Slave device page", "Add node dialog", "Nodes in commissioning", "Add found devices to the config", "Parameters of a node without an EDS", "Change or clear a node's EDS", "Decoding panel in the Trace view", "PDO layout in the frame inspector", "Fields and buttons fit their content" (scan page scenario label).
+- `canopen-device-notes`: new requirement "Notes come with a picked EDS".
+
+- `canopen-configurator`: new requirements "One EDS dialog", "Keyboard in the EDS dialog", "One EDS field", "EDS chosen in one place per node". Modified: "Unconfigured devices in the online view", "Slave device page", "Add node dialog", "Nodes in commissioning", "Add found devices to the config", "Parameters of a node without an EDS", "Change or clear a node's EDS", "Decoding panel in the Trace view", "PDO layout in the frame inspector", "Fields and buttons fit their content" (scan page scenario label).
 
 ## Impact
 
 - `tools/deploy/canworks/configurator/static/app.js`: shared `chooseEds(...)` dialog and `edsField(...)` from the Add node dialog's list; Add node dialog, node General tab, slave page, LSS result use them.
 - `commission.js` (Add node from EDS…, `edsPick`, Add to a config…), `identity.js` (`edsChoices`, `changeEds`), `nodes.js` (`addFound`), `trace.js` (`layoutActions`), `sim.js` (extra devices).
-- `server.py`: Commission may need to take a project EDS by name (today it takes library matches by path and picked files as bytes); the list of the config's EDS files with product names exists since `add-node-dialog`.
+- `server.py`: take an EDS by path from the file browser (as `use_eds` does for the library, now any folder the user browsed to), copy `<eds>.notes.json` with it under the rule above, list `.eds`/`.dcf` files in `/api/folders`; Commission takes a project EDS by name.
 - Tests: page tests for each place (list sources, Browse… with a clash, Cancel changes nothing, Enter and double-click, focus return), the existing tests updated to the new labels, and the layout check over the dialog.
 - No plugin, bridge or CODESYS export change. No hardware test needed; a Commission walk with a real device is listed as optional.

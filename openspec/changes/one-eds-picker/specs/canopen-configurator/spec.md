@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: One EDS dialog
-Every place that picks an EDS SHALL use one dialog. Its list SHALL group the files as **Matches this device**, **Built here**, **In this project** and **EDS library**, in that order, each shown only when it has files, and show each file's product name and file name. **Browse…** SHALL import a new file into the list and select it. The current EDS, else the best match, SHALL be selected when the dialog opens.
+Every place that picks an EDS SHALL use one dialog. Its list SHALL group the files as **Matches this device**, **Built here**, **In this project** and **EDS library**, in that order, each shown only when it has files, and show each file's product name and file name. **Browse…** SHALL open the page's file browser on EDS files, then import the picked file and select it. The current EDS, else the best match, SHALL be selected when the dialog opens.
 
 #### Scenario: Same list in Configure and Commission
 - **WHEN** the config has `dio16.eds` used by node 6, an EDS library is set, and the user opens Add node… in Configure and Choose EDS… for an unconfigured node in Commission
@@ -44,6 +44,17 @@ Where a page shows the EDS chosen for a node, slave or device, it SHALL show the
 #### Scenario: Simulation extra device
 - **WHEN** the user presses Choose EDS… for a new extra device in the simulation view
 - **THEN** the dialog's Browse… accepts EDS and DCF files and In this project lists the folder's EDS and DCF files
+
+### Requirement: EDS chosen in one place per node
+In Commission a device, a node's EDS SHALL be chosen only through its EDS field (Nodes table and node header). The Parameters tab, the Trace Decoding panel and the frame inspector SHALL open that field's dialog for the node. **Add to config** and **Add to a config…** SHALL use the node's EDS on the page and open its dialog first only when it has none.
+
+#### Scenario: Trace uses the node's EDS
+- **WHEN** the user presses Choose EDS… for node 50 in the Trace Decoding panel and picks a file
+- **THEN** the Nodes table shows that EDS for node 50 and the trace decodes with it
+
+#### Scenario: Add to a config without an EDS
+- **WHEN** node 12 has no EDS on the page and the user presses Add to a config…
+- **THEN** the EDS dialog opens for node 12 first, and the config dialog follows with the picked EDS, without a file input
 
 ## MODIFIED Requirements
 
@@ -206,3 +217,23 @@ On every view, at window widths from 1000 px up, no input, dropdown or button SH
 #### Scenario: Automatic check
 - **WHEN** the browser tests open each view (start, bus and master, each node, declarations, online, scan, the EDS dialog) at 1000, 1280 and 1440 px
 - **THEN** a check over the page finds no clipped field or button and no horizontal overflow
+
+### Requirement: Unconfigured devices in the online view
+The Nodes table SHALL have an **Unconfigured devices** panel, with and without a config. It SHALL be collapsed until changes are allowed or a search runs. It SHALL find a device without a node ID and show:
+- its vendor ID, with the vendor name when an EDS gives it;
+- its product code, revision and serial number;
+- the best matching EDS from the project's `canworks/` folder or the EDS library, as text (product name and file name), with no picker of its own: after "Set node ID" the node's EDS is changed in the Nodes table.
+
+It SHALL offer "Set node ID" and "Set bit rate" for the device. Both dialogs SHALL have a "Store in the device" checkbox that is unticked each time the dialog opens.
+
+"Set node ID" SHALL suggest the lowest node ID that is neither configured nor the master's. With a config, after success, the device SHALL be listed as Not in config and the page SHALL offer Add to config with that ID and EDS, setting `serial_number` and `lss.assign`. "Set bit rate" SHALL say before sending that the device switches after its next power cycle and that the connection's bit rate must be changed to match. Without changes allowed, the panel's controls SHALL be disabled with Unlock… (see "Unlock from a locked control").
+
+When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added without `lss.assign`, and the page SHALL say that its EDS has no LSS, so the node gets no LSS assignment.
+
+#### Scenario: Commission a new sensor
+- **WHEN** the user finds a device without node ID, sets node ID 40 with "Store in the device" ticked, and presses Add to config
+- **THEN** the runtime sets and stores node ID 40, and the draft gets node 40 with the matching EDS, the device's serial number and `"lss": {"assign": true}`, unsaved until the user saves
+
+#### Scenario: Store unticked by default
+- **WHEN** the user opens "Set node ID" a second time after storing once
+- **THEN** the "Store in the device" checkbox is unticked
