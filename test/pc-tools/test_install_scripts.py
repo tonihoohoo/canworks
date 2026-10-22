@@ -360,7 +360,6 @@ exit 0
         self.assertEqual(self.read_log("installer-args").strip(), "")
 
 
-@POSIX_ONLY
 class UpdaterMatchesInstallers(unittest.TestCase):
     """The configurator's updater (tools/deploy/canworks/updater.py,
     pc-tools-self-update) runs the same `uv tool install` as the one-line
@@ -400,6 +399,7 @@ class UpdaterMatchesInstallers(unittest.TestCase):
         self.assertIn('"%s/releases/download/deploy-v%s/canworks-%s-py3-none-any.whl"', conf)
 
 
+@POSIX_ONLY
 class InstallRuntimeSh(_Base):
     script = os.path.join(SCRIPTS, "install-runtime.sh")
 
