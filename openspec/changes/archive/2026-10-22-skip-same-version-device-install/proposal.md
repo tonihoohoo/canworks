@@ -4,7 +4,7 @@ Running the device install again with the version that is already there still do
 
 ## What Changes
 
-- `install-stock.sh` records what it installed (canworks version, protocols, the runtime it was built for) in `<prefix>/lib/install-stamp` at the end of a successful install.
+- `install-stock.sh` records what it installed (canworks version, protocols, editor hook, the runtime it was built for) in `<prefix>/lib/install-stamp` at the end of a successful install.
 - A re-run whose version, protocols and runtime match that record, with the plugin library and its runtime entries still in place, skips the build, the tools install, `plugins.conf` and the runtime container. It says so in one line, and the PLC keeps running with its program.
 - The cheap host steps still run on a skip: the J1939 kernel module, discovery and the remote link. So adding `--with-link` to a same-version run still sets the link up without touching the PLC.
 - New option `--force` (passed through by `install-runtime.sh` and `install-runtime.ps1`) installs everything again as today.

@@ -10,11 +10,12 @@
 
 ## Decisions
 
-**One stamp file, compared whole.** At the end of a successful install (after the plugin, the hook and, in Docker mode, the spec entries), write `<prefix>/lib/install-stamp`:
+**One stamp file, compared whole.** (`editor_hook` too, because a native run with `--no-editor-hook` removes the hook.) At the end of a successful install (after the plugin, the hook and, in Docker mode, the spec entries), write `<prefix>/lib/install-stamp`:
 
 ```
 version=0.112.0
 protocols=canopen,j1939
+editor_hook=1
 runtime=<native: runtime git commit | docker: runtime image id>
 ```
 

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Install stamp
-`install-stock.sh` SHALL write `<prefix>/lib/install-stamp` as the last step of each successful install, holding the canworks version, the protocols built and the runtime it was built for (native: the runtime's git commit; Docker: the runtime image id). It SHALL remove the stamp when a full install starts, and `--uninstall` SHALL remove it.
+`install-stock.sh` SHALL write `<prefix>/lib/install-stamp` as the last step of each successful install, holding the canworks version, the protocols built, whether the editor hook is installed and the runtime it was built for (native: the runtime's git commit; Docker: the runtime image id). It SHALL remove the stamp when a full install starts, and `--uninstall` SHALL remove it.
 
 #### Scenario: Interrupted install
 - **WHEN** an install is interrupted during the plugin build and then run again with the same release
