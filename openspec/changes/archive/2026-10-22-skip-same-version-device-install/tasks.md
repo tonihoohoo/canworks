@@ -25,4 +25,4 @@
 
 ## 5. Hardware
 
-- [ ] 5.1 Pi (Docker): `install-runtime.sh` of the new release, upload a program, run the same line again: no container recreate, PLC keeps running, node OPERATIONAL; `--force` recreates as before. After the first full install also check that `/opt/canworks/lib/canworks-sim` and the `/usr/local/bin/canworks-sim` link are gone (follow-up of the simulator naming change)
+- [ ] 5.1 Pi (Docker): `install-runtime.sh` of the new release, upload a program, run the same line again: no container recreate, PLC keeps running, node OPERATIONAL; `--force` recreates as before.
