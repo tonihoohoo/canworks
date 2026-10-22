@@ -517,6 +517,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         if not result.ok:
             raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
         warnings = list(result.warnings)
+    if contract.version_of(cfg) == 2:
+        cfg = contract.network_config(cfg)
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
     node_names = node_identifiers(cfg)

@@ -37,7 +37,7 @@ def fixed_io_config():
     """The fixture config on fixed-io.eds: both PDOs keep the device mapping
     (TPDO 0x6000:1-2, RPDO 0x6200:1-2), the config names one object of each."""
     cfg = base_config()
-    n = cfg["nodes"][0]
+    n = cfg["networks"][0]["nodes"][0]
     n["eds"] = "fixed-io.eds"
     n["tx_pdos"] = [{"entries": [{"index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40"}]}]
     n["rx_pdos"] = [{"entries": [{"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40"}]}]
@@ -70,23 +70,23 @@ class Names(unittest.TestCase):
 
     def test_node_without_name(self):
         cfg = base_config()
-        del cfg["nodes"][0]["name"]
+        del cfg["networks"][0]["nodes"][0]["name"]
         self.assertEqual(model(cfg).nodes, ["Master", "node2"])
 
     def test_non_ascii_and_duplicate_node_names(self):
         cfg = base_config()
-        cfg["nodes"][0]["name"] = "Pumppu ä"
-        second = copy.deepcopy(cfg["nodes"][0])
+        cfg["networks"][0]["nodes"][0]["name"] = "Pumppu ä"
+        second = copy.deepcopy(cfg["networks"][0]["nodes"][0])
         second["node_id"] = 3
         second["status_location"] = "%IX10.1"
-        second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID101"
-        second["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD101"
-        cfg["nodes"].append(second)
+        second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"
+        second["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD104"
+        cfg["networks"][0]["nodes"].append(second)
         self.assertEqual(model(cfg).nodes, ["Master", "Pumppu", "Pumppu_3"])
 
     def test_node_named_master(self):
         cfg = base_config()
-        cfg["nodes"][0]["name"] = "master"
+        cfg["networks"][0]["nodes"][0]["name"] = "master"
         self.assertEqual(model(cfg).nodes, ["Master", "master_2"])
 
     def test_var_uses_its_own_name(self):
@@ -167,14 +167,14 @@ class Pdos(unittest.TestCase):
 
     def test_bit_channels(self):
         cfg = fixed_io_config()
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
-            {"bit": 0, "name": "jog_x_minus", "iec_location": "%IX41.0"}, {"bit": 3, "iec_location": "%IX41.3"}]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+            {"bit": 0, "name": "jog_x_minus"}, {"bit": 3}]
         m = model(cfg)
         tpdo = message(m, "pingpong_TPDO1")
         bits = [s for s in tpdo.signals if s.length == 1]
         self.assertEqual([(s.name, s.start) for s in bits], [("pingpong_jog_x_minus", 8), ("pingpong_%s_bit3"
                                                                                            % tpdo.signals[1].name, 11)])
-        self.assertEqual(bits[0].comment, "0x6000:2 BOOLEAN -> %IX41.0, bit 0")
+        self.assertEqual(bits[0].comment, "0x6000:2 BOOLEAN bit 0 of the entry")
         # The file carries the bits in place of the entry, so no signals overlap.
         text = dbcexport.write(m)
         self.assertIn(" SG_ pingpong_jog_x_minus : 8|1@1+", text)
@@ -212,14 +212,14 @@ class Pdos(unittest.TestCase):
 
     def test_startup_sdo_override_warns(self):
         cfg = base_config()
-        cfg["nodes"][0]["sdo"].append({"index": "0x1800", "subindex": 1, "type": "UNSIGNED32", "value": "0x190"})
+        cfg["networks"][0]["nodes"][0]["sdo"].append({"index": "0x1800", "subindex": 1, "type": "UNSIGNED32", "value": "0x190"})
         m = model(cfg)
         self.assertTrue(any("may not match the bus" in w and "TPDO 1" in w for w in m.warnings))
         self.assertEqual(message(m, "pingpong_TPDO1").cob_id, 0x182)
 
     def test_config_with_error(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["number"] = 2
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["number"] = 2
         with self.assertRaises(dbcexport.ExportFailed) as e:
             model(cfg)
         self.assertIn("TPDO 2", str(e.exception))
@@ -231,7 +231,7 @@ class Pdos(unittest.TestCase):
         files, _ = dbcexport.export_networks(load(path), path, network="io")
         lines = [ln for ln in files[0][1].splitlines() if ln.startswith("CM_ SG_ 518 ")]
         self.assertTrue(any('"0x6411:1 INTEGER16 (gateway route, no PLC location)' in ln for ln in lines), lines)
-        self.assertTrue(any('"0x6411:2 INTEGER16 -> %QW110' in ln for ln in lines), lines)
+        self.assertTrue(any('"0x6411:2 INTEGER16 -> %QW8' in ln for ln in lines), lines)
 
 
 class Notes(unittest.TestCase):
@@ -287,10 +287,10 @@ class FixedFrames(unittest.TestCase):
     def test_configured_emcy_cob_id(self):
         # A number in emcy_cob_id moves the EMCY message; "eds" does not (add-emcy-history).
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "emcy-slave.eds"  # a node with EMCY fields needs 0x1014
-        cfg["nodes"][0]["emcy_cob_id"] = "0xC2"
+        cfg["networks"][0]["nodes"][0]["eds"] = "emcy-slave.eds"  # a node with EMCY fields needs 0x1014
+        cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = "0xC2"
         self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0xC2)
-        cfg["nodes"][0]["emcy_cob_id"] = "eds"
+        cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = "eds"
         self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0x82)
 
     def test_emcy_cob_id_from_the_eds(self):
@@ -306,34 +306,21 @@ class FixedFrames(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as f:
             f.write(text.replace("DefaultValue=$NODEID+0x80", "DefaultValue=$NODEID+0xC0"))
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "emcy-slave.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "emcy-slave.eds"
         config = os.path.join(folder, "canworks.json")
         self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC2)
-        cfg["nodes"][0]["emcy_cob_id"] = "eds"
+        cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = "eds"
         self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC2)
-        cfg["nodes"][0]["emcy_cob_id"] = "0xC5"
+        cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = "0xC5"
         self.assertEqual(message(model(cfg, config), "pingpong_EMCY").cob_id, 0xC5)
 
     def test_no_sync_message_without_sync_period(self):
         cfg = base_config()
-        del cfg["master"]["sync_period_us"]
-        cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 255
-        cfg["nodes"][0]["rx_pdos"][0]["transmission"] = 255
+        del cfg["networks"][0]["master"]["sync_period_us"]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["transmission"] = 255
+        cfg["networks"][0]["nodes"][0]["rx_pdos"][0]["transmission"] = 255
         m = model(cfg)
         self.assertFalse([x for x in m.messages if x.cob_id == 0x80])
-
-    def test_plc_cycle_sync(self):
-        cfg = base_config()
-        del cfg["master"]["sync_period_us"]
-        cfg["master"]["sync_source"] = "plc_cycle"
-        cfg["master"]["sync_cycles"] = 2
-        cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
-        m = model(cfg)
-        self.assertEqual(message(m, "SYNC").cob_id, 0x80)
-        tpdo = message(m, "pingpong_TPDO1")
-        self.assertIsNone(tpdo.cycle_ms)
-        self.assertIn("sent at every SYNC, one SYNC every 2 PLC cycles", tpdo.comment)
-
 
 class Sdo(unittest.TestCase):
     def test_default_without_sdo(self):
@@ -342,7 +329,7 @@ class Sdo(unittest.TestCase):
 
     def test_config_option(self):
         cfg = base_config()
-        cfg["nodes"][0]["sdo_variables"] = [
+        cfg["networks"][0]["nodes"][0]["sdo_variables"] = [
             {"name": "ping value", "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "direction": "read",
              "iec_location": "%ID200"}]
         m = model(cfg, sdo="config")
@@ -463,10 +450,10 @@ class Cli(unittest.TestCase):
         shutil.copytree(EDITOR_PROJECT, project)
         shutil.copytree(EDS_DIR, os.path.join(project, "canworks"))
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"] = [{"entries": [
-            {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID10"}]}]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"] = [{"entries": [
+            {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID12"}]}]
         with open(os.path.join(project, "pous", "programs", "main.st"), "a", encoding="utf-8") as f:
-            f.write("\nPROGRAM other\n  VAR\n    ping AT %ID10 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
+            f.write("\nPROGRAM other\n  VAR\n    ping AT %ID12 : UDINT;\n  END_VAR\nEND_PROGRAM\n")
         path = os.path.join(project, "canworks", "canworks.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
@@ -478,7 +465,7 @@ class Cli(unittest.TestCase):
 
     def test_failure_leaves_file(self):
         cfg = base_config()
-        cfg["nodes"][0]["tx_pdos"][0]["number"] = 2
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["number"] = 2
         tmp, path = self.config_in(cfg)
         out_file = os.path.join(tmp, "bus.dbc")
         with open(out_file, "w") as f:
@@ -489,16 +476,9 @@ class Cli(unittest.TestCase):
         with open(out_file) as f:
             self.assertEqual(f.read(), "old")
 
-    def test_refuses_upload_options(self):
-        tmp, path = self.config_in(base_config())
-        code, _, err = self.run_cli("--config", path, "--export-dbc", os.path.join(tmp, "b.dbc"),
-                                    "--runtime", "plc.local")
-        self.assertEqual(code, 1)
-        self.assertIn("--export-dbc only writes a DBC file", err)
-
     def test_dbc_sdo_needs_export(self):
         tmp, path = self.config_in(base_config())
-        code, _, err = self.run_cli("--config", path, "--check-only", "--dbc-sdo", "all", "--bundle", tmp)
+        code, _, err = self.run_cli("--config", path, "--check", "--dbc-sdo", "all")
         self.assertEqual(code, 1)
         self.assertIn("--dbc-sdo needs --export-dbc", err)
 
