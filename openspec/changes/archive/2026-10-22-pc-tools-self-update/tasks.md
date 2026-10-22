@@ -1,7 +1,9 @@
 ## 1. Check first
 
-- [ ] 1.1 On the Windows CI runner (dispatch the PC tools workflow on the branch) and on the Windows PC from a normal session: start the configurator from the shortcut, then try to rename its tool environment folder from another process. Confirm that the rename fails while it runs and succeeds after Quit. If it does not fail, change the lock probe in design.md before going on.
-- [ ] 1.2 Confirm `sys._base_executable` of the tools' environment points at uv's base interpreter on Windows, macOS and Linux, and that `pythonw.exe` sits next to it on Windows.
+- [x] 1.1 On the Windows CI runner (dispatch the PC tools workflow on the branch) and on the Windows PC from a normal session: start the configurator from the shortcut, then try to rename its tool environment folder from another process. Confirm that the rename fails while it runs and succeeds after Quit. If it does not fail, change the lock probe in design.md before going on.
+  - Result (Windows CI runner, 2026-10-22): the rename did NOT fail while a tools process ran from the environment; uv then removed part of `Scripts` and both the update and the rollback failed. The probe now opens every `.exe`/`.dll`/`.pyd` of the environment for writing (design.md updated); with it the held-process case ends cleanly as "locked" with the old install working. The Windows PC check is part of 7.x.
+- [x] 1.2 Confirm `sys._base_executable` of the tools' environment points at uv's base interpreter on Windows, macOS and Linux, and that `pythonw.exe` sits next to it on Windows.
+  - Result: the end-to-end test (5.3) runs the updater on that interpreter (pythonw on Windows) on all three systems; it passed.
 - [x] 1.3 Find the first uv version that reads `UV_SYSTEM_CERTS`, for the docs note.
   - Result: uv 0.11.0 (`--native-tls` deprecated in favour of `--system-certs`). The docs name `UV_SYSTEM_CERTS=1` and `UV_NATIVE_TLS=1` for older uv.
 
@@ -29,7 +31,8 @@
 
 - [x] 5.1 Unit tests: tag parse and compare, cache and dismissal, environment switch, install detection (fake receipt, fake Packages path), guard reasons, `update-run.json` mode, resume code once and expiry.
 - [x] 5.2 Parity test: the `uv tool install` arguments in `install-pc.sh`, `install-pc.ps1` and `updater.py` are the same.
-- [ ] 5.3 End-to-end in the PC tools workflow (Windows, macOS, Linux): build wheels of two versions, install the older with the one-line installer, start the configurator `--keep-running`, update to the local newer wheel through a test-only override, check the old pid ends, the new version answers on the same port and the resume code works. On Windows also: with `canworks-diag` held running, the update stops cleanly and the old install still starts. Path-filtered, so other changes do not run it; set `CANWORKS_NO_UPDATE_CHECK=1` in all test jobs.
+- [x] 5.3 End-to-end in the PC tools workflow (Windows, macOS, Linux): build wheels of two versions, install the older with the one-line installer, start the configurator `--keep-running`, update to the local newer wheel through a test-only override, check the old pid ends, the new version answers on the same port and the resume code works. On Windows also: with `canworks-diag` held running, the update stops cleanly and the old install still starts. Path-filtered, so other changes do not run it; set `CANWORKS_NO_UPDATE_CHECK=1` in all test jobs.
+  - Result: `test/pc-tools/update_e2e.py`, last step of the PC tools workflow, passed on Windows, macOS and Linux (x64 and arm). The newer release is the checkout's wheel with the version set to 99.0.0, served by a local release server; the restarted configurator keeps the port and the open tab's session token instead of a resume code. On Windows the held process is the environment's `python.exe`. The step takes about 35 s.
 - [x] 5.4 The fast-start test: `update.py` is not imported by `start.py` on a plain start (start.py imports it only for `--update`; the existing fast-start test passes).
 
 ## 6. Docs and version
