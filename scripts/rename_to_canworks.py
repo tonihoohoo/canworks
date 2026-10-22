@@ -35,6 +35,7 @@ SKIP_PREFIXES = (
 SKIP_FILES = {
     "LICENSE",
     "openspec/specs/toolkit-names/spec.md",  # names the old names it retires
+    "openspec/specs/canopen-stock-install/spec.md",  # names the old simulator binary its install removes
     "scripts/rename_to_canworks.py",
     "test/ci/test_rename.py",
 }

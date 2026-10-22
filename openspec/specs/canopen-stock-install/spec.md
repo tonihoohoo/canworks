@@ -54,11 +54,15 @@ The install script SHALL have an uninstall mode that removes the `canopen` line 
 - **THEN** `plugins.conf` has no `canopen` line, the library is gone, and the runtime starts normally
 
 ### Requirement: Simulator installed with the plugin
-`scripts/install-stock.sh` SHALL build and install `canworks-sim` with the plugin, under the plugin's prefix, with a link in `/usr/local/bin` on native installs, and the uninstall SHALL remove both. In Docker mode the simulator SHALL be installed inside the runtime container and be runnable with `docker exec`.
+`scripts/install-stock.sh` SHALL build and install `canworks-canopen-sim` with the plugin, under the plugin's prefix, with a link in `/usr/local/bin` on native installs, and the uninstall SHALL remove both. In Docker mode the simulator SHALL be installed inside the runtime container and be runnable with `docker exec`. An install SHALL also remove the earlier `canworks-sim` binary under the plugin's prefix and its `/usr/local/bin/canworks-sim` link when that link points into this install, printing one line, so a bench device updated from an older install keeps no dangling link.
 
 #### Scenario: Native install
 - **WHEN** `install-stock.sh` finishes on a native runtime
-- **THEN** `canworks-sim --version` prints the same version as the plugin
+- **THEN** `canworks-canopen-sim --version` prints the same version as the plugin
+
+#### Scenario: Update from an install with the old name
+- **WHEN** `install-stock.sh` runs on a native runtime that has `/usr/local/bin/canworks-sim` linking into `/opt/canworks`
+- **THEN** afterwards that link and the old binary are gone, `canworks-canopen-sim` is installed, and the output names the removal
 
 ### Requirement: J1939 kernel module loaded
 The install script SHALL load the `can-j1939` kernel module on the host and make it load at boot, in native and in Docker mode. When the module is not available in the running kernel, the install SHALL succeed and say that J1939 networks will not start on this device.
@@ -92,7 +96,7 @@ CI SHALL run `shellcheck` on the script and test its release lookup, option pass
 
 #### Scenario: Update
 - **WHEN** the line is run again on a device that has the plugin of an older release
-- **THEN** the newest release is built and installed, `canworks-sim --version` prints its version and `plugins.conf` still has exactly one `canworks` line
+- **THEN** the newest release is built and installed, `canworks-canopen-sim --version` prints its version and `plugins.conf` still has exactly one `canworks` line
 
 #### Scenario: Options pass through
 - **WHEN** the operator runs the line with `-s -- --with-link`
@@ -112,11 +116,11 @@ CI SHALL run `shellcheck` on the script and test its release lookup, option pass
 
 ### Requirement: Release install reports its version
 
-When `scripts/install-runtime.sh` installs a release, the plugin and `canworks-sim` SHALL be built with that release's version, so the diagnostics channel and `canworks-sim --version` report it, although the downloaded source has no git history.
+When `scripts/install-runtime.sh` installs a release, the plugin and `canworks-canopen-sim` SHALL be built with that release's version, so the diagnostics channel and `canworks-canopen-sim --version` report it, although the downloaded source has no git history.
 
 #### Scenario: Version after a one-line install
 - **WHEN** the one-line install installs release `0.84.0` on a device
-- **THEN** `canworks-sim --version` prints `0.84.0`, not `unknown`
+- **THEN** `canworks-canopen-sim --version` prints `0.84.0`, not `unknown`
 
 ### Requirement: Installed version on the device
 `install-stock.sh` SHALL write the plugin's version (the release version, or `git describe` of a checkout) to `<prefix>/VERSION` on every install and update, native and Docker mode, so the version can be read on the host without the runtime container. `--uninstall` SHALL remove it with `<prefix>/lib/`.

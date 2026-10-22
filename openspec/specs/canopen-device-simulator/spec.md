@@ -208,7 +208,7 @@ A request and a scenario step SHALL address a device by its configured node ID, 
 - **THEN** the value is returned and no CAN frame is sent
 
 #### Scenario: Device addressed by the node ID LSS gave it
-- **WHEN** a standalone device started without a node ID and named "lss0" gets node ID 70 by LSS, and a user runs `canworks-sim fault 70 heartbeat-stop`
+- **WHEN** a standalone device started without a node ID and named "lss0" gets node ID 70 by LSS, and a user runs `canworks-canopen-sim fault 70 heartbeat-stop`
 - **THEN** the fault applies to that device, and `fault lss0 ...` still addresses it
 
 ### Requirement: Plain CAN devices

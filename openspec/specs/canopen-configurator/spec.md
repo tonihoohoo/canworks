@@ -643,7 +643,7 @@ When the matching EDS does not say `LSS_Supported=1`, the device SHALL be added 
 - **THEN** the "Store in the device" checkbox is unticked
 
 ### Requirement: Trace view
-The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs a connection and point to **Connect…** in the connection bar, with no connect button of its own. On a standalone simulator connection, the view SHALL say that recording needs a runtime or adapter connection. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
+The Trace tool tab SHALL work without a connection for opening, viewing and exporting trace files. Recording and the transmit list SHALL use the connection in the connection bar, runtime or adapter, in every workspace. Without a connection, the view SHALL say that recording needs a connection and point to **Connect…** in the connection bar, with no connect button of its own. On a CANopen simulator connection, the view SHALL say that recording needs a runtime or adapter connection. The trace header SHALL name the connection a recording uses (adapter and bit rate, or runtime) and the network.
 
 The view SHALL offer (see "Trace toolbar and views"):
 - start and stop, capture filters, error frames and clear;
@@ -985,7 +985,7 @@ The **Bus and master** page SHALL have a **Network** choice, **Real** or **Simul
 - **THEN** node 7's entry is drawn dashed and its accessible name says it is absent
 
 ### Requirement: Simulation view
-The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It shows the simulated devices of the connection in the connection bar: a runtime's, or a standalone simulator's. The view SHALL have no connect form, target choice, address or token field and no Connect button of its own, and no connection line that repeats what the connection bar says; it SHALL show only what is particular to simulation (nothing simulated on the runtime, read-only and why). It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
+The configurator SHALL have a **Simulation** tool tab, in both workspaces of a config. It shows the simulated devices of the connection in the connection bar: a runtime's, or a CANopen simulator's. The view SHALL have no connect form, target choice, address or token field and no Connect button of its own, and no connection line that repeats what the connection bar says; it SHALL show only what is particular to simulation (nothing simulated on the runtime, read-only and why). It shows, per simulated device, whether it runs on a simulated or a real network, its NMT and power state, injected faults and the objects it carries in PDOs with live values, refreshed at least twice a second.
 
 A user SHALL be able to:
 - set and override values (switches for BOOLEAN and bits, sliders between the EDS limits for numbers);
@@ -1016,7 +1016,7 @@ Changes made here SHALL be saveable to `simulation.json`. With several networks,
 - **THEN** the only Connect button on the page is the one in the connection bar, the view says once that live values need a connection, and the Simulation file and Scenarios tabs can be edited
 
 #### Scenario: Standalone simulator from the connection bar
-- **WHEN** the user connects to a standalone simulator at 127.0.0.1:7532 through Connect… in the connection bar and opens Simulation
+- **WHEN** the user connects to a CANopen simulator at 127.0.0.1:7532 through Connect… in the connection bar and opens Simulation
 - **THEN** the view shows that simulator's devices, and the connection bar names the simulator and offers Disconnect
 
 ### Requirement: Scenarios in the configurator
@@ -1839,7 +1839,7 @@ The connection bar SHALL be the one place on the page to connect and disconnect.
 - the target;
 - for an adapter, the bit rate and how it was confirmed;
 - for a runtime, the path and round trip, and the network picker when the runtime has several networks;
-- for a standalone simulator, its address;
+- for a CANopen simulator, its address;
 - the bus state and the frame and error frame counts;
 - another master with what was seen, when one is seen;
 - whether changes are allowed;
@@ -1878,14 +1878,14 @@ In Commission a device the panel SHALL offer two targets, **USB adapter** (the d
 
 A refused bit rate check SHALL keep the panel open with the reason and the form filled in.
 
-With a config the panel SHALL offer three targets, **Runtime** (the default), **Standalone simulator** and **Adapter on another machine**:
+With a config the panel SHALL offer three targets, **Runtime** (the default), **CANopen simulator** and **Adapter on another machine**:
 - Runtime: one host combobox listing the found and remembered runtimes and "Local simulator runtime" and taking a typed host, saying "Looking for runtimes…" while it searches; a token field inside the panel when this PC has no matching token; **Connect**;
-- Standalone simulator: a running `canworks-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**;
+- CANopen simulator: a running `canworks-canopen-sim` by address (`HOST[:PORT]`, port 7532 when not given) and its token when it was started with one, both kept on this PC per project folder; **Connect**;
 - Adapter on another machine: as in Commission a device, with a warning when the server's bit rate differs from the network's.
 
 A token SHALL never be asked in a second dialog over the panel. When the config's online access is off, the Runtime target SHALL say so and link to Configure → Project; the other targets SHALL still work.
 
-The last target (including Runtime, Standalone simulator or Adapter on another machine) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
+The last target (including Runtime, CANopen simulator or Adapter on another machine) and bit rate SHALL be kept in the configurator's settings on this PC, never in a project.
 
 #### Scenario: Wrong bit rate refused
 - **WHEN** the bus runs at 500 kbit/s and the user connects at 1000 kbit/s in the panel
@@ -1904,7 +1904,7 @@ The last target (including Runtime, Standalone simulator or Adapter on another m
 - **THEN** the panel lists "gs_usb:0 at 500 kbit/s" first, and one click connects after the bit rate check with Allow changes off
 
 #### Scenario: Standalone simulator
-- **WHEN** the user picks Standalone simulator in the panel, enters 127.0.0.1:7532 and presses Connect
+- **WHEN** the user picks CANopen simulator in the panel, enters 127.0.0.1:7532 and presses Connect
 - **THEN** the panel closes, the connection bar shows the simulator's address and Disconnect, and Simulation shows its devices
 
 #### Scenario: Adapter on another machine
@@ -1916,7 +1916,7 @@ The last target (including Runtime, Standalone simulator or Adapter on another m
 - **THEN** the panel warns that the server runs the bus at 500 kbit/s and the network is set to 250 kbit/s before Connect
 
 ### Requirement: One connection for every view
-The Commission pages, Trace recording and its transmit list, the Simulation view and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host, adapter, address or token field, or Connect button. Without a connection, each SHALL say in one line what it needs a connection for and that Connect… is in the connection bar. On a standalone simulator connection, the Nodes table, Trace recording and the PDO test SHALL say that they need a runtime connection.
+The Commission pages, Trace recording and its transmit list, the Simulation view and the PDO test SHALL use the connection in the connection bar. None of them SHALL have its own connect form, host, adapter, address or token field, or Connect button. Without a connection, each SHALL say in one line what it needs a connection for and that Connect… is in the connection bar. On a CANopen simulator connection, the Nodes table, Trace recording and the PDO test SHALL say that they need a runtime connection.
 
 #### Scenario: Trace uses the open connection
 - **WHEN** the user connected to a runtime in Commission and opens Trace in Configure and presses Start
@@ -4209,3 +4209,10 @@ When a node is added with **Map the EDS's default PDOs** on a network that produ
 #### Scenario: Same EDS with SYNC on
 - **WHEN** the network's SYNC source is Timer and the user adds the same node
 - **THEN** TPDO 1 has no `transmission` field and keeps the EDS type 1
+
+### Requirement: Simulation on a J1939 network
+On a J1939 network the **Simulation** tool tab SHALL stay in the tool tabs and SHALL show, in place of the simulated devices, one line saying that the runtime does not simulate J1939 networks and that `canworks-j1939-sim` plays the other ECUs from the network's DBC file, naming its doc and with a command line for the network's DBC to copy. The **Simulated device** node tab and the **Simulation file** page SHALL stay hidden there.
+
+#### Scenario: J1939 project
+- **WHEN** the user opens Simulation on a J1939 network whose DBC is `machine.dbc`
+- **THEN** the view says the runtime does not simulate J1939 and offers `canworks-j1939-sim --dbc machine.dbc --node NAME --interface IF` to copy, and names the J1939 simulator doc

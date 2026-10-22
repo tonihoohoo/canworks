@@ -349,7 +349,7 @@ Bus trace SHALL work on a simulated network with the same operations, filters an
 - **THEN** the trace has the frames of both nodes
 
 ### Requirement: Simulator commands in the command-line client
-`canworks-diag` SHALL have `sim` subcommands (`status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list`) that talk to the plugin's simulated devices with `--runtime` or to a standalone simulator with `--sim HOST[:PORT]`, with the same arguments, fault kind names and output as `canworks-sim`'s own subcommands.
+`canworks-diag` SHALL have `sim` subcommands (`status`, `get`, `set`, `override`, `release`, `source`, `fault`, `clear`, `scenario start|stop|list`) that talk to the plugin's simulated devices with `--runtime` or to a standalone simulator with `--sim HOST[:PORT]`, with the same arguments, fault kind names and output as `canworks-canopen-sim`'s own subcommands.
 
 #### Scenario: Fault from the PC
 - **WHEN** a user runs `canworks-diag sim fault 5 emcy 0x5000 --register 1 --runtime plc.local` against a runtime that simulates node 5, with `allow_changes`
@@ -357,7 +357,7 @@ Bus trace SHALL work on a simulated network with the same operations, filters an
 
 #### Scenario: NMT state fault
 - **WHEN** a user runs `canworks-diag sim fault 5 nmt-state stopped --sim localhost`
-- **THEN** simulated node 5 goes to STOPPED, as with `canworks-sim fault 5 nmt-state stopped`, and `canworks-diag sim fault 5 nmt stopped` is refused as an unknown fault kind
+- **THEN** simulated node 5 goes to STOPPED, as with `canworks-canopen-sim fault 5 nmt-state stopped`, and `canworks-diag sim fault 5 nmt stopped` is refused as an unknown fault kind
 
 ### Requirement: One channel for all networks
 The plugin SHALL serve all networks over one diagnostics channel, with one port, one token, one `allow_changes` setting and one client limit. The hello answer SHALL list the networks in config order, each with its name (empty for a version 1 config), interface, bit rate and master node ID, and SHALL keep `master_node_id` as the first network's.
@@ -429,7 +429,7 @@ A connection that does not start with a TLS handshake SHALL get one error line, 
 - **THEN** it receives "this runtime needs an encrypted connection; update canworks-diag" and the connection closes
 
 ### Requirement: Encrypted clients
-`canworks-diag`, the configurator and `canworks-sim` SHALL connect with TLS, log in with SCRAM-SHA-256 bound to the certificate they received, and check the plugin's server signature before using any answer; a wrong signature SHALL drop the connection with "the runtime could not prove it knows this project's token". They SHALL NOT validate the certificate chain or pin a certificate. They SHALL NOT fall back to an unencrypted connection.
+`canworks-diag`, the configurator and `canworks-canopen-sim` SHALL connect with TLS, log in with SCRAM-SHA-256 bound to the certificate they received, and check the plugin's server signature before using any answer; a wrong signature SHALL drop the connection with "the runtime could not prove it knows this project's token". They SHALL NOT validate the certificate chain or pin a certificate. They SHALL NOT fall back to an unencrypted connection.
 
 #### Scenario: Wrong signature
 - **WHEN** a machine in the middle answers the client's login with a signature made without the verifier
