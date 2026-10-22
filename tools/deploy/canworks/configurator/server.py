@@ -4750,7 +4750,8 @@ def run(args, mode, timing=None):
     server.stop_unused = not args.keep_running
     if background:
         print("canworks configurator started on 127.0.0.1:%d (pid %d, version %s%s)"
-              % (server.server_port, os.getpid(), __version__, ", from the app shortcut" if mode == "shortcut" else ""),
+              % (server.server_port, os.getpid(), __version__, ", started again by the updater" if resume
+                 else ", from the app shortcut" if mode == "shortcut" else ""),
               flush=True)
     if updates.result:
         print("canworks-config: last update: %s" % updates.result.get("message"), flush=True)

@@ -89,11 +89,12 @@ class UpdatePage(OnlineBase):
         self.open()
         self.page.evaluate("() => { S.config.nodes[0].name = 'renamed'; changed(true); }")
         self.page.wait_for_selector('[data-unsaved="1"]:not([hidden])')
-        self.page.evaluate("() => heartbeat()")
-        time.sleep(0.3)
-        self.dialog()
-        self.page.click('#modal button[data-value="now"]')
-        self.page.wait_for_selector("#modal[open] >> text=Not now: there are unsaved changes")
+        # At once, before the page's heartbeat tells the server.
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            self.dialog()
+            self.page.click('#modal button[data-value="now"]')
+            self.page.wait_for_selector("#modal[open] >> text=Not now: there are unsaved changes")
+        start.assert_not_called()
         self.page.click('#modal button[data-value="quit"]')
         self.page.wait_for_selector("text=Updates to 99.0.0 when you quit")
 
