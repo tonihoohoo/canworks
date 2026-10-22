@@ -21,13 +21,13 @@ sudo systemctl restart openplc-runtime
 From a PC onto the device over SSH (the PC needs only `ssh`; `sudo` on the device may ask for its password). macOS and Linux:
 
 ```sh
-curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh pi@rpi.local [--port 22] [--identity ~/.ssh/id_ed25519] [--with-link ...]
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh admin@plc.local [--port 22] [--identity ~/.ssh/id_ed25519] [--with-link ...]
 ```
 
 Windows (PowerShell, with the OpenSSH client built into Windows 10 and 11):
 
 ```powershell
-$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
+$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local
 ```
 
 `-Port`, `-Identity` and `-Options --with-link` go after the file name too.
@@ -85,7 +85,7 @@ sudo scripts/install-stock.sh
 
 It:
 
-- builds Lely CANopen, `dcfgen`, the deploy tool, the plugin and the editor hook **inside the runtime image the bootloader runs**, in a throwaway container, into `/opt/canworks` on the host. A plugin built on the host would not load in the image (the image is Debian bookworm with its own C library and Python). On a Raspberry Pi this takes a while;
+- builds Lely CANopen, `dcfgen`, the deploy tool, the plugin and the editor hook **inside the runtime image the bootloader runs**, in a throwaway container, into `/opt/canworks` on the host. A plugin built on the host would not load in the image (the image is Debian bookworm with its own C library and Python). On a small Linux device this takes a while;
 - records the runtime version it built for in `/opt/canworks/lib/runtime-version`;
 - builds `canworks-canopen-sim` for the image too, to `/opt/canworks/lib/canworks-canopen-sim`, with no host link: it needs the image's libraries, so run it inside the container (`docker exec -it openplc-runtime /opt/canworks/lib/canworks-canopen-sim ...`);
 - adds two entries to the bootloader's runtime spec, through the same `extraBinds`/`extraEnv` keys upstream's installer writes for `--mount`/`--env`, and leaves every other entry as it was:

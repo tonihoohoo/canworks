@@ -471,12 +471,12 @@ class InstallRuntimeSh(_Base):
         self.assertIn("install-stock.sh --with-link --runtime-dir /srv/my\\ runtime", r.stdout)
 
     def test_over_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "pi@rpi.local", "--port", "2222",
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
                              "--identity", "/k/id", "--with-link", "--force"])
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("installing canworks 1.2.3 on pi@rpi.local", r.stdout)
+        self.assertIn("installing canworks 1.2.3 on admin@plc.local", r.stdout)
         line = [l for l in r.stdout.splitlines() if l.startswith("would run:")][0]
-        self.assertIn("ssh -t -p 2222 -i /k/id pi@rpi.local", line)
+        self.assertIn("ssh -t -p 2222 -i /k/id admin@plc.local", line)
         # The device fetches the script of the release it installs, pinned to it.
         self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh", line)
         self.assertIn("sudo bash -s -- --version 1.2.3 --with-link --force", line)
@@ -524,7 +524,7 @@ class InstallRuntimeSh(_Base):
         self.assertNotIn("would install the OpenPLC runtime", r.stdout)
 
     def test_with_openplc_over_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "pi@rpi.local", "--with-openplc"])
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc"])
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("--version 1.2.3 --with-openplc", r.stdout)
 
@@ -599,28 +599,28 @@ class InstallBridgeSh(_Base):
         self.assertIn("--instance line1 --config %s" % self.cfg.replace(" ", "\\ "), r.stdout)
 
     def test_over_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "pi@rpi.local", "--port", "2222",
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
                              "--identity", "/k/id", "--with-link", "line1"])
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("Installing canworks-bridge 1.2.3 on pi@rpi.local", r.stdout)
+        self.assertIn("Installing canworks-bridge 1.2.3 on admin@plc.local", r.stdout)
         lines = self.would_run(r.stdout)
         self.assertEqual(len(lines), 1, r.stdout)
-        self.assertIn("ssh -t -p 2222 -i /k/id pi@rpi.local", lines[0])
+        self.assertIn("ssh -t -p 2222 -i /k/id admin@plc.local", lines[0])
         # The device fetches the script of the release it installs, pinned to it.
         self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh", lines[0])
         self.assertIn("sudo bash -s -- --version 1.2.3 --with-link line1", lines[0])
 
     def test_over_ssh_with_config(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "pi@rpi.local", "--port", "2222",
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
                              "--instance", "line1", "--config", self.cfg])
         self.assertEqual(r.returncode, 0, r.stdout)
         mk, scp, install = self.would_run(r.stdout)
-        self.assertIn("ssh -p 2222 pi@rpi.local mktemp -d /tmp/canworks-bridge-upload.XXXXXX", mk)
+        self.assertIn("ssh -p 2222 admin@plc.local mktemp -d /tmp/canworks-bridge-upload.XXXXXX", mk)
         self.assertTrue(scp.startswith("would run: scp -P 2222 "), scp)
         self.assertIn(os.path.join(self.cfg, "canworks.json"), scp)
         self.assertIn(os.path.join(self.cfg, "dio16.eds"), scp)
         self.assertNotIn(os.path.join(self.cfg, "old"), scp, "subfolders stay on the PC")
-        self.assertIn("ssh -t -p 2222 pi@rpi.local", install)
+        self.assertIn("ssh -t -p 2222 admin@plc.local", install)
         self.assertIn("--instance line1 --config", install)
         self.assertIn("--remove-config-dir", install)
 
@@ -631,7 +631,7 @@ class InstallBridgeSh(_Base):
                 (["--instance", "a/b", "--config", self.cfg], "letters, digits"),
                 (["--instance", "x", "--config", self.tmp], "has no canworks.json"),
                 (["--port", "22"], "--port and --identity need --ssh"),
-                (["--ssh", "pi@rpi.local", "--constraints", "c.txt"], "--constraints names a file here"),
+                (["--ssh", "admin@plc.local", "--constraints", "c.txt"], "--constraints names a file here"),
                 (["--remove-config-dir", "--instance", "x", "--config", self.cfg], "only for an uploaded config")):
             r = self.run_script(["bash", self.script, "--dry-run"] + argv)
             self.assertNotEqual(r.returncode, 0, argv)
@@ -938,19 +938,19 @@ class PowerShellScripts(_Base):
         self.assertEqual(_Releases.seen.count("/uv/uv-aarch64-pc-windows-msvc.zip"), 0)
 
     def test_install_runtime_over_ssh(self):
-        r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Port", "2222",
+        r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",
                       "-Options", "--force")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("ssh -t -p 2222 pi@rpi.local", r.stdout)
+        self.assertIn("ssh -t -p 2222 admin@plc.local", r.stdout)
         self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh' | sudo bash -s -- "
                       "--version '1.2.3' '--force'", r.stdout)
 
     def test_install_bridge_over_ssh(self):
-        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Port", "2222",
+        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",
                       "-Options", "--without-j1939")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("installing canworks-bridge 1.2.3 on pi@rpi.local", r.stdout)
-        self.assertIn("ssh -t -p 2222 pi@rpi.local", r.stdout)
+        self.assertIn("installing canworks-bridge 1.2.3 on admin@plc.local", r.stdout)
+        self.assertIn("ssh -t -p 2222 admin@plc.local", r.stdout)
         self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh' | sudo bash -s -- "
                       "'--version' '1.2.3' '--without-j1939'", r.stdout)
 
@@ -959,12 +959,12 @@ class PowerShellScripts(_Base):
         os.makedirs(os.path.join(cfg, "old"))
         for name in ("canworks.json", "dio16.eds"):
             open(os.path.join(cfg, name), "w").close()
-        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Identity", "/k/id",
+        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Identity", "/k/id",
                       "-Instance", "line1", "-Config", cfg)
         self.assertEqual(r.returncode, 0, r.stdout)
         runs = [l for l in r.stdout.splitlines() if l.startswith("would run:")]
         self.assertEqual(len(runs), 3, r.stdout)
-        self.assertIn("ssh -i /k/id pi@rpi.local", runs[0])
+        self.assertIn("ssh -i /k/id admin@plc.local", runs[0])
         self.assertIn("mktemp -d /tmp/canworks-bridge-upload.XXXXXX", runs[0])
         self.assertIn("scp -i /k/id", runs[1])
         # PowerShell gives the long form of a Windows path that Python may have in its short (8.3) form.
@@ -975,7 +975,7 @@ class PowerShellScripts(_Base):
         self.assertIn("'--remove-config-dir'", runs[2])
 
     def test_install_bridge_refusals(self):
-        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "pi@rpi.local", "-Instance", "line1")
+        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Instance", "line1")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("-Instance NAME and -Config DIR go together", r.stdout)
         self.assertEqual(_Releases.seen, [])

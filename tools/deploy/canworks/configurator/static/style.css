@@ -1074,7 +1074,6 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
 
 /* compact-chrome: the header's ⋯ menu (under 1500 px) and the target's split button. */
 #menu-more[hidden] { display: none; }
-#menu-more .off-start { display: none; }
 #menu-more .menu-panel > .item, #menu-more .menu-panel > details { display: block; width: 100%; text-align: left; }
 #menu-more #menu-settings > summary { padding: 6px 10px; }
 #menu-more #menu-settings > .menu-panel { position: static; box-shadow: none; border: 0; padding: 4px 10px; }

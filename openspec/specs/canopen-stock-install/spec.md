@@ -67,8 +67,8 @@ The install script SHALL have an uninstall mode that removes the `canopen` line 
 ### Requirement: J1939 kernel module loaded
 The install script SHALL load the `can-j1939` kernel module on the host and make it load at boot, in native and in Docker mode. When the module is not available in the running kernel, the install SHALL succeed and say that J1939 networks will not start on this device.
 
-#### Scenario: Raspberry Pi install
-- **WHEN** the script runs on a Raspberry Pi OS host
+#### Scenario: Debian-based device install
+- **WHEN** the script runs on a Debian-based host
 - **THEN** `lsmod` lists `can_j1939` and `/etc/modules-load.d/` holds an entry for it
 
 #### Scenario: Kernel without J1939
@@ -91,7 +91,7 @@ The same install SHALL be possible from a Windows, macOS or Linux PC onto a remo
 CI SHALL run `shellcheck` on the script and test its release lookup, option pass-through and the SSH command line it builds (for both scripts) without network access.
 
 #### Scenario: Install on a fresh device
-- **WHEN** an operator pastes the documented line on a Raspberry Pi with a stock OpenPLC Runtime v4 and no canworks checkout
+- **WHEN** an operator pastes the documented line on a Linux device with a stock OpenPLC Runtime v4 and no canworks checkout
 - **THEN** the newest release's `install-stock.sh` runs, the plugin is installed as in Requirement: Install on a stock runtime, and no source folder of the release is left behind
 
 #### Scenario: Update
@@ -103,11 +103,11 @@ CI SHALL run `shellcheck` on the script and test its release lookup, option pass
 - **THEN** `install-stock.sh` of the release runs with `--with-link`
 
 #### Scenario: Install from a Windows PC
-- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh pi@rpi.local` against a device with a stock runtime
-- **THEN** an SSH session to `pi@rpi.local` asks for the `sudo` password when needed, the newest release's `install-stock.sh` runs on the device, and the PowerShell command ends with its exit status
+- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh admin@plc.local` against a device with a stock runtime
+- **THEN** an SSH session to `admin@plc.local` asks for the `sudo` password when needed, the newest release's `install-stock.sh` runs on the device, and the PowerShell command ends with its exit status
 
 #### Scenario: Remote update from a Mac with options
-- **WHEN** a Mac user runs `install-runtime.sh --ssh pi@rpi.local --with-link`
+- **WHEN** a Mac user runs `install-runtime.sh --ssh admin@plc.local --with-link`
 - **THEN** the device runs the newest release's `install-stock.sh --with-link`, and the release named on the Mac and on the device is the same
 
 #### Scenario: Not root
@@ -157,7 +157,7 @@ The PC tools package SHALL contain `canworks/devices/device-probe.sh`, a POSIX `
 ### Requirement: Locked dependency versions on the device
 `install-stock.sh` SHALL take `--constraints FILE` and install the tools into `<prefix>/venv` with it. `install-runtime.sh` and `install-runtime.ps1` SHALL download the release's `canworks-<version>-constraints.txt` and pass it on. When no file is given and `uv` is on PATH, `install-stock.sh` SHALL export the constraints from the checkout's `tools/deploy/uv.lock`. Otherwise it SHALL say in one line that the dependency versions are not locked and install as before.
 
-#### Scenario: Release install on the Pi
+#### Scenario: Release install on the device
 - **WHEN** release 0.110.0 is installed with `install-runtime.sh`
 - **THEN** `pip freeze` in `/opt/canworks/venv` lists the versions of `canworks-0.110.0-constraints.txt` for every package that file names
 

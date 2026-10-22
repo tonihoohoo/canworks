@@ -57,7 +57,8 @@ class Quit(Base):
         pg = self.page
         pg.goto(self.server.url)
         pg.wait_for_selector("#start:not([hidden])")
-        self.assertTrue(pg.is_visible("#btn-quit") or pg.is_visible("#menu-more"))  # on the start page too
+        self.assertTrue(pg.is_visible("#btn-quit"))  # on the start page too, never in a ⋯ menu (no config open)
+        self.assertTrue(pg.is_hidden("#menu-more"))
         text, buttons = self.quit_dialog()
         self.assertEqual((text, buttons), ("Quit canworks-config?", ["cancel", "quit"]))
         pg.click('#modal button[data-value="cancel"]')

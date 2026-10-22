@@ -230,12 +230,18 @@ class DevicesPage(OnlineBase):
         # same device listed when a config is opened afterwards.
         pg = self.page
         shutil.rmtree(os.path.join(self.fs, "opt", "canworks"))
+        pg.set_viewport_size({"width": 1280, "height": 860})
         pg.goto(self.server.url)
         self.assertEqual(pg.inner_text("#start-devices"), "Install on a device")
         pg.click("#start-devices")
         pg.wait_for_selector("#mode:has-text('Devices · no config')")
         self.assertTrue(pg.is_hidden("#ws"))
         self.assertTrue(pg.is_hidden("#btn-save"))
+        # No config: the header has room, so Close, Settings and Quit are
+        # buttons, not a ⋯ menu, even under 1500 px.
+        self.assertTrue(pg.is_hidden("#menu-more"))
+        for sel in ("#btn-close", "#menu-settings", "#btn-quit"):
+            self.assertTrue(pg.is_visible(sel), sel)
         self.assertNotIn("Raspberry", pg.inner_text("#view"))
         self.add_device(config=False)
         self.answer("cancel")  # no key login
@@ -254,6 +260,12 @@ class DevicesPage(OnlineBase):
         pg.wait_for_selector("[data-devices=done]", timeout=20000)
         self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
         pg.wait_for_selector("[data-devices=up-to-date]")
+        # The bridge can be added next to the PLC from its row.
+        pg.click("[data-devices-install=bridge]")
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("Install the bridge 0.98.0", pg.inner_text("#modal-text"))
+        self.assertIn("same CAN interface", pg.inner_text("#modal"))
+        self.answer("cancel")
         # No project took the device as its runtime host.
         online_json = os.path.join(self.cfg_dir, "online.json")
         if os.path.isfile(online_json):
@@ -269,6 +281,27 @@ class DevicesPage(OnlineBase):
         pg.click(".devices-list [data-device]")
         pg.wait_for_selector("[data-devices=rows]")
         self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 4)
+
+    def test_pc_tools_older_than_the_device(self):
+        # A newer minor on the device: a note with Update PC tools…, which
+        # checks for a release and otherwise gives the command to copy. A
+        # patch-only difference says nothing.
+        pg = self.page
+        self.put("opt/canworks/VERSION", "99.1.0\n")
+        view = {"version": "0.111.0", "latest": "0.111.0", "newer": False, "kind": "other", "why": "test",
+                "command": "curl -fsSL https://example.invalid/install.sh | sh", "release_url": "https://example.invalid"}
+        for route in ("**/api/update", "**/api/update/check"):
+            pg.route(route, lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(view)))
+        pg.goto(self.server.url)
+        pg.click("#start-devices")
+        self.add_device(config=False)
+        self.answer("cancel")  # no key login
+        pg.wait_for_selector("[data-devices=pc-older]")
+        self.assertIn("(99.1.0) is newer than these PC tools", pg.inner_text("[data-devices=pc-older]"))
+        pg.click("[data-devices=update-pc]")
+        pg.wait_for_selector("#modal[open] .update-command textarea")
+        self.assertEqual(pg.input_value("#modal .update-command textarea"), view["command"])
+        self.answer("cancel")
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ test/sensor/run.sh --keep-vendor-pdos
 
 `run.sh` starts the simulated module as node 5 with AI0-AI3 moving between 20.0-26.0, 30.0-36.0, 40.0-46.0 and -10.0 to -4.0 degC, loads the real plugin with a stand-in PLC scan, and checks the values in `%IW100`-`%IW103` and the PDO frames on the bus.
 
-On the Pi with the runtime (stock install, see [docs/install-stock.md](../../docs/install-stock.md)), start the simulated module and leave it running:
+On the Linux device with the runtime (stock install, see [docs/install-stock.md](../../docs/install-stock.md)), start the simulated module and leave it running:
 
 ```sh
 build/test/sensor_slave vcan0 config/rtd-sensor/rtd8.eds 5 --blank-pdos \

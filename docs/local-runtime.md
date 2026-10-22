@@ -1,6 +1,6 @@
 # Local runtime: `canworks-local-runtime`
 
-The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program: runtime plugins such as CANopen cannot run in it. The local runtime takes its place on the engineering PC: the stock OpenPLC Runtime v4 with the CANopen plugin, in a container on Windows, macOS or Linux, with every CANopen network running simulated. A project with CANopen nodes then runs on the PC with no Raspberry Pi, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
+The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program: runtime plugins such as CANopen cannot run in it. The local runtime takes its place on the engineering PC: the stock OpenPLC Runtime v4 with the CANopen plugin, in a container on Windows, macOS or Linux, with every CANopen network running simulated. A project with CANopen nodes then runs on the PC with no Linux device, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
 
 `canworks-local-runtime` comes with the PC tools ([install-pc.md](install-pc.md)). It needs a container engine; Docker Desktop is not needed.
 

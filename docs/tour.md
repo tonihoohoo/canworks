@@ -1,6 +1,6 @@
 # Tour: every feature on a PC, without hardware
 
-This tour takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md), one editor project with four simulated CANopen networks, on Windows, macOS or Linux. You need a container engine, the PC tools and OpenPLC Editor 4.3.2; no Raspberry Pi, no CAN adapter, no devices. Each chapter says what to do, what you see, and where the feature is described in full.
+This tour takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md), one editor project with four simulated CANopen networks, on Windows, macOS or Linux. You need a container engine, the PC tools and OpenPLC Editor 4.3.2; no Linux device, no CAN adapter, no devices. Each chapter says what to do, what you see, and where the feature is described in full.
 
 The plant: an I/O network `io` with a temperature module (node 5, RTD-8), a digital and analogue I/O module (node 6, DIO-16) and a second DIO-16 that gets its node ID over LSS (node 7); a drive network `motion` with a servo drive (node 4) in cyclic synchronous position mode; and the PLC as a gateway (slave node 20 on network `cell`) to a machine controller, which network `host` plays on the same simulated bus. All devices are made up. The [example's README](../examples/virtual-plant/README.md) lists every network, file and part of the program.
 
@@ -173,4 +173,4 @@ Some features cannot be shown on a simulated bus:
 - **Commissioning straight from the PC** through a USB adapter, with no runtime, needs the adapter and a device ([pc-adapter.md](pc-adapter.md)); through **Adapter on another machine** in the connect panel, a Linux machine with the adapter that runs `canworks-diag adapter-serve` ([pc-adapter.md](pc-adapter.md#an-adapter-on-another-machine)).
 - **J1939 networks** need the Linux kernel's J1939 support and do not run on the simulated bus; try them on a Linux runtime with `canworks-j1939-sim` and [`examples/j1939`](../examples/j1939) ([j1939.md](j1939.md)).
 - **Real-time timing**: SYNC jitter, PDO latency and the drive's cycle in a container say nothing about a real target.
-- **The install on a runtime host** (`install-stock.sh` on a Raspberry Pi or another Linux device) and its CAN interface ([install-stock.md](install-stock.md)).
+- **The install on a runtime host** (`install-stock.sh` on a Linux device) and its CAN interface ([install-stock.md](install-stock.md)).

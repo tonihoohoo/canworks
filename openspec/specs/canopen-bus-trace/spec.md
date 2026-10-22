@@ -68,8 +68,8 @@ A trace SHALL be saved as pcapng with SocketCAN link type, per-frame direction a
 - **WHEN** a trace with markers is saved and opened again
 - **THEN** the same frames, times, directions and markers are shown
 
-#### Scenario: candump from the Pi
-- **WHEN** the user opens a file recorded with `candump -l can0` on the Pi without the PLC running
+#### Scenario: candump from the device
+- **WHEN** the user opens a file recorded with `candump -l can0` on the device without the PLC running
 - **THEN** its frames are shown decoded with the current configuration
 
 ### Requirement: Export formats
