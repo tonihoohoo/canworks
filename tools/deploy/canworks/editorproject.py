@@ -27,6 +27,7 @@ from . import axis, bundle, contract, plclibrary
 from . import project as project_mod
 from .configurator import declare
 from .eds import Eds, EdsError
+from .userdirs import replace_file
 
 TARGET = "OpenPLC Runtime v4"
 DEFAULT_INTERVAL = "T#20ms"
@@ -185,9 +186,12 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
     interval = check_interval(interval)
     if not name:
         raise NewProjectError("no project name in %s" % project_dir)
-    if os.path.lexists(project_dir):
-        raise NewProjectError("%s already exists; pick a new folder for the project" % project_dir)
-    if not os.path.isdir(parent):
+    existed = os.path.lexists(project_dir)
+    if existed:
+        in_the_way = existing_folder_problem(project_dir)
+        if in_the_way:
+            raise NewProjectError(in_the_way)
+    elif not os.path.isdir(parent):
         raise NewProjectError("%s is not a folder" % parent)
     if cfg is None:
         decls, body = [], []
@@ -203,19 +207,21 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
                               "$OPENPLC_CLI to the editor's openplc-cli" % cli)
 
     cmd = start + ["create", name, "--path=" + parent, "--language=st", "--time=" + interval, "--no-json"]
+    if existed:
+        cmd.append("--force")  # writes into the existing folder; nothing in it is one of its files (checked above)
     unsafe = unsafe_for_cmd(cmd)
     if unsafe:
         raise NewProjectError(unsafe)
     progress("$ " + " ".join('"%s"' % c if " " in c else c for c in cmd))
+    before = _contents(project_dir) if existed else None
     try:
-        run = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        run = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             universal_newlines=True, **NO_WINDOW)
     except OSError as e:
         raise NewProjectError("cannot run %s: %s (install it from the editor with 'openplc-cli install-cli', or set "
                               "$OPENPLC_CLI)" % (cli, e))
     if run.returncode != 0 or not os.path.isfile(os.path.join(project_dir, "project.json")):
-        made = os.path.isdir(project_dir)
-        if made:
-            shutil.rmtree(project_dir, ignore_errors=True)
+        _undo(project_dir, before)
         raise NewProjectError("openplc-cli create failed (exit %d)%s" % (
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
     try:
@@ -225,8 +231,9 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
         if blocks or (cfg is not None and uses_library(cfg)):
             plclibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, plclibrary.LibraryError) as e:
-        shutil.rmtree(project_dir, ignore_errors=True)
-        raise NewProjectError("%s (the new project folder was removed)" % e)
+        _undo(project_dir, before)
+        raise NewProjectError("%s (%s)" % (e, "the new project folder was removed" if before is None else
+                                           "what was added to the folder was removed"))
     return project_dir, [d for d in decls if d.get("location")]
 
 
@@ -246,7 +253,58 @@ def _patch(project_dir, decls, body, runtime_address):
 
 
 def _write(path, text):
+    # A file of the project being made: nothing reads it yet, and a failure
+    # removes it, so when the swap stays refused it is written in place.
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
-    os.replace(tmp, path)
+    replace_file(tmp, path, in_place=True)
+
+
+# What `openplc-cli create` writes, and what makes a folder a project or
+# config already: an existing folder holding any of them is refused.
+EDITOR_FILES = ("project.json", os.path.join("devices", "configuration.json"),
+                os.path.join("devices", "pin-mapping.json"), os.path.join("pous", "programs", "main.st"))
+CANWORKS_FILES = ("canworks.json", "canworks")
+
+# On Windows openplc-cli is a .cmd shim: without this a console window opens
+# for it, since the configurator itself has none.
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+def existing_folder_problem(project_dir):
+    """Why an existing folder cannot become the project, or None."""
+    if not os.path.isdir(project_dir):
+        return "%s is not a folder" % project_dir
+    for rel in EDITOR_FILES + CANWORKS_FILES:
+        if os.path.lexists(os.path.join(project_dir, rel)):
+            return "%s already has %s; pick an empty folder or a new name" % (project_dir, rel)
+    return None
+
+
+def _contents(folder):
+    """Every path under folder, relative to it."""
+    out = set()
+    for root, dirs, files in os.walk(folder):
+        for n in dirs + files:
+            out.add(os.path.relpath(os.path.join(root, n), folder))
+    return out
+
+
+def _undo(project_dir, before):
+    """Removes what creation added: the whole folder when it made it
+    (before None), else each added file and then each added folder left
+    empty, deepest first; nothing that was there before."""
+    if before is None:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        return
+    added = sorted(_contents(project_dir) - before, key=lambda r: r.count(os.sep), reverse=True)
+    for rel in added:
+        path = os.path.join(project_dir, rel)
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                os.rmdir(path)
+            else:
+                os.remove(path)
+        except OSError:
+            pass

@@ -92,6 +92,7 @@ import time
 from . import (__version__, bridgecheck, bundle, clash, contract, dbcexport, dcfexport, diag, docexport,
                editorproject, localruntime, modbusmap, nodered, notes, project, runtime, plclibrary, simfile, slaveeds,
                targets)
+from .userdirs import replace_file
 
 EDITOR_WARNING = (
     "Note: uploading this program from the editor's own \"Build and upload\" sends no conf/canworks.json, so the "
@@ -893,7 +894,7 @@ def run_slave_eds(args, out=print):
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        os.replace(tmp, args.gateway)
+        replace_file(tmp, args.gateway)
         out("updated %s: %d route%s with a new slave object" % (args.gateway, changed, "" if changed == 1 else "s"))
     elif cfg is not None:
         stale = [j for j, (rt, place) in enumerate(zip(cfg["gateway"].get("routes") or [], info["routes"]))

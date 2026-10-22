@@ -53,6 +53,7 @@ from . import cia306, edslint
 from .contract import (DEFAULT_BRIDGE_INDEX, DEFAULT_STATUS_INDEX, MAX_STATUS_NETWORKS, _uint, field_networks, networks,
                        sdo_value)
 from .iec import CO_TYPES
+from .userdirs import replace_file
 
 LAYOUTS = ("manufacturer", "cia401")
 DIRECTIONS = ("from_master", "to_master")
@@ -602,7 +603,7 @@ def write(text, path):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="") as f:
         f.write(text)
-    os.replace(tmp, path)
+    replace_file(tmp, path)
     return path
 
 

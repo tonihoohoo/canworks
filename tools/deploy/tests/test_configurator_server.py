@@ -1438,9 +1438,20 @@ class Folders(Running):
         self.assertTrue(os.path.isfile(os.path.join(machine, "canworks", "canworks.json")))
         status, data, _ = self.request("POST", "/api/new", {"path": machine + "-x", "editor_project": True})
         self.assertEqual(status, 200)
-        status, data, _ = self.request("POST", "/api/new", {"path": self.dir, "editor_project": True})
+        # windows-safe-new-config: an existing empty folder becomes the
+        # project; one holding a file the editor writes is refused.
+        empty = os.path.join(self.dir, "empty")
+        os.makedirs(empty)
+        state = self.ok("POST", "/api/new", {"path": empty, "editor_project": True})
+        self.assertEqual(state["mode"], "project")
+        self.assertTrue(os.path.isfile(os.path.join(empty, "canworks", "canworks.json")))
+        taken = os.path.join(self.dir, "taken", "devices")
+        os.makedirs(taken)
+        with open(os.path.join(taken, "configuration.json"), "w") as f:
+            f.write("{}")
+        status, data, _ = self.request("POST", "/api/new", {"path": os.path.dirname(taken), "editor_project": True})
         self.assertEqual(status, 422)
-        self.assertIn("already exists", data["error"])
+        self.assertIn("already has " + os.path.join("devices", "configuration.json"), data["error"])
 
     def test_slave_description_and_move(self):
         folder = self.standalone()

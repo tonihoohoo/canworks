@@ -53,7 +53,7 @@ from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequenc
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
 from ..devices import service as devices_service
-from ..userdirs import config_dir, replace_file
+from ..userdirs import FileLockedError, config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
 from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
 
@@ -561,6 +561,8 @@ class ApiError(Exception):
 def folder_error(e, doing, folder):
     """An OSError as one sentence naming the folder: "cannot read the
     folder /x: permission denied"."""
+    if isinstance(e, FileLockedError):
+        return ApiError(409, "cannot %s the folder %s: %s" % (doing, folder, e))
     reason = (e.strerror or str(e)).lower() if isinstance(e, OSError) else str(e)
     return ApiError(403 if isinstance(e, PermissionError) else 500,
                     "cannot %s the folder %s: %s" % (doing, folder, reason))
@@ -1989,14 +1991,14 @@ class Session:
             tmp = target + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(data)
-            os.replace(tmp, target)
+            replace_file(tmp, target)
             written.append(target)
             if name in self.descriptions:
                 target = description_path(self.canopen_dir, name)
                 with open(target + ".tmp", "w", encoding="utf-8") as f:
                     json.dump(self.descriptions[name], f, indent=2, ensure_ascii=False)
                     f.write("\n")
-                os.replace(target + ".tmp", target)
+                replace_file(target + ".tmp", target)
                 written.append(target)
         dbc_names = self.dbc_names(cfg)
         for name, data in sorted(self.pending_dbc.items()):
@@ -2004,7 +2006,7 @@ class Session:
                 target = os.path.join(self.canopen_dir, name)
                 with open(target + ".tmp", "wb") as f:
                     f.write(data)
-                os.replace(target + ".tmp", target)
+                replace_file(target + ".tmp", target)
                 written.append(target)
         out = canonical(cfg)
         try:
@@ -2016,7 +2018,7 @@ class Session:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        os.replace(tmp, self.config_path)
+        replace_file(tmp, self.config_path)
         written.append(self.config_path)
         written += self.save_notes(cfg, notes)
         for name in [n for n in self.pending if n in referenced]:
@@ -2095,7 +2097,7 @@ class Session:
             target = os.path.join(self.canopen_dir, name)
             with open(target + ".tmp", "wb") as f:
                 f.write(self.pending[name])
-            os.replace(target + ".tmp", target)
+            replace_file(target + ".tmp", target)
             written.append(target)
             del self.pending[name]
         simulation.write(self.sim_path, doc)
@@ -2163,8 +2165,9 @@ class Session:
         if not os.path.isdir(parent):
             raise ApiError(422, "%s is not a folder" % parent)
         target = os.path.join(parent, name)
-        if os.path.lexists(target):
-            raise ApiError(409, "%s already exists; pick a new name" % target, exists=True)
+        in_the_way = os.path.lexists(target) and editorproject.existing_folder_problem(target)
+        if in_the_way:
+            raise ApiError(409, in_the_way, exists=True)
         with open(self.config_path, encoding="utf-8") as f:
             cfg = contract.load(f)
         result = contract.check_config(cfg, self.config_path)

@@ -23,7 +23,7 @@ import sys
 import time
 
 from . import __version__, runtime
-from .userdirs import config_dir
+from .userdirs import config_dir, replace_file
 
 PROG = "canworks-sim-runtime"
 IMAGE_REPO = "ghcr.io/tonihoohoo/canworks-sim-runtime"
@@ -85,7 +85,7 @@ def save_settings(doc):
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=2, sort_keys=True)
         f.write("\n")
-    os.replace(tmp, path)
+    replace_file(tmp, path)
 
 
 def delete_settings():

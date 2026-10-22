@@ -16,20 +16,53 @@ def config_dir():
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "canworks")
 
 
-def replace_file(tmp, path, tries=20, wait_s=0.05):
-    """os.replace(tmp, path), tried again for about a second while Windows
-    refuses it because another process (a second configurator, a virus
-    scanner) has `path` open; the temporary file is removed when it still
-    fails."""
-    for attempt in range(tries):
+class FileLockedError(PermissionError):
+    """Windows kept refusing to replace a file another program holds open."""
+
+    def __init__(self, path):
+        super().__init__(13, "%s is held open by another program (often antivirus or a sync client such as "
+                             "OneDrive); try again" % path, path)
+
+    def __str__(self):
+        return self.strerror
+
+
+def replace_file(tmp, path, deadline_s=5.0, in_place=False):
+    """os.replace(tmp, path). On Windows, while another program (a virus
+    scanner, the search indexer, OneDrive, a second configurator) holds
+    `path` open, the rename is refused: it is tried again with growing waits
+    for about `deadline_s`. Then, with `in_place`, the content is written over
+    `path` directly (for a new project's own files, which nothing reads yet);
+    else the temporary file is removed and FileLockedError is raised."""
+    start = time.monotonic()
+    wait = 0.02
+    while True:
         try:
             os.replace(tmp, path)
             return
         except PermissionError:
-            if os.name != "nt" or attempt == tries - 1:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+            if os.name != "nt":
+                _remove(tmp)
                 raise
-            time.sleep(wait_s)
+            if time.monotonic() - start >= deadline_s:
+                break
+            time.sleep(wait)
+            wait = min(wait * 2, 0.5)
+    if in_place:
+        try:
+            with open(tmp, "rb") as src, open(path, "r+b") as dst:
+                dst.write(src.read())
+                dst.truncate()
+            _remove(tmp)
+            return
+        except PermissionError:
+            pass
+    _remove(tmp)
+    raise FileLockedError(path)
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass

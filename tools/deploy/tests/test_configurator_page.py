@@ -218,6 +218,35 @@ class Page(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(machine, "project.json")))
         self.assertIn("Created the OpenPLC Editor project", pg.inner_text("#banner"))
 
+    def test_new_config_with_editor_project_in_existing_folder(self):
+        # windows-safe-new-config 3.1-3.2: an existing folder with a file of
+        # the user's becomes the project; the dialog says what runs meanwhile.
+        pg = self.page
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir, delay_s=1.5)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        cell = os.path.join(self.dir, "cell")
+        os.makedirs(cell)
+        with open(os.path.join(cell, "notes.txt"), "w") as f:
+            f.write("mine")
+        pg.reload()
+        pg.wait_for_selector("#start-new")
+        pg.click("#start-new")
+        pg.wait_for_selector("[data-new-config=form]")
+        self.assertIn("existing empty one", pg.inner_text("[data-new-config=form]"))
+        pg.fill("[data-new-config=location]", self.dir)
+        pg.fill("[data-new-config=name]", "cell")
+        pg.click("#modal-buttons button[data-value=create]")
+        working = pg.wait_for_selector("#modal-buttons button[data-value=working]")
+        self.assertEqual(working.inner_text(), "Creating the editor project…")
+        self.assertTrue(working.is_disabled())
+        pg.keyboard.press("Escape")
+        self.assertTrue(pg.is_visible("#modal"))
+        pg.wait_for_selector("#mode:has-text('project cell')")
+        self.assertFalse(pg.is_visible("#modal"))
+        self.assertTrue(os.path.isfile(os.path.join(cell, "canworks", "canworks.json")))
+        with open(os.path.join(cell, "notes.txt")) as f:
+            self.assertEqual(f.read(), "mine")
+
     def test_new_config_without_editor_cli(self):
         pg = self.page
         os.environ["OPENPLC_CLI"] = os.path.join(self.dir, "no-such-cli")
@@ -1427,6 +1456,8 @@ class Page(unittest.TestCase):
         folder = os.path.join(self.dir, "canopen-rtd")
         work = os.path.join(self.dir, "work")
         os.makedirs(os.path.join(work, "taken"))
+        with open(os.path.join(work, "taken", "project.json"), "w") as f:
+            f.write("{}")
         self.open_from_start("#start-new", folder)
         self.assertTrue(pg.is_visible("#menu-project"))
         self.add_node(os.path.join(RTD, "rtd8.eds"))
@@ -1443,8 +1474,8 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.input_value('#modal-extra input[aria-label="Task interval"]'), "T#20ms")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#modal-text:has-text('Not created')")
-        self.assertIn("already exists", pg.inner_text("#modal-text"))
-        self.assertEqual(os.listdir(os.path.join(work, "taken")), [])
+        self.assertIn("already has project.json", pg.inner_text("#modal-text"))
+        self.assertEqual(os.listdir(os.path.join(work, "taken")), ["project.json"])
         user_data = os.path.join(self.dir, "open-plc-editor")
         os.makedirs(user_data)
         os.environ["OPENPLC_EDITOR_USER_DATA"] = user_data

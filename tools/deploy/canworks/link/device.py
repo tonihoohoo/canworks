@@ -29,6 +29,7 @@ import time
 from . import ALPN, DEFAULT_LINK_PORT, DIAG_PORT, RUNTIME_PORT, UNAVAILABLE, available
 from . import protocol
 from .protocol import LinkError, LineReader, encode
+from ..userdirs import replace_file
 
 DEFAULT_DIR = "/etc/canworks-link"
 MAX_PEERS = 4
@@ -74,7 +75,7 @@ def _write_json(path, doc, mode=0o644):
         os.chmod(tmp, mode)
     except OSError:
         pass
-    os.replace(tmp, path)
+    replace_file(tmp, path)
 
 
 def load_key(path):
@@ -93,7 +94,7 @@ def load_key(path):
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
-    os.replace(path + ".tmp", path)
+    replace_file(path + ".tmp", path)
     return data
 
 

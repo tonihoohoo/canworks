@@ -21,6 +21,7 @@ import zlib
 
 from .. import __version__
 from .model import EFF, ERR, ID_MASK, RECORD, RTR, TX, Frame, Trace
+from ..userdirs import replace_file
 
 # extension -> (format id, label). Open: the formats read_file() reads.
 FORMATS = {
@@ -624,7 +625,7 @@ def write_file(trace, path, fmt=None, decoder=None):
     try:
         with os.fdopen(fd, "wb") as out:
             write(trace, out, fmt, decoder)
-        os.replace(tmp, path)
+        replace_file(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
