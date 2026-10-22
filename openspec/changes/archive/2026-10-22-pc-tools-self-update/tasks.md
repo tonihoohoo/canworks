@@ -45,6 +45,9 @@
 
 - [ ] 7.1 Windows, Toni's own session (not a Remote Control shell): start from the Start menu shortcut, Update to the next release; the same tab comes back in the new version and the desktop and Start menu shortcuts still work.
 - [ ] 7.2 Windows: with `canworks-diag` open in a terminal, Update shows the "close other windows" message and the old version keeps working.
-- [ ] 7.3 macOS: Update from the `.app`; the app opens the new version afterwards.
-- [ ] 7.4 Linux desktop (or headless): `canworks-config --update --yes` and the Update button.
-- [ ] 7.5 "Update when I quit" with unsaved changes on one system: Save, Quit, the next start shows "Updated to".
+- [x] 7.3 macOS: Update from the `.app`; the app opens the new version afterwards.
+  - Result: PASS on macOS 2026-10-22 (0.106.0 to 0.106.1): the configurator opened from the .app updated with `canworks-config --update --yes`, came back in about 3 s on the same port; update.log result ok and "shortcut: Added"; the app's Info.plist version became 0.106.1 and the app reopened the new version.
+- [x] 7.4 Linux desktop (or headless): `canworks-config --update --yes` and the Update button.
+  - Result: PASS on Linux (ubuntu:24.04 container on the Windows PC, 2026-10-22): `canworks-config --update --yes` without a configurator updated in the terminal; with a running configurator it came back about 5 s later on the same port as 0.106.1. Two log wording fixes followed in PR #214.
+- [x] 7.5 "Update when I quit" with unsaved changes on one system: Save, Quit, the next start shows "Updated to".
+  - Result: PASS on macOS 2026-10-22 (headless Chromium): Update now with unsaved changes offered Update when I quit; after Save and Quit, 0.106.1 was installed and the next start printed "last update: Updated to 0.106.1.". Found: Update now pressed within a second of an edit went through (the heartbeat had not told the server yet); fixed in PR #214. Also on Windows over Remote Control: the sandboxed copy refused correctly and showed the install command.
