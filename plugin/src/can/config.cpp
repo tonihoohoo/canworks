@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cctype>
 #include <cerrno>
@@ -3421,6 +3422,17 @@ class Parser {
 
   // The bridge's own blocks as location uses.
   static void bridge_uses(const BridgeConfig& b, std::vector<Use>& uses) {
+    if (b.openplc) {
+      IecLocation hash, header;
+      hash.area = IecArea::Input;
+      hash.size = IecSize::B;
+      hash.index = 0;
+      header.area = IecArea::Output;
+      header.size = IecSize::B;
+      header.index = 0;
+      uses.push_back({hash, "bridge map hash (openplc)", kOpenplcHashBytes});
+      uses.push_back({header, "the PLC link header (openplc, output bytes 0-5)", kOpenplcHeaderBytes});
+    }
     if (b.has_status) uses.push_back({b.status_location, "bridge status_location", kBridgeStatusBytes});
     if (b.has_control) uses.push_back({b.control_location, "bridge control_location", kBridgeControlBytes});
     for (const auto& l : b.live_lists)
@@ -3471,6 +3483,38 @@ class Parser {
     return !p.empty() && !*end && bits >= 0 && bits <= max_bits;
   }
 
+  // bridge.openplc: OpenPLC through its Modbus master (modbus-bridge spec).
+  void parse_openplc(const cJSON* b, const std::string& w, BridgeConfig& c) {
+    const cJSON* o = cJSON_GetObjectItemCaseSensitive(b, "openplc");
+    if (!o) return;
+    const std::string ow = w + ".openplc";
+    if (!cJSON_IsObject(o)) {
+      error(w, "field 'openplc' must be an object");
+      return;
+    }
+    c.openplc = true;
+    check_known(o, ow, {"poll_ms", "remote_device", "iec_base"});
+    uint64_t v;
+    if (get_uint(o, "poll_ms", ow, false, 1000, v)) {
+      if (v < 5) error(ow, "field 'poll_ms' must be 5-1000");
+      c.poll_ms = (unsigned)std::max<uint64_t>(v, 5);
+    }
+    std::string name;
+    if (get_string(o, "remote_device", ow, false, name)) {
+      bool ok = !name.empty() && name.size() <= 64;
+      for (char ch : name)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ok = false;
+      if (!ok)
+        error(ow, "field 'remote_device' must be 1-64 letters, digits, '_' or '-' (the editor's file name)");
+      else
+        c.remote_device = name;
+    }
+    if (get_uint(o, "iec_base", ow, false, 65535, v)) {
+      c.has_iec_base = true;
+      c.iec_base = (unsigned)v;
+    }
+  }
+
   void parse_bridge(const cJSON* root, ConfigSet& set) {
     const cJSON* b = cJSON_GetObjectItemCaseSensitive(root, "bridge");
     const std::string w = "bridge";
@@ -3483,8 +3527,10 @@ class Parser {
     check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
                        "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
-                       "sdo_bridge_location", "sdo_bridge_write"});
-    if (get_string(b, "listen", w, true, c.listen)) {
+                       "sdo_bridge_location", "sdo_bridge_write", "openplc"});
+    parse_openplc(b, w, c);
+    if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "listen")) c.listen = "127.0.0.1:1502";
+    if (get_string(b, "listen", w, !c.openplc, c.listen)) {
       bool v6 = !c.listen.empty() && c.listen[0] == '[';
       size_t colon = v6 ? c.listen.find("]:") : c.listen.rfind(':');
       std::string host = colon == std::string::npos ? "" : c.listen.substr(v6 ? 1 : 0, v6 ? colon - 1 : colon);
@@ -3506,6 +3552,12 @@ class Parser {
       else if (order != "high_first")
         error(w, "field 'word_order' must be \"high_first\" or \"low_first\"");
     }
+    if (c.openplc) {
+      if (order == "high_first")
+        error(w, "field 'word_order' must be \"low_first\" with 'openplc': OpenPLC's Modbus master reads 32- and "
+                 "64-bit values lowest word first");
+      c.low_first = true;
+    }
     if (get_uint(b, "max_clients", w, false, 64, v)) {
       if (v < 1) error(w, "field 'max_clients' must be 1-64");
       c.max_clients = (unsigned)v;
@@ -3514,7 +3566,8 @@ class Parser {
       if (v < 1) error(w, "field 'max_clients_per_address' must be 1-64");
       c.max_clients_per_address = (unsigned)v;
     }
-    if (!cJSON_GetObjectItemCaseSensitive(b, "writers"))
+    if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "writers")) c.writers.push_back("127.0.0.1");
+    if (!c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "writers"))
       error(w, "missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", \"::/0\"] "
                "to let every address write");
     for (const char* key : {"writers", "readers"}) {
@@ -3534,6 +3587,7 @@ class Parser {
         (std::strcmp(key, "writers") == 0 ? c.writers : c.readers).push_back(it->valuestring);
       }
     }
+    if (c.openplc) c.watchdog_ms = std::max(50u, 5 * c.poll_ms);
     if (get_uint(b, "watchdog_ms", w, false, 60000, v)) c.watchdog_ms = (unsigned)v;
     std::string loss;
     if (get_string(b, "on_client_loss", w, false, loss)) {
@@ -3541,10 +3595,22 @@ class Parser {
         c.on_client_loss = BridgeConfig::Loss::Zero;
       else if (loss == "hold")
         c.on_client_loss = BridgeConfig::Loss::Hold;
+      else if (loss == "preop")
+        c.on_client_loss = BridgeConfig::Loss::Preop;
       else if (loss != "stop")
-        error(w, "field 'on_client_loss' must be \"stop\", \"zero\" or \"hold\"");
+        error(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\"");
     }
     c.has_status = block_location(b, "status_location", w, IecArea::Input, kBridgeStatusBytes, c.status_location);
+    if (c.openplc) {
+      if (c.has_status && c.status_location.index != kOpenplcStatusByte)
+        error(w, "field 'status_location' must be %IB4 with 'openplc' (input bytes 0-3 hold the map hash), or left "
+                 "out");
+      c.has_status = true;
+      c.status_location = IecLocation();
+      c.status_location.area = IecArea::Input;
+      c.status_location.size = IecSize::B;
+      c.status_location.index = kOpenplcStatusByte;
+    }
     c.has_control =
         block_location(b, "control_location", w, IecArea::Output, kBridgeControlBytes, c.control_location);
     const cJSON* lists = cJSON_GetObjectItemCaseSensitive(b, "live_lists");
@@ -3753,6 +3819,34 @@ std::vector<ImageUse> image_uses(const ConfigSet& set) {
   }
   return out;
 }
+
+uint32_t crc32_ieee(const std::string& data) {
+  uint32_t crc = 0xFFFFFFFFu;
+  for (unsigned char ch : data) {
+    crc ^= ch;
+    for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+  }
+  return ~crc;
+}
+
+std::string map_hash_text(const ConfigSet& set) {
+  std::vector<std::tuple<int, uint32_t, unsigned, int>> rows;
+  for (const ImageUse& u : image_uses(set))
+    rows.emplace_back(u.loc.area == IecArea::Input ? 0 : 1, u.loc.index, u.nbytes,
+                      u.loc.size == IecSize::X ? int(u.loc.bit) : -1);
+  std::sort(rows.begin(), rows.end());
+  std::string text;
+  for (const auto& r : rows) {
+    text += std::get<0>(r) ? "Q " : "I ";
+    text += std::to_string(std::get<1>(r)) + " " + std::to_string(std::get<2>(r)) + " ";
+    text += std::get<3>(r) < 0 ? std::string("-") : std::to_string(std::get<3>(r));
+    text += "\n";
+  }
+  text += set.bridge.low_first ? "word_order low_first\n" : "word_order high_first\n";
+  return text;
+}
+
+uint32_t map_hash(const ConfigSet& set) { return crc32_ieee(map_hash_text(set)); }
 
 unsigned location_bytes(const IecLocation& loc) { return loc.size == IecSize::X ? 1 : iec_size_bits(loc.size) / 8; }
 

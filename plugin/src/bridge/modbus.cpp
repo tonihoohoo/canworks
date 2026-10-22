@@ -2,6 +2,8 @@
 
 #include "modbus.h"
 
+#include <algorithm>
+
 namespace canworks_bridge {
 
 namespace {
@@ -39,6 +41,25 @@ void write_bit(std::vector<uint8_t>& img, unsigned bit, bool on) {
     img[bit / 8] |= mask;
   else
     img[bit / 8] &= static_cast<uint8_t>(~mask);
+}
+
+// The PLC link header (openplc): its bytes are always written; the bytes
+// past it only while the header, as written so far, is ok.
+bool may_write_byte(const ByteImage::Access& a, size_t byte) {
+  return byte < a.link_bytes() || a.link_bytes() == 0 || a.link_state() == ByteImage::Link::kOk;
+}
+
+void write_bytes(ByteImage::Access& a, size_t at, const uint8_t* src, size_t n) {
+  std::vector<uint8_t>& out = a.out_for_write();
+  size_t head = a.link_bytes() > at ? std::min(n, a.link_bytes() - at) : 0;
+  std::copy(src, src + head, out.begin() + static_cast<std::ptrdiff_t>(at));
+  if (n > head && may_write_byte(a, at + head))
+    std::copy(src + head, src + n, out.begin() + static_cast<std::ptrdiff_t>(at + head));
+}
+
+void write_coil(ByteImage::Access& a, unsigned bit, bool on) {
+  std::vector<uint8_t>& out = a.out_for_write();
+  if (may_write_byte(a, bit / 8)) write_bit(out, bit, on);
 }
 
 }  // namespace
@@ -106,7 +127,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       unsigned addr = u16(1), value = u16(3);
       if (value != 0xFF00 && value != 0x0000) return fail(kIllegalDataValue);
       if (addr >= a.out().size() * 8) return fail(kIllegalDataAddress);
-      write_bit(a.out_for_write(), addr, value == 0xFF00);
+      write_coil(a, addr, value == 0xFF00);
       resp.assign(pdu, pdu + n);
       return true;
     }
@@ -114,9 +135,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       if (n != 5) return fail(kIllegalDataValue);
       unsigned addr = u16(1);
       if (addr >= out_regs) return fail(kIllegalDataAddress);
-      std::vector<uint8_t>& out = a.out_for_write();
-      out[addr * 2] = pdu[3];
-      out[addr * 2 + 1] = pdu[4];
+      write_bytes(a, addr * 2, pdu + 3, 2);
       resp.assign(pdu, pdu + n);
       return true;
     }
@@ -133,8 +152,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       if (count < 1 || count > kMaxWriteBits || bytes != (count + 7) / 8 || n != 6 + bytes)
         return fail(kIllegalDataValue);
       if (addr + count > a.out().size() * 8) return fail(kIllegalDataAddress);
-      std::vector<uint8_t>& out = a.out_for_write();
-      for (unsigned i = 0; i < count; ++i) write_bit(out, addr + i, pdu[6 + i / 8] >> (i % 8) & 1);
+      for (unsigned i = 0; i < count; ++i) write_coil(a, addr + i, pdu[6 + i / 8] >> (i % 8) & 1);
       resp.assign(pdu, pdu + 5);
       return true;
     }
@@ -144,8 +162,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       if (count < 1 || count > kMaxWriteRegisters || bytes != count * 2 || n != 6 + bytes)
         return fail(kIllegalDataValue);
       if (addr + count > out_regs) return fail(kIllegalDataAddress);
-      std::vector<uint8_t>& out = a.out_for_write();
-      std::copy(pdu + 6, pdu + 6 + bytes, out.begin() + addr * 2);
+      write_bytes(a, addr * 2, pdu + 6, bytes);
       resp.assign(pdu, pdu + 5);
       return true;
     }
@@ -157,10 +174,9 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
         return fail(kIllegalDataValue);
       if (raddr + rcount > out_regs || waddr + wcount > out_regs) return fail(kIllegalDataAddress);
       // The write comes first; the read returns the image after it.
-      std::vector<uint8_t>& out = a.out_for_write();
-      std::copy(pdu + 10, pdu + 10 + bytes, out.begin() + waddr * 2);
+      write_bytes(a, waddr * 2, pdu + 10, bytes);
       resp.push_back(f);
-      read_registers(out, raddr, rcount, resp);
+      read_registers(a.out(), raddr, rcount, resp);
       return true;
     }
   }

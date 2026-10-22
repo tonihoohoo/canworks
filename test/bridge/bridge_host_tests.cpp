@@ -67,12 +67,12 @@ std::string read_file(const std::string& p) {
 void write_file(const std::string& p, const std::string& text) { std::ofstream(p) << text; }
 
 // A copy of the example in a fresh directory, the config edited by `edit`.
-std::string example_copy(const std::function<void(cJSON*)>& edit) {
+std::string example_copy(const std::function<void(cJSON*)>& edit, const char* example = EXAMPLE_DIR) {
   char tmpl[] = "/tmp/canworks-bridge-XXXXXX";
   std::string dir = mkdtemp(tmpl);
   for (const char* f : {"simulation.json", "rtd8.eds", "dio16.eds"})
-    write_file(dir + "/" + f, read_file(std::string(EXAMPLE_DIR) + "/" + f));
-  cJSON* root = cJSON_Parse(read_file(std::string(EXAMPLE_DIR) + "/canworks.json").c_str());
+    write_file(dir + "/" + f, read_file(std::string(example) + "/" + f));
+  cJSON* root = cJSON_Parse(read_file(std::string(example) + "/canworks.json").c_str());
   // The tests' clients connect from the loopback address.
   cJSON* writers = cJSON_CreateArray();
   cJSON_AddItemToArray(writers, cJSON_CreateString("127.0.0.1"));
@@ -129,7 +129,7 @@ bool both_operational(Client& c) { return (reg(c, kLiveListReg) >> 8) == 0x60; }
 struct Host {
   BridgeHost host;
   bool ok = false;
-  explicit Host(const std::function<void(cJSON*)>& edit = nullptr) {
+  explicit Host(const std::function<void(cJSON*)>& edit = nullptr, const char* example = EXAMPLE_DIR) {
     canopen_plugin::set_log_sink(capture);
     canopen_plugin::canopen_init_logging();
     host.listen_override = "127.0.0.1:0";
@@ -141,7 +141,7 @@ struct Host {
                       cJSON_DeleteItemFromObject(bridge_of(r), "writers");
                       cJSON_AddItemToObject(bridge_of(r), "writers", w);
                       if (edit) edit(r);
-                    }),
+                    }, example),
                     "test");
     if (!ok) {
       std::lock_guard<std::mutex> l(g_log_mu);
@@ -508,6 +508,161 @@ TEST(rejects_plain_configs) {
   });
   EXPECT(!BridgeHost::check(path));
   EXPECT(logged("needs a PLC cycle"));
+}
+
+// ---- OpenPLC through Modbus (examples/openplc-modbus): the PLC link header ----
+
+// The register layout of the OpenPLC example.
+constexpr uint16_t kOStatusReg = 2;     // %IB4
+constexpr uint16_t kOLiveListReg = 18;  // %IB36
+constexpr uint16_t kOOutReg = 4;        // %QW8 -> the simulated device's %IW22
+constexpr uint16_t kOLoopReg = 11;      // %IW22
+
+uint8_t ostate(Client& c) { return static_cast<uint8_t>(reg(c, kOStatusReg) >> 8); }
+bool ooperational(Client& c) { return (reg(c, kOLiveListReg) >> 8) == 0x60; }
+
+uint32_t served_hash(Client& c) {
+  auto v = regs(c, kReadInputRegisters, 0, 2);
+  return v.size() == 2 ? uint32_t(v[0]) << 16 | v[1] : 0;
+}
+
+bool header(Client& c, uint16_t running, uint32_t hash) {
+  return write(c, 0, {running, static_cast<uint16_t>(hash >> 16), static_cast<uint16_t>(hash)});
+}
+
+TEST(openplc_header_gates_outputs) {
+  Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 0); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  EXPECT(hash != 0);
+  EXPECT(ostate(c) == 5);  // no header yet: the PLC counts as stopped
+  // Data before the header is answered and dropped.
+  EXPECT(write(c, kOOutReg, {321}));
+  auto q = regs(c, kReadHoldingRegisters, kOOutReg, 1);
+  EXPECT(q.size() == 1 && q[0] == 0);
+  EXPECT(header(c, 1, hash));
+  EXPECT(wait_for([&] { return ostate(c) == 1; }));
+  EXPECT(write(c, kOOutReg, {321}));
+  EXPECT(wait_for([&] { return reg(c, kOLoopReg) == 321; }));
+}
+
+TEST(openplc_stop_round_holds_real_values) {
+  Host h(
+      [](cJSON* r) {
+        set_number(bridge_of(r), "watchdog_ms", 0);
+        set_string(bridge_of(r), "on_client_loss", "hold");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  EXPECT(header(c, 1, hash));
+  EXPECT(write(c, kOOutReg, {777}));
+  EXPECT(wait_for([&] { return reg(c, kOLoopReg) == 777; }));
+  // The runtime's stop round: zeroed outputs, the header first.
+  EXPECT(header(c, 0, 0));
+  EXPECT(write(c, kOOutReg, {0}));
+  EXPECT(wait_for([&] { return ostate(c) == 5; }));
+  EXPECT(logged("outputs held at their last values by the PLC link header (the PLC stopped)"));
+  usleep(300000);
+  EXPECT(reg(c, kOLoopReg) == 777);
+  auto q = regs(c, kReadHoldingRegisters, kOOutReg, 1);
+  EXPECT(q.size() == 1 && q[0] == 777);
+  // The PLC starts again.
+  EXPECT(header(c, 1, hash));
+  EXPECT(write(c, kOOutReg, {778}));
+  EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 778; }));
+}
+
+TEST(openplc_other_map_leaves_outputs_off) {
+  Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 0); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  EXPECT(header(c, 1, hash ^ 0x11111111u));
+  EXPECT(wait_for([&] { return ostate(c) == 4; }));
+  EXPECT(logged("PLC program built for map"));
+  EXPECT(write(c, kOOutReg, {55}));
+  usleep(200000);
+  EXPECT(reg(c, kOLoopReg) != 55);
+  EXPECT(header(c, 1, hash));
+  EXPECT(write(c, kOOutReg, {55}));
+  EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 55; }));
+}
+
+TEST(openplc_watchdog_preop) {
+  Host h(
+      [](cJSON* r) {
+        set_number(bridge_of(r), "watchdog_ms", 300);
+        set_string(bridge_of(r), "on_client_loss", "preop");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  EXPECT(header(c, 1, hash));
+  // No more writes: the watchdog sends every node to pre-operational.
+  EXPECT(wait_for([&] { return ostate(c) == 2 && (reg(c, kOLiveListReg) >> 8) == 0; }, 5000));
+  EXPECT(logged("nodes sent to pre-operational (on_client_loss preop)"));
+  EXPECT(header(c, 1, hash));
+  EXPECT(wait_for([&] { return ostate(c) == 1 && ooperational(c); }, 5000));
+}
+
+TEST(openplc_defaults_and_refusals) {
+  canopen_plugin::set_log_sink(capture);
+  // No listen, no writers: 127.0.0.1:1502 and 127.0.0.1.
+  std::string path = example_copy(
+      [](cJSON* r) {
+        cJSON_DeleteItemFromObject(bridge_of(r), "writers");
+        cJSON_DeleteItemFromObject(bridge_of(r), "listen");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  uint32_t hash = 0;
+  EXPECT(BridgeHost::check(path, nullptr, &hash));
+  EXPECT(hash != 0);
+  // A location inside the PLC link header.
+  path = example_copy(
+      [](cJSON* r) {
+        cJSON* node = cJSON_GetArrayItem(
+            cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "nodes"), 1);
+        cJSON* e = cJSON_GetArrayItem(
+            cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(node, "rx_pdos"), 0), "entries"), 2);
+        set_string(e, "iec_location", "%QW2");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("PLC link header"));
+  path = example_copy([](cJSON* r) { set_string(bridge_of(r), "word_order", "high_first"); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("must be \"low_first\" with 'openplc'"));
+  path = example_copy([](cJSON* r) { set_string(bridge_of(r), "status_location", "%IB40"); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("must be %IB4 with 'openplc'"));
+}
+
+TEST(map_hash_vectors) {
+  // The same text and CRC as the PC tools (tools/deploy/tests/test_modbusmap.py).
+  EXPECT(canopen_plugin::crc32_ieee("123456789") == 0xCBF43926u);
+  EXPECT(canopen_plugin::crc32_ieee("") == 0u);
+  canopen_plugin::set_log_sink(capture);
+  canopen_plugin::ConfigSet set;
+  std::vector<std::string> errors;
+  canopen_plugin::ImageLimits limits;
+  limits.buffer_size = BridgeHost::kImageLimit;
+  limits.bridge_host = true;
+  EXPECT(canopen_plugin::load_config_set(std::string(OPENPLC_EXAMPLE_DIR) + "/canworks.json", limits, set, errors));
+  std::string expected = read_file(std::string(FIXTURES_DIR) + "/modbus/openplc-hash.txt");
+  EXPECT(canopen_plugin::map_hash_text(set) == expected);
+  if (canopen_plugin::map_hash_text(set) != expected) std::printf("%s", canopen_plugin::map_hash_text(set).c_str());
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

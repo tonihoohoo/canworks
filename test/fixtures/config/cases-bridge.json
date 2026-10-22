@@ -418,7 +418,7 @@
       "schema": "invalid",
       "verdict": "reject",
       "messages": [
-        "field 'on_client_loss' must be \"stop\", \"zero\" or \"hold\""
+        "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\""
       ]
     },
     {

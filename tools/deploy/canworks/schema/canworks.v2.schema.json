@@ -76,7 +76,7 @@
         "writers": { "description": "Required. Addresses or prefixes allowed to write; [] lets nobody write, [\"0.0.0.0/0\", \"::/0\"] every address.", "type": "array", "items": { "type": "string" } },
         "readers": { "description": "Addresses or prefixes allowed to connect (default: every client).", "type": "array", "items": { "type": "string" } },
         "watchdog_ms": { "description": "Outputs off when no write came from a writer for this long (default 1000; 0: no watchdog).", "type": "integer", "minimum": 0, "maximum": 60000 },
-        "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop) or hold (keep sending).", "enum": [ "stop", "zero", "hold" ] },
+        "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop), hold (keep sending) or preop (stop, and every node of every CANopen master network to pre-operational; NMT start when outputs come back).", "enum": [ "stop", "zero", "hold", "preop" ] },
         "status_location": { "description": "Start of the 8-byte status block.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
         "control_location": { "description": "Start of the 6-byte control block.", "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" },
         "live_lists": {
@@ -100,9 +100,20 @@
           },
           "required": [ "request", "response" ]
         },
-        "sdo_bridge_write": { "description": "Allow SDO writes through the SDO bridge registers (default false).", "type": "boolean" }
+        "sdo_bridge_write": { "description": "Allow SDO writes through the SDO bridge registers (default false).", "type": "boolean" },
+        "openplc": {
+          "description": "OpenPLC Runtime is the client, through its own Modbus master (docs/modbus-bridge.md#openplc): the configurator writes the editor's remote device. Implies listen 127.0.0.1:1502, writers [\"127.0.0.1\"], word_order low_first, watchdog 5 x poll_ms (at least 50 ms) and the status block at %IB4. Input bytes 0-3 hold the map hash, output bytes 0-5 the PLC link header.",
+          "type": "object",
+          "properties": {
+            "poll_ms": { "description": "Poll period of OpenPLC's Modbus master (default 10).", "type": "integer", "minimum": 5, "maximum": 1000 },
+            "remote_device": { "description": "The editor's remote device file name, devices/remote/<name>.json (default canworks).", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+            "iec_base": { "description": "First %IW and %QW index of the remote device's points (default: the lowest free run from 100).", "type": "integer", "minimum": 0, "maximum": 65535 }
+          },
+          "additionalProperties": false
+        }
       },
-      "required": [ "listen", "writers" ]
+      "if": { "not": { "required": [ "openplc" ] } },
+      "then": { "required": [ "listen", "writers" ] }
     },
     "network": {
       "type": "object",
