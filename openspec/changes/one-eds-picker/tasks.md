@@ -10,7 +10,6 @@
 
 - [ ] 2.1 Import `<eds>.notes.json` next to an EDS taken from a folder (Browse…, library, commissioning folder) when the config has no notes for it; else keep and say Import notes…
 - [ ] 2.2 `.datasheet.notes.json` next to it: not imported, message points to Import notes…
-- [ ] 2.3 Dropping an EDS with its notes file imports both
 
 ## 3. Configure
 

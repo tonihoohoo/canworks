@@ -1392,8 +1392,9 @@ async function chooseFolder({ title, start, note, files, newName, eds }) {
     path.value = r.path;
     up.disabled = !r.parent && !r.drive;
     const nFiles = r.entries.filter((e) => e.file).length;
+    const kind = files ? files.split(",").join(" or ") : "";
     here.textContent = r.drive_list ? "Drives on this PC"
-      : files ? (!nFiles ? `No ${files} files in this folder` : nFiles === 1 ? `1 ${files} file in this folder` : `${nFiles} ${files} files in this folder`)
+      : files ? (!nFiles ? `No ${kind} files in this folder` : nFiles === 1 ? `1 ${kind} file in this folder` : `${nFiles} ${kind} files in this folder`)
       : !eds ? ""
       : !r.eds ? "No EDS files in this folder" : r.eds === 1 ? "1 EDS file in this folder" : r.eds + " EDS files in this folder";
     here.hidden = !here.textContent;
@@ -1402,7 +1403,7 @@ async function chooseFolder({ title, start, note, files, newName, eds }) {
       : el("button", { type: "button", class: "folder", title: e.path, "aria-pressed": "false", dataset: { folderPath: e.path },
         onclick: (ev) => select(ev.currentTarget), ondblclick: () => open(e.path) },
         "📁 " + e.name, kindTag(e), files ? null : edsTag(e.eds)))));
-    if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : files ? `No subfolders or ${files} files` : "No subfolders"));
+    if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : files ? `No subfolders or ${kind} files` : "No subfolders"));
     if (create) create.hidden = !!r.drive_list;
     if (inList || (up.disabled && document.activeElement === up)) (list.querySelector("button") || path).focus();
     return true;
@@ -2186,13 +2187,10 @@ function slaveFieldsets() {
   const lssBox = el("input", { type: "checkbox", dataset: { path: base + ".lss" } });
   lssBox.checked = lss;
   lssBox.addEventListener("change", () => { setPath(base + ".node_id", lssBox.checked ? null : SLAVE_ID); render(); });
-  const edsSel = el("select", { dataset: { path: base + ".eds" }, "aria-label": "Slave EDS file" },
-    el("option", { value: "" }, "(none yet)"),
-    Object.keys(S.state.eds || {}).map((name) => el("option", { value: name }, name)));
-  edsSel.value = s.eds || "";
-  edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value || ""); render(); });
-  const edsFile = el("input", { type: "file", accept: ".eds,.EDS" });
-  edsFile.addEventListener("change", () => { const f = edsFile.files[0]; edsFile.value = ""; if (f) useSlaveEdsFile(f); });
+  const edsBox = edsField({ name: s.eds || "", product: edsProduct(s.eds), none: "None yet: build one below, or choose an EDS file",
+    label: "the slave", buttonData: { path: base + ".eds" }, onChoose: chooseSlaveEds,
+    extra: [el("button", { type: "button", class: "small", dataset: { exportEds: "1" }, onclick: exportSlaveEds, disabled: !s.eds,
+      title: "The EDS the plugin runs, for import into the other master's configuration tool" }, "Export EDS")] });
   return [
     el("fieldset", null, el("legend", null, "Slave device"),
       el("div", { class: "grid" },
@@ -2201,12 +2199,9 @@ function slaveFieldsets() {
           : field("Node ID", base + ".node_id", "intstr", { hint: "Required, 1 to 127: the ID the other master expects." }),
         el("div", { class: "check-field" }, el("label", { class: "check" }, lssBox, " Node ID by LSS"),
           hint("On: no node ID in the config; an LSS master assigns it at start. Default: off.")),
-        el("label", null, "EDS", el("span", { class: "row" }, edsSel,
-          el("button", { type: "button", dataset: { exportEds: "1" }, onclick: exportSlaveEds,
-            title: "The EDS the plugin runs, for import into the other master's configuration tool" }, "Export EDS")),
-          hint("The slave's object dictionary. Build one below, or use an EDS file."),
+        el("div", { class: "field span2", role: "group", "aria-label": "EDS" }, el("span", null, "EDS"), edsBox,
+          hint("The slave's object dictionary. Build one below, or choose an EDS file."),
           el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
-        el("label", { class: "file-button" }, "Use an EDS file… ", edsFile),
         choice("Inputs when the master is lost", base + ".inputs_on_loss", [
           { value: undefined, literal: "hold", label: "Hold", help: "Default. Inputs keep their last value while the node is not operational or the master's heartbeat is lost." },
           { value: "zero", label: "Zero", help: "Inputs read 0 while the node is not operational or the master's heartbeat is lost." },
@@ -2393,28 +2388,22 @@ async function generateSlaveEds(withGateway) {
   changed(true);
 }
 
-async function useSlaveEdsFile(file) {
-  try {
-    const data = await fileBase64(file);
-    let res;
-    try {
-      res = await api("POST", "/api/eds", { name: file.name, data, eds_lint: (S.config.slave || {}).eds_lint });
-    } catch (e) {
-      if (!(e.status === 409 && e.body.conflict)) throw e;
-      const v = await modal(e.message + ". Replace it, or keep both under a new name?",
-        [["replace", "Replace"], ["keep_both", "Keep both", true], ["cancel", "Cancel"]]);
-      if (!v || v === "cancel") return;
-      res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: v, eds_lint: (S.config.slave || {}).eds_lint });
-    }
-    S.state.eds = S.state.eds || {};
-    S.state.eds[res.name] = res.summary;
-    S.config.slave.eds = res.name;
+// Choose EDS… on the slave page: the EDS dialog with the EDS files built for
+// a slave first, imported with the slave's EDS lint (one-eds-picker).
+async function chooseSlaveEds() {
+  const s = S.config.slave;
+  const lint = s.eds_lint;
+  const a = await chooseEds({ title: "Choose the slave's EDS", current: s.eds, builtHere: true, lint });
+  if (!a || !a.choice) return;
+  const res = await edsIntoDraft(a.choice, lint);
+  if (!res) return;
+  S.config.slave.eds = res.name;
+  if (res.lint) {  // imported now: kept with the draft, written on Save
     S.unsavedFiles = true;
     banner(importReport(res, { slave: true }), "info");
-    changed(true);
-  } catch (e) {
-    banner(e.message, true);
   }
+  changed(true);
+  edsNotesArrived(res);
 }
 
 // Export EDS: the exact file the plugin runs, named after its device name.
@@ -5147,8 +5136,9 @@ function showLssDevice(d) {
   if (!box) return;
   const m = d.eds_matches || [];
   const vendorName = m.length ? m[0].vendor_name : "";
-  const sel = m.length ? el("select", { "aria-label": "EDS file", dataset: { online: "lss-eds" } }, m.map((x, k) =>
-    el("option", { value: k }, `${x.name} (${x.where === "project" ? "project" : "library"}${x.revision_match ? ", exact revision" : ""})`)))
+  // The best match as text: after Set node ID the node's EDS is changed in the Nodes table (one-eds-picker).
+  const sel = m.length ? el("span", { title: m[0].path, dataset: { online: "lss-eds" } }, edsLabel(m[0].product_name, m[0].name),
+    el("span", { class: "muted" }, ` (${m[0].where === "project" ? "project" : "library"}${m[0].revision_match ? ", exact revision" : ""})`))
     : el("span", { class: "muted" }, "No matching EDS");
   box.replaceChildren(el("table", { class: "scan" },
     el("thead", null, el("tr", null, thCells(["Vendor", "Product", "Revision", "Serial number", "Node ID", "EDS", ""]))),
@@ -5158,7 +5148,7 @@ function showLssDevice(d) {
       el("td", null, d.node_id === undefined || d.node_id === 255 ? "none" : String(d.node_id)),
       el("td", null, sel),
       el("td", null,
-        el("button", { type: "button", dataset: { online: "lss-set-id" }, onclick: () => lssSetId(d, m.length ? m[Number(sel.value)] : null) }, "Set node ID…"),
+        el("button", { type: "button", dataset: { online: "lss-set-id" }, onclick: () => lssSetId(d, m.length ? m[0] : null) }, "Set node ID…"),
         el("button", { type: "button", dataset: { online: "lss-set-bitrate" }, onclick: () => lssSetBitrate(d) }, "Set bit rate…"))))));
 }
 
@@ -7152,6 +7142,16 @@ async function runScan(start, forced) {
 // A device of the Nodes page opened with an EDS: the matching one from the
 // library, or a picked or added file.
 function openScannedOd(d, match) {
+  setPageEds(d, match);
+  S.onlineNode = d.node_id;
+  S.onlineTab = "od";
+  if (S.view === "nodes") render();
+  else showView("nodes");
+}
+
+// The EDS a node uses on this page (a match, a library file or one picked
+// here), logged when it replaces another.
+function setPageEds(d, match) {
   const before = (S.onlineEdsName || {})[d.node_id] || null;
   if (before !== match.name || (S.onlineEds || {})[d.node_id] !== match.path) {
     dropOdState(d.node_id);
@@ -7162,21 +7162,6 @@ function openScannedOd(d, match) {
     serial_number: d.serial_number, eds_path: match.path, eds_name: match.name });
   S.onlineEds = Object.assign(S.onlineEds || {}, { [d.node_id]: match.path });
   S.onlineEdsName = Object.assign(S.onlineEdsName || {}, { [d.node_id]: match.name });
-  S.onlineNode = d.node_id;
-  S.onlineTab = "od";
-  if (S.view === "nodes") render();
-  else showView("nodes");
-}
-
-// Commissioning: a scanned device whose EDS is not in the library, opened
-// with an EDS file picked here (kept with the session's unsaved files).
-async function openPickedOd(d, file) {
-  let res;
-  try {
-    const data = await readBase64(file);
-    res = await api("POST", "/api/eds", { name: file.name, data, on_conflict: "keep_both", eds_lint: edsLint() });
-  } catch (e) { banner(e.message, true); return; }
-  openScannedOd(d, { path: res.name, name: res.name });
 }
 
 function readBase64(file) {
@@ -7223,6 +7208,7 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
       noLss ? el("span", { dataset: { lssNote: "" } }, "No LSS assignment: its EDS has no LSS (LSS_Supported=1 missing). ") : null,
       el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")), importReport(res)));
     changed(false);
+    edsNotesArrived(res);
     return true;
   }
   S.config.nodes = S.config.nodes || [];
@@ -7236,6 +7222,7 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
     lss ? el("button", { type: "button", class: "link", dataset: { online: "back-to-online" }, onclick: () => showView("online") }, "Back to Nodes") : null),
   importReport(res)));
   changed(true);
+  edsNotesArrived(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -7306,26 +7293,14 @@ function projectEdsChoices() {
 // `picked`: an EDS just imported (a file dropped on #eds-input).
 async function addNodeDialog(picked) {
   const err = msgBar({ addNode: "msg" }, "");
-  const list = el("select", { size: 8, "aria-label": "Device description", dataset: { addNode: "eds" } });
-  const library = {};  // option value -> library path
-  const fill = (libFiles) => {
-    const keep = list.value;
-    const mine = projectEdsChoices();
-    list.replaceChildren(
-      mine.length ? el("optgroup", { label: "In this project" }, mine.map((c) => el("option", { value: c.name },
-        (c.product ? `${c.product} (${c.name})` : c.name) + (c.uses ? `, used by ${c.uses} node${c.uses === 1 ? "" : "s"}` : "")))) : null,
-      libFiles && libFiles.length ? el("optgroup", { label: "EDS library" }, libFiles.map((f) => {
-        library["lib:" + f.path] = f;
-        return el("option", { value: "lib:" + f.path }, f.product_name ? `${f.product_name} (${f.name})` : f.name);
-      })) : null);
-    if (keep && [...list.options].some((o) => o.value === keep)) list.value = keep;
-    else if (list.options.length) list.selectedIndex = 0;
-  };
-  fill();
-  if (picked) list.value = picked;
-  const empty = el("p", { class: "muted", dataset: { addNode: "empty" } }, "No EDS file in this project yet: Browse… for the device's EDS file.");
-  const browse = el("button", { type: "button", dataset: { addNode: "browse" } }, "Browse…");
-  const file = el("input", { type: "file", accept: ".eds,.EDS", hidden: true, dataset: { addNode: "file" } });
+  let finish = () => {};
+  const eds = edsList({ current: picked, lint: edsLint(), dataset: { addNode: "eds" },
+    onBrowsed: () => { nameTyped = false; update(); eds.list.focus(); },
+    onFill: () => update(),
+    onEnter: () => finish() });
+  const list = eds.list;
+  eds.browse.dataset.addNode = "browse";
+  eds.empty.dataset.addNode = "empty";
   const id = el("input", { type: "text", inputmode: "numeric", class: "short", "aria-label": "Node ID", dataset: { addNode: "id" } });
   id.value = String(freeNodeId() ?? "");
   const idMsg = el("span", { class: "field-msg", dataset: { addNode: "id-msg" }, "aria-live": "polite" });
@@ -7334,15 +7309,9 @@ async function addNodeDialog(picked) {
   name.addEventListener("input", () => { nameTyped = true; });
   const mapBox = el("input", { type: "checkbox", checked: true, dataset: { addNode: "map" } });
   const locations = usedBy("nodes.tx_pdos.entries.iec_location");
-  const choice = () => list.value.startsWith("lib:") ? library[list.value] : null;
   const update = () => {
-    empty.hidden = list.options.length > 0;
-    const v = list.value;
-    if (!nameTyped) {
-      const lib = choice();
-      const e = v && !lib ? (S.state.eds || {})[v] : null;
-      name.value = nodeNameFor(lib ? lib.product_name || lib.name : (e && e.device && e.device.product_name) || v);
-    }
+    const c = eds.choice();
+    if (!nameTyped) name.value = nodeNameFor(c ? c.product || c.name : "");
     const p = nodeIdProblem(id.value);
     idMsg.textContent = p;
     id.setAttribute("aria-invalid", p ? "true" : "false");
@@ -7355,69 +7324,51 @@ async function addNodeDialog(picked) {
     el("h2", { id: "add-node-title" }, `Add a node to ${netName(S.config) || "the network"}`),
     err,
     el("div", { class: "grid" },
-      el("label", { class: "wide" }, "Device description", list, el("div", { class: "row" }, browse, file), empty),
+      el("label", { class: "wide" }, "Device description", list, el("div", { class: "row" }, eds.browse), eds.empty),
       el("label", null, "Node ID", id, idMsg),
       el("label", null, "Name", name, hint("The node's name in the config and the PLC variable names.")),
       el("div", { class: "check-field wide" }, el("label", { class: "check" }, mapBox, " Map the EDS's default PDOs"),
         hint(locations ? "Every PDO the device sends or receives by default, with its default mapping and a free PLC location for each entry."
           : "Every PDO the device sends or receives by default, with its default mapping and a variable name for each entry."))),
     el("menu", null, cancel, add));
-  file.addEventListener("change", async () => {
-    const f = file.files[0];
-    file.value = "";
-    if (!f) return;
-    const res = await busy(browse, "Adding…", () => importEdsFile(f));
-    if (!res) return;
-    S.state.eds = S.state.eds || {};
-    S.state.eds[res.name] = res.summary;
-    S.addedReport = res;
-    fill(lastLib);
-    list.value = res.name;
-    nameTyped = false;
-    update();
-    list.focus();
-  });
-  browse.onclick = () => file.click();
-  let lastLib = null;
-  if (S.online && S.online.eds_library) {
-    api("POST", "/api/online/eds_library", {}).then((r) => { lastLib = r.files; fill(lastLib); update(); }).catch(() => {});
-  }
   update();
   const opener = document.activeElement;
   document.body.append(dlg);
   const answer = await new Promise((resolve) => {
-    add.onclick = () => {
-      if (!list.value) { err.say("Pick the device's EDS file, or Browse… for it."); list.focus(); return; }
+    finish = () => {
+      const c = eds.choice();
+      if (!c) { err.say("Pick the device's EDS file, or Browse… for it."); list.focus(); return; }
       const p = nodeIdProblem(id.value);
       if (p) { err.say(p); id.focus(); return; }
       if (!name.value.trim()) { err.say("Give the node a name."); name.focus(); return; }
       if ((S.config.nodes || []).some((n) => n.name === name.value.trim())) { err.say(`${name.value.trim()} is the name of another node of this network.`); name.focus(); return; }
-      resolve({ eds: list.value, lib: choice(), id: Number(id.value.trim()), name: name.value.trim(), map: mapBox.checked });
+      resolve({ choice: c, id: Number(id.value.trim()), name: name.value.trim(), map: mapBox.checked });
     };
+    add.onclick = finish;
     for (const x of [id, name]) x.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add.click(); } });
     cancel.onclick = () => resolve(null);
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); resolve(null); });
     dlg.showModal();
-    (list.options.length ? list : browse).focus();
+    (list.options.length ? list : eds.browse).focus();
   });
-  const finish = () => { dlg.close(); dlg.remove(); };
-  if (!answer) { finish(); S.addedReport = null; if (opener && opener.isConnected) opener.focus(); return; }
+  const done = () => { dlg.close(); dlg.remove(); };
+  if (!answer) { done(); S.addedReport = null; if (opener && opener.isConnected) opener.focus(); return; }
   // The dialog stays, its Add busy, until the node and its PDOs are in.
   add.disabled = cancel.disabled = true;
   add.textContent = "Adding…";
-  let res = null;
   try {
-    if (answer.lib) {
-      res = await api("POST", "/api/online/use_eds", { path: answer.lib.path, eds_lint: edsLint() });
-      S.state.eds = S.state.eds || {};
-      S.state.eds[res.name] = res.summary;
-    }
-    await addNode(res ? res.name : answer.eds, answer.id, answer.name, answer.map, res || S.addedReport, finish);
+    const c = answer.choice;
+    // A file dropped on #eds-input before the dialog: its import report.
+    if (!c.res && S.addedReport && S.addedReport.name === c.name) c.res = S.addedReport;
+    const res = await edsIntoDraft(c, edsLint());
+    if (!res) return;
+    await addNode(res.name, answer.id, answer.name, answer.map, res, done);
+    edsNotesArrived(res);
   } catch (e) {
     banner(e.message, true);
   } finally {
     S.addedReport = null;
-    if (dlg.isConnected) finish();
+    if (dlg.isConnected) done();
   }
 }
 

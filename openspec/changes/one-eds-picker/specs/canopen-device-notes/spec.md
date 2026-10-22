@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Notes come with a picked EDS
-When the configurator takes an EDS from a folder (Browse… in the EDS dialog, the EDS library, the commissioning folder), it SHALL import `<eds file name>.notes.json` next to it with the EDS when the config has no notes for that EDS. When the config already has notes for it, they SHALL be kept and a message SHALL say the other notes file can be brought in with Import notes…. Dropping an EDS together with its notes file SHALL import both.
+When the configurator takes an EDS from a folder (Browse… in the EDS dialog, the EDS library, the commissioning folder), it SHALL import `<eds file name>.notes.json` next to it with the EDS when the config has no notes for that EDS. When the config already has notes for it, they SHALL be kept and a message SHALL say the other notes file can be brought in with Import notes….
 
 #### Scenario: Library EDS with notes
 - **WHEN** the EDS library has `valve.eds` and `valve.eds.notes.json`, and the user adds a node with `valve.eds` from the library to a config without notes for it

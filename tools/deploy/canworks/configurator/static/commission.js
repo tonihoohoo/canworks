@@ -452,8 +452,6 @@ function edsLibraryRow() {
 function renderCommNodes(view) {
   view.append(el("h2", { dataset: { onlinePart: "net" } }, "Nodes"));
   const lib = edsLibraryRow();
-  const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
-  file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
   const progress = el("span", { class: "muted", dataset: { online: "scan-progress" }, "aria-live": "polite" });
   const scan = el("button", { type: "button", class: "primary", hidden: !S.adapterOn, dataset: { online: "scan" }, onclick: () => startScan() }, "Scan the bus");
   const cancel = el("button", { type: "button", hidden: true, dataset: { online: "scan-cancel" }, onclick: stopScan }, "Cancel");
@@ -463,7 +461,7 @@ function renderCommNodes(view) {
     el("div", { id: "online-conn", hidden: true }),
     el("div", { dataset: { onlinePart: "net" } },
       el("div", { class: "toolbar" }, scan, cancel, progress,
-        el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
+        el("button", { type: "button", dataset: { online: "add-eds" }, onclick: (e) => busy(e.currentTarget, "Adding…", addCommNode) }, "Add node from EDS…")),
       lib,
       el("div", { id: "online-live" }, commNodeTable(null)),
       el("div", { id: "online-lss" })),
@@ -507,10 +505,8 @@ function commNodeTable(st) {
       !n || n.state === null ? "not heard" : stateName(n.state)),
     el("td", null, n && n.state !== null ? lastHeardText(n) : "-"), el("td", null, em),
     el("td", null, found),
-    el("td", null, eds ? el("div", { class: "eds-cell" }, el("span", { dataset: { nodeEds: id } }, eds), " ",
-      el("button", { type: "button", class: "small", dataset: { changeEds: id }, "aria-label": `Change the EDS of node ${id}`,
-        onclick: () => changeEds(id) }, "Change EDS…"))
-      : edsPick(Object.assign({ node_id: id }, identityOf(id) || {}))));
+    el("td", null, el("div", { class: "eds-cell" }, edsField({ name: eds, none: "none", label: `node ${id}`,
+      dataset: { nodeEds: id }, buttonData: eds ? { changeEds: id } : { edsPick: id }, onChoose: () => chooseCommEds(id) }))));
   });
   return el("table", { class: "online-nodes", dataset: { online: "comm-nodes" } },
     el("thead", null, el("tr", null, thCells(["Node", "Device", "State", "Heard", "Last EMCY", "Found by", "EDS"]))),
@@ -518,38 +514,19 @@ function commNodeTable(st) {
       "No device yet. Devices with a heartbeat show up here; scan the bus for the others, or add one from its EDS."))]));
 }
 
-// A device without an EDS: the library's matches from the scan, or an EDS file.
-function edsPick(d) {
-  const m = d.eds_matches || [];
-  if (m.length) {
-    const pick = el("select", { "aria-label": "EDS file", dataset: { online: "eds-match" } }, m.map((x, k) => el("option", { value: k }, x.name)));
-    return el("div", null, pick, el("button", { type: "button", class: "small", dataset: { online: "use-eds" },
-      onclick: () => openScannedOd(d, m[Number(pick.value)]) }, "Use"));
-  }
-  const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "pick-eds" } });
-  input.addEventListener("change", () => { const f = input.files[0]; if (f) openPickedOd(d, f); });
-  return el("label", { class: "file-button small" }, "Pick EDS file…", input);
-}
-
-// "Add node from EDS…": a node ID and the device's EDS, for this page only.
-async function addCommNode(file) {
-  const idInput = el("input", { type: "number", min: 1, max: 127, class: "short", dataset: { online: "add-node-id" } });
-  const msg = el("p", { class: "field-msg" });
-  let id;
-  for (;;) {
-    const v = await modal(`Add a node with ${file.name}. It is on this page only, to read and write the device; "Add to a config…" on its page puts it in a config.`,
-      [["add", "Add node", true], ["cancel", "Cancel"]], el("div", null, el("label", { class: "inline" }, "Node ID ", idInput), msg));
-    if (v !== "add") return;
-    id = Number(idInput.value);
-    if (/^\s*\d+\s*$/.test(idInput.value) && id >= 1 && id <= 127) break;
-    msg.textContent = "The node ID must be 1-127.";
-  }
-  let res;
-  try {
-    res = await api("POST", "/api/eds", { name: file.name, data: await readBase64(file), on_conflict: "keep_both", eds_lint: edsLint() });
-  } catch (e) { banner(e.message, true); return; }
-  commNodes()[id] = Object.assign(commNodes()[id] || {}, { eds_path: res.name, eds_name: res.name });
-  openScannedOd({ node_id: id }, { path: res.name, name: res.name });
+// "Add node from EDS…": the EDS dialog with a node ID, for this page only.
+async function addCommNode() {
+  const idInput = el("input", { type: "text", inputmode: "numeric", class: "short", dataset: { online: "add-node-id" } });
+  const fields = el("label", null, "Node ID", idInput,
+    hint('On this page only, to read and write the device; "Add to a config…" on its page puts it in a config.'));
+  const a = await chooseEds({ title: "Add a node from its EDS", lint: edsLint(), main: "Add node", fields,
+    check: () => (/^\s*\d+\s*$/.test(idInput.value) && Number(idInput.value) >= 1 && Number(idInput.value) <= 127 ? "" : "The node ID must be 1-127.") });
+  if (!a || !a.choice) return;
+  const id = Number(idInput.value);
+  const m = edsForPage(a.choice);
+  commNodes()[id] = Object.assign(commNodes()[id] || {}, { eds_path: m.path, eds_name: m.name });
+  openScannedOd({ node_id: id }, m);
+  edsNotesArrived(a.choice.res);
 }
 
 async function stopScan() {
@@ -572,7 +549,10 @@ function commDeviceOf(id) {
 // "Add to a config…" on a node's page: opens a project or standalone config
 // folder with the device added as an unsaved node, after asking to save the log.
 async function addToConfig(id) {
+  // A node without an EDS on this page gets one first, in its EDS dialog.
+  if (!commDeviceOf(id).eds_path && !(await chooseCommEds(id, (m, dev) => { setPageEds(dev, m); edsChanged(id); }))) return;
   const d = commDeviceOf(id);
+  if (!d.eds_path) return;
   const path = el("input", { type: "text", class: "wide", spellcheck: "false", id: "add-folder-path", dataset: { online: "add-folder" } });
   // Browse…: the folder dialog over this one; an editor project sets the kind.
   const browseBtn = el("button", { type: "button", dataset: { online: "add-folder-browse" }, onclick: async () => {
@@ -588,21 +568,18 @@ async function addToConfig(id) {
   } }, "Browse…");
   const mode = el("select", { "aria-label": "Folder kind", dataset: { online: "add-mode" } },
     el("option", { value: "standalone" }, "standalone config folder"), el("option", { value: "project" }, "editor project"));
-  const file = d.eds_path ? null : el("input", { type: "file", accept: ".eds,.EDS", "aria-label": "EDS file", dataset: { online: "add-eds" } });
   const v = await modal(`Add node ${d.node_id} to a config. The folder opens with the device added as an unsaved node` +
     (d.lss ? " with its serial number and LSS assignment ticked." : "."),
   [["add", "Open and add", true], ["cancel", "Cancel"]],
   el("div", null, el("label", { for: "add-folder-path" }, "Folder"),
     el("div", { class: "folder-field" }, path, browseBtn), el("label", { class: "inline" }, " ", mode),
-    file ? el("div", null, el("label", null, "The device's EDS file ", file)) : el("p", { class: "muted" }, `EDS: ${d.eds_name || d.eds_path}`)));
+    el("p", { class: "muted" }, `EDS: ${d.eds_name || d.eds_path}`)));
   if (v !== "add") return;
   const folder = path.value.trim();
   if (!folder) { banner("Type the config folder.", true); return; }
-  const f = file ? file.files[0] : null;
-  if (file && !f) { banner("Pick the device's EDS file.", true); return; }
   // Checked before the folder opens, so this page and its log stay; the
   // node's EDS too, which the open carries into the config.
-  const carry = d.eds_path ? { carry_eds: d.eds_path } : {};
+  const carry = { carry_eds: d.eds_path };
   try {
     if ((await api("POST", "/api/folder_nodes", Object.assign({ path: folder }, carry))).nodes.includes(d.node_id)) {
       banner(`The config in ${folder} already has node ${d.node_id}: give the device another node ID (Set node ID), or pick another config.`, true);
@@ -626,7 +603,7 @@ async function addToConfig(id) {
   const before = (S.config.nodes || []).length;
   const carried = opened && opened.carried_eds;
   if (carried && carried.error) { banner(`Node ${d.node_id} was not added: ${carried.error}`, true); return; }
-  await addScannedNode(d, null, f, false, !!d.lss, false, carried);
+  await addScannedNode(d, null, null, false, !!d.lss, false, carried);
   const node = (S.config.nodes || [])[before];
   if (node && d.serial_number !== undefined && d.serial_number !== null && node.serial_number === undefined) {
     node.serial_number = d.serial_number;

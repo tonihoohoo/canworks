@@ -14,7 +14,7 @@ from unittest import mock
 
 from canworks.configurator import online
 
-from .helpers import PINGPONG, header_action, tool_tab
+from .helpers import PINGPONG, browse_eds, header_action, tool_tab
 from .test_commissioning import FIXED_IO, IDENTITY, RTD, fixed_io_od, rtd_od
 from .test_configurator_layout import audit
 from .test_configurator_localbus_page import AdapterPage as _Page
@@ -47,9 +47,11 @@ class Page(_Page):
         self.commission()
         self.connect_adapter(allow=allow)
         pg.click('button[data-view="nodes"]')
-        pg.set_input_files('input[data-online="add-eds-file"]', os.path.join(self.project, "canworks", eds))
+        pg.click('button[data-online="add-eds"]')
+        browse_eds(pg, os.path.join(self.project, "canworks", eds))
         pg.fill('input[data-online="add-node-id"]', str(node))
-        pg.click('#modal button[data-value="add"]')
+        pg.click('[data-eds="use"]')
+        pg.wait_for_selector('[data-eds="dialog"]', state="detached")
         # The added node's page opens (commission-master-detail).
         pg.wait_for_selector('[data-online="node-header"]')
         pg.click('button[data-online-tab="%s"]' % tab)
@@ -261,8 +263,11 @@ class LogPage(Page):
         pg.click('button[data-view="nodes"]')
         pg.click('button[data-open-node="12"]')
         pg.click('button[data-online="add-to-config"]')
+        # Node 12 has no EDS on this page: its EDS dialog comes first (one-eds-picker).
+        pg.wait_for_selector('[data-eds="dialog"][open]')
+        browse_eds(pg, FIXED_IO)
+        pg.wait_for_selector('[data-eds="dialog"]', state="detached")
         pg.fill('input[data-online="add-folder"]', taken)
-        pg.set_input_files('input[data-online="add-eds"]', FIXED_IO)
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#banner:has-text('already has node 12')")
         self.assertTrue(pg.evaluate("() => S.state.commission"))
@@ -283,7 +288,6 @@ class LogPage(Page):
         self.assertTrue(pg.is_visible("#modal[open]"))
         self.assertEqual(pg.input_value('input[data-online="add-folder"]'), folder)
         pg.wait_for_function("() => document.querySelector('select[data-online=add-mode]').value === 'standalone'")
-        pg.set_input_files('input[data-online="add-eds"]', FIXED_IO)
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#modal[open]:has-text('not saved')")
         pg.click('#modal button[data-value="discard"]')

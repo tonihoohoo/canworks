@@ -301,6 +301,52 @@ class OpenAndModes(Running):
         self.assertEqual([e["name"] for e in self.ok("GET", "/api/folders?path=" + urllib.parse.quote(lib))["entries"]],
                          ["old"])
 
+    def test_folders_with_several_file_kinds(self):
+        lib = os.path.join(self.dir, "lib")
+        os.makedirs(lib)
+        for name in ("a.eds", "b.DCF", "c.txt"):
+            open(os.path.join(lib, name), "w").close()
+        data = self.ok("GET", "/api/folders?files=.eds,.dcf&path=" + urllib.parse.quote(lib))
+        self.assertEqual([e["name"] for e in data["entries"]], ["a.eds", "b.DCF"])
+
+    def notes_folder(self, datasheet=False):
+        """A folder with an EDS, its notes file and maybe a datasheet notes file (one-eds-picker)."""
+        lib = os.path.join(self.dir, "picked")
+        os.makedirs(lib)
+        shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"), lib)
+        doc = {"format": "canworks-notes.v1", "eds": {"file": "fixed-io.eds"},
+               "objects": {"0x1017": {"text": "alive"}, "0x1018": {"name": "identity"}}}
+        with open(os.path.join(lib, "fixed-io.eds.notes.json"), "w") as f:
+            json.dump(doc, f)
+        if datasheet:
+            with open(os.path.join(lib, "fixed-io.eds.datasheet.notes.json"), "w") as f:
+                json.dump(doc, f)
+        return os.path.join(lib, "fixed-io.eds")
+
+    def test_eds_from_a_folder_brings_its_notes(self):
+        path = self.notes_folder(datasheet=True)
+        self.open_project()
+        r = self.ok("POST", "/api/eds_path", {"path": path})
+        self.assertEqual(r["name"], "fixed-io.eds")
+        # Only the filled entries, for the page to add as unsaved edits; the datasheet file only named.
+        self.assertEqual(r["notes"], {"file": "fixed-io.eds.notes.json", "objects": {"0x1017": {"text": "alive"}}})
+        self.assertEqual(r["datasheet_notes"], "fixed-io.eds.datasheet.notes.json")
+        self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "fixed-io.eds.notes.json")))
+        # Not an EDS or DCF file: refused.
+        status, data, _ = self.request("POST", "/api/eds_path", {"path": path + ".notes.json"})
+        self.assertEqual(status, 400, data)
+
+    def test_eds_from_a_folder_in_commission_copies_its_notes(self):
+        path = self.notes_folder()
+        st = self.ok("POST", "/api/commission", {})
+        r = self.ok("POST", "/api/eds_path", {"path": path})
+        self.assertEqual(r["notes_copied"], {"file": "fixed-io.eds.notes.json", "count": 1})
+        copied = os.path.join(st["canopen_dir"], "fixed-io.eds.notes.json")
+        self.assertEqual(json.load(open(copied))["objects"]["0x1017"], {"text": "alive"})
+        # A second pick keeps the notes already there.
+        r = self.ok("POST", "/api/eds_path", {"path": path})
+        self.assertEqual(r["notes_kept"], {"file": "fixed-io.eds.notes.json", "count": 1})
+
     def test_missing_home(self):
         # A HOME that does not exist: the start page starts in the current folder.
         # Windows reads USERPROFILE for ~.

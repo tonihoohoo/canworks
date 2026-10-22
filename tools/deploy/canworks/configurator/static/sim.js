@@ -1379,24 +1379,25 @@ function simWatchdogField(ref, cur) {
 
 function simExtraDevices() {
   const list = SIM.doc.extra_devices || [];
-  const edsSel = el("select", { "aria-label": "EDS file", dataset: { sim: "extra-eds" } },
-    el("option", { value: "" }, "EDS file…"), (S.state.sim_eds || []).map((n) => el("option", { value: n }, n)));
-  const file = el("input", { type: "file", accept: ".eds,.EDS,.dcf,.DCF", dataset: { sim: "extra-file" } });
-  file.addEventListener("change", async () => {
-    const f = file.files[0];
-    file.value = "";
-    if (!f) return;
-    try {
-      const data = await fileBase64(f);
-      const res = await api("POST", "/api/eds", { name: f.name, data, on_conflict: "keep_both", eds_lint: edsLint() });
-      S.state.eds = S.state.eds || {};
-      S.state.eds[res.name] = res.summary;
-      S.state.sim_eds = (S.state.sim_eds || []).concat([res.name]);
-      edsSel.append(el("option", { value: res.name }, res.name));
-      edsSel.value = res.name;
-      banner(`${res.name} is ready for the extra device; it is written to the config folder with the simulation file.`);
-    } catch (e) { banner(e.message, true); }
-  });
+  // The new device's EDS (or DCF): an EDS field whose dialog lists the
+  // folder's EDS and DCF files (one-eds-picker).
+  let chosen = SIM.extraEds || "";
+  const box = el("span");
+  const draw = () => box.replaceChildren(edsField({ name: chosen, product: edsProduct(chosen), none: "None yet", label: "the extra device",
+    dataset: { sim: "extra-eds" }, buttonData: { sim: "extra-choose" }, onChoose: async () => {
+      const a = await chooseEds({ title: "EDS of the extra device", current: chosen, files: (S.state.sim_eds || []).slice(), dcf: true, lint: edsLint() });
+      if (!a || !a.choice) return;
+      const res = await edsIntoDraft(a.choice, edsLint());
+      if (!res) return;
+      if (!(S.state.sim_eds || []).includes(res.name)) {
+        S.state.sim_eds = (S.state.sim_eds || []).concat([res.name]);
+        banner(`${res.name} is ready for the extra device; it is written to the config folder with the simulation file.`);
+      }
+      chosen = SIM.extraEds = res.name;
+      draw();
+      box.querySelector("button").focus();
+    } }));
+  draw();
   const [nl, node] = simInput("Node ID", "", "extra-node", { placeholder: "0: none (waits for LSS)" });
   const [ml, name] = simInput("Name", "", "extra-name", { placeholder: "needed without node ID" });
   const msg = el("span", { class: "field-msg" });
@@ -1405,13 +1406,14 @@ function simExtraDevices() {
     let id;
     try { id = simInt(node.value, "node ID", true, 0, 127) || 0; } catch (e) { msg.textContent = e.message; return; }
     const nm = name.value.trim();
-    if (!edsSel.value) { msg.textContent = "Pick the EDS file."; return; }
+    if (!chosen) { msg.textContent = "Choose the EDS file."; return; }
     if (!id && !nm) { msg.textContent = "A device without node ID needs a name."; return; }
     if (nm && !/^[A-Za-z][A-Za-z0-9_-]{0,31}$/.test(nm)) { msg.textContent = "The name starts with a letter and has letters, digits, _ and - only (up to 32)."; return; }
     if (id && ((S.config.nodes || []).some((n) => num(n.node_id) === id) || list.some((d) => d.node === id))) { msg.textContent = `Node ID ${id} is already used.`; return; }
     const d = { node: id };
     if (nm) d.name = nm;
-    d.eds = edsSel.value;
+    d.eds = chosen;
+    SIM.extraEds = "";
     SIM.doc.extra_devices = list.concat([d]);
     simChanged();
     banner(`Extra device ${id || nm} added. Save to simulation file; it takes effect at the next start of the simulation.`);
@@ -1428,7 +1430,7 @@ function simExtraDevices() {
           simChanged();
           simRenderTab();
         } }, "Remove")))))) : el("p", { class: "muted" }, "None."),
-    el("div", { class: "grid" }, el("label", null, "EDS", edsSel, el("span", { class: "file-button small-file" }, "Pick EDS file… ", file)), nl, ml),
+    el("div", { class: "grid" }, el("div", { class: "field", role: "group", "aria-label": "EDS" }, el("span", null, "EDS"), box), nl, ml),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { sim: "add-extra" }, onclick: add }, "Add extra device"), msg));
 }
 

@@ -13,7 +13,7 @@ import unittest
 from canworks.configurator import server as srv
 
 from .fake_diag import FakePlugin
-from .helpers import REPO, add_network, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, header_action
+from .helpers import REPO, add_network, browse_eds, net_action, node_tab, tmpdir, tree_entry, tree_net, tree_node, tree_view, header_action
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import REQUIRED, sync_playwright
@@ -253,7 +253,7 @@ class Tree(unittest.TestCase):
         # Add node… under the second network opens the Add node dialog and adds it there.
         tree_entry(pg, "1:add")
         pg.wait_for_selector('[data-add-node="dialog"][open]')
-        pg.set_input_files('[data-add-node="file"]', DIO)
+        browse_eds(pg, DIO)
         pg.wait_for_function("() => document.querySelector('[data-add-node=eds]').value")
         pg.uncheck('[data-add-node="map"]')
         pg.click('[data-add-node="add"]')

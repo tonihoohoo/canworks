@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: One EDS dialog
-Every place that picks an EDS SHALL use one dialog. Its list SHALL group the files as **Matches this device**, **Built here**, **In this project** and **EDS library**, in that order, each shown only when it has files, and show each file's product name and file name. **Browse…** SHALL open the page's file browser on EDS files, then import the picked file and select it. The current EDS, else the best match, SHALL be selected when the dialog opens.
+Every place that picks an EDS SHALL use one dialog. Its list SHALL group the files as **Matches this device**, **Built here**, **In this project** and **EDS library**, in that order, each shown only when it has files, and show each file's product name and file name. **Browse…** SHALL open the page's file browser on EDS files and import the picked file; a dialog without other fields SHALL use it at once, others SHALL select it.
 
 #### Scenario: Same list in Configure and Commission
 - **WHEN** the config has `dio16.eds` used by node 6, an EDS library is set, and the user opens Add node… in Configure and Choose EDS… for an unconfigured node in Commission
@@ -18,6 +18,13 @@ Every place that picks an EDS SHALL use one dialog. Its list SHALL group the fil
 #### Scenario: Library file imported on use
 - **WHEN** the user selects an EDS library file and presses the dialog's main button
 - **THEN** the file is imported with the place's EDS lint and used, and Cancel before that imports nothing
+
+### Requirement: Selection in the EDS dialog
+The current EDS, else the best match, SHALL be selected when the EDS dialog opens.
+
+#### Scenario: Current EDS selected
+- **WHEN** the user opens Change EDS… on a node that uses `dio16.eds`
+- **THEN** `dio16.eds` is selected in the list
 
 ### Requirement: Keyboard in the EDS dialog
 Enter or a double-click on an entry of the EDS dialog's list SHALL press the dialog's main button. The dialog SHALL open with focus in the list, or on **Browse…** when the list is empty, and focus SHALL return to the control that opened it when it closes.
@@ -46,7 +53,7 @@ Where a page shows the EDS chosen for a node, slave or device, it SHALL show the
 - **THEN** the dialog's Browse… accepts EDS and DCF files and In this project lists the folder's EDS and DCF files
 
 ### Requirement: EDS chosen in one place per node
-In Commission a device, a node's EDS SHALL be chosen only through its EDS field (Nodes table and node header). The Parameters tab, the Trace Decoding panel and the frame inspector SHALL open that field's dialog for the node. **Add to config** and **Add to a config…** SHALL use the node's EDS on the page and open its dialog first only when it has none.
+In Commission a device, a node's EDS SHALL be chosen only through its EDS field in the Nodes table and its EDS dialog. The Parameters tab, the Trace Decoding panel and the frame inspector SHALL open that field's dialog for the node. **Add to config** and **Add to a config…** SHALL use the node's EDS on the page and open its dialog first only when it has none.
 
 #### Scenario: Trace uses the node's EDS
 - **WHEN** the user presses Choose EDS… for node 50 in the Trace Decoding panel and picks a file

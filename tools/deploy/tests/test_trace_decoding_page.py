@@ -10,7 +10,7 @@ import time
 
 from canworks.bustrace.model import Frame
 
-from .helpers import tool_tab
+from .helpers import browse_eds, tool_tab
 from .fake_canopen import Peer
 from .test_bustrace import T0, written
 from .test_configurator_layout import FIT_CHECK, pick_theme
@@ -87,7 +87,8 @@ class CommissionTrace(AdapterPage):
         pg.click("#trace-rows .trace-row")
         pg.wait_for_selector("[data-fx=layout]")
         self.assertIn("node 5", pg.inner_text("[data-fx=layout]"))
-        pg.set_input_files('[data-fx=layout] input[data-trace="pick-eds"]', SERVO)
+        pg.click('[data-fx=layout] button[data-trace="pick-eds"]')
+        browse_eds(pg, SERVO)
         pg.wait_for_selector('#trace-rows .trace-row [data-trace="assumed"]')
         self.assertIn("=567", pg.inner_text("#trace-rows .trace-row"))
         pg.click("#trace-rows .trace-row")

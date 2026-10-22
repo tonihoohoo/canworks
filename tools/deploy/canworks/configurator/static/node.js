@@ -46,16 +46,14 @@ function renderNode(view, i) {
   const panel = el("div", { id: "node-panel", role: "tabpanel", "aria-labelledby": "node-panel-tab-" + tab, dataset: { nodeTabPanel: tab } });
   view.append(panel);
   if (tab === "general") {
-    const edsSel = el("select", { dataset: { path: base + ".eds" }, "aria-label": "EDS file" },
-      Object.keys(S.state.eds || {}).map((name) => el("option", { value: name }, name)));
-    edsSel.value = n.eds || "";
-    edsSel.addEventListener("change", () => { setPath(base + ".eds", edsSel.value); render(); });
+    const edsBox = edsField({ name: n.eds || "", product: edsProduct(n.eds), label: `node ${n.node_id ?? ""} ${n.name || ""}`.trim(),
+      buttonData: { path: base + ".eds" }, onChoose: () => chooseNodeEds(i) });
     if (eds && eds.error) panel.append(notice("error", eds.error, { live: false, dataset: { nodeMsg: "eds-error" } }));
     panel.append(el("fieldset", null, el("legend", null, "Node"),
       el("div", { class: "grid" },
         field("Node ID", base + ".node_id", "intstr"),
         field("Name", base + ".name", "text"),
-        el("label", null, "EDS", edsSel, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
+        el("div", { class: "field", role: "group", "aria-label": "EDS" }, el("span", null, "EDS"), edsBox, el("span", { class: "field-msg", dataset: { for: base + ".eds" } })),
         simSwitch(i))));
   } else if (tab === "pdos") {
     if (eds && eds.error) panel.append(notice("error", eds.error, { live: false, dataset: { nodeMsg: "eds-error" } }));
@@ -507,4 +505,17 @@ async function liveNotesUndo() {
   banner(`Undone: ${u.what}. ${u.file} is as it was.`);
   render();
   return true;
+}
+
+// Change EDS… on a node's General tab: the EDS dialog, then the node uses
+// the picked file (one-eds-picker).
+async function chooseNodeEds(i) {
+  const n = S.config.nodes[i];
+  const a = await chooseEds({ title: `EDS of node ${n.node_id ?? ""} ${n.name || ""}`.trim(), current: n.eds, lint: edsLint() });
+  if (!a || !a.choice) return;
+  const res = await edsIntoDraft(a.choice, edsLint());
+  if (!res) return;
+  setPath(`nodes[${i}].eds`, res.name);
+  render();
+  edsNotesArrived(res);
 }

@@ -7,7 +7,7 @@ test_configurator_page.py."""
 import os
 import shutil
 
-from .helpers import REPO, add_node, tree_node
+from .helpers import REPO, add_node, browse_eds, tree_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -80,7 +80,7 @@ class AddNode(OnlineBase):
         pg = self.page
         self.open()
         self.open_dialog()
-        pg.set_input_files('[data-add-node="file"]', os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"))
+        browse_eds(pg, os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"))
         pg.wait_for_function("() => document.querySelector('[data-add-node=\"eds\"]').value === 'fixed-io.eds'")
         first = pg.input_value('[data-add-node="name"]')
         pg.click('[data-add-node="add"]')
