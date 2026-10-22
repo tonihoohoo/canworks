@@ -6,7 +6,7 @@ import subprocess
 import sys
 import unittest
 
-HEAVY = ("jsonschema", "can", "cantools", "j1939", "zeroconf", "iroh")
+HEAVY = ("jsonschema", "can", "cantools", "j1939", "ifaddr", "iroh")
 ENTRY = ("canworks.configurator.server", "canworks.cli", "canworks.diag")
 
 

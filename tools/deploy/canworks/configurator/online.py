@@ -158,7 +158,7 @@ def runtimes_list(wait=2.0):
     (runtimes that answer on the local network within `wait` seconds; the
     address to connect to, with the diagnostics port when it is not the
     default), remembered: [{name, hosts, paired, internet, link}],
-    discovery: whether this PC can browse (zeroconf), link: whether the
+    discovery: whether this PC can browse, link: whether the
     remote link works here (iroh)}."""
     from .. import link
     from ..link import discovery, pc as linkpc

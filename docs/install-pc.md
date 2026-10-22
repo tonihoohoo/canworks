@@ -69,6 +69,10 @@ Linux works with x86_64 and ARM64 (glibc distributions; uv's Python and the comp
 
 The first install needs internet access to github.com (Python) and pypi.org (the Python packages the tools use: `jsonschema`, `python-can`, `pyserial`, `cantools`, `can-j1939`). Behind a company proxy that inspects TLS, add `--native-tls` (or set `UV_NATIVE_TLS=1`) so uv trusts the certificates installed in the operating system.
 
+### Windows asks to allow Python
+
+Windows Defender Firewall may show "Windows Defender Firewall has blocked some features of Python" the first time the configurator or `canworks-diag` pairs with a runtime for the [remote link](remote-access.md), and again after the tools move to a new Python version (the question is per program, and uv keeps each Python version in a folder of its own). Pressing **Cancel** is fine: online access, deploy, the Devices workspace and the remote link keep working, because the PC always starts the connection. Finding runtimes on the local network never asks: it listens on no port ([remote-access.md](remote-access.md#same-network)).
+
 ## Update and uninstall
 
 The one-line installer above updates when run again (and uninstalls with `--uninstall`). By hand:
