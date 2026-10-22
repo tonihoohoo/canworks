@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Installs the remote link and the runtime's local-network advertisement on a
 # device (docs/remote-access.md). install-stock.sh and install-bridge.sh call it
-# (--with-link, and the advertisement unless --without-discovery); it can also
-# run on its own.
+# (--with-link, and the advertisement unless --without-discovery); it also runs
+# on its own, and the configurator's Devices page runs it to turn the link and
+# discovery on and off.
 #
 #   sudo scripts/install-link.sh --config FILE [--runtime-port 8443|none]
 #                                [--diag-port 7531] [--prefix /opt/canworks-link]
-#                                [--without-link]
-#   sudo scripts/install-link.sh --uninstall [--purge] [--prefix /opt/canworks-link]
+#                                [--without-discovery] [--version X] [--dry-run]
+#   sudo scripts/install-link.sh --discovery-only --config FILE [--runtime-port ...]
+#   sudo scripts/install-link.sh --remove-discovery
+#   sudo scripts/install-link.sh --uninstall [--keep-discovery] [--purge] [--prefix ...]
 #
 # --config is the deployed canworks.json the device runs (a stock runtime:
 # /opt/canworks/lib/canworks.json; a bridge: /etc/canworks-bridge/NAME/canworks.json).
@@ -18,12 +21,19 @@
 # package (no dependencies) and the iroh package, /usr/local/bin/canworks-link,
 # the unit canworks-link.service (enabled and started), /etc/canworks-link/
 # with the device's key and no paired PCs, and the Avahi service file
-# /etc/avahi/services/canworks.service (_canworks._tcp with the link ID).
-# --without-link installs only the advertisement. Internet access stays off
-# until a config with diagnostics.remote_link.internet true is uploaded.
+# /etc/avahi/services/canworks.service (_canworks._tcp with the link ID;
+# --without-discovery leaves it out and removes an old one). Internet access
+# stays off until a config with diagnostics.remote_link.internet true is uploaded.
+# Run from a downloaded copy (curl ... | sudo bash -s -- ...) or with --version X,
+# the link install downloads release deploy-vX (the newest without --version)
+# and runs that release's install-link.sh.
+#
+# --discovery-only (old name --without-link) writes only the advertisement; it
+# carries the link ID when the link is installed. --remove-discovery removes it.
 #
 # Uninstall: stops and removes the service, the command, <prefix> and the Avahi
-# file; /etc/canworks-link (key and paired PCs) stays unless --purge.
+# file (--keep-discovery keeps the advertisement without the link ID);
+# /etc/canworks-link (key and paired PCs) stays unless --purge.
 
 set -euo pipefail
 
@@ -36,7 +46,14 @@ LINK_PORT=7533
 WITH_LINK=1
 UNINSTALL=0
 PURGE=0
+WITH_DISCOVERY=1
+KEEP_DISCOVERY=0
+REMOVE_DISCOVERY=0
+VERSION=""
+DRY_RUN=0
+PASS=()
 IROH_SPEC="iroh>=1.1,<1.2"
+GITHUB=${CANWORKS_REPO:-https://github.com/tonihoohoo/canworks}
 # Overridable for the tests.
 UNIT_DIR=${CANWORKS_UNIT_DIR:-/etc/systemd/system}
 LINK_DIR=${CANWORKS_LINK_DIR:-/etc/canworks-link}
@@ -45,15 +62,26 @@ BIN_DIR=${CANWORKS_BIN_DIR:-/usr/local/bin}
 SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
 PIP=${CANWORKS_LINK_PIP:-}
 
-usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() {
+    if [ -f "${BASH_SOURCE[0]}" ]; then
+        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
+    else
+        echo "see $GITHUB/blob/main/scripts/install-link.sh"
+    fi
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --config) CONFIG="$2"; shift ;;
-        --runtime-port) RUNTIME_PORT="$2"; shift ;;
-        --diag-port) DIAG_PORT="$2"; shift ;;
-        --prefix) PREFIX="$2"; shift ;;
-        --without-link) WITH_LINK=0 ;;
+        --config) CONFIG="$2"; PASS+=("$1" "$2"); shift ;;
+        --runtime-port) RUNTIME_PORT="$2"; PASS+=("$1" "$2"); shift ;;
+        --diag-port) DIAG_PORT="$2"; PASS+=("$1" "$2"); shift ;;
+        --prefix) PREFIX="$2"; PASS+=("$1" "$2"); shift ;;
+        --without-link|--discovery-only) WITH_LINK=0; PASS+=("$1") ;;
+        --without-discovery) WITH_DISCOVERY=0; PASS+=("$1") ;;
+        --remove-discovery) REMOVE_DISCOVERY=1 ;;
+        --keep-discovery) KEEP_DISCOVERY=1 ;;
+        --version) VERSION=${2#deploy-v}; VERSION=${VERSION#v}; shift ;;
+        --dry-run) DRY_RUN=1 ;;
         --uninstall) UNINSTALL=1 ;;
         --purge) PURGE=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -69,6 +97,13 @@ UNIT="$UNIT_DIR/canworks-link.service"
 AVAHI_FILE="$AVAHI_DIR/canworks.service"
 LINK_BIN="$BIN_DIR/canworks-link"
 
+if [ "$REMOVE_DISCOVERY" -eq 1 ]; then
+    [ "$UNINSTALL" -eq 0 ] || die "--remove-discovery and --uninstall: use --uninstall alone"
+    rm -f "$AVAHI_FILE"
+    say "No longer advertised on the local network"
+    exit 0
+fi
+
 if [ "$UNINSTALL" -eq 1 ]; then
     if [ -f "$UNIT" ]; then
         say "Stopping canworks-link.service"
@@ -76,7 +111,14 @@ if [ "$UNINSTALL" -eq 1 ]; then
         rm -f "$UNIT"
         "$SYSTEMCTL" daemon-reload || true
     fi
-    rm -f "$LINK_BIN" "$AVAHI_FILE"
+    rm -f "$LINK_BIN"
+    if [ "$KEEP_DISCOVERY" -eq 1 ] && [ -f "$AVAHI_FILE" ]; then
+        # Still advertised, without the link.
+        sed -i -e '/<txt-record>id=/d' -e '/<txt-record>link=/d' "$AVAHI_FILE"
+        say "Still advertised on the local network, without the remote link"
+    else
+        rm -f "$AVAHI_FILE"
+    fi
     rm -rf "${PREFIX:?}"
     if [ "$PURGE" -eq 1 ]; then
         rm -rf "${LINK_DIR:?}"
@@ -90,7 +132,52 @@ fi
 [ -n "$CONFIG" ] || die "give --config <the deployed canworks.json> (see --help)"
 case "$RUNTIME_PORT" in none|[0-9]*) ;; *) die "--runtime-port is a port number or none" ;; esac
 
+[ "$WITH_LINK" -eq 1 ] || [ "$WITH_DISCOVERY" -eq 1 ] || die "--discovery-only and --without-discovery leave nothing to do"
+
+# The link installs the PC tools package from the source next to this script:
+# a downloaded copy (or --version) fetches the release's source first.
+release_install() {
+    [ -n "$VERSION" ] || VERSION=$(latest_version)
+    local tarball="$GITHUB/archive/refs/tags/deploy-v$VERSION.tar.gz"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "would download: $tarball"
+        printf 'would run: bash <source>/scripts/install-link.sh'; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
+        exit 0
+    fi
+    [ "$(id -u)" = 0 ] || die "run it as root (sudo)"
+    command -v curl >/dev/null 2>&1 || die "curl is needed"
+    echo "::canworks-step 1/2 Downloading canworks $VERSION"
+    SRC=$(mktemp -d /tmp/canworks-link-install.XXXXXX)
+    trap 'rm -rf "${SRC:?}"' EXIT
+    curl -fsSL "$tarball" | tar -xz -C "$SRC" --strip-components=1 || die "could not download $tarball"
+    [ -f "$SRC/scripts/install-link.sh" ] || die "$tarball has no scripts/install-link.sh"
+    echo "::canworks-step 2/2 Installing the remote link"
+    bash "$SRC/scripts/install-link.sh" "${PASS[@]+"${PASS[@]}"}"
+    exit $?
+}
+
+latest_version() {
+    local url tag
+    command -v curl >/dev/null 2>&1 || die "curl is needed"
+    url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$GITHUB/releases/latest") ||
+        die "could not reach $GITHUB/releases/latest"
+    tag=${url##*/}
+    [[ $tag == deploy-v* ]] || die "could not find the newest release at $GITHUB/releases"
+    echo "${tag#deploy-v}"
+}
+
+if [ "$WITH_LINK" -eq 1 ] && [ -z "$PIP" ] && { [ -n "$VERSION" ] || [ ! -f "$REPO/tools/deploy/pyproject.toml" ]; }; then
+    release_install
+fi
+[ "$DRY_RUN" -eq 0 ] || die "--dry-run shows the download of a release install (--version X, or a downloaded copy)"
+
 LINK_ID=""
+if [ "$WITH_LINK" -eq 0 ] && [ -f "$UNIT" ] && [ -x "$LINK_BIN" ]; then
+    # The advertisement alone, next to an installed link: it keeps the link's ID.
+    LINK_ID=$("$LINK_BIN" --dir "$LINK_DIR" id 2>/dev/null) || LINK_ID=""
+    p=$(sed -n 's/.*"port": *\([0-9]*\).*/\1/p' "$LINK_DIR/link.json" 2>/dev/null | head -n 1)
+    [ -z "$p" ] || LINK_PORT=$p
+fi
 if [ "$WITH_LINK" -eq 1 ]; then
     command -v python3 >/dev/null 2>&1 || die "python3 is needed for the remote link"
     if [ -n "$PIP" ]; then
@@ -144,7 +231,12 @@ fi
 
 # The advertisement: a static Avahi service, so the device is listed even
 # while the PLC is stopped.
-if [ -d "$AVAHI_DIR" ] || [ -d "$(dirname "$AVAHI_DIR")" ]; then
+if [ "$WITH_DISCOVERY" -eq 0 ]; then
+    if [ -f "$AVAHI_FILE" ]; then
+        rm -f "$AVAHI_FILE"
+        say "No longer advertised on the local network"
+    fi
+elif [ -d "$AVAHI_DIR" ] || [ -d "$(dirname "$AVAHI_DIR")" ]; then
     mkdir -p "$AVAHI_DIR"
     {
         echo '<?xml version="1.0" standalone="no"?>'
