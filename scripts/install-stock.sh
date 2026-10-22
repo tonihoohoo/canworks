@@ -466,12 +466,12 @@ remove_old_install() {
     if [ -L "$old_sim" ]; then
         rm -f "$old_sim"
     fi
-    remove_old_sim_name
     remove_old_prefix
 }
 
 # Removes the simulator binary and link from before clear-simulator-names
-# (canworks-sim, now canworks-canopen-sim).  # rename-keep
+# (canworks-sim, now canworks-canopen-sim), also in Docker mode, where the  # rename-keep
+# prefix the container mounts keeps the old binary.
 remove_old_sim_name() {
     local old_bin="$LIB_DIR/canworks-sim" old_link=/usr/local/bin/canworks-sim  # rename-keep
     if [ -L "$old_link" ] && [ "$(readlink "$old_link")" = "$old_bin" ]; then
@@ -570,6 +570,7 @@ mv -f "$LIB.new" "$LIB"
 if [ "$WITH_CANOPEN" -eq 1 ]; then
     install -m 0755 "$BUILD_DIR/bin/canworks-canopen-sim" "$SIM_BIN.new"
     mv -f "$SIM_BIN.new" "$SIM_BIN"
+    remove_old_sim_name
     if [ "$IN_IMAGE" -eq 0 ]; then
         ln -sfn "$SIM_BIN" "$SIM_LINK"
         say "Installed $SIM_LINK"

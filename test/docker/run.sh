@@ -45,6 +45,9 @@ PYPATH="PYTHONPATH=/opt/canworks/lib/sitecustomize"
 LINE_DISABLED="canworks,/opt/canworks/lib/libcanworks_plugin.so,0,1,/opt/canworks/lib/canworks.json,"
 
 echo "1. build in $IMAGE"
+# The simulator's name from before clear-simulator-names, left in the prefix.
+mkdir -p "$PREFIX/lib"
+touch "$PREFIX/lib/canworks-sim"  # rename-keep
 if ! "$ROOT/scripts/install-stock.sh" --prefix "$PREFIX" --docker-image "$IMAGE"; then
     echo "FAIL: the in-image build failed"; exit 1
 fi
@@ -54,6 +57,7 @@ VERSION=$(sed -n 1p "$PREFIX/lib/runtime-version")
 echo "2. the library loads in the image"
 out=$(docker run --rm -v "$BIND" --entrypoint ldd "$IMAGE" /opt/canworks/lib/libcanworks_plugin.so 2>&1)
 if [ $? -eq 0 ] && ! grep -q "not found" <<<"$out"; then ok "ldd: all libraries found"; else echo "$out"; fail "ldd"; fi
+[ ! -e "$PREFIX/lib/canworks-sim" ] || fail "the old simulator binary was left in $PREFIX/lib"  # rename-keep
 sim=$(docker run --rm -v "$BIND" --entrypoint /opt/canworks/lib/canworks-canopen-sim "$IMAGE" --version 2>&1)
 if grep -q "^canworks-canopen-sim [^ ]" <<<"$sim"; then
     ok "$sim runs in the image"
