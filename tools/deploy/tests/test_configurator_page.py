@@ -1514,7 +1514,8 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("Moved into", pg.inner_text("#banner"))
         moved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(moved["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
+        # A new OpenPLC config targets OpenPLC through Modbus: version 2, with networks.
+        self.assertEqual(moved["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
         self.assertIn("in use", pg.inner_text("#scan-info"))
 
     def test_standalone_then_new_editor_project(self):
