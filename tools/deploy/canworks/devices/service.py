@@ -192,8 +192,22 @@ class Devices:
         if action == "install_bridge" and probe.get("link") is not None \
                 and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
             link = False  # the device's link serves the PLC: not repointed at a bridge
+        discovery = options.get("discovery") is not False
+        link_config = runtime_port = None
+        if action.startswith("link_") or action.startswith("discovery_"):
+            # The link's switches keep the other one as the device has it.
+            discovery = probe.get("discovery") is True
+            pick = options.get("link_instance") if isinstance(options.get("link_instance"), str) else instance
+            serves = plan_mod.link_serves(probe, pick) or {}
+            if action == "discovery_on" and serves.get("choose"):
+                serves = plan_mod.link_serves(probe, serves["choose"][0])  # the advertisement names no instance
+            if action in ("link_on", "discovery_on") and not serves.get("config"):
+                raise SshError("which bridge config should the link serve?" if serves.get("choose")
+                               else "the device has no config for the link to serve: install canworks or the bridge first")
+            link_config, runtime_port = serves.get("config"), serves.get("runtime_port")
         lines = jobs.commands(action, version, self.paths, link=link,
-                              discovery=options.get("discovery") is not False, purge=options.get("purge") is True,
+                              discovery=discovery, purge=options.get("purge") is True,
+                              link_config=link_config, runtime_port=runtime_port,
                               instance=instance if action in ("install_bridge", "bridge_config") else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)

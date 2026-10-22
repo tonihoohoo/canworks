@@ -88,6 +88,35 @@ def _main(action, label, version, confirm=(), **extra):
 SHARE_CAN = ("The PLC and the bridge cannot use the same CAN interface: give each its own (can0, can1, …) "
              "in their configs.")
 
+LINK_OFF = "Paired PCs stay paired: turning the link on again keeps them."
+PLUGIN_CONFIG = "/opt/canworks/lib/canworks.json"
+BRIDGE_CONFIGS = "/etc/canworks-bridge/"
+
+
+def link_serves(probe, instance=None):
+    """The config the remote link serves, or would serve when turned on:
+    {"config", "runtime_port", "text"}; {"choose": [names]} when several
+    bridge instances could and nothing says which; None with no config at
+    all. An installed link keeps its config; else the plugin's; else the
+    bridge instance `instance` (the open project's, or the one picked), or
+    the only one."""
+    probe = probe or {}
+    lc = probe.get("link_config") or ""
+    if probe.get("link") is not None and lc:
+        if lc.startswith(BRIDGE_CONFIGS):
+            name = lc[len(BRIDGE_CONFIGS):].split("/")[0]
+            return {"config": lc, "runtime_port": "none", "text": "the bridge %s" % name, "instance": name}
+        return {"config": lc, "runtime_port": "8443", "text": "the PLC"}
+    if probe.get("plugin"):
+        return {"config": PLUGIN_CONFIG, "runtime_port": "8443", "text": "the PLC"}
+    names = [i.get("name") for i in ((probe.get("bridge") or {}).get("instances") or []) if i.get("name")]
+    pick = instance if instance in names else (names[0] if len(names) == 1 else None)
+    if pick:
+        return {"config": "%s%s/canworks.json" % (BRIDGE_CONFIGS, pick), "runtime_port": "none",
+                "text": "the bridge %s" % pick, "instance": pick}
+    return {"choose": names} if names else None
+
+
 ROLES = (("openplc", "OpenPLC PLC with canworks",
           "Installs the OpenPLC Runtime when there is none, and the canworks plugin. Upload a program afterwards."),
          ("bridge", "Modbus bridge",
@@ -221,20 +250,39 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     if free and bool(plugin) != bool(bridge):
         row = next(r for r in rows if r["part"] == ("plugin" if bridge else "bridge"))
         if not bridge:
-            row["install"] = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge",
-                                   latest, [SHARE_CAN])
+            row["actions"] = [_main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge",
+                                    latest, [SHARE_CAN], button="Install…")]
         elif rt.get("kind") in (None, "none"):
-            row["install"] = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
-                                   else "Install OpenPLC Runtime and canworks", latest, [SHARE_CAN])
+            row["actions"] = [_main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
+                                    else "Install OpenPLC Runtime and canworks", latest, [SHARE_CAN], button="Install…")]
         elif rt.get("kind") != "docker-other":
-            row["install"] = _main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks",
-                                   latest, [DOCKER_STOP if docker else "", SHARE_CAN])
+            row["actions"] = [_main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks",
+                                    latest, [DOCKER_STOP if docker else "", SHARE_CAN], button="Install…")]
 
-    # Remote link, CAN
+    # Remote link and discovery (device-link-switches): their own switches
+    # once the plugin or the bridge is there to give them a config.
     link = probe.get("link")
-    rows.append({"part": "link", "label": "Remote link",
-                 "have": "not installed" if link is None else ("running" if link == "active" else link or "stopped"),
-                 "state": "ok" if link == "active" else "off", "needs": "", "used": target != "codesys"})
+    serves = link_serves(probe, instance) if target != "codesys" and (plugin or bridge) else None
+    have = "not installed" if link is None else ("running" if link == "active" else link or "stopped")
+    if link is not None and serves and serves.get("text"):
+        have += " · serves %s" % serves["text"]
+    link_row = {"part": "link", "label": "Remote link", "have": have,
+                "state": "ok" if link == "active" else "off", "needs": "", "used": target != "codesys"}
+    found = probe.get("discovery") is True
+    disc_row = {"part": "discovery", "label": "Found on the local network", "have": "yes" if found else "no",
+                "state": "ok" if found else "off", "needs": "", "used": target != "codesys"}
+    if serves:
+        if link is None:
+            link_row["actions"] = [_main("link_on", "Turn on the remote link", latest, [], button="Turn on…",
+                                         choose=serves.get("choose"))]
+        else:
+            off = _main("link_off", "Turn off the remote link", latest, [LINK_OFF], button="Turn off…")
+            link_row["actions"] = [off] if link == "active" else [_main("link_start", "Start the remote link", latest,
+                                                                        [], button="Start"), off]
+        disc_row["actions"] = [_main("discovery_off", "Stop advertising on the local network", latest, [],
+                                     button="Turn off…") if found else
+                               _main("discovery_on", "Advertise on the local network", latest, [], button="Turn on…")]
+    rows += [link_row, disc_row]
     can = []
     for item in (probe.get("can") or []) + (probe.get("vcan") or []):
         if not isinstance(item, dict) or not item.get("ifname"):
@@ -262,7 +310,7 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         bridge_main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
         roles = [{"role": r, "label": label, "text": text, "main": main if r == "openplc" else bridge_main}
                  for r, label, text in ROLES]
-    reason = blocked(probe, latest) if main or roles or any(r.get("install") for r in rows) else None
+    reason = blocked(probe, latest) if main or roles or any(r.get("actions") for r in rows) else None
     pc = version_tuple(pc_version)
     seen = [v for v in (version_tuple((plugin or {}).get("version")), version_tuple((bridge or {}).get("version"))) if v]
     newest_here = max(seen) if seen else None

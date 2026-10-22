@@ -17,7 +17,8 @@ from .ssh import SshError, quote
 
 RAW = "https://raw.githubusercontent.com/tonihoohoo/canworks"
 ACTIONS = ("install_openplc", "install_plugin", "uninstall_plugin", "install_bridge", "bridge_config",
-           "uninstall_bridge", "remove_all")
+           "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
+_CONFIG = re.compile(r"^/(opt/canworks/lib|etc/canworks-bridge/[A-Za-z0-9_-]{1,64})/canworks\.json$")
 MAX_CHUNK = 256 * 1024
 _ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4}$")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
@@ -77,7 +78,7 @@ def _fetch(paths, script, version):
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None):
+             bridge_prefix=None, link_config=None, runtime_port=None):
     """The root shell lines of one action."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
@@ -87,7 +88,26 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         raise JobError("not a bridge instance name: %r" % (instance,))
     if upload is not None and not upload.startswith("/tmp/canworks-bridge-upload."):
         raise JobError("not an upload folder: %r" % (upload,))
+    if link_config is not None and not _CONFIG.match(link_config):
+        raise JobError("not a deployed config: %r" % (link_config,))
+    if runtime_port not in (None, "none", "8443"):
+        raise JobError("not a runtime port: %r" % (runtime_port,))
     v = quote(version)
+    # The remote link and the advertisement (device-link-switches).
+    link_sh = _fetch(paths, "install-link.sh", version)
+    served = " --config %s --runtime-port %s" % (quote(link_config or ""), runtime_port or "8443")
+    if action in ("link_on", "discovery_on") and not link_config:
+        raise JobError("the link needs the config it serves")
+    if action == "link_on":
+        return [link_sh + " --version " + v + served + ("" if discovery else " --without-discovery")]
+    if action == "link_off":
+        return [link_sh + " --uninstall" + (" --keep-discovery" if discovery else "")]
+    if action == "link_start":
+        return ['echo "::canworks-step 1/1 Starting the remote link"', "systemctl restart canworks-link.service"]
+    if action == "discovery_on":
+        return [link_sh + " --discovery-only" + served]
+    if action == "discovery_off":
+        return [link_sh + " --remove-discovery"]
     runtime = _fetch(paths, "install-runtime.sh", version) + " --version " + v
     bridge = _fetch(paths, "install-bridge.sh", version) + " --version " + v
     plugin_opts = (" --with-link" if link else "") + ("" if discovery else " --without-discovery")
