@@ -1537,6 +1537,7 @@ function render() {
       el("button", { type: "button", class: "link", dataset: { openProject: "1" }, title: "Open the Project page: target and Online access",
         onclick: () => { switchWorkspace("configure"); showView("project"); } }, TARGET_TITLE[projectTarget()])));
   }
+  // "● unsaved": in a narrow window only the dot shows (its title says it).
   if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ●", el("span", { class: "unsaved-word" }, " unsaved")));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
   const commission = !!S.state.commission;
