@@ -525,8 +525,9 @@ class Client:
         except socket.timeout:
             self.close()
             raise old
-        except (ssl.SSLEOFError, ssl.SSLZeroReturnError, ConnectionResetError, BrokenPipeError):
-            # Closed before sending a byte: an older plugin answers the TLS
+        except (ssl.SSLEOFError, ssl.SSLZeroReturnError, ConnectionError):
+            # Closed before sending a byte (Windows reports it as an aborted
+            # connection): an older plugin answers the TLS
             # hello with an error line instead, so nothing serves the port
             # (a container's or tunnel's port forward with no plugin behind it).
             self.close()
