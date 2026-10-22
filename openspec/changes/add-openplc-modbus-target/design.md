@@ -65,7 +65,7 @@ Alternative: `%ID` points for 32-bit values. The runtime would accept them, but 
 
 ### 6. Writing the remote device
 
-Save writes `devices/remote/<remote_device>.json` in the editor's format (protocol `modbus-tcp`, `modbusTcpConfig` with host, port, slave id 1, timeout 1000, `ioGroups` with points and aliases) through `replace_file`. It touches no other editor file; the global list and programs are written by Update declarations or project creation, as declarations are today. Before writing, Save compares the file on disk with what canworks last wrote (hash kept in `canworks/.remote-device.sha256`): a file changed by someone else is replaced only after a confirm that names it. After writing, the message says that an open OpenPLC Editor must reopen the project before Build.
+Save writes `devices/remote/<remote_device>.json` in the editor's format (see section 10: Save writes all editor files) (protocol `modbus-tcp`, `modbusTcpConfig` with host, port, slave id 1, timeout 1000, `ioGroups` with points and aliases) through `replace_file`. It touches no other editor file; the global list and programs are written by Update declarations or project creation, as declarations are today. Before writing, Save compares the file on disk with what canworks last wrote (hash kept in `canworks/.remote-device.sha256`): a file changed by someone else is replaced only after a confirm that names it. After writing, the message says that an open OpenPLC Editor must reopen the project before Build.
 
 ### 7. Function blocks
 
@@ -80,6 +80,21 @@ OpenPLC project: rows for the runtime (pinned version) and the bridge. Main acti
 ### 9. CI
 
 New job in `integration.yml` (same path filter as the runtime jobs): pinned runtime image, vcan0, bridge built in the job, one simulated CANopen node, a PLC program built by STruC++ as `test/local-runtime` does, uploaded with its `conf/modbus_master.json`. Checks: values both ways, a 32-bit counter never torn within a PDO, PLC stop → outputs off with `"hold"` keeping the last real values, a program with another hash → outputs off. Its time is paid by dropping the plugin jobs in change 2; until then the job runs only on changes to `plugin/src/bridge/`, `tools/deploy/canworks/openplcmodbus.py` or `library/`.
+
+### 10. Changed while applying
+
+Found while building and testing; the specs say the final form.
+
+- **Link variable**: STruC++ 0.7.0 emits a project STRUCT before the library's types, so a library STRUCT cannot be a member of the global list (g++ fails). `CW_LINK` became `link : ARRAY[0..88] OF WORD` in the list; the blocks take `LINK : ARRAY[0..88] OF WORD` and name the words in a comment (0-3 status, 4-6 control, 7-13 SDO request, 14-20 SDO response, 21 flags with ok and the live-list bits, 22-24 owners and next id, 25+8n live list of network n). The editor compiles the list `canworks` as one global struct, so the program uses `canworks.ok`, `canworks.link` and `canworks.<value>`. Task instances in one task keep their order (spike 1.4).
+- **REAL helpers** are ST, bit-exact by arithmetic (`CW_DWORD_TO_REAL`, `CW_REAL_TO_DWORD`, `CW_LWORD_TO_LREAL`, `CW_LREAL_TO_LWORD`): STruC++'s `REAL_TO_DWORD` converts numerically, and ST keeps the library free of C++.
+- **Groups** merge contiguous registers of one class (header, bridge blocks, data) rather than per node; a group is cut at 125/123 registers only between values. Order: the header write group, the read groups, the other write groups.
+- **Save writes all editor files** (remote device, both programs, the list and the task instances) when the config has no errors, so the program and the remote device never disagree with the bridge's map; there is no separate Update declarations step. The changed-file check covers the three files canworks owns, with their hashes in `canworks/.openplc-files.json`.
+- **`canworks.ok` window** is max(300 ms, 3 × `watchdog_ms`), so a 50 ms watchdog does not flicker it.
+- **Status byte 0 = 5** while the header says the PLC stopped (4 stays mismatch).
+- **Target value** `openplc_modbus` in the PC tools; the plugin keeps `openplc` until change 2 and is only shown for a config that still has it.
+- **Library**: the C++ plugin blocks leave the package now; the cyclic CiA 402 ST blocks stay until change 2 removes CiA 402.
+- **Runtime v4.3.1 Modbus master** (read in its source and run in CI): each cycle does all due reads, then all due writes, on one TCP connection per endpoint; `stop_loop` itself sends no last round, the zeroed round comes from the runtime's stop sequence. The CI test (section 9) runs that plugin in-process against the bridge, with no runtime image or Docker: the image could not be pulled where the change was built, and the plugin is the part canworks depends on. Spikes 1.1 (image), 1.2, 1.3 and 1.5 (editor) stay for the hardware test.
+- **CI**: the test runs in the CI job that already builds the bridge (~5 s), next to the STruC++ tests of the programs and blocks (~15 s), instead of a new `integration.yml` job. The torn 32-bit check is left out: the example has no 32-bit input, and each group is one request read under one lock.
 
 ## Risks / Trade-offs
 

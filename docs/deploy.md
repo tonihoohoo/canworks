@@ -1,5 +1,7 @@
 # Deploying a program with CANopen: `canworks-deploy`
 
+> **OpenPLC through Modbus.** A config with `bridge.openplc` ([modbus-bridge.md](modbus-bridge.md#openplc-through-modbus)) is not uploaded with the program: the editor's own **Build and upload** carries the program and the Modbus settings the configurator wrote into the project, and the config goes to the bridge with the configurator's **Devices** page or `canworks-deploy --config canworks.json --bridge HOST`. This page describes the upload of a config that still uses the canworks plugin inside the runtime.
+
 A stock OpenPLC Runtime v4 enables a plugin when a program upload carries the plugin's config as `conf/<name>.json`, and disables it when an upload does not. That is how the editor ships EtherCAT. `canworks-deploy` uses the same rule for CANopen: it takes the program the editor built, adds `conf/canworks.json` and the EDS files, checks everything, and uploads it through the runtime's REST API. The runtime then switches the CANopen plugin on by its own rules. No runtime or editor file changes. A config with [J1939 networks](j1939.md) deploys the same way.
 
 The runtime needs the plugin installed once: see [install-stock.md](install-stock.md).

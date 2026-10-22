@@ -19,8 +19,9 @@ that image (the header canworks_out writes, the values) and checks:
 2. outputs go out: an output byte reaches the simulated node and comes back
    as its input (the node's simulation copies 0x6200:1 to 0x6000:1), and an
    SDO read through the PLC link's SDO registers reads it from the node;
-3. the PLC stops (the plugin's threads stop, no more writes): with
-   on_client_loss "hold" the node keeps the last output;
+3. the PLC stops as the runtime stops it (%Q zeroed for one more round,
+   then the plugin's threads stop): with on_client_loss "hold" the node
+   keeps the last real output, not the zeros;
 4. a PLC built for another map (wrong hash in the header): the bridge takes
    no output from it.
 """
@@ -223,7 +224,11 @@ def main():
             return t
 
         def stop_plc(t):
-            # The runtime's stop_loop: the threads stop, no last round.
+            # A PLC stop as runtime v4.3.1 does it: %Q zeroed, one more
+            # round (it waits 500 ms), then stop_loop stops the threads.
+            with image.lock:
+                image.words["Q"] = {}
+            time.sleep(0.5)
             t.stop()
             t.join(10)
 
@@ -256,16 +261,16 @@ def main():
 
         print("3. the PLC stops", flush=True)
         stop_plc(master)
-        plc.put(set_byte({}, out_row["byte"], 0x00, lambda reg: 0))  # never sent: no PLC writes any more
-        time.sleep(1.0)
-        check(plc.byte(in_row["byte"]) == 0x5A, "with on_client_loss hold the node keeps the last output")
+        time.sleep(0.5)
+        check(plc.byte(in_row["byte"]) == 0x5A, "with on_client_loss hold the node keeps the last output, not the "
+              "stop round's zeros (%#x)" % plc.byte(in_row["byte"]))
         log.flush()
         with open(log.name, encoding="utf-8", errors="replace") as f:
-            held = "outputs held at their last values by the watchdog" in f.read()
-        check(held, "the bridge's watchdog saw the PLC stop")
+            held = "outputs held at their last values by the PLC link header (the PLC stopped)" in f.read()
+        check(held, "the bridge took the stop from the header's running word")
 
         print("4. a PLC built for another map", flush=True)
-        plc.put({1: (hash_ >> 16) ^ 1})
+        plc.put({0: 1, 1: (hash_ >> 16) ^ 1, 2: hash_ & 0xFFFF})
         plc.put(set_byte({}, out_row["byte"], 0x33, lambda reg: 0))
         master = start_plc()
         check(wait(lambda: plc.byte(4) == 4, 5.0), "the status block says map mismatch (state %d)" % plc.byte(4))
