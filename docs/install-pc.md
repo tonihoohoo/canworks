@@ -67,13 +67,36 @@ The configurator runs in the background, opens in the default browser and stops 
 
 Linux works with x86_64 and ARM64 (glibc distributions; uv's Python and the compiled dependencies come as wheels for both).
 
-The first install needs internet access to github.com (Python) and pypi.org (the Python packages the tools use: `jsonschema`, `python-can`, `pyserial`, `cantools`, `can-j1939`). Behind a company proxy that inspects TLS, add `--native-tls` (or set `UV_NATIVE_TLS=1`) so uv trusts the certificates installed in the operating system.
+The first install needs internet access to github.com (Python) and pypi.org (the Python packages the tools use: `jsonschema`, `python-can`, `pyserial`, `cantools`, `can-j1939`). Behind a company proxy that inspects TLS, set `UV_SYSTEM_CERTS=1` (uv 0.11 and newer; older uv reads `UV_NATIVE_TLS=1`) so uv trusts the certificates installed in the operating system. The setting also applies to updates from the configurator.
 
 ### Windows asks to allow Python
 
 Windows Defender Firewall may show "Windows Defender Firewall has blocked some features of Python" the first time the configurator or `canworks-diag` pairs with a runtime for the [remote link](remote-access.md), and again after the tools move to a new Python version (the question is per program, and uv keeps each Python version in a folder of its own). Pressing **Cancel** is fine: online access, deploy, the Devices workspace and the remote link keep working, because the PC always starts the connection. Finding runtimes on the local network never asks: it listens on no port ([remote-access.md](remote-access.md#same-network)).
 
 ## Update and uninstall
+
+### From the configurator
+
+Once a day the configurator asks GitHub which release is the newest (one request to `github.com/tonihoohoo/canworks/releases/latest`, which only redirects to the newest release; nothing else is sent). When a newer one exists, a chip **Update: 0.x.0** shows in the header. It opens a dialog with a link to what's new and four choices:
+
+- **Update now** stops the configurator, installs the new version with uv (the same `uv tool install` as the one-line installer) and starts it again. The open tab comes back by itself in about a minute, and a message says how it went. It is refused while there are unsaved changes, an online connection, a trace, a simulator or a job on the bus: finish or save first, or pick the next choice.
+- **Update when I quit** installs it after Quit or after the last tab closes. The configurator does not start again; the next start shows the result.
+- **Skip this version** hides the chip until a newer release comes out. **Not now** leaves it.
+
+**Settings → Updates** has the **Check for updates** switch (on by default), **Check now** and the time of the last check. `CANWORKS_NO_UPDATE_CHECK=1` in the environment turns the check off as well.
+
+From a terminal, `canworks-config --update` prints the installed and the newest version and updates after a yes (`--yes` does not ask). With a configurator running, that configurator updates and comes back. Without one, the update runs in the terminal on macOS and Linux; on Windows it runs in the background, because a running program's files cannot be replaced there, and `update.log` shows its progress.
+
+What happens on each system:
+
+- The update needs the tools as the one-line installer put them (a uv tool). A copy installed another way (pip, a checkout) shows the newer version and the install command to copy instead of an Update button.
+- On Windows, another canworks program still running from the same install (`canworks-diag` in a terminal, a simulator) keeps its files in use. The update then changes nothing, the configurator starts again and says to close the other program first.
+- On Windows, tools installed from inside another app (its PowerShell runs in that app's private folder, `%LOCALAPPDATA%\Packages\...`) cannot update the real install: run the install command from your own PowerShell window instead.
+- If uv fails after it started replacing the tools, the old version is installed again from its release. If even that fails, a message window shows the install command.
+- The update keeps uv and the Python the tools run on; the one-line installer still updates those. The macOS app and Linux menu entry are refreshed; the Windows shortcuts point at paths an update keeps.
+- `update.log` in the settings folder (next to `configurator.log`) has every step and uv's output.
+
+### With the installer or by hand
 
 The one-line installer above updates when run again (and uninstalls with `--uninstall`). By hand:
 
@@ -85,7 +108,7 @@ uv tool uninstall canworks
 
 The shortcut runs the installed tools, so it keeps working after an update.
 
-The configurator's own settings (theme, online access, its log `configurator.log`) and the local simulator runtime's credentials (`local-runtime.json`) live in the user's settings folder (`%APPDATA%\canworks` on Windows, `~/Library/Application Support/canworks` on macOS, `$XDG_CONFIG_HOME/canworks` or `~/.config/canworks` on Linux) and survive both. Uninstalling leaves a local simulator runtime container in place: run `canworks-sim-runtime remove --data` first to delete it. After an update, `canworks-sim-runtime update` moves the local runtime to the image of the new version.
+The configurator's own settings (theme, online access, the update check, its logs `configurator.log` and `update.log`) and the local simulator runtime's credentials (`local-runtime.json`) live in the user's settings folder (`%APPDATA%\canworks` on Windows, `~/Library/Application Support/canworks` on macOS, `$XDG_CONFIG_HOME/canworks` or `~/.config/canworks` on Linux) and survive both. Uninstalling leaves a local simulator runtime container in place: run `canworks-sim-runtime remove --data` first to delete it. After an update, `canworks-sim-runtime update` moves the local runtime to the image of the new version.
 
 ## The editor on Linux
 

@@ -20,7 +20,7 @@
 # is found from GitHub's releases/latest redirect, so no API token is needed.
 # A missing uv comes from uv's own release zip, checked against its SHA-256;
 # the script runs no downloaded code and starts no other PowerShell.
-# Behind a TLS-inspecting company proxy set UV_NATIVE_TLS=1 (docs/install-pc.md).
+# Behind a TLS-inspecting company proxy set UV_SYSTEM_CERTS=1 (uv before 0.11: UV_NATIVE_TLS=1; docs/install-pc.md).
 
 param(
     [string]$Version = "",
