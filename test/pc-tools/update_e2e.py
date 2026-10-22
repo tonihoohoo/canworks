@@ -36,7 +36,33 @@ def say(text):
     print("update-e2e: %s" % text, flush=True)
 
 
+DUMP = {"cfg": None}
+
+
+def dump():
+    """What the configurator and the updater wrote, for a failed run."""
+    cfg = DUMP["cfg"]
+    if not cfg or not os.path.isdir(cfg):
+        return
+    for name in sorted(os.listdir(cfg)):
+        path = os.path.join(cfg, name)
+        if not os.path.isfile(path) or not name.endswith((".log", ".json", ".1")):
+            continue
+        print("----- %s" % name, flush=True)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            print(f.read()[-6000:], flush=True)
+    cmd = ["tasklist", "/v"] if WIN else ["ps", "-ef"]
+    try:
+        out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True).stdout
+        print("----- processes\n" + "\n".join(l for l in out.splitlines() if "python" in l.lower() or "canworks" in l.lower()),
+              flush=True)
+    except OSError:
+        pass
+
+
 def fail(text):
+    print("update-e2e: FAILED: %s" % text, flush=True)
+    dump()
     raise SystemExit("update-e2e: FAILED: %s" % text)
 
 
@@ -179,12 +205,13 @@ def update_and_wait(env, cfg, old_pid):
             return None
         return (inst, view) if status == 200 else None
 
-    return wait_for("the configurator to come back", back)
+    return wait_for("the configurator to come back", back, 150)
 
 
 def main(version, dist_wheel):
     work = tempfile.mkdtemp(prefix="canworks-update-e2e-")
     cfg = os.path.join(work, "cfg")
+    DUMP["cfg"] = cfg
     Release.wheels = {os.path.basename(dist_wheel): dist_wheel}
     new_wheel = build_new_wheel(work)
     Release.wheels[os.path.basename(new_wheel)] = new_wheel
