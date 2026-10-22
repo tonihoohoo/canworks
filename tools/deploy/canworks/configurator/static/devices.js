@@ -63,6 +63,13 @@ function devMainOf(id, plan) {
   return pick.main;
 }
 
+// The main action or a part's own Install (no config) that starts `action`.
+function devActionOf(id, plan, action) {
+  const main = devMainOf(id, plan);
+  if (main && main.action === action) return main;
+  return ((plan && plan.rows) || []).map((r) => r.install).find((m) => m && m.action === action) || null;
+}
+
 // The start page's Install on a device: Devices with no config open.
 function devicesOnlyStart() {
   banner("");
@@ -291,7 +298,10 @@ function devRows(d, plan, job) {
       project ? el("td", null, r.needs) : null,
       el("td", null, r.uninstall ? el("button", { type: "button", class: "small", dataset: { devicesUninstall: r.part },
         disabled: running ? "An install is running." : null,
-        onclick: () => devStart(d.id, r.part === "plugin" ? "uninstall_plugin" : "uninstall_bridge") }, "Uninstall…") : null)))));
+        onclick: () => devStart(d.id, r.part === "plugin" ? "uninstall_plugin" : "uninstall_bridge") }, "Uninstall…")
+        : r.install ? el("button", { type: "button", class: "small", dataset: { devicesInstall: r.part },
+          disabled: running || plan.blocked ? (plan.blocked || "An install is running.") : null, title: plan.blocked || null,
+          onclick: () => devStart(d.id, r.install.action) }, "Install…") : null)))));
 }
 
 function devMain(d, plan) {
@@ -439,8 +449,8 @@ async function devRemove(id) {
 function devConfirmText(d, action) {
   const p = DEV.probes[d.id];
   const plan = p && p.plan;
-  const main = devMainOf(d.id, plan);
-  if (main && main.action === action) return main.confirm || [];
+  const main = devActionOf(d.id, plan, action);
+  if (main) return main.confirm || [];
   if (action === "uninstall_plugin") return ["The plugin is removed and canworks stops on this device; the OpenPLC runtime and its programs stay."];
   if (action === "uninstall_bridge") return ["The bridges on this device stop and the bridge is removed; their configs stay in /etc/canworks-bridge."];
   if (action === "remove_all") return ["The canworks plugin, the bridge, the remote link and their settings are removed from the device. The OpenPLC runtime stays."];
@@ -452,8 +462,8 @@ async function devStart(id, action) {
   const plan = (DEV.probes[id] || {}).plan || {};
   const effects = devConfirmText(d, action);
   const sudo = plan.sudo === "password";
-  const main = devMainOf(id, plan) || {};
-  const title = action === main.action ? main.label : DEV_ACTION_NAME[action];
+  const main = devActionOf(id, plan, action);
+  const title = main ? main.label : DEV_ACTION_NAME[action];
   let pw = null;
   let wrong = false;
   for (;;) {

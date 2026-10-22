@@ -13,7 +13,7 @@ Each device in the list says what it is to which project: **Runtime of line3** w
 - **OpenPLC PLC with canworks**: **Install OpenPLC Runtime and canworks X** on a device with no runtime, **Install canworks X** on one with a runtime. Upload a program afterwards (the editor's **Build and upload**, or `canworks-deploy`).
 - **Modbus bridge**: **Install the bridge X**, without a config. Open the bridge project and install it from its Devices page to start the bridge with that config.
 
-A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
+A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. The other part gets **Install…** in its row: the bridge next to the plugin, or the plugin (with the runtime when there is none) next to the bridge. The PLC and the bridge cannot use the same CAN interface, so give each config its own. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
 
 ## Adding a device
 

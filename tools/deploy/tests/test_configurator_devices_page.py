@@ -260,6 +260,12 @@ class DevicesPage(OnlineBase):
         pg.wait_for_selector("[data-devices=done]", timeout=20000)
         self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
         pg.wait_for_selector("[data-devices=up-to-date]")
+        # The bridge can be added next to the PLC from its row.
+        pg.click("[data-devices-install=bridge]")
+        pg.wait_for_selector("#modal[open]")
+        self.assertIn("Install the bridge 0.98.0", pg.inner_text("#modal-text"))
+        self.assertIn("same CAN interface", pg.inner_text("#modal"))
+        self.answer("cancel")
         # No project took the device as its runtime host.
         online_json = os.path.join(self.cfg_dir, "online.json")
         if os.path.isfile(online_json):
