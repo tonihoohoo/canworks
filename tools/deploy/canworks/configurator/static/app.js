@@ -1260,37 +1260,54 @@ async function newConfig(folder) {
     ? "Untick to keep just a config folder; Project → New editor project… makes one later."
     : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so only a config folder can be made.");
   const projectBox = el("div", null, projectRow, projectHint);
+  // A problem goes under the field it concerns; the dialog's title stays.
+  const nameErr = el("span", { class: "field-msg", id: "new-config-name-msg", dataset: { newConfig: "name-error" } });
+  const whereErr = el("span", { class: "field-msg", id: "new-config-location-msg", dataset: { newConfig: "location-error" } });
+  name.setAttribute("aria-describedby", nameErr.id);
+  where.setAttribute("aria-describedby", whereErr.id);
   const form = el("div", { class: "new-config", dataset: { newConfig: "form" } }, targets,
-    el("label", null, "Name (the new folder)", name),
-    el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose)),
+    el("label", null, "Name (the new folder)", name), nameErr,
+    el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose), whereErr),
     projectBox);
   where.id = "new-config-location";
   const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "openplc";
   const sync = () => { projectBox.hidden = target() !== "openplc"; };
   form.addEventListener("change", sync);
   sync();
-  let text = "New config";
+  let bad = null;
+  const fail = (input, msg, text) => {
+    for (const [i, m] of [[name, nameErr], [where, whereErr]]) {
+      i.classList.toggle("invalid", i === input);
+      i.toggleAttribute("aria-invalid", i === input);
+      m.textContent = i === input ? text : "";
+    }
+    bad = input;
+  };
   for (;;) {
-    const v = await modal(text, [["create", "Create", true], ["cancel", "Cancel"]], form);
+    const answer = modal("New config", [["create", "Create", true], ["cancel", "Cancel"]], form);
+    if (bad) bad.focus();
+    const v = await answer;
     if (v !== "create") return;
     const nm = name.value.trim(), loc = where.value.trim();
-    if (!nm) { text = "Give the new config a name: it becomes its folder."; continue; }
-    if (/[\\/]/.test(nm)) { text = "The name is one folder name, without slashes."; continue; }
+    if (!nm) { fail(name, nameErr, "Give the new config a name: it becomes its folder."); continue; }
+    if (/[\\/]/.test(nm)) { fail(name, nameErr, "The name is one folder name, without slashes."); continue; }
+    fail(null);
     const path = joinPath(loc, nm);
     const withProject = target() === "openplc" && project.checked && !project.disabled;
     try {
       banner("");
-      await api("POST", "/api/new", { path, editor_project: withProject });
+      await api("POST", "/api/new", { path, editor_project: withProject, target: target() });
     } catch (e) {
       if (e.body && (e.body.has_config || e.body.is_project)) {
         const o = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
         if (o === "open") await openFolder(e.body.path || path, "auto");
         return;
       }
-      text = "Not created: " + e.message;
+      fail(where, whereErr, "Not created: " + e.message);
       continue;
     }
-    await opened(target());
+    // Create wrote the target's config: the page opens it as saved.
+    await opened();
     if (withProject) banner("Created the OpenPLC Editor project " + path + ". Add nodes, save, then open it in the editor with Open Project.", "info");
     return;
   }
@@ -1601,6 +1618,8 @@ function netSimulates(net) { return simNetwork(net) || (net.nodes || []).some((n
 function anySimulated() { return !!S.model && S.model.networks.some(netSimulates); }
 function nodeIds(list) { return list.map((n) => n.node_id ?? "?").join(", "); }
 function plural(list, one, many) { return list.length === 1 ? one : many; }
+// "1 error", "2 errors".
+function counted(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
 
 function simBadge(n) {
   if (nodeSimulated(n)) return el("span", { class: "tag sim-tag", dataset: { simBadge: "simulated" }, title: "A simulated device" }, "simulated");
@@ -1830,11 +1849,20 @@ function adapterFieldset() {
       el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v }))));
 }
 
+// A CANopen master network without nodes: the first step, not an error
+// (spec "Empty network is a warning").
+function noNodesYet() {
+  return el("p", { class: "empty-state", dataset: { emptyNodes: "1" } }, "No nodes yet: ",
+    el("button", { type: "button", dataset: { emptyAdd: "1" }, onclick: () => $("#eds-input").click() }, "Add node…"),
+    ", or find the devices on the bus in Commission.");
+}
+
 function renderBus(view) {
   const plcCycle = getPath("master.sync_source") === "plc_cycle";
   const slave = isSlave(S.config);
   view.append(
     el("h2", null, (slave ? "Bus and slave device" : "Bus and master") + (several() ? `: ${netNamed(S.config, S.net)}` : "")),
+    ...(dcfNetwork(S.config) && !(S.config.nodes || []).length ? [noNodesYet()] : []),
     protocolField(),
     roleField(),
     ...(simulationShown() ? [slave ? slaveNetworkSettings() : networkSettings()] : []),
@@ -2830,7 +2858,7 @@ function storeConfigurationField(i, eds) {
 }
 
 const SUPERVISION = [
-  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat. An EDS default of 0 is refused, since a node that drops off the bus would not be noticed: pick Heartbeat and set a period (or 0 to accept that)." },
+  { value: "none", label: "EDS default", help: "Nothing is written to the slave: it keeps the heartbeat its EDS gives (object 0x1017), and the master watches that heartbeat. An EDS default of 0 is a problem the runtime refuses, since a node that drops off the bus would not be noticed: pick Heartbeat and set a period (or 0 to accept that)." },
   { value: "heartbeat", label: "Heartbeat (recommended)",
     help: "The slave sends a heartbeat every period. The master marks it lost when none arrives within the timeout." },
   { value: "guarding", label: "Node guarding",
@@ -2881,6 +2909,9 @@ function supervisionFields(i) {
   // A node the master would never see lost (no heartbeat_ms, no guarding, EDS
   // heartbeat 0) is refused on its heartbeat_ms: shown under Method.
   if (mode !== "heartbeat") out.push(el("span", { class: "field-msg wide", dataset: { for: base + ".heartbeat_ms" } }));
+  if (S.addedSupervision && S.addedSupervision.has(`${S.net}|${num(n.node_id)}`) && mode !== "none")
+    out.push(el("span", { class: "hint wide", dataset: { supervisionAdded: "1" } },
+      "Set when the node was added: its EDS heartbeat default is 0, so the node would not be supervised."));
   out.push(heartbeatWatchFields(i));
   return out;
 }
@@ -7041,6 +7072,7 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
   if (lss && !noLss) node.lss = { assign: true };
   if (stay) {
     const net = onlineConfig();
+    superviseNewNode(node, res.summary, S.model.networks.indexOf(net));
     net.nodes = net.nodes || [];
     net.nodes.push(node);
     banner(el("div", null, el("div", null, `Added node ${d.node_id} (${res.name}) to the config. Save to keep it; map its PDOs in Configure. `,
@@ -7050,6 +7082,7 @@ async function addScannedNode(d, match, file, identity, lss, stay, imported) {
     return true;
   }
   S.config.nodes = S.config.nodes || [];
+  superviseNewNode(node, res.summary, S.net);
   S.config.nodes.push(node);
   // The new node's page opens; after LSS, with a way back to the online view.
   S.view = "node:" + (S.config.nodes.length - 1);
@@ -7092,7 +7125,9 @@ async function addNodeFromEds(file) {
   while (used.has(id) && id < 127) id++;
   const stem = res.name.replace(/\.eds$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase();
   S.config.nodes = S.config.nodes || [];
-  S.config.nodes.push({ node_id: id, name: stem, eds: res.name });
+  const node = { node_id: id, name: stem, eds: res.name };
+  superviseNewNode(node, res.summary, S.net);
+  S.config.nodes.push(node);
   S.view = "node:" + (S.config.nodes.length - 1);
   S.focusName = S.config.nodes.length - 1;
   banner(importReport(res), "info");
@@ -7353,6 +7388,7 @@ async function exportHtml() {
 // import_canworks.py in one zip. Problems go to the Problems pane, and
 // nothing is downloaded.
 async function exportCodesys() {
+  if (handoffRefused(document.querySelector("[data-codesys-download]"))) return;
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/export_codesys", { config: cfg });
@@ -7473,6 +7509,30 @@ function exportStopped(label, r, cfg) {
   openProblems();
 }
 
+// The errors that stop a hand-off step (spec "Hand-off steps need a config
+// without errors"): the check's errors and the warnings it marks as
+// stopping a hand-off (a network without nodes). Allowed overlaps are
+// warnings, so they do not count.
+function handoffErrors() {
+  return ((S.check && S.check.items) || []).filter((it) => it.level === "error" || it.handoff).length;
+}
+
+// Refuses a hand-off step while the config has errors: one line next to
+// `control` (or the message bar without one) naming the count, with a link
+// that opens Problems. Returns whether it refused.
+function handoffRefused(control, count) {
+  const n = count ?? handoffErrors();
+  const box = control && (control.closest(".toolbar") || control.parentElement);
+  const old = box && box.parentElement && box.parentElement.querySelector(":scope > [data-handoff-refused]");
+  if (!n) { if (old) old.remove(); return false; }
+  const text = `The saved config has ${counted(n, "error", "errors")}: fix ${n === 1 ? "it" : "them"} first.`;
+  const link = () => el("button", { type: "button", class: "link", dataset: { openProblems: "1" }, onclick: openProblems }, "Open Problems");
+  if (!box) { banner(el("span", { dataset: { handoffRefused: "1" } }, text + " ", link()), true); return true; }
+  const line = el("p", { class: "field-msg handoff-msg", role: "alert", dataset: { handoffRefused: "1" } }, text + " ", link());
+  if (old) old.replaceWith(line); else box.after(line);
+  return true;
+}
+
 // Opens the Problems panel and brings it into view.
 function openProblems() {
   const box = $("#problems-box");
@@ -7530,6 +7590,8 @@ function applyCheck() {
     const where = it.where || (it.paths || []).map((p) => ({ net: S.net, path: p }));
     const li = el("li", { class: it.level }, el("button", { type: "button", title: it.message,
       onclick: () => focusPath(where[0]) }, Icons.stateIcon(it.level === "error" ? "error" : "warning", { label: false }), problemText(it, where[0])));
+    const fixes = problemFixes(it, where[0]);
+    if (fixes.length) li.append(el("span", { class: "problem-fixes", dataset: { problemFixes: "1" } }, ...fixes));
     list.append(li);
     for (const w of where) {
       // Fields of another network's tab are not on the page.
@@ -7635,9 +7697,16 @@ function fieldText(it, first, w) {
 // when the draft has several.
 const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device.";
 
+// The plugin's refusal of a node without supervision (contract.supervision_message).
+const NO_SUPERVISION = /has no heartbeat or guarding \(its EDS heartbeat 0x1017 defaults to 0\)/;
+
 function problemText(it, w) {
   const where = placeOf(w);
   if (/field 'nodes' lists no slave nodes/.test(it.message)) return where.length ? `${where.join(", ")}: ${NO_NODES_TEXT}` : NO_NODES_TEXT;
+  if (NO_SUPERVISION.test(it.message)) {
+    const text = "has no heartbeat or guarding, so its loss would never be detected. Set the heartbeat period on Supervision.";
+    return where.length ? `${where.join(", ")} ${text}` : upperFirst(text);
+  }
   let text = readable(it.message);
   if (!where.length) return text;
   const obj = /^(0x[0-9A-Fa-f]+:\d+): /.exec(text);
@@ -7646,6 +7715,54 @@ function problemText(it, w) {
     text = text.slice(obj[0].length);
   }
   return `${where.join(", ")}: ${text}`;
+}
+
+// The buttons that fix a problem in one step (spec "Quick fixes in
+// Problems"): each is one undo step.
+function problemFixes(it, w) {
+  if (!w || !NO_SUPERVISION.test(it.message)) return [];
+  const m = /^nodes\[(\d+)\]/.exec(w.path || "");
+  if (!m) return [];
+  const net = w.net === null || w.net === undefined ? S.net : w.net;
+  const i = Number(m[1]);
+  const node = () => ((S.model.networks[net] || {}).nodes || [])[i];
+  const n = node();
+  if (!n) return [];
+  const fix = (label, key, apply) => el("button", { type: "button", class: "small", dataset: { problemFix: key }, onclick: () => {
+    const target = node();
+    if (!target) return;
+    if (net !== S.net) openNet(net);
+    apply(target);
+    S.supervision = {};
+    changed(true);
+  } }, label);
+  const kind = newNodeSupervision(edsFor(n));
+  return [
+    kind === "guarding"
+      ? fix("Use guarding", "guarding", (t) => { t.guard_time_ms = 1000; t.life_time_factor = 3; })
+      : fix("Use heartbeat 1000 ms", "heartbeat", (t) => { t.heartbeat_ms = 1000; }),
+    fix("Accept no supervision", "none", (t) => { t.heartbeat_ms = 0; }),
+  ];
+}
+
+// A new node whose EDS heartbeat default is 0 would be unsupervised: it
+// gets a heartbeat (or guarding) from the start, and Supervision says so.
+function superviseNewNode(node, eds, net) {
+  const hb = edsDefault(eds, 0x1017, 0);
+  const kind = hb === 0 || hb === null ? newNodeSupervision(eds) : null;
+  if (kind === "heartbeat") node.heartbeat_ms = 1000;
+  if (kind === "guarding") { node.guard_time_ms = 1000; node.life_time_factor = 3; }
+  if (kind) (S.addedSupervision = S.addedSupervision || new Set()).add(`${net}|${num(node.node_id)}`);
+}
+
+// The supervision a node added from `eds` gets when its EDS heartbeat
+// default is 0 (spec "Supervision of a new node"): "heartbeat" when 0x1017
+// is writable, "guarding" when 0x100C and 0x100D are, else null.
+function newNodeSupervision(eds) {
+  const writable = (ix) => { const o = objectInfo(eds, ix, 0); return !!(o && o.writable); };
+  if (writable("0x1017")) return "heartbeat";
+  if (writable("0x100C") && writable("0x100D")) return "guarding";
+  return null;
 }
 
 // Where a check path ({ net, path }) is, in the page's words:
@@ -7799,11 +7916,12 @@ function focusNear(ctl) {
 function updateSave() {
   const btn = $("#btn-save");
   if (btn.dataset.busy) return;
-  const errors = S.check ? S.check.errors : 0;
-  const allowed = !$("#overlap-box").hidden && $("#allow-overlap").checked;
-  btn.disabled = errors > 0 || !S.dirty;
-  btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in Problems` : S.dirty ? "" : "No unsaved changes";
-  btn.textContent = allowed && S.dirty ? "Save (overlaps allowed)" : (S.dirty ? "Save" : "Saved");
+  // Save always saves: errors are listed in Problems and refused by the
+  // steps that hand the config over, not here.
+  const n = S.check ? (S.check.items || []).length : 0;
+  btn.disabled = !S.dirty;
+  btn.title = S.dirty ? "" : n ? `No unsaved changes; ${counted(n, "problem", "problems")} in Problems` : "No unsaved changes";
+  btn.textContent = S.dirty ? "Save" : n ? `Saved, ${counted(n, "problem", "problems")}` : "Saved";
   const mark = document.querySelector("[data-unsaved]");
   if (mark) mark.hidden = !S.dirty;
 }
@@ -7822,7 +7940,8 @@ async function save(overwrite) {
     // Settings the target does not use are left out (canopen-configurator
     // "Settings the target does not use are left out on save").
     const left = r.left_out ? ` (${r.left_out} setting${r.left_out === 1 ? "" : "s"} ${TARGET_LABEL[projectTarget()]} does not use left out)` : "";
-    banner("Saved " + r.written.join(", ") + left);
+    if (r.errors) banner(`Saved with ${counted(r.errors, "error", "errors")}: ${TARGET_RUNNER[projectTarget()]} refuses this config until ${r.errors === 1 ? "it is" : "they are"} fixed. See Problems.`, "warning");
+    else banner("Saved " + r.written.join(", ") + left);
     runCheck();
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {
@@ -7830,10 +7949,6 @@ async function save(overwrite) {
         [["cancel", "Cancel"], ["reload", "Reload from disk"], ["overwrite", "Overwrite it", { danger: true }]]);
       if (v === "overwrite") return save(true);
       if (v === "reload") return reload(true);
-    } else if (e.status === 422 && e.body.check) {
-      S.check = exportProblems(e.body.check, cfg);
-      applyCheck();
-      banner(e.message, true);
     } else {
       banner(e.message, true);
     }

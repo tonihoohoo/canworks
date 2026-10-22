@@ -17,6 +17,8 @@ const TARGET_CHOICES = [
 ];
 const TARGET_TITLE = { openplc: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
 const TARGET_LABEL = { openplc: "OpenPLC", bridge: "the Modbus bridge", codesys: "CODESYS" };
+// What refuses a config with errors, per target (a save with errors says so).
+const TARGET_RUNNER = { openplc: "the runtime", bridge: "the bridge", codesys: "the CODESYS build" };
 // The top-level `codesys` keys; the network's own are net_id and interface.
 const CODESYS_TOP_KEYS = ["project", "device", "create", "variables"];
 
@@ -430,7 +432,9 @@ async function codesysBuild() {
     if (v !== "save") return;
     await save();
     if (S.dirty) return;
+    await runCheck();
   }
+  if (handoffRefused(document.querySelector("[data-codesys-build]"))) return;
   let r;
   try {
     r = await api("POST", "/api/codesys/build", {});

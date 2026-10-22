@@ -225,7 +225,7 @@ class EdsLimits(OnlineBase):
         self.assertTrue(pg.evaluate("() => document.querySelector('[data-emcy-limit]').previousElementSibling.tagName === 'LEGEND'"))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertIn("'emcy_code_location' needs an EDS with the EMCY COB-ID (0x1014)", pg.inner_text("#problem-list"))
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
         pg.click("[data-emcy-remove]")
         self.assertEqual(pg.evaluate("() => ['emcy_code_location', 'emcy_cob_id'].filter((k) => k in S.config.nodes[0])"), [])
         self.assertEqual(pg.get_attribute("[data-emcy-limit]", "class"), "hint")

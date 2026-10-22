@@ -231,12 +231,12 @@ class Probes(Layout):
         self.fill_path("nodes[2].name", "rtd2")
         pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')  # the tree follows the field
         tree_view(pg, "bus")
-        pg.wait_for_selector("#btn-save:has-text('Save')")  # the config's errors keep it disabled
-        self.assertIn("errors in Problems", pg.get_attribute("#btn-save", "title"))
+        pg.wait_for_selector("#btn-save:has-text('Save')")
+        self.assertFalse(pg.is_disabled("#btn-save"))  # save-anytime: errors do not stop Save
         pg.keyboard.press("Control+z")
         pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd")')
         self.assertEqual(pg.input_value('input[data-path="nodes[2].name"]'), "rtd")
-        self.assertEqual(pg.inner_text("#btn-save"), "Saved")
+        self.assertTrue(pg.inner_text("#btn-save").startswith("Saved"))
         self.assertTrue(pg.is_disabled("#btn-save"))
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_selector('#tree [data-key="0:node:2"] .name:text-is("5 rtd2")')
@@ -256,7 +256,7 @@ class Probes(Layout):
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_timeout(300)
         self.assertEqual(pg.inner_text('#tree [data-key="0:node:2"] .name').strip(), "5 rtd")
-        self.assertEqual(pg.inner_text("#btn-save"), "Saved")
+        self.assertTrue(pg.inner_text("#btn-save").startswith("Saved"))
 
     # -- 2.3 pre-operational asks; 5.3 stale values ---------------------------
     def test_preoperational_asks_and_values_go_stale(self):
@@ -572,7 +572,7 @@ class Probes(Layout):
         self.assertEqual(pg.inner_text("#problem-list").strip(), NO_NODES)
         self.assertEqual(pg.inner_text("#problem-count"), "1 problem")
         self.assertNotIn(self.dir, pg.inner_text("#problems") + pg.inner_text("#view"))
-        self.assertEqual(pg.inner_text("#btn-save"), "Saved")
+        self.assertEqual(pg.inner_text("#btn-save"), "Saved, 1 problem")
 
     # -- 5.2 busy states ------------------------------------------------------
     def test_double_click_on_save_saves_once(self):
@@ -596,7 +596,7 @@ class Probes(Layout):
         self.assertTrue(pg.is_disabled("#btn-save"))
         pg.wait_for_selector("#banner:has-text('Saved')")
         self.assertEqual(pg.evaluate("() => window.saves"), 1)
-        self.assertEqual(pg.inner_text("#btn-save"), "Saved")
+        self.assertTrue(pg.inner_text("#btn-save").startswith("Saved"))
         self.assertEqual(load(self.config_path)["nodes"][0]["name"], "pong")
 
     # -- 5.4 labels -----------------------------------------------------------

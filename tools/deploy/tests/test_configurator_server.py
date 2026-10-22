@@ -526,11 +526,12 @@ class CheckAndSave(Running):
 
     def test_overlap_with_project(self):
         self.cfg["nodes"][0]["status_location"] = "%IX0.0"  # the pin mapping's input
-        status, data, _ = self.request("POST", "/api/save", {"config": self.cfg})
-        self.assertEqual(status, 422)
+        # save-anytime: saved with the error, which the check lists.
+        data = self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertEqual(data["errors"], 1)
         [item] = [i for i in data["check"]["items"] if i.get("overlap")]
         self.assertIn("devices/pin-mapping.json", item["message"])
-        self.assertFalse(os.path.exists(self.canopen))
+        self.assertTrue(os.path.isfile(os.path.join(self.canopen, "canworks.json")))
         # Allowed, the overlap stays listed (as a warning) next to the override.
         allowed = self.ok("POST", "/api/check", {"config": self.cfg, "allow_overlap": True})
         [item] = [i for i in allowed["items"] if i.get("overlap_allowed")]
@@ -779,15 +780,17 @@ class CheckAndSave(Running):
         self.assertIn("is the master's node ID", "\n".join(i["message"] for i in data["items"]))
         self.assertEqual(self.request("POST", "/api/export_html", {"config": []})[0], 400)
 
-    def test_invalid_config_not_saved(self):
+    def test_invalid_config_saved_with_its_errors(self):
+        """save-anytime: a draft with errors is written; the reply counts them."""
         self.cfg["nodes"].append(dict(rtd_node(), status_location="%IX10.1",
                                       tx_pdos=[{"entries": [dict(e, iec_location="%%IW%d" % (110 + k)) for k, e in
                                                             enumerate(rtd_node()["tx_pdos"][0]["entries"])]}]))
-        status, data, _ = self.request("POST", "/api/save", {"config": self.cfg})
-        self.assertEqual(status, 422)
+        data = self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertGreaterEqual(data["errors"], 1)
         dup = [i for i in data["check"]["items"] if "more than one slave" in i["message"]][0]
         self.assertEqual(dup["paths"], ["nodes[0].node_id", "nodes[1].node_id"])
-        self.assertFalse(os.path.exists(self.canopen))
+        saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
+        self.assertEqual(len(saved["nodes"]), 2)
 
     def test_unknown_fields_kept(self):
         self.cfg["x_note"] = {"by": "hand"}
@@ -830,11 +833,12 @@ class CheckAndSave(Running):
         self.assertEqual(saved["nodes"][0]["sdo"][0],
                          {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"})
         # A read-only object and an out-of-range value are refused.
+        # A read-only object and an out-of-range value are errors (saved, listed).
         self.cfg["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
-        self.assertEqual(self.request("POST", "/api/save", {"config": self.cfg})[0], 422)
+        self.assertEqual(self.ok("POST", "/api/check", {"config": self.cfg})["errors"], 1)
         self.cfg["nodes"][0]["sdo"] = [{"index": "0x6112", "subindex": 1, "type": "UNSIGNED8", "value": 300}]
-        status, data, _ = self.request("POST", "/api/save", {"config": self.cfg})
-        self.assertEqual(status, 422)
+        data = self.ok("POST", "/api/save", {"config": self.cfg})
+        self.assertEqual(data["errors"], 1)
         self.assertEqual(data["check"]["items"][0]["paths"], ["nodes[0].sdo[0].value"])
 
     def test_deploy_tool_accepts_the_result(self):
@@ -1408,7 +1412,16 @@ class Folders(Running):
         state = self.ok("GET", "/api/state")
         self.assertIn("openplc_cli", state)
         folder = os.path.join(self.dir, "fresh")
-        self.assertEqual(self.ok("POST", "/api/new", {"path": folder})["mode"], "standalone")
+        state = self.ok("POST", "/api/new", {"path": folder})
+        self.assertEqual(state["mode"], "standalone")
+        # save-anytime: Create writes the empty config; a reload shows it saved.
+        self.assertTrue(state["config_exists"])
+        self.assertEqual(json.loads(read(os.path.join(folder, "canworks.json")))["nodes"], [])
+        bridge = os.path.join(self.dir, "fresh-bridge")
+        state = self.ok("POST", "/api/new", {"path": bridge, "target": "bridge"})
+        self.assertIn("bridge", json.loads(read(os.path.join(bridge, "canworks.json"))))
+        self.assertIn("bridge", self.ok("POST", "/api/reload")["config"])
+        self.assertEqual(self.request("POST", "/api/new", {"path": bridge + "-x", "target": "plc"})[0], 400)
         status, data, _ = self.request("POST", "/api/new", {"path": self.standalone()})
         self.assertEqual(status, 409)
         self.assertTrue(data["has_config"])
@@ -1422,7 +1435,7 @@ class Folders(Running):
         state = self.ok("POST", "/api/new", {"path": machine, "editor_project": True})
         self.assertEqual(state["mode"], "project")
         self.assertTrue(os.path.isfile(os.path.join(machine, "project.json")))
-        self.assertFalse(os.path.exists(os.path.join(machine, "canworks")))
+        self.assertTrue(os.path.isfile(os.path.join(machine, "canworks", "canworks.json")))
         status, data, _ = self.request("POST", "/api/new", {"path": machine + "-x", "editor_project": True})
         self.assertEqual(status, 200)
         status, data, _ = self.request("POST", "/api/new", {"path": self.dir, "editor_project": True})

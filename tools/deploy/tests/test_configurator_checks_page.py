@@ -116,7 +116,7 @@ class ChecksPage(unittest.TestCase):
         self.show(path).fill(text)
         self.settled()
 
-    def test_missing_interface_disables_save(self):
+    def test_missing_interface_is_an_error(self):
         pg = self.page
         self.open(self.config())
         add_network(pg)
@@ -124,7 +124,8 @@ class ChecksPage(unittest.TestCase):
         self.assertEqual(pg.input_value('input[data-path="adapter.interface"]'), "")
         self.assertIn("CAN adapter: the CAN interface is missing", "\n".join(self.problems()))
         self.assertEqual(self.field_msg("adapter.interface"), "the CAN interface is missing")
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        # save-anytime: Save stays open; the error stops the hand-off steps.
+        self.assertFalse(pg.is_disabled("#btn-save"))
         self.type("adapter.interface", "vcan1")
         self.assertNotIn("CAN interface is missing", "\n".join(self.problems()))
 
@@ -135,7 +136,7 @@ class ChecksPage(unittest.TestCase):
         for text in ("0x80", "128"):
             self.type("nodes[0].node_id", text)
             self.assertEqual(self.field_msg("nodes[0].node_id"), "node ID must be 1 to 127", text)
-            self.assertTrue(pg.is_disabled("#btn-save"))
+            self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
         self.type("nodes[0].node_id", "0x2")
         self.assertEqual(self.field_msg("nodes[0].node_id"), "")
         for text in ("0x10000", "65536"):
@@ -145,7 +146,7 @@ class ChecksPage(unittest.TestCase):
         self.type("nodes[0].heartbeat_timeout_ms", "50")
         self.assertIn("the heartbeat timeout (50 ms) must not be shorter than the heartbeat period (100 ms)",
                       self.field_msg("nodes[0].heartbeat_timeout_ms"))
-        self.assertTrue(pg.is_disabled("#btn-save"))
+        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
 
     def test_duplicate_cob_id_marks_both_pdos(self):
         pg = self.page

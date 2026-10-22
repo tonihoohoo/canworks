@@ -327,7 +327,9 @@ class NewCodesysConfig(OnlineBase):
         cfg = pg.evaluate("() => fileConfig()")
         self.assertEqual((cfg["schema_version"], cfg["codesys"]), (2, {}))
         self.assertNotIn("type", cfg["networks"][0]["adapter"])
-        self.assertTrue(pg.evaluate("() => S.dirty"))
+        # save-anytime: Create wrote it, so the page opens it saved.
+        self.assertFalse(pg.evaluate("() => S.dirty"))
+        self.assertEqual(load(os.path.join(folder, "canworks.json"))["codesys"], {})
 
 
 if __name__ == "__main__":
