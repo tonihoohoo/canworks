@@ -6,8 +6,8 @@
   release_version.py --package           print the package version (pyproject.toml
                                          and __version__ must agree)
   release_version.py --decide CI PC      release, wait or refuse, from the
-                                         `gh run list --json status,conclusion`
-                                         output files of CI and PC tools on a commit
+                                         run lists (status, conclusion, newest
+                                         first) of CI and PC tools on a commit
   release_version.py --superseded A B    exit 0 if version B is newer than A
   release_version.py --previous-tag V    read tags on stdin, print the newest
                                          deploy-v tag older than V (or nothing)
@@ -63,7 +63,7 @@ def version_key(version):
 
 
 def run_state(runs):
-    """none, pending, success or failure for the newest run in a `gh run list` result."""
+    """none, pending, success or failure for the newest run in a list of runs (newest first)."""
     if not runs:
         return "none"
     run = runs[0]

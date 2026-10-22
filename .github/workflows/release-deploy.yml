@@ -114,8 +114,14 @@ jobs:
             go false; exit 0
           fi
 
-          gh run list --commit "$SHA" --workflow ci.yml --event push --json status,conclusion --limit 1 > ci.json
-          gh run list --commit "$SHA" --workflow pc-tools.yml --event push --json status,conclusion --limit 1 > pc.json
+          # The repository-wide runs list: the per-workflow one (gh run list
+          # --workflow) now and then answers [] for a run that exists, which
+          # refused releases whose checks had passed.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&event=push&per_page=100" > runs.json
+          for wf in ci pc-tools; do
+            jq "[.workflow_runs[] | select(.path == \".github/workflows/$wf.yml\") | {status, conclusion}]" runs.json > "$wf.json"
+          done
+          mv pc-tools.json pc.json
           decision=$(python3 scripts/release_version.py --decide ci.json pc.json)
           echo "CI: $(cat ci.json)  PC tools: $(cat pc.json)  -> $decision"
           case "$decision" in
