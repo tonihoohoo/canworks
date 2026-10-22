@@ -2604,6 +2604,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _deny(self, why):
+        # Read the unread request body first: Windows resets a connection
+        # closed with unread data, and the client then sees no 403 at all.
+        length = int(self.headers.get("Content-Length") or 0)
+        if 0 < length <= MAX_BODY:
+            self.rfile.read(length)
         self._send(403, {"error": why})
 
     def do_GET(self):
