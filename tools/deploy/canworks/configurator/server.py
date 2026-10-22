@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, nodered, targets
+from .. import bundle, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -345,6 +345,21 @@ def version2(cfg):
     if isinstance(ref, str) and ref.endswith(SCHEMA_FILE % 1):
         out["$schema"] = ref[:-len(SCHEMA_FILE % 1)] + SCHEMA_FILE % 2
     return dict({"$schema": out.pop("$schema")} if "$schema" in out else {}, schema_version=2, networks=[net], **out)
+
+
+def openplc_bridge(cfg):
+    """The `bridge` object of a new OpenPLC through Modbus config: the
+    control block, the SDO registers (writes allowed: only the runtime on
+    127.0.0.1 may write) and a live list per named CANopen master network,
+    so the canworks blocks work. Packing places them."""
+    out = {"openplc": {}, "control_location": "%QB0",
+           "sdo_bridge_location": {"request": "%QB0", "response": "%IB0"}, "sdo_bridge_write": True}
+    lists = [{"network": n["name"], "location": "%IB0"} for n in cfg.get("networks") or []
+             if isinstance(n, dict) and isinstance(n.get("name"), str) and n.get("role", "master") == "master"
+             and n.get("protocol", "canopen") == "canopen"]
+    if lists:
+        out["live_lists"] = lists
+    return out
 
 
 def _at(cfg, path):
@@ -755,6 +770,13 @@ class Session:
             raise ApiError(422, str(e))
         self.open(path, "project")
         self._write_new(target)
+        if target == targets.OPENPLC_MODBUS:
+            cfg = self.read_config()[0]
+            try:
+                self.sync_openplc(cfg, force=True)
+            except OSError as e:
+                raise folder_error(e, "write to", self.folder)
+            self.rescan()
 
     def _write_new(self, target):
         """Writes the empty config of `target` (default OpenPLC) into the
@@ -1099,6 +1121,7 @@ class Session:
             "unused_eds": [n for n in names if n not in referenced and n not in self.pending],
             "slave_descriptions": self.slave_descriptions(names),
             "project_uses": [u.as_dict() for u in self.uses], "scan_problems": self.scan_problems,
+            "openplc": self.openplc_info(cfg) if isinstance(cfg, dict) else None,
             "scanned_at": self.scanned_at,
             "simulation": {k: sim[k] for k in ("path", "exists", "doc", "error")},
             "sim_eds": sim_eds + [n for n in self.pending if n not in sim_eds],
@@ -1377,6 +1400,8 @@ class Session:
         # A bridge or CODESYS config does not run in OpenPLC: the project's addresses are not its addresses.
         tgt = targets.target(cfg)
         extra, declared = layout.project_checks(cfg, self.uses if tgt == targets.OPENPLC else [], allow_overlap)
+        if tgt == targets.OPENPLC_MODBUS and self.mode == "project":
+            items += self.openplc_items(cfg)
         items += extra
         # A cyclic axis's fCycleTime line: the task interval the page gives.
         cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
@@ -1487,6 +1512,8 @@ class Session:
                     adapter.setdefault("interface", "can%d" % k)
         if target == targets.BRIDGE:
             out["bridge"] = {"listen": "0.0.0.0:502", "writers": []}
+        elif target == targets.OPENPLC_MODBUS:
+            out["bridge"] = openplc_bridge(out)
         elif target == targets.CODESYS:
             out["codesys"] = {}
         located = 0
@@ -1494,13 +1521,13 @@ class Session:
             located = place_entries(out)
         if target == targets.OPENPLC:
             located += place_bits(out)
-        elif target == targets.BRIDGE:
+        elif target in targets.BRIDGES:
             located += place_entries(out, rx_bits=True)
         gone = [p for p, k, _ in targets.unused(out, target) if targets.removable(k)]
         targets.remove(out, gone)
         if target != targets.CODESYS:
             try:
-                out = modbusmap.pack(out) if target == targets.BRIDGE else self.pack_openplc(out)["config"]
+                out = modbusmap.pack(out) if target in targets.BRIDGES else self.pack_openplc(out)["config"]
             except modbusmap.MapError as e:
                 raise ApiError(400, str(e))
         if target == targets.OPENPLC:
@@ -2023,8 +2050,65 @@ class Session:
             nxt[(loc.area, loc.size)] = element + 1
         return {"config": out}
 
+    # -- OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on save") --
+    def openplc_info(self, cfg):
+        """The Project page's facts of an OpenPLC through Modbus config: the
+        remote device's name, poll and port, the map hash, the requests per
+        poll and its warning, the %IW/%QW base; None when the map cannot be
+        made (the check says why)."""
+        if targets.target(cfg) != targets.OPENPLC_MODBUS:
+            return None
+        try:
+            s = openplcmodbus.settings(cfg)
+            groups, _ = openplcmodbus.layout(cfg, [], 0)
+            base = s["iec_base"]
+            if base is None and self.mode == "project":
+                base = openplcmodbus.free_iec_base(cfg, [], self.uses)
+        except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
+            return None
+        return {"remote_device": s["remote_device"], "poll_ms": s["poll_ms"], "port": s["port"],
+                "watchdog_ms": s["watchdog_ms"], "map_hash": "0x%08x" % modbusmap.map_hash(cfg),
+                "requests": openplcmodbus.request_count(groups), "warning": openplcmodbus.budget_warning(groups),
+                "iec_base": base, "files": openplcmodbus.own_files(cfg)}
+
+    def openplc_items(self, cfg):
+        info = self.openplc_info(cfg)
+        if not info or not info["warning"]:
+            return []
+        return [{"level": "warning", "message": info["warning"], "paths": ["bridge.openplc.poll_ms"]}]
+
+    def sync_openplc(self, cfg, force=False):
+        """Writes the editor's remote device, canworks_in, canworks_out and
+        the `canworks` list into the open project for a saved OpenPLC
+        through Modbus config; 409 with `editor_changed` when one of those
+        files was changed outside canworks and `force` is not set."""
+        decls = editorproject.declarations(cfg, self.config_path)
+        try:
+            return openplcmodbus.sync_project(self.folder, cfg, decls, self.uses, force=force)
+        except openplcmodbus.ChangedFiles as e:
+            raise ApiError(409, "changed outside canworks: %s" % ", ".join(e.files), editor_changed=e.files)
+        except openplcmodbus.OpenplcError as e:
+            raise ApiError(422, str(e))
+
+    def openplc_check(self, cfg):
+        """The 409 of sync_openplc before anything is written."""
+        try:
+            decls = editorproject.declarations(cfg, self.config_path)
+            base = openplcmodbus.settings(cfg)["iec_base"]
+            if base is None:
+                base = openplcmodbus.free_iec_base(cfg, decls, self.uses)
+            in_st, out_st = openplcmodbus.programs(cfg, decls, base)
+            rel = openplcmodbus.own_files(cfg)
+            texts = {rel[0]: openplcmodbus.remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
+        except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError,
+                OSError):
+            return  # a config the check refuses: nothing is written for it
+        changed = openplcmodbus.changed_files(self.folder, cfg, texts)
+        if changed:
+            raise ApiError(409, "changed outside canworks: %s" % ", ".join(changed), editor_changed=changed)
+
     # -- save ---------------------------------------------------------------
-    def save(self, cfg, allow_overlap=False, overwrite=False, notes=None):
+    def save(self, cfg, allow_overlap=False, overwrite=False, notes=None, editor_overwrite=False):
         """Writes the draft; settings the target does not use are left out
         (spec "Settings the target does not use are left out on save") and
         counted in `left_out`."""
@@ -2040,12 +2124,25 @@ class Session:
         checked = self.check(cfg, allow_overlap, notes=notes)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
+        openplc = self.mode == "project" and targets.target(cfg) == targets.OPENPLC_MODBUS
+        if openplc and not checked["errors"] and not editor_overwrite:
+            self.openplc_check(cfg)
         try:
             out = self._save(cfg, checked, notes)
         except OSError as e:
             raise folder_error(e, "write to", self.canopen_dir)
         out["left_out"] = left_out
         out["errors"] = checked["errors"]
+        if openplc and not checked["errors"]:
+            # The editor's files follow the saved config (spec "OpenPLC remote device on save").
+            try:
+                out["editor"] = self.sync_openplc(cfg, force=True)
+            except OSError as e:
+                raise folder_error(e, "write to", self.folder)
+            out["written"] += out["editor"]["written"]
+            self.rescan()
+        elif openplc:
+            out["editor"] = {"skipped": True}
         return out
 
     def _save(self, cfg, checked, notes=None):
@@ -2931,7 +3028,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
                     out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")),
-                                 body.get("notes"))
+                                 body.get("notes"), bool(body.get("editor_overwrite")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/move"):
                     self._need_open(s)

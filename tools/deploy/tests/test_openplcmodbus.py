@@ -207,7 +207,7 @@ class Programs(unittest.TestCase):
         self.assertTrue(all(i["task"] == "main_task" for i in openplcmodbus.instances(resource)))
 
 
-class WriteProject(unittest.TestCase):
+class SyncProject(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         self.project = os.path.join(self.dir, "p")
@@ -218,11 +218,15 @@ class WriteProject(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def test_programs_and_list(self):
-        written = openplcmodbus.write_programs(self.project, self.cfg, self.decls)
-        self.assertEqual(len(written), 3)
+    def data(self):
         with open(os.path.join(self.project, "project.json"), encoding="utf-8") as f:
-            data = json.load(f)["data"]
+            return json.load(f)["data"]
+
+    def test_writes_everything(self):
+        r = openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        self.assertEqual(r["requests"], 5)
+        self.assertEqual(r["iec_base"], 100)
+        data = self.data()
         self.assertEqual([l["name"] for l in data["globalVariableLists"]], ["canworks"])
         self.assertEqual([i["program"] for i in data["configuration"]["resource"]["instances"]],
                          ["canworks_in", "main", "canworks_out"])
@@ -231,19 +235,39 @@ class WriteProject(unittest.TestCase):
                          ["ai_spare", "run_lamp"])
         for name in ("canworks_in", "canworks_out"):
             self.assertTrue(os.path.isfile(os.path.join(self.project, "pous", "programs", name + ".st")))
-        # again: still one list and one instance each
-        openplcmodbus.write_programs(self.project, self.cfg, self.decls)
-        with open(os.path.join(self.project, "project.json"), encoding="utf-8") as f:
-            data = json.load(f)["data"]
+        remote = os.path.join(self.project, "devices", "remote")
+        self.assertEqual(sorted(os.listdir(remote)), ["canworks.json", "ecat-bus.json", "io-rack.json"])
+        with open(os.path.join(remote, "canworks.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), openplcmodbus.remote_device(self.cfg, self.decls, 100))
+        # again: still one list and one instance each, nothing reported as changed
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        data = self.data()
         self.assertEqual(len(data["globalVariableLists"]), 1)
         self.assertEqual(len(data["configuration"]["resource"]["instances"]), 3)
 
-    def test_remote_device_beside_the_others(self):
-        path = openplcmodbus.write_remote_device(self.project, self.cfg, self.decls)
-        self.assertEqual(path, os.path.join(self.project, "devices", "remote", "canworks.json"))
-        self.assertEqual(sorted(os.listdir(os.path.dirname(path))), ["canworks.json", "ecat-bus.json", "io-rack.json"])
+    def test_changed_file_needs_force(self):
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        path = os.path.join(self.project, "pous", "programs", "canworks_out.st")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("(* edited *)\n")
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["openplc"]["poll_ms"] = 20
+        with self.assertRaises(openplcmodbus.ChangedFiles) as e:
+            openplcmodbus.sync_project(self.project, cfg, self.decls)
+        self.assertEqual(e.exception.files, ["pous/programs/canworks_out.st"])
+        openplcmodbus.sync_project(self.project, cfg, self.decls, force=True)
         with open(path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f), openplcmodbus.remote_device(self.cfg, self.decls))
+            self.assertNotIn("edited", f.read())
+
+    def test_free_base(self):
+        from canworks.configurator import scan
+        uses, _ = scan.scan(self.project)
+        # the fixture's ai_spare takes %IW120: 33 input words from 100 would cross it
+        self.assertEqual(openplcmodbus.free_iec_base(self.cfg, self.decls, uses), 121)
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["openplc"]["iec_base"] = 500
+        r = openplcmodbus.sync_project(self.project, cfg, self.decls, uses)
+        self.assertEqual(r["iec_base"], 500)
 
 
 if __name__ == "__main__":

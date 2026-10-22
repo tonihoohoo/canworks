@@ -18,6 +18,7 @@ words are declared only inside the two programs, so a program sees names and
 types. See the modbus-bridge-map and canopen-editor-project specs.
 """
 
+import hashlib
 import json
 import os
 import uuid
@@ -460,6 +461,107 @@ def global_list(decls):
 
 # -- Writing into an editor project -------------------------------------------------
 
+# What canworks last wrote into the project: {relative path: sha256}, so a
+# file someone else changed is replaced only after a confirm.
+STAMP = os.path.join("canworks", ".openplc-files.json")
+
+
+class ChangedFiles(Exception):
+    """Files canworks writes were changed by someone else since it wrote them."""
+
+    def __init__(self, files):
+        super().__init__("changed outside canworks: " + ", ".join(files))
+        self.files = files
+
+
+def own_files(cfg):
+    """The project files canworks writes, relative, with /."""
+    return ["devices/remote/%s.json" % settings(cfg)["remote_device"],
+            "pous/programs/%s.st" % IN_PROGRAM, "pous/programs/%s.st" % OUT_PROGRAM]
+
+
+def free_iec_base(cfg, decls, uses):
+    """The lowest %IW/%QW index from 100 on where every point of the remote
+    device fits without a location another part of the project uses (scan
+    uses, canworks' own files left out)."""
+    groups, _ = layout(cfg, decls, 0)
+    n = {"I": sum(g.count for g in groups if g.area == "I"), "Q": sum(g.count for g in groups if g.area == "Q")}
+    mine = set(own_files(cfg))
+    taken = {(u.loc.area, u.loc.element) for u in uses
+             if u.loc.size == "W" and u.loc.area in "IQ" and u.file not in mine}
+    base = DEFAULT_IEC_BASE
+    while any((a, base + k) in taken for a in "IQ" for k in range(n[a])):
+        base += 1
+    return base
+
+
+def _sha(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _stamps(project_dir):
+    try:
+        with open(os.path.join(project_dir, STAMP), encoding="utf-8") as f:
+            doc = json.load(f)
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def changed_files(project_dir, cfg, texts):
+    """Own files that exist, are not what canworks last wrote there and are
+    not what it would write now."""
+    stamps = _stamps(project_dir)
+    out = []
+    for rel in own_files(cfg):
+        path = os.path.join(project_dir, *rel.split("/"))
+        if not os.path.isfile(path):
+            continue
+        sha = _sha(path)
+        if sha != stamps.get(rel) and sha != hashlib.sha256(texts[rel].encode("utf-8")).hexdigest():
+            out.append(rel)
+    return out
+
+
+def sync_project(project_dir, cfg, decls, uses=(), force=False):
+    """Writes the remote device, canworks_in, canworks_out and the list and
+    instances in project.json for an openplc config. Raises ChangedFiles
+    unless `force` when one of canworks' files was changed by someone else.
+    Returns {written, iec_base, requests, warning}."""
+    base = settings(cfg)["iec_base"]
+    if base is None:
+        base = free_iec_base(cfg, decls, uses)
+    in_st, out_st = programs(cfg, decls, base)
+    rel = own_files(cfg)
+    texts = {rel[0]: remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
+    changed = changed_files(project_dir, cfg, texts)
+    if changed and not force:
+        raise ChangedFiles(changed)
+    written = []
+    stamps = _stamps(project_dir)
+    for r in rel:
+        path = os.path.join(project_dir, *r.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write(path, texts[r])
+        stamps[r] = hashlib.sha256(texts[r].encode("utf-8")).hexdigest()
+        written.append(path)
+    pj = os.path.join(project_dir, "project.json")
+    with open(pj, encoding="utf-8") as f:
+        doc = json.load(f)
+    if not isinstance(doc, dict) or not isinstance(doc.get("data"), dict):
+        raise OpenplcError("%s has no \"data\" object" % pj)
+    doc["data"] = project_data(doc["data"], decls)
+    _write(pj, json.dumps(doc, indent=2))
+    written.append(pj)
+    stamp = os.path.join(project_dir, STAMP)
+    os.makedirs(os.path.dirname(stamp), exist_ok=True)
+    _write(stamp, json.dumps(stamps, indent=2, sort_keys=True) + "\n")
+    groups, _ = layout(cfg, decls, base)
+    return {"written": written, "iec_base": base, "requests": request_count(groups),
+            "warning": budget_warning(groups)}
+
+
 def instances(resource):
     """`resource` (project.json data.configuration.resource) with canworks_in
     first and canworks_out last in the first task; returns the new instance
@@ -484,35 +586,6 @@ def project_data(data, decls):
     conf["resource"] = resource
     data["configuration"] = conf
     return data
-
-
-def write_programs(project_dir, cfg, decls, iec_base=None):
-    """Writes canworks_in.st and canworks_out.st and the list and instances
-    into project.json. Returns the paths written."""
-    in_st, out_st = programs(cfg, decls, iec_base)
-    folder = os.path.join(project_dir, PROGRAMS_DIR)
-    os.makedirs(folder, exist_ok=True)
-    written = []
-    for name, text in ((IN_PROGRAM, in_st), (OUT_PROGRAM, out_st)):
-        path = os.path.join(folder, name + ".st")
-        _write(path, text)
-        written.append(path)
-    pj = os.path.join(project_dir, "project.json")
-    with open(pj, encoding="utf-8") as f:
-        doc = json.load(f)
-    if not isinstance(doc, dict) or not isinstance(doc.get("data"), dict):
-        raise OpenplcError("%s has no \"data\" object" % pj)
-    doc["data"] = project_data(doc["data"], decls)
-    _write(pj, json.dumps(doc, indent=2))
-    written.append(pj)
-    return written
-
-
-def write_remote_device(project_dir, cfg, decls, iec_base=None):
-    path = remote_device_path(project_dir, cfg)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    _write(path, remote_device_text(cfg, decls, iec_base))
-    return path
 
 
 def _write(path, text):

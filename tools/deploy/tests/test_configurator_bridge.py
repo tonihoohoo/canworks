@@ -301,3 +301,62 @@ class Target(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenplcModbus(Base):
+    """OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on
+    save", "Project target"): the switch, Save writing the editor's files,
+    the changed-file confirm and the Project page's facts."""
+
+    def switched(self):
+        return self.ok("/api/switch_target", {"config": openplc_config(), "target": "openplc_modbus"})["config"]
+
+    def test_switch_from_the_plugin(self):
+        self.open()
+        cfg = self.switched()
+        b = cfg["bridge"]
+        self.assertEqual(b["openplc"], {})
+        self.assertTrue(b["sdo_bridge_write"])
+        self.assertEqual([l["network"] for l in b["live_lists"]], ["field"])
+        self.assertNotIn("listen", b)
+        self.assertEqual(self.errors(cfg), [])
+        # packed after the PLC link header and the status block
+        text = modbusmap.map_hash_text(cfg).splitlines()
+        self.assertEqual(text[:3], ["I 0 4 -", "I 4 8 -", "I 12 2 -"])
+        self.assertIn("Q 6 1 -", text)
+
+    def test_save_writes_the_editor_files(self):
+        project = self.project()
+        self.open(project, "project")
+        cfg = self.switched()
+        r = self.ok("/api/save", {"config": cfg})
+        self.assertEqual(r["errors"], 0, r["check"]["items"])
+        self.assertEqual(r["editor"]["requests"], 5)
+        remote = os.path.join(project, "devices", "remote", "canworks.json")
+        self.assertIn(remote, r["written"])
+        with open(remote, encoding="utf-8") as f:
+            dev = json.load(f)
+        self.assertEqual(dev["modbusTcpConfig"]["port"], 1502)
+        self.assertTrue(os.path.isfile(os.path.join(project, "pous", "programs", "canworks_out.st")))
+        info = r["state"]["openplc"]
+        self.assertEqual((info["remote_device"], info["poll_ms"], info["requests"]), ("canworks", 10, 5))
+        self.assertEqual(info["map_hash"], "0x%08x" % modbusmap.map_hash(load(os.path.join(project, "canworks",
+                                                                                            "canworks.json"))))
+        # someone edits canworks_in.st: the next save asks first
+        with open(os.path.join(project, "pous", "programs", "canworks_in.st"), "a", encoding="utf-8") as f:
+            f.write("(* mine *)\n")
+        cfg["bridge"]["openplc"]["poll_ms"] = 20
+        status, data = self.request("/api/save", {"config": cfg})
+        self.assertEqual(status, 409)
+        self.assertEqual(data["editor_changed"], ["pous/programs/canworks_in.st"])
+        # nothing was written
+        self.assertEqual(load(os.path.join(project, "canworks", "canworks.json"))["bridge"]["openplc"], {})
+        self.ok("/api/save", {"config": cfg, "editor_overwrite": True})
+        with open(remote, encoding="utf-8") as f:
+            self.assertEqual({g["cycleTime"] for g in json.load(f)["modbusTcpConfig"]["ioGroups"]}, {20})
+
+    def test_standalone_writes_no_editor_files(self):
+        self.open()
+        r = self.ok("/api/save", {"config": self.switched()})
+        self.assertNotIn("editor", r)
+        self.assertEqual(r["state"]["openplc"]["requests"], 5)
