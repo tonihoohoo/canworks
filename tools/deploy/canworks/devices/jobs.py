@@ -78,8 +78,9 @@ def _fetch(paths, script, version):
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None, link_config=None, runtime_port=None):
-    """The root shell lines of one action."""
+             bridge_prefix=None, link_config=None, runtime_port=None, pinned_runtime=False):
+    """The root shell lines of one action. `pinned_runtime` puts a managed
+    Docker runtime on the version the release is pinned to (freeze-openplc-runtime)."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
     if not isinstance(version, str) or not _VERSION.match(version):
@@ -111,10 +112,11 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
     runtime = _fetch(paths, "install-runtime.sh", version) + " --version " + v
     bridge = _fetch(paths, "install-bridge.sh", version) + " --version " + v
     plugin_opts = (" --with-link" if link else "") + ("" if discovery else " --without-discovery")
+    pin = " --pinned-runtime" if pinned_runtime else ""
     if action == "install_openplc":
-        return [runtime + " --with-openplc" + plugin_opts]
+        return [runtime + " --with-openplc --pinned-runtime" + plugin_opts]
     if action == "install_plugin":
-        return [runtime + plugin_opts]
+        return [runtime + pin + plugin_opts]
     if action == "uninstall_plugin":
         return [runtime + " --uninstall" + (" --purge" if purge else "")]
     if action == "install_bridge":
@@ -306,6 +308,8 @@ HINTS = (
      "2 GB) and start again."),
     (re.compile(r"Could not get lock|dpkg was interrupted|is held by process"), "Another program is installing "
      "packages on the device (apt is locked): wait until it ends and start again."),
+    (re.compile(r"cannot download OpenPLC runtime"), "The device could not download the OpenPLC runtime image "
+     "(ghcr.io): check its network and start again. Nothing was changed."),
     (re.compile(r"could not reach|could not download|cannot download|Could not resolve host|"
                 r"Temporary failure (in name resolution|resolving)"), "The device lost its connection to github.com "
      "during the install: check its network and start again."),

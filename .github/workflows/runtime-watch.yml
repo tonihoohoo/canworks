@@ -40,7 +40,7 @@ jobs:
           title="OpenPLC runtime $newest is out (tested: $tested)"
           body="Upstream released OpenPLC runtime $newest ($UPSTREAM/releases/tag/$newest). CI tests canworks with $tested (docker/local-runtime/runtime-version).
 
-          To move CI to it: set docker/local-runtime/runtime-version and runtime-sha256 (the sha256 of $UPSTREAM/archive/$newest.tar.gz), TESTED_RUNTIME in tools/deploy/canworks/devices/plan.py, and let the full CI run. Devices running a newer runtime than the tested one show a note on the configurator's Devices page.
+          canworks stays pinned to $tested until the pin moves on purpose: set docker/local-runtime/runtime-version and runtime-sha256 (the sha256 of $UPSTREAM/archive/$newest.tar.gz), TESTED_RUNTIME in tools/deploy/canworks/devices/plan.py, check docker/local-runtime/bootloader-version against upstream's bootloader/VERSION, and let the full CI run. Installs and the configurator's Devices page keep devices on the pin.
 
           Opened by .github/workflows/runtime-watch.yml."
           gh label create runtime-update --color c5def5 --description "A newer OpenPLC runtime than CI tests" --force

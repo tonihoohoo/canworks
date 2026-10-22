@@ -30,7 +30,7 @@ A connection stays open for two minutes after its last use, so checking a device
 Picking a device checks it again (**Check again** does too). The check is a read-only script, `device-probe.sh` from the PC tools, run on the device through the SSH connection; it needs neither root nor canworks on the device and changes nothing. When the SSH user cannot read the managed Docker runtime's folder (`/var/lib/openplc-bootloader`, root's only) or use Docker, and `sudo` needs no password, it reads them through `sudo -n`; without that the runtime still shows as managed Docker, with no version. An old native `openplc-runtime` unit that is installed but stopped does not hide a managed Docker runtime. The page shows:
 
 - a header line: system, architecture, free disk, internet access to github.com, and when the device was checked;
-- one row per part: **OpenPLC Runtime** (native, managed Docker or a container of your own, its version and whether its HTTPS port answers; on a runtime newer than the one CI tests canworks with, one grey line says so, for example "canworks is tested with runtime v4.2.4; this device runs v4.3.1", and nothing else changes), **canworks plugin** (version, the runtime version it was built for, on or waiting for an upload; on a managed Docker runtime it waits for an upload from the install until the first upload), **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
+- one row per part: **OpenPLC Runtime** (native, managed Docker or a container of your own, its version and whether its HTTPS port answers; on a runtime other than the one canworks is pinned to, one grey line says so, for example "canworks runs on runtime v4.3.1; this device runs v4.3.2"), **canworks plugin** (version, the runtime version it was built for, on or waiting for an upload; on a managed Docker runtime it waits for an upload from the install until the first upload), **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
 - one main action, or **Up to date**;
 - a running or last install job ([Install jobs](#install-jobs)).
 
@@ -39,11 +39,14 @@ Picking a device checks it again (**Check again** does too). The check is a read
 | No OpenPLC runtime (OpenPLC project) | **Install OpenPLC Runtime and canworks X** |
 | A runtime, no plugin | **Install canworks X** |
 | A plugin older than the newest release X | **Update A → X** |
-| A plugin built for another runtime version (the runtime was updated) | **Rebuild for runtime vN** |
+| A managed Docker runtime on another version than canworks' pinned v4.3.1 (moved from the OpenPLC Editor) | **Switch runtime to v4.3.1** |
+| A native runtime the plugin was not built for (the runtime was updated) | **Rebuild for runtime vN** |
 | No bridge (bridge project) | **Install and start this project's bridge** |
 | A bridge older than X, or a development build | **Update A → X** |
 | A bridge without its service (a partial install) | **Install and start this project's bridge** |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
+
+Every plugin job on a managed Docker runtime also puts the runtime on the version that release is pinned to (`install-runtime.sh --pinned-runtime`), so an install or update never leaves the device on an untested runtime; **Switch runtime** is that job for a current plugin. Like any Docker-mode install it recreates the runtime container, so the program has to be uploaded again.
 
 X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config (the PLC's) to the bridge: the option is then greyed and the link stays as it is.
 
@@ -59,7 +62,7 @@ In **Add device…** a wrong host, user or port is said under its field. A devic
 
 ## Starting an action
 
-An action asks once, and only for what stops or loses something: a plugin install or update on a managed Docker runtime ("The PLC stops and comes back without a program; upload it again afterwards."), a bridge update ("Running bridges restart."), installing the OpenPLC Runtime (names upstream's installer, `https://runtime.getedge.me`, which installs Docker and upstream's newest runtime, and the runtime version canworks is tested with), and uninstalling. When the SSH user needs a password for `sudo`, the same dialog asks for it. A user that is root or has password-less sudo is never asked, and an action with nothing to confirm then starts at once.
+An action asks once, and only for what stops or loses something: a plugin install or update on a managed Docker runtime ("The PLC stops and comes back without a program; upload it again afterwards."), a bridge update ("Running bridges restart."), switching the runtime back to the pinned version (names both versions), installing the OpenPLC Runtime (names upstream's installer, `https://runtime.getedge.me`, which installs Docker, and the pinned runtime version it installs), and uninstalling. When the SSH user needs a password for `sudo`, the same dialog asks for it. A user that is root or has password-less sudo is never asked, and an action with nothing to confirm then starts at once.
 
 A bridge action copies the saved config folder (the regular files next to `canworks.json`, at most 50 MB) to a temporary folder on the device and installs it as the bridge instance named after the project folder; the job removes the temporary folder. A bridge action with unsaved changes asks to save first.
 

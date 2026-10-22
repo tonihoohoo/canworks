@@ -16,7 +16,7 @@
 # the build context has it (the image workflows export it from
 # tools/deploy/uv.lock); without it pip picks the newest allowed versions.
 
-ARG RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:v4.2.4
+ARG RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:v4.3.1
 
 FROM ${RUNTIME_IMAGE} AS build
 ARG RUNTIME_IMAGE

@@ -34,7 +34,7 @@ $f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks
 
 The tools that go to the device (the EDS lint in `<prefix>/venv`) get the exact dependency versions the release was tested with: `install-runtime.sh` downloads the release's `canworks-<version>-constraints.txt` and `install-stock.sh` installs with it (`--constraints FILE` from a checkout; without it a checkout exports `tools/deploy/uv.lock` when `uv` is installed, else pip picks the newest allowed versions and says so). dcfgen's own Python packages have exact versions in `scripts/dcf-tools-constraints.txt`.
 
-On a device with no OpenPLC runtime yet, `--with-openplc` first runs upstream's installer (`curl -fsSL https://runtime.getedge.me | bash`, which installs Docker and the managed runtime), waits until the runtime answers on `https://127.0.0.1:8443/` (10 minutes at most), then installs the plugin; a device that has a runtime is left as it is. A failed runtime install stops there and installs no canworks. It passes over `--ssh` too. The configurator's **Devices** workspace does all of this from the PC, with the runtime's first user afterwards ([devices.md](devices.md)).
+On a device with no OpenPLC runtime yet, `--with-openplc` downloads the release first and then runs upstream's installer with the runtime and bootloader versions the release is pinned to (`curl -fsSL https://runtime.getedge.me | bash -s -- --runtime-version v4.3.1 --bootloader-version bootloader-v1.1.0`, which installs Docker and the managed runtime; see [Runtime version](#runtime-version)), waits until the runtime answers on `https://127.0.0.1:8443/` (10 minutes at most), then installs the plugin; a device that has a runtime is left as it is. A failed runtime install stops there and installs no canworks. It passes over `--ssh` too. The configurator's **Devices** workspace does all of this from the PC, with the runtime's first user afterwards ([devices.md](devices.md)).
 
 `--version 0.82.0` (`-Version` on Windows) installs a given release (0.82.0 or newer, the first with this script); `--uninstall` and the other options below pass through to `install-stock.sh`. The PC resolves the release and the device fetches the script of exactly that release, so both agree on the version. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.82.0/scripts/install-runtime.sh`); to read it first, download it and run it with `sudo bash install-runtime.sh`. The device still builds Lely and the plugin, so it takes as long as the checkout route.
 
@@ -105,17 +105,29 @@ What differs from a native install:
   [canworks editor hook] ERROR: the CANopen plugin was built for runtime v4.2.4 but the runtime is v4.2.5; re-run scripts/install-stock.sh to rebuild it; CANopen stays off
   ```
 
-  Run `sudo scripts/install-stock.sh` again (it rebuilds in the new image), then upload the program again. The plugin makes the same check when it starts, in case the hook did not run. An upload to the mismatched runtime fails in `canworks-deploy` with the same message.
+  Run `sudo scripts/install-stock.sh --runtime-version v4.3.1` to go back to the pinned runtime ([Runtime version](#runtime-version)), or `sudo scripts/install-stock.sh` to rebuild for the new one (untested), then upload the program again. The plugin makes the same check when it starts, in case the hook did not run. An upload to the mismatched runtime fails in `canworks-deploy` with the same message.
 - `--no-editor-hook` is not available: the hook is what keeps the `canworks` line across containers.
 
 `sudo scripts/install-stock.sh --uninstall` removes the two spec entries, recreates the runtime container and removes `/opt/canworks/lib/` (`--purge`: all of `/opt/canworks`).
+
+### Runtime version
+
+canworks is built and tested against one OpenPLC runtime release, **v4.3.1**, named in `docker/local-runtime/runtime-version` (and upstream's bootloader, `bootloader-v1.1.0`, in `bootloader-version`). CI, the local runtime image and every install use it:
+
+- `install-runtime.sh --with-openplc` installs exactly that runtime and bootloader, also after upstream has released a newer one.
+- `install-runtime.sh --pinned-runtime` (what the configurator's **Devices** page passes on a managed Docker runtime) puts the runtime on that version before it builds the plugin.
+- `install-stock.sh --runtime-version vX.Y.Z` does it from a checkout: it pulls `ghcr.io/autonomy-logic/openplc-runtime:vX.Y.Z` first (a failed download changes nothing), builds in it, then sets only the `version` of the bootloader's runtime spec and recreates the container. The canworks bind and environment entries and anything else in the spec stay. Docker only; on a native runtime it refuses.
+
+Nothing updates the runtime by itself: the bootloader changes the version only when someone updates it from the OpenPLC Editor. After such an update canworks stays off (above) and the Devices page offers **Switch runtime to v4.3.1**. Avoid re-running upstream's installer on a device with canworks: it writes the runtime spec from its own options and drops the canworks entries; `install-stock.sh` adds them back.
+
+To try another runtime by hand, run `install-stock.sh` without `--runtime-version` after the update, or set `CANWORKS_RUNTIME_VERSION` (and `CANWORKS_BOOTLOADER_VERSION`) for `install-runtime.sh`. canworks is only tested with the pinned version; a new runtime is a canworks change of the pin with a full CI run.
 
 ### A runtime container you run yourself
 
 Without the bootloader (a `docker run` or compose file as in upstream's `docs/DOCKER.md`), build for your image and add the printed flags to the container:
 
 ```sh
-sudo scripts/install-stock.sh --docker-image ghcr.io/autonomy-logic/openplc-runtime:v4.2.4
+sudo scripts/install-stock.sh --docker-image ghcr.io/autonomy-logic/openplc-runtime:v4.3.1
 # ==> ... -v /opt/canworks:/opt/canworks -e PYTHONPATH=/opt/canworks/lib/sitecustomize
 ```
 

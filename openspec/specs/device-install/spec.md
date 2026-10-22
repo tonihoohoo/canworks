@@ -70,7 +70,7 @@ Before any change, the configurator SHALL read the device's state with a read-on
 - **THEN** the runtime row shows managed Docker v4.2.4 (read through password-less sudo, or with no version without it), the plugin's state comes from the Docker line, and no **Rebuild** is offered
 
 ### Requirement: One main action
-Each device SHALL get at most one main action, chosen from the probe, the project's target (or, with no config open, the role picked on the page) and the newest `deploy-v` release X (found from the `releases/latest` redirect, as the install scripts do): **Install OpenPLC Runtime and canworks** (OpenPLC project or role, no runtime), **Install canworks X** (runtime, no plugin), **Update A → X** (plugin older than X), **Rebuild for runtime vN** (plugin built for another runtime version), **Install and start this project's bridge** (bridge project, no bridge), **Install the bridge X** (Modbus bridge role with no config, no bridge), **Update A → X** (bridge older than X), **Start this project's bridge** (bridge project, bridge current, no instance with this project's saved config), or none with "Up to date". With no config open, a device with neither the plugin nor the bridge SHALL show **What should this device run?** with **OpenPLC PLC with canworks** (first, picked) and **Modbus bridge**, and the main action SHALL follow the pick; a device that has the plugin or the bridge SHALL get its main action from what is installed, with no question, and the part it lacks (the bridge next to the plugin, the plugin next to the bridge) SHALL have Install… in its row, whose confirmation says the PLC and the bridge cannot share a CAN interface. The job SHALL install exactly the X the page named (`--version X`). When the canworks on the device has a newer major or minor version than the PC tools, the page SHALL say so in one line with an **Update PC tools…** button that checks for a release and offers the PC tools' own update (or the install command to copy); a patch-only difference SHALL NOT be mentioned. It SHALL NOT block or downgrade. When the newest release cannot be found, the actions SHALL be disabled with that reason. An action the device cannot run SHALL be shown disabled with one sentence why: no systemd, no internet access, under 2 GB free, sudo refused, another install job running. The remote link, discovery and protocol options SHALL be folded under the main action, with the link and discovery on by default.
+Each device SHALL get at most one main action, chosen from the probe, the project's target (or, with no config open, the role picked on the page) and the newest `deploy-v` release X (found from the `releases/latest` redirect, as the install scripts do): **Install OpenPLC Runtime and canworks** (OpenPLC project or role, no runtime), **Install canworks X** (runtime, no plugin), **Update A → X** (plugin older than X), **Switch runtime to vP** (managed Docker runtime whose version is not the pinned runtime vP), **Rebuild for runtime vN** (plugin built for another runtime version, runtime not on managed Docker), **Install and start this project's bridge** (bridge project, no bridge), **Install the bridge X** (Modbus bridge role with no config, no bridge), **Update A → X** (bridge older than X), **Start this project's bridge** (bridge project, bridge current, no instance with this project's saved config), or none with "Up to date". With no config open, a device with neither the plugin nor the bridge SHALL show **What should this device run?** with **OpenPLC PLC with canworks** (first, picked) and **Modbus bridge**, and the main action SHALL follow the pick; a device that has the plugin or the bridge SHALL get its main action from what is installed, with no question, and the part it lacks (the bridge next to the plugin, the plugin next to the bridge) SHALL have Install… in its row, whose confirmation says the PLC and the bridge cannot share a CAN interface. The job SHALL install exactly the X the page named (`--version X`), and every plugin install, update, rebuild or switch on a managed Docker runtime SHALL put the runtime on the version that release is pinned to (`--pinned-runtime`). When the canworks on the device has a newer major or minor version than the PC tools, the page SHALL say so in one line with an **Update PC tools…** button that checks for a release and offers the PC tools' own update (or the install command to copy); a patch-only difference SHALL NOT be mentioned. It SHALL NOT block or downgrade. When the newest release cannot be found, the actions SHALL be disabled with that reason. An action the device cannot run SHALL be shown disabled with one sentence why: no systemd, no internet access, under 2 GB free, sudo refused, another install job running. The remote link, discovery and protocol options SHALL be folded under the main action, with the link and discovery on by default.
 
 #### Scenario: PC tools older than the device
 - **WHEN** the newest release and the device's plugin are 0.99.0 and the PC tools are 0.98.0
@@ -92,12 +92,24 @@ Each device SHALL get at most one main action, chosen from the probe, the projec
 - **WHEN** no config is open and the device has plugin 0.105.0 while the newest release is 0.110.0
 - **THEN** no role question is shown and the main action is **Update 0.105.0 → 0.110.0**
 
+#### Scenario: Runtime updated from the Editor
+- **WHEN** the pinned runtime is v4.3.1, a managed Docker device was moved to v4.3.2 from the OpenPLC Editor, and its plugin is current and built for v4.3.1
+- **THEN** the main action is **Switch runtime to v4.3.1**, not **Rebuild for runtime v4.3.2**, and its job runs `install-runtime.sh --version X --pinned-runtime`, which passes `--runtime-version v4.3.1` to `install-stock.sh`
+
+#### Scenario: Update keeps the device on the pin
+- **WHEN** the user runs **Update 0.110.0 → 0.111.0** on a managed Docker device that runs the pinned runtime
+- **THEN** the job passes `--pinned-runtime`, and the runtime version is unchanged afterwards
+
 ### Requirement: Confirm destructive effects only
-Starting an action SHALL ask once, in one sentence per effect, only for effects that stop or lose something: a Docker-mode plugin install or update ("The PLC stops and comes back without a program; upload it again afterwards."), a bridge update ("Running bridges restart."), installing the OpenPLC runtime (names upstream's installer URL and that it installs Docker), and uninstalling. The same dialog SHALL take the sudo password when the probe says one is needed. An action with no such effect on a device with password-less sudo SHALL start without a dialog.
+Starting an action SHALL ask once, in one sentence per effect, only for effects that stop or lose something: a Docker-mode plugin install, update or runtime switch ("The PLC stops and comes back without a program; upload it again afterwards."), a bridge update ("Running bridges restart."), installing the OpenPLC runtime (names upstream's installer URL, that it installs Docker, and the runtime version it installs), and uninstalling. The same dialog SHALL take the sudo password when the probe says one is needed. An action with no such effect on a device with password-less sudo SHALL start without a dialog.
 
 #### Scenario: Docker-mode update
 - **WHEN** the user starts an update on a device with the managed Docker runtime
 - **THEN** the dialog says the PLC stops and comes back without a program before anything runs
+
+#### Scenario: Runtime switch
+- **WHEN** the user starts **Switch runtime to v4.3.1**
+- **THEN** the dialog says the runtime goes back to v4.3.1, the version canworks is tested with, and that the PLC stops and comes back without a program
 
 ### Requirement: Install job on the device
 An action SHALL run on the device as a detached systemd unit `canworks-install-<id>` under a lock (`/run/canworks-install.lock`), running the release's `install-runtime.sh` or `install-bridge.sh` with `--version` and the chosen options, its output in `/var/log/canworks-install/<id>.log`; the last five logs SHALL be kept. The job SHALL go on when the SSH connection drops, the PC sleeps or the configurator stops. The page SHALL show the steps from the scripts' step lines with their times, the elapsed time, the log folded, and **Stop** (stops the unit, then probes); the status bar SHALL list the job like other jobs. Opening the device's page again, also after a configurator restart, SHALL pick the job up from the probe and the log. A bridge action with this project's config SHALL copy the saved config folder to a temporary folder on the device first and pass it as `--instance <folder name> --config DIR`; the job SHALL remove that folder. A failed job SHALL show its exit status, the last 20 log lines and, for the failures the scripts name (no internet, disk full, apt locked, runtime not found, runtime image changed), one sentence on what to do.
@@ -111,11 +123,19 @@ An action SHALL run on the device as a detached systemd unit `canworks-install-<
 - **THEN** the second job ends at once with "Another install is running on this device", and the first goes on
 
 ### Requirement: OpenPLC runtime and its first user
-**Install OpenPLC Runtime and canworks** SHALL run `install-runtime.sh --with-openplc`. When the job ends and the runtime has no user, the page SHALL ask for the first user's name and password (twice), create the user through the runtime's API and SHALL NOT keep the password. A runtime that has users SHALL be left alone.
+**Install OpenPLC Runtime and canworks** SHALL run `install-runtime.sh --with-openplc`, which SHALL download the canworks release before changing anything and SHALL then run upstream's installer with the release's pinned runtime and bootloader versions (`--runtime-version`, `--bootloader-version`). When the job ends and the runtime has no user, the page SHALL ask for the first user's name and password (twice), create the user through the runtime's API and SHALL NOT keep the password. A runtime that has users SHALL be left alone.
 
 #### Scenario: Fresh Linux device
 - **WHEN** the user runs **Install OpenPLC Runtime and canworks** on a Linux device with no runtime and enters `admin` and a password afterwards
-- **THEN** the managed Docker runtime runs, the plugin is installed for its version, the runtime accepts a login as `admin`, and the configurator's settings hold no password
+- **THEN** the managed Docker runtime runs the pinned runtime version with the pinned bootloader, the plugin is installed for that version, the runtime accepts a login as `admin`, and the configurator's settings hold no password
+
+#### Scenario: Upstream released a newer runtime
+- **WHEN** the pin is v4.3.1 and upstream's newest runtime is v4.3.2
+- **THEN** a fresh install records v4.3.1 in the bootloader spec and runs the `v4.3.1` image
+
+#### Scenario: Release download fails
+- **WHEN** the canworks release cannot be downloaded
+- **THEN** the job fails before upstream's installer runs, and no runtime or Docker is installed
 
 ### Requirement: After the job
 When a job ends the configurator SHALL probe again and show the next step: for the plugin that canworks switches on with the next upload (the editor's Build and upload or `canworks-deploy`), and in Docker mode that the PLC has no program until then; for a project's bridge that it runs this project's config, with **Open in Commission**; for a bridge installed with no config, that it starts with a config when that config's Devices page installs it there. With a config open, the project's Online access runtime host SHALL be set to the device when it was empty; with no config open, no project setting SHALL change.
@@ -157,22 +177,26 @@ On a managed Docker runtime, when the plugin is installed and no upload has reco
 - **THEN** the plugin row reads "<version> · built for <runtime> · waiting for an upload"
 
 ### Requirement: Tested runtime version
-The PC tools SHALL know the OpenPLC runtime version that CI tests, equal to `docker/local-runtime/runtime-version`. When the probe reports a runtime newer than that version, the runtime row SHALL say in one muted line that canworks is tested with that version and name the device's version. The note SHALL NOT change the main action or block it. An equal, older or unknown runtime version SHALL show no note.
+The PC tools SHALL know the pinned OpenPLC runtime version, equal to `docker/local-runtime/runtime-version`. When the probe reports a runtime version other than the pin, newer or older, the runtime row SHALL say in one muted line that canworks runs on the pinned version and name the device's version. The note SHALL NOT block the main action. An equal or unknown runtime version SHALL show no note.
 
 #### Scenario: Newer runtime
-- **WHEN** the tested runtime is v4.2.4 and the device runs v4.2.5 with a plugin built for v4.2.4
-- **THEN** the runtime row says "canworks is tested with runtime v4.2.4; this device runs v4.2.5", and the main action is still **Rebuild for runtime v4.2.5**
+- **WHEN** the pin is v4.3.1 and the device runs v4.3.2
+- **THEN** the runtime row says "canworks runs on runtime v4.3.1; this device runs v4.3.2."
+
+#### Scenario: Older runtime
+- **WHEN** the pin is v4.3.1 and the device runs v4.2.4
+- **THEN** the runtime row says "canworks runs on runtime v4.3.1; this device runs v4.2.4."
 
 #### Scenario: Tested runtime
-- **WHEN** the device runs v4.2.4
-- **THEN** the runtime row has no tested-version note
+- **WHEN** the device runs v4.3.1
+- **THEN** the runtime row has no note
 
 ### Requirement: Runtime install names its version source
-The confirmation for **Install OpenPLC Runtime and canworks** SHALL say that upstream's installer installs its newest runtime, and a test SHALL fail when the PC tools' tested runtime version differs from `docker/local-runtime/runtime-version`.
+The confirmation for **Install OpenPLC Runtime and canworks** SHALL name upstream's installer and the pinned runtime version it installs, and a test SHALL fail when the PC tools' pinned runtime version differs from `docker/local-runtime/runtime-version` or the bootloader pin differs from `docker/local-runtime/bootloader-version`.
 
 #### Scenario: Install confirmation
-- **WHEN** the user starts **Install OpenPLC Runtime and canworks**
-- **THEN** the confirmation names upstream's installer and says it installs upstream's newest runtime
+- **WHEN** the user starts **Install OpenPLC Runtime and canworks** with the pin v4.3.1
+- **THEN** the confirmation names upstream's installer and says it installs OpenPLC runtime v4.3.1, the version canworks is tested with
 
 ### Requirement: Remote link and discovery switches
 The device page SHALL give the remote link and the local-network advertisement their own actions, with and without a config open, when the canworks plugin or the bridge is installed on the device. The **Remote link** row SHALL offer **Turn on…** when the link is not installed, **Turn off…** when it is, and **Start** when it is installed but not running, and SHALL say which config it serves ("serves the PLC" for the plugin's config, "serves the bridge NAME" for a bridge instance). A row **Found on the local network** SHALL show whether the advertisement is installed, with **Turn on…** or **Turn off…**. Each action SHALL run as an install job with the release's `install-link.sh` at the newest release X. Turning the link on SHALL serve the plugin's config when the plugin is installed, else the open bridge project's instance, else the only bridge instance on the device; with several instances and none of these, the dialog SHALL ask which instance. Turning the link off SHALL keep the link's key and paired PCs, and SHALL leave the advertisement (without the link ID) when discovery is on. In a CODESYS project, and on a device with neither the plugin nor the bridge, both rows SHALL have no action.

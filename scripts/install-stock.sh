@@ -6,7 +6,7 @@
 #                                 [--lely-ref <commit>] [--no-deps] [--no-editor-hook]
 #                                 [--without-canopen | --without-j1939]
 #                                 [--with-link] [--without-discovery] [--constraints FILE]
-#                                 [--force]
+#                                 [--force] [--runtime-version vX.Y.Z]
 #   sudo scripts/install-stock.sh --uninstall [--purge] [--runtime-dir DIR]
 #   sudo scripts/install-stock.sh --docker-image <image>   (hand-run container)
 #
@@ -45,7 +45,10 @@
 # spec, and recreates the runtime container: the PLC stops and restarts. The
 # editor hook keeps the canworks line in plugins.conf across new containers.
 # After a runtime version change canworks stays off until this script is run
-# again. --uninstall removes the spec entries again. --docker-image builds for a
+# again. --runtime-version vX.Y.Z first puts the managed runtime on that version
+# (the spec's version; every other spec entry stays), pulling its image before
+# anything changes; install-runtime.sh --pinned-runtime passes the version the
+# release is pinned to. --uninstall removes the spec entries again. --docker-image builds for a
 # runtime container you start yourself and prints the docker run flags.
 # See docs/install-stock.md.
 #
@@ -88,6 +91,7 @@ BOOTLOADER_CONTAINER=openplc-bootloader
 CONTAINER_PREFIX=/opt/canworks
 DOCKER_IMAGE=""
 IN_IMAGE=0
+WANT_RUNTIME=""
 CONSTRAINTS=""
 FORCE=0
 
@@ -111,7 +115,7 @@ MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 WITH_LINK=0
 DISCOVERY=1
 
-usage() { sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,73p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -130,6 +134,7 @@ while [ $# -gt 0 ]; do
         --without-discovery) DISCOVERY=0 ;;
         --constraints) CONSTRAINTS="$2"; shift ;;
         --force) FORCE=1 ;;
+        --runtime-version) WANT_RUNTIME="${2:-}"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -358,6 +363,13 @@ if [ "$EDITOR_HOOK" -eq 0 ] && { [ "$IN_IMAGE" -eq 1 ] || [ -n "$DOCKER_IMAGE" ]
         "canworks line in plugins.conf when the runtime container is recreated"
 fi
 
+if [ -n "$WANT_RUNTIME" ]; then
+    [[ $WANT_RUNTIME =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--runtime-version needs a runtime release such as v4.3.1, not '$WANT_RUNTIME'"
+    if [ "$IN_IMAGE" -eq 1 ] || [ -n "$DOCKER_IMAGE" ] || [ ! -f "$BOOTLOADER_SPEC" ]; then
+        die "--runtime-version is for the managed Docker runtime (no $BOOTLOADER_SPEC here); nothing was changed"
+    fi
+fi
+
 if [ "$IN_IMAGE" -eq 1 ]; then
     # Inside a one-shot container of the runtime image (see build_in_image).
     [ -n "${RUNTIME_VERSION:-}" ] || die "RUNTIME_VERSION is not set in this image; cannot stamp the build"
@@ -407,8 +419,18 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
         say "Done. The runtime runs without canworks."
         exit 0
     fi
+    # The runtime version this install puts the device on (freeze-openplc-runtime):
+    # the image is pulled before anything changes; the spec takes the version
+    # only after the build in it succeeded.
+    SWITCH=""
+    if [ -n "$WANT_RUNTIME" ] && [ "$(spec_tool version "$BOOTLOADER_SPEC")" != "$WANT_RUNTIME" ]; then
+        SWITCH=$WANT_RUNTIME
+        IMAGE="${IMAGE%:*}:$SWITCH"
+        say "Putting the runtime on OpenPLC runtime $SWITCH: pulling $IMAGE"
+        docker pull "$IMAGE" >/dev/null || die "the device cannot download OpenPLC runtime $SWITCH ($IMAGE); nothing was changed"
+    fi
     IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || echo unknown)
-    if spec_tool has "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" && same_install "$IMAGE_ID"; then
+    if [ -z "$SWITCH" ] && spec_tool has "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" && same_install "$IMAGE_ID"; then
         skip_install
     fi
     rm -f "$STAMP_FILE"
@@ -421,6 +443,10 @@ elif [ -f "$BOOTLOADER_SPEC" ]; then
         spec_tool remove "$BOOTLOADER_SPEC" "$OLD_DOCKER_BIND" "$OLD_DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
     fi
     remove_old_prefix
+    if [ -n "$SWITCH" ]; then
+        say "Setting the runtime version in $BOOTLOADER_SPEC to $SWITCH"
+        spec_tool set-version "$BOOTLOADER_SPEC" "$SWITCH" || die "could not update $BOOTLOADER_SPEC"
+    fi
     say "Adding $DOCKER_BIND and $DOCKER_ENV to $BOOTLOADER_SPEC"
     spec_tool add "$BOOTLOADER_SPEC" "$DOCKER_BIND" "$DOCKER_ENV" || die "could not update $BOOTLOADER_SPEC"
     setup_j1939_module

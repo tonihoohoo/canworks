@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The Docker route end to end with a real runtime image (canopen-docker-install).
 #
-#   sudo test/docker/run.sh [--image ghcr.io/autonomy-logic/openplc-runtime:latest]
+#   sudo test/docker/run.sh [--image ghcr.io/autonomy-logic/openplc-runtime:<pin>]
 #                           [--prefix /opt/canworks-docker] [--iface vcan0]
 #
 # 1. scripts/install-stock.sh --docker-image builds in the image into <prefix>.
@@ -18,7 +18,8 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-IMAGE=ghcr.io/autonomy-logic/openplc-runtime:latest
+# The pinned runtime (docker/local-runtime/runtime-version; canopen-ci "One runtime pin").
+IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat "$ROOT/docker/local-runtime/runtime-version")
 PREFIX=/opt/canworks-docker
 IFACE=vcan0
 NAME=canopen-docker-test

@@ -1,6 +1,7 @@
 // plugin.cpp - OpenPLC Runtime v4 native plugin entry points.
 //
-// Lifecycle (core/src/drivers/plugin_driver.c): init() on every PLC start,
+// Lifecycle (core/src/drivers/plugin_driver.c): init() at power-on (runtime
+// v4.3, before any program is loaded) and on every PLC start,
 // then start_loop(); stop_loop() on PLC stop; cleanup() on unload. init() may
 // run again after stop_loop() without cleanup(), so it starts from scratch.
 // start_loop() returns 0 on success: the runtime only calls cycle_start() and
