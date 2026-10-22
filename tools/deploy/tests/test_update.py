@@ -257,6 +257,7 @@ class Routes(unittest.TestCase):
         p = mock.patch.dict(os.environ, {"CANWORKS_CONFIG_DIR": os.path.join(self.dir, "cfg")})
         p.start()
         self.addCleanup(p.stop)
+        os.environ.pop(update.OFF_ENV, None)  # tests/__init__.py turns the check off; restored by the patch
         self.server = srv.Server()
         self.server.updates = update.Updates(fetch=lambda: "9.1.0", info=lambda: dict(UV_TOOL))
         self.server.updates.check()

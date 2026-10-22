@@ -3,6 +3,7 @@ the result bar, in a real browser (pc-tools-self-update). The check answers
 from a stub and nothing is installed: the hand-off is stubbed. Needs
 Playwright, like test_configurator_page.py."""
 
+import os
 import time
 import unittest
 from unittest import mock
@@ -20,6 +21,10 @@ UV_TOOL = {"kind": "uv-tool", "why": None, "uv": "uv", "python": "3.14", "base":
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
 class UpdatePage(OnlineBase):
     def updates(self, info=UV_TOOL, latest="99.0.0"):
+        p = mock.patch.dict(os.environ)
+        p.start()
+        self.addCleanup(p.stop)
+        os.environ.pop(update.OFF_ENV, None)  # tests/__init__.py turns the check off
         u = update.Updates(fetch=lambda: latest, info=lambda: dict(info))
         u.check()
         self.server.updates = u
