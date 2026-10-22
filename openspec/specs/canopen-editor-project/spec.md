@@ -6,7 +6,7 @@ An OpenPLC Editor project created from a CANopen config: made with the editor's 
 ## Requirements
 
 ### Requirement: Project files
-Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canworks/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written.
+Creating an editor project from a CANopen config SHALL create the project with the installed editor's own New Project command (`openplc-cli create`, Structured Text), so its files and the editor's project history are the editor's own, and SHALL then change only the device configuration's target, `pous/programs/main.st`, the `canworks/` folder and, when the SDO blocks are asked for, the project's list of enabled libraries. The project name SHALL be the folder name. Without a working `openplc-cli` creation SHALL be refused, saying how to install it, and nothing SHALL be written. On Windows `openplc-cli` SHALL run without opening a console window. When Windows refuses to replace one of the new project's files because another program holds it open, creation SHALL try again for about 5 seconds and then write that file in place.
 
 #### Scenario: Files written
 - **WHEN** a project is created at `~/workspace/rtd-monitor` from the RTD sensor config
@@ -19,6 +19,14 @@ Creating an editor project from a CANopen config SHALL create the project with t
 #### Scenario: Opens in the editor
 - **WHEN** the created project is opened in OpenPLC Editor 4.3.2
 - **THEN** it opens with the program `main` and no error, appears in the editor's recent projects, and Build only succeeds for the target OpenPLC Runtime v4
+
+#### Scenario: No console window on Windows
+- **WHEN** a project is created on Windows from the configurator
+- **THEN** no Command Prompt window appears while `openplc-cli` runs
+
+#### Scenario: New file held open briefly
+- **WHEN** another program holds the new `devices/configuration.json` open for 2 seconds after `openplc-cli create` returns
+- **THEN** creation still succeeds and the file names the target OpenPLC Runtime v4
 
 ### Requirement: Target, task and instance
 The project SHALL target `OpenPLC Runtime v4` and SHALL have one cyclic task `task0` with the editor's default interval `T#20ms` and priority 1, running one instance `instance0` of the program `main`. The interval SHALL be settable when the project is created and SHALL accept only an IEC duration of at least 1 ms. When a runtime address is saved in the configurator's online settings for the config, the project SHALL carry it as the editor's runtime address.
@@ -81,15 +89,27 @@ Declarations in `main` SHALL be ordered master diagnostics first, then node by n
 - **THEN** its line ends with a comment naming node `rtd`, TPDO1, the object's index:subindex and its EDS name, and the editor lists that text as the variable's description
 
 ### Requirement: Never overwrite
-Creating a project SHALL be refused when the target folder already exists, and SHALL NOT change any existing file. A failure after the editor created the folder SHALL remove that folder, leaving no partly written project behind.
+Creating a project SHALL NOT change any existing file. It SHALL be refused when the target folder has `project.json`, `canworks.json`, a `canworks/` folder or any file the editor's New Project writes (`devices/configuration.json`, `devices/pin-mapping.json`, `pous/programs/main.st`), naming that file. An existing folder without them SHALL become the project, and its other files SHALL be left as they were. A failure after the editor wrote files SHALL remove what creation added: the whole folder when creation made it, else only the files and folders creation added.
 
 #### Scenario: Folder exists
-- **WHEN** the target folder already exists
-- **THEN** creation is refused naming the folder and nothing in it changes
+- **WHEN** the target folder already has `project.json`
+- **THEN** creation is refused naming the file and nothing in the folder changes
+
+#### Scenario: Existing empty folder
+- **WHEN** the target folder exists and is empty
+- **THEN** the project is created in it
+
+#### Scenario: Existing folder with other files
+- **WHEN** the target folder holds only `notes.txt`
+- **THEN** the project is created in it and `notes.txt` is unchanged
 
 #### Scenario: Failure after create
-- **WHEN** writing `canworks/` fails after `openplc-cli create` succeeded
+- **WHEN** writing `canworks/` fails after `openplc-cli create` succeeded in a folder creation made
 - **THEN** the new project folder is removed and the error is shown
+
+#### Scenario: Failure in an existing folder
+- **WHEN** writing `canworks/` fails after `openplc-cli create` succeeded in an existing folder that held `notes.txt`
+- **THEN** the folder holds only `notes.txt` again and the error is shown
 
 ### Requirement: Function blocks in a new project
 Creating a project with the blocks option (`--blocks`) SHALL enable the `canworks` function block library in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows all of its blocks (`CO_*`, `CO402_*`, `CAN_*`, `J1939_*`). The option `--sdo-blocks` SHALL no longer exist. Without `--blocks` the project SHALL enable no library unless the config needs it (a cyclic CiA 402 axis). When the editor on the same computer has no `canworks` library, or an older version, creation SHALL install the tools' version into it as `canworks-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library. The output SHALL call it the canworks function block library.
