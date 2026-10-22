@@ -1529,8 +1529,8 @@ function render() {
   fitHeaderMore();
   const badge = $("#mode");
   badge.hidden = false;
-  badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
-    : S.state.mode === "project" ? "project " + S.state.name : "config " + S.state.name;
+  badge.replaceChildren(el("span", { class: "mode-name" }, S.state.commission ? "commissioning a device (nothing here is saved to a project)"
+    : S.state.mode === "project" ? "project " + S.state.name : "config " + S.state.name));
   badge.title = S.state.config_path;
   if (!S.state.commission && S.model) {
     // The target opens the Project page, where it is switched.
@@ -1538,7 +1538,8 @@ function render() {
       el("button", { type: "button", class: "link", dataset: { openProject: "1" }, title: "Open the Project page: target and Online access",
         onclick: () => { switchWorkspace("configure"); showView("project"); } }, TARGET_TITLE[projectTarget()])));
   }
-  if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ● unsaved"));
+  // "● unsaved": in a narrow window only the dot shows (its title says it).
+  if (!S.state.commission) badge.append(el("span", { class: "unsaved-mark", dataset: { unsaved: "1" }, hidden: !S.dirty, title: "Unsaved changes" }, " ●", el("span", { class: "unsaved-word" }, " unsaved")));
   // Commissioning a device: no config, so nothing that edits, saves or checks one.
   const commission = !!S.state.commission;
   document.body.classList.toggle("commission", commission);
@@ -1742,10 +1743,12 @@ function updateSimBanner() {
     onclick: () => { full.hidden = !full.hidden; toggle.setAttribute("aria-expanded", String(!full.hidden)); toggle.textContent = full.hidden ? "Details" : "Hide details"; } },
   wasOpen ? "Hide details" : "Details");
   const nets = several() ? S.model.networks.filter(netSimulates).length : 0;
-  const line = nets > 1 ? `Simulated: ${nets} networks` : `Simulated: ${simShort()}`;
+  const what = nets > 1 ? `${nets} networks` : simShort();
+  const line = `Simulated: ${what}`;
   b.setAttribute("aria-label", line + ". Do not upload it to a machine as it is.");
+  // In a narrow window only "Simulated" shows, so the header stays one row.
   b.replaceChildren(Icons.stateIcon("warning", { label: false }),
-    el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, line), toggle, full);
+    el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, "Simulated", el("span", { class: "sim-what" }, ": " + what)), toggle, full);
 }
 
 // Simulating anything needs online access with Allow changes for the
@@ -4059,7 +4062,7 @@ function declTable(decls) {
   };
   fill();
   return el("div", null,
-    el("label", { class: "check-field" }, only, "Only missing"),
+    el("label", { class: "check" }, only, " Only missing"),
     el("table", { dataset: { declTable: "" } }, el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "In the project"]))), body));
 }
 
@@ -4412,7 +4415,7 @@ function onlineAccessSettings() {
       hint("Off: read-only. On: anyone with the token can write parameters and stop nodes."),
       d.allow_changes ? el("span", { class: "field-msg warning" }, "Changes are allowed: keep the token secret and the port on a trusted network.") : null),
     hostField()),
-  typeof devHostState === "function" ? devHostState() : null,
+  (typeof devHostState === "function" && devHostState()) || "",
   el("div", { class: "toolbar" },
     el("span", { class: S.online.tokenOk && !old ? "ok-text" : "field-msg warning", dataset: { online: "token-state" } }, tokenState),
     old && S.online.tokenOk ? el("button", { type: "button", class: "primary", dataset: { online: "upgrade" }, onclick: upgradeToken }, "Upgrade") : null,
