@@ -54,11 +54,11 @@ VERSION=$(sed -n 1p "$PREFIX/lib/runtime-version")
 echo "2. the library loads in the image"
 out=$(docker run --rm -v "$BIND" --entrypoint ldd "$IMAGE" /opt/canworks/lib/libcanworks_plugin.so 2>&1)
 if [ $? -eq 0 ] && ! grep -q "not found" <<<"$out"; then ok "ldd: all libraries found"; else echo "$out"; fail "ldd"; fi
-sim=$(docker run --rm -v "$BIND" --entrypoint /opt/canworks/lib/canworks-sim "$IMAGE" --version 2>&1)
-if grep -q "^canworks-sim [^ ]" <<<"$sim"; then
+sim=$(docker run --rm -v "$BIND" --entrypoint /opt/canworks/lib/canworks-canopen-sim "$IMAGE" --version 2>&1)
+if grep -q "^canworks-canopen-sim [^ ]" <<<"$sim"; then
     ok "$sim runs in the image"
 else
-    fail "canworks-sim --version in the image: '$sim'"
+    fail "canworks-canopen-sim --version in the image: '$sim'"
 fi
 
 echo "3. ping-pong on $IFACE in a container with the managed flags"

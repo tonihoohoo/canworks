@@ -1,6 +1,6 @@
 // secure_channel.h - TLS and the SCRAM-SHA-256 login of the diagnostics
 // channel (canopen-online-diagnostics spec, "Access control"), shared by the
-// plugin's DiagServer and the standalone simulator's control channel and
+// plugin's DiagServer and the CANopen simulator's control channel and
 // client.
 //
 // TLS runs over memory BIOs: the caller moves bytes between its socket and

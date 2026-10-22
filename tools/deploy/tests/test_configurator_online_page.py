@@ -335,7 +335,7 @@ class OnlinePage(OnlineBase):
 
     def test_wording_and_pdo_timeouts_while_not_operational(self):
         # C2: a done SDO variable shows its value only; C3: no "local
-        # simulator runtime" for any runtime; C5: no "receiving" while the
+        # local runtime" for any runtime; C5: no "receiving" while the
         # node is not OPERATIONAL.
         pg = self.page
         with FakePlugin() as fp:

@@ -224,7 +224,7 @@ async function api(method, path, body) {
     body = Object.assign({ network: net }, body);
   }
   // Simulated devices are those of the connection in the connection bar:
-  // the runtime's unless the standalone simulator is the connection.
+  // the runtime's unless the CANopen simulator is the connection.
   if (body && body.target === undefined && path.startsWith("/api/sim/") && path !== "/api/sim/settings" && !S.simOn) {
     body = Object.assign({ target: "runtime" }, body);
   }
@@ -1579,7 +1579,7 @@ function render() {
   }
   // A J1939 network has no nodes or simulated devices.
   if (!commission) {
-    if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simulation" || S.view === "simfile")) S.view = "bus";
+    if (isJ1939(S.config) && (S.view.startsWith("node:") || S.view === "simfile")) S.view = "bus";
     if (isPlain(S.config) && S.view.startsWith("node:")) S.view = "bus";
     if (S.view === "bridge" && !S.model.top.bridge) S.view = "bus";
     if (S.view === "codesys" && !codesysOn()) S.view = "bus";
@@ -4335,29 +4335,29 @@ async function saveHost(host, say) {
 }
 
 // The runtime host on the Project page: typed, or "local" for the local
-// simulator runtime. The connect panel has the combobox (runtimeHost).
+// local runtime. The connect panel has the combobox (runtimeHost).
 function hostField() {
   const input = el("input", { type: "text", spellcheck: "false", placeholder: "for example plc.local", "aria-label": "Runtime host",
     dataset: { online: "host" } });
   input.value = S.online.host || "";
   input.addEventListener("change", () => saveHost(input.value.trim()));
   const local = el("button", { type: "button", class: "small", dataset: { online: "local" },
-    title: "The local simulator runtime started with canworks-sim-runtime start" }, "Local simulator runtime");
+    title: "The local runtime started with canworks-local-runtime start" }, "Local runtime");
   local.addEventListener("click", () => { input.value = "local"; saveHost("local"); });
   return el("label", null, "Runtime host", input, local,
-    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+    hint(`The PLC running this config, as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local runtime (canworks-local-runtime). Kept on this PC, not in the project.`));
 }
 
 // The connect panel's runtime host (canopen-configurator, Connect panel):
 // one combobox. Its list has the runtimes that answer on the local network,
 // by name and address, the ones this PC remembers, by name, and the local
-// simulator runtime; any host can be typed. A discovered runtime fills its
+// local runtime; any host can be typed. A discovered runtime fills its
 // address, a remembered one its name, which connects by the automatic path
 // choice (the local network first, the remote link when this PC is paired).
 let RUNTIME_LIST_ID = 0;
 function runtimeHost() {
   const id = "runtime-options-" + (++RUNTIME_LIST_ID);
-  const local = () => el("option", { value: "local", dataset: { kind: "local" } }, "Local simulator runtime");
+  const local = () => el("option", { value: "local", dataset: { kind: "local" } }, "Local runtime");
   const list = el("datalist", { id, dataset: { online: "runtime-list" } }, local());
   const input = el("input", { type: "text", spellcheck: "false", placeholder: "pick a runtime or type its host, for example plc.local",
     "aria-label": "Runtime host", list: id, autocomplete: "off", dataset: { online: "host" } });
@@ -4386,7 +4386,7 @@ function runtimeHost() {
   const refresh = el("button", { type: "button", class: "small", dataset: { online: "runtime-refresh" }, onclick: fill }, "Refresh");
   fill();
   return el("label", null, "Runtime", el("div", { class: "row" }, input, refresh), list, status,
-    hint(`A runtime from the list, a host as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local simulator runtime (canworks-sim-runtime). Kept on this PC, not in the project.`));
+    hint(`A runtime from the list, a host as HOST or HOST:PORT (port ${diagPort()} when not given), or "local" for the local runtime (canworks-local-runtime). Kept on this PC, not in the project.`));
 }
 
 // A token typed into the connect panel: kept on this PC when it matches the
@@ -4809,7 +4809,7 @@ function onlineApply(r, err) {
     "Upload the saved config with the deploy tool (canworks deploy) or the editor's Build and upload with the CANopen hook.", { online: "fingerprint" }));
   if (S.dirty) notes.push(noteBar("info", "This page has unsaved changes; the runtime runs what was uploaded."));
   if (st.simulation_forced) notes.push(noteBar("warning",
-    `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local simulator runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`, { online: "forced" }));
+    `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`, { online: "forced" }));
   // The connection line is a live region: it is rewritten only when it changes.
   stateBars(conn, "done", `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), notes);

@@ -53,7 +53,7 @@ The script:
 - installs build dependencies (apt; `--no-deps` skips this), and builds Lely CANopen and `dcfgen` into `/opt/canworks` (`--prefix` changes it), at the Lely commit the deploy tool's copy of Lely's `dcf` package comes from (`--lely-ref` changes it);
 - installs the deploy tool into `/opt/canworks/venv`: the plugin runs its EDS lint at every load ([config.md](config.md#eds-lint));
 - builds `libcanworks_plugin.so` against the runtime checkout's headers and installs it to `/opt/canworks/lib/`, outside the runtime's `build/` tree, so rebuilding or reinstalling the runtime does not delete it;
-- builds the standalone device simulator `canworks-sim` ([simulator.md](simulator.md)) from the same sources, installs it to `/opt/canworks/lib/` and links it as `/usr/local/bin/canworks-sim`; `canworks-sim --version` prints the plugin's version;
+- builds the CANopen simulator `canworks-canopen-sim` ([simulator.md](simulator.md)) from the same sources, installs it to `/opt/canworks/lib/` and links it as `/usr/local/bin/canworks-canopen-sim`; `canworks-canopen-sim --version` prints the plugin's version;
 - adds one disabled line to the runtime's `plugins.conf`:
 
   ```
@@ -65,7 +65,7 @@ The script:
 - advertises the device on the local network (`/etc/avahi/services/canworks.service`, `_canworks._tcp`) so the configurator lists it by name; `--without-discovery` leaves it out;
 - with `--with-link`, installs the [remote link](remote-access.md) (`scripts/install-link.sh`): `canworks-link.service`, `/usr/local/bin/canworks-link`, a venv in `/opt/canworks-link` and `/etc/canworks-link/`. It reads the deployed config from `/opt/canworks/lib/canworks.json`, also in Docker mode, and stays off the internet until the config turns it on.
 
-Both protocols are built by default. `--without-j1939` builds CANopen only (no kernel module). `--without-canopen` builds J1939 only: no Lely, `dcfgen`, deploy tool venv lint or `canworks-sim`; the venv then only holds the editor hook. A config with a network of a protocol that is not built in is refused at load.
+Both protocols are built by default. `--without-j1939` builds CANopen only (no kernel module). `--without-canopen` builds J1939 only: no Lely, `dcfgen`, deploy tool venv lint or `canworks-canopen-sim`; the venv then only holds the editor hook. A config with a network of a protocol that is not built in is refused at load.
 
 The installed release's version is in `/opt/canworks/VERSION` (`--uninstall` removes it). While it runs, the script prints its steps as lines of the form `::canworks-step N/M text` (`N/?` while the total is not known yet), which the configurator shows as progress.
 
@@ -87,7 +87,7 @@ It:
 
 - builds Lely CANopen, `dcfgen`, the deploy tool, the plugin and the editor hook **inside the runtime image the bootloader runs**, in a throwaway container, into `/opt/canworks` on the host. A plugin built on the host would not load in the image (the image is Debian bookworm with its own C library and Python). On a Raspberry Pi this takes a while;
 - records the runtime version it built for in `/opt/canworks/lib/runtime-version`;
-- builds `canworks-sim` for the image too, to `/opt/canworks/lib/canworks-sim`, with no host link: it needs the image's libraries, so run it inside the container (`docker exec -it openplc-runtime /opt/canworks/lib/canworks-sim ...`);
+- builds `canworks-canopen-sim` for the image too, to `/opt/canworks/lib/canworks-canopen-sim`, with no host link: it needs the image's libraries, so run it inside the container (`docker exec -it openplc-runtime /opt/canworks/lib/canworks-canopen-sim ...`);
 - adds two entries to the bootloader's runtime spec, through the same `extraBinds`/`extraEnv` keys upstream's installer writes for `--mount`/`--env`, and leaves every other entry as it was:
   - `extraBinds`: `/opt/canworks:/opt/canworks`
   - `extraEnv`: `PYTHONPATH=/opt/canworks/lib/sitecustomize` (loads the editor hook in the runtime's webserver)

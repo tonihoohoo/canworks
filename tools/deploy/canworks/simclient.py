@@ -2,7 +2,7 @@
 
 The same requests reach the plugin's simulated devices over its diagnostics
 channel (port 7531, token, allow_changes for changes) and a standalone
-`canworks-sim` over its control channel (port 7532, token only when
+`canworks-canopen-sim` over its control channel (port 7532, token only when
 it has one). Both answer the diagnostics hello, so one diag.Client serves
 both."""
 
@@ -15,7 +15,7 @@ READ_OPS = ("sim_status", "sim_get", "sim_scenario_list", "sim_check_expr")
 
 
 def parse_sim(text):
-    """HOST[:PORT] of a standalone simulator (default port 7532)."""
+    """HOST[:PORT] of a CANopen simulator (default port 7532)."""
     host, port = diag.parse_runtime(text)
     if ":" not in text.rsplit("]", 1)[-1]:
         port = SIM_PORT
@@ -23,9 +23,9 @@ def parse_sim(text):
 
 
 def closed_error(host, port):
-    """The DiagError for a refused connection to a standalone simulator
+    """The DiagError for a refused connection to a CANopen simulator
     (diag.Client's own message talks about the runtime)."""
-    return diag.DiagError("closed", "port %d on %s is closed: no canworks-sim runs there, or it listens on another "
+    return diag.DiagError("closed", "port %d on %s is closed: no canworks-canopen-sim runs there, or it listens on another "
                                     "port" % (port, host))
 
 
@@ -82,7 +82,7 @@ class SimClient:
 
     @property
     def standalone(self):
-        """True when connected to canworks-sim, not to a runtime."""
+        """True when connected to canworks-canopen-sim, not to a runtime."""
         return bool(self.info.get("simulator"))
 
     def close(self):

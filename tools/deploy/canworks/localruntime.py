@@ -1,6 +1,6 @@
-"""canworks-sim-runtime: the local simulator runtime (docs/local-runtime.md).
+"""canworks-local-runtime: the local runtime (docs/local-runtime.md).
 
-Runs the image ghcr.io/tonihoohoo/canworks-sim-runtime (OpenPLC Runtime v4
+Runs the image ghcr.io/tonihoohoo/canworks-local-runtime (OpenPLC Runtime v4
 with the CANopen plugin built in, every network simulated) on this PC with a
 container engine: Docker or Podman, or either of them inside WSL2 on Windows.
 Docker Desktop is not needed. The runtime listens on 127.0.0.1 only; its
@@ -25,8 +25,8 @@ import time
 from . import __version__, runtime
 from .userdirs import config_dir, replace_file
 
-PROG = "canworks-sim-runtime"
-IMAGE_REPO = "ghcr.io/tonihoohoo/canworks-sim-runtime"
+PROG = "canworks-local-runtime"
+IMAGE_REPO = "ghcr.io/tonihoohoo/canworks-local-runtime"
 CONTAINER = PROG
 VOLUME = PROG + "-data"
 # The name of PC tools 0.30.x (canopen-local-runtime: taking over a local
@@ -269,7 +269,7 @@ def wait_ready(port, timeout=READY_TIMEOUT, sleep=time.sleep, out=None):
             pass
         if time.monotonic() > deadline:
             raise LocalRuntimeError("the runtime did not answer on https://localhost:%d within %d s; see "
-                                    "`canworks-sim-runtime logs`" % (port, timeout))
+                                    "`canworks-local-runtime logs`" % (port, timeout))
         if out and not said:
             out("waiting for the runtime to answer on https://localhost:%d" % port)
             said = True
@@ -341,14 +341,14 @@ def _credentials(eng, image, port, diag_port, settings, out, volume=VOLUME, crea
         return doc
     if not settings or not settings.get("password"):
         raise LocalRuntimeError("the local runtime already has a user, but its password is not saved on this PC "
-                                "(%s is missing). It cannot be recovered: run `canworks-sim-runtime remove "
+                                "(%s is missing). It cannot be recovered: run `canworks-local-runtime remove "
                                 "--data` and `start` again for new credentials." % settings_path())
     if changed:
         out("note: the runtime's certificate changed; the new fingerprint is saved")
     try:
         client.login(settings["user"], settings["password"])
     except runtime.RuntimeError_ as e:
-        raise LocalRuntimeError("the saved credentials do not log in (%s). Run `canworks-sim-runtime remove "
+        raise LocalRuntimeError("the saved credentials do not log in (%s). Run `canworks-local-runtime remove "
                                 "--data` and `start` again for new ones." % e)
     save_settings(doc)
     return doc
@@ -370,15 +370,15 @@ def cmd_start(args, out):
     else:
         status, running_image = state
         if args.image and running_image != args.image:
-            raise LocalRuntimeError("the local runtime runs image %s, not %s: run `canworks-sim-runtime update "
+            raise LocalRuntimeError("the local runtime runs image %s, not %s: run `canworks-local-runtime update "
                                     "--image %s`" % (running_image, args.image, args.image))
         if running_image != image:
-            out("note: the local runtime runs image %s; `canworks-sim-runtime update` switches it to %s"
+            out("note: the local runtime runs image %s; `canworks-local-runtime update` switches it to %s"
                 % (running_image, image))
             image = running_image
         if args.port and settings and args.port != settings.get("port") or \
                 args.diag_port and settings and args.diag_port != settings.get("diag_port"):
-            raise LocalRuntimeError("the container exists with other ports; run `canworks-sim-runtime update` "
+            raise LocalRuntimeError("the container exists with other ports; run `canworks-local-runtime update` "
                                     "with --port/--diag-port to change them")
         if status == "running":
             out("the local runtime is already running")

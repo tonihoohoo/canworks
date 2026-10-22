@@ -223,7 +223,7 @@ def parser():
                    help="the config (canworks.json); EDS and DBC paths are relative to it")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime to upload to (HTTPS, default port 8443); `local` is the local simulator "
-                        "runtime of canworks-sim-runtime, with its saved user, password and fingerprint; a "
+                        "runtime of canworks-local-runtime, with its saved user, password and fingerprint; a "
                         "remembered runtime's name connects directly or over the remote link, link:NAME over "
                         "the link only (docs/remote-access.md)")
     p.add_argument("--user",
@@ -615,7 +615,7 @@ def run(args, out=print, err=None, password_source=None, confirm_source=None):
             err("warning: this config simulates devices: %s. Outputs to a simulated device go nowhere; never leave "
                 "a machine's config simulated." % simulated)
         if local and uploading:
-            out("local simulator runtime: every network runs simulated there, whatever the config says")
+            out("local runtime: every network runs simulated there, whatever the config says")
         if simulated and uploading and not local and not (getattr(args, "yes", False) or getattr(args, "simulated", False)):
             answer = (confirm_source or _ask)("Upload this config with simulated devices to %s?"
                                               % (bridge_target or args.runtime))

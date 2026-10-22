@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# canworks-sim end-to-end test on vcan0 and vcan1.
+# canworks-canopen-sim end-to-end test on vcan0 and vcan1.
 #
 #   test/simulator/run.sh [--build-dir build]
 #
-# 1. Run mode: the standalone simulator simulates node 2 of the ping-pong
+# 1. Run mode: the CANopen simulator simulates node 2 of the ping-pong
 #    config (config/pingpong) on vcan0, with a simulation file that loops
 #    0x4000 back to 0x4001; the real libcanworks_plugin.so in canopen_host
 #    boots it and runs the ping-pong program. While it runs, the control
@@ -13,7 +13,7 @@
 #    and the lost and resumed heartbeat), and the remote test mode
 #    (test --runtime) against the simulator's control channel. SIGTERM must
 #    stop the simulator cleanly.
-# 2. Test mode: canworks-sim test with a passing and a failing
+# 2. Test mode: canworks-canopen-sim test with a passing and a failing
 #    scenario next to the plugin; exit codes 1 and 0, and the JUnit file's
 #    structure.
 # 3. Real-bus checks on vcan1: an interface that is not vcan is refused
@@ -54,7 +54,7 @@ done
 
 PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-SIM="$BUILD/bin/canworks-sim"
+SIM="$BUILD/bin/canworks-canopen-sim"
 SLAVE="$BUILD/test/pingpong_slave"
 for f in "$PLUGIN" "$HOST" "$SIM" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
@@ -210,7 +210,7 @@ grep -q "FAIL never.*value seen" "$WORK/test.out" && ok "the failure names the s
 if python3 - "$WORK/junit.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
 suite = ET.parse(sys.argv[1]).getroot()
-assert suite.tag == "testsuite" and suite.get("name") == "canworks-sim", suite.attrib
+assert suite.tag == "testsuite" and suite.get("name") == "canworks-canopen-sim", suite.attrib
 assert suite.get("tests") == "2" and suite.get("failures") == "1", suite.attrib
 cases = {c.get("name"): c for c in suite.findall("testcase")}
 assert set(cases) == {"counts", "never"}, cases

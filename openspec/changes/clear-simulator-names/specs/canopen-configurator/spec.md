@@ -190,8 +190,8 @@ The Commission pages, Trace recording and its transmit list, the Simulation view
 ## ADDED Requirements
 
 ### Requirement: Simulation on a J1939 network
-On a J1939 network the **Simulation** tool tab SHALL stay in the tool tabs and SHALL show, in place of the simulated devices, one line saying that the runtime does not simulate J1939 networks and that `canworks-j1939-sim` plays the other ECUs from the network's DBC file, with a link to its doc and a command line for the network's DBC to copy. The **Simulated device** node tab and the **Simulation file** page SHALL stay hidden there.
+On a J1939 network the **Simulation** tool tab SHALL stay in the tool tabs and SHALL show, in place of the simulated devices, one line saying that the runtime does not simulate J1939 networks and that `canworks-j1939-sim` plays the other ECUs from the network's DBC file, naming its doc and with a command line for the network's DBC to copy. The **Simulated device** node tab and the **Simulation file** page SHALL stay hidden there.
 
 #### Scenario: J1939 project
 - **WHEN** the user opens Simulation on a J1939 network whose DBC is `machine.dbc`
-- **THEN** the view says the runtime does not simulate J1939 and offers `canworks-j1939-sim --dbc machine.dbc --node NAME --interface IF` to copy, with a link to the J1939 simulator doc
+- **THEN** the view says the runtime does not simulate J1939 and offers `canworks-j1939-sim --dbc machine.dbc --node NAME --interface IF` to copy, and names the J1939 simulator doc

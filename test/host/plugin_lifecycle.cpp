@@ -236,7 +236,7 @@ int main(int argc, char** argv) {
   expect(logged("no node is simulated"), "the warning says no node is simulated");
   expect(!status, "the node stays absent");
 
-  // The local simulator runtime image: a real-adapter config runs simulated.
+  // The local runtime image: a real-adapter config runs simulated.
   std::printf("simulation forced by the environment:\n");
   setenv("CANWORKS_FORCE_SIMULATE", "1", 1);
   status = run_simulated("", 3, last, "");

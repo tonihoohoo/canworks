@@ -692,7 +692,7 @@ struct ConfigSet {
 struct ImageLimits {
   unsigned buffer_size = 1024;
   // Set from the runtime environment (CANWORKS_FORCE_SIMULATE=1, the local
-  // simulator runtime image): every network is parsed as a simulated network,
+  // local runtime image): every network is parsed as a simulated network,
   // whatever its adapter.simulate says (docs/local-runtime.md).
   bool force_simulate = false;
   // The host is the Modbus bridge: only bridge configs load. Otherwise (the

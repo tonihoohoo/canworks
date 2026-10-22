@@ -404,8 +404,8 @@ PLUGINS_CONF="$RUNTIME_DIR/plugins.conf"
 LIB_DIR="$PREFIX/lib"
 LIB="$LIB_DIR/libcanworks_plugin.so"
 LINE="canworks,$LIB,0,1,$LIB_DIR/canworks.json,"
-SIM_BIN="$LIB_DIR/canworks-sim"
-SIM_LINK=/usr/local/bin/canworks-sim
+SIM_BIN="$LIB_DIR/canworks-canopen-sim"
+SIM_LINK=/usr/local/bin/canworks-canopen-sim
 
 # Removes the simulator link when it points into this install.
 remove_sim_link() {
@@ -466,7 +466,22 @@ remove_old_install() {
     if [ -L "$old_sim" ]; then
         rm -f "$old_sim"
     fi
+    remove_old_sim_name
     remove_old_prefix
+}
+
+# Removes the simulator binary and link from before clear-simulator-names
+# (canworks-sim, now canworks-canopen-sim).  # rename-keep
+remove_old_sim_name() {
+    local old_bin="$LIB_DIR/canworks-sim" old_link=/usr/local/bin/canworks-sim  # rename-keep
+    if [ -L "$old_link" ] && [ "$(readlink "$old_link")" = "$old_bin" ]; then
+        rm -f "$old_link"
+        say "Removed $old_link from before the rename to canworks-canopen-sim"
+    fi
+    if [ -f "$old_bin" ]; then
+        rm -f "$old_bin"
+        say "Removed $old_bin from before the rename to canworks-canopen-sim"
+    fi
 }
 
 if [ "$UNINSTALL" -eq 1 ]; then
@@ -544,7 +559,7 @@ cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANWORKS_BUILD_
     -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
     -DLELY_PREFIX="$PREFIX/lely" -DCANWORKS_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
 TARGETS=(canworks_plugin)
-[ "$WITH_CANOPEN" -eq 0 ] || TARGETS+=(canworks-sim)
+[ "$WITH_CANOPEN" -eq 0 ] || TARGETS+=(canworks-canopen-sim)
 cmake --build "$BUILD_DIR" --target "${TARGETS[@]}" -j"$(nproc)" >/dev/null
 
 say "Installing $LIB"
@@ -553,7 +568,7 @@ install -m 0755 "$BUILD_DIR/plugins/libcanworks_plugin.so" "$LIB.new"
 mv -f "$LIB.new" "$LIB"
 # The standalone CANopen device simulator (docs/simulator.md), same version as the plugin.
 if [ "$WITH_CANOPEN" -eq 1 ]; then
-    install -m 0755 "$BUILD_DIR/bin/canworks-sim" "$SIM_BIN.new"
+    install -m 0755 "$BUILD_DIR/bin/canworks-canopen-sim" "$SIM_BIN.new"
     mv -f "$SIM_BIN.new" "$SIM_BIN"
     if [ "$IN_IMAGE" -eq 0 ]; then
         ln -sfn "$SIM_BIN" "$SIM_LINK"

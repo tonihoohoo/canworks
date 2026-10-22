@@ -1,4 +1,4 @@
-"""canworks-sim-runtime and the `local` target (canopen-local-runtime).
+"""canworks-local-runtime and the `local` target (canopen-local-runtime).
 
 The container engine is a fake that records its command lines; the runtime
 behind the published port is the HTTPS stub of the deploy tests."""
@@ -182,7 +182,7 @@ class Start(WithRuntime):
         self.assertEqual(run[-1], "%s:%s" % (localruntime.IMAGE_REPO, __version__))
         self.assertIn("127.0.0.1:%d:8443" % self.port, run)
         self.assertIn("127.0.0.1:7531:7531", run)
-        self.assertIn("canworks-sim-runtime-data:/var/run/runtime", run)
+        self.assertIn("canworks-local-runtime-data:/var/run/runtime", run)
         self.assertIn("unless-stopped", run)
         self.assertIn("SYS_NICE", run)
         self.assertIn("memlock=-1:-1", run)
@@ -197,7 +197,7 @@ class Start(WithRuntime):
             self.assertEqual(stat.S_IMODE(os.stat(localruntime.settings_path()).st_mode), 0o600)
         self.assertIn("address localhost:%d, user openplc" % self.port, out)
         self.assertNotIn(saved["password"], out)  # only `status --show-password` prints it
-        self.assertIn("canworks-sim-runtime status --show-password", out)
+        self.assertIn("canworks-local-runtime status --show-password", out)
         self.assertIn("Every CANopen network runs simulated here", out)
 
     def test_pull_when_missing(self):
@@ -234,7 +234,7 @@ class Start(WithRuntime):
             code, out, err = self.start()
             self.assertEqual(code, 1)
             self.assertIn("certificate changed", err)
-            self.assertIn("canworks-sim-runtime start", err)
+            self.assertIn("canworks-local-runtime start", err)
             self.assertNotIn(("POST", "/api/login"), self.stub.requests)  # the password was not sent
             self.assertEqual(localruntime.load_settings(), doc)
             self.assertNotIn(doc["password"], out + err)
@@ -288,7 +288,7 @@ class Start(WithRuntime):
         self.engine.container = ("running", "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start()
         self.assertEqual(code, 0, err)
-        self.assertIn("runs image %s:0.1.0; `canworks-sim-runtime update` switches it" % localruntime.IMAGE_REPO, out)
+        self.assertIn("runs image %s:0.1.0; `canworks-local-runtime update` switches it" % localruntime.IMAGE_REPO, out)
         self.assertEqual(localruntime.load_settings()["image"], "%s:0.1.0" % localruntime.IMAGE_REPO)
         code, out, err = self.start("--image", "other:1")
         self.assertEqual(code, 1)
@@ -300,7 +300,7 @@ class Manage(WithRuntime):
         self.assertEqual(self.start()[0], 0)
         code, out, err = self.cli("status", "--show-password")
         self.assertEqual(code, 0, err)
-        self.assertIn("container: canworks-sim-runtime, running", out)
+        self.assertIn("container: canworks-local-runtime, running", out)
         self.assertIn("password " + localruntime.load_settings()["password"], out)
         self.assertIn("PLC: STOPPED", out)
         self.assertIn("simulation forced by the runtime environment", out)
@@ -355,7 +355,7 @@ class LocalTarget(WithRuntime):
         code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local",
                                 env={"OPENPLC_USER": "pi-user", "OPENPLC_PASSWORD": "pi-password"})
         self.assertEqual(code, 0, err)
-        self.assertIn("local simulator runtime: every network runs simulated", out)
+        self.assertIn("local runtime: every network runs simulated", out)
         self.assertIn("uploading to 127.0.0.1:%d" % self.port, out)
         self.assertIn(("POST", "/api/upload-file"), self.stub.requests)
 
@@ -385,7 +385,7 @@ class LocalTarget(WithRuntime):
         code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 1)
         self.assertIn("the local runtime's certificate changed", err)
-        self.assertIn("canworks-sim-runtime start", err)
+        self.assertIn("canworks-local-runtime start", err)
         self.assertEqual(self.stub.requests, [])
 
     def test_no_local_runtime(self):
@@ -393,7 +393,7 @@ class LocalTarget(WithRuntime):
         src = editor_bundle(os.path.join(self.dir, "src"))
         code, out, err = deploy("--bundle", src, "--config", config, "--runtime", "local")
         self.assertEqual(code, 1)
-        self.assertIn("run `canworks-sim-runtime start` first", err)
+        self.assertIn("run `canworks-local-runtime start` first", err)
 
     def test_diag_host(self):
         self.assertEqual(diag.parse_runtime("local"), ("127.0.0.1", 7531))
@@ -407,7 +407,7 @@ class DiagStatus(unittest.TestCase):
         diag._print_status({"version": "1", "uptime_s": 3, "config_sha256": "ab" * 32, "simulated_network": True,
                             "simulation_forced": True, "bus": {"interface": "simulated", "state": 1},
                             "master": {"node_id": 1, "state": 5}, "nodes": []}, out)
-        self.assertIn("simulation forced by the runtime (local simulator runtime)", out.getvalue())
+        self.assertIn("simulation forced by the runtime (local runtime)", out.getvalue())
         self.assertIn("simulated network: no CAN interface is used", out.getvalue())
 
 

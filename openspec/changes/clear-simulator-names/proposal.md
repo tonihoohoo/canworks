@@ -30,7 +30,7 @@ None.
 
 ## Impact
 
-- **PC tools:** `pyproject.toml` entry point, `localruntime.py`, `simcli.py`/`simclient.py`/`diag.py` texts, configurator `connection.js`/`sim.js`/`shell.js`/`app.js`, and tests. The tools minor version goes up (0.108.0).
+- **PC tools:** `pyproject.toml` entry point, `localruntime.py`, `simcli.py`/`simclient.py`/`diag.py` texts, configurator `connection.js`/`sim.js`/`shell.js`/`app.js`, and tests. The tools minor version goes up (0.111.0).
 - **Plugin build:** the CMake target and the `tools/sim/*` usage texts. `install-stock.sh` and the plugin version go up.
 - **CI and release:** `ci.yml` build targets, `local-runtime.yml` image tags, `release-deploy.yml` image name. The `rename_to_canworks.py` mapping and its check, plus `test/ci/test_rename.py`.
 - **Docker:** `docker/local-runtime/Dockerfile` labels and comments.

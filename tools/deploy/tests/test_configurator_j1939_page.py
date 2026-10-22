@@ -10,7 +10,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import J1939_NETWORK, TOKEN, FakePlugin
-from .helpers import REPO, add_network, net_action, tree_view
+from .helpers import REPO, add_network, net_action, tool_tab, tree_view
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
@@ -156,3 +156,19 @@ class J1939Page(OnlineBase):
             # No CANopen tools on a J1939 network.
             self.assertEqual(pg.locator('[data-online="lss"]').count(), 0)
             self.assertEqual(pg.locator("tr[data-online-node]").count(), 0)
+
+    def test_simulation_points_to_the_j1939_simulator(self):
+        # toolkit-names "Simulator wording in the docs"; canopen-configurator
+        # "Simulation on a J1939 network": the tab stays and names canworks-j1939-sim.
+        pg = self.page
+        self.cfg = load(os.path.join(EXAMPLE, "canworks.json"))
+        shutil.copy(os.path.join(EXAMPLE, "machine.dbc"), os.path.join(self.project, "canworks"))
+        self.write_config()
+        self.open()
+        self.assertEqual(pg.locator('#tool-tabs button[data-view="simfile"]').count(), 0)
+        tool_tab(pg, "simulation")
+        pg.wait_for_selector("[data-sim=j1939]")
+        self.assertIn("does not simulate J1939", pg.inner_text("[data-sim=j1939]"))
+        self.assertEqual(pg.inner_text("[data-sim=j1939-command]"),
+                         "canworks-j1939-sim --dbc machine.dbc --node NAME --interface can0")
+        self.assertEqual(pg.locator("#sim-body").count(), 0)

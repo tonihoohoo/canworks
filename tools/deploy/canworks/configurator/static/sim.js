@@ -1,7 +1,7 @@
 // Simulation view (canopen-configurator "Simulation view" and "Scenarios in
 // the configurator"; docs/simulator.md): live values, overrides, value
 // sources, faults and scenarios of simulated devices, through the runtime's
-// diagnostics channel or a standalone canworks-sim, and the draft of
+// diagnostics channel or a standalone canworks-canopen-sim, and the draft of
 // canworks/simulation.json. Loaded after app.js and uses its helpers (el, api,
 // banner, modal, put, S, ...).
 "use strict";
@@ -350,8 +350,31 @@ async function loadSimSettings() {
   catch (e) { SIM.settings = { target: "runtime", address: "127.0.0.1:7532", token_set: false, pins: {} }; }
 }
 
+// The command line that plays a J1939 network's other ECUs from its DBC
+// (docs/j1939.md, "Simulator"): the runtime does not simulate J1939.
+function j1939SimCommand(net) {
+  const dbc = j1939Of(net).dbc || "FILE.dbc";
+  const iface = (net.adapter && net.adapter.interface) || "IF";
+  return `canworks-j1939-sim --dbc ${/\s/.test(dbc) ? JSON.stringify(dbc) : dbc} --node NAME --interface ${iface}`;
+}
+
+function renderJ1939Simulation(view) {
+  const cmd = j1939SimCommand(S.config);
+  view.append(
+    el("div", { class: "toolbar view-head" }, el("h2", null, "Simulation")),
+    el("p", { dataset: { sim: "j1939" } }, "The runtime does not simulate J1939 networks. ",
+      el("code", null, "canworks-j1939-sim"), " plays the other ECUs from the network's DBC file on a SocketCAN interface or a " +
+      "USB adapter (docs/j1939.md, Simulator). Replace NAME with the ECU's node name in the DBC:"),
+    el("div", { class: "toolbar" }, el("code", { dataset: { sim: "j1939-command" } }, cmd),
+      el("button", { type: "button", dataset: { sim: "j1939-copy" }, onclick: async () => {
+        await copyText(cmd);
+        banner("Copied the canworks-j1939-sim command line.");
+      } }, "Copy")));
+}
+
 async function renderSimulation(view) {
   document.querySelector("#editor").classList.add("wide-view");
+  if (isJ1939(S.config)) { renderJ1939Simulation(view); return; }
   // The picked device belongs to the network it was picked on.
   const net = onlineNetwork();
   if (SIM.net !== undefined && SIM.net !== net) {
@@ -397,7 +420,7 @@ async function renderSimulation(view) {
 function simView() { return S.view === "simulation" || S.view === "simfile"; }
 
 // The simulated devices of the connection in the connection bar
-// (connection.js): the runtime's, or the standalone simulator's.
+// (connection.js): the runtime's, or the CANopen simulator's.
 function simCanConnect() {
   if (S.simOn) return true;
   return connEnsure();
@@ -447,7 +470,7 @@ async function simPoll(seq) {
     const why = /nothing simulated/.test(msg) ? "nothing simulated"
       : { closed: "port closed", unreachable: "host unreachable", token: "wrong token", timeout: "no answer",
         protocol: "not a CANopen diagnostics port", refused: "refused" }[err.body && err.body.kind] || "error";
-    // A standalone simulator's connection problem shows in the connection bar.
+    // A CANopen simulator's connection problem shows in the connection bar.
     SIM.connErr = S.simOn && why !== "nothing simulated" ? why : null;
     if (S.simOn) connBar();
     conn.hidden = !!SIM.connErr;
@@ -543,7 +566,7 @@ function simLiveTab() {
     if (!diagConfig()) {
       return notice("info", ["Online access is off for this config, so the runtime's simulated devices cannot be reached: turn it on in Configure → ",
         el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); switchWorkspace("configure"); showView("project"); } }, "Project → Online access"),
-        " (simulating a node or the network does this), save, and upload the program. A standalone simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile."],
+        " (simulating a node or the network does this), save, and upload the program. A CANopen simulator can be connected with Connect… in the connection bar. The simulation file and the scenarios can be edited meanwhile."],
       { live: false, dataset: { sim: "access-off" } });
     }
     return notice("info", "Live values need a connection. Connect with Connect… in the connection bar above. The simulation file and the scenarios can be edited meanwhile.",
@@ -1583,7 +1606,7 @@ function simScenarioEditor(name) {
     el("div", { class: "notice-slot", dataset: { simProblems: `scenarios.${name}` } }),
     el("div", { class: "grid" }, dl,
       flag("autostart", "Start with the simulation", "Runs when the simulated devices start."),
-      flag("test", "Test", "Run by canworks-sim test by default.")),
+      flag("test", "Test", "Run by canworks-canopen-sim test by default.")),
     el("h3", null, "Steps"),
     stepsEditor(sc.steps, () => simChanged()),
     el("div", { class: "toolbar" }, el("button", { type: "button", onclick: () => { SIM.scenario = null; simRenderTab(); } }, "Close editor"),

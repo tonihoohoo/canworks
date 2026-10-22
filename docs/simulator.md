@@ -1,10 +1,21 @@
-# Simulator
+# Simulation
 
-Simulated devices are CANopen nodes built from their EDS files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. The configurator's **Simulation** tab in Commission drives them, and **Simulation file** in Configure edits what they do.
+A project, its PLC program and the PC tools can be tried without the real devices, and without CAN hardware at all. Four tools do it, each for its own part:
 
-They are for CANopen networks. A J1939 network does not run on the simulated bus (`adapter.simulate` is refused there); `canworks-j1939-sim` plays its other ECUs from a DBC file instead ([j1939.md](j1939.md#simulator)).
+| To simulate | Tool or setting | Protocols | Runs on | Doc |
+|---|---|---|---|---|
+| Devices of a network, inside the runtime | `adapter.simulate` and per node `simulate` in `canworks.json` | CANopen, plain CAN | any runtime with the plugin, Docker too; no CAN hardware needed | [below](#two-switches) |
+| Devices on a SocketCAN interface, for any master | `canworks-canopen-sim` (the CANopen simulator) | CANopen, plain CAN | the Linux runtime host, installed with the plugin; `vcan` or a real interface | [below](#canworks-canopen-sim) |
+| Other ECUs of a J1939 network | `canworks-j1939-sim` (the J1939 simulator) | J1939 | the PC (Windows, macOS, Linux) on a SocketCAN interface or a USB adapter | [j1939.md](j1939.md#simulator) |
+| A whole PLC on the PC | `canworks-local-runtime` (the local runtime) | CANopen, plain CAN | the PC, in a container | [local-runtime.md](local-runtime.md) |
 
-## Simulated devices
+### Why two simulators
+
+The CANopen simulator builds each device from its EDS and runs it with the plugin's own CANopen stack, on the plugin's virtual bus or on an interface: that is what lets a runtime with no CAN hardware run whole simulated networks. The plugin runs J1939 on the Linux kernel's J1939 sockets, which need a real or `vcan` interface, and the J1939 simulator plays ECUs from a DBC file on the PC. So a J1939 network does not run on the simulated bus (`adapter.simulate` is refused there) or in the local runtime: run it on a Linux runtime on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs. On a J1939 network the configurator's **Simulation** tab gives that command line for the network's DBC.
+
+The rest of this page is about the CANopen simulator. The configurator's **Simulation** tab in Commission drives its devices, and **Simulation file** in Configure edits what they do.
+
+## CANopen and plain CAN devices
 The simulator runs CANopen devices built from their EDS (or DCF) files, so a configuration, the configurator's online views and a PLC program can be tried without the real devices. A simulated device is a full CANopen node: it boots, answers SDO, takes its configuration from the master, sends and receives PDOs, produces heartbeats, sends EMCY and stores parameters, all as its EDS describes. On top of that its values can move by themselves, follow formulas, play recorded data, and show faults on command or on a timeline.
 
 A simulated device is what its EDS promises. A real device can behave differently where its EDS is incomplete or wrong; start a simulated device from a [parameter backup](diagnostics.md#replacing-a-device) to get a real device's values.
@@ -31,7 +42,7 @@ A config with anything simulated is announced everywhere: a warning at every PLC
 
 #### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
 
-A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local simulator runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing, and a value other than `1` or empty logs a warning that it is ignored. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
+A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing, and a value other than `1` or empty logs a warning that it is ignored. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
 
 #### Several networks
 
@@ -58,16 +69,16 @@ Without any setting, each device chooses its behaviour from its device profile (
 
 `"default_behaviour": false` on a node in the simulation file switches this off.
 
-### `canworks-sim`
+### `canworks-canopen-sim`
 
-The standalone simulator runs devices on a SocketCAN interface: for a plugin on the same host, for another CANopen master, or on a second adapter on a test bench. It is installed with the plugin (see [install-stock.md](install-stock.md)).
+The CANopen simulator runs devices on a SocketCAN interface: for a plugin on the same host, for another CANopen master, or on a second adapter on a test bench. It is installed with the plugin (see [install-stock.md](install-stock.md)).
 
 ```sh
-canworks-sim canworks/canworks.json             # every node of the config on vcan0
-canworks-sim canworks/canworks.json --nodes 5,7 # only nodes 5 and 7
-canworks-sim --eds drive.eds --node 4         # one device
-canworks-sim canworks/canworks.json --iface vcan1 --sim my-sim.json
-sudo canworks-sim --setup-vcan canworks/canworks.json   # creates vcan0 if missing
+canworks-canopen-sim canworks/canworks.json             # every node of the config on vcan0
+canworks-canopen-sim canworks/canworks.json --nodes 5,7 # only nodes 5 and 7
+canworks-canopen-sim --eds drive.eds --node 4         # one device
+canworks-canopen-sim canworks/canworks.json --iface vcan1 --sim my-sim.json
+sudo canworks-canopen-sim --setup-vcan canworks/canworks.json   # creates vcan0 if missing
 ```
 
 With a config, `simulation.json` next to it is used when it exists (`--sim FILE` names another; `--no-sim-file` ignores it). Options:
@@ -91,37 +102,37 @@ Without `--real-bus`, an interface that is not vcan is refused, because simulate
 
 #### Control subcommands
 
-While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `canworks-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a standalone simulator (`--sim HOST[:PORT]`).
+While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `canworks-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a CANopen simulator (`--sim HOST[:PORT]`).
 
 ```sh
-canworks-sim status
-canworks-sim get 5 0x7130:1
-canworks-sim set 5 0x7130:1 450                 # once; a source moves it again
-canworks-sim override 5 0x7130:1 1500           # held until released
-canworks-sim release 5 0x7130:1                 # or: release 5 (all of node 5)
-canworks-sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
-canworks-sim source 5 0x7130:2 none
-canworks-sim fault 5 emcy 0x5000 --register 1 --msef 0100000000
-canworks-sim fault 5 power off                  # power on | power cycle --off-ms 2000
-canworks-sim fault 5 sdo-abort 0x2000:1 0x08000020 --on write --count 1
-canworks-sim clear 5 emcy                       # or: clear 5 all
-canworks-sim scenario list
-canworks-sim scenario start sensor-break
-canworks-sim scenario stop sensor-break
+canworks-canopen-sim status
+canworks-canopen-sim get 5 0x7130:1
+canworks-canopen-sim set 5 0x7130:1 450                 # once; a source moves it again
+canworks-canopen-sim override 5 0x7130:1 1500           # held until released
+canworks-canopen-sim release 5 0x7130:1                 # or: release 5 (all of node 5)
+canworks-canopen-sim source 5 0x7130:2 '{"sine": {"min": 200, "max": 260, "period_s": 10}}'
+canworks-canopen-sim source 5 0x7130:2 none
+canworks-canopen-sim fault 5 emcy 0x5000 --register 1 --msef 0100000000
+canworks-canopen-sim fault 5 power off                  # power on | power cycle --off-ms 2000
+canworks-canopen-sim fault 5 sdo-abort 0x2000:1 0x08000020 --on write --count 1
+canworks-canopen-sim clear 5 emcy                       # or: clear 5 all
+canworks-canopen-sim scenario list
+canworks-canopen-sim scenario start sensor-break
+canworks-canopen-sim scenario stop sensor-break
 ```
 
-The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it. A device is addressed by its configured node ID, its name, or the node ID it has now (`status` shows `lss0 (no node ID) now node 70` for a device an LSS master gave node ID 70: `fault 70 ...` and `fault lss0 ...` both reach it); a configured node ID wins over another device's current one.
+The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-canopen-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it. A device is addressed by its configured node ID, its name, or the node ID it has now (`status` shows `lss0 (no node ID) now node 70` for a device an LSS master gave node ID 70: `fault 70 ...` and `fault lss0 ...` both reach it); a configured node ID wins over another device's current one.
 
 #### Test mode
 
-`canworks-sim test` runs scenarios as tests of a PLC program:
+`canworks-canopen-sim test` runs scenarios as tests of a PLC program:
 
 ```sh
-canworks-sim test canworks/canworks.json --scenario alarm --junit results.xml
-canworks-sim test --runtime plc.local --token-file token --scenario alarm
+canworks-canopen-sim test canworks/canworks.json --scenario alarm --junit results.xml
+canworks-canopen-sim test --runtime plc.local --token-file token --scenario alarm
 ```
 
-With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead; with the port of a standalone simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
+With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead; with the port of a CANopen simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
 
 ### The simulation file
 
@@ -305,7 +316,7 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 
 ### Stored parameters
 
-A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. A simulated device runs LSS only when its EDS says `LSS_Supported=1`, as Lely does: everything that needs LSS (`forget_node_id`, a device without a node ID, a node with `lss`) needs such an EDS. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the standalone simulator as long as it runs, or in `--state-dir`.
+A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. A simulated device runs LSS only when its EDS says `LSS_Supported=1`, as Lely does: everything that needs LSS (`forget_node_id`, a device without a node ID, a node with `lss`) needs such an EDS. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the CANopen simulator as long as it runs, or in `--state-dir`.
 
 ### Scenarios
 
@@ -326,11 +337,11 @@ A scenario is a named list of steps, run in order. A step has one action, option
 
 A condition is `{"node": 7, "object": "0x6200:1", "eq": 5}` with one of `eq`, `ne`, `lt`, `le`, `gt`, `ge` and optionally `bit` (compares that bit), or `{"expr": "[7/0x6200:1] > 5 && [5/0x7130:1] < 300"}`.
 
-A scenario with `"autostart": true` starts with the simulation; one with `"test": true` is run by `canworks-sim test` by default. Several scenarios can run at the same time, and a running scenario can be stopped. A failed `expect` or a `wait` that times out ends the scenario as failed, naming the step, the condition and the value seen; the simulation goes on.
+A scenario with `"autostart": true` starts with the simulation; one with `"test": true` is run by `canworks-canopen-sim test` by default. Several scenarios can run at the same time, and a running scenario can be stopped. A failed `expect` or a `wait` that times out ends the scenario as failed, naming the step, the condition and the value seen; the simulation goes on.
 
 ### Plain CAN devices
 
-Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-sim` on an interface (a file of `raw_devices` only needs no `--eds`; on a real bus they need no free node ID).
+Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-canopen-sim` on an interface (a file of `raw_devices` only needs no `--eds`; on a real bus they need no free node ID).
 
 ```json
 "raw_devices": [
@@ -354,7 +365,7 @@ A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"st
 
 ### Control protocol
 
-The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the standalone simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The standalone simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines; the first line must be `{"op": "hello"}`, answered with `protocol` (1), `version` and `simulator: true`. Any other first line closes the connection, at once and without an answer when it starts with an HTTP method, so a web page cannot send it requests.
+The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the CANopen simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The CANopen simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines; the first line must be `{"op": "hello"}`, answered with `protocol` (1), `version` and `simulator: true`. Any other first line closes the connection, at once and without an answer when it starts with an HTTP method, so a web page cannot send it requests.
 
 Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Values are JSON numbers, or strings for VISIBLE_STRING objects.
 

@@ -5547,7 +5547,7 @@ TEST(sim_stored_lss_id_taken) {
   cJSON_Delete(r);
   delete sim;
 
-  // canworks-sim --state-dir: "lss_id 300" is no node ID (not 300 % 256 = 44).
+  // canworks-canopen-sim --state-dir: "lss_id 300" is no node ID (not 300 % 256 = 44).
   clear_logs();
   char tmpl[] = "/tmp/canworks-sim-state-XXXXXX";
   canopen_sim::SimOptions opt2;

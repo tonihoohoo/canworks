@@ -1,7 +1,7 @@
 """A stand-in for simulated devices (docs/simulator.md, "Control protocol"):
 FakeSim keeps the devices' state and answers the sim_ requests; FakePlugin
 (fake_diag.py) routes them to it, and FakeSimServer serves it as a standalone
-canworks-sim on 127.0.0.1. For the CLI and configurator tests.
+canworks-canopen-sim on 127.0.0.1. For the CLI and configurator tests.
 
     sim = FakeSim.example()            # nodes 5 and 7, extra device "spare"
     with FakePlugin(allow_changes=True, sim=sim) as fp: ...
@@ -329,7 +329,7 @@ def _label(d):
 
 
 class FakeSimServer:
-    """FakeSim as a standalone simulator's control channel: the hello is
+    """FakeSim as a CANopen simulator's control channel: the hello is
     needed only with a token, and changes need no allow_changes."""
 
     def __init__(self, sim, token=None):

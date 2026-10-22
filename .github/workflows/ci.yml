@@ -173,10 +173,10 @@ jobs:
       - uses: ./.github/actions/build-plugin
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
-          # what the vcan steps start: the plugin, the standalone simulator and the helper programs
+          # what the vcan steps start: the plugin, the CANopen simulator and the helper programs
           # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the plugin job)
           targets: >-
-            canworks_plugin canworks-sim canopen_check canopen_host pingpong_slave lss_slave
+            canworks_plugin canworks-canopen-sim canopen_check canopen_host pingpong_slave lss_slave
             sensor_slave link_check sdo_program plc_sdo_lookup_check j1939_long_ids
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

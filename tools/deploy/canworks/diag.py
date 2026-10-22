@@ -9,7 +9,7 @@
   canworks-diag sim --sim 127.0.0.1 status
 
 `sim` controls simulated devices (docs/simulator.md): the plugin's, with
---runtime, or a standalone canworks-sim's, with --sim HOST[:PORT].
+--runtime, or a standalone canworks-canopen-sim's, with --sim HOST[:PORT].
 
 The channel is opt-in (master.diagnostics in canworks.json) and speaks
 line-delimited JSON over TLS, port 7531 by default, after a SCRAM-SHA-256
@@ -46,7 +46,7 @@ GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
 FORWARD_MAX = 4  # local connections at a time on a forwarding port (gateway --listen, link open)
 GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
-PLAIN_PROTOCOL = 1  # a standalone simulator without a token, on loopback
+PLAIN_PROTOCOL = 1  # a CANopen simulator without a token, on loopback
 SCRAM_MECH = "SCRAM-SHA-256-PLUS"
 SCRAM_ITERATIONS = 4096
 SCRAM_MIN_ITERATIONS, SCRAM_MAX_ITERATIONS = 4096, 1000000
@@ -155,7 +155,7 @@ def parse_runtime(text):
             raise ValueError("link: needs a remembered runtime's name (canworks-diag link list)")
         return text, DEFAULT_PORT
     if localruntime.is_local(text):
-        # The local simulator runtime (canworks-sim-runtime): its published diagnostics port.
+        # The local runtime (canworks-local-runtime): its published diagnostics port.
         try:
             saved = localruntime.load_settings() or {}
         except localruntime.LocalRuntimeError:
@@ -399,7 +399,7 @@ class Client:
     several networks (an older plugin knows no networks).
 
     With a token the connection is TLS with the SCRAM login (the plugin
-    always; a standalone simulator with a token); without one it is plain,
+    always; a CANopen simulator with a token); without one it is plain,
     for a local simulator without a token."""
 
     remember = True  # remember the runtime and pair this PC for the remote link after a login on the LAN
@@ -878,8 +878,8 @@ def parser():
                     "(master.diagnostics in canworks.json), and, when the configuration allows changes, write "
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
-                   help="the runtime host (diagnostics port, default %d); `local` is the local simulator runtime "
-                        "of canworks-sim-runtime" % DEFAULT_PORT)
+                   help="the runtime host (diagnostics port, default %d); `local` is the local runtime "
+                        "of canworks-local-runtime" % DEFAULT_PORT)
     p.add_argument("--adapter", metavar="TYPE:CHANNEL",
                    help="talk to the bus through a CAN adapter on this PC instead of a runtime: slcan:COM5, "
                         "slcan:/dev/tty.usbmodem14101, socketcan:can0, ... (see 'adapters' and docs/pc-adapter.md); "
@@ -899,7 +899,7 @@ def parser():
                         "scan, and the parameter commands that write; with --adapter also run LSS while another "
                         "master is active on the bus")
     p.add_argument("--sim", dest="sim_addr", metavar="HOST[:PORT]",
-                   help="sim commands: a standalone simulator's control channel (default port 7532)")
+                   help="sim commands: a CANopen simulator's control channel (default port 7532)")
     p.add_argument("--repair", action="store_true",
                    help="remote link: when a paired runtime answers with another link ID (reinstalled), take the "
                         "new ID and pair this PC with it again")
@@ -1467,7 +1467,7 @@ def _print_protocol_status(st, out):
             ", by %s" % j["peer"] if j.get("peer") else ""))
     sim_nodes = [str(nd.get("node_id")) for nd in st.get("nodes") or [] if nd.get("simulated")]
     if st.get("simulation_forced"):
-        out.write("simulation forced by the runtime (local simulator runtime): every network runs simulated\n")
+        out.write("simulation forced by the runtime (local runtime): every network runs simulated\n")
     if st.get("simulated_network"):
         out.write("simulated network: no CAN interface is used%s\n"
                   % ("; simulated nodes " + ", ".join(sim_nodes) if sim_nodes else "; no node is simulated"))
@@ -2429,7 +2429,7 @@ def run(args, out=sys.stdout):
         return serve.serve(args, out)
     if getattr(args, "adapter", None) and (args.runtime or args.command == "sim"):
         raise DiagError("usage", "--adapter talks to the bus directly; give either --adapter or --runtime, not both"
-                        if args.runtime else "sim commands need a runtime or a standalone simulator, not --adapter")
+                        if args.runtime else "sim commands need a runtime or a CANopen simulator, not --adapter")
     if args.command == "sim":
         from . import simcli
         return simcli.run(args, out)

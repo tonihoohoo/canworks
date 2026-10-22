@@ -8,6 +8,6 @@ Reports are answered as soon as possible. A confirmed problem is fixed in a new 
 
 ## Supported versions
 
-Fixes go into `main` and the next `deploy-v<version>` release, with its `canworks-bridge` and `canworks-sim-runtime` images. Older releases get no fixes: update to the newest release ([docs/install-pc.md](docs/install-pc.md)) and reinstall the plugin or bridge on the runtime host from the same version.
+Fixes go into `main` and the next `deploy-v<version>` release, with its `canworks-bridge` and `canworks-local-runtime` images. Older releases get no fixes: update to the newest release ([docs/install-pc.md](docs/install-pc.md)) and reinstall the plugin or bridge on the runtime host from the same version.
 
 The bridge and the images are built against the OpenPLC runtime release pinned in `docker/local-runtime/runtime-version`. Problems in the runtime itself, in Lely CANopen or in other upstream components go to those projects; tell us too when canworks needs a change for them.

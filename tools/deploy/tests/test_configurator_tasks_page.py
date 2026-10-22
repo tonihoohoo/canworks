@@ -4,7 +4,7 @@ bus, add a found node to the draft config, map a PDO entry and save, record and 
 a trace. Each step is audited with axe-core, checks that the focused control
 shows its focus ring and that nothing is clipped (keyboard_only.KeyboardOnly);
 a pointer action fails the test. Against python-can's virtual bus, the fake
-plugin runtime and the local simulator runtime. Needs Playwright, like
+plugin runtime and the local runtime. Needs Playwright, like
 test_configurator_page.py."""
 
 import copy

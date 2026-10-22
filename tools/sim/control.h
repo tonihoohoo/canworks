@@ -1,10 +1,10 @@
-// control.h - the standalone simulator's control channel (docs/simulator.md,
+// control.h - the CANopen simulator's control channel (docs/simulator.md,
 // "Control protocol"): one JSON object per line each way over TCP.
 //
 // ControlServer is the simulator's listener. It never blocks: the run loop
 // calls poll_once() between slices of the Lely loop, so every request reaches
 // the engine on the loop's thread. ControlClient is the minimal client the
-// subcommands and the test mode use, against the standalone simulator (port
+// subcommands and the test mode use, against the CANopen simulator (port
 // 7532) or the plugin's diagnostics channel (port 7531), which take the same
 // sim_ requests. With a token both use TLS and the SCRAM login of
 // secure_channel.h (the plugin always); a simulator without a token (on

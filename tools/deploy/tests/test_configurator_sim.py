@@ -191,7 +191,7 @@ class Live(Sim):
         self.ok("POST", "/api/sim/settings", {"target": "simulator", "address": address})
         status, data, _ = self.request("POST", "/api/sim/poll", {})
         self.assertEqual((status, data["kind"]), (502, "closed"))
-        self.assertIn("no canworks-sim runs there", data["error"])
+        self.assertIn("no canworks-canopen-sim runs there", data["error"])
         self.assertNotIn("runtime", data["error"])
         self.assertNotIn("PLC", data["error"])
 
