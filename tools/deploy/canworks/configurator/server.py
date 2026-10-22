@@ -311,8 +311,8 @@ NO_NODES = re.compile(r"field 'nodes' lists no slave nodes")
 
 def empty_config():
     return {"schema_version": 1,
-            "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000},
-            "master": {"node_id": 1, "sync_period_us": 10000},
+            "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000},
+            "master": {"node_id": 1},
             "nodes": []}
 
 

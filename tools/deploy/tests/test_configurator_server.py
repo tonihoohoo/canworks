@@ -510,6 +510,7 @@ class CheckAndSave(Running):
         self.open_project()
         self.assertEqual(self.eds(os.path.join(RTD, "rtd8.eds"))[0], 200)
         self.cfg = srv.empty_config()
+        self.cfg["master"]["sync_period_us"] = 10000  # a new config has no SYNC
         self.cfg["nodes"] = [rtd_node()]
         self.canopen = os.path.join(self.project, "canworks")
 
@@ -1281,6 +1282,7 @@ class Cia402(Running):
         example = os.path.join(REPO, "config", "cia402-drive")
         self.assertEqual(self.eds(os.path.join(example, "servo402.eds"))[0], 200)
         self.cfg = srv.empty_config()
+        self.cfg["master"]["sync_period_us"] = 10000  # a new config has no SYNC
         self.cfg["nodes"] = [{"node_id": 4, "name": "drive", "eds": "servo402.eds", "axis": {}}]
 
     def test_map_and_declarations(self):

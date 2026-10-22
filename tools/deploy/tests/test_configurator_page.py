@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node
+from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
 
 try:
     from playwright.sync_api import sync_playwright
@@ -121,7 +121,11 @@ class Page(unittest.TestCase):
 
     def show(self, path):
         """Opens the node tab (and the PDO settings) holding the field at
-        `path`; other paths are left to the page that is open."""
+        `path`; other paths are left to the page that is open. The SYNC
+        period shows once SYNC source is Timer (new configs have SYNC off)."""
+        if path == "master.sync_period_us" and not self.page.locator('input[data-path="%s"]' % path).count():
+            self.page.select_option('select[data-path="master.sync_source"]', "timer")
+            self.page.wait_for_selector('input[data-path="%s"]' % path)
         if not path.startswith("nodes["):
             return
         m = re.match(r"(nodes\[\d+\]\.(?:tx|rx)_pdos\[\d+\])\.(number|cob_id|transmission|inhibit_time_us|"
@@ -495,6 +499,7 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
+        cfg["master"]["sync_period_us"] = 10000
         cfg["master"]["strict_eds"] = False
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
@@ -522,6 +527,7 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
+        cfg["master"]["sync_period_us"] = 10000
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
@@ -533,14 +539,75 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.input_value(sel), "10")
         self.assertEqual(pg.get_attribute(sel, "placeholder"), "off")
         self.fill("master.sync_period_us", "")
+        pg.press(sel, "Tab")
+        self.assertEqual(pg.input_value('select[data-path="master.sync_source"]'), "")
+        self.assertEqual(pg.locator(sel).count(), 0)
         self.save()
         self.assertEqual(load(path)["master"], {"node_id": 1})
+
+    def test_new_network_defaults(self):
+        # Spec "Defaults of a new network": 500 kbit/s and no SYNC for
+        # CANopen, 250 kbit/s for J1939, whatever the other networks run.
+        pg = self.page
+        self.open_from_start("#start-open", self.project)
+        tree_view(pg, "bus")
+        self.assertEqual(pg.input_value('select[data-path="adapter.bitrate"]'), "500000")
+        self.assertEqual(pg.input_value('select[data-path="master.sync_source"]'), "")
+        self.assertEqual(pg.locator('input[data-path="master.sync_period_us"]').count(), 0)
+        self.assertEqual(pg.evaluate("() => S.model.networks[0].master"), {"node_id": 1})
+        add_network(pg)
+        pg.click('#modal button[data-value="j1939"]')
+        pg.wait_for_selector("h2:has-text('Bus and ECU')")
+        self.assertEqual(pg.input_value('select[data-path="adapter.bitrate"]'), "250000")
+        # Back to CANopen: the J1939 default moves to the CANopen one.
+        pg.select_option('select[data-j1939="protocol"]', "")
+        pg.wait_for_selector('select[data-path="master.sync_source"]')
+        self.assertEqual(pg.input_value('select[data-path="adapter.bitrate"]'), "500000")
+        self.assertEqual(pg.evaluate("() => S.model.networks[1].master"), {"node_id": 1})
+        # A chosen rate stays when the protocol changes.
+        pg.select_option('select[data-path="adapter.bitrate"]', "125000")
+        pg.select_option('select[data-j1939="protocol"]', "j1939")
+        pg.wait_for_selector("h2:has-text('Bus and ECU')")
+        self.assertEqual(pg.input_value('select[data-path="adapter.bitrate"]'), "125000")
+
+    def test_sync_off_and_timer(self):
+        # Spec "SYNC Off on the bus page".
+        pg = self.page
+        self.open_from_start("#start-open", self.project)
+        tree_view(pg, "bus")
+        sel = 'select[data-path="master.sync_source"]'
+        pg.select_option(sel, "timer")
+        pg.wait_for_selector('input[data-path="master.sync_period_us"]')
+        self.assertEqual(pg.input_value('input[data-path="master.sync_period_us"]'), "10")
+        self.assertEqual(pg.evaluate("() => S.config.master"), {"node_id": 1, "sync_period_us": 10000})
+        pg.select_option(sel, "plc_cycle")
+        self.fill("master.sync_cycles", "2")
+        pg.select_option(sel, "")
+        pg.wait_for_function("() => !document.querySelector('input[data-path=\"master.sync_cycles\"]')")
+        self.assertEqual(pg.evaluate("() => S.config.master"), {"node_id": 1})
+
+    def test_default_pdos_without_sync(self):
+        # Spec "Default PDOs on a network without SYNC": the EDS's TPDO 1 and RPDO 1 are type 1.
+        pg = self.page
+        self.open_from_start("#start-open", self.project)
+        add_node(pg, os.path.join(PINGPONG, "cpp-slave.eds"), map_pdos=True)
+        pg.wait_for_selector("#banner:has-text('TPDO 1, RPDO 1 have transmission type 255')")
+        self.assertEqual(pg.evaluate("() => [S.config.nodes[0].tx_pdos[0].transmission, S.config.nodes[0].rx_pdos[0].transmission]"),
+                         [255, 255])
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertNotIn("needs SYNC", pg.inner_text("#problem-list"))
+        # With SYNC on, the EDS type stays.
+        pg.evaluate("() => { S.config.master.sync_period_us = 10000; changed(true); }")
+        add_node(pg, os.path.join(PINGPONG, "cpp-slave.eds"), map_pdos=True, node_id=3)
+        pg.wait_for_function("() => S.config.nodes.length === 2 && (S.config.nodes[1].tx_pdos || []).length > 0")
+        self.assertIsNone(pg.evaluate("() => S.config.nodes[1].tx_pdos[0].transmission ?? null"))
 
     def test_sync_source_plc_cycle(self):
         pg = self.page
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
-        cfg = srv.empty_config()  # SYNC period 10 ms; the EDS's TPDO 1 is type 1
+        cfg = srv.empty_config()
+        cfg["master"]["sync_period_us"] = 10000  # the EDS's TPDO 1 is type 1
         cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
@@ -549,7 +616,7 @@ class Page(unittest.TestCase):
         self.open_from_start("#start-open", self.project)
         tree_view(pg, "bus")
         sel = 'select[data-path="master.sync_source"]'
-        self.assertEqual(pg.input_value(sel), "")
+        self.assertEqual(pg.input_value(sel), "timer")
         pg.select_option(sel, "plc_cycle")
         pg.wait_for_selector('input[data-path="master.sync_cycles"]')
         self.assertEqual(pg.locator('input[data-path="master.sync_period_us"]').count(), 0)
@@ -558,7 +625,7 @@ class Page(unittest.TestCase):
         self.save()
         self.assertEqual(load(path)["master"], {"node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 2})
         # Back to the timer.
-        pg.select_option(sel, "")
+        pg.select_option(sel, "timer")
         pg.wait_for_selector('input[data-path="master.sync_period_us"]')
         self.fill("master.sync_period_us", "10")
         self.save()
