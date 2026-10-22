@@ -50,8 +50,9 @@ FIT_CHECK = r"""() => {
   }
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) out.push(["page scrolls sideways"]);
   // Text cut by its box (fix-clipped-text-configure): only data cells, which
-  // carry their whole value in a tooltip, may be cut.
-  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot, header .top-row h1";
+  // carry their whole value in a tooltip, may be cut, and the header's folder
+  // name in a narrow window (the badge's tooltip has the whole path).
+  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot, header .top-row h1, #mode .mode-name";
   for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, dialog[open] *")) {
     if (!shown(e) || !e.textContent.trim() || e.closest(cutOk)) continue;
     const cs = getComputedStyle(e);
