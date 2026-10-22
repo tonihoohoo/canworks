@@ -987,16 +987,20 @@ async function fxLabLoad() {
   } catch (e) {
     const b = $("#fx-lab-examples");
     if (b) fxFill(b, notice("error", e.message));
+    if (L.pdos === null) { L.pdos = []; if ($("#fx-lab-builder")) fxBuilder(); }
     return;
   }
   if (my !== L.seq || !$("#fx-lab-panel")) return;
+  // The builder is drawn again only when its node or PDO lists change, so a
+  // field being typed in or a click on Build is never lost to a redraw.
+  const changed = JSON.stringify([L.pdos, L.nodes]) !== JSON.stringify([pd.pdos, pd.nodes]);
   L.info = ex;
   L.examples = ex.examples;
   L.pdos = pd.pdos;
   L.nodes = pd.nodes;
   const b = $("#fx-lab-examples");
   if (b) fxFill(b, fxLabExampleList());
-  if ($("#fx-lab-builder")) fxBuilder();
+  if (changed && $("#fx-lab-builder")) fxBuilder();
 }
 
 // The example frames, one row per network or node.
@@ -1147,6 +1151,9 @@ function fxBuilder() {
   fxFill(box, el("div", { class: "fx-form" }, el("label", { class: "fx-form-field" }, "Frame", what), fields,
     el("button", { type: "button", class: "primary", dataset: { fxBuild: "go" }, onclick: fxBuild }, "Build and explain")),
   el("div", { id: "fx-build-error", class: "fx-error", role: "alert" }, shown ? shown.textContent : ""));
+  // Until the node and PDO lists first arrive the form waits, greyed out.
+  if (L.pdos === null)
+    for (const c of box.querySelectorAll("input, select, button")) { c.disabled = true; c.title = "Loading the configuration's nodes and PDOs…"; }
 }
 
 async function fxBuild() {

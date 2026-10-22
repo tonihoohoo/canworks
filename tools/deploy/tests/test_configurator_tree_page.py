@@ -320,19 +320,22 @@ class Tree(unittest.TestCase):
             if width <= 1100:
                 pg.click("#tree-toggle")
             self.assertEqual(pg.evaluate(whole), [], where)
-            net = pg.locator('#tree [data-key="3"] > .tree-row')
-            name, proto = net.locator(".name").bounding_box(), net.locator(".proto").bounding_box()
+            # The protocol under the name, both read in one go (the header settles a frame after a resize).
             self.assertEqual(pg.inner_text('#tree [data-key="3"] > .tree-row .name'), "conveyor_line_01")
-            self.assertGreaterEqual(proto["y"], name["y"] + name["height"] - 1, where)  # the protocol under the name
+            self.assertTrue(pg.evaluate("""() => {
+              const row = document.querySelector('#tree [data-key="3"] > .tree-row');
+              const name = row.querySelector('.name').getBoundingClientRect(), proto = row.querySelector('.proto').getBoundingClientRect();
+              return proto.top >= name.bottom - 1; }"""), where)
             self.assertIn("temperature_inputs_left_side", pg.inner_text('#tree [data-key="3:node:0"] .name'))
             self.assertEqual(pg.evaluate(FIT_CHECK), [], where)
             for k in range(4):
                 pg.click('#tree [data-net-menu="%d"]' % k)
                 pg.wait_for_selector("[data-menu-pop]")
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "%s, menu of network %d" % (where, k))
-                # The menu sits under its button.
-                menu, button = pg.locator("[data-menu-pop]").bounding_box(), pg.locator('#tree [data-net-menu="%d"]' % k).bounding_box()
-                self.assertLess(abs(menu["y"] - (button["y"] + button["height"])), 12, where)
+                # The menu sits under its button, and follows it while the page settles.
+                pg.wait_for_function("""(k) => {
+                  const menu = document.querySelector('[data-menu-pop]'), b = document.querySelector(`#tree [data-net-menu="${k}"]`);
+                  return menu && b && b.offsetParent && Math.abs(menu.getBoundingClientRect().top - b.getBoundingClientRect().bottom) < 12; }""", arg=k, timeout=5000)
                 pg.keyboard.press("Escape")
                 pg.wait_for_selector("[data-menu-pop]", state="detached")
                 if width <= 1100 and not pg.is_visible("#tree"):
