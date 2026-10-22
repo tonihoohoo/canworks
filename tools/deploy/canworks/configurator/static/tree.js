@@ -410,8 +410,9 @@ async function netMenu(k, anchor) {
   const buttons = [["rename", "Rename…"]];
   if (!isJ1939(net) && !isPlain(net)) buttons.push(["role", isSlave(net) ? "Make it a master network…" : "Make it a slave network…"]);
   if (S.model.networks.length > 1) buttons.push(["remove", "Remove…", { danger: true }]);
-  // The tree was drawn again for the opened network: anchor to its new button.
-  const at = document.querySelector(`#tree [data-net-menu="${k}"]`) || anchor;
+  // The tree is drawn again for the opened network (and the page may still
+  // move): the menu follows the network's current button.
+  const at = () => document.querySelector(`#tree [data-net-menu="${k}"]`) || anchor;
   const v = await anchoredMenu(at, `${netNamed(net, k)} (${protocolText(net)})`, buttons);
   if (v === "rename") await renameNetwork();
   else if (v === "role") await switchRole(isSlave(net) ? "master" : "slave");
@@ -422,17 +423,27 @@ async function netMenu(k, anchor) {
 
 // A small menu under its button (a network's ⋯): the items as buttons,
 // arrow keys between them, Escape or a click elsewhere closes it. Resolves
-// to the picked item's value, or null.
-function anchoredMenu(anchor, label, items) {
+// to the picked item's value, or null. `anchor` is the button, or a function
+// returning it when a redraw replaces the button; the menu follows it while open.
+function anchoredMenu(anchorAt, label, items) {
+  const find = typeof anchorAt === "function" ? anchorAt : () => anchorAt;
+  let anchor = find();
   return new Promise((resolve) => {
     const pop = el("div", { class: "menu-pop", role: "menu", "aria-label": label, dataset: { menuPop: "1" } },
       el("div", { class: "menu-pop-title muted" }, label),
       items.map(([value, text, opts]) => el("button", { type: "button", role: "menuitem",
         class: opts && opts.danger ? "danger" : null, dataset: { value } }, text)));
-    const r = anchor && anchor.isConnected ? anchor.getBoundingClientRect() : { left: 16, bottom: 80 };
-    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 280)) + "px";
-    pop.style.top = r.bottom + 4 + "px";
+    let frame = 0;
+    const place = () => {
+      const a = find();
+      if (a && a.isConnected) anchor = a;
+      const r = anchor && anchor.isConnected ? anchor.getBoundingClientRect() : { left: 16, bottom: 80 };
+      pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 280)) + "px";
+      pop.style.top = r.bottom + 4 + "px";
+      frame = requestAnimationFrame(place);
+    };
     const done = (v) => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", outside, true);
       pop.remove();
       resolve(v);
@@ -449,6 +460,7 @@ function anchoredMenu(anchor, label, items) {
       } else if (e.key === "Tab") done(null);
     });
     document.body.append(pop);
+    place();
     document.addEventListener("mousedown", outside, true);
     pop.querySelector("button").focus();
   });
