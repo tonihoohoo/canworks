@@ -110,7 +110,7 @@ function markIcons(mark) {
   const sim = parts.includes("sim");
   const state = parts.map((p) => LIVE_MARK[p]).find(Boolean) || (sim ? "unknown" : null);
   if (!state) return [];
-  const out = [Icons.stateIcon(state, { label: false, simulated: sim, flag: parts.includes("flag") ? "pending" : null })];
+  const out = [Icons.stateIcon(state, { label: false, simulated: sim, flag: parts.includes("flag") ? "pending" : parts.includes("flag-cleared") ? "cleared" : null })];
   if (parts.includes("cmp-identity_differs")) out.push(Icons.stateIcon("warning", { label: false }));
   if (parts.includes("cmp-missing")) out.push(Icons.stateIcon("error", { label: false }));
   return out;
@@ -329,7 +329,11 @@ function openEntry(e) {
     }
     S.onlineNode = a.node !== undefined ? num((net.nodes || [])[a.node].node_id) : null;
     if (S.view !== "online") showView("online");
-    else { renderTree(); if (S.onlineNode !== null) { renderOnlineNode(); pollHighlight(); } else if ($("#online-node")) put($("#online-node")); }
+    else {
+      renderTree();
+      if (S.onlineNode !== null) { renderOnlineNode(); pollHighlight(); } else if ($("#online-node")) { put($("#online-node")); onlineLayout(); pollHighlight(); }
+      onlineTop();
+    }
     return;
   }
   if (a.net !== undefined && a.net !== S.net) {

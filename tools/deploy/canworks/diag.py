@@ -354,6 +354,16 @@ EMCY_CLASSES = [
 ]
 
 
+def heard_s(nd):
+    """Seconds since a node of a status answer was last heard, or None: the
+    plugin reports last_heard_ms, an adapter connection last_heard_s."""
+    if nd.get("last_heard_s") is not None:
+        return nd["last_heard_s"]
+    if nd.get("last_heard_ms") is not None:
+        return nd["last_heard_ms"] / 1000.0
+    return None
+
+
 def emcy_class(code):
     for mask, value, name in EMCY_CLASSES:
         if code & mask == value:
@@ -1468,7 +1478,7 @@ def _print_protocol_status(st, out):
         if nd.get("sim_conflict"):
             out.write("node %s: marked simulated, but a device on the bus already uses node ID %s; "
                       "the real device is used\n" % (nd.get("node_id"), nd.get("node_id")))
-    rows = [("NODE", "NAME", "STATE", "OK", "BOOT", "HOLD", "LAST EMCY")]
+    rows = [("NODE", "NAME", "STATE", "OK", "HEARD", "BOOT", "HOLD", "LAST EMCY")]
     for nd in st.get("nodes") or []:
         if nd.get("boot_error"):
             boot = "error %s: %s" % (nd["boot_error"], nd.get("boot_error_text") or "")
@@ -1485,7 +1495,8 @@ def _print_protocol_status(st, out):
             emcy = "0x%04X %s, reg 0x%02X (%d total)" % (em.get("code", 0), emcy_class(em.get("code", 0)),
                                                         em.get("error_register", 0), em["count"])
         rows.append((str(nd.get("node_id")), nd.get("name") or "", state_name(nd.get("state")),
-                     "yes" if nd.get("status") else "no", boot, hold, emcy))
+                     "yes" if nd.get("status") else "no",
+                     "-" if heard_s(nd) is None else "%.1f s ago" % heard_s(nd), boot, hold, emcy))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
     for r in rows:
         out.write("  ".join(c.ljust(w) for c, w in zip(r, widths)) + "  " + r[-1] + "\n")
@@ -2220,7 +2231,7 @@ def _print_local_status(st, out):
         return
     rows = [("NODE", "NAME", "STATE", "HEARD", "LAST EMCY")]
     for nd in nodes:
-        heard = "-" if nd.get("last_heard_s") is None else "%.1f s ago" % nd["last_heard_s"]
+        heard = "-" if heard_s(nd) is None else "%.1f s ago" % heard_s(nd)
         em = nd.get("emcy") or {}
         emcy = "-"
         if em.get("count"):

@@ -16,7 +16,7 @@ import time
 
 from . import eds as eds_mod
 from . import parameters as P
-from .diag import DiagError, abort_text, type_name
+from .diag import DiagError, abort_text, heard_s, type_name
 
 LEFT_OUT = ((0x1010, 0x1010, "store command: use Store on device (--store)"),
             (0x1011, 0x1011, "restore defaults command: use Restore defaults (--restore-defaults)"),
@@ -373,7 +373,7 @@ def node_state(client, node_id):
         if nd.get("node_id") != node_id:
             continue
         if st.get("local"):
-            heard = nd.get("last_heard_s")
+            heard = heard_s(nd)
             return nd.get("state") == OPERATIONAL and heard is not None and heard <= HEARD_S, False
         return nd.get("state") == OPERATIONAL, True
     return False, False

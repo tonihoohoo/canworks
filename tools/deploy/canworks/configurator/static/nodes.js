@@ -258,7 +258,8 @@ function liveMark(n, cmp, flagged) {
   const words = [m[1]];
   let cls = m[0];
   if (cmp && (cmp.state === "missing" || cmp.state === "identity_differs")) { cls += " cmp-" + cmp.state; words.push(COMPARE_TEXT[cmp.state].toLowerCase()); }
-  if (flagged) { cls += " flag"; words.push("new error entry"); }
+  if (flagged === "cleared") { cls += " flag-cleared"; words.push("error cleared"); }
+  else if (flagged) { cls += " flag"; words.push("new error entry"); }
   return [cls, words.join(", ")];
 }
 
@@ -275,7 +276,7 @@ function treeLive(st) {
   for (const n of net.nodes || []) {
     const id = num(n.node_id);
     if (!Number.isInteger(id)) continue;
-    const [cls, word] = liveMark(byId.get(id), cmp[id], !!(S.emcyNew && S.emcyNew[id]));
+    const [cls, word] = liveMark(byId.get(id), cmp[id], S.emcyNew && S.emcyNew[id]);
     const key = `${name}/${id}`;
     const old = S.treeWords[key];
     if (old !== undefined && old.split(",")[0] !== word.split(",")[0]) said.push(`${id} ${n.name || ""}`.trim() + ", " + word.split(",")[0]);
@@ -321,7 +322,10 @@ function logEvents(st) {
     if (cur.emcy > p.emcy && n.emcy) {
       commEvent(id, net, `EMCY ${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)}`, `error register 0x${Number(n.emcy.error_register || 0).toString(16).toUpperCase().padStart(2, "0")}`);
       S.emcyNew = S.emcyNew || {};
-      if (S.onlineNode !== id || (S.onlineTab || "status") !== "status") S.emcyNew[id] = true;
+      // EMCY 0x0000 (error reset or no error) clears the diagnosis: a pending flag turns grey, none is raised.
+      if (n.emcy.code === 0) {
+        if (S.emcyNew[id] || cur.emcy - p.emcy > 1) S.emcyNew[id] = "cleared";
+      } else if (S.onlineNode !== id || (S.onlineTab || "status") !== "status") S.emcyNew[id] = "pending";
     }
     // A reset and boot can both fall between two answers, leaving state and
     // boot result as they were: the plugin's boot count still goes up.
@@ -479,6 +483,13 @@ async function simPanelPoll(id, seq) {
 // ---------------------------------------------------------------------------
 // Small helpers of the table
 
+// The Last EMCY column: code, class and count; EMCY 0x0000 in neutral words.
+function lastEmcyText(n) {
+  if (!n || !n.emcy || !n.emcy.count) return "";
+  if (n.emcy.code === 0) return el("span", { class: "muted", dataset: { emcyCleared: n.node_id } }, `cleared (0x0000) (${n.emcy.count})`);
+  return `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})`;
+}
+
 function lastHeardText(n) {
   if (!n) return "-";
   if (Number.isFinite(n.last_heard_s)) return `${n.last_heard_s.toFixed(1)} s ago`;
@@ -494,8 +505,72 @@ function openOnlineNode(id) {
   S.onlineTab = S.onlineTab || "status";
   renderOnlineNode();
   pollHighlight();
+  onlineTop();
   const t = document.querySelector("#online-node [role=tablist] [aria-selected=true]");
   if (t) t.focus();
+}
+
+// Master and detail (commission-master-detail): a network entry shows the
+// network's page (bus, SYNC, the Nodes table, LSS), a node entry only the
+// node's page. A slave network's own device stays under its status.
+function onlineLayout() {
+  const node = $("#online-node");
+  if (!node) return;
+  const open = S.onlineNode !== null && S.onlineNode !== undefined;
+  const both = open && !S.state.commission && onlineIsSlave();
+  for (const p of document.querySelectorAll("[data-online-part=net]")) p.hidden = open && !both;
+  node.hidden = !open;
+}
+
+// A page or tab opens at its top, with the tab row in view.
+function onlineTop() {
+  const view = $("#view");
+  if (view) view.scrollTop = 0;
+  if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+}
+
+// The Nodes table's selected row: the open node, or the node the user came back from.
+function onlineRowActive(id) {
+  return S.onlineNode === id || ((S.onlineNode === null || S.onlineNode === undefined) && S.onlineBackFrom === id);
+}
+
+// The node header's "← Nodes": the network's page, with the node's row selected.
+function backToNodes() {
+  S.onlineBackFrom = S.onlineNode;
+  S.onlineNode = null;
+  put($("#online-node"));
+  if (typeof renderTree === "function") renderTree();
+  onlineLayout();
+  pollHighlight();
+  onlineTop();
+  const b = document.querySelector(`[data-open-node="${S.onlineBackFrom}"]`);
+  if (b) b.focus();
+}
+
+// The live part of the node header: state as text and shape, last heard,
+// boot result, hold and the simulated mark, in one line.
+function nodeHeaderLive(id, sn) {
+  const [cls, word] = liveMark(sn);
+  const parts = [el("span", { dataset: { statusState: id } }, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(cls)),
+    sn && sn.state ? stateName(sn.state) : upperFirst(word)),
+  el("span", { dataset: { online: "node-heard" } }, "last heard " + lastHeardText(sn))];
+  if (sn && sn.heartbeat !== undefined) parts.push(el("span", null, "heartbeat " + String(sn.heartbeat)));
+  if (sn && !connAdapter()) {
+    const boot = sn.boot_error ? `boot error ${sn.boot_error}: ${sn.boot_error_text || ""}` : sn.booted ? "booted" : "not booted";
+    parts.push(el("span", { class: sn.boot_error ? "bad" : null }, boot + (sn.retry_pending ? " (retrying)" : "")));
+    if (sn.hold && sn.hold !== "none") parts.push(el("span", null, `held ${sn.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${sn.hold_by === "operator" ? "operator" : "the program"}`));
+  }
+  if (simulatedNode(id)) parts.push(el("span", { class: "tag" }, "simulated"));
+  return el("span", { class: "node-live", dataset: { online: "node-status" } }, ...parts);
+}
+
+// Each poll keeps the header's live part current.
+function refreshNodeHeader(st) {
+  const box = document.querySelector('#online-node [data-online="node-status"]');
+  if (!box || S.onlineNode === null || S.onlineNode === undefined) return;
+  const sn = ((st && st.nodes) || []).find((n) => n.node_id === S.onlineNode);
+  const fresh = nodeHeaderLive(S.onlineNode, sn);
+  if (fresh.innerHTML !== box.innerHTML) box.replaceWith(fresh);
 }
 
 // ---------------------------------------------------------------------------
@@ -503,24 +578,6 @@ function openOnlineNode(id) {
 
 const COMMISSION_TABS = [["status", "Status"], ["od", "Object dictionary"], ["params", "Parameters"], ["pdo", "PDO test"],
   ["notes", "Notes"], ["log", "Log"]];
-
-// The top of the Status tab: state as text and shape, last heard, boot result.
-function nodeStatusHead(id, sn, n) {
-  const [cls, word] = liveMark(sn);
-  const rows = [
-    ["State", el("span", { dataset: { statusState: id } }, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(cls)),
-      sn && sn.state ? stateName(sn.state) : upperFirst(word))],
-    ["Last heard", lastHeardText(sn)],
-  ];
-  if (sn && sn.heartbeat !== undefined) rows.push(["Heartbeat", String(sn.heartbeat)]);
-  if (sn && !connAdapter()) {
-    const boot = sn.boot_error ? `error ${sn.boot_error}: ${sn.boot_error_text || ""}` : sn.booted ? "booted" : "not booted";
-    rows.push(["Boot", boot + (sn.retry_pending ? " (retrying)" : "")]);
-    if (sn.hold && sn.hold !== "none") rows.push(["Hold", `held ${sn.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${sn.hold_by === "operator" ? "operator" : "the program"}`]);
-  }
-  return el("table", { class: "online-bus", dataset: { online: "node-status" } }, el("tbody", null,
-    el("tr", null, ...rows.flatMap(([k, v]) => [el("th", null, k), el("td", null, v)]))));
-}
 
 // The EDS whose notes a Commission node's Notes tab shows: (name, EDS) or nulls.
 function commNotesEds(id, n) {

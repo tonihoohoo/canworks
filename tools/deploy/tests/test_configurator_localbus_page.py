@@ -16,7 +16,7 @@ import can
 from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
-from .helpers import REPO, header_action
+from .helpers import REPO, back_to_nodes, header_action
 from .test_configurator_online_page import OnlineBase
 
 _n = itertools.count(1)
@@ -243,9 +243,12 @@ class CommissionPage(AdapterPage):
         pg.wait_for_selector('tr[data-od-key="%d:1"]' % 0x1018, state="attached", timeout=20000)
         self.assertTrue(pg.is_visible('button[data-online="add-to-config"]'))
         # Add node from EDS: a node of this page only.
+        back_to_nodes(pg)
         pg.set_input_files('input[data-online="add-eds-file"]', os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
         pg.fill('input[data-online="add-node-id"]', "9")
         pg.click('#modal button[data-value="add"]')
+        pg.wait_for_selector('[data-online="node-heading"]:has-text("9")')
+        back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="9"]:has-text("added")')
         time.sleep(0.1)
 
@@ -296,6 +299,7 @@ class CommissionPage(AdapterPage):
         pg.wait_for_selector('[data-online="node-status"]:has-text("PRE-OPERATIONAL")')
         # The selected tab stays when the node page is drawn again.
         pg.click('button[data-online-tab="log"]')
+        back_to_nodes(pg)
         pg.click('button[data-open-node="7"]')
         pg.wait_for_selector('button[data-online-tab="log"][aria-selected="true"]')
 

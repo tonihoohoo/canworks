@@ -42,7 +42,7 @@ def status(config_sha256="0" * 64):
         "sync": {"source": "plc_cycle", "cycles": 2, "count": 500, "last_us": 10012, "min_us": 9870,
                  "max_us": 10240, "skipped": 0, "late_pdos": 3},
         "nodes": [
-            {"node_id": 2, "name": "pingpong", "state": 5, "status": True, "booted": True, "boot_error": None,
+            {"node_id": 2, "name": "pingpong", "state": 5, "status": True, "last_heard_ms": 100, "booted": True, "boot_error": None,
              "retry_pending": False, "hold": "none", "hold_by": None,
              "emcy": {"code": 0x4210, "error_register": 0x09, "count": 3},
              "sdo_variables": [{"name": "SDO variable 0x2001:0 (uptime)", "index": 0x2001, "subindex": 0, "type": "UNSIGNED32",

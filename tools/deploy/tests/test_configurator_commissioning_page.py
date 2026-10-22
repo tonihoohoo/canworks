@@ -50,7 +50,8 @@ class Page(_Page):
         pg.set_input_files('input[data-online="add-eds-file"]', os.path.join(self.project, "canworks", eds))
         pg.fill('input[data-online="add-node-id"]', str(node))
         pg.click('#modal button[data-value="add"]')
-        pg.wait_for_selector('tr[data-online-node="%d"]' % node)
+        # The added node's page opens (commission-master-detail).
+        pg.wait_for_selector('[data-online="node-header"]')
         pg.click('button[data-online-tab="%s"]' % tab)
 
 for _name in [n for n in dir(_Page) if n.startswith("test_")]:

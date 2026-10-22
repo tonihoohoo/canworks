@@ -4558,7 +4558,7 @@ async function saveOnline(values) {
 // master and nodes. The connection is made in the connect panel and shown in
 // the connection bar; the page shows the session (plugin, protocol, notes).
 function renderOnline(view) {
-  view.append(el("h2", null, "Nodes"));
+  view.append(el("h2", { dataset: { onlinePart: "net" } }, "Nodes"));
   // An adapter on another machine needs no online access in the config.
   if (!connAdapter() && !diagConfig()) {
     view.append(notice("info", ["Online access is off for this config. Turn it on in Configure → ",
@@ -4573,17 +4573,19 @@ function renderOnline(view) {
   const conn = noticeSlot({ id: "online-conn", "aria-live": "polite" });
   stateBars(conn, "info", "Connecting to " + (connRemote() ? "the adapter server " + S.online.remote_host : S.online.host) + "…");
   view.append(conn,
-    onlineIsSlave() ? null : nodesToolbar(),
-    el("div", { id: "online-live" }),
-    el("div", { id: "online-raw" }),
-    el("div", { id: "online-lss" }),
-    el("div", { id: "online-node" }));
+    el("div", { dataset: { onlinePart: "net" } },
+      onlineIsSlave() ? null : nodesToolbar(),
+      el("div", { id: "online-live" }),
+      el("div", { id: "online-raw" }),
+      el("div", { id: "online-lss" })),
+    el("div", { id: "online-node", hidden: true }));
   S.lssAllow = undefined;
   S.onlineOpen = true;
   // The last answer at once, when it is about the network shown.
   const last = S.onlineLast;
   if (last && !CONN.error && (!last.network || last.network === onlineNetwork())) onlineApply(last, null);
   connStart();
+  onlineLayout();
   if (S.onlineNode) renderOnlineNode();
 }
 
@@ -4705,7 +4707,7 @@ function onlineApply(r, err) {
   const rows = (st.nodes || []).map((n) => {
     const boot = n.boot_error ? `error ${n.boot_error}: ${n.boot_error_text || ""}` : n.booted ? "booted" : "not booted";
     const hold = n.hold === "none" ? "" : `held ${n.hold === "stopped" ? "STOPPED" : "PRE-OPERATIONAL"} by ${n.hold_by === "operator" ? "operator" : "the program"}`;
-    const em = n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
+    const em = lastEmcyText(n);
     const vars = (n.sdo_variables || []).map((v) => `${v.name} = ${v.raw}${v.status > 2 ? " (" + sdoStatus(v) + ")" : ""}`).join(", ");
     const stale = (n.pdo_timeouts || []).filter((t) => t.timed_out).map((t) => `TPDO ${t.tpdo} timed out (${t.count})`);
     const c = cmp[n.node_id];
@@ -4714,7 +4716,7 @@ function onlineApply(r, err) {
     const sim = cn && nodeSimulated(cn, onlineConfig()) ? el("span", { class: "tag", dataset: { simMark: n.node_id } }, "simulated") : null;
     // The row opens the node on a click; the node ID is the button for the
     // keyboard, as the comparison's own buttons sit in the row too.
-    return el("tr", { class: "clickable" + (S.onlineNode === n.node_id ? " active" : ""), dataset: { onlineNode: n.node_id },
+    return el("tr", { class: "clickable" + (onlineRowActive(n.node_id) ? " active" : ""), dataset: { onlineNode: n.node_id },
       onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(n.node_id); } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${n.node_id}`, dataset: { openNode: n.node_id },
       onclick: () => openOnlineNode(n.node_id) }, String(n.node_id))), el("td", null, nodeName(n.node_id, n.name), sim ? " " : null, sim,
@@ -4755,6 +4757,7 @@ function onlineApply(r, err) {
     linksLive(st)]);
   const tbox = document.querySelector("[data-online='pdo-timeouts']");
   if (tbox) tbox.replaceChildren(pdoTimeoutTable((st.nodes || []).find((n) => n.node_id === S.onlineNode)));
+  refreshNodeHeader(st);
   if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
   if (S.lssAllow !== r.hello.allow_changes) renderLss(r.hello.allow_changes);
 }
@@ -5130,7 +5133,7 @@ async function lssSetBitrate(d) {
 }
 
 function pollHighlight() {
-  for (const tr of document.querySelectorAll("tr[data-online-node]")) tr.classList.toggle("active", Number(tr.dataset.onlineNode) === S.onlineNode);
+  for (const tr of document.querySelectorAll("tr[data-online-node]")) tr.classList.toggle("active", onlineRowActive(Number(tr.dataset.onlineNode)));
 }
 
 // Puts a poll's parts into the live box in place of the last poll's: a part
@@ -5200,6 +5203,7 @@ function configNode(id) { return (onlineConfig().nodes || []).find((x) => num(x.
 
 async function renderOnlineNode() {
   if (typeof renderTree === "function") renderTree();
+  onlineLayout();
   const box = $("#online-node");
   if (!box || S.onlineNode === undefined || S.onlineNode === null) return;
   const id = S.onlineNode;
@@ -5217,10 +5221,14 @@ async function renderOnlineNode() {
   const logCount = commLogOn() ? (S.commLog || []).filter((e) => e.node === id).length : 0;
   const notesLabel = commNotesLabel(id, n);
   const tabList = tabs(have.map(([k, label]) => [k, k === "log" && logCount ? `${label} ${logCount}` : k === "notes" ? notesLabel : label]),
-    tab, (k) => { S.onlineTab = k; renderOnlineNode(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
+    tab, (k) => { S.onlineTab = k; renderOnlineNode(); onlineTop(); }, { dataset: "onlineTab", panel: "online-node-panel", label: "Node pages" });
   const head = el("h2", { dataset: { online: "node-heading" } }, nodeHeading(id));
-  const title = S.state.commission ? el("div", { class: "toolbar node-head" }, head,
-    el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: () => addToConfig(id) }, "Add to a config…")) : head;
+  const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
+  // The one-line node header (commission-master-detail): back to the Nodes table, the node, its live state.
+  const back = slave ? null : el("button", { type: "button", class: "small", dataset: { online: "back-to-nodes" },
+    "aria-label": "Back to the Nodes table", onclick: backToNodes }, "← Nodes");
+  const title = el("div", { class: "toolbar node-head", dataset: { online: "node-header" } }, back, head, nodeHeaderLive(id, last),
+    S.state.commission ? el("button", { type: "button", dataset: { online: "add-to-config" }, onclick: () => addToConfig(id) }, "Add to a config…") : null);
   const panel = (...kids) => el("div", { id: "online-node-panel", role: "tabpanel", "aria-labelledby": `online-node-panel-tab-${tab}` }, ...kids);
   // The node page's messages (values no longer live) under its heading.
   const top = [title, noticeSlot({ dataset: { online: "node-notices" } }), tabList];
@@ -5233,13 +5241,11 @@ async function renderOnlineNode() {
   if (tab === "log") { put(box, top, panel(nodeLogTab(id))); return; }
   if (slave) { put(box, top, panel(sdoPanel(id, n, allow))); return; }
   const emcy = el("div", { dataset: { online: "emcy" } }, el("span", { class: "muted" }, "Loading…"));
-  const last = S.onlineLast && S.onlineLast.status ? (S.onlineLast.status.nodes || []).find((x) => x.node_id === id) : null;
   const timeouts = last && (last.pdo_timeouts || []).length
     ? el("fieldset", null, el("legend", null, "Input PDO timeouts"), el("div", { dataset: { online: "pdo-timeouts" } }, pdoTimeoutTable(last)))
     : null;
   put(box, top, panel(
     deviceLine(id),
-    nodeStatusHead(id, last, n),
     el("fieldset", null, el("legend", null, "NMT"), nmtButtons(id, allow)),
     simulatedNode(id) ? simPanel(id) : null,
     timeouts,
@@ -6324,10 +6330,17 @@ function odBuild(box, id, n, allow, data) {
   const resetButton = el("button", { type: "button", class: "small", dataset: { online: "watch-reset" },
     onclick: () => { st.mm = {}; renderWatch(); } }, "Reset min/max");
   const fmtNum = (x) => (x === undefined || x === null ? "" : typeof x === "number" && !Number.isInteger(x) ? x.toPrecision(6) : String(x));
+  // The Watch list card only while something is watched; a hint line under the filters before that.
+  const watchHint = el("p", { class: "muted", dataset: { online: "watch-hint" } },
+    `Tick Watch on an entry to read it again and again (up to ${WATCH_MAX} entries).`);
+  const watchCard = el("fieldset", { dataset: { online: "watch-card" } }, el("legend", null, "Watch list"), watchInfo,
+    el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Every ", period), graphButton, resetButton), watchStat, watchBox, graphBox);
   const renderWatch = () => {
     graphButton.textContent = st.graphOpen ? "Hide graph" : "Graph";
+    watchCard.hidden = !st.watch.length;
+    watchHint.hidden = !!st.watch.length;
     if (!st.watch.length) {
-      put(watchBox, el("p", { class: "muted" }, `Tick Watch on up to ${WATCH_MAX} entries to read them again and again.`));
+      put(watchBox);
       put(watchInfo);
       put(watchStat);
       put(graphBox);
@@ -6667,6 +6680,11 @@ function odBuild(box, id, n, allow, data) {
       return;
     }
     setReading(r);
+    // Read all shows what it read: the groups that got values unfold, and the
+    // objects holding an entry that differs from its EDS default.
+    const got = (e) => { const v = st.values[odKey(e.index, e.subindex)]; return !!v && !v.error; };
+    st.openGroups = [...new Set(st.openGroups.concat(objects.filter((o) => o.entries.some(got)).map((o) => o.group)))];
+    st.openObjects = [...new Set(st.openObjects.concat(objects.filter((o) => o.entries.some((e) => passes(e, "changed"))).map((o) => o.index)))];
     const cur = st.build === build ? summary : document.querySelector("[data-online=od-summary]");
     if (cur) cur.textContent = st.allSummary;
     if (st.refreshMarks) st.refreshMarks();
@@ -6687,9 +6705,7 @@ function odBuild(box, id, n, allow, data) {
     el("div", { class: "toolbar" }, filter, readAll,
       el("button", { type: "button", dataset: { online: "od-copy" }, onclick: copyRows }, "Copy"),
       el("button", { type: "button", dataset: { online: "od-csv" }, onclick: saveCsv }, "Save CSV"), status),
-    chips, summary, compareNote,
-    el("fieldset", null, el("legend", null, "Watch list"), watchInfo,
-      el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Every ", period), graphButton, resetButton), watchStat, watchBox, graphBox),
+    chips, watchHint, summary, compareNote, watchCard,
     el("details", { class: "od-any", dataset: { online: "od-any" } }, el("summary", null, "Read or write any entry"),
       el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Index ", anyIx), el("label", { class: "inline" }, "Sub ", anySub),
         el("label", { class: "inline" }, "Type ", anyType),

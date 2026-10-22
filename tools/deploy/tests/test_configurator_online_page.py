@@ -13,7 +13,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import SLAVE_NETWORK, TOKEN, TWO_NETWORKS, FakePlugin, closed_port, slave_status
-from .helpers import PINGPONG, REPO, node_tab, tmpdir, tree_view
+from .helpers import PINGPONG, REPO, back_to_nodes, node_tab, tmpdir, tree_view
 from .test_configurator_page import FIXTURE, REQUIRED, load, sync_playwright
 
 
@@ -212,6 +212,7 @@ class OnlinePage(OnlineBase):
             self.assertIn("timed out", pg.inner_text('[data-pdo-timeout-row="1"]'))
             self.assertIn("1800 ms ago", pg.inner_text('[data-pdo-timeout-row="1"]'))
             self.assertIn("never", pg.inner_text('[data-pdo-timeout-row="2"]'))
+            back_to_nodes(pg)
             pg.click('tr[data-online-node="2"]')
             pg.wait_for_selector('[data-online="emcy"] table')
             self.assertEqual(pg.locator('[data-online="pdo-timeouts"]').count(), 0)
@@ -293,7 +294,7 @@ class OnlinePage(OnlineBase):
             self.assertIn("Node 2 is running", pg.inner_text("#modal-text"))
             self.assertIn("Stop node 2?", pg.inner_text("#modal-text"))
             pg.click('#modal button[data-value="send"]')
-            pg.wait_for_selector('tr[data-online-node="2"]:has-text("held STOPPED by operator")')
+            pg.wait_for_selector('[data-online="node-status"]:has-text("held STOPPED by operator")')
             self.assertEqual(fp.forced, [("nmt", 2)])
             pg.fill('input[data-online="index"]', "0x2000")
             pg.fill('input[data-online="subindex"]', "0")

@@ -393,7 +393,7 @@ function localLive(r, conn) {
   const box = document.querySelector("[data-online=adapter-allow]");
   if (box && document.activeElement !== box) box.checked = allow;
   const live = $("#online-live");
-  if (S.view === "nodes") { patchLive(live, [commNodeTable(st)]); return; }
+  if (S.view === "nodes") { patchLive(live, [commNodeTable(st)]); refreshNodeHeader(st); return; }
   const bus = st.bus || {};
   patchLive(live, [el("table", { class: "online-bus", dataset: { online: "local-bus" } }, el("tbody", null,
     el("tr", null, el("th", null, "Adapter state"), el("td", { dataset: { online: "bus" } }, bus.adapter_state || "active"),
@@ -450,7 +450,7 @@ function edsLibraryRow() {
 }
 
 function renderCommNodes(view) {
-  view.append(el("h2", null, "Nodes"));
+  view.append(el("h2", { dataset: { onlinePart: "net" } }, "Nodes"));
   const lib = edsLibraryRow();
   const file = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "add-eds-file" } });
   file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) addCommNode(f); });
@@ -461,12 +461,14 @@ function renderCommNodes(view) {
   const slot = noticeSlot();
   view.append(slot,
     el("div", { id: "online-conn", hidden: true }),
-    el("div", { class: "toolbar" }, scan, cancel, progress,
-      el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
-    lib,
-    el("div", { id: "online-live" }, commNodeTable(null)),
-    el("div", { id: "online-lss" }),
-    el("div", { id: "online-node" }));
+    el("div", { dataset: { onlinePart: "net" } },
+      el("div", { class: "toolbar" }, scan, cancel, progress,
+        el("label", { class: "file-button", dataset: { online: "add-eds" } }, "Add node from EDS…", file)),
+      lib,
+      el("div", { id: "online-live" }, commNodeTable(null)),
+      el("div", { id: "online-lss" })),
+    el("div", { id: "online-node", hidden: true }));
+  onlineLayout();
   if (!S.adapterOn) {
     slot.append(nodesNotConnected());
     view.querySelector("#online-live").hidden = true;
@@ -491,18 +493,19 @@ function commNodeTable(st) {
     const n = heard.get(id);
     const d = scanned.get(id);
     const a = added[id];
-    const em = n && n.emcy && n.emcy.count ? `${hex4(n.emcy.code)} ${emcyClass(n.emcy.code)} (${n.emcy.count})` : "";
+    const em = lastEmcyText(n);
     const device = deviceCell(id, n) || (a && a.lss ? `serial number ${hex8(a.serial_number)} (LSS)` : "");
     const found = [n && n.state !== null ? "heard" : "", d ? "scanned" : "", a ? (a.lss ? "LSS" : "added") : ""].filter(Boolean).join(", ");
     const eds = (S.onlineEdsName || {})[id] || ((S.onlineEds || {})[id] || "").split(/[\\/]/).pop();
-    // A button per row, not a clickable row: the EDS cell has controls of its own.
-    return el("tr", { class: S.onlineNode === id ? "active" : null, dataset: { onlineNode: id } },
+    // The row opens the node on a click; the node ID is the button for the keyboard, as the EDS cell has controls of its own.
+    return el("tr", { class: "clickable" + (onlineRowActive(id) ? " active" : ""), dataset: { onlineNode: id },
+      onclick: (e) => { if (!e.target.closest("button, input, label, a, select")) openOnlineNode(id); } },
     el("td", null, el("button", { type: "button", class: "small", "aria-label": `Open node ${id}`, dataset: { openNode: id },
       onclick: () => openOnlineNode(id) }, String(id))),
     el("td", null, device),
     el("td", null, el("span", { class: "state-mark", "aria-hidden": "true" }, ...markIcons(liveMark(n)[0])),
       !n || n.state === null ? "not heard" : stateName(n.state)),
-    el("td", null, n && n.last_heard_s !== null ? `${n.last_heard_s.toFixed(1)} s ago` : "-"), el("td", null, em),
+    el("td", null, n && n.state !== null ? lastHeardText(n) : "-"), el("td", null, em),
     el("td", null, found),
     el("td", null, eds ? el("div", { class: "eds-cell" }, el("span", { dataset: { nodeEds: id } }, eds), " ",
       el("button", { type: "button", class: "small", dataset: { changeEds: id }, "aria-label": `Change the EDS of node ${id}`,

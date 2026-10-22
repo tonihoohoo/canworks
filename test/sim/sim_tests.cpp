@@ -2671,6 +2671,9 @@ TEST(sim_diag_status_emcy_sdo_nmt) {
   CHECK(cJSON_GetArraySize(field(n5, "sdo_variables")) == 1);
   CHECK(num(field(result(a), "master"), "state") == 5);
   CHECK(str(result(a), "config_sha256").size() == 64);
+  // Last heard: its boot-up, SDO answers, heartbeats and TPDOs keep it recent.
+  CHECK_MSG(cJSON_IsNumber(field(n5, "last_heard_ms")) && num(n5, "last_heard_ms") < 2000,
+            cJSON_IsNumber(field(n5, "last_heard_ms")) ? std::to_string(num(n5, "last_heard_ms")) : "not a number");
   cJSON_Delete(a);
 
   // EMCY history: three faults then the reset, newest first.
