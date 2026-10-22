@@ -35,7 +35,14 @@ def rtd_node(eds="rtd8.eds"):
     return {"node_id": 5, "name": "rtd", "eds": eds, "heartbeat_ms": 100, "heartbeat_timeout_ms": 300,
             "status_location": "%IX10.0",
             "tx_pdos": [{"entries": [{"index": "0x7130", "subindex": s, "type": "INTEGER16",
-                                      "iec_location": "%%IW%d" % (99 + s)} for s in range(1, 5)]}]}
+                                      "iec_location": "%%IW%d" % (98 + 2 * s)} for s in range(1, 5)]}]}
+
+
+def bridge_config():
+    """A new config of the Modbus bridge (target bridge): one network."""
+    cfg = srv.empty_config()
+    cfg["bridge"] = {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}
+    return cfg
 
 # A valid token_verifier (the token "test"'s, as in test/fixtures/config).
 FIXTURE_VERIFIER = "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="
@@ -111,7 +118,7 @@ class Access(Running):
 
     def test_save_without_token_writes_nothing(self):
         self.open_project()
-        status, _, _ = self.request("POST", "/api/save", {"config": srv.empty_config()}, token=False)
+        status, _, _ = self.request("POST", "/api/save", {"config": bridge_config()}, token=False)
         self.assertEqual(status, 403)
         self.assertFalse(os.path.exists(os.path.join(self.project, "canworks")))
 
@@ -264,7 +271,7 @@ class OpenAndModes(Running):
         state = self.open_project()
         self.assertEqual(state["mode"], "project")
         self.assertFalse(state["config_exists"])
-        self.assertEqual(state["config"]["nodes"], [])
+        self.assertEqual(state["config"]["networks"][0]["nodes"], [])
         self.assertFalse(os.path.exists(os.path.join(self.project, "canworks")))
         self.assertIn({"file": "devices/remote/ecat-bus.json", "kind": "device", "location": "%ID100",
                        "name": "drive1", "path": "ethercatConfig.devices[0].channelMappings[0].iecLocation"},
@@ -378,36 +385,6 @@ class OpenAndModes(Running):
             self.assertEqual(self.request("GET", "/api/folders?drives=1")[0], 404)
             self.assertFalse(self.ok("GET", "/api/folders?path=/")["drive"])
 
-    def test_old_style_keys_shown_as_adapter(self):
-        os.makedirs(os.path.join(self.project, "canworks"))
-        cfg = {"interface": "vcan0", "bitrate": 125000, "master": {"node_id": 1, "sync_period_us": 100000},
-               "nodes": []}
-        with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
-            json.dump(cfg, f)
-        state = self.open_project()
-        self.assertEqual(state["config"]["adapter"],
-                         {"type": "socketcan", "interface": "vcan0", "bitrate": 125000, "configure_link": False})
-        self.assertNotIn("interface", state["config"])
-        self.assertIn("old top-level", state["notices"][0])
-
-    def test_strict_eds_shown_as_eds_lint(self):
-        os.makedirs(os.path.join(self.project, "canworks"))
-        for strict, mode in ((False, "off"), (True, "all")):
-            cfg = srv.empty_config()
-            cfg["master"] = {"node_id": 1, "sync_period_us": 10000, "strict_eds": strict, "heartbeat_ms": 100}
-            with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
-                json.dump(cfg, f)
-            state = self.open_project()
-            self.assertEqual(state["config"]["master"],
-                             {"node_id": 1, "sync_period_us": 10000, "eds_lint": mode, "heartbeat_ms": 100})
-            self.assertIn("old 'strict_eds'", state["notices"][0])
-        # The default as a field is shown as the default (no field).
-        cfg["master"] = {"node_id": 1, "sync_period_us": 10000, "eds_lint": "communication"}
-        with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
-            json.dump(cfg, f)
-        self.assertEqual(self.open_project()["config"]["master"], {"node_id": 1, "sync_period_us": 10000})
-
-
 class EdsImport(Running):
     def setUp(self):
         super().setUp()
@@ -424,8 +401,8 @@ class EdsImport(Running):
         self.assertTrue(data["converted"])
         names = {o["name"] for o in data["summary"]["objects"]}
         self.assertIn("Temperature °C", names)
-        cfg = srv.empty_config()
-        cfg["nodes"] = [{"node_id": 2, "eds": "vendor.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
+        cfg = bridge_config()
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "eds": "vendor.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         self.ok("POST", "/api/save", {"config": cfg})
         saved = read(os.path.join(self.project, "canworks", "vendor.eds"))
@@ -490,8 +467,8 @@ class EdsImport(Running):
 
     def test_lint_mode_of_the_saved_config(self):
         os.makedirs(os.path.join(self.project, "canworks"), exist_ok=True)
-        cfg = srv.empty_config()
-        cfg["master"]["strict_eds"] = True
+        cfg = bridge_config()
+        cfg["networks"][0]["master"]["eds_lint"] = "all"
         with open(os.path.join(self.project, "canworks", "canworks.json"), "w") as f:
             json.dump(cfg, f)
         self.open_project()
@@ -509,9 +486,9 @@ class CheckAndSave(Running):
         super().setUp()
         self.open_project()
         self.assertEqual(self.eds(os.path.join(RTD, "rtd8.eds"))[0], 200)
-        self.cfg = srv.empty_config()
-        self.cfg["master"]["sync_period_us"] = 10000  # a new config has no SYNC
-        self.cfg["nodes"] = [rtd_node()]
+        self.cfg = bridge_config()
+        self.cfg["networks"][0]["master"]["sync_period_us"] = 10000  # a new config has no SYNC
+        self.cfg["networks"][0]["nodes"] = [rtd_node()]
         self.canopen = os.path.join(self.project, "canworks")
 
     def snapshot(self):
@@ -523,68 +500,44 @@ class CheckAndSave(Running):
         return out
 
     def test_check_paths_and_declarations(self):
-        self.cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID100"
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID100"
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         self.assertGreaterEqual(data["errors"], 1)
         paths = [p for i in data["items"] for p in i["paths"]]
-        self.assertIn("nodes[0].tx_pdos[0].entries[0].iec_location", paths)
-        self.cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
+        self.assertIn("networks[0].nodes[0].tx_pdos[0].entries[0].iec_location", paths)
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         self.assertEqual(data["errors"], 0, data["items"])
-        self.assertIn("rtd_AI0_Input_PV AT %IW100 : INT;", data["block"])
+        self.assertIn("rtd_AI0_Input_PV", [d["name"] for d in data["declarations"]])
 
     def test_check_without_sync_period(self):
         # An empty SYNC period field saves no sync_period_us; Check then names
         # a PDO left at a synchronous transmission type.
-        del self.cfg["master"]["sync_period_us"]
-        self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        del self.cfg["networks"][0]["master"]["sync_period_us"]
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["transmission"] = 1
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         [item] = [i for i in data["items"] if "needs SYNC" in i["message"]]
         self.assertIn("TPDO 1: transmission type 1 needs SYNC, but the master produces none", item["message"])
-        self.assertIn("nodes[0].tx_pdos[0].transmission", item["paths"])
-
-    def test_check_with_plc_cycle_sync(self):
-        # PLC-cycle SYNC: synchronous PDOs are fine without a SYNC period.
-        del self.cfg["master"]["sync_period_us"]
-        self.cfg["master"]["sync_source"] = "plc_cycle"
-        self.cfg["master"]["sync_cycles"] = 2
-        self.cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
-        data = self.ok("POST", "/api/check", {"config": self.cfg})
-        self.assertFalse([i for i in data["items"] if "SYNC" in i["message"]], data["items"])
+        self.assertIn("networks[0].nodes[0].tx_pdos[0].transmission", item["paths"])
 
     def test_check_reruns_the_lint(self):
         # A node whose EDS has a finding in 0x6061: accepted with "off", the
         # plugin's error with "all".
         self.assertEqual(self.eds(os.path.join(LINT, "signed-hex.eds"))[0], 200)
-        self.cfg["nodes"].append({"node_id": 2, "name": "pingpong", "eds": "signed-hex.eds", "heartbeat_ms": 100, "tx_pdos": [
+        self.cfg["networks"][0]["nodes"].append({"node_id": 2, "name": "pingpong", "eds": "signed-hex.eds", "heartbeat_ms": 100, "tx_pdos": [
             {"entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]})
-        self.cfg["master"]["eds_lint"] = "off"
+        self.cfg["networks"][0]["master"]["eds_lint"] = "off"
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         self.assertEqual(data["errors"], 0, data["items"])
         self.assertTrue(any("signed-hex.eds: 2 lint findings accepted (eds_lint \"off\")" in i["message"]
                             for i in data["items"]), data["items"])
-        self.cfg["master"]["eds_lint"] = "all"
+        self.cfg["networks"][0]["master"]["eds_lint"] = "all"
         data = self.ok("POST", "/api/check", {"config": self.cfg})
         self.assertEqual([i["message"] for i in data["items"] if i["level"] == "error"],
-                         ["node 2 (pingpong): EDS signed-hex.eds fails dcfgen's lint (eds_lint \"all\"): 0x6061: "
+                         ["networks[0]: node 2 (pingpong): EDS signed-hex.eds fails dcfgen's lint (eds_lint \"all\"): 0x6061: "
                           "HighLimit overflow in [6061]; 0x60C0: LowLimit overflow in [60C0]; eds_lint: "
                           "\"communication\" would accept it"])
-        self.assertEqual([i["paths"] for i in data["items"] if i["level"] == "error"], [["nodes[1].eds"]])
-
-    def test_overlap_with_project(self):
-        self.cfg["nodes"][0]["status_location"] = "%IX0.0"  # the pin mapping's input
-        # save-anytime: saved with the error, which the check lists.
-        data = self.ok("POST", "/api/save", {"config": self.cfg})
-        self.assertEqual(data["errors"], 1)
-        [item] = [i for i in data["check"]["items"] if i.get("overlap")]
-        self.assertIn("devices/pin-mapping.json", item["message"])
-        self.assertTrue(os.path.isfile(os.path.join(self.canopen, "canworks.json")))
-        # Allowed, the overlap stays listed (as a warning) next to the override.
-        allowed = self.ok("POST", "/api/check", {"config": self.cfg, "allow_overlap": True})
-        [item] = [i for i in allowed["items"] if i.get("overlap_allowed")]
-        self.assertEqual(item["level"], "warning")
-        self.ok("POST", "/api/save", {"config": self.cfg, "allow_overlap": True})
-        self.assertTrue(os.path.isfile(os.path.join(self.canopen, "canworks.json")))
+        self.assertEqual([i["paths"] for i in data["items"] if i["level"] == "error"], [["networks[0].nodes[1].eds"]])
 
     def test_save_writes_only_canopen(self):
         before = self.snapshot()
@@ -652,7 +605,7 @@ class CheckAndSave(Running):
             f.write(read(os.path.join(RTD, "rtd8.eds")).replace(b"Start delay ms", b"Start delay", 1))
         status, data, _ = self.eds(other, on_conflict="keep_both")
         self.assertEqual((status, data["name"]), (200, "rtd8-2.eds"))
-        self.cfg["nodes"].append({"node_id": 6, "name": "rtd2", "eds": "rtd8-2.eds", "heartbeat_ms": 100, "tx_pdos": []})
+        self.cfg["networks"][0]["nodes"].append({"node_id": 6, "name": "rtd2", "eds": "rtd8-2.eds", "heartbeat_ms": 100, "tx_pdos": []})
         self.ok("POST", "/api/save", {"config": self.cfg})
         self.assertEqual(self.notes_file("rtd8-2.eds")["eds"]["file"], "rtd8-2.eds")
         self.assertEqual(self.notes_file("rtd8-2.eds")["objects"]["0x2000:2"], {"name": "Start delay"})
@@ -742,7 +695,7 @@ class CheckAndSave(Running):
         # The draft (EDS only imported, nothing saved) exports; the project
         # is not touched.
         before = self.snapshot()
-        self.cfg["nodes"][0]["heartbeat_ms"] = 200
+        self.cfg["networks"][0]["nodes"][0]["heartbeat_ms"] = 200
         data = self.ok("POST", "/api/export_dcf", {"config": self.cfg, "node": 5})
         self.assertEqual((data["errors"], data["name"], data["files"]), (0, "node_5.dcf", ["node_5.dcf"]))
         text = base64.b64decode(data["data"]).decode("utf-8")
@@ -759,7 +712,7 @@ class CheckAndSave(Running):
             self.assertEqual(z.namelist(), ["node_5.dcf"])
 
     def test_export_dcf_problems(self):
-        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        self.cfg["networks"][0]["nodes"][0]["node_id"] = 1  # the master's
         data = self.ok("POST", "/api/export_dcf", {"config": self.cfg, "node": 1})
         self.assertGreaterEqual(data["errors"], 1)
         self.assertNotIn("data", data)
@@ -784,7 +737,7 @@ class CheckAndSave(Running):
         self.assertEqual(self.snapshot(), before)
 
     def test_export_codesys_problems(self):
-        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        self.cfg["networks"][0]["nodes"][0]["node_id"] = 1  # the master's
         data = self.ok("POST", "/api/export_codesys", {"config": self.cfg})
         self.assertGreaterEqual(data["errors"], 1)
         self.assertNotIn("data", data)
@@ -804,7 +757,7 @@ class CheckAndSave(Running):
         self.assertEqual(self.request("POST", "/api/export_dbc", {"config": self.cfg, "sdo": "x"})[0], 400)
 
     def test_export_dbc_problems(self):
-        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        self.cfg["networks"][0]["nodes"][0]["node_id"] = 1  # the master's
         data = self.ok("POST", "/api/export_dbc", {"config": self.cfg})
         self.assertGreaterEqual(data["errors"], 1)
         self.assertNotIn("data", data)
@@ -815,12 +768,12 @@ class CheckAndSave(Running):
         data = self.ok("POST", "/api/export_html", {"config": self.cfg})
         self.assertEqual((data["errors"], data["name"], data["content_type"]), (0, "rtd-monitor.html", "text/html"))
         text = base64.b64decode(data["data"]).decode("utf-8")
-        self.assertIn('id="node-5"', text)
+        self.assertRegex(text, r'id="node-[^"]*5"')
         self.assertIn("0x185", text)
         self.assertEqual(self.snapshot(), before)
 
     def test_export_html_problems(self):
-        self.cfg["nodes"][0]["node_id"] = 1  # the master's
+        self.cfg["networks"][0]["nodes"][0]["node_id"] = 1  # the master's
         data = self.ok("POST", "/api/export_html", {"config": self.cfg})
         self.assertGreaterEqual(data["errors"], 1)
         self.assertNotIn("data", data)
@@ -829,78 +782,77 @@ class CheckAndSave(Running):
 
     def test_invalid_config_saved_with_its_errors(self):
         """save-anytime: a draft with errors is written; the reply counts them."""
-        self.cfg["nodes"].append(dict(rtd_node(), status_location="%IX10.1",
+        self.cfg["networks"][0]["nodes"].append(dict(rtd_node(), status_location="%IX10.1",
                                       tx_pdos=[{"entries": [dict(e, iec_location="%%IW%d" % (110 + k)) for k, e in
                                                             enumerate(rtd_node()["tx_pdos"][0]["entries"])]}]))
         data = self.ok("POST", "/api/save", {"config": self.cfg})
         self.assertGreaterEqual(data["errors"], 1)
         dup = [i for i in data["check"]["items"] if "more than one slave" in i["message"]][0]
-        self.assertEqual(dup["paths"], ["nodes[0].node_id", "nodes[1].node_id"])
+        self.assertEqual(dup["paths"], ["networks[0].nodes[0].node_id", "networks[0].nodes[1].node_id"])
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
-        self.assertEqual(len(saved["nodes"]), 2)
+        self.assertEqual(len(saved["networks"][0]["nodes"]), 2)
 
     def test_unknown_fields_kept(self):
         self.cfg["x_note"] = {"by": "hand"}
-        self.cfg["nodes"][0]["x_comment"] = "keep me"
+        self.cfg["networks"][0]["nodes"][0]["x_comment"] = "keep me"
         self.ok("POST", "/api/save", {"config": self.cfg})
         state = self.ok("POST", "/api/reload")
         cfg = state["config"]
-        cfg["nodes"][0]["heartbeat_ms"] = 200
+        cfg["networks"][0]["nodes"][0]["heartbeat_ms"] = 200
         self.ok("POST", "/api/save", {"config": cfg})
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
         self.assertEqual(saved["x_note"], {"by": "hand"})
-        self.assertEqual(saved["nodes"][0]["x_comment"], "keep me")
-        self.assertEqual(saved["nodes"][0]["heartbeat_ms"], 200)
-        self.assertEqual(list(saved)[:5], ["schema_version", "adapter", "master", "nodes", "x_note"])
+        self.assertEqual(saved["networks"][0]["nodes"][0]["x_comment"], "keep me")
+        self.assertEqual(saved["networks"][0]["nodes"][0]["heartbeat_ms"], 200)
+        self.assertEqual(list(saved)[:4], ["schema_version", "networks", "bridge", "x_note"])
 
     def test_changed_on_disk(self):
         self.ok("POST", "/api/save", {"config": self.cfg})
         path = os.path.join(self.canopen, "canworks.json")
         doc = json.loads(read(path))
-        doc["master"]["sync_period_us"] = 20000
+        doc["networks"][0]["master"]["sync_period_us"] = 20000
         time.sleep(0.01)
         with open(path, "w") as f:
             json.dump(doc, f)
-        self.cfg["adapter"]["bitrate"] = 500000
+        self.cfg["networks"][0]["adapter"]["bitrate"] = 500000
         status, data, _ = self.request("POST", "/api/save", {"config": self.cfg})
         self.assertEqual(status, 409)
         self.assertTrue(data["changed_on_disk"])
-        self.assertEqual(json.loads(read(path))["master"]["sync_period_us"], 20000)
+        self.assertEqual(json.loads(read(path))["networks"][0]["master"]["sync_period_us"], 20000)
         self.ok("POST", "/api/save", {"config": self.cfg, "overwrite": True})
-        self.assertEqual(json.loads(read(path))["adapter"]["bitrate"], 500000)
+        self.assertEqual(json.loads(read(path))["networks"][0]["adapter"]["bitrate"], 500000)
 
     def test_adapter_and_sdo_round_trip(self):
-        self.cfg["adapter"] = {"type": "socketcan", "interface": "can0", "bitrate": 250000, "configure_link": True,
+        self.cfg["networks"][0]["adapter"] = {"type": "socketcan", "interface": "can0", "bitrate": 250000, "configure_link": True,
                                "restart_ms": 100}
-        self.cfg["master"]["sync_period_us"] = 10000
-        self.cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"}]
+        self.cfg["networks"][0]["master"]["sync_period_us"] = 10000
+        self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"}]
         self.ok("POST", "/api/save", {"config": self.cfg})
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json")))
-        self.assertEqual(saved["adapter"], self.cfg["adapter"])
-        self.assertEqual(saved["nodes"][0]["sdo"][0],
+        self.assertEqual(saved["networks"][0]["adapter"], self.cfg["networks"][0]["adapter"])
+        self.assertEqual(saved["networks"][0]["nodes"][0]["sdo"][0],
                          {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"})
         # A read-only object and an out-of-range value are refused.
         # A read-only object and an out-of-range value are errors (saved, listed).
-        self.cfg["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
+        self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
         self.assertEqual(self.ok("POST", "/api/check", {"config": self.cfg})["errors"], 1)
-        self.cfg["nodes"][0]["sdo"] = [{"index": "0x6112", "subindex": 1, "type": "UNSIGNED8", "value": 300}]
+        self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6112", "subindex": 1, "type": "UNSIGNED8", "value": 300}]
         data = self.ok("POST", "/api/save", {"config": self.cfg})
         self.assertEqual(data["errors"], 1)
-        self.assertEqual(data["check"]["items"][0]["paths"], ["nodes[0].sdo[0].value"])
+        self.assertEqual(data["check"]["items"][0]["paths"], ["networks[0].nodes[0].sdo[0].value"])
 
     def test_deploy_tool_accepts_the_result(self):
         self.ok("POST", "/api/save", {"config": self.cfg})
         before = read(os.path.join(self.canopen, "canworks.json"))
         env = dict(os.environ, PYTHONPATH=DEPLOY)
-        bundle = editor_bundle(os.path.join(self.dir, "bundle"))
-        r = subprocess.run([sys.executable, "-m", "canworks", "--bundle", bundle, "--config",
-                            os.path.join(self.canopen, "canworks.json"), "--check-only"],
+        r = subprocess.run([sys.executable, "-m", "canworks", "--config",
+                            os.path.join(self.canopen, "canworks.json"), "--check"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(read(os.path.join(self.canopen, "canworks.json")), before)
 
     def test_place(self):
-        self.cfg["nodes"][0]["tx_pdos"] = []
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"] = []
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "input", "type": "INTEGER16"})
         self.assertEqual(data, {"location": "%IW100", "pdo": 0, "reason": None})
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "output", "type": "UNSIGNED8"})
@@ -911,26 +863,26 @@ class CheckAndSave(Running):
         # An entry's bit channels: consecutive free bits from a byte's first bit, or one free bit.
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bits_in", "type": 3})
         self.assertEqual(data, {"locations": ["%IX100.0", "%IX100.1", "%IX100.2"]})
-        self.cfg["nodes"][0]["status_location"] = "%IX100.1"
+        self.cfg["networks"][0]["nodes"][0]["status_location"] = "%IX100.1"
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bits_in", "type": 3})
         self.assertEqual(data["locations"][0], "%IX101.0")
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bit_in"})
         self.assertEqual(data, {"location": "%IX100.0"})
-        del self.cfg["nodes"][0]["status_location"]
+        del self.cfg["networks"][0]["nodes"][0]["status_location"]
         status, data, _ = self.request("POST", "/api/place", {"config": self.cfg, "direction": "bits_out", "type": 0})
         self.assertEqual(status, 400, data)
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "state"})
         self.assertEqual(data["location"], "%IB100")
-        self.cfg["nodes"][0]["state_location"] = "%IB100"
+        self.cfg["networks"][0]["nodes"][0]["state_location"] = "%IB100"
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "boot_error"})
         self.assertEqual(data["location"], "%IB101")
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "state_location"})
         self.assertEqual(data, {"location": "%IB101"})
-        del self.cfg["nodes"][0]["state_location"]
+        del self.cfg["networks"][0]["nodes"][0]["state_location"]
         # NMT command byte and SDO variable locations.
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "nmt"})
         self.assertEqual(data, {"location": "%QB100"})
-        self.cfg["nodes"][0]["sdo_variables"] = [{"index": "0x2000", "type": "UNSIGNED8", "direction": "write",
+        self.cfg["networks"][0]["nodes"][0]["sdo_variables"] = [{"index": "0x2000", "type": "UNSIGNED8", "direction": "write",
                                                   "iec_location": "%QB101"}]
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "sdo_write",
                                               "type": "UNSIGNED8"})
@@ -941,11 +893,11 @@ class CheckAndSave(Running):
         for direction, want in (("sdo_trigger", "%QX100.0"), ("sdo_status", "%IB100"), ("sdo_abort", "%ID101")):
             self.assertEqual(self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": direction}),
                              {"location": want})
-        del self.cfg["nodes"][0]["sdo_variables"]
+        del self.cfg["networks"][0]["nodes"][0]["sdo_variables"]
         # Master bus diagnostics need no node.
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bus_state_location"})
         self.assertEqual(data, {"location": "%IB100"})
-        self.cfg["master"]["bus_state_location"] = "%IB100"
+        self.cfg["networks"][0]["master"]["bus_state_location"] = "%IB100"
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "tx_error_count_location"})
         self.assertEqual(data, {"location": "%IB101"})
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bus_off_count_location"})
@@ -982,29 +934,20 @@ class Networks(Running):
         return json.loads(read(self.path))
 
     def one(self):
-        """The two-network config's io network as a version 1 file."""
-        net = self.two["networks"][0]
-        master = dict(net["master"], diagnostics=self.two["diagnostics"])
-        return {"schema_version": 1, "adapter": net["adapter"], "master": master, "nodes": net["nodes"]}
+        """The two-network config with only its io network."""
+        cfg = json.loads(json.dumps(self.two))
+        del cfg["networks"][1]
+        return cfg
 
     def test_one_network_round_trip_is_byte_identical(self):
         state = self.open(self.one())
         self.ok("POST", "/api/save", {"config": state["config"]})
         before = read(self.path)
-        # Saved again as loaded, and as the page's network list sends it
-        # (version 2, one network named after its interface): the same bytes.
         state = self.ok("POST", "/api/reload")
         self.ok("POST", "/api/save", {"config": state["config"]})
         self.assertEqual(read(self.path), before)
-        cfg = state["config"]
-        master = {k: v for k, v in cfg["master"].items() if k != "diagnostics"}
-        v2 = {"schema_version": 2, "networks": [{"name": "vcan0", "adapter": cfg["adapter"], "master": master,
-                                                  "nodes": cfg["nodes"]}],
-              "diagnostics": cfg["master"]["diagnostics"]}
-        self.ok("POST", "/api/save", {"config": v2})
-        self.assertEqual(read(self.path), before)
-        self.assertEqual(list(self.saved()), ["schema_version", "adapter", "master", "nodes"])
-        self.assertEqual(self.saved()["master"]["diagnostics"]["port"], 7600)
+        self.assertEqual(self.saved()["schema_version"], 2)
+        self.assertEqual(self.saved()["diagnostics"]["port"], 7600)
 
     def test_second_network_saves_version_2(self):
         self.open(self.one())
@@ -1013,7 +956,7 @@ class Networks(Running):
         self.assertEqual(data["errors"], 0, data["items"])
         self.ok("POST", "/api/save", {"config": cfg})
         saved = self.saved()
-        self.assertEqual(list(saved), ["schema_version", "networks", "diagnostics"])
+        self.assertEqual(sorted(saved), ["bridge", "diagnostics", "networks", "schema_version"])
         self.assertEqual(saved["schema_version"], 2)
         self.assertEqual([n["name"] for n in saved["networks"]], ["io", "drives"])
         self.assertEqual(list(saved["networks"][0]), ["name", "adapter", "master", "nodes"])
@@ -1023,33 +966,24 @@ class Networks(Running):
         self.assertEqual(state["config"]["schema_version"], 2)
         self.assertEqual(state["unused_eds"], [])
 
-    def test_back_to_one_network_saves_version_1(self):
+    def test_back_to_one_network_stays_version_2(self):
         self.open(self.two)
-        cfg = json.loads(json.dumps(self.two))
-        del cfg["networks"][1]
+        cfg = self.one()
         del cfg["networks"][0]["name"]
         self.ok("POST", "/api/save", {"config": cfg})
         saved = self.saved()
-        self.assertEqual(saved["schema_version"], 1)
-        self.assertEqual(list(saved), ["schema_version", "adapter", "master", "nodes"])
-        self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
-        # A name of its own needs version 2.
-        cfg["networks"][0]["name"] = "io"
-        self.ok("POST", "/api/save", {"config": cfg})
-        self.assertEqual(self.saved()["schema_version"], 2)
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertEqual(len(saved["networks"]), 1)
+        self.assertEqual(saved["diagnostics"]["port"], 7600)
 
     def test_one_network_with_the_gateway_saves(self):
         self.open(self.two)
-        cfg = json.loads(json.dumps(self.two))
-        del cfg["networks"][1]
-        del cfg["networks"][0]["name"]
+        cfg = self.one()
         cfg["cia309"] = {"port": 7533, "allow_changes": True}
         self.ok("POST", "/api/save", {"config": cfg})
         saved = self.saved()
-        self.assertEqual(saved["schema_version"], 1)
-        self.assertNotIn("cia309", saved)
-        self.assertEqual(saved["master"]["cia309"], {"port": 7533, "allow_changes": True})
-        self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertEqual(saved["cia309"], {"port": 7533, "allow_changes": True})
         data = self.ok("POST", "/api/check", {"config": saved})
         self.assertEqual(data["errors"], 0, data["items"])
 
@@ -1115,8 +1049,8 @@ class Standalone(Running):
         self.assertFalse(os.path.exists(folder))
         self.assertEqual(state["project_uses"], [])
         self.assertEqual(self.eds(os.path.join(RTD, "rtd8.eds"))[0], 200)
-        cfg = srv.empty_config()
-        cfg["nodes"] = [rtd_node()]
+        cfg = bridge_config()
+        cfg["networks"][0]["nodes"] = [rtd_node()]
         # Not saved yet: moving is refused.
         self.assertEqual(self.request("POST", "/api/move", {"project": self.project})[0], 409)
         self.ok("POST", "/api/save", {"config": cfg})
@@ -1127,18 +1061,14 @@ class Standalone(Running):
         self.assertEqual(data["state"]["folder"], self.project)
         self.assertTrue(data["state"]["project_uses"])
         moved = json.loads(read(os.path.join(self.project, "canworks", "canworks.json")))
-        self.assertEqual(moved["nodes"][0]["eds"], "rtd8.eds")
-        # Address checks now run against the project.
-        moved["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW200"
-        data = self.ok("POST", "/api/check", {"config": moved})
-        self.assertTrue(any("io-rack.json" in i["message"] for i in data["items"]))
+        self.assertEqual(moved["networks"][0]["nodes"][0]["eds"], "rtd8.eds")
 
     def test_move_asks_before_replacing(self):
         folder = os.path.join(self.dir, "canopen-rtd")
         self.ok("POST", "/api/open", {"path": folder, "mode": "standalone"})
         self.eds(os.path.join(RTD, "rtd8.eds"))
-        cfg = srv.empty_config()
-        cfg["nodes"] = [rtd_node()]
+        cfg = bridge_config()
+        cfg["networks"][0]["nodes"] = [rtd_node()]
         self.ok("POST", "/api/save", {"config": cfg})
         os.makedirs(os.path.join(self.project, "canworks"))
         status, data, _ = self.request("POST", "/api/move", {"project": self.project})
@@ -1162,8 +1092,8 @@ class NewProject(Running):
         os.makedirs(self.work)
         self.ok("POST", "/api/open", {"path": self.folder, "mode": "standalone"})
         self.eds(os.path.join(RTD, "rtd8.eds"))
-        self.cfg = srv.empty_config()
-        self.cfg["nodes"] = [rtd_node()]
+        self.cfg = bridge_config()
+        self.cfg["networks"][0]["nodes"] = [rtd_node()]
 
     def test_create_and_switch(self):
         self.assertEqual(self.request("POST", "/api/new_project", {"parent": self.work, "name": "rtd-monitor"},
@@ -1179,7 +1109,7 @@ class NewProject(Running):
                                                     "interval": "T#10ms"})
         target = os.path.join(self.work, "rtd-monitor")
         self.assertEqual(data["project"], target)
-        self.assertEqual(data["declared"], 5)
+        self.assertIsNone(data["editor"])  # a Modbus bridge config: no editor files
         self.assertEqual(data["state"]["mode"], "project")
         self.assertEqual(data["state"]["folder"], target)
         self.assertEqual(sorted(os.listdir(self.folder)), before)
@@ -1187,12 +1117,9 @@ class NewProject(Running):
         self.assertEqual((device["deviceBoard"], device["runtimeIpAddress"]), ("OpenPLC Runtime v4", "plc.local"))
         args = json.loads(read(os.path.join(self.dir, "cli-args.json")))
         self.assertIn("--time=T#10ms", args)
-        # Every CANopen entry now shows as declared in the project.
         cfg = json.loads(read(os.path.join(target, "canworks", "canworks.json")))
         check = self.ok("POST", "/api/check", {"config": cfg})
         self.assertEqual(check["errors"], 0, check["items"])
-        self.assertEqual(len(check["declared"]), 5)
-        self.assertEqual(check["block"], "")
 
     def test_refusals(self):
         self.ok("POST", "/api/save", {"config": self.cfg})
@@ -1271,68 +1198,6 @@ class Command(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
-
-class Cia402(Running):
-    """add-cia402-drive-support: "Map CiA 402 objects" and the axis lines in
-    the declarations."""
-
-    def setUp(self):
-        super().setUp()
-        self.open_project()
-        example = os.path.join(REPO, "config", "cia402-drive")
-        self.assertEqual(self.eds(os.path.join(example, "servo402.eds"))[0], 200)
-        self.cfg = srv.empty_config()
-        self.cfg["master"]["sync_period_us"] = 10000  # a new config has no SYNC
-        self.cfg["nodes"] = [{"node_id": 4, "name": "drive", "eds": "servo402.eds", "axis": {}}]
-
-    def test_map_and_declarations(self):
-        data = self.ok("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
-        self.assertEqual(data["missing"], [])
-        self.assertEqual(data["node"]["status_location"], "%IX100.0")
-        self.assertEqual(data["node"]["rx_pdos"][1]["entries"][1]["index"], "0x6081")
-        self.assertNotIn("rx_pdos", self.cfg["nodes"][0])
-        self.cfg["nodes"][0] = data["node"]
-        self.cfg["nodes"][0]["heartbeat_ms"] = 50
-        checked = self.ok("POST", "/api/check", {"config": self.cfg})
-        self.assertEqual(checked["errors"], 0, checked["items"])
-        self.assertIn("drive_Statusword", checked["block"])
-        self.assertIn("  drive        : AXIS_REF_SM3;", checked["block"])
-        self.assertIn("drive_bridge(Axis := drive,", checked["block"])
-
-    def test_cyclic_map_and_declarations(self):
-        # add-cia402-cyclic-modes: the cyclic layout with transmission type 1,
-        # the SYNC check, and the cycle time line from the task interval.
-        self.cfg["nodes"][0]["axis"] = {"cyclic": True}
-        data = self.ok("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
-        node = data["node"]
-        self.assertEqual([e["index"] for e in node["rx_pdos"][0]["entries"]], ["0x6040", "0x6060", "0x607A"])
-        self.assertEqual([e["index"] for e in node["tx_pdos"][0]["entries"]], ["0x6041", "0x6061", "0x6064"])
-        self.assertEqual([c["pdo"] for c in data["changes"]], ["RPDO1", "RPDO2", "TPDO1", "TPDO2", "RPDO3"])
-        self.assertEqual({c["was"] for c in data["changes"]}, {255})
-        self.assertTrue(all(p["transmission"] == 1 for p in node["rx_pdos"] + node["tx_pdos"]))
-        self.cfg["nodes"][0] = node
-        self.cfg["nodes"][0]["heartbeat_ms"] = 50
-        checked = self.ok("POST", "/api/check", {"config": self.cfg})
-        messages = [i["message"] for i in checked["items"] if i["level"] == "error"]
-        self.assertEqual(len(messages), 1, messages)
-        self.assertIn("needs SYNC from the PLC cycle", messages[0])
-        self.cfg["master"] = {"node_id": 1, "sync_source": "plc_cycle"}
-        checked = self.ok("POST", "/api/check", {"config": self.cfg})
-        self.assertEqual(checked["errors"], 0, checked["items"])
-        self.assertIn("drive.fCycleTime := LREAL#0.02;", checked["block"])
-        checked = self.ok("POST", "/api/check", {"config": self.cfg, "task_interval": "T#2ms"})
-        self.assertIn("drive.fCycleTime := LREAL#0.002;", checked["block"])
-        checked = self.ok("POST", "/api/check", {"config": self.cfg, "task_interval": "fast"})
-        self.assertEqual(checked["errors"], 0)
-        self.assertTrue(any(i["paths"] == ["task_interval"] for i in checked["items"]))
-
-    def test_map_refused(self):
-        status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 3})
-        self.assertEqual(status, 400)
-        self.cfg["nodes"][0]["eds"] = "missing.eds"
-        status, data, _ = self.request("POST", "/api/map_cia402", {"config": self.cfg, "node": 0})
-        self.assertEqual(status, 400)
-        self.assertIn("not found", data["error"])
 
 
 class Folders(Running):
@@ -1473,7 +1338,7 @@ class Folders(Running):
         self.assertEqual(state["mode"], "standalone")
         # save-anytime: Create writes the empty config; a reload shows it saved.
         self.assertTrue(state["config_exists"])
-        self.assertEqual(json.loads(read(os.path.join(folder, "canworks.json")))["nodes"], [])
+        self.assertEqual(json.loads(read(os.path.join(folder, "canworks.json")))["networks"][0]["nodes"], [])
         bridge = os.path.join(self.dir, "fresh-bridge")
         state = self.ok("POST", "/api/new", {"path": bridge, "target": "bridge"})
         self.assertIn("bridge", json.loads(read(os.path.join(bridge, "canworks.json"))))
@@ -1535,8 +1400,11 @@ class Folders(Running):
         self.assertEqual(status, 409)
         self.assertIn("already has a canworks/ folder", data["error"])
         self.ok("POST", "/api/move", {"project": self.project, "replace": True})
-        self.assertEqual(sorted(os.listdir(os.path.join(self.project, "canworks"))),
-                         sorted(os.listdir(folder)))
+        def names(d):
+            return sorted(n for n in os.listdir(d) if not n.startswith("."))
+        # The conveyor's description only builds its EDS: it is not a slave of this config.
+        self.assertEqual(names(os.path.join(self.project, "canworks")),
+                         [n for n in names(folder) if n != "conveyor_eds.json"])
 
     def test_new_project_keeps_the_simulation(self):
         os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)

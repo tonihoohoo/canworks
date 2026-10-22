@@ -1106,7 +1106,7 @@ class Session:
         name = os.path.basename(name or "").strip()
         if not name or name in (".", "..") or name == CONFIG:
             raise ApiError(422, "invalid EDS file name %r" % name)
-        mode = eds_lint if eds_lint in edslint.MODES else edslint.effective_mode(self.read_config()[0].get("master"))
+        mode = eds_lint if eds_lint in edslint.MODES else edslint.effective_mode(lint_master(self.read_config()[0]))
         corrections, lint = check_eds(name, data, mode)
         data, converted = utf8_eds(data)
         existing = None
@@ -2515,7 +2515,20 @@ def folder_lint_mode(path):
             cfg = json.load(f)
     except (params.Refused, OSError, ValueError, TypeError, AttributeError):
         cfg = {}
-    return edslint.effective_mode(cfg.get("master") if isinstance(cfg, dict) else None)
+    return edslint.effective_mode(lint_master(cfg))
+
+
+def lint_master(cfg):
+    """The master object whose eds_lint an EDS import uses: the first
+    master network's; None without one."""
+    try:
+        nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+    except (ValueError, TypeError, AttributeError):
+        return None
+    for net in nets:
+        if net["role"] != "slave" and isinstance(net.get("master"), dict):
+            return net["master"]
+    return None
 
 
 def folder_nodes(path):
