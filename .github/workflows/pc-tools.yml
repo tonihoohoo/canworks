@@ -92,9 +92,12 @@ jobs:
         # Page tests (Playwright) and the DCF parity check (C++ canopen_check)
         # run on Linux only; they skip here and say why.
         # The locked versions, as the tools' environment has them.
+        # One worker process per CPU (4 here, 3 on macos-14); a class too
+        # timing-sensitive for a busy runner goes in --serial (none yet).
         run: >
           uv run --no-project --python 3.14 --managed-python --with-requirements "$CONSTRAINTS"
-          python -m unittest discover -v -s tools/deploy/tests -t tools/deploy
+          python .github/scripts/test_shard.py --shard 1/1 --jobs auto
+          --start tools/deploy/tests --top tools/deploy --timings .github/ci/tool-test-times.json --split-over 30
 
       - name: Release tag check tests
         run: uv run --no-project --python 3.14 --managed-python python -m unittest discover -v -s test/pc-tools

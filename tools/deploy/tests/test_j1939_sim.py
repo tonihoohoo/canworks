@@ -43,7 +43,7 @@ _n = itertools.count()
 
 
 def channel():
-    return "j1939-sim-test-%d" % next(_n)
+    return "j1939-sim-test-%d-%d" % (os.getpid(), next(_n))
 
 
 class Base(unittest.TestCase):

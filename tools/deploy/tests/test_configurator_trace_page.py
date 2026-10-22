@@ -281,9 +281,11 @@ class Live(TraceBase):
         pg.wait_for_selector("#trace-source:has-text('recording')")
         self.push(5, 30)
         pg.wait_for_selector("[data-trace=stats]:has-text('35 frames')")
+        before = len(self.fake.requests)
         pg.click("[data-trace=start-stop]")
         pg.wait_for_selector("#trace-source:has-text('stopped')")
-        self.assertEqual(self.fake.requests[-1]["op"], "trace_stop")
+        # a status poll can land after the stop
+        self.assertIn("trace_stop", [r["op"] for r in self.fake.requests[before:]])
 
     def test_old_plugin(self):
         self.fake.trace_supported = False

@@ -252,7 +252,7 @@ Security issues: see [SECURITY.md](SECURITY.md). [docs/development.md](docs/deve
 ```sh
 uv export --project tools/deploy --frozen --no-hashes --no-emit-project --no-dev --format requirements-txt -q -o constraints.txt
 uv build --wheel --out-dir dist tools/deploy && sh scripts/install-pc.sh --wheel dist/*.whl --constraints constraints.txt
-uv run --no-project --python 3.14 --with-requirements constraints.txt python -m unittest discover -s tools/deploy/tests -t tools/deploy
+uv run --no-project --python 3.14 --with-requirements constraints.txt python .github/scripts/test_shard.py --shard 1/1 --start tools/deploy/tests --top tools/deploy  # one worker per CPU; --jobs 1 for one process
 uv run --no-project --python 3.14 python test/pc-tools/smoke.py "$(sed -n 's/^version = "\(.*\)"/\1/p' tools/deploy/pyproject.toml)"
 ```
 

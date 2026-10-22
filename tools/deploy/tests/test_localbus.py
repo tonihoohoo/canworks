@@ -30,7 +30,7 @@ _n = itertools.count(1)
 
 
 def channel():
-    return "localbus-test-%d" % next(_n)
+    return "localbus-test-%d-%d" % (os.getpid(), next(_n))  # the adapter lock is machine-wide
 
 
 class Base(unittest.TestCase):
