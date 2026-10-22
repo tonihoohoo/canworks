@@ -22,8 +22,8 @@ BANNER_END = "must not be uploaded to a machine as it is"
 def rtd_config():
     """The rtd-sensor example on can0, moved off the fixture project's addresses."""
     cfg = load(os.path.join(RTD, "canopen_config.json"))
-    cfg["adapter"]["interface"] = "can0"
-    node = cfg["nodes"][0]
+    cfg["networks"][0]["adapter"]["interface"] = "can0"
+    node = cfg["networks"][0]["nodes"][0]
     node["status_location"] = "%IX300.0"
     for p in node["tx_pdos"]:
         for e in p["entries"]:
@@ -34,7 +34,7 @@ def rtd_config():
 def three_nodes():
     """Nodes 5, 6 and 7 with the rtd EDS and nothing mapped."""
     cfg = rtd_config()
-    cfg["nodes"] = [{"node_id": i, "name": "n%d" % i, "eds": "rtd8.eds", "heartbeat_ms": 100} for i in (5, 6, 7)]
+    cfg["networks"][0]["nodes"] = [{"node_id": i, "name": "n%d" % i, "eds": "rtd8.eds", "heartbeat_ms": 100} for i in (5, 6, 7)]
     return cfg
 
 
@@ -217,7 +217,7 @@ class Network(Base):
     def test_online_access_already_on_is_left_alone(self):
         pg = self.page
         cfg = three_nodes()
-        cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
+        cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN)}
         self.write_config(cfg)
         header_action(pg, "#btn-reload")
         tree_view(pg, "project")
@@ -237,8 +237,8 @@ class View(Base):
     def setUp(self):
         super().setUp()
         cfg = rtd_config()
-        cfg["nodes"][0]["simulate"] = True
-        cfg["master"]["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": self.allow}
+        cfg["networks"][0]["nodes"][0]["simulate"] = True
+        cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": self.allow}
         self.write_config(cfg)
         self.fake = FakeSim(allow_changes=self.allow).__enter__()
         self.addCleanup(self.fake.__exit__)

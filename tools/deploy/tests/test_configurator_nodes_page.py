@@ -65,7 +65,7 @@ class NodesTable(OnlineBase):
 
     def test_identity_differs_and_take_serial(self):
         pg = self.page
-        self.cfg["nodes"][0]["serial_number"] = 8
+        self.cfg["networks"][0]["nodes"][0]["serial_number"] = 8
         with FakePlugin(scan_polls=1) as fp:
             self.online(fp)
             pg.wait_for_selector('tr[data-online-node="2"]')
@@ -146,7 +146,7 @@ class NodesAudit(OnlineBase):
     def test_audit_layout_and_keyboard(self):
         from .test_configurator_layout import FIT_CHECK, audit
         pg = self.page
-        self.cfg["nodes"][0]["serial_number"] = 8  # Identity differs, with its field
+        self.cfg["networks"][0]["nodes"][0]["serial_number"] = 8  # Identity differs, with its field
         with FakePlugin(scan_polls=1) as fp:
             fp.scan_nodes = copy.deepcopy(SCAN_RESULT) + [MATCHING]
             self.online(fp)

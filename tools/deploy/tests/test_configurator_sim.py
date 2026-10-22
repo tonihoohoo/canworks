@@ -37,7 +37,7 @@ class Sim(Running):
 class File(Sim):
     def test_config_with_simulate_fields_saves(self):
         cfg = sim_config(simulate=True)
-        cfg["nodes"][0]["simulate"] = False
+        cfg["networks"][0]["nodes"][0]["simulate"] = False
         out = self.ok("POST", "/api/save", {"config": cfg})
         self.assertEqual(out["check"]["errors"], 0, out["check"]["items"])
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))
@@ -108,7 +108,7 @@ class File(Sim):
     def test_check_and_save_refuse_what_the_plugin_refuses(self):
         # Against the saved config, as the plugin loads the file (D3, D19).
         cfg = sim_config()
-        cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
+        cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
         self.ok("POST", "/api/save", {"config": cfg})
         doc = {"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1}},
                                                     "faults": [{"tpdo_stop": 9}]}},

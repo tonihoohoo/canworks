@@ -215,7 +215,7 @@ class EdsLimits(OnlineBase):
 
     def test_leftover_emcy_settings(self):
         pg = self.page
-        self.cfg["nodes"][0].update(emcy_code_location="%IW30", emcy_cob_id="eds")
+        self.cfg["networks"][0]["nodes"][0].update(emcy_code_location="%IW30", emcy_cob_id="eds")
         self.write_config()
         self.open()
         tree_node(pg, 0, "supervision")

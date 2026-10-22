@@ -35,8 +35,8 @@ class Page(_Page):
         for p in rtd.get("tx_pdos", []):
             for k, e in enumerate(p["entries"]):
                 e["iec_location"] = "%%IW%d" % (320 + k)
-        self.cfg["nodes"].append(rtd)
-        self.cfg["nodes"].append({"node_id": 23, "name": "io", "eds": "fixed-io.eds", "rx_pdos": [
+        self.cfg["networks"][0]["nodes"].append(rtd)
+        self.cfg["networks"][0]["nodes"].append({"node_id": 23, "name": "io", "eds": "fixed-io.eds", "rx_pdos": [
             {"entries": [{"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB310"}]}]})
         self.write_config()
 
@@ -257,7 +257,7 @@ class LogPage(Page):
         taken = os.path.join(self.dir, "taken")
         os.makedirs(taken)
         cfg = load(os.path.join(PINGPONG, "canopen_config.json"))
-        cfg["nodes"][0]["node_id"] = 12
+        cfg["networks"][0]["nodes"][0]["node_id"] = 12
         with open(os.path.join(taken, "canworks.json"), "w") as f:
             json.dump(cfg, f)
         pg.click('button[data-view="nodes"]')

@@ -84,9 +84,9 @@ class LinksPage(unittest.TestCase):
 
     def test_add_link(self):
         cfg = self.config()
-        del cfg["links"]
-        del cfg["nodes"][1]["heartbeat_watch"]
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][1]["iec_location"] = "%IW101"
+        del cfg["networks"][0]["links"]
+        del cfg["networks"][0]["nodes"][1]["heartbeat_watch"]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][1]["iec_location"] = "%IW101"
         self.write(cfg)
         pg = self.page
         self.open()
@@ -114,7 +114,7 @@ class LinksPage(unittest.TestCase):
 
     def test_size_mismatch_marked(self):
         cfg = self.config()
-        cfg["links"][0]["to"][0]["entries"][0] = {"index": "0x2001", "subindex": 0, "type": "UNSIGNED8"}
+        cfg["networks"][0]["links"][0]["to"][0]["entries"][0] = {"index": "0x2001", "subindex": 0, "type": "UNSIGNED8"}
         self.write(cfg)
         pg = self.page
         self.open()
@@ -175,7 +175,7 @@ class LinksPage(unittest.TestCase):
 
     def test_watch_problem_wording(self):
         cfg = self.config()
-        cfg["nodes"][1]["heartbeat_watch"] = [{"node": 99}]
+        cfg["networks"][0]["nodes"][1]["heartbeat_watch"] = [{"node": 99}]
         self.write(cfg)
         pg = self.page
         self.open()

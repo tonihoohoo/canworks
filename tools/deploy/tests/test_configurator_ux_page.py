@@ -36,7 +36,7 @@ class Probes(Layout):
 
     def setUp(self):
         super().setUp()
-        self.cfg["nodes"][2]["tx_pdos"][0]["timeout_ms"] = 500
+        self.cfg["networks"][0]["nodes"][2]["tx_pdos"][0]["timeout_ms"] = 500
         self.write_config()
 
     def problems(self):
@@ -130,7 +130,7 @@ class Probes(Layout):
     # -- 1.3 no "null" anywhere ----------------------------------------------
     def test_no_null_text_on_any_view(self):
         pg = self.page
-        self.cfg["nodes"][1]["axis"] = {"cyclic": True}
+        self.cfg["networks"][0]["nodes"][1]["axis"] = {"cyclic": True}
         self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
         with FakePlugin(allow_changes=True) as fp:
             self.remember(fp.runtime)
@@ -579,7 +579,7 @@ class Probes(Layout):
     # -- 5.2 busy states ------------------------------------------------------
     def test_double_click_on_save_saves_once(self):
         pg = self.page
-        self.cfg["nodes"] = self.cfg["nodes"][:1]
+        self.cfg["networks"][0]["nodes"] = self.cfg["networks"][0]["nodes"][:1]
         self.write_config()
         self.open()
         self.node(0, "general")

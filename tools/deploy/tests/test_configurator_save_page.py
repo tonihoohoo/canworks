@@ -119,7 +119,7 @@ class SaveAnytime(unittest.TestCase):
     def test_new_node_starts_supervised(self):
         pg = self.page
         cfg = self.config()
-        cfg["nodes"] = []
+        cfg["networks"][0]["nodes"] = []
         self.open(cfg)
         # An empty network is a warning with the empty state on its Bus page.
         self.assertEqual(pg.locator("#problem-list li.error").count(), 0)

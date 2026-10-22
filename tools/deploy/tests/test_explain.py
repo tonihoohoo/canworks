@@ -193,7 +193,7 @@ class Layers(unittest.TestCase):
 
     def test_configured_cob_id(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["tx_pdos"][1]["cob_id"] = "0x1A0"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][1]["cob_id"] = "0x1A0"
         dec = rtd_decoder(cfg)
         m = ex("1A0#01020304", dec)
         self.assertEqual(m["kind"], "pdo")
@@ -432,7 +432,7 @@ class Sequences(unittest.TestCase):
 
     def test_sync_cycles_and_window(self):
         cfg = copy.deepcopy(self.cfg)
-        cfg["master"]["sync_window_us"] = 2000
+        cfg["networks"][0]["master"]["sync_window_us"] = 2000
         dec = rtd_decoder(cfg)
         t = boot_trace(dec, self.expected, late_us=2600)
         s = Session(dec, trace=t)

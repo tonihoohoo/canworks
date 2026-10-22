@@ -48,9 +48,9 @@ class OnlineBase(unittest.TestCase):
         shutil.copytree(FIXTURE, self.project)
         # The ping-pong config, moved off the fixture project's EtherCAT addresses.
         cfg = load(os.path.join(PINGPONG, "canopen_config.json"))
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID300"
-        cfg["nodes"][0]["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD300"
-        cfg["nodes"][0]["status_location"] = "%IX300.0"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID300"
+        cfg["networks"][0]["nodes"][0]["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD300"
+        cfg["networks"][0]["nodes"][0]["status_location"] = "%IX300.0"
         self.cfg = cfg
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
@@ -77,7 +77,7 @@ class OnlineBase(unittest.TestCase):
     def write_config(self, diagnostics=None):
         cfg = json.loads(json.dumps(self.cfg))
         if diagnostics:
-            cfg["master"]["diagnostics"] = diagnostics
+            cfg["diagnostics"] = diagnostics
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
 

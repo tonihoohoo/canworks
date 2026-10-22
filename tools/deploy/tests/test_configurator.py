@@ -70,35 +70,35 @@ class ErrorPaths(unittest.TestCase):
         return [(i["message"], i["paths"]) for i in r.items if i["level"] == "error"]
 
     def test_type_mismatch(self):
-        self.cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("does not fit location %IW100", msg)
         self.assertEqual(paths, ["nodes[0].tx_pdos[0].entries[0].iec_location"])
 
     def test_duplicate_node_id(self):
-        second = copy.deepcopy(self.cfg["nodes"][0])
+        second = copy.deepcopy(self.cfg["networks"][0]["nodes"][0])
         second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID101"
         second["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD101"
         second["status_location"] = "%IX10.1"
-        self.cfg["nodes"].append(second)
+        self.cfg["networks"][0]["nodes"].append(second)
         found = self.paths(self.cfg)
         dup = [p for m, p in found if "used by more than one slave" in m]
         self.assertEqual(dup, [["nodes[0].node_id", "nodes[1].node_id"]])
 
     def test_sdo_range(self):
-        self.cfg["nodes"][0]["sdo"] = [{"index": "0x1017", "subindex": 0, "type": "UNSIGNED8", "value": 300}]
+        self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x1017", "subindex": 0, "type": "UNSIGNED8", "value": 300}]
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("does not fit UNSIGNED8", msg)
         self.assertEqual(paths, ["nodes[0].sdo[0].value"])
 
     def test_eds_errors_point_at_the_entry(self):
-        self.cfg["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
+        self.cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "value": 1}]
         [(msg, paths)] = self.paths(self.cfg)
         self.assertIn("startup SDO needs a writable object", msg)
         self.assertEqual(paths, ["nodes[0].sdo[0]"])
 
     def test_schema_error_path(self):
-        self.cfg["adapter"]["bitrate"] = 300000
+        self.cfg["networks"][0]["adapter"]["bitrate"] = 300000
         found = self.paths(self.cfg)
         self.assertEqual(found[0][1], ["adapter.bitrate"])
 
@@ -232,7 +232,7 @@ class Declarations(unittest.TestCase):
 
     def test_bit_channels(self):
         cfg = rtd_config()
-        entry = cfg["nodes"][0]["tx_pdos"][0]["entries"][0]
+        entry = cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]
         entry["bits"] = [{"bit": 3, "name": "jog_x_plus", "iec_location": "%IX140.3"},
                          {"bit": 15, "iec_location": "%IX141.7"}]
         decls = declare.declarations(cfg, lambda i, ix, sub: "AI0 Input PV" if sub == 1 else None, {})
@@ -253,7 +253,7 @@ class Declarations(unittest.TestCase):
 
     def test_state_byte(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["state_location"] = "%IB20"
+        cfg["networks"][0]["nodes"][0]["state_location"] = "%IB20"
         decls = declare.declarations(cfg, lambda *a: None, {})
         self.assertIn(("rtd_state", "%IB20", "USINT"), [(d["name"], d["location"], d["type"]) for d in decls])
         uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
@@ -261,8 +261,8 @@ class Declarations(unittest.TestCase):
 
     def test_boot_error_and_master_state(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["boot_error_location"] = "%IB21"
-        cfg["master"]["state_location"] = "%IB22"
+        cfg["networks"][0]["nodes"][0]["boot_error_location"] = "%IB21"
+        cfg["networks"][0]["master"]["state_location"] = "%IB22"
         decls = declare.declarations(cfg, lambda *a: None, {})
         rows = [(d["name"], d["location"], d["type"]) for d in decls]
         self.assertIn(("rtd_boot_err", "%IB21", "USINT"), rows)
@@ -273,7 +273,7 @@ class Declarations(unittest.TestCase):
 
     def test_bus_diagnostics(self):
         cfg = rtd_config()
-        cfg["master"].update(bus_state_location="%IB120", tx_error_count_location="%IB121",
+        cfg["networks"][0]["master"].update(bus_state_location="%IB120", tx_error_count_location="%IB121",
                              rx_error_count_location="%IB122", bus_off_count_location="%IW120")
         decls = declare.declarations(cfg, lambda *a: None, {"master.rx_error_count_location": "rxe"})
         rows = [(d["name"], d["location"], d["type"], d["declared_as"]) for d in decls[:4]]
@@ -286,8 +286,8 @@ class Declarations(unittest.TestCase):
 
     def test_emcy_inputs(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["emcy_code_location"] = "%IW30"
-        cfg["nodes"][0]["error_register_location"] = "%IB31"
+        cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW30"
+        cfg["networks"][0]["nodes"][0]["error_register_location"] = "%IB31"
         decls = declare.declarations(cfg, lambda *a: None, {})
         rows = [(d["name"], d["location"], d["type"]) for d in decls]
         self.assertIn(("rtd_emcy", "%IW30", "WORD"), rows)
@@ -298,8 +298,8 @@ class Declarations(unittest.TestCase):
 
     def test_sdo_variables_and_nmt(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["nmt_command_location"] = "%QB20"
-        cfg["nodes"][0]["sdo_variables"] = [
+        cfg["networks"][0]["nodes"][0]["nmt_command_location"] = "%QB20"
+        cfg["networks"][0]["nodes"][0]["sdo_variables"] = [
             {"name": "sensor type", "index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "direction": "write",
              "iec_location": "%QW20", "trigger_location": "%QX21.0", "status_location": "%IB21",
              "abort_code_location": "%ID21"},
@@ -327,12 +327,12 @@ class Declarations(unittest.TestCase):
 
     def test_program_order_and_descriptions(self):
         cfg = rtd_config()
-        cfg["master"]["bus_state_location"] = "%IB120"
-        cfg["nodes"][0]["nmt_command_location"] = "%QB20"
-        cfg["nodes"][0]["sdo_variables"] = [
+        cfg["networks"][0]["master"]["bus_state_location"] = "%IB120"
+        cfg["networks"][0]["nodes"][0]["nmt_command_location"] = "%QB20"
+        cfg["networks"][0]["nodes"][0]["sdo_variables"] = [
             {"name": "sensor type", "index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "direction": "write",
              "iec_location": "%QW20", "status_location": "%IB21"}]
-        cfg["nodes"].append({"node_id": 23, "name": "valve", "eds": "x.eds", "status_location": "%IX10.1",
+        cfg["networks"][0]["nodes"].append({"node_id": 23, "name": "valve", "eds": "x.eds", "status_location": "%IX10.1",
                              "rx_pdos": [{"number": 1, "entries": [
                                  {"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB30"}]}],
                              "tx_pdos": [{"number": 1, "entries": [

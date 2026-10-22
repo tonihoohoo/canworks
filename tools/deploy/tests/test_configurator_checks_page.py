@@ -168,8 +168,8 @@ class ChecksPage(unittest.TestCase):
     def test_messages_are_plain(self):
         pg = self.page
         cfg = self.config()
-        cfg["master"]["sync_source"] = "plc_cycle"
-        del cfg["master"]["sync_period_us"]
+        cfg["networks"][0]["master"]["sync_source"] = "plc_cycle"
+        del cfg["networks"][0]["master"]["sync_period_us"]
         self.open(cfg)
         self.node(0)
         self.type("nodes[0].node_id", "abc")
@@ -191,8 +191,8 @@ class ChecksPage(unittest.TestCase):
 
     def test_pdo_place_said_once(self):
         cfg = self.config()
-        del cfg["master"]["sync_period_us"]
-        cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        del cfg["networks"][0]["master"]["sync_period_us"]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["transmission"] = 1
         self.open(cfg)
         sync = [p for p in self.problems() if "needs SYNC" in p or "SYNC" in p]
         self.assertTrue(sync, self.problems())
@@ -207,8 +207,8 @@ class SimulationFile(SimBase):
     def test_source_on_a_master_written_object(self):
         pg = self.page
         cfg = rtd_config()
-        cfg["adapter"]["simulate"] = True
-        cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
+        cfg["networks"][0]["adapter"]["simulate"] = True
+        cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
         self.write_config(cfg)
         with open(self.sim_path, "w", encoding="utf-8") as f:
             json.dump({"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1},

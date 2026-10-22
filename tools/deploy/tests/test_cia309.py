@@ -335,7 +335,7 @@ class NetworkDocs(unittest.TestCase):
             cfg = json.load(f)
         plain = docexport.build(cfg, path)
         self.assertNotIn("cia309", plain)
-        cfg["master"]["cia309"] = {"allow_changes": True}
+        cfg["networks"][0]["master"]["cia309"] = {"allow_changes": True}
         model = docexport.build(cfg, path)
         self.assertEqual(model["cia309"]["nets"], [{"number": 1, "name": ""}])
         self.assertEqual(model["networks"][0]["cia309_number"], 1)

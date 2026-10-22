@@ -83,7 +83,7 @@ class Create(unittest.TestCase):
 
     def test_no_locations(self):
         cfg = load(RTD_CONFIG)
-        node = cfg["nodes"][0]
+        node = cfg["networks"][0]["nodes"][0]
         del node["status_location"]
         for p in node["tx_pdos"]:
             for e in p["entries"]:
@@ -165,7 +165,7 @@ class Create(unittest.TestCase):
 
     def test_invalid_config_runs_nothing(self):
         cfg = load(RTD_CONFIG)
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["type"] = "INTEGER32"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["type"] = "INTEGER32"
         with self.assertRaises(editorproject.NewProjectError):
             editorproject.create(cfg, RTD_CONFIG, self.target)
         self.assertFalse(os.path.exists(self.target))

@@ -36,7 +36,7 @@ class Online(Running):
             cfg = json.load(f)
         self.assertEqual(self.eds(os.path.join(PINGPONG, "cpp-slave.eds"))[0], 200)
         if diagnostics:
-            cfg["master"]["diagnostics"] = dict(DIAG)
+            cfg["diagnostics"] = dict(DIAG)
         return cfg
 
     def connect(self, fake, token=TOKEN):
@@ -51,7 +51,7 @@ class Settings(Online):
         self.assertGreaterEqual(len(r["token"]), 32)
         self.assertTrue(diag.token_matches(r["token"], r["token_verifier"]))
         cfg = self.pingpong(diagnostics=False)
-        cfg["master"]["diagnostics"] = {"token_verifier": r["token_verifier"]}
+        cfg["diagnostics"] = {"token_verifier": r["token_verifier"]}
         self.save(cfg)
         saved = read(os.path.join(self.canopen, "canworks.json"), "r")
         self.assertIn(r["token_verifier"], saved)
@@ -189,19 +189,10 @@ class Proxy(Online):
     def test_fingerprint_of_the_deployed_file(self):
         self.save(self.pingpong())
         path = os.path.join(self.canopen, "canworks.json")
-        # What the deploy tool and the editor hook write as conf/canworks.json.
-        import sys
-        sys.path.insert(0, os.path.join(REPO, "tools", "editor-hook"))
-        self.addCleanup(sys.path.remove, os.path.join(REPO, "tools", "editor-hook"))
+        # What the deploy tool puts on the bridge as canworks.json (LF on Windows too).
         from canworks import bundle
-        deployed, _ = bundle.rewrite(json.loads(read(path, "r")), path)
-        text = json.dumps(deployed, indent=2) + "\n"
-        self.assertIn(hashlib.sha256(text.encode()).hexdigest(), online.fingerprints(path))
-        # The file the bundle really carries, written on this OS (LF on Windows too).
-        work = tmpdir(self)
-        os.makedirs(os.path.join(work, "src"))
-        staged, _ = bundle.assemble(os.path.join(work, "src"), deployed, {}, work)
-        raw = read(os.path.join(staged, "conf", "canworks.json"))
+        deployed, by_name = bundle.rewrite(json.loads(read(path, "r")), path)
+        raw = bundle.files(deployed, by_name)["canworks.json"]
         self.assertIn(hashlib.sha256(raw).hexdigest(), online.fingerprints(path))
 
     def test_fingerprint_with_a_slave_network(self):
@@ -358,9 +349,9 @@ class RuntimeScan(Online):
 
     def test_scan_compares_with_the_config(self):
         cfg = self.pingpong()
-        gone = dict(cfg["nodes"][0], node_id=7, name="gone", tx_pdos=[], rx_pdos=[])
+        gone = dict(cfg["networks"][0]["nodes"][0], node_id=7, name="gone", tx_pdos=[], rx_pdos=[])
         gone.pop("status_location", None)  # its own locations, not node 2's
-        cfg["nodes"].append(gone)
+        cfg["networks"][0]["nodes"].append(gone)
         self.save(cfg)
         with FakePlugin(scan_polls=1) as fp:
             fp.scan_nodes[0]["serial_number"] = 7
@@ -375,7 +366,7 @@ class RuntimeScan(Online):
 
     def test_identity_differs_names_the_field(self):
         cfg = self.pingpong()
-        cfg["nodes"][0]["serial_number"] = 8
+        cfg["networks"][0]["nodes"][0]["serial_number"] = 8
         self.save(cfg)
         with FakePlugin(scan_polls=0) as fp:
             self.connect(fp)
@@ -523,7 +514,7 @@ class SlaveNetwork(Online):
             self.assertEqual((r["slave"], r["configured"], r["eds"]), (True, False, "openplc-slave.eds"))
             by_key = {(e["index"], e["subindex"]): e for e in r["entries"]}
             self.assertEqual(by_key[(0x2000, 1)]["slave_bind"], {"iec_location": "%IW300", "name": "speed_setpoint"})
-            self.assertEqual(by_key[(0x2100, 2)]["slave_bind"], {"iec_location": "%QW301", "name": ""})
+            self.assertEqual(by_key[(0x2100, 2)]["slave_bind"], {"iec_location": "%QW302", "name": ""})
             self.assertNotIn("slave_bind", by_key[(0x1008, 0)])
             r = self.ok("POST", "/api/online/od_read", {"node": 10, "config": cfg, "keys": [[0x2000, 1], [0x1008, 0]]})
             self.assertEqual(sorted(v["index"] for v in r["values"]), [0x1008, 0x2000])

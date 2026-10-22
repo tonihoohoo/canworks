@@ -16,8 +16,8 @@ from .test_parameters import NODE, FakeDevice
 def rtd_config():
     with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
         cfg = json.load(f)
-    cfg["master"]["diagnostics"] = dict(DIAG)
-    cfg["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
+    cfg["diagnostics"] = dict(DIAG)
+    cfg["networks"][0]["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
                                          "direction": "write", "iec_location": "%QD100"}]
     return cfg
 
@@ -76,7 +76,7 @@ class Entries(Params):
             self.assertEqual(by[(0x7130, 2)]["pdo"][0]["bits"], [16, 31])
             self.assertNotIn("pdo", by[(0x6110, 1)])
             # A draft whose PDOs cannot be read yet gives no marks but still the tab.
-            self.cfg["nodes"][0]["tx_pdos"][0]["entries"][0] = {"index": "0x7130"}
+            self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0] = {"index": "0x7130"}
             r = self.ok("POST", "/api/online/od_entries", self.body())
             self.assertFalse(any("pdo" in e for e in r["entries"]))
             # A scanned node has no PDO marks.

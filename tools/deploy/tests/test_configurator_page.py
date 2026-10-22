@@ -500,9 +500,9 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000
-        cfg["master"]["strict_eds"] = False
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
+        cfg["networks"][0]["master"]["sync_period_us"] = 10000
+        cfg["networks"][0]["master"]["strict_eds"] = False
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -528,8 +528,8 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
+        cfg["networks"][0]["master"]["sync_period_us"] = 10000
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -608,8 +608,8 @@ class Page(unittest.TestCase):
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
         cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000  # the EDS's TPDO 1 is type 1
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{
+        cfg["networks"][0]["master"]["sync_period_us"] = 10000  # the EDS's TPDO 1 is type 1
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -731,7 +731,7 @@ class Page(unittest.TestCase):
         self.fill("master.sdo_timeout_ms", "3000")
         self.save()
         cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
-        node, master = cfg["nodes"][0], cfg["master"]
+        node, master = cfg["networks"][0]["nodes"][0], cfg["networks"][0]["master"]
         self.assertEqual((node["boot_error_location"], node["mandatory"], node["revision_number"],
                           node["error_behavior"], node["heartbeat_consumer"]),
                          ("%IB100", True, "0x00010002", {"1": 0, "3": 2}, False))
@@ -939,9 +939,9 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 0)
         self.save()
         cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(cfg["master"].get("sync_source"), "plc_cycle")
-        self.assertNotIn("sync_period_us", cfg["master"])
-        node = cfg["nodes"][0]
+        self.assertEqual(cfg["networks"][0]["master"].get("sync_source"), "plc_cycle")
+        self.assertNotIn("sync_period_us", cfg["networks"][0]["master"])
+        node = cfg["networks"][0]["nodes"][0]
         self.assertEqual(node["axis"], {"cyclic": True})
         self.assertEqual([e["index"] for e in node["rx_pdos"][0]["entries"]], ["0x6040", "0x6060", "0x607A"])
         self.assertTrue(all(p["transmission"] == 1 for p in node["rx_pdos"] + node["tx_pdos"]))

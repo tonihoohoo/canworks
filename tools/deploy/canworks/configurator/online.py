@@ -107,10 +107,10 @@ class Settings:
 
 
 def fingerprints(config_path):
-    """SHA-256 values the runtime may report for this canworks.json: the file
-    itself, and the conf/canworks.json the deploy tool and the editor hook
-    write from it (node and slave EDS paths rewritten, indent 2). Empty when the
-    file does not exist or cannot be read."""
+    """SHA-256 values the bridge may report for this canworks.json: the file
+    itself, and the canworks.json the deploy tool puts on the bridge (node
+    and slave EDS paths rewritten, indent 2). Empty when the file does not
+    exist or cannot be read."""
     try:
         with open(config_path, "rb") as f:
             raw = f.read()

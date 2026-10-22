@@ -21,8 +21,8 @@ def base():
 
 def two_consumers():
     # Node 21 as a second consumer, with the same module as node 20.
-    return patched(base(), [["set", "nodes/2/eds", "link-io.eds"],
-                            ["set", "links/0/to/1", {"node": 21, "rpdo": 1, "mapping": "device"}]])
+    return patched(base(), [["set", "networks/0/nodes/2/eds", "link-io.eds"],
+                            ["set", "networks/0/links/0/to/1", {"node": 21, "rpdo": 1, "mapping": "device"}]])
 
 
 class Checks(unittest.TestCase):
@@ -82,14 +82,14 @@ class Docs(unittest.TestCase):
         self.assertIn("PDO links", html)
 
     def test_bus_load_unchanged(self):
-        without = patched(base(), [["delete", "links"], ["delete", "nodes/1/heartbeat_watch"],
-                                   ["set", "nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
+        without = patched(base(), [["delete", "networks/0/links"], ["delete", "networks/0/nodes/1/heartbeat_watch"],
+                                   ["set", "networks/0/nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
         a = docexport.build(base(), PATH)["networks"][0]["bus_load"]
         b = docexport.build(without, PATH)["networks"][0]["bus_load"]
         self.assertEqual((a["cyclic"], a["worst"]), (b["cyclic"], b["worst"]))
 
     def test_plc_does_not_read(self):
-        cfg = patched(base(), [["delete", "nodes/0/tx_pdos/0/entries/0/iec_location"]])
+        cfg = patched(base(), [["delete", "networks/0/nodes/0/tx_pdos/0/entries/0/iec_location"]])
         model = docexport.build(cfg, PATH)
         self.assertEqual(model["networks"][0]["links"][0]["plc_reads"], [])
         self.assertFalse([x for x in model["io"] if "%IW100" in x["location"]])

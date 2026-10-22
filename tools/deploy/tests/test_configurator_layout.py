@@ -172,7 +172,7 @@ def audit(page, where, report=None):
 class Layout(OnlineBase):
     def setUp(self):
         super().setUp()
-        n = self.cfg["nodes"][0]
+        n = self.cfg["networks"][0]["nodes"][0]
         n["sdo_variables"] = [
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "direction": "read",
              "name": "producer_heartbeat_time", "iec_location": "%IW300", "period_ms": 1000,
@@ -183,14 +183,14 @@ class Layout(OnlineBase):
         canopen = os.path.join(self.project, "canworks")
         shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"), canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), canopen)
-        self.cfg["nodes"].append({"node_id": 23, "name": "valve", "eds": "fixed-io.eds", "rx_pdos": [
+        self.cfg["networks"][0]["nodes"].append({"node_id": 23, "name": "valve", "eds": "fixed-io.eds", "rx_pdos": [
             {"entries": [{"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB310"}]}]})
         rtd = load(os.path.join(RTD, "canopen_config.json"))["nodes"][0]
         rtd.update(eds="rtd8.eds", status_location="%IX330.0")
         for p in rtd.get("tx_pdos", []):
             for k, e in enumerate(p["entries"]):
                 e["iec_location"] = "%%IW%d" % (320 + k)  # 16-bit: TPDO 2's UNSIGNED8 entries do not fit
-        self.cfg["nodes"].append(rtd)
+        self.cfg["networks"][0]["nodes"].append(rtd)
         self.write_config()
         self.page.set_viewport_size({"width": 1280, "height": 800})
 
@@ -442,7 +442,7 @@ class Layout(OnlineBase):
 
     def test_overlap_control(self):
         pg = self.page
-        self.cfg["nodes"] = self.cfg["nodes"][:1]
+        self.cfg["networks"][0]["nodes"] = self.cfg["networks"][0]["nodes"][:1]
         self.write_config()
         self.open()
         self.assertEqual(pg.locator("#top #allow-overlap").count(), 0)
@@ -591,7 +591,7 @@ class Layout(OnlineBase):
         long_eds = os.path.join(self.project, "canworks", "long-names.eds")
         with open(long_eds, "w", encoding="latin-1") as f:
             f.write(text)
-        self.cfg["nodes"][2]["eds"] = "long-names.eds"
+        self.cfg["networks"][0]["nodes"][2]["eds"] = "long-names.eds"
         fp = FakeDevice(eds_path=long_eds)
         import copy
         from .fake_diag import status as fake_status

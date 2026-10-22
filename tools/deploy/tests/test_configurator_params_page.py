@@ -28,11 +28,11 @@ class ParamsPage(OnlineBase):
     def setUp(self):
         super().setUp()
         cfg = load(os.path.join(RTD, "canopen_config.json"))
-        cfg["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
+        cfg["networks"][0]["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
                                              "direction": "write", "iec_location": "%QD310"}]
-        for e in cfg["nodes"][0]["tx_pdos"][0]["entries"]:
+        for e in cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]:
             e["iec_location"] = e["iec_location"].replace("%IW1", "%IW3")
-        cfg["nodes"][0]["status_location"] = "%IX310.0"
+        cfg["networks"][0]["nodes"][0]["status_location"] = "%IX310.0"
         self.cfg = cfg
         shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -309,7 +309,7 @@ class ParamsPage(OnlineBase):
     def test_watch_list(self):
         """improve-od-browser 3.1-3.2."""
         pg = self.page
-        self.cfg["nodes"][0]["sdo_variables"].append({"name": "sensor5", "index": "0x6110", "subindex": 5, "type": "UNSIGNED16",
+        self.cfg["networks"][0]["nodes"][0]["sdo_variables"].append({"name": "sensor5", "index": "0x6110", "subindex": 5, "type": "UNSIGNED16",
                                                       "direction": "read", "iec_location": "%IW320", "period_ms": 100})
         with self.device() as fp:
             self.open_node(fp, tab="od")

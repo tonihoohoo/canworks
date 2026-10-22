@@ -208,7 +208,7 @@ class NetworksPage(unittest.TestCase):
         saved = load(self.config_path)
         self.assertEqual(saved["schema_version"], 1)
         self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
-        self.assertEqual(saved["nodes"], cfg["nodes"])
+        self.assertEqual(saved["nodes"], cfg["networks"][0]["nodes"])
 
     # -- checks across networks (6.3) ---------------------------------------
     def test_suggestions_and_clashes_across_networks(self):
