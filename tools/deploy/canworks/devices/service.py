@@ -183,13 +183,13 @@ class Devices:
                 raise SshError(why)
         conn, _ = self.connection(did)
         upload = None
-        if action in ("install_bridge", "bridge_config") and config_dir:
+        if action in jobs.BRIDGE_ACTIONS and config_dir:
             files = config_files(config_dir)
             upload = jobs.make_upload_dir(conn)
             conn.put_files(upload, files)
         options = options or {}
         link = options.get("link") is not False
-        if action == "install_bridge" and probe.get("link") is not None \
+        if action in ("install_bridge", "install_openplc_bridge") and probe.get("link") is not None \
                 and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
             link = False  # the device's link serves the PLC: not repointed at a bridge
         discovery = options.get("discovery") is not False
@@ -208,7 +208,7 @@ class Devices:
         lines = jobs.commands(action, version, self.paths, link=link,
                               discovery=discovery, purge=options.get("purge") is True,
                               link_config=link_config, runtime_port=runtime_port,
-                              instance=instance if action in ("install_bridge", "bridge_config") else None,
+                              instance=instance if action in jobs.BRIDGE_ACTIONS else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"),
                               pinned_runtime=(probe.get("runtime") or {}).get("kind") == "docker-managed")
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)

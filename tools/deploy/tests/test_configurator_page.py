@@ -214,7 +214,7 @@ class Page(unittest.TestCase):
         self.assertTrue(pg.is_checked("[data-new-config=project]"))
         pg.click('label:has([data-new-target="bridge"])')
         self.assertFalse(pg.is_visible("[data-new-config=project]"))
-        pg.click('label:has([data-new-target="openplc"])')
+        pg.click('label:has([data-new-target="openplc_modbus"])')
         pg.fill("[data-new-config=location]", self.dir)
         pg.fill("[data-new-config=name]", "new-machine")
         pg.click("#modal-buttons button[data-value=create]")
@@ -1514,7 +1514,8 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("Moved into", pg.inner_text("#banner"))
         moved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(moved["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
+        # A new OpenPLC config targets OpenPLC through Modbus: version 2, with networks.
+        self.assertEqual(moved["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
         self.assertIn("in use", pg.inner_text("#scan-info"))
 
     def test_standalone_then_new_editor_project(self):

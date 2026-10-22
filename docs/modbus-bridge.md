@@ -9,6 +9,7 @@ The bridge is the same engine as the OpenPLC plugin: it boots and supervises CAN
 - [The register rule](#the-register-rule)
 - [Outputs, the watchdog and client loss](#outputs-the-watchdog-and-client-loss)
 - [Status, control, live lists and SDO registers](#status-control-live-lists-and-sdo-registers)
+- [OpenPLC through Modbus](#openplc-through-modbus)
 - [Deploying and checking a config](#deploying-and-checking-a-config)
 - [Clients](#clients)
 - [Security](#security)
@@ -130,12 +131,13 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `writers` | required | Addresses or prefixes allowed to write. A write from another client gets exception 0x01 and changes nothing, and does not feed the watchdog. `[]` makes the bridge read-only; `["0.0.0.0/0", "::/0"]` lets every address write. |
 | `readers` | every client | Addresses or prefixes allowed to connect at all. An entry of `readers` or `writers` that is not an address or prefix stops the bridge from starting. |
 | `watchdog_ms` | 1000 | Outputs off when no write came from a writer for this long; 0 turns the watchdog off. Up to 60000. |
-| `on_client_loss` | `stop` | What outputs off means: `stop`, `zero` or `hold` ([below](#outputs-the-watchdog-and-client-loss)). |
+| `on_client_loss` | `stop` | What outputs off means: `stop`, `zero`, `hold` or `preop` ([below](#outputs-the-watchdog-and-client-loss)). |
 | `status_location` | none | Start of the 8-byte status block (`%IB...`). |
 | `control_location` | none | Start of the 6-byte control block (`%QB...`). |
 | `live_lists` | none | 16-byte live lists of CANopen master networks (`%IB...`). |
 | `sdo_bridge_location` | none | The SDO registers: a 14-byte `request` block (`%QB...`) and a 14-byte `response` block (`%IB...`). |
 | `sdo_bridge_write` | false | Allow SDO writes through the SDO registers. |
+| `openplc` | none | OpenPLC's own Modbus master is the client ([OpenPLC through Modbus](#openplc-through-modbus)). |
 
 `"sync_source": "plc_cycle"` is refused in a bridge config, since there is no PLC cycle: use `sync_period_us`. The OpenPLC plugin refuses a config with a `bridge` object, and the bridge refuses one without.
 
@@ -179,6 +181,7 @@ Every accepted write from a writer feeds the watchdog. When none came for `watch
   The output image is cleared to 0 without sending it, so the write that ends outputs off starts from zeros: one coil written after a loss sends that coil and 0 for every other output, never the values from before the loss. A controller that reconnects should write all its outputs at once.
 - `"zero"`: every output location is set to 0 and sent once, then outputs stop as with `"stop"`. The difference to `"stop"` is only that the zeros reach the devices; after both, outputs restart from zeros.
 - `"hold"`: outputs keep being sent with their last values.
+- `"preop"`: outputs stop as with `"stop"`, and every node of every CANopen master network is sent NMT enter pre-operational (node 0), so each applies its own communication-loss behaviour. Outputs on again sends NMT start the same way.
 
 Inputs, heartbeats, node supervision, the diagnostics channel and J1939 address claim keep running. The next write from a writer ends outputs off. The log names each change (`outputs off by the watchdog (no write from a writer client)`, `outputs on again: a client wrote`). Before the first client writes, the watchdog runs from the bridge's start, so outputs stay off until a writer is there.
 
@@ -190,7 +193,7 @@ Each block is optional and lives where its location says.
 
 | Byte | Meaning |
 | --- | --- |
-| 0 | 1 running, 2 outputs off by the watchdog, 3 outputs off by the idle command |
+| 0 | 1 running, 2 outputs off by the watchdog, 3 outputs off by the idle command, 4 outputs off: the PLC program was built for another map, 5 outputs off: the PLC stopped (both `openplc` only) |
 | 1 | connected clients |
 | 2-3 | a counter that grows every 100 ms (the bridge is alive) |
 | 4-5 | the last control counter handled |
@@ -216,6 +219,49 @@ Each block is optional and lives where its location says.
 | 10-13 | value (writes) | | |
 
 A request starts when its counter changes and goes through the same queue and timeout as the PLC's SDO function blocks. A write needs `"sdo_bridge_write": true`; without it the request ends aborted with 0x08000020 and nothing is sent. Every request is logged.
+
+## OpenPLC through Modbus
+
+A bridge config with an `openplc` object is an OpenPLC config: the bridge runs the networks next to an unmodified OpenPLC Runtime v4 on the same device, and the runtime's own Modbus master reads and writes the registers. Nothing of canworks runs inside the runtime, so an OpenPLC update changes nothing for canworks as long as the Modbus master and the editor's remote device format stay.
+
+```json
+"bridge": {
+  "openplc": { "poll_ms": 10 },
+  "control_location": "%QB34",
+  "sdo_bridge_location": { "request": "%QB40", "response": "%IB60" },
+  "sdo_bridge_write": true
+}
+```
+
+| `openplc` field | Default | Meaning |
+| --- | --- | --- |
+| `poll_ms` | 10 | How often OpenPLC reads and writes every register group, 5 to 1000 ms. |
+| `remote_device` | `canworks` | The remote device's name in the editor project (`devices/remote/<name>.json`). |
+| `iec_base` | the first free from 100 | The first `%IW` and `%QW` word the groups get in the editor project. |
+
+With `openplc` the bridge listens on `127.0.0.1:1502` and lets only `127.0.0.1` write unless `listen` and `writers` say otherwise, the watchdog defaults to 5 × `poll_ms` (at least 50 ms), 32- and 64-bit values are low word first (`word_order` `high_first` is refused), and the first bytes are fixed:
+
+| Bytes | Registers | Meaning |
+| --- | --- | --- |
+| input 0-3 | input registers 0-1 | the bridge's map hash, high word first |
+| input 4-11 | input registers 2-5 | the status block (`status_location` is `%IB4` or left out) |
+| output 0-5 | holding registers 0-2 | the PLC link header: running (1 while the program runs), the program's map hash high and low word |
+
+Pack for Modbus places the values after them (input byte 12, output byte 6); a location in those bytes is refused.
+
+**Map hash.** A CRC-32 over the config's located values (direction, first byte, size, bit) and the word order, computed the same way by the PC tools and the bridge; names and types are not part of it, so renaming a value changes nothing, and moving one changes the hash. The bridge logs it at start, `canworks-deploy --export-modbus-map` prints it, and the generated programs carry it.
+
+**The PLC link header.** The header write sets the link state: running 1 with the bridge's hash is ok; running 0 is stopped (status byte 0 = 5); any other hash is a mismatch (status byte 0 = 4, logged once with both hashes). Output writes are answered normally but applied only while the state is ok. Stopped and mismatch put the outputs off with the `on_client_loss` action at once, before that write's values apply: when OpenPLC stops, it writes one last round of zeros, and with `"hold"` the nodes keep the values from before it. The watchdog still covers a lost connection.
+
+**What the configurator writes.** Saving an OpenPLC project with no errors writes, next to `canworks/canworks.json`:
+
+- `devices/remote/canworks.json`: the remote device, on 127.0.0.1 and the port, with one read group (FC 4) or write group (FC 16) per run of contiguous registers (at most 125 or 123 registers each), the header write group first; every register gets its `%IW`/`%QW` word from `iec_base` on and an alias;
+- `pous/programs/canworks_in.st` and `canworks_out.st`, run first and last in the project's task: they convert between the words and the typed members of the variable list, put the header with the generated hash last, and set `canworks.ok` while the bridge's hash matches and its status counter moves;
+- the `canworks` variable list in `project.json`: one typed member per located value (`canworks.dio_door_open`), `ok` and `link`, which the [function blocks](plc-library.md) take.
+
+The user's own POUs are never touched. A file canworks owns that was changed in the editor is written again only after a question naming it, and an OpenPLC Editor with the project open must reopen it before Build. The Project page shows the remote device, the poll with the number of Modbus requests per poll (a warning above 40), the map hash and the first editor location.
+
+**Timing.** OpenPLC's Modbus master reads every group, then writes every group, once per poll, on one connection. A value arrives up to one poll after the bridge has it, and an output up to one poll after the scan wrote it. Each group is one request, read under one lock in the bridge, so the values of one PDO always come together; two groups may come from different moments.
 
 ## Deploying and checking a config
 

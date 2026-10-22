@@ -220,10 +220,13 @@ class BridgePage(OnlineBase):
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
-        # Back to OpenPLC: the bridge object goes, the locations are per type again.
+        # Back to the OpenPLC plugin (no longer a choice on the page, so
+        # through the switch itself): the bridge object goes, the locations
+        # are per type again.
         tree_view(pg, "project")
-        pg.select_option('select[data-target="1"]', "openplc")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        self.assertEqual(pg.locator('select[data-target="1"] option[value="openplc"]').count(), 0)
+        pg.evaluate("() => switchTarget('openplc')")
+        pg.wait_for_selector("#banner:has-text('targets OpenPLC plugin now')")
         pg.wait_for_selector("#tree #nav-bridge", state="detached")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")

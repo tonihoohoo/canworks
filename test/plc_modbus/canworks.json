@@ -1,0 +1,168 @@
+{
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "cab",
+      "protocol": "none",
+      "adapter": {
+        "type": "socketcan",
+        "interface": "vcan0",
+        "bitrate": 250000,
+        "simulate": true
+      },
+      "raw": {
+        "rx": [
+          {
+            "name": "In",
+            "id": 256,
+            "dlc": 8,
+            "status_location": "%IX12.0",
+            "signals": [
+              {
+                "name": "flag",
+                "start_bit": 0,
+                "length": 1,
+                "iec_location": "%IX12.1"
+              },
+              {
+                "name": "low",
+                "start_bit": 1,
+                "length": 1,
+                "iec_location": "%IX13.7"
+              },
+              {
+                "name": "sbyte",
+                "start_bit": 8,
+                "length": 8,
+                "signed": true,
+                "iec_location": "%IB14"
+              },
+              {
+                "name": "ubyte",
+                "start_bit": 16,
+                "length": 8,
+                "iec_location": "%IB15"
+              },
+              {
+                "name": "word",
+                "start_bit": 24,
+                "length": 16,
+                "signed": true,
+                "iec_location": "%IW16"
+              },
+              {
+                "name": "dword",
+                "start_bit": 0,
+                "length": 32,
+                "signed": true,
+                "iec_location": "%ID18"
+              },
+              {
+                "name": "real",
+                "start_bit": 32,
+                "length": 32,
+                "iec_location": "%ID22"
+              }
+            ]
+          },
+          {
+            "name": "Wide",
+            "id": 257,
+            "dlc": 8,
+            "signals": [
+              {
+                "name": "lword",
+                "start_bit": 0,
+                "length": 64,
+                "iec_location": "%IL26"
+              },
+              {
+                "name": "lreal",
+                "start_bit": 0,
+                "length": 64,
+                "iec_location": "%IL34"
+              }
+            ]
+          }
+        ],
+        "tx": [
+          {
+            "name": "Out",
+            "id": 512,
+            "dlc": 8,
+            "signals": [
+              {
+                "name": "flag",
+                "start_bit": 0,
+                "length": 1,
+                "iec_location": "%QX6.0"
+              },
+              {
+                "name": "low",
+                "start_bit": 1,
+                "length": 1,
+                "iec_location": "%QX7.3"
+              },
+              {
+                "name": "sbyte",
+                "start_bit": 8,
+                "length": 8,
+                "signed": true,
+                "iec_location": "%QB8"
+              },
+              {
+                "name": "ubyte",
+                "start_bit": 16,
+                "length": 8,
+                "iec_location": "%QB9"
+              },
+              {
+                "name": "word",
+                "start_bit": 24,
+                "length": 16,
+                "signed": true,
+                "iec_location": "%QW10"
+              },
+              {
+                "name": "dword",
+                "start_bit": 0,
+                "length": 32,
+                "signed": true,
+                "iec_location": "%QD12"
+              },
+              {
+                "name": "real",
+                "start_bit": 32,
+                "length": 32,
+                "iec_location": "%QD16"
+              }
+            ],
+            "on_change": true
+          },
+          {
+            "name": "Wide",
+            "id": 513,
+            "dlc": 8,
+            "signals": [
+              {
+                "name": "lreal",
+                "start_bit": 0,
+                "length": 64,
+                "iec_location": "%QL20"
+              }
+            ],
+            "on_change": true
+          }
+        ]
+      }
+    }
+  ],
+  "bridge": {
+    "openplc": {},
+    "control_location": "%QB28",
+    "sdo_bridge_location": {
+      "request": "%QB34",
+      "response": "%IB42"
+    }
+  }
+}

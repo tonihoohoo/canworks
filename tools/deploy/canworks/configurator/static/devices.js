@@ -27,6 +27,7 @@ const DEV_ACTION_DONE = {
   install_openplc: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
   install_plugin: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
   install_bridge: "The bridge runs this project's saved config.",
+  install_openplc_bridge: "The OpenPLC Runtime and the bridge are installed. Build and upload the editor project to start the PLC.",
   install_bridge_only: "The bridge is installed. It starts with a config when that config's Devices page installs it here.",
   bridge_config: "The bridge runs this project's saved config.",
   uninstall_plugin: "The canworks plugin was uninstalled.",
@@ -39,7 +40,8 @@ const DEV_ACTION_DONE = {
   discovery_off: "The device is no longer advertised on the local network; typing its address still works.",
 };
 const DEV_ACTION_NAME = {
-  install_openplc: "Install OpenPLC Runtime and canworks", install_plugin: "Install canworks", install_bridge: "Install the bridge",
+  install_openplc: "Install OpenPLC Runtime and canworks", install_openplc_bridge: "Install OpenPLC Runtime and this project's bridge",
+  install_plugin: "Install canworks", install_bridge: "Install the bridge",
   bridge_config: "Start this project's bridge", uninstall_plugin: "Uninstall the plugin", uninstall_bridge: "Uninstall the bridge",
   remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
   link_start: "Start the remote link", discovery_on: "Advertise on the local network",
@@ -353,7 +355,7 @@ function devMain(d, plan) {
     } else {
       box2.append(opt("link", "Remote link", "canworks-link: reach this device from a PC on another network (docs/remote-access.md)."));
     }
-    if (m.action !== "install_bridge") box2.append(opt("discovery", "Found on the local network", "The device announces itself, so the connect panel lists it."));
+    if (m.action !== "install_bridge" && m.action !== "install_openplc_bridge") box2.append(opt("discovery", "Found on the local network", "The device announces itself, so the connect panel lists it."));
     box.append(box2);
   }
   return box;
@@ -609,8 +611,9 @@ function devJobView(d, j) {
       const skipped = j.action === "install_plugin" && j.lines.some((l) => /is already installed for this runtime/.test(l));
       if (skipped) text = "This version was already installed: nothing was rebuilt, and the PLC keeps running its program.";
       else if ((j.action === "install_plugin" || j.action === "install_openplc") && dockerRt) text += " Until then the PLC has no program.";
-      const projectBridge = (j.action === "install_bridge" || j.action === "bridge_config") && DEV.list.instance;
-      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
+      const projectBridge = ["install_bridge", "bridge_config", "install_openplc_bridge"].includes(j.action) && DEV.list.instance;
+      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.` +
+        (j.action === "install_openplc_bridge" ? " Build and upload the editor project to start the PLC." : "");
       else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;
       const open = projectBridge
         ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission") : null;

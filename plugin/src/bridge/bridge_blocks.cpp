@@ -17,7 +17,9 @@ bool OutputSupervisor::set(OutputState s) {
 
 bool OutputSupervisor::write(Clock::time_point now) {
   last_write_ = now;
-  return state_ == OutputState::kWatchdog && set(OutputState::kRunning);
+  return (state_ == OutputState::kWatchdog || state_ == OutputState::kMismatch ||
+          state_ == OutputState::kPlcStopped) &&
+         set(OutputState::kRunning);
 }
 
 bool OutputSupervisor::tick(Clock::time_point now) {

@@ -318,6 +318,7 @@ set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)
 add_executable(bridge_host_tests bridge/bridge_host_tests.cpp ${PROJECT_SOURCE_DIR}/plugin/src/bridge/bridge_host.cpp)
 target_include_directories(bridge_host_tests PRIVATE common)
 target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/modbus-bridge"
+                           OPENPLC_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/openplc-modbus"
                            FIXTURES_DIR="${FIXTURES_DIR}")
 target_link_libraries(bridge_host_tests PRIVATE canopen_core canworks_bridge_proto)
 add_test(NAME bridge_host_tests COMMAND bridge_host_tests)

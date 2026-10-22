@@ -62,7 +62,8 @@ class BridgeHost {
   void stop();
   // Only loads and checks the config (canworks-bridge --check-only);
   // `problems`, when given, gets the reasons of a rejection.
-  static bool check(const std::string& config_path, std::vector<std::string>* problems = nullptr);
+  static bool check(const std::string& config_path, std::vector<std::string>* problems = nullptr,
+                    uint32_t* map_hash = nullptr);
 
   // A config uploaded over the diagnostics channel (put_config) was checked
   // and staged: the main thread calls apply_upload(), which restarts on it,
@@ -86,6 +87,10 @@ class BridgeHost {
   // Every data output location of the image to 0 (the blocks keep theirs).
   void clear_outputs();
   void leave_off(const char* why);
+  // openplc: the PLC link header turned outputs off (PLC stopped or mismatch).
+  void link_off(OutputState why, Clock::time_point now);
+  // NMT `command` with node 0 to every CANopen master network.
+  void all_nodes(const char* command);
   void service_control(const uint8_t* out, Clock::time_point now);
   void write_blocks(Clock::time_point now);
   unsigned put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why);
@@ -112,6 +117,9 @@ class BridgeHost {
   std::chrono::milliseconds zero_settle_{100};
   uint64_t outputs_seen_ = ~0ull;
   std::vector<uint8_t> out_copy_;
+  uint32_t map_hash_ = 0;
+  bool mismatch_logged_ = false;
+  uint32_t mismatch_seen_ = 0;
 
   std::string config_path_, version_;
   mutable std::mutex upload_mu_;

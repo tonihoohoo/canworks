@@ -1,5 +1,7 @@
 # SDO and EMCY blocks in the PLC program
 
+> **OpenPLC through Modbus.** The library now holds `CO_SDO_READ`, `CO_SDO_WRITE` (up to 4 bytes, `DATA : UDINT`), `CO_NMT` and `CO_NODE_LIVE` over the bridge's registers ([plc-library.md](plc-library.md#blocks-over-the-bridge)). The other blocks on this page call into the OpenPLC plugin and are only for configs that still use it; they are no longer in the library.
+
 The [`canworks` function block library](plc-library.md) gives the PLC program eight function blocks that read or write any object of any node over SDO while the network runs, and `CO_RECV_EMCY`, which hands the program every emergency message of the network ([below](#every-emcy-co_recv_emcy)). They are for transfers the program decides on at run time: a recipe parameter, a device name to log, a calibration table. For an object the program reads or writes all the time, an [SDO variable](config.md#sdo-variables) in the config is simpler, since it needs no code. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network. The same library has the NMT, CiA 402, CAN frame and J1939 blocks ([plc-library.md](plc-library.md)).
 
 | Block | Data | For |

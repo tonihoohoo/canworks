@@ -65,4 +65,29 @@ uint64_t load_value(const uint8_t* p, unsigned nbytes, bool low_first) {
   return v;
 }
 
+void ByteImage::set_link(size_t header_bytes, uint32_t hash) {
+  std::lock_guard<std::mutex> lock(mu_);
+  link_bytes_ = header_bytes;
+  link_hash_ = hash;
+}
+
+ByteImage::Link ByteImage::link_state() const {
+  if (!link_bytes_) return Link::kNone;
+  if (out_.size() < 6) return Link::kStopped;
+  if (get_be16(&out_[0]) == 0) return Link::kStopped;
+  if (get_be16(&out_[0]) != 1 || link_hash_seen() != link_hash_) return Link::kMismatch;
+  return Link::kOk;
+}
+
+uint32_t ByteImage::link_hash_seen() const {
+  if (out_.size() < 6) return 0;
+  return uint32_t(get_be16(&out_[2])) << 16 | get_be16(&out_[4]);
+}
+
+ByteImage::Link ByteImage::link_now(uint32_t* hash_seen) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (hash_seen) *hash_seen = link_hash_seen();
+  return link_state();
+}
+
 }  // namespace canworks_bridge

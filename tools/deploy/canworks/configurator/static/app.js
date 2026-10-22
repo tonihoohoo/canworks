@@ -536,7 +536,7 @@ function importReport(res, { slave = false } = {}) {
   if (fixes.length) {
     const why = ", because its CANopen stack cannot read these values:";
     const reader = dcfs ? " The DCFs exported to CODESYS are built from a corrected copy:"
-      : target === "bridge" ? " The Modbus bridge reads a corrected copy" + why
+      : bridgeTarget(target) ? " The Modbus bridge reads a corrected copy" + why
       : target === "codesys" ? " canworks reads a corrected copy" + why
       : " The OpenPLC plugin reads a corrected copy" + why;
     lines.push(el("div", { dataset: { report: "corrections" } },
@@ -1203,7 +1203,7 @@ function renderStart() {
   }));
 }
 
-const TARGET_TITLES = { openplc: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
+const TARGET_TITLES = { openplc: "OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
 
 // The last part of a path, on Windows too.
 function folderName(path) {
@@ -1256,15 +1256,16 @@ async function startOpen() {
   if (path) await openFolder(path, "auto", false);
 }
 
-// New config…: what runs it first, then where; for OpenPLC optionally a new editor project around it.
+// New config…: what runs it first, then where; for OpenPLC (through Modbus)
+// optionally a new editor project around it.
 async function newConfig(folder) {
   const cli = !!S.state.openplc_cli;
   const pick = (value, title, text) => el("label", { class: "choice" },
-    el("input", { type: "radio", name: "new-target", value, dataset: { newTarget: value }, checked: value === "openplc" || null }),
+    el("input", { type: "radio", name: "new-target", value, dataset: { newTarget: value }, checked: value === "openplc_modbus" || null }),
     el("strong", null, title), el("span", null, text));
   const targets = el("fieldset", null, el("legend", null, "What will run the networks?"),
     el("div", { class: "target-choices" },
-      pick("openplc", "OpenPLC Runtime", "The canworks plugin runs the networks; PLC variables map to PDOs and signals."),
+      pick("openplc_modbus", "OpenPLC Runtime", "canworks-bridge runs the networks; OpenPLC's own Modbus master moves the values, and the program uses them by name."),
       pick("bridge", "Modbus bridge", "No PLC: the values are served as Modbus TCP registers, for Node-RED, an HMI or any Modbus client."),
       pick("codesys", "CODESYS", "A CODESYS PLC runs the CANopen master; canworks builds it into your CODESYS project.")));
   const [start, startName] = folder ? splitPath(folder) : [S.lastFolder || S.state.home, ""];
@@ -1293,8 +1294,8 @@ async function newConfig(folder) {
     el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose), whereErr),
     projectBox);
   where.id = "new-config-location";
-  const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "openplc";
-  const sync = () => { projectBox.hidden = target() !== "openplc"; };
+  const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "openplc_modbus";
+  const sync = () => { projectBox.hidden = target() !== "openplc_modbus"; };
   form.addEventListener("change", sync);
   sync();
   let bad = null;
@@ -1316,7 +1317,7 @@ async function newConfig(folder) {
     if (/[\\/]/.test(nm)) { fail(name, nameErr, "The name is one folder name, without slashes."); continue; }
     fail(null);
     const path = joinPath(loc, nm);
-    const withProject = target() === "openplc" && project.checked && !project.disabled;
+    const withProject = target() === "openplc_modbus" && project.checked && !project.disabled;
     const finish = withProject ? modalWorking("Creating the editor project…") : () => {};
     try {
       banner("");
@@ -1562,7 +1563,7 @@ function render() {
   // The target's own action: one split button in the header (CODESYS:
   // Build, with Download under ▾; the bridge: Install on device…).
   const codesys = !commission && !!S.model && codesysOn();
-  const bridge = !commission && !!S.model && projectTarget() === "bridge";
+  const bridge = !commission && !!S.model && bridgeTarget();
   $("#btn-codesys-build").hidden = !codesys;
   $("#btn-codesys-download").hidden = !codesys;
   $("#menu-target").hidden = !codesys;
@@ -3263,7 +3264,7 @@ function bitTable(i, dir, ep, e, info, eds) {
   const count = intInfo(e.type).bytes * 8;
   const notes = noteBitNames(n, e);
   const located = usedBy(`nodes.${dir === "input" ? "tx" : "rx"}_pdos.entries.bits.iec_location`);
-  const bridge = projectTarget() === "bridge";
+  const bridge = bridgeTarget();
   const what = `${e.index}:${e.subindex ?? 0}`;
   const byBit = new Map((e.bits || []).map((b, m) => [b.bit, m]));
   const rows = [];
@@ -8309,11 +8310,11 @@ function updateSave() {
   if (mark) mark.hidden = !S.dirty;
 }
 
-async function save(overwrite) {
+async function save(overwrite, editorOverwrite) {
   const cfg = fileConfig();
   try {
     const r = await api("POST", "/api/save", { config: cfg, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite,
-      notes: S.model.notes });
+      notes: S.model.notes, editor_overwrite: !!editorOverwrite });
     S.state = r.state;
     setModel(S.state.config);
     S.dirty = false;
@@ -8324,7 +8325,8 @@ async function save(overwrite) {
     // "Settings the target does not use are left out on save").
     const left = r.left_out ? ` (${r.left_out} setting${r.left_out === 1 ? "" : "s"} ${TARGET_LABEL[projectTarget()]} does not use left out)` : "";
     if (r.errors) banner(`Saved with ${counted(r.errors, "error", "errors")}: ${TARGET_RUNNER[projectTarget()]} refuses this config until ${r.errors === 1 ? "it is" : "they are"} fixed. See Problems.`, "warning");
-    else banner("Saved " + r.written.join(", ") + left);
+    else banner("Saved " + r.written.join(", ") + left +
+      (r.editor && r.editor.written && r.editor.written.length ? ". An open OpenPLC Editor must reopen the project before Build." : ""));
     runCheck();
   } catch (e) {
     if (e.status === 409 && e.body.changed_on_disk) {
@@ -8332,6 +8334,12 @@ async function save(overwrite) {
         [["cancel", "Cancel"], ["reload", "Reload from disk"], ["overwrite", "Overwrite it", { danger: true }]]);
       if (v === "overwrite") return save(true);
       if (v === "reload") return reload(true);
+    } else if (e.status === 409 && e.body.editor_changed) {
+      // OpenPLC through Modbus: canworks' own editor files were changed in the editor.
+      const v = await modal("These editor project files were changed outside canworks since it last wrote them. Save writes them again from the config.",
+        [["cancel", "Cancel"], ["overwrite", "Write them again", { danger: true }]],
+        el("ul", { dataset: { editorChanged: "1" } }, e.body.editor_changed.map((f) => el("li", null, el("code", null, f)))));
+      if (v === "overwrite") return save(overwrite, true);
     } else {
       banner(e.message, true);
     }

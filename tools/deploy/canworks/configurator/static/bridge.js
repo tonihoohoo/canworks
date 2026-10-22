@@ -86,14 +86,9 @@ async function bridgeSuggested(block, index) {
   return (await api("POST", "/api/bridge/suggest", { config: fileConfig(), block, index })).location;
 }
 
-function renderBridge(view) {
-  const b = S.model.top.bridge;
-  view.append(el("h2", null, "Modbus bridge"),
-    el("p", { class: "muted" }, "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
-      "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way."),
-    el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { bridge: "install-device" },
-      title: "Install the bridge on a Linux device over SSH and start it with this project's saved config",
-      onclick: () => installOnDevice(null) }, "Install on device…")),
+// A bridge of its own: the Modbus TCP server and who may connect and write.
+function bridgeServerFields() {
+  return [
     el("fieldset", null, el("legend", null, "Server"),
       el("div", { class: "grid" },
         ...bridgeListenFields(),
@@ -111,18 +106,63 @@ function renderBridge(view) {
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
-        choice("When the writer is lost", "bridge.on_client_loss", [
-          { value: undefined, literal: "stop", label: "Stop", help: "Default. No RPDOs and no sent messages until the next write; inputs keep updating." },
-          { value: "zero", label: "Zero", help: "Every output is set to 0 and sent once, then outputs stop." },
-          { value: "hold", label: "Hold", help: "Outputs keep being sent with their last values." },
-        ]))),
+        bridgeLossChoice())),
+  ];
+}
+
+// OpenPLC through Modbus: OpenPLC's Modbus master is the only client, on
+// 127.0.0.1, so the page shows its poll and the editor names instead of the
+// server and client settings; word order and the status block are fixed.
+function bridgeOpenplcFields() {
+  return [
+    el("fieldset", { dataset: { bridgeOpenplc: "1" } }, el("legend", null, "OpenPLC"),
+      el("p", { class: "muted" }, "OpenPLC's own Modbus master reads and writes these registers on 127.0.0.1. Save writes its remote device, the canworks_in and canworks_out programs and the canworks variable list into the editor project. 32- and 64-bit values are low word first, as OpenPLC reads them."),
+      el("div", { class: "grid" },
+        field("Poll (ms)", "bridge.openplc.poll_ms", "int", { placeholder: "10",
+          hint: "How often OpenPLC reads and writes the registers, 5 to 1000 ms. Each poll takes one Modbus request per register group." }),
+        field("Remote device name", "bridge.openplc.remote_device", "text", { placeholder: "canworks",
+          hint: "The remote device in the editor project: devices/remote/<name>.json." }),
+        field("First editor location", "bridge.openplc.iec_base", "int", { placeholder: "first free from 100",
+          hint: "The register groups get %IW and %QW from this word number on in the editor project. Empty: the first number from 100 that the project does not use." }),
+        field("Unit ID", "bridge.unit_id", "int", { placeholder: "1", hint: "0 to 255." }))),
+    el("fieldset", null, el("legend", null, "PLC link"),
+      el("div", { class: "grid" },
+        field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "5 polls, at least 50",
+          hint: "Outputs go off when OpenPLC wrote nothing for this long (PLC stopped or gone). 0: no watchdog." }),
+        bridgeLossChoice())),
+  ];
+}
+
+function bridgeLossChoice() {
+  return choice("When the writer is lost", "bridge.on_client_loss", [
+    { value: undefined, literal: "stop", label: "Stop", help: "Default. No RPDOs and no sent messages until the next write; inputs keep updating." },
+    { value: "zero", label: "Zero", help: "Every output is set to 0 and sent once, then outputs stop." },
+    { value: "hold", label: "Hold", help: "Outputs keep being sent with their last values." },
+    { value: "preop", label: "Pre-operational", help: "Every node of the CANopen master networks is put pre-operational, so it applies its own communication-loss behaviour; outputs stop." },
+  ]);
+}
+
+function renderBridge(view) {
+  const b = S.model.top.bridge;
+  const openplc = projectTarget() === "openplc_modbus";
+  view.append(el("h2", null, openplc ? "Modbus bridge for OpenPLC" : "Modbus bridge"),
+    el("p", { class: "muted" }, "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
+      "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way." +
+      (openplc ? " Input bytes 0-11 hold the map hash and the status block, output bytes 0-5 the PLC link header (running, map hash): the bridge takes no output from a PLC whose map differs." : "")),
+    el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { bridge: "install-device" },
+      title: "Install the bridge on a Linux device over SSH and start it with this project's saved config",
+      onclick: () => installOnDevice(null) }, "Install on device…")),
+    ...(openplc ? bridgeOpenplcFields() : bridgeServerFields()),
     el("fieldset", null, el("legend", null, "Bridge blocks"),
       el("p", { class: "muted" }, "Optional. Suggest places a block after the packed data, in a free range."),
       el("div", { class: "grid" },
-        bridgeLocation("Status block", "bridge.status_location", "status_location", undefined, "%IB…",
-          "8 input bytes: state, clients, heartbeat counter, control echo and result."),
+        openplc ? el("label", null, "Status block", el("span", { dataset: { bridgeStatusFixed: "1" } }, "%IB4"),
+          hint("8 input bytes after the map hash: state, clients, heartbeat counter, control echo and result. Fixed for OpenPLC."))
+          : bridgeLocation("Status block", "bridge.status_location", "status_location", undefined, "%IB…",
+            "8 input bytes: state, clients, heartbeat counter, control echo and result."),
         bridgeLocation("Control block", "bridge.control_location", "control_location", undefined, "%QB…",
-          "6 output bytes: counter, command, network, node. A command runs when the counter changes."))),
+          "6 output bytes: counter, command, network, node. A command runs when the counter changes." +
+          (openplc ? " The CO_NMT block uses it." : "")))),
     bridgeLiveLists(b),
     bridgeSdo(b),
     el("h3", null, "Register map"),

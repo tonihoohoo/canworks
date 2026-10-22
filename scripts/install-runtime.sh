@@ -22,6 +22,9 @@
 #                      (its docker/local-runtime/runtime-version and bootloader-version)
 #   --pinned-runtime   on the managed Docker runtime, put the runtime on the version
 #                      this release is pinned to (install-stock.sh --runtime-version)
+#   --bridge           OpenPLC through Modbus: install canworks-bridge next to the
+#                      runtime instead of the plugin (the other options go to the
+#                      release's scripts/install-bridge.sh: --instance NAME --config DIR)
 #
 # CANWORKS_RUNTIME_VERSION and CANWORKS_BOOTLOADER_VERSION replace the pins, to
 # try another runtime by hand; canworks is only tested with the pinned one.
@@ -49,6 +52,7 @@ SSH_IDENTITY=""
 DRY_RUN=0
 WITH_OPENPLC=0
 PINNED_RUNTIME=0
+BRIDGE=0
 PASS=()
 
 die() { echo "install-runtime: $*" >&2; exit 1; }
@@ -63,8 +67,9 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY_RUN=1 ;;
         --with-openplc) WITH_OPENPLC=1 ;;
         --pinned-runtime) PINNED_RUNTIME=1 ;;
+        --bridge) BRIDGE=1 ;;
         -h|--help)
-            if [ -f "$0" ]; then sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
+            if [ -f "$0" ]; then sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; else echo "see $RAW/main/scripts/install-runtime.sh"; fi
             exit 0 ;;
         --) ;;
         *) PASS+=("$1") ;;
@@ -106,6 +111,7 @@ if [ -n "$SSH_TARGET" ]; then
     remote="curl -LsSf $(printf '%q' "$RAW/$TAG/scripts/install-runtime.sh") | sudo bash -s -- --version $(printf '%q' "$VERSION")"
     [ "$WITH_OPENPLC" = 0 ] || remote+=" --with-openplc"
     [ "$PINNED_RUNTIME" = 0 ] || remote+=" --pinned-runtime"
+    [ "$BRIDGE" = 0 ] || remote+=" --bridge"
     for a in "${PASS[@]+"${PASS[@]}"}"; do remote+=" $(printf '%q' "$a")"; done
     cmd=(ssh -t)
     [ -z "$SSH_PORT" ] || cmd+=(-p "$SSH_PORT")
@@ -169,6 +175,10 @@ if [ "$DRY_RUN" = 1 ]; then
     [ "$UNINSTALLING" = 1 ] || echo "would download: $CONSTRAINTS_URL"
     echo "would download: $TARBALL"
     [ "$INSTALL_OPENPLC" = 0 ] || echo "would install the OpenPLC runtime: curl -fsSL $OPENPLC_INSTALLER | bash -s -- --runtime-version $PIN_RT --bootloader-version $PIN_BL"
+    if [ "$BRIDGE" = 1 ]; then
+        printf 'would run: CANWORKS_PLUGIN_VERSION=%s bash <source>/scripts/install-bridge.sh' "$VERSION"; printf ' %q' "${PASS[@]+"${PASS[@]}"}"; echo
+        exit 0
+    fi
     if [ "$PINNED_RUNTIME" = 1 ] && [ "$UNINSTALLING" = 0 ] && { [ "$INSTALL_OPENPLC" = 1 ] || [ -f "$BOOTLOADER_SPEC" ]; }; then
         PASS+=(--runtime-version "$PIN_RT")
     fi
@@ -209,6 +219,12 @@ if [ "$INSTALL_OPENPLC" = 1 ]; then
         sleep 5
         waited=$((waited + 5))
     done
+fi
+
+# OpenPLC through Modbus: the bridge next to the runtime, no plugin.
+if [ "$BRIDGE" = 1 ]; then
+    CANWORKS_STEP_BASE=$BASE CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${PASS[@]+"${PASS[@]}"}"
+    return
 fi
 
 # The managed Docker runtime goes on the pinned version (device-install).

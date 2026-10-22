@@ -18,18 +18,20 @@ Every config has one target: the system that runs its networks. The configurator
 
 | | OpenPLC | Modbus bridge | CODESYS |
 |---|---|---|---|
-| **Who runs the bus** | The canworks plugin inside OpenPLC Runtime v4 | `canworks-bridge`, the same engine with no PLC | CODESYS's own CANopen Manager |
+| **Who runs the bus** | `canworks-bridge` next to OpenPLC Runtime v4, read and written by OpenPLC's own Modbus master | `canworks-bridge`, the same engine with no PLC | CODESYS's own CANopen Manager |
 | **Where it runs** | Linux with SocketCAN | Linux with SocketCAN, as a service or a container | A CODESYS controller or display with CAN |
-| **How the program sees the bus** | `%I`/`%Q` locations, plus the `canworks` function block library | Modbus TCP registers and coils, made from the `%I`/`%Q` locations | I/O channels, named after each PDO entry's variable name |
+| **How the program sees the bus** | Typed, named variables (`canworks.<name>`), plus the `canworks` function block library | Modbus TCP registers and coils, made from the `%I`/`%Q` locations | I/O channels, named after each PDO entry's variable name |
 | **Networks** | CANopen master, slave and gateway, J1939, plain CAN | Same as OpenPLC | CANopen master |
-| **How the config gets there** | The editor's **Build and upload**, or `canworks-deploy` | `canworks-deploy --bridge HOST` | **Build into CODESYS project…** or **Download for CODESYS** |
-| **Marked in `canworks.json` by** | Nothing (the default) | A top-level `bridge` object | A top-level `codesys` object |
+| **How the config gets there** | The bridge from the **Devices** page; the editor's **Build and upload** carries the program and its Modbus settings | `canworks-deploy --bridge HOST` | **Build into CODESYS project…** or **Download for CODESYS** |
+| **Marked in `canworks.json` by** | A `bridge` object holding `openplc` | A top-level `bridge` object | A top-level `codesys` object |
 
 The PC tools work next to all three: the trace, commissioning and simulated devices. With CODESYS they reach the bus through a USB CAN adapter on the PC.
 
 ### OpenPLC
 
-The plugin runs every network of the config inside the OpenPLC runtime and exchanges PDOs with the PLC image once per scan. The program reads and writes the bus on `%I`/`%Q` locations, and the blocks of the `canworks` library send SDOs, NMT commands, J1939 messages and raw frames when the program decides. Everything under [Features](#features) applies. Install it with the plugin lines in [Quick start](#quick-start).
+`canworks-bridge` runs every network of the config next to an unmodified OpenPLC Runtime, and OpenPLC's own Modbus master reads and writes its registers on 127.0.0.1 every 10 ms, so an OpenPLC update cannot break canworks ([docs/modbus-bridge.md](docs/modbus-bridge.md#openplc-through-modbus)). Saving the config in an editor project writes OpenPLC's remote device, two programs (`canworks_in` first in the task, `canworks_out` last) and a `canworks` variable list, so the program uses typed, named values such as `canworks.dio_door_open` and never sees Modbus words. A map hash in both makes the bridge refuse outputs from a program built for another config, and a PLC stop puts the outputs off with the config's loss action. The blocks `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_NMT` and `CO_NODE_LIVE` work over the bridge's registers ([docs/plc-library.md](docs/plc-library.md)). Each value arrives up to one poll later than in a PLC scan, and two PDOs may come from different moments. Install it with the OpenPLC lines in [Quick start](#quick-start).
+
+Configs made for the older canworks plugin inside the runtime still open, with **Switch to OpenPLC through Modbus** on the Project page; new configs no longer offer the plugin.
 
 ### Modbus bridge
 
@@ -73,35 +75,13 @@ canworks-config
 
 The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); a locked screen or a sleeping PC does not stop it, a tab with unsaved changes never times out, and a tab whose configurator has gone says so and offers its unsaved config as a download. `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
 
-**Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)). Running the line again updates; with that release already installed it changes nothing and the PLC keeps running (`--force` installs it again).
-
-On the PLC (newest release, no git needed):
+**Install OpenPLC and the bridge on the PLC** (a Linux device). The easiest way is the configurator: open the OpenPLC project, and its **Devices** workspace installs the pinned OpenPLC Runtime when the device has none and starts this project's bridge, over SSH with the steps on the page ([docs/devices.md](docs/devices.md)). By hand, on the device (`--with-openplc` installs upstream's runtime only when there is none; the other options go to `install-bridge.sh`):
 
 ```sh
-curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | sudo bash
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | sudo bash -s -- --with-openplc --bridge --instance line1 --config ./line1
 ```
 
-Or from a macOS or Linux PC over SSH:
-
-```sh
-curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh admin@plc.local
-```
-
-Or from a Windows PC over SSH (PowerShell):
-
-```powershell
-$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local
-```
-
-Native installs only, once on the PLC, so the runtime loads the plugin:
-
-```sh
-sudo systemctl restart openplc-runtime
-```
-
-Or from the configurator: its **Devices** workspace installs the plugin, or the OpenPLC Runtime and the plugin on a fresh device, or a bridge project's bridge, over SSH with the steps on the page ([docs/devices.md](docs/devices.md)). **Install on a device** on its start page does the same without a config: pick what the device should run.
-
-Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). `install-runtime.sh --with-openplc` installs upstream's OpenPLC Runtime first on a device that has none ([docs/install-stock.md](docs/install-stock.md#install-or-update-with-one-line)). From a git checkout: `sudo scripts/install-stock.sh`.
+Or from a macOS or Linux PC over SSH with `bash -s -- --ssh admin@plc.local --with-openplc --bridge`, or from Windows with `install-runtime.ps1 -Ssh admin@plc.local -Options --with-openplc,--bridge`. Running it again updates; `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). The older plugin install (`install-runtime.sh` without `--bridge`, [docs/install-stock.md](docs/install-stock.md)) is only for configs that still use the plugin.
 
 **Other targets.** For the Modbus bridge, run this on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), or the same with `bash -s -- --ssh admin@plc.local` from a macOS or Linux PC, `install-bridge.ps1 -Ssh admin@plc.local` from Windows like the plugin line above, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)):
 
@@ -111,7 +91,7 @@ curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/insta
 
 For CODESYS nothing is installed on the controller: pick CODESYS when you make the config, and build into the project from the Windows PC with CODESYS, or download the files for it from any PC ([docs/codesys.md](docs/codesys.md)).
 
-**Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); it writes the editor project's `canworks/` folder, and the editor's own **Build and upload** carries it to the PLC. `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
+**Configure and upload.** Build the network in `canworks-config` ([docs/configurator.md](docs/configurator.md)); Save writes the editor project's `canworks/` folder and its Modbus remote device and programs, **Devices** starts the bridge with the saved config, and the editor's own **Build and upload** carries the program to the PLC (reopen the project in the editor after a Save). `canworks-deploy` does the same from a terminal ([docs/deploy.md](docs/deploy.md)).
 
 ## Features
 

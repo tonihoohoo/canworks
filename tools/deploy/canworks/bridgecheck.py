@@ -18,11 +18,20 @@ STATUS_BYTES = 8
 CONTROL_BYTES = 6
 LIVE_LIST_BYTES = 16
 SDO_BYTES = 14
+# bridge.openplc: the map hash at input bytes 0-3, the status block at input
+# byte 4, the PLC link header at output bytes 0-5.
+OPENPLC_HASH_BYTES = 4
+OPENPLC_STATUS_BYTE = 4
+OPENPLC_HEADER_BYTES = 6
+OPENPLC_LISTEN = "127.0.0.1:1502"
+OPENPLC_WRITERS = ["127.0.0.1"]
+OPENPLC_POLL_MS = 10
 # The largest byte address of a bridge config (+1), per direction.
 IMAGE_BYTES = 8192
 
 KEYS = ("listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms", "on_client_loss",
-        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write")
+        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc")
+OPENPLC_KEYS = ("poll_ms", "remote_device", "iec_base")
 
 # Every address may write: the explicit form `writers` needs for that.
 ALL_WRITERS = ["0.0.0.0/0", "::/0"]
@@ -37,6 +46,52 @@ PLUGIN_REFUSES = ("this is a Modbus bridge config (it has a 'bridge' object): ru
 
 def is_bridge_config(cfg):
     return isinstance(cfg, dict) and "bridge" in cfg
+
+
+def is_openplc(cfg):
+    """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
+    b = cfg.get("bridge") if isinstance(cfg, dict) else None
+    return isinstance(b, dict) and isinstance(b.get("openplc"), dict)
+
+
+def openplc_settings(cfg):
+    """The effective bridge settings of an openplc config (defaults applied)."""
+    b = cfg.get("bridge") or {}
+    o = b.get("openplc") or {}
+    poll = _uint(o.get("poll_ms"))
+    poll = OPENPLC_POLL_MS if poll is None else max(5, min(poll, 1000))
+    listen = b.get("listen") if isinstance(b.get("listen"), str) else OPENPLC_LISTEN
+    wd = _uint(b.get("watchdog_ms"))
+    return {
+        "poll_ms": poll,
+        "remote_device": o.get("remote_device") if isinstance(o.get("remote_device"), str) else "canworks",
+        "iec_base": _uint(o.get("iec_base")),
+        "listen": listen,
+        "port": int(listen.rsplit(":", 1)[1]) if _valid_listen(listen) else 1502,
+        "watchdog_ms": max(50, 5 * poll) if wd is None else wd,
+    }
+
+
+def _openplc(b, w, err):
+    """Checks bridge.openplc; True when present."""
+    if "openplc" not in b:
+        return False
+    o = b["openplc"]
+    ow = w + ".openplc"
+    if not isinstance(o, dict):
+        err(w, "field 'openplc' must be an object", [ow])
+        return False
+    v = _get_uint(o, "poll_ms", ow, 1000, err)
+    if v is not None and v < 5:
+        err(ow, "field 'poll_ms' must be 5-1000", [ow + ".poll_ms"])
+    if "remote_device" in o:
+        name = o["remote_device"]
+        if (not isinstance(name, str) or not 1 <= len(name) <= 64
+                or not all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in name)):
+            err(ow, "field 'remote_device' must be 1-64 letters, digits, '_' or '-' (the editor's file name)",
+                [ow + ".remote_device"])
+    _get_uint(o, "iec_base", ow, 65535, err)
+    return True
 
 
 def _uint(value):
@@ -132,9 +187,11 @@ def check_bridge(cfg, nets, err, warn):
     if not isinstance(b, dict):
         err("", "field 'bridge' must be an object", ["bridge"])
         return uses
+    openplc = _openplc(b, w, err)
     listen = b.get("listen")
     if "listen" not in b:
-        err(w, "missing required field 'listen'", [w + ".listen"])
+        if not openplc:
+            err(w, "missing required field 'listen'", [w + ".listen"])
     elif not isinstance(listen, str) or not listen:
         err(w, "field 'listen' must be a non-empty string", [w + ".listen"])
     elif not _valid_listen(listen):
@@ -143,13 +200,16 @@ def check_bridge(cfg, nets, err, warn):
     _get_uint(b, "unit_id", w, 255, err)
     if "word_order" in b and b["word_order"] not in ("high_first", "low_first"):
         err(w, "field 'word_order' must be \"high_first\" or \"low_first\"", [w + ".word_order"])
+    if openplc and b.get("word_order") == "high_first":
+        err(w, "field 'word_order' must be \"low_first\" with 'openplc': OpenPLC's Modbus master reads 32- and "
+               "64-bit values lowest word first", [w + ".word_order"])
     v = _get_uint(b, "max_clients", w, 64, err)
     if v is not None and v < 1:
         err(w, "field 'max_clients' must be 1-64", [w + ".max_clients"])
     v = _get_uint(b, "max_clients_per_address", w, 64, err)
     if v is not None and v < 1:
         err(w, "field 'max_clients_per_address' must be 1-64", [w + ".max_clients_per_address"])
-    if "writers" not in b:
+    if "writers" not in b and not openplc:
         err(w, WRITERS_MISSING, [w + ".writers"])
     for key in ("writers", "readers"):
         if key not in b:
@@ -162,9 +222,14 @@ def check_bridge(cfg, nets, err, warn):
                 err(w, "field '%s': %s is not an IPv4 or IPv6 address or prefix"
                     % (key, '"%s"' % a if isinstance(a, str) else "an entry"), ["%s.%s[%d]" % (w, key, i)])
     _get_uint(b, "watchdog_ms", w, 60000, err)
-    if "on_client_loss" in b and b["on_client_loss"] not in ("stop", "zero", "hold"):
-        err(w, "field 'on_client_loss' must be \"stop\", \"zero\" or \"hold\"", [w + ".on_client_loss"])
+    if "on_client_loss" in b and b["on_client_loss"] not in ("stop", "zero", "hold", "preop"):
+        err(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\"", [w + ".on_client_loss"])
     loc = _block(b, "status_location", w, "I", STATUS_BYTES, err)
+    if openplc:
+        if loc and loc.index != OPENPLC_STATUS_BYTE:
+            err(w, "field 'status_location' must be %IB4 with 'openplc' (input bytes 0-3 hold the map hash), or left "
+                   "out", [w + ".status_location"])
+        loc = parse_location("%IB4")
     if loc:
         uses.append((loc, "bridge status_location", w + ".status_location", STATUS_BYTES))
     loc = _block(b, "control_location", w, "Q", CONTROL_BYTES, err)
@@ -221,6 +286,10 @@ def check_bridge(cfg, nets, err, warn):
         err(w, "field 'sdo_bridge_write' must be true or false", [w + ".sdo_bridge_write"])
     elif b.get("sdo_bridge_write") is True and "sdo_bridge_location" not in b:
         warn(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'", [w + ".sdo_bridge_write"])
+    if openplc:
+        uses.append((parse_location("%IB0"), "bridge map hash (openplc)", w + ".openplc", OPENPLC_HASH_BYTES))
+        uses.append((parse_location("%QB0"), "the PLC link header (openplc, output bytes 0-5)", w + ".openplc",
+                     OPENPLC_HEADER_BYTES))
     for n in nets:
         m = n.get("master") if n["role"] == "master" else None
         if isinstance(m, dict) and m.get("sync_source") == "plc_cycle":

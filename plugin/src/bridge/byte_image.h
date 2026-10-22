@@ -35,6 +35,15 @@ class ByteImage {
   // Bus side: overwrite output bytes (the "zero" action of outputs off).
   void write_outputs(size_t offset, const uint8_t* data, size_t n);
 
+  // The PLC link header (openplc configs): output bytes 0..header_bytes-1
+  // hold running (word 0) and the map hash (words 1 and 2). Output bytes
+  // past the header are written only while the header is ok. 0: no header.
+  enum class Link : uint8_t { kNone, kOk, kStopped, kMismatch };
+  void set_link(size_t header_bytes, uint32_t hash);
+  size_t link_bytes() const { return link_bytes_; }
+  // The header's state and the hash it names, taken under the image lock.
+  Link link_now(uint32_t* hash_seen = nullptr) const;
+
   // One request's view of both images, under the image lock.
   class Access {
    public:
@@ -47,6 +56,8 @@ class ByteImage {
       written_ = true;
       return img_.out_;
     }
+    size_t link_bytes() const { return img_.link_bytes_; }
+    Link link_state() const { return img_.link_state(); }
 
    private:
     ByteImage& img_;
@@ -55,7 +66,11 @@ class ByteImage {
   };
 
  private:
+  Link link_state() const;  // with mu_ held
+  uint32_t link_hash_seen() const;
   mutable std::mutex mu_;
+  size_t link_bytes_ = 0;
+  uint32_t link_hash_ = 0;
   std::vector<uint8_t> in_;
   std::vector<uint8_t> out_;
   std::atomic<uint64_t> out_version_{0};

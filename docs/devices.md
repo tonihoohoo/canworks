@@ -1,6 +1,6 @@
 # Installing on a device from the configurator
 
-The configurator's **Devices** workspace installs canworks on a Linux device over SSH: with a config open, what that project needs (the canworks plugin for an OpenPLC project, and the OpenPLC Runtime itself on a fresh device, or the Modbus bridge with the project's saved config for a bridge project); with no config, what you pick for the device ([Without a config](#without-a-config)). It runs the same release scripts as the one-line installs ([install-stock.md](install-stock.md), [modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
+The configurator's **Devices** workspace installs canworks on a Linux device over SSH: with a config open, what that project needs (for an OpenPLC project the OpenPLC Runtime on a fresh device and the Modbus bridge with the project's saved config, for a bridge project the bridge, for a config that still uses the older canworks plugin the plugin); with no config, what you pick for the device ([Without a config](#without-a-config)). It runs the same release scripts as the one-line installs ([install-stock.md](install-stock.md), [modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
 
 **Configure | Commission | Devices** at the top of the page switches to it while a config is open, and **Install on a device** on the start page opens it with no config. The devices are kept once for this PC, in `devices.json` in the configurator's settings folder, and every project lists the same devices: host, SSH port and user, the last check and the last job. No password is ever kept.
 
@@ -36,15 +36,18 @@ Picking a device checks it again (**Check again** does too). The check is a read
 
 | The device has | The main action |
 | --- | --- |
-| No OpenPLC runtime (OpenPLC project) | **Install OpenPLC Runtime and canworks X** |
-| A runtime, no plugin | **Install canworks X** |
-| A plugin older than the newest release X | **Update A → X** |
-| A managed Docker runtime on another version than canworks' pinned v4.3.1 (moved from the OpenPLC Editor) | **Switch runtime to v4.3.1** |
-| A native runtime the plugin was not built for (the runtime was updated) | **Rebuild for runtime vN** |
-| No bridge (bridge project) | **Install and start this project's bridge** |
+| No OpenPLC runtime (OpenPLC project) | **Install OpenPLC Runtime and this project's bridge** (`install-runtime.sh --with-openplc --bridge`: the pinned runtime, then the bridge with the project's saved config, no plugin) |
+| No OpenPLC runtime (OpenPLC plugin config) | **Install OpenPLC Runtime and canworks X** |
+| A runtime, no plugin (OpenPLC plugin config) | **Install canworks X** |
+| A plugin older than the newest release X (OpenPLC plugin config) | **Update A → X** |
+| A managed Docker runtime on another version than canworks' pinned v4.3.1 (moved from the OpenPLC Editor; plugin config) | **Switch runtime to v4.3.1** |
+| A native runtime the plugin was not built for (the runtime was updated; plugin config) | **Rebuild for runtime vN** |
+| No bridge (OpenPLC or bridge project) | **Install and start this project's bridge** |
 | A bridge older than X, or a development build | **Update A → X** |
 | A bridge without its service (a partial install) | **Install and start this project's bridge** |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
+
+In an OpenPLC project, a device that still has the canworks plugin shows it in its row as no longer used, with **Uninstall…**, and the page says to uninstall it so that it does not run the networks next to the bridge. After the install the editor's **Build and upload** starts the PLC with the program and its Modbus settings.
 
 Every plugin job on a managed Docker runtime also puts the runtime on the version that release is pinned to (`install-runtime.sh --pinned-runtime`), so an install or update never leaves the device on an untested runtime; **Switch runtime** is that job for a current plugin. Like any Docker-mode install it recreates the runtime container, so the program has to be uploaded again.
 

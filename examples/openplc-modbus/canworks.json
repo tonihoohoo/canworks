@@ -1,0 +1,157 @@
+{
+  "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "field",
+      "adapter": {
+        "type": "socketcan",
+        "interface": "sim0",
+        "bitrate": 250000,
+        "simulate": true
+      },
+      "master": {
+        "node_id": 1,
+        "heartbeat_ms": 100,
+        "sync_period_us": 20000,
+        "state_location": "%IB26",
+        "bus_state_location": "%IB27"
+      },
+      "nodes": [
+        {
+          "node_id": 5,
+          "name": "rtd",
+          "eds": "rtd8.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX28.0",
+          "state_location": "%IB29",
+          "emcy_code_location": "%IW32",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "timeout_ms": 200,
+              "timeout_location": "%IX28.2",
+              "entries": [
+                {
+                  "index": "0x7130",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW12"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW14"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 3,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW16"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 4,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW18"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "dio",
+          "eds": "dio16.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX28.1",
+          "state_location": "%IB30",
+          "emcy_code_location": "%IW34",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6000",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB20"
+                },
+                {
+                  "index": "0x6000",
+                  "subindex": 2,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB21"
+                },
+                {
+                  "index": "0x6401",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW22"
+                },
+                {
+                  "index": "0x6401",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW24"
+                }
+              ]
+            }
+          ],
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6200",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB6"
+                },
+                {
+                  "index": "0x6200",
+                  "subindex": 2,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB7"
+                },
+                {
+                  "index": "0x6411",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW8"
+                },
+                {
+                  "index": "0x6411",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW10"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "bridge": {
+    "openplc": {},
+    "control_location": "%QB12",
+    "live_lists": [
+      {
+        "network": "field",
+        "location": "%IB36"
+      }
+    ],
+    "sdo_bridge_location": {
+      "request": "%QB18",
+      "response": "%IB52"
+    },
+    "sdo_bridge_write": true
+  }
+}

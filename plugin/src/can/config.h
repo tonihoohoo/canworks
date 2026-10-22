@@ -637,7 +637,7 @@ struct BridgeConfig {
   // writers is required in the file; an empty list lets nobody write.
   std::vector<std::string> writers, readers;
   unsigned watchdog_ms = 1000;  // 0: no watchdog
-  enum class Loss { Stop, Zero, Hold };
+  enum class Loss { Stop, Zero, Hold, Preop };
   Loss on_client_loss = Loss::Stop;
   bool has_status = false;
   IecLocation status_location;  // %IBn, 8 bytes
@@ -648,9 +648,19 @@ struct BridgeConfig {
   IecLocation sdo_request;   // %QBn, 14 bytes
   IecLocation sdo_response;  // %IBn, 14 bytes
   bool sdo_bridge_write = false;
+  // "openplc": OpenPLC's Modbus master is the client (PLC link header at
+  // output bytes 0-5, map hash at input bytes 0-3, status at input byte 4).
+  bool openplc = false;
+  unsigned poll_ms = 10;
+  std::string remote_device = "canworks";
+  bool has_iec_base = false;
+  unsigned iec_base = 0;
 };
 
 constexpr unsigned kBridgeStatusBytes = 8;
+constexpr unsigned kOpenplcHashBytes = 4;    // input bytes 0-3
+constexpr unsigned kOpenplcStatusByte = 4;   // the status block's place
+constexpr unsigned kOpenplcHeaderBytes = 6;  // output bytes 0-5: running, hash
 constexpr unsigned kBridgeControlBytes = 6;
 constexpr unsigned kBridgeLiveListBytes = 16;
 constexpr unsigned kBridgeSdoBytes = 14;
@@ -668,6 +678,13 @@ struct ImageUse {
 };
 struct ConfigSet;
 std::vector<ImageUse> image_uses(const ConfigSet& set);
+
+// The map hash of a bridge config (modbus-bridge-map): CRC-32 of one line
+// per location, "<I|Q> <first byte> <byte count> <bit or ->", sorted by
+// direction and first byte, then "word_order low_first|high_first".
+std::string map_hash_text(const ConfigSet& set);
+uint32_t map_hash(const ConfigSet& set);
+uint32_t crc32_ieee(const std::string& data);
 
 // Whether anything is simulated: a simulated network or a simulated node.
 bool simulates_anything(const Config& cfg);

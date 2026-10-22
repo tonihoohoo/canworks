@@ -1,7 +1,10 @@
 #!/bin/sh
 # Builds the canworks editor library (specs plc-library and
-# canopen-cia402-axis) into the deploy tool's package, from the sources in
-# library/canworks, with strucpp (the compiler OpenPLC Editor uses).
+# canopen-cia402-axis) into the deploy tool's package, with strucpp (the
+# compiler OpenPLC Editor uses): the blocks over the Modbus bridge
+# (library/modbus) and the ST functions and blocks of library/canworks. The
+# C++ blocks of library/canworks call the OpenPLC plugin and are left out of
+# the package (the plugin's own tests still build them).
 #
 #   library/build.sh           write tools/deploy/canworks/library/canworks.stlib
 #   library/build.sh --check   fail if that file is not what the sources build
@@ -33,12 +36,13 @@ tgz="$(cd "$(dirname "$tgz")" && pwd)/$(basename "$tgz")"
 echo "$STRUCPP_SHA256  $tgz" | sha256sum -c --quiet -
 
 python3 "$here/generate.py" --check
-mkdir "$work/strucpp" "$work/out"
+mkdir "$work/strucpp" "$work/out" "$work/src"
+cp "$here"/canworks/*.st "$here"/modbus/*.st "$work/src/"
 (cd "$work/strucpp" && npm install --silent --no-save --no-audit --no-fund "$tgz" >/dev/null)
 # -L: the ST blocks (CO402_Cyclic*) use the bundled PLCopen SoftMotion
 # library's AXIS_REF_SM3, so the archive depends on it (every editor project
 # has it).
-node "$work/strucpp/node_modules/strucpp/dist/node/cli.js" --compile-lib "$here/canworks" \
+node "$work/strucpp/node_modules/strucpp/dist/node/cli.js" --compile-lib "$work/src" \
   -o "$work/out" --lib-name canworks --lib-version 0.0.0 -L "$work/strucpp/node_modules/strucpp/libs" >/dev/null
 # strucpp 0.7.0 lists an ST function's VAR locals among its manifest
 # parameters, and the editor then asks every call for them as inputs

@@ -1,5 +1,7 @@
 # NMT from the PLC program: start, stop and command the network
 
+> **OpenPLC through Modbus.** The library now holds `CO_SDO_READ`, `CO_SDO_WRITE` (up to 4 bytes, `DATA : UDINT`), `CO_NMT` and `CO_NODE_LIVE` over the bridge's registers ([plc-library.md](plc-library.md#blocks-over-the-bridge)). The other blocks on this page call into the OpenPLC plugin and are only for configs that still use it; they are no longer in the library.
+
 The [`canworks` function block library](plc-library.md) gives the PLC program four function blocks for the NMT side of CANopen: command any node or every node, start and stop the network, and read the NMT state the master sees. With [several networks](config.md#several-networks-schema_version-2) the `NETWORK` input picks the network; only CANopen master networks can be used.
 
 | Block | Inputs (besides `EXECUTE`, `NETWORK`) | Outputs (besides `BUSY`, `DONE`, `ERROR`, `ERROR_ID`) | For |

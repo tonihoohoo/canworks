@@ -63,8 +63,10 @@ int main(int argc, char** argv) {
   canopen_plugin::canopen_init_logging();
 #endif
   if (check_only) {
-    bool ok = canworks_bridge::BridgeHost::check(config);
+    uint32_t hash = 0;
+    bool ok = canworks_bridge::BridgeHost::check(config, nullptr, &hash);
     std::fprintf(stderr, "canworks-bridge: config %s\n", ok ? "accepted" : "rejected");
+    if (ok) std::printf("map hash 0x%08x\n", hash);
     return ok ? 0 : 1;
   }
 

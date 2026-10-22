@@ -83,7 +83,7 @@ class CodesysPage(OnlineBase):
     def test_switch_hides_and_back(self):
         pg = self.page
         self.open()
-        self.assertEqual(pg.inner_text("[data-target-mark]"), " · OpenPLC")
+        self.assertEqual(pg.inner_text("[data-target-mark]"), " · OpenPLC plugin")
         self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.to_codesys()
         self.assertEqual(pg.inner_text("[data-target-mark]"), " · CODESYS")
@@ -136,10 +136,11 @@ class CodesysPage(OnlineBase):
             pg.click("#menu-target > summary")
             pg.click("#btn-codesys-download")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
-        # Back to OpenPLC: every entry gets a location, the names stay.
+        # Back to the OpenPLC plugin (no longer a choice on the page, so
+        # through the switch itself): every entry gets a location, the names stay.
         tree_view(pg, "project")
-        pg.select_option('select[data-target="1"]', "openplc")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        pg.evaluate("() => switchTarget('openplc')")
+        pg.wait_for_selector("#banner:has-text('targets OpenPLC plugin now')")
         self.assertIn("got a location", pg.inner_text("#banner"))
         pg.wait_for_selector("#tree #nav-codesys", state="detached")
         self.checked()

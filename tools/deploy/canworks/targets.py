@@ -2,22 +2,28 @@
 target does not use"): which system runs a config, and one table of the
 settings each target uses.
 
-A config's target is the Modbus bridge when it has a top-level `bridge`
-object, CODESYS when it has a top-level `codesys` object, else OpenPLC. The
+A config's target is OpenPLC through Modbus when it has a top-level `bridge`
+object with an `openplc` object, the Modbus bridge when it has a `bridge`
+without one, CODESYS when it has a top-level `codesys` object, else the
+OpenPLC plugin. OpenPLC through Modbus runs the networks in canworks-bridge
+(so it uses what the bridge uses) and has an editor project. The
 table below drives the configurator page (what it hides), the check (a
 warning for a set value its target does not use) and the CODESYS plan's
 `not_carried` list, so the three say the same thing in the same words."""
 
 import re
 
-OPENPLC, BRIDGE, CODESYS = "openplc", "bridge", "codesys"
-TARGETS = (OPENPLC, BRIDGE, CODESYS)
-LABELS = {OPENPLC: "OpenPLC", BRIDGE: "the Modbus bridge", CODESYS: "CODESYS"}
-TITLES = {OPENPLC: "OpenPLC", BRIDGE: "Modbus bridge", CODESYS: "CODESYS"}
+OPENPLC, BRIDGE, CODESYS, OPENPLC_MODBUS = "openplc", "bridge", "codesys", "openplc_modbus"
+TARGETS = (OPENPLC, BRIDGE, CODESYS, OPENPLC_MODBUS)
+LABELS = {OPENPLC: "the OpenPLC plugin", BRIDGE: "the Modbus bridge", CODESYS: "CODESYS",
+          OPENPLC_MODBUS: "OpenPLC through Modbus"}
+TITLES = {OPENPLC: "OpenPLC plugin", BRIDGE: "Modbus bridge", CODESYS: "CODESYS", OPENPLC_MODBUS: "OpenPLC"}
+# Targets whose networks canworks-bridge runs.
+BRIDGES = (BRIDGE, OPENPLC_MODBUS)
 BOTH_MESSAGE = "a config targets one system: remove 'bridge' (Modbus bridge) or 'codesys' (CODESYS)"
 
 _ALL = frozenset(TARGETS)
-_RUNTIME = frozenset((OPENPLC, BRIDGE))
+_RUNTIME = frozenset((OPENPLC, BRIDGE, OPENPLC_MODBUS))
 
 _PLUGIN_STATUS = ("plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager "
                   "status, CiA 405 blocks)")
@@ -29,6 +35,8 @@ _ADAPTER = "CODESYS sets up its CAN interface itself, from the network number an
 _BIT_CHANNEL = "CODESYS assigns the I/O addresses itself; the bit's name names its channel"
 _BIT_BRIDGE = "the bridge serves an entry's bits in the entry's own location"
 _NO_SCAN = "the bridge has no PLC scan; its output watchdog is bridge.watchdog_ms"
+_LOSS = "bridge.on_client_loss says what the nodes get when OpenPLC stops"
+_AXIS_MODBUS = "the CiA 402 axis needs the OpenPLC plugin"
 
 # (key, targets that use it, {target that does not: why}, targets that
 # refuse it). Keys are paths inside one network ("master.on_plc_stop",
@@ -43,7 +51,8 @@ ROWS = [
     ("/diagnostics", _RUNTIME, {CODESYS: "the canworks diagnostics channel of the plugin or bridge"}, ()),
     ("raw", _RUNTIME, {CODESYS: "raw CAN messages stay with canworks"}, ()),
     ("codesys", frozenset((CODESYS,)), {OPENPLC: "CODESYS settings of the network",
-                                        BRIDGE: "CODESYS settings of the network"}, ()),
+                                        BRIDGE: "CODESYS settings of the network",
+                                        OPENPLC_MODBUS: "CODESYS settings of the network"}, ()),
     ("adapter.type", _RUNTIME, {CODESYS: _ADAPTER}, ()),
     ("adapter.device", _RUNTIME, {CODESYS: _ADAPTER}, ()),
     ("adapter.serial_baudrate", _RUNTIME, {CODESYS: _ADAPTER}, ()),
@@ -53,13 +62,15 @@ ROWS = [
 ] + [("master." + k, _RUNTIME, {CODESYS: _PLUGIN_STATUS}, ()) for k in (
     "bus_state_location", "tx_error_count_location", "rx_error_count_location", "bus_off_count_location",
     "state_location")] + [
-    ("master.on_plc_stop", _RUNTIME, {CODESYS: "CODESYS decides what the nodes get when the application stops"}, ()),
-    ("master.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN, CODESYS: "plugin scan watchdog"}, ()),
+    ("master.on_plc_stop", frozenset((OPENPLC, BRIDGE)),
+     {CODESYS: "CODESYS decides what the nodes get when the application stops", OPENPLC_MODBUS: _LOSS}, ()),
+    ("master.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN, CODESYS: "plugin scan watchdog",
+                                                        OPENPLC_MODBUS: _NO_SCAN}, ()),
     ("master.sync_source=plc_cycle", frozenset((OPENPLC,)),
      {CODESYS: "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"},
-     (BRIDGE,)),
+     (BRIDGE, OPENPLC_MODBUS)),
     ("master.sync_cycles", frozenset((OPENPLC,)),
-     {CODESYS: "SYNC from the PLC cycle: pick the bus cycle task in CODESYS instead"}, (BRIDGE,)),
+     {CODESYS: "SYNC from the PLC cycle: pick the bus cycle task in CODESYS instead"}, (BRIDGE, OPENPLC_MODBUS)),
     ("master.eds_lint", _RUNTIME, {CODESYS: "dcfgen's EDS lint runs in the plugin; CODESYS reads the DCFs canworks "
                                             "checked"}, ()),
     ("master.diagnostics", _RUNTIME, {CODESYS: "the canworks diagnostics channel of the plugin or bridge"}, ()),
@@ -83,8 +94,9 @@ ROWS = [
     ("nodes.heartbeat_timeout_ms", _RUNTIME, {CODESYS: "CODESYS supervises the node's heartbeat with its own "
                                                        "consumer time"}, ()),
     ("nodes.lss", _RUNTIME, {CODESYS: "LSS node ID assignment: use CODESYS's own LSS settings"}, ()),
-    ("nodes.axis", _RUNTIME, {CODESYS: "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"},
-     ()),
+    ("nodes.axis", frozenset((OPENPLC, BRIDGE)),
+     {CODESYS: "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS",
+      OPENPLC_MODBUS: _AXIS_MODBUS}, ()),
     ("nodes.config_check", _RUNTIME, {CODESYS: "configuration check: CODESYS downloads the configuration at every "
                                                "boot"}, ()),
     ("nodes.store_configuration", _RUNTIME, {CODESYS: "plugin store after the configuration check"}, ()),
@@ -100,22 +112,25 @@ ROWS = [
      {CODESYS: "CODESYS assigns the I/O addresses itself; the entry's name names the channel"}, ()),
     ("nodes.rx_pdos.entries.iec_location", _RUNTIME,
      {CODESYS: "CODESYS assigns the I/O addresses itself; the entry's name names the channel"}, ()),
-    ("nodes.tx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)), {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE}, ()),
-    ("nodes.rx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)), {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE}, ()),
-    ("j1939.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN}, ()),
-    ("raw.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN}, ()),
+    ("nodes.tx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)),
+     {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE, OPENPLC_MODBUS: _BIT_BRIDGE}, ()),
+    ("nodes.rx_pdos.entries.bits.iec_location", frozenset((OPENPLC,)),
+     {CODESYS: _BIT_CHANNEL, BRIDGE: _BIT_BRIDGE, OPENPLC_MODBUS: _BIT_BRIDGE}, ()),
+    ("j1939.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN, OPENPLC_MODBUS: _NO_SCAN}, ()),
+    ("raw.scan_watchdog_ms", frozenset((OPENPLC,)), {BRIDGE: _NO_SCAN, OPENPLC_MODBUS: _NO_SCAN}, ()),
     # Network kinds: CODESYS gets CANopen master networks only.
     ("role=slave", _RUNTIME, {CODESYS: "a slave network stays with canworks: give the other master the slave's EDS "
                                        "(canworks-deploy slave-eds)"}, ()),
     ("protocol=j1939", _RUNTIME, {CODESYS: "a J1939 network stays with canworks"}, ()),
     ("protocol=none", _RUNTIME, {CODESYS: "a plain CAN network stays with canworks"}, ()),
     # Parts of the page.
-    ("ui:editor_project", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: ""}, ()),
+    ("ui:editor_project", frozenset((OPENPLC, OPENPLC_MODBUS)), {BRIDGE: "", CODESYS: ""}, ()),
     ("ui:runtime", _RUNTIME, {CODESYS: ""}, ()),
     ("ui:simulation", _RUNTIME, {CODESYS: ""}, ()),
-    ("ui:declarations", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: ""}, ()),
-    ("ui:bridge", frozenset((BRIDGE,)), {OPENPLC: "", CODESYS: ""}, ()),
-    ("ui:codesys", frozenset((CODESYS,)), {OPENPLC: "", BRIDGE: ""}, ()),
+    ("ui:declarations", frozenset((OPENPLC,)), {BRIDGE: "", CODESYS: "", OPENPLC_MODBUS: ""}, ()),
+    ("ui:bridge", frozenset((BRIDGE, OPENPLC_MODBUS)), {OPENPLC: "", CODESYS: ""}, ()),
+    ("ui:openplc_modbus", frozenset((OPENPLC_MODBUS,)), {OPENPLC: "", BRIDGE: "", CODESYS: ""}, ()),
+    ("ui:codesys", frozenset((CODESYS,)), {OPENPLC: "", BRIDGE: "", OPENPLC_MODBUS: ""}, ()),
 ]
 
 _BY_KEY = {r[0]: r for r in ROWS}
@@ -160,12 +175,13 @@ FIELD_LABELS = dict(
 
 
 def target(cfg):
-    """The config's target: "bridge", "codesys" or "openplc". A config with
-    both markers counts as the bridge; the check reports it."""
+    """The config's target: "openplc_modbus", "bridge", "codesys" or
+    "openplc". A config with both markers counts as the bridge; the check
+    reports it."""
     if not isinstance(cfg, dict):
         return OPENPLC
     if isinstance(cfg.get("bridge"), dict):
-        return BRIDGE
+        return OPENPLC_MODBUS if isinstance(cfg["bridge"].get("openplc"), dict) else BRIDGE
     if isinstance(cfg.get("codesys"), dict):
         return CODESYS
     return OPENPLC

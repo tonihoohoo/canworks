@@ -247,6 +247,7 @@ const char* loss_name(BridgeConfig::Loss l) {
   switch (l) {
     case BridgeConfig::Loss::Zero: return "zero";
     case BridgeConfig::Loss::Hold: return "hold";
+    case BridgeConfig::Loss::Preop: return "preop";
     default: return "stop";
   }
 }
@@ -307,12 +308,18 @@ BridgeHost::~BridgeHost() {
   engine_.reset();
 }
 
-bool BridgeHost::check(const std::string& config_path, std::vector<std::string>* problems) {
+bool BridgeHost::check(const std::string& config_path, std::vector<std::string>* problems, uint32_t* map_hash) {
   canopen_plugin::ImageLimits limits;
   limits.buffer_size = kImageLimit;
   limits.bridge_host = true;
   limits.force_simulate = canopen_plugin::force_simulate_from_env(std::getenv("CANWORKS_FORCE_SIMULATE"));
-  return canopen_plugin::Engine::check(config_path, limits, problems);
+  if (!canopen_plugin::Engine::check(config_path, limits, problems)) return false;
+  if (map_hash) {
+    canopen_plugin::ConfigSet set;
+    std::vector<std::string> errors;
+    if (canopen_plugin::load_config_set(config_path, limits, set, errors)) *map_hash = canopen_plugin::map_hash(set);
+  }
+  return true;
 }
 
 bool BridgeHost::start(const std::string& config_path, const char* version) {
@@ -348,6 +355,9 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   for (const ImageUse& u : uses)
     if (u.loc.area != IecArea::Input && !u.bridge_block) data_outputs_.push_back(u);
   image_.resize(in_bytes, out_bytes);
+  map_hash_ = canopen_plugin::map_hash(s);
+  image_.set_link(cfg_.openplc ? canopen_plugin::kOpenplcHeaderBytes : 0, map_hash_);
+  mismatch_logged_ = false;
   make_tables(kImageLimit, image_.input_size(), cfg_.low_first);
   g_tables->out.assign(image_.output_size(), 0);
   out_copy_.assign(image_.output_size(), 0);
@@ -365,11 +375,13 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
 
   Clock::time_point now = Clock::now();
   supervisor_.reset(new OutputSupervisor(cfg_.watchdog_ms, now));
+  // openplc: outputs stay off until the PLC link header says the PLC runs.
+  if (cfg_.openplc) supervisor_->link_off(OutputState::kPlcStopped);
   control_ = ControlBlock();
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
-  canopen_plugin::set_outputs_enabled(true);
+  canopen_plugin::set_outputs_enabled(!cfg_.openplc);
 
   engine_->start();
   if (!server_.start(sc, err)) {
@@ -378,10 +390,10 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     return false;
   }
   log_info("canworks-bridge: config %s, protocols %s; Modbus TCP on %s (unit %u, word order %s), %zu input bytes, "
-           "%zu output bytes; watchdog %u ms, on client loss %s",
+           "%zu output bytes; watchdog %u ms, on client loss %s; map hash 0x%08x%s",
            config_path.c_str(), canopen_plugin::built_in_protocols().c_str(), cfg_.listen.c_str(), cfg_.unit_id,
            cfg_.low_first ? "low_first" : "high_first", image_.input_size(), image_.output_size(), cfg_.watchdog_ms,
-           loss_name(cfg_.on_client_loss));
+           loss_name(cfg_.on_client_loss), map_hash_, cfg_.openplc ? " (OpenPLC through Modbus)" : "");
   started_ = now;
   stop_ = false;
   thread_ = std::thread(&BridgeHost::loop, this);
@@ -409,13 +421,42 @@ void BridgeHost::push_outputs() {
 
 void BridgeHost::on_write() {
   std::lock_guard<std::mutex> lock(exchange_mu_);
-  if (supervisor_->write(Clock::now())) leave_off("a client wrote");
+  Clock::time_point now = Clock::now();
+  if (cfg_.openplc) {
+    uint32_t seen = 0;
+    ByteImage::Link link = image_.link_now(&seen);
+    if (link == ByteImage::Link::kStopped) {
+      link_off(OutputState::kPlcStopped, now);
+      return;
+    }
+    if (link == ByteImage::Link::kMismatch) {
+      if (!mismatch_logged_ || seen != mismatch_seen_)
+        log_error("PLC program built for map 0x%08x, bridge serves 0x%08x: outputs stay off (rebuild and upload the "
+                  "program after saving the config, or start the bridge with the config the program was built for)",
+                  seen, map_hash_);
+      mismatch_logged_ = true;
+      mismatch_seen_ = seen;
+      link_off(OutputState::kMismatch, now);
+      return;
+    }
+    mismatch_logged_ = false;
+  }
+  if (supervisor_->write(now)) leave_off("a client wrote");
   push_outputs();
 }
 
+void BridgeHost::link_off(OutputState why, Clock::time_point now) {
+  OutputState was = supervisor_->state();
+  if (was == why || was == OutputState::kIdle) return;
+  supervisor_->link_off(why);
+  if (was == OutputState::kRunning) enter_off(why, now);
+}
+
 void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
-  const char* reason = why == OutputState::kIdle ? "the control block's idle command"
-                                                 : "the watchdog (no write from a writer client)";
+  const char* reason = why == OutputState::kIdle         ? "the control block's idle command"
+                       : why == OutputState::kPlcStopped ? "the PLC link header (the PLC stopped)"
+                       : why == OutputState::kMismatch   ? "the PLC link header (another map hash)"
+                                                         : "the watchdog (no write from a writer client)";
   switch (cfg_.on_client_loss) {
     case BridgeConfig::Loss::Hold:
       log_warn("outputs held at their last values by %s (on_client_loss hold)", reason);
@@ -426,6 +467,15 @@ void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
       push_outputs();
       zero_pending_ = true;
       zero_until_ = now + zero_settle_;
+      return;
+    }
+    case BridgeConfig::Loss::Preop: {
+      log_warn("outputs off by %s: RPDOs and transmit messages stopped, output image cleared, nodes sent to "
+               "pre-operational (on_client_loss preop)",
+               reason);
+      canopen_plugin::set_outputs_enabled(false);
+      clear_outputs();
+      all_nodes("preop");
       return;
     }
     case BridgeConfig::Loss::Stop: {
@@ -450,8 +500,20 @@ void BridgeHost::clear_outputs() {
 
 void BridgeHost::leave_off(const char* why) {
   zero_pending_ = false;
-  if (cfg_.on_client_loss != BridgeConfig::Loss::Hold) canopen_plugin::set_outputs_enabled(true);
+  // Hold never turned them off, but an openplc bridge starts with them off.
+  canopen_plugin::set_outputs_enabled(true);
+  if (cfg_.on_client_loss == BridgeConfig::Loss::Preop) all_nodes("start");
   log_info("outputs on again: %s", why);
+}
+
+void BridgeHost::all_nodes(const char* command) {
+#if CANWORKS_WITH_CANOPEN
+  for (unsigned n = 0; n < is_master_.size(); ++n)
+    if (is_master_[n] && !canopen_plugin::HostRequests::instance().nmt(n, 0, command))
+      log_warn("network %u: NMT %s to all nodes not sent (its bus is down or its commands wait)", n, command);
+#else
+  (void)command;
+#endif
 }
 
 void BridgeHost::service_control(const uint8_t* out, Clock::time_point now) {
@@ -485,6 +547,10 @@ void BridgeHost::service_control(const uint8_t* out, Clock::time_point now) {
 
 void BridgeHost::write_blocks(Clock::time_point now) {
   std::vector<uint8_t>& in = g_tables->in;
+  if (cfg_.openplc && in.size() >= canopen_plugin::kOpenplcHashBytes) {
+    put_be16(&in[0], static_cast<uint16_t>(map_hash_ >> 16));
+    put_be16(&in[2], static_cast<uint16_t>(map_hash_));
+  }
   if (cfg_.has_status) {
     auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(now - started_).count() / 100;
     encode_status(&in[cfg_.status_location.index], supervisor_->state(), server_.clients(),
@@ -534,8 +600,16 @@ cJSON* BridgeHost::status_json() const {
     cJSON_AddStringToObject(b, "reason", "watchdog");
   else if (st == OutputState::kIdle)
     cJSON_AddStringToObject(b, "reason", "idle");
+  else if (st == OutputState::kPlcStopped)
+    cJSON_AddStringToObject(b, "reason", "plc_stopped");
+  else if (st == OutputState::kMismatch)
+    cJSON_AddStringToObject(b, "reason", "map_mismatch");
   else
     cJSON_AddNullToObject(b, "reason");
+  char hash[16];
+  std::snprintf(hash, sizeof(hash), "0x%08x", map_hash_);
+  cJSON_AddStringToObject(b, "map_hash", hash);
+  cJSON_AddBoolToObject(b, "openplc", cfg_.openplc);
   cJSON_AddStringToObject(b, "on_client_loss", loss_name(cfg_.on_client_loss));
   cJSON_AddStringToObject(b, "listen", cfg_.listen.c_str());
   cJSON_AddNumberToObject(b, "unit_id", cfg_.unit_id);
