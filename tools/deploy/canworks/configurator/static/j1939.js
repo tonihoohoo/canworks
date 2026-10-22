@@ -512,7 +512,7 @@ function j1939Diagnostics() {
     el("span", { class: "field-msg", dataset: { for: base } }),
     el("h3", null, "Watched ECUs"),
     el("p", { class: "muted" }, "ECUs whose lamps and active codes the program sees. Each code is one UDINT: " +
-      "SPN + FMI × 2^19 + OC × 2^24 + CM × 2^31. Every ECU's codes also show in the online view's Faults panel without being watched."),
+      "SPN + FMI × 2^19 + OC × 2^24 + CM × 2^31. Every ECU's codes also show in Commission's Faults panel without being watched."),
     el("span", { class: "field-msg", dataset: { for: base + ".rx" } }));
   rx.forEach((m, i) => fs.append(dmWatched(m, i)));
   if (!rx.length) fs.append(el("p", { class: "muted" }, "No watched ECU."));

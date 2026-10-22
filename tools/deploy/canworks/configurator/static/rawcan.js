@@ -318,7 +318,7 @@ function rawEditor(kind, i) {
   const idField = field("Identifier", base + ".id", "text", { show: rawHex, parse: rawParseHex,
     hint: `Hex (0x123) or decimal. ${m.extended ? "29-bit: up to 0x1FFFFFFF." : "11-bit: up to 0x7FF."}` });
   const common = [
-    field("Name", base + ".name", "text", { hint: "Used in declarations, the trace and the online view." }),
+    field("Name", base + ".name", "text", { hint: "Used in declarations, the trace and Commission." }),
     idField,
     checkbox("Extended (29-bit) identifier", base + ".extended", false),
     checkbox("Remote frame", base + ".rtr", false, kind === "rx" ? "Match remote frames instead of data frames." : "Send a remote request (no data)."),

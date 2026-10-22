@@ -7,7 +7,7 @@ two display fixes. Needs Playwright, like test_configurator_page.py."""
 import os
 import shutil
 
-from .helpers import REPO
+from .helpers import REPO, tool_tab
 from .test_configurator_trace_page import TraceBase
 
 IN_VIEW = """sel => { const e = document.querySelector(sel); if (!e) return false;
@@ -29,7 +29,7 @@ class Base(TraceBase):
         return self.page.evaluate(IN_VIEW, sel)
 
     def lab(self):
-        self.page.click('button[data-view="framelab"]')
+        tool_tab(self.page, "framelab")
         self.page.wait_for_selector("[data-fx=lab-frame]")
 
     def explain(self, frame):

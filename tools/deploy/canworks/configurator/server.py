@@ -4018,12 +4018,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             proj = online.Settings(config_dir()).project(folder)
             on_adapter = s.adapter_online() or bool(proj.get("remote_adapter"))
             if on_adapter and not self.server.connection.connected:
-                raise ApiError(409, "connect to the %s on Bus and master to record a trace; opening trace files "
+                raise ApiError(409, "connect to the %s with Connect… in the connection bar to record a trace; opening trace files "
                                     "works without it" % ("adapter server" if proj.get("remote_adapter")
                                                           else "USB adapter"), need="online")
             if not on_adapter and (not proj.get("host") or not proj.get("token")):
-                raise ApiError(409, "set up online access (runtime host and access token) in the Online view to "
-                                    "record a trace; opening trace files works without it", need="online")
+                raise ApiError(409, "connect to the runtime with Connect… in the connection bar to record a trace "
+                                    "(online access is set in Configure → Project); opening trace files works without it",
+                               need="online")
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             adapter = hasattr(hostname, "client")

@@ -10,7 +10,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import PLAIN_NETWORK, TOKEN, FakePlugin
-from .helpers import REPO, add_network, net_action, tree_view
+from .helpers import REPO, add_network, net_action, tree_view, tool_tab
 from .test_configurator_layout import CONTRAST, TARGETS
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
@@ -254,7 +254,7 @@ class RawPage(OnlineBase):
         pg = self.page
         self.joystick_config()
         self.open()
-        pg.click('#tool-tabs button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.click("[data-trace=filters] > summary")
         kinds = pg.eval_on_selector_all("[data-trace-kind]", "es => es.map(e => e.dataset.traceKind)")
         self.assertEqual(kinds, ["error", "gap", "other", "raw"])
@@ -262,7 +262,7 @@ class RawPage(OnlineBase):
         pg.click('[data-trace-tab="trigger"]')
         conds = pg.eval_on_selector_all('[data-trace-cond="0.type"] option', "es => es.map(e => e.value)")
         self.assertEqual(conds, ["frame", "signal", "bus", "error_frame"])
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector("[data-fx=examples] .chip")
         chips = pg.eval_on_selector_all("[data-fx=examples] .chip", "es => es.map(e => e.textContent)")
         self.assertEqual(chips, ["Joystick"])
@@ -354,10 +354,10 @@ class RawPage(OnlineBase):
         self.open()
         # The links in running text are 24 px targets: Bus's CAN messages, Simulation's Online access.
         self.assertEqual(pg.evaluate(TARGETS), [])
-        pg.click('#tool-tabs button[data-view="simulation"]')
+        tool_tab(pg, "simulation")
         pg.wait_for_selector("#view a:has-text('Online access')")
         self.assertEqual(pg.evaluate(TARGETS), [])
-        pg.click('button[data-sim-tab="file"]')
+        tool_tab(pg, "simfile")
         devices = pg.inner_text('[data-sim="raw-devices"]')
         self.assertIn("0x181 every 20 ms (X, Y)", devices)
         self.assertIn("0x18FF1020 every 50 ms", devices)

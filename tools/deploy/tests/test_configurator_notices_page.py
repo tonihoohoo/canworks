@@ -11,7 +11,7 @@ import shutil
 from canworks import diag
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, node_tab, tree_entry, tree_node, tree_view, header_action
+from .helpers import REPO, node_tab, tree_entry, tree_node, tree_view, header_action, tool_tab
 from .test_configurator_layout import open_tree, pick_theme
 from .test_configurator_online_page import OnlineBase
 
@@ -102,7 +102,7 @@ class MessageBars(OnlineBase):
                     self.placed("%s, %s" % (view, theme))
                 pg.click('#ws [data-ws="configure"]')
                 open_tree(pg)
-                for view in ("bus", "access"):
+                for view in ("bus", "project"):
                     tree_view(pg, view)
                     self.placed("%s, %s" % (view, theme))
                 tree_node(pg, 0)
@@ -158,7 +158,7 @@ class MessageBars(OnlineBase):
             pg.click('#ws [data-ws="commission"]')
             pg.click('button[data-view="online"]')
             self.placed("commission nodes, %s" % theme)
-            pg.click('button[data-view="simulation"]')
+            tool_tab(pg, "simulation")
             pg.wait_for_selector("#sim-body")
             self.placed("simulation, %s" % theme)
             pg.click('#ws [data-ws="configure"]')

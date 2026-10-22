@@ -15,7 +15,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, back_to_nodes, header_action, node_tab, tree_net, tree_node, tree_view
+from .helpers import REPO, back_to_nodes, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -218,7 +218,7 @@ class Layout(OnlineBase):
         if not self.page.is_visible("#tree"):
             self.page.click('#ws [data-ws="configure"]')  # node pages are in Configure
         if not self.page.is_visible("#tree"):
-            self.page.click('#tool-tabs button[data-view="network"]')  # from a tool
+            network_tab(self.page)  # from a tool
         open_tree(self.page)
         tree_node(self.page, k, tab)
         self.unfold()
@@ -248,7 +248,7 @@ class Layout(OnlineBase):
                 tree_view(pg, "bus")
                 self.fits("bus and master at %d" % width)
                 open_tree(pg)
-                tree_view(pg, "access")
+                tree_view(pg, "project")
                 self.fits("online access at %d" % width)
                 for k in range(3):
                     self.node(k)
@@ -265,12 +265,12 @@ class Layout(OnlineBase):
                 pg.click('tr[data-online-node="2"]')
                 pg.wait_for_selector('button[data-online="write"]')
                 self.fits("online at %d" % width)
-                pg.click('button[data-view="trace"]')
+                tool_tab(pg, "trace")
                 pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
                 self.fits("trace at %d" % width)
-                pg.click('button[data-view="framelab"]')
+                tool_tab(pg, "framelab")
                 self.fits("frame lab at %d" % width)
-                pg.click('button[data-view="simulation"]')
+                tool_tab(pg, "simulation")
                 pg.wait_for_selector("#sim-body")
                 self.fits("simulation at %d" % width)
                 pg.evaluate("() => { document.querySelector('#menu-export').open = true; }")
@@ -285,7 +285,7 @@ class Layout(OnlineBase):
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN), "remote_link": {"internet": True}})
         self.open()
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         relays = pg.locator('textarea[data-online="relays"]')
         label = pg.locator('label:has(textarea[data-online="relays"])')
         box, lab = relays.bounding_box(), label.bounding_box()
@@ -739,7 +739,7 @@ class Examples(OnlineBase):
         pg = self.page
         pg.set_viewport_size({"width": 1000, "height": 900})
         self.open_example("virtual-plant")
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_timeout(300)
         # A tool takes the whole width: no side bar, no Problems beside or under it.
         self.assertTrue(pg.is_hidden("#side"))

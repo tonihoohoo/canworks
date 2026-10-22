@@ -10,6 +10,7 @@ import time
 from canworks import diag
 from canworks.bustrace.model import Frame
 
+from .helpers import tool_tab, network_tab
 from .fake_diag import TOKEN, FakePlugin
 from .test_configurator_trace_page import TraceBase
 
@@ -104,7 +105,7 @@ class TransmitList(Base):
         pg.wait_for_function("(r) => /running, [1-9]\\d* sent/.test(document.querySelector(r + ' [data-tx=state]').innerText)", arg=row)
         self.assertIsNone(self.fake.jobs[1]["reason"])
         self.assertIn("1 cyclic job running", pg.inner_text("#tx-summary"))
-        pg.click('#tool-tabs button[data-view="network"]')
+        network_tab(pg)
         time.sleep(2.5)  # past the plugin's poll timeout: the page still polls
         self.assertIsNone(self.fake.jobs[1]["reason"])
         self.trace_view()
@@ -209,7 +210,7 @@ class TransmitList(Base):
     def test_send_from_the_frame_lab(self):
         pg = self.page
         self.trace()
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.fill("[data-fx=lab-frame]", "60A#4018100100000000")
         pg.click("[data-fx=lab-explain]")
         pg.click("#view [data-trace=send-this]")

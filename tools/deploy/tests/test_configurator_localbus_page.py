@@ -16,7 +16,7 @@ import can
 from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
-from .helpers import REPO, back_to_nodes, header_action
+from .helpers import REPO, back_to_nodes, header_action, tool_tab
 from .test_configurator_online_page import OnlineBase
 
 _n = itertools.count(1)
@@ -121,7 +121,7 @@ class CommissionPage(AdapterPage):
         self.assertIn("Read-only", pg.inner_text('#conn-bar'))
         # The connection stays open on the other pages.
         pg.wait_for_selector('tr[data-online-node="7"]:has-text("PRE-OPERATIONAL")')
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.wait_for_selector('#conn-bar [data-conn="target"]')
         self.assertTrue(self.server.connection.connected)
         pg.click('#conn-bar [data-conn="disconnect"]')
@@ -363,7 +363,7 @@ class CommissionPage(AdapterPage):
         pg = self.page
         self.device(7, heartbeat_s=0.05)
         self.commission()
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector('[data-trace="online-hint"]:has-text("needs the USB adapter connection")')
         # No Connect button of its own: the bar's Connect… is the one place.
         self.assertEqual(pg.query_selector_all('#view button:has-text("Connect")'), [])

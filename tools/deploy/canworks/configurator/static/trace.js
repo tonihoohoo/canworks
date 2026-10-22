@@ -192,7 +192,7 @@ function renderTrace(view) {
       el("button", { type: "button", class: "primary", dataset: { trace: "start-stop" }, onclick: traceStartStop }, "Start"),
       el("button", { type: "button", dataset: { trace: "clear" }, onclick: traceClear }, "Clear"),
       el("label", { class: "file-button", title: "Open a pcapng, candump log or Vector ASC file" }, "Open…", fileInput),
-      saveMenu(), captureSettings(), decodingMenu(), timeMode, netPicker(), traceWinButton()),
+      saveMenu(), captureSettings(), decodingMenu(), timeMode, traceWinButton()),
     el("div", { id: "trace-stats", class: "trace-stats", dataset: { trace: "stats" } }),
     el("div", { class: "trace-tabrow" },
       tabs(tabList, T.tab, (v) => traceShowTab(v), { class: "segmented trace-tabs", tab: "", dataset: "traceTab", panel: "trace-tab", label: "Trace views" }),
@@ -409,7 +409,7 @@ function showTraceHeader(st) {
       (connSimOn() ? "Recording needs a connection to the runtime; the connection bar is connected to a standalone simulator. "
         : commission ? `Recording needs the ${connRemote() ? "adapter" : "USB adapter"} connection: connect with Connect… in the connection bar above. `
         : diagConfig() ? "Recording needs the connection to the runtime: connect with Connect… in the connection bar above. "
-        : "Recording needs online access: turn it on in Configure → Online access, save and upload. ") +
+        : "Recording needs online access: turn it on in Configure → Project → Online access, save and upload. ") +
       "Opening, viewing and exporting trace files works without it.", { trace: "online-hint" }));
   }
   for (const w of st.warnings || []) notes.push(noteBar("warning", humanise(w), { trace: "warning" }));
@@ -629,9 +629,10 @@ function traceStartStop() {
   else traceStart();
 }
 
-async function traceStart() {
-  let cont = false;
-  if (T.st && T.st.frames) {
+// `again`: the start that waited for the connect panel, with the answer it already had.
+async function traceStart(again) {
+  let cont = again ? again.cont : false;
+  if (!again && T.st && T.st.frames) {
     // A recording of the same network can go on after a gap; another network's cannot.
     const same = T.st.source === "live" && (T.st.network || null) === (onlineNetwork() || null);
     const lost = `The current recording (${T.st.frames.toLocaleString()} frames) is lost unless it was saved to the traces folder or downloaded.`;
@@ -644,7 +645,12 @@ async function traceStart() {
     if (!cont) T.kept = false;
   }
   if (TRACE_WINDOW) traceWinEnsure();  // the main window opens it and tells this one
-  else if (!(S.state && S.state.commission)) connEnsure();  // the runtime connection the bar shows
+  else if (!(S.state && S.state.commission ? connIsOn() : connEnsure() || connIsOn() || connSimOn())) {
+    // Not connected: Start opens the connect panel and starts once connected (one-place-navigation).
+    T.startOnConnect = { cont };
+    openConnect();
+    return;
+  }
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
       error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined });

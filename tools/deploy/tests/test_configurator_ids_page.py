@@ -7,6 +7,7 @@ import time
 
 from canworks.bustrace.model import Frame
 
+from .helpers import network_tab
 from .fake_diag import FakePlugin
 from .test_configurator_layout import FIT_CHECK
 from .test_configurator_trace_page import TraceBase
@@ -124,7 +125,7 @@ class ByIdentifier(Base):
         self.assertEqual(pg.get_attribute(".ids-c-count[role=columnheader]", "aria-sort"), "descending")
         self.assertEqual(order(), ["182", "701", "281"])
         # The sort is kept for the next visit.
-        pg.click('#tool-tabs button[data-view="network"]')
+        network_tab(pg)
         self.trace_view()
         pg.wait_for_selector(ROW % "701")
         self.assertEqual(pg.get_attribute(".ids-c-count[role=columnheader]", "aria-sort"), "descending")

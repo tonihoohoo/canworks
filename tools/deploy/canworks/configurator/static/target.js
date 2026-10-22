@@ -37,8 +37,8 @@ const TARGET_TEXT = {
     bridge: "A virtual bus inside the bridge: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back.",
   },
   sim_plain: {
-    openplc: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
-    bridge: "A virtual bus inside the bridge: no CAN interface is used. Plain CAN devices from the Simulation view (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
+    openplc: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the simulation file (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
+    bridge: "A virtual bus inside the bridge: no CAN interface is used. Plain CAN devices from the simulation file (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
   },
   interface: {
     openplc: "Required. The interface on the PLC (the Pi), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus.",
@@ -257,7 +257,6 @@ function renderCodesys(view) {
   const found = !!(S.state && S.state.codesys_found);
   view.append(el("h2", null, "CODESYS"),
     el("p", { class: "muted" }, "A CODESYS PLC runs this config's CANopen master networks. canworks builds the CANbus, the CANopen manager, the nodes with their DCFs and the named I/O channels into the CODESYS project. Each network's number and CAN interface object are on its Bus page."),
-    targetField(),
     el("fieldset", { dataset: { codesysProject: "1" } }, el("legend", null, "Project"),
       el("div", { class: "grid" },
         codesysProjectField(),

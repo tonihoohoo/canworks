@@ -205,6 +205,7 @@ function connBar() {
     if (simErr) raise(2);
     parts.push(simErr ? Icons.stateIcon("error", { label: false }) : Icons.stateIcon("operational", { label: "Connected" }));
     parts.push(el("strong", { dataset: { conn: "target" } }, `Standalone simulator ${simAddress()}`));
+    if (S.model && several()) parts.push(netPicker());
     if (simErr) parts.push(el("span", { dataset: { conn: "state" } }, `not answering (${simErr}), retrying`));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "change" }, onclick: () => openConnect() }, "Change…"));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "disconnect" }, onclick: connDisconnect }, "Disconnect"));
@@ -213,6 +214,8 @@ function connBar() {
     if (ended) { raise(2); parts.push(Icons.stateIcon("ended", { label: false }), el("span", { dataset: { conn: "ended" } }, upperFirst(ended) + ".")); }
     else parts.push(Icons.stateIcon("unknown", { label: false }), el("span", { class: "muted", dataset: { conn: "state" } }, "Not connected"));
     parts.push(el("button", { type: "button", class: "small primary", dataset: { conn: "connect" }, onclick: () => openConnect() }, "Connect…"));
+    // The one network picker (one-place-navigation): the config's networks while not connected.
+    if (!connAdapter() && S.model && several()) parts.push(netPicker());
   } else if (CONN.error && !connAdapter()) {
     raise(2);
     const age = lastAge();
@@ -221,6 +224,8 @@ function connBar() {
     parts.push(Icons.stateIcon("error", { label: false }));
     parts.push(el("span", { dataset: { conn: "state" } }, `${S.online.host}: not answering (${why}), retrying` +
       (age !== null && S.onlineLast ? `, last data ${age} s ago` : "")));
+    // The network can be the reason (one the runtime does not run): still picked here.
+    if (S.model && several()) parts.push(netPicker());
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "change" }, onclick: () => openConnect() }, "Change…"));
     parts.push(el("button", { type: "button", class: "small", dataset: { conn: "disconnect" }, onclick: connDisconnect }, "Disconnect"));
   } else if (!c) {
@@ -254,7 +259,8 @@ function connBar() {
       if (badge) parts.push(badge);
       if (c.rtt_ms > VERY_SLOW_RTT_MS) raise(2);
       else if (c.rtt_ms > SLOW_RTT_MS) raise(1);
-      if (c.networks && c.networks.length > 1) parts.push(netPicker());
+      // The runtime's networks, else the config's: the one picker either way.
+      if ((c.networks && c.networks.length > 1) || (S.model && several())) parts.push(netPicker());
       const bad = BUS_STATES_BAD.includes(String(bus.state || ""));
       if (bad) raise(busIcon(bus.state) === "error" ? 2 : 1);
       if (bad) parts.push(Icons.stateIcon(busIcon(bus.state), { label: false }));
@@ -303,7 +309,7 @@ function allowControl(c) {
   }
   if (c.allow_changes_source !== "switch") {
     return el("span", { class: "muted", dataset: { conn: "allow" },
-      title: "Set in Configure → Online access, then upload" },
+      title: "Set in Configure → Project → Online access, then upload" },
     c.allow_changes ? "🔓 Changes allowed (runtime setting)" : "🔒 Read-only (runtime setting)");
   }
   const on = !!c.allow_changes;
@@ -349,6 +355,12 @@ function openConnect(message) {
     dlg.dataset.wired = "1";
     dlg.addEventListener("close", () => {
       connBar();
+      // Trace's Start opened the panel: the trace starts once connected; Close leaves Trace as it was.
+      if (typeof T !== "undefined" && T.startOnConnect) {
+        const again = T.startOnConnect;
+        T.startOnConnect = null;
+        if (connIsOn() && S.view === "trace") setTimeout(() => traceStart(again), 0);
+      }
       // The control that opened the panel may be gone (the bar is redrawn, or the
       // panel opened by itself): focus goes to the bar, never to the page body.
       setTimeout(() => {
@@ -474,17 +486,21 @@ function closeConnect() {
   if (dlg.open) dlg.close();
 }
 
-// The runtime: found and remembered runtimes, the host, the local simulator
-// runtime, and the token when this PC has none that matches the config.
+// The runtime: one host combobox (found and remembered runtimes, the local
+// simulator runtime, a typed host), and the token field in the panel when
+// this PC has none that matches the config. No second dialog.
 function runtimeBox(message) {
   if (!diagConfig()) {
     return el("div", { dataset: { conn: "no-access" } }, notice("info", ["Online access is off for this config. Turn it on in Configure → ",
-      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("access"); } }, "Online access"),
+      el("a", { href: "#", class: "target", onclick: (e) => { e.preventDefault(); closeConnect(); switchWorkspace("configure"); showView("project"); } }, "Project → Online access"),
       ", save, and upload the program to the runtime."], { live: false }));
   }
-  const host = hostField(true);
+  const host = runtimeHost();
+  const needToken = !S.online.tokenOk;
+  const [token, showToken] = secretField({ placeholder: "from the PC that turned online access on", "aria-label": "Access token",
+    dataset: { online: "runtime-token" } });
   const msg = msgBar({ online: "connect-msg" },
-    message || (S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config." : ""));
+    message || (S.online.token && !S.online.tokenOk ? "The token on this PC does not match the config. Enter the token of this project." : ""));
   const connect = el("button", { type: "button", class: "primary", dataset: { online: "connect" }, onclick: async () => {
     const value = host.querySelector("input").value.trim();
     if (!value) {
@@ -495,11 +511,12 @@ function runtimeBox(message) {
     if (!(await saveHost(value, (m) => msg.say(`The host was not saved: ${m}`)))) return;
     if (connRemote() && !(await leaveRemote())) return;
     msg.say("");
-    if (!S.online.tokenOk && !(await enterToken())) {
-      msg.say(S.online.token
+    if (!S.online.tokenOk) {
+      const value = token.value.trim();
+      const err = value ? await takeToken(value) : S.online.token
         ? "The token on this PC does not match the config. Enter the token of this project to connect."
-        : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).");
-      return;
+        : "Enter the access token of this project to connect (Copy token on the PC that turned online access on).";
+      if (err) { msg.say(err); token.focus(); token.select(); return; }
     }
     S.simOn = false;
     S.runtimeOff = false;
@@ -514,12 +531,16 @@ function runtimeBox(message) {
     render();
     connKick();
   } }, "Connect");
+  // Enter in the host or token field connects.
+  for (const x of [host.querySelector("input"), token]) {
+    x.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); connect.click(); } });
+  }
   return el("div", { dataset: { conn: "runtime-box" } },
     msg,
-    el("div", { class: "grid" }, host),
-    el("div", { class: "toolbar" },
-      !S.online.tokenOk ? el("button", { type: "button", onclick: async () => { await enterToken(); openConnect(); } }, "Enter token…") : null,
-      connect),
+    el("div", { class: "grid" }, host,
+      needToken ? el("label", null, "Access token", el("div", { class: "row" }, token, showToken),
+        hint("This PC has no token for this config yet. It is checked against the config and then kept on this PC, never in the project.")) : null),
+    el("div", { class: "toolbar" }, connect),
     // No runtime with canworks yet: install it from the Devices workspace (devices.js).
     typeof installOnDevice === "function" && !S.state.commission ? el("p", null, el("button", { type: "button", class: "link", dataset: { conn: "install-device" },
       onclick: () => { const h = devHostOnly(host.querySelector("input").value); closeConnect(); installOnDevice(h && h !== "local" ? h : null); } },
@@ -550,10 +571,11 @@ async function leaveRemote() {
 function remoteBox(message) {
   const on = !!S.adapterOn && connRemote();
   const known = {};  // address -> {adapter, bitrate_kbit} of the found servers
-  const list = el("select", { "aria-label": "Adapter servers found", disabled: on, dataset: { online: "server-list" } },
-    el("option", { value: "" }, "Looking for adapter servers…"));
-  const host = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "for example benchbox.local",
-    "aria-label": "Adapter server host", dataset: { online: "remote-host" } });
+  const id = "server-options-" + (++RUNTIME_LIST_ID);
+  const list = el("datalist", { id, dataset: { online: "server-list" } });
+  const host = el("input", { type: "text", spellcheck: "false", disabled: on, placeholder: "pick a found server or type its host, for example benchbox.local",
+    "aria-label": "Adapter server host", list: id, autocomplete: "off", dataset: { online: "remote-host" } });
+  const status = el("span", { class: "muted", "aria-live": "polite", dataset: { online: "server-status" } }, on ? "" : "Looking for adapter servers…");
   host.value = S.online.remote_host || "";
   const served = el("div", { class: "muted", dataset: { online: "served" }, "aria-live": "polite" });
   const warn = el("div", { dataset: { online: "rate-warning" } });
@@ -566,17 +588,18 @@ function remoteBox(message) {
     warn.replaceChildren(...(k && netKbit && k.bitrate_kbit && k.bitrate_kbit !== netKbit
       ? [noteBar("warning", `The server runs the bus at ${k.bitrate_kbit} kbit/s and the network is set to ${netKbit} kbit/s.`, { online: "rate-mismatch" })] : []));
   };
-  list.addEventListener("change", () => { if (list.value) { host.value = list.value; show(); } });
   host.addEventListener("input", show);
   const fill = async () => {
     let r;
+    status.textContent = "Looking for adapter servers…";
     try { r = await api("GET", "/api/online/adapter_servers"); } catch (e) {
-      list.replaceChildren(el("option", { value: "" }, "Not available"));
+      status.textContent = "Finding adapter servers is not available.";
       return;
     }
     for (const sv of r.servers) known[sv.address] = sv;
-    list.replaceChildren(el("option", { value: "" }, r.servers.length ? "Pick a found server…" : r.discovery ? "None found" : "Finding is not available"),
-      ...r.servers.map((sv) => el("option", { value: sv.address }, `${sv.name}  ${sv.adapter} at ${sv.bitrate_kbit} kbit/s`)));
+    list.replaceChildren(...r.servers.map((sv) => el("option", { value: sv.address }, `${sv.name}, ${sv.adapter} at ${sv.bitrate_kbit} kbit/s`)));
+    status.textContent = r.servers.length ? `${r.servers.length} found on this network: pick one from the list.`
+      : r.discovery ? "No adapter server found on this network." : "Finding adapter servers is not available.";
     show();
   };
   const refresh = el("button", { type: "button", class: "small", disabled: on, onclick: fill }, "Refresh");
@@ -629,7 +652,7 @@ function remoteBox(message) {
     msg,
     el("p", { class: "muted" }, "The adapter is on another machine that runs canworks-diag adapter-serve: the bus timing (SDO, LSS, scan, the bit rate check) stays there, only the results cross the network. The server sets the bit rate."),
     el("div", { class: "grid" },
-      el("label", null, "Adapter server", el("div", { class: "row" }, list, refresh), host,
+      el("label", null, "Adapter server", el("div", { class: "row" }, host, refresh), list, status,
         hint("HOST[:PORT], port 7536 when not given. From another network, through an SSH port forward (docs/pc-adapter.md). Kept on this PC.")),
       el("div", null, served, warn),
       el("label", null, "Token", token,

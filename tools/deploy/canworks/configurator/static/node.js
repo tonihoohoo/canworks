@@ -5,7 +5,7 @@
 // opens another node, and is kept on this PC. Loaded after app.js.
 
 const NODE_TABS = [["general", "General"], ["pdos", "PDOs"], ["sdos", "SDOs"], ["supervision", "Supervision"],
-  ["cia402", "CiA 402"], ["simulation", "Simulation"], ["notes", "Notes"], ["advanced", "Advanced"]];
+  ["cia402", "CiA 402"], ["simulation", "Simulated device"], ["notes", "Notes"], ["advanced", "Advanced"]];
 
 // The tabs node i has: CiA 402 for a drive (or a node with an axis already)
 // when the target runs the axis, Simulation for a simulated node.
@@ -145,7 +145,7 @@ function nodeSimTab(n) {
   const box = el("div", { dataset: { nodeSim: String(id) } },
     Number.isInteger(id) ? null : notice("info", "Give the node an ID first: the simulation file names devices by node ID.", { live: false }),
     el("div", { class: "toolbar" }, el("p", { class: "muted" },
-      "What this simulated device does from the start, saved in simulation.json. Live values and faults on a running device are in the Simulation tab."),
+      "What this simulated device does from the start, saved in simulation.json. Live values and faults on a running device are in Commission → Simulation."),
       el("div", { class: "spacer" }), simSaveBar()),
     el("div", { dataset: { simProblems: "" } }));
   if (Number.isInteger(id)) box.append(simDeviceFile(id, `Node ${id} ${n.name || ""}`, null));

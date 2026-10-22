@@ -5,17 +5,20 @@
 // header and the bottom panel (Problems, or the commissioning log). Loaded
 // after app.js and uses its helpers.
 
-// The views of each workspace. A tool tab (TOOLS) shows in a workspace and
-// takes the whole width; the others are the workspace's own pages.
-const TOOLS = ["declarations", "simulation", "trace", "framelab"];
-const TOOL_LABELS = { declarations: "Variable declarations", simulation: "Simulation", trace: "Trace", framelab: "Frame lab" };
+// The views of each workspace. A tool tab (TOOLS) takes the whole width and
+// belongs to one workspace (TOOL_WS, one-place-navigation); the others are
+// the workspace's own pages.
+const TOOLS = ["declarations", "simfile", "simulation", "trace", "framelab"];
+const TOOL_LABELS = { declarations: "Variable declarations", simfile: "Simulation file", simulation: "Simulation", trace: "Trace", framelab: "Frame lab" };
+const TOOL_WS = { declarations: "configure", simfile: "configure", simulation: "commission", trace: "commission", framelab: "commission" };
 const COMMISSION_VIEWS = ["online", "nodes"];
 const DEVICES_VIEWS = ["devices"];
 
 function isTool(view) { return TOOLS.includes(view); }
 
-// The workspace a page belongs to (a tool belongs to none).
+// The workspace a page or tool belongs to.
 function viewWorkspace(view) {
+  if (TOOL_WS[view]) return TOOL_WS[view];
   return DEVICES_VIEWS.includes(view) ? "devices" : COMMISSION_VIEWS.includes(view) ? "commission" : "configure";
 }
 
@@ -39,7 +42,7 @@ function toolsOf(ws = workspace()) {
   // A target that does not run canworks has no simulated devices or located declarations (target.js).
   const sim = !isJ1939(S.config) && (!S.model || simulationShown());
   const decl = !S.model || usedBy("ui:declarations");
-  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim ? ["simulation"] : [], ["trace", "framelab"]);
+  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim ? ["simfile"] : []);
   return (sim ? ["simulation"] : []).concat(["trace", "framelab"]);
 }
 
@@ -52,21 +55,18 @@ function fitView() {
     else if (isTool(v) && !toolsOf().includes(v)) S.view = "nodes";
     return;
   }
-  // A page of a workspace shows that workspace (a node page opened from
-  // the online view, "Back to the online view").
-  if (!isTool(v)) {
-    const ws = viewWorkspace(v);
-    if (ws !== workspace()) followWorkspace(v, true);
-    if (v === "nodes") S.view = "online";
-    return;
-  }
-  if (!toolsOf().includes(v)) S.view = homeView();
+  // A page or tool of a workspace shows that workspace (a node page opened
+  // from Commission, a problem's link to the Trace).
+  const ws = viewWorkspace(v);
+  if (ws !== workspace()) followWorkspace(v, true);
+  if (v === "nodes") S.view = "online";
+  if (isTool(v) && !toolsOf().includes(v)) S.view = homeView();
 }
 
-// A link to a page of the other workspace (a problem, "Back to the online
-// view") switches to that workspace; a tool stays in the one shown.
+// A link to a page or tool of the other workspace (a problem, "Explain in
+// Frame lab") switches to that workspace.
 function followWorkspace(view, shown) {
-  if (!S.state || S.state.commission || isTool(view)) return;
+  if (!S.state || S.state.commission) return;
   const ws = viewWorkspace(view);
   if (ws === workspace()) return;
   if (!shown) rememberView();
@@ -130,13 +130,7 @@ function renderShell() {
       showView(k);
     } else { if (!isTool(S.view)) rememberView(); showView(k); }
   }, { class: "tabs tool-tabs", dataset: "view", label: "Pages", panel: "view" }));
-  // A tool works on one network of the config: with several, the network
-  // tree's networks are here, since a tool has no tree.
-  if (tool && !device && S.model && several()) {
-    host.append(el("div", { class: "segmented tool-net", role: "group", "aria-label": "Network" },
-      S.model.networks.map((n, i) => el("button", { type: "button", class: "net-pick", "aria-pressed": String(i === S.net),
-        dataset: { net: i }, onclick: () => switchNet(i) }, netLabel(n, i)))));
-  }
+  // A tool works on the network picked in the connection bar, the one picker (one-place-navigation).
   connBar();
   renderPanel();
 }

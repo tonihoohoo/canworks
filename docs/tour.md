@@ -107,7 +107,7 @@ canworks-diag --runtime local emcy 5 --network io
 
 ## 7. Simulation and faults
 
-The **Simulation** tab under the header, network `io` in its picker, **Live values**: click a device for its **Values** and **Faults** ([configurator.md](configurator.md#simulation-view), [simulator.md](simulator.md)):
+**Commission** → the **Simulation** tab, network `io` in the connection bar's picker, **Live values**: click a device for its **Values** and **Faults** ([configurator.md](configurator.md#simulation-view), [simulator.md](simulator.md)):
 
 - node 5 → **Values**: the value sources of the four channels (sine, random walk, ramp, a formula on channel 0); **Override** channel 0 with 300: `alarm` comes on, DIO-16 output 0.0 follows, and on `host` the cell's `host_cell_alarm` with EMCY 0x4210;
 - node 6 → **Faults** → **Heartbeat stop**. Node 6's status bit goes FALSE, the program's `fault` switches `new_io` output 0.0 on, and the gateway status on `cell` shows node 6 missing, so the host's output 0.1 comes on too. **Clear all** and the master boots node 6 again;

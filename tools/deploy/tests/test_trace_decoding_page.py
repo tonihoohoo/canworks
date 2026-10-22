@@ -10,6 +10,7 @@ import time
 
 from canworks.bustrace.model import Frame
 
+from .helpers import tool_tab
 from .fake_canopen import Peer
 from .test_bustrace import T0, written
 from .test_configurator_layout import FIT_CHECK, pick_theme
@@ -78,7 +79,7 @@ class CommissionTrace(AdapterPage):
     def test_pick_eds_from_the_inspector_gives_assumed_rows(self):
         pg = self.page
         self.commission()
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         pg.set_input_files('input[data-trace="open-input"]', self.servo_trace())
         pg.click('[data-trace-tab="frames"]')
@@ -98,7 +99,7 @@ class CommissionTrace(AdapterPage):
               (0x1A00, 1): struct.pack("<I", 0x60000108), (0x6000, 1): b"\x2a"}
         self.device(7, heartbeat_s=0.05, nmt_state=5, pdo=True, od=od)
         self.commission()
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         self.connect_adapter()
         pg.click("[data-trace=start-stop]")
@@ -121,7 +122,7 @@ class CommissionTrace(AdapterPage):
         self.device(49, heartbeat_s=0.05, nmt_state=5, pdo=True, od=od)
         self.commission()
         pg = self.page
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         self.connect_adapter()
         pg.click("[data-trace=start-stop]")
@@ -164,7 +165,7 @@ class CommissionTrace(AdapterPage):
         peer = Peer(self.ch)
         try:
             self.commission()
-            pg.click('button[data-view="trace"]')
+            tool_tab(pg, "trace")
             pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
             self.connect_adapter()
             peer.send(0x080, b"")

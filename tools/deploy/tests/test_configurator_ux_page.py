@@ -14,7 +14,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action
+from .helpers import PINGPONG, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -346,7 +346,7 @@ class Probes(Layout):
         path = os.path.join(self.dir, "sample.log")
         with open(path, "wb") as f:
             f.write(written(sample_trace(), formats.format_of(path)))
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         pg.set_input_files('input[data-trace="open-input"]', path)
         pg.wait_for_selector("#ids-body [data-ids-key]")
@@ -374,7 +374,7 @@ class Probes(Layout):
         # the trace keeps the config's PDOs and shows no decoding note.
         self.assertEqual(pg.locator("[data-trace=warning]").count(), 0)
         # Simulation rows are buttons too.
-        pg.click('button[data-view="simulation"]')
+        tool_tab(pg, "simulation")
         pg.wait_for_selector("#sim-body")
         self.assertEqual(pg.get_attribute("#sim-body", "role"), "tabpanel")
 
@@ -603,14 +603,14 @@ class Probes(Layout):
     def test_old_labels_are_gone(self):
         pg = self.page
         self.open()
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
         pg.click("[data-trace=save-menu] > summary")
         self.assertEqual(pg.inner_text("[data-trace=save]"), "Save to traces folder")
         self.assertEqual(pg.inner_text("[data-trace=export]"), "Download")
         self.assertEqual(pg.get_attribute("[data-trace=save-format]", "aria-label"), "Format of the saved file")
         self.assertEqual(pg.get_attribute("[data-trace=export-format]", "aria-label"), "Format of the downloaded file")
-        pg.click('button[data-view="framelab"]')
+        tool_tab(pg, "framelab")
         pg.click("[data-fx-mode=arbitration]")
         pg.wait_for_selector("[data-fx-arb=go]")
         self.assertEqual(pg.inner_text("[data-fx-arb=go]"), "Run both")
@@ -664,7 +664,7 @@ class CleanProject(OnlineBase):
         pg = self.page
         with FakePlugin(allow_changes=True) as fp:
             self.online(fp, allow=True)
-            pg.click('button[data-view="trace"]')
+            tool_tab(pg, "trace")
             pg.wait_for_selector("#trace-source:not(:has-text('Loading'))")
             pg.click("[data-trace=start-stop]")
             pg.wait_for_selector("#trace-source:has-text('recording')")

@@ -7,6 +7,7 @@ import time
 from canworks.bustrace import formats
 from canworks.bustrace.model import Frame, Trace
 
+from .helpers import tool_tab
 from .test_bustrace import T0
 from .test_configurator_trace_page import SIGNAL, TraceBase
 
@@ -272,7 +273,7 @@ class OwnWindow(TraceBase):
         pg.click("[data-fx=back-to-trace]")
         tw.wait_for_selector("#trace-rows .trace-row.selected")
         # Bring the trace back: the window closes and the main window shows the same recording.
-        pg.click('button[data-view="trace"]')
+        tool_tab(pg, "trace")
         pg.wait_for_selector("[data-trace=elsewhere]")
         pg.click("[data-trace=bring-back]")
         self.wait_closed(tw, pg)

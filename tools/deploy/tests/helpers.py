@@ -247,14 +247,14 @@ print('Created "%%s" at %%s' %% (name, root))
 # a tab of the node page.
 
 def tree_entry(page, key):
-    """Clicks the tree entry with data-key `key` ("0", "0:bus", "1:node:2", "access", ...)."""
+    """Clicks the tree entry with data-key `key` ("0", "0:bus", "1:node:2", "project", ...)."""
     page.click('#tree [data-key="%s"] > .tree-row' % key)
 
 
 def tree_view(page, view):
     """Opens a page of the open network (bus, raw, links) or of the config
-    (access, gateway, bridge, codesys) from the tree."""
-    if view in ("access", "gateway", "bridge", "codesys"):
+    (project, gateway, bridge, codesys) from the tree."""
+    if view in ("project", "gateway", "bridge", "codesys"):
         page.click('#tree > [data-view="%s"] > .tree-row' % view)
     else:
         page.click('#tree .open-net [data-view="%s"] > .tree-row' % view)
@@ -337,3 +337,27 @@ def back_to_nodes(page):
     nothing when the table shows already."""
     if page.is_visible('[data-online="back-to-nodes"]'):
         page.click('[data-online="back-to-nodes"]')
+
+
+def tool_tab(page, view):
+    """Opens a tool tab as a user does: each tool is in one workspace
+    (one-place-navigation), so the workspace switch comes first when needed."""
+    ws = "configure" if view in ("declarations", "simfile") else "commission"
+    if page.evaluate("() => !(S.state && S.state.commission) && workspace() !== %r" % ws):
+        page.click('#ws [data-ws="%s"]' % ws)
+    page.click('#tool-tabs button[data-view="%s"]' % view)
+
+
+def network_tab(page):
+    """Configure's Network tab (the network tree's pages), from anywhere."""
+    if page.evaluate("() => !(S.state && S.state.commission) && workspace() !== 'configure'"):
+        page.click('#ws [data-ws="configure"]')
+    page.click('#tool-tabs button[data-view="network"]')
+
+
+def pick_network(page, k):
+    """Picks network k in the connection bar's network picker, the one picker
+    of the Commission tools (one-place-navigation); Configure's Simulation
+    file, without a connection bar, has it in its heading."""
+    name = page.evaluate("(k) => netName(S.model.networks[k])", k)
+    page.locator('select[data-online="network"]:visible').select_option(name)

@@ -566,7 +566,7 @@ function devHostState() {
   const host = devHostOnly(S.online && S.online.host);
   if (!host || host === "local") return null;
   if (!DEV.list) {
-    devLoad().then(() => { if (S.view === "access") render(); });
+    devLoad().then(() => { if (S.view === "project") render(); });
     return null;
   }
   const d = DEV.list && (DEV.list.devices || []).find((x) => x.host === host);

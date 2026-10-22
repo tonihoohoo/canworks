@@ -109,7 +109,7 @@ class OnlinePage(OnlineBase):
     def test_enable_online_access(self):
         pg = self.page
         self.open()
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         pg.check('input[data-online="enable"]')
         pg.wait_for_selector('input[data-path="master.diagnostics.port"]')
         self.assertIn("This PC has the token", pg.inner_text('[data-online="token-state"]'))
@@ -138,7 +138,7 @@ class OnlinePage(OnlineBase):
         self.write_config({"token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest()})
         self.remember("plc.local")
         self.open()
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         self.assertIn("former unencrypted token", pg.inner_text('[data-online="token-state"]'))
         pg.click('button[data-online="upgrade"]')
         pg.wait_for_selector('[data-online="token-state"]:has-text("This PC has the token")')
@@ -153,7 +153,7 @@ class OnlinePage(OnlineBase):
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
         self.open()
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         self.assertIn("no token", pg.inner_text('[data-online="token-state"]'))
         pg.click("text=Enter token…")
         pg.fill("#modal-extra input", "wrong")
@@ -178,13 +178,17 @@ class OnlinePage(OnlineBase):
             pg.click('button[data-online="connect"]')
             pg.wait_for_selector('[data-online="connect-msg"]:has-text("Enter the runtime\'s host")')
             pg.fill('input[data-online="host"]', fp.runtime)
+            # The token field is in the panel; no second dialog.
             pg.click('button[data-online="connect"]')
-            pg.wait_for_selector("#modal-extra input")
-            pg.click('#modal button[data-value="cancel"]')
             pg.wait_for_selector('[data-online="connect-msg"]:has-text("Enter the access token")')
+            self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
+            self.assertEqual(pg.evaluate("document.activeElement.dataset.online"), "runtime-token")
+            pg.fill('input[data-online="runtime-token"]', "wrong")
             pg.click('button[data-online="connect"]')
-            pg.fill("#modal-extra input", TOKEN)
-            pg.click('#modal button[data-value="set"]')
+            pg.wait_for_selector('[data-online="connect-msg"]:has-text("does not match")')
+            self.assertTrue(pg.is_visible("#conn-dialog"))
+            pg.fill('input[data-online="runtime-token"]', TOKEN)
+            pg.press('input[data-online="runtime-token"]', "Enter")
             pg.wait_for_selector("text=Connected to")
 
     # -- online view --------------------------------------------------------

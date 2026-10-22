@@ -38,15 +38,18 @@ class LinkPage(base.OnlineBase):
             pg.click('button[data-view="online"]')
             # The connect panel from the bar's Connect… is the one place to connect.
             pg.click('#conn-bar [data-conn="connect"]')
-            sel = 'select[data-online="runtime-list"]'
+            # One host combobox: found and remembered runtimes and the local simulator runtime.
+            sel = 'datalist[data-online="runtime-list"]'
             pg.wait_for_selector(sel + ' option[data-kind="discovered"]', state="attached")
-            self.assertIn("bench 10.0.0.7:7600", pg.inner_text(sel))
-            self.assertIn("line3 192.168.1.50, paired, from other networks", pg.inner_text(sel))
-            # A discovered runtime fills its address, a remembered one its name.
-            pg.select_option(sel, "10.0.0.7:7600")
-            self.assertEqual(pg.input_value('input[data-online="host"]'), "10.0.0.7:7600")
-            pg.select_option(sel, "line3")
-            self.assertEqual(pg.input_value('input[data-online="host"]'), "line3")
+            pg.wait_for_selector('[data-online="runtime-status"]:has-text("1 on this network, 1 remembered")')
+            opts = pg.eval_on_selector_all(sel + " option", "os => os.map((o) => [o.value, o.textContent])")
+            self.assertEqual(opts, [["10.0.0.7:7600", "bench, on this network"],
+                                    ["line3", "remembered, 192.168.1.50, paired, from other networks"],
+                                    ["local", "Local simulator runtime"]])
+            self.assertEqual(pg.get_attribute('input[data-online="host"]', "list"), pg.get_attribute(sel, "id"))
+            # A discovered runtime is its address, a remembered one its name.
+            pg.fill('input[data-online="host"]', "line3")
+            pg.press('input[data-online="host"]', "Tab")
             pg.wait_for_timeout(300)
             self.assertEqual(load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]["host"], "line3")
             # Typing an address keeps working.
@@ -60,7 +63,7 @@ class LinkPage(base.OnlineBase):
         self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
         self.remember("plc.local")
         self.open()
-        tree_view(pg, "access")
+        tree_view(pg, "project")
         box = 'input[data-online="internet"]'
         pg.wait_for_selector(box)
         self.assertEqual(pg.locator('textarea[data-online="relays"]').count(), 0)
