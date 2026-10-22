@@ -43,5 +43,5 @@
 ## 8. Hardware and desktop checks (after release)
 
 - [ ] 8.1 Windows (Toni's own PowerShell): one-line install of the new release; `uv pip list` in the tool env matches the constraints file
-- [ ] 8.2 Mac: same, then a configurator self-update to the following release installs that release's locked versions
+- [x] 8.2 Mac: same, then a configurator self-update to the following release installs that release's locked versions (PASSED 2026-10-22 on macOS arm64 in an isolated tool dir: 0.108.0 install matches its constraints, 28 shared packages; self-update 0.108.0 -> 0.111.0 ran uv with --constraints and put three deliberately drifted packages back to their pins; an update that starts on a release before 0.108.0 runs the old updater, so it is not locked)
 - [x] 8.3 Pi: `install-runtime.sh` of the new release; `pip freeze` in `/opt/canworks/venv` matches the constraints; clean PLC start, node OPERATIONAL (PASSED 2026-10-22 with 0.108.0 --with-link: 30 shared packages, 0 mismatches, absent ones are Windows/macOS-only; the install leaves the PLC without a program, so the project was deployed again, then RUNNING and the node OPERATIONAL)
