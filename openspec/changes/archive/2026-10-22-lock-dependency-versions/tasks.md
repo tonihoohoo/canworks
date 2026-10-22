@@ -26,7 +26,7 @@
 
 - [x] 5.1 `.github/dependabot.yml`: `uv` entry for `/tools/deploy`, monthly, one group; update the file's comment
 - [x] 5.2 `.github/workflows/runtime-watch.yml`: monthly + dispatch, upstream newest release vs `runtime-version`, open or update one `runtime-update` issue; least-privilege permissions
-- [ ] 5.3 Ask Toni to turn on Dependabot security updates in the repository settings
+- [x] 5.3 Ask the owner to turn on Dependabot security updates in the repository settings (on 2026-10-22)
 
 ## 6. Tested runtime on the Devices page
 
@@ -38,10 +38,10 @@
 
 - [x] 7.1 README install section, `docs/install-pc.md`, `docs/install-stock.md`, `docs/devices.md`: locked versions, how updates arrive, tested runtime note
 - [x] 7.2 Tools minor version bump (0.108.0)
-- [ ] 7.3 CI wall and summed job time against the baseline, in the PR
+- [x] 7.3 CI wall and summed job time against the baseline, in the PR (main CI run: wall 10m02s -> 10m39s, summed job time 60.6 -> 56.8 min)
 
 ## 8. Hardware and desktop checks (after release)
 
 - [ ] 8.1 Windows (Toni's own PowerShell): one-line install of the new release; `uv pip list` in the tool env matches the constraints file
 - [ ] 8.2 Mac: same, then a configurator self-update to the following release installs that release's locked versions
-- [ ] 8.3 Pi: `install-runtime.sh` of the new release; `pip freeze` in `/opt/canworks/venv` matches the constraints; clean PLC start, node OPERATIONAL
+- [x] 8.3 Pi: `install-runtime.sh` of the new release; `pip freeze` in `/opt/canworks/venv` matches the constraints; clean PLC start, node OPERATIONAL (PASSED 2026-10-22 with 0.108.0 --with-link: 30 shared packages, 0 mismatches, absent ones are Windows/macOS-only; the install leaves the PLC without a program, so the project was deployed again, then RUNNING and the node OPERATIONAL)
