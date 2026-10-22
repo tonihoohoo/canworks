@@ -189,17 +189,18 @@ async function loadShellSettings() {
   } catch (e) { S.workspace = "configure"; }
 }
 
-// Under 1500 px the secondary header actions (Reload from disk, Close,
-// Settings, Quit) go into one "⋯" menu, so the header stays one row; wider,
-// they go back to their places. Reload and Close follow the config actions'
-// visibility there too.
+// Under 1500 px, with a config open, the secondary header actions (Reload
+// from disk, Close, Settings, Quit) go into one "⋯" menu, so the header stays
+// one row; wider, or with no config (start page, Devices without a config:
+// the header has room), they stay in their places.
 const HEADER_MORE = ["#btn-reload", "#btn-close", "#menu-settings", "#btn-quit"];
 const HEADER_NARROW = matchMedia("(max-width: 1499px)");
 function fitHeaderMore() {
   const more = $("#menu-more");
   if (!more) return;
   const panel = more.querySelector(".menu-panel");
-  const narrow = HEADER_NARROW.matches && !TRACE_WINDOW;
+  const config = !$("#actions").hidden && !document.body.classList.contains("devices-only");
+  const narrow = HEADER_NARROW.matches && !TRACE_WINDOW && config;
   more.hidden = !narrow;
   if (!narrow) more.open = false;
   for (const sel of HEADER_MORE) {
@@ -216,8 +217,5 @@ function fitHeaderMore() {
       if (e.tagName === "BUTTON") e.classList.remove("item");
     }
   }
-  // Reload and Close are a config's: hidden on the start page, in the menu too.
-  const off = $("#actions").hidden;
-  for (const sel of ["#btn-reload", "#btn-close"]) $(sel).classList.toggle("off-start", narrow && off);
 }
 HEADER_NARROW.addEventListener("change", fitHeaderMore);

@@ -24,7 +24,7 @@ const CODESYS_TOP_KEYS = ["project", "device", "create", "variables"];
 
 // Page texts that differ per target (canopen-configurator "Only what the
 // target uses is shown"): { openplc, bridge, codesys }, a missing one is
-// OpenPLC's. Bridge and CODESYS texts do not speak of the plugin, the Pi,
+// OpenPLC's. Bridge and CODESYS texts do not speak of the plugin, the Linux device,
 // the PLC scan or PLC locations.
 const TARGET_TEXT = {
   role_master: {
@@ -41,7 +41,7 @@ const TARGET_TEXT = {
     bridge: "A virtual bus inside the bridge: no CAN interface is used. Plain CAN devices from the simulation file (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
   },
   interface: {
-    openplc: "Required. The interface on the PLC (the Pi), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus.",
+    openplc: "Required. The interface on the PLC (the Linux device), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus.",
     bridge: "Required. The interface on the computer that runs the bridge, not necessarily this one: can0 for the first CAN interface, vcan0 for a virtual bus.",
   },
   configure_link: {

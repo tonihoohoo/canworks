@@ -63,17 +63,12 @@ async function updateDialog() {
   if (!v || !v.newer) return;
   const intro = `canworks ${v.latest} is available. You have ${v.version}.`;
   if (v.kind !== "uv-tool") {
-    const cmd = el("textarea", { readonly: true, rows: 3, "aria-label": "Install command", spellcheck: "false" }, v.command);
-    const copy = el("button", { type: "button", onclick: async () => {
-      cmd.select();
-      try { await navigator.clipboard.writeText(v.command); copy.textContent = "Copied"; } catch (e) { document.execCommand("copy"); }
-    } }, "Copy");
     const where = v.kind === "sandboxed"
       ? "Run this in your own PowerShell window (not one opened from inside another app):"
       : (navigator.platform || "").startsWith("Win") ? "Run this in PowerShell:" : "Run this in a terminal:";
     const extra = el("div", null, el("p", null, updateLink(v)),
       el("p", { class: "muted" }, `This copy cannot update itself: ${v.why}.`), el("p", null, where),
-      el("div", { class: "update-command" }, cmd, copy));
+      updateCommand(v));
     const r = await modal(intro, [["cancel", "Close"], ["skip", "Skip this version"]], extra);
     if (r === "skip") await updateDismiss(v.latest);
     return;
@@ -164,6 +159,32 @@ async function updateCheckNow() {
     await new Promise((r) => setTimeout(r, 500));
     await updateLoad();
   }
+}
+
+// "Update PC tools…" from elsewhere (the Devices page): check now, then the
+// usual dialog; with no newer release to offer, the install command to copy.
+async function updatePcTools(button) {
+  if (button) await busy(button, "Checking…", updateCheckNow);
+  else await updateCheckNow();
+  const v = UPD.view;
+  if (!v) return;
+  if (v.newer) return updateDialog();
+  if (!v.command) {
+    banner(v.error ? `The update check failed: ${v.error}.` : `These PC tools (${v.version}) are the newest release.`, "info");
+    return;
+  }
+  const extra = el("div", null, el("p", { class: "muted" },
+    `No newer release than ${v.version} was found. Run this to install the newest one again:`), updateCommand(v));
+  await modal("Update the PC tools", [["cancel", "Close"]], extra);
+}
+
+function updateCommand(v) {
+  const cmd = el("textarea", { readonly: true, rows: 3, "aria-label": "Install command", spellcheck: "false" }, v.command);
+  const copy = el("button", { type: "button", onclick: async () => {
+    cmd.select();
+    try { await navigator.clipboard.writeText(v.command); copy.textContent = "Copied"; } catch (e) { document.execCommand("copy"); }
+  } }, "Copy");
+  return el("div", { class: "update-command" }, cmd, copy);
 }
 
 function wireUpdate() {

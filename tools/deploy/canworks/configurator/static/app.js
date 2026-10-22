@@ -1916,7 +1916,7 @@ function adapterFieldset() {
             help: "A serial-line adapter: a CANable with its stock slcan firmware, or a Lawicel CANUSB. The plugin creates the interface from the serial device itself, so no slcand service is needed." },
         ], { onChange: switchAdapterType }),
         slcan ? field("Serial device", a + ".device", "text", { placeholder: "/dev/serial/by-id/usb-…",
-          hint: "Required. The adapter's device on the PLC (the Pi). Use the /dev/serial/by-id/… path (ls /dev/serial/by-id/): /dev/ttyACM0 can change number when the adapter is plugged in again." }) : null,
+          hint: "Required. The adapter's device on the PLC (the Linux device). Use the /dev/serial/by-id/… path (ls /dev/serial/by-id/): /dev/ttyACM0 can change number when the adapter is plugged in again." }) : null,
         field("Interface", a + ".interface", "text", { list: "ifaces", placeholder: "can0",
           hint: codesysOn() ? "Optional. The bus's name in canworks; a name ending in a number (can1) gives the CODESYS network number when it is not set below."
             : slcan ? "Required. The name the plugin gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."

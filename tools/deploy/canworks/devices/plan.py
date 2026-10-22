@@ -85,6 +85,9 @@ def _main(action, label, version, confirm=(), **extra):
     return out
 
 
+SHARE_CAN = ("The PLC and the bridge cannot use the same CAN interface: give each its own (can0, can1, …) "
+             "in their configs.")
+
 ROLES = (("openplc", "OpenPLC PLC with canworks",
           "Installs the OpenPLC Runtime when there is none, and the canworks plugin. Upload a program afterwards."),
          ("bridge", "Modbus bridge",
@@ -213,6 +216,20 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         elif new and (bcur is None or bcur < new):
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart])
 
+    # No config: next to the plugin, the bridge installs from its own row
+    # (and the plugin next to the bridge), as the role question is gone.
+    if free and bool(plugin) != bool(bridge):
+        row = next(r for r in rows if r["part"] == ("plugin" if bridge else "bridge"))
+        if not bridge:
+            row["install"] = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge",
+                                   latest, [SHARE_CAN])
+        elif rt.get("kind") in (None, "none"):
+            row["install"] = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
+                                   else "Install OpenPLC Runtime and canworks", latest, [SHARE_CAN])
+        elif rt.get("kind") != "docker-other":
+            row["install"] = _main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks",
+                                   latest, [DOCKER_STOP if docker else "", SHARE_CAN])
+
     # Remote link, CAN
     link = probe.get("link")
     rows.append({"part": "link", "label": "Remote link",
@@ -245,15 +262,17 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         bridge_main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
         roles = [{"role": r, "label": label, "text": text, "main": main if r == "openplc" else bridge_main}
                  for r, label, text in ROLES]
-    reason = blocked(probe, latest) if main or roles else None
+    reason = blocked(probe, latest) if main or roles or any(r.get("install") for r in rows) else None
     pc = version_tuple(pc_version)
     seen = [v for v in (version_tuple((plugin or {}).get("version")), version_tuple((bridge or {}).get("version"))) if v]
     newest_here = max(seen) if seen else None
-    if pc and newest_here and pc < newest_here:
-        notes.append("These PC tools (%s) are older than canworks on this device (%s). Update the PC tools "
-                     "with the one-line installer." % (pc_version, ".".join(map(str, newest_here))))
+    # Only a newer major or minor on the device is worth a word: patch
+    # releases of the PC tools and the device do not depend on each other.
+    pc_older = None
+    if pc and newest_here and pc[:2] < newest_here[:2]:
+        pc_older = {"pc": pc_version, "device": ".".join(map(str, newest_here))}
     job = probe.get("install_job")
-    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "job": job,
+    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
             "up_to_date": main is None and not roles and target != "codesys",
             "sudo": probe.get("sudo"), "header": header(probe)}
 

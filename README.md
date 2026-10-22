@@ -73,7 +73,7 @@ canworks-config
 
 The configurator runs in the background and stops when its last browser tab is closed (or with **Quit** in its header); a locked screen or a sleeping PC does not stop it, a tab with unsaved changes never times out, and a tab whose configurator has gone says so and offers its unsaved config as a download. `canworks-config --foreground` keeps it in the terminal ([docs/configurator.md](docs/configurator.md#start)).
 
-**Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)). Running the line again updates.
+**Install the plugin on the PLC** (Linux with an OpenPLC v4 native or managed Docker install, [docs/install-stock.md](docs/install-stock.md)). Running the line again updates; with that release already installed it changes nothing and the PLC keeps running (`--force` installs it again).
 
 On the PLC (newest release, no git needed):
 
@@ -84,13 +84,13 @@ curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/insta
 Or from a macOS or Linux PC over SSH:
 
 ```sh
-curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh pi@rpi.local
+curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.sh | bash -s -- --ssh admin@plc.local
 ```
 
 Or from a Windows PC over SSH (PowerShell):
 
 ```powershell
-$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
+$f = "$env:TEMP\install-runtime.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-runtime.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local
 ```
 
 Native installs only, once on the PLC, so the runtime loads the plugin:
@@ -103,7 +103,7 @@ Or from the configurator: its **Devices** workspace installs the plugin, or the 
 
 Options go to `install-stock.sh` (`... | sudo bash -s -- --with-link`); `--with-link` reaches the PLC from other networks later ([docs/remote-access.md](docs/remote-access.md)). `install-runtime.sh --with-openplc` installs upstream's OpenPLC Runtime first on a device that has none ([docs/install-stock.md](docs/install-stock.md#install-or-update-with-one-line)). From a git checkout: `sudo scripts/install-stock.sh`.
 
-**Other targets.** For the Modbus bridge, run this on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), or the same with `bash -s -- --ssh pi@rpi.local` from a macOS or Linux PC, `install-bridge.ps1 -Ssh pi@rpi.local` from Windows like the plugin line above, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)):
+**Other targets.** For the Modbus bridge, run this on the Linux device (add `-s -- --instance line1 --config ./line1` to set up and start a bridge), or the same with `bash -s -- --ssh admin@plc.local` from a macOS or Linux PC, `install-bridge.ps1 -Ssh admin@plc.local` from Windows like the plugin line above, or start the `canworks-bridge` container image ([docs/modbus-bridge.md](docs/modbus-bridge.md#install)):
 
 ```sh
 curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash

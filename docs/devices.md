@@ -13,7 +13,7 @@ Each device in the list says what it is to which project: **Runtime of line3** w
 - **OpenPLC PLC with canworks**: **Install OpenPLC Runtime and canworks X** on a device with no runtime, **Install canworks X** on one with a runtime. Upload a program afterwards (the editor's **Build and upload**, or `canworks-deploy`).
 - **Modbus bridge**: **Install the bridge X**, without a config. Open the bridge project and install it from its Devices page to start the bridge with that config.
 
-A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
+A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. The other part gets **Install…** in its row: the bridge next to the plugin, or the plugin (with the runtime when there is none) next to the bridge. The PLC and the bridge cannot use the same CAN interface, so give each config its own. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
 
 ## Adding a device
 
@@ -45,7 +45,7 @@ Picking a device checks it again (**Check again** does too). The check is a read
 | A bridge without its service (a partial install) | **Install and start this project's bridge** |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
 
-X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the PC tools are older than the canworks on the device, one line says so with how to update them; nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config (the PLC's) to the bridge: the option is then greyed and the link stays as it is.
+X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config (the PLC's) to the bridge: the option is then greyed and the link stays as it is.
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 

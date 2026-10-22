@@ -110,6 +110,12 @@ class SpecTool(unittest.TestCase):
         self.tool("remove", self.BIND, self.ENV)
         self.assertEqual(json.loads(self.read()), before)
 
+    def test_has(self):
+        self.write(UPSTREAM_SPEC)
+        self.assertEqual(self.tool("has", self.BIND, self.ENV), 3)
+        self.tool("add", self.BIND, self.ENV)
+        self.assertEqual(self.tool("has", self.BIND, self.ENV), 0)
+
     def test_unknown_layout_refused(self):
         self.write('{"image": "x"}\n')
         self.assertEqual(self.tool("add", self.BIND, self.ENV), 1)
@@ -226,6 +232,63 @@ class Installer(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, "state")))  # kept without --purge
         self.assertFalse(os.path.exists(conf))
         self.assertEqual(self.calls()[-2:], ["rm -f openplc-runtime", "restart openplc-bootloader"])
+
+    def builds(self):
+        return len([c for c in self.calls() if c.startswith("run ")])
+
+    def recreates(self):
+        return self.calls().count("rm -f openplc-runtime")
+
+    def test_same_version_rerun_changes_nothing(self):
+        self.write_spec()
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(os.path.join(self.prefix, "lib", "install-stamp")) as f:
+            self.assertEqual(f.read(), "version=9.8.7\nprotocols=canopen,j1939\neditor_hook=1\nruntime=sha256:feed\n")
+        self.assertEqual((self.builds(), self.recreates()), (1, 1))
+
+        # Same version, protocols and image: no build, the container stays.
+        os.remove(self.modprobe_log)
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7", CANWORKS_STEP_BASE="2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("canworks 9.8.7 (CANopen and J1939) is already installed for this runtime", p.stdout)
+        self.assertIn("--force installs it again", p.stdout)
+        self.assertEqual((self.builds(), self.recreates()), (1, 1))
+        steps = [line.split()[1] for line in p.stdout.splitlines() if line.startswith("::canworks-step ")]
+        self.assertEqual(steps, ["3/3"])  # discovery only
+        with open(self.modprobe_log) as f:
+            self.assertEqual(f.read(), "can-j1939\n")  # the host steps still run
+
+        # Each of these installs again.
+        for args, env in ((["--force"], {}), (["--without-j1939"], {}), ([], {"CANWORKS_PLUGIN_VERSION": "9.8.8"})):
+            before = self.builds()
+            p = self.run_script(*args, **dict({"CANWORKS_PLUGIN_VERSION": "9.8.7"}, **env))
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertEqual(self.builds(), before + 1, args or env)
+            self.assertNotIn("already installed", p.stdout)
+
+        # Spec entries gone (the operator edited the spec): installs again.
+        self.write_spec()
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.8")
+        self.assertNotIn("already installed", p.stdout)
+
+    def test_unknown_or_dirty_version_always_installs(self):
+        self.write_spec()
+        for version in ("9.8.7-dirty", "unknown"):
+            for _ in range(2):
+                p = self.run_script(CANWORKS_PLUGIN_VERSION=version)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertNotIn("already installed", p.stdout)
+        self.assertEqual(self.builds(), 4)
+
+    def test_failed_build_removes_the_stamp(self):
+        self.write_spec()
+        self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7")
+        p = self.run_script("--force", CANWORKS_PLUGIN_VERSION="9.8.7", STUB_RUN_FAILS="1")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.prefix, "lib", "install-stamp")))
+        p = self.run_script(CANWORKS_PLUGIN_VERSION="9.8.7")
+        self.assertNotIn("already installed", p.stdout)
 
     def test_install_from_before_the_rename_removed(self):
         old = os.path.join(self.dir, "old-prefix")

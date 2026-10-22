@@ -8,8 +8,8 @@
 #   curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
 #   curl -LsSf .../install-bridge.sh | sudo bash -s -- --instance line1 --config ./line1
 # From a macOS or Linux PC, onto a device over SSH (no root on the PC):
-#   curl -LsSf .../install-bridge.sh | bash -s -- --ssh pi@rpi.local [--instance NAME --config DIR] [options]
-# From Windows: scripts/install-bridge.ps1 -Ssh pi@rpi.local
+#   curl -LsSf .../install-bridge.sh | bash -s -- --ssh admin@plc.local [--instance NAME --config DIR] [options]
+# From Windows: scripts/install-bridge.ps1 -Ssh admin@plc.local
 # From a checkout (installs the checkout):
 #   sudo scripts/install-bridge.sh [options]
 #

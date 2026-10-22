@@ -3,9 +3,9 @@
 # Windows 10 and 11). The device downloads the newest release and runs its
 # install-bridge.sh; nothing else is needed on the PC. Run it again to update.
 #
-#   $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh pi@rpi.local
-#   ... -Ssh pi@rpi.local -Instance line1 -Config .\line1     # also set up and start a bridge
-#   ... -Ssh pi@rpi.local -Options --uninstall,--purge        # install-bridge.sh options
+#   $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local
+#   ... -Ssh admin@plc.local -Instance line1 -Config .\line1     # also set up and start a bridge
+#   ... -Ssh admin@plc.local -Options --uninstall,--purge        # install-bridge.sh options
 #
 #   -Ssh USER@HOST   the device (sudo there may ask for its password)
 #   -Version X       install release deploy-vX instead of the newest one (from 0.84.0 on)

@@ -137,7 +137,15 @@ class Plan(unittest.TestCase):
                       pc_version="0.98.0")
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "plugin")["state"], "ok")
-        self.assertEqual(len([n for n in p["notes"] if "older than canworks on this device (0.99.0)" in n]), 1)
+        self.assertEqual(p["pc_older"], {"pc": "0.98.0", "device": "0.99.0"})
+
+    def test_pc_tools_older_by_a_patch_only(self):
+        p = plan.plan(probe(plugin={"version": "0.99.2", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.2",
+                      pc_version="0.99.0")
+        self.assertIsNone(p["pc_older"])
+        p = plan.plan(probe(plugin={"version": "0.99.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.99.0",
+                      pc_version="0.99.0")
+        self.assertIsNone(p["pc_older"])
 
     def test_no_internet(self):
         p = plan.plan(probe(internet=False), "openplc", "0.98.0")
@@ -229,6 +237,27 @@ class PlanWithoutConfig(unittest.TestCase):
         p = plan.plan(probe(runtime={"kind": "none"}, bridge=dict(b, version="0.110.0")), None, "0.110.0")
         self.assertIsNone(p["main"])
         self.assertTrue(p["up_to_date"])
+
+    def test_the_other_part_installs_from_its_row(self):
+        # A PLC device can get the bridge too (and a bridge device the plugin):
+        # its row has Install, the main action stays the installed part's.
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
+        self.assertIsNone(p["main"])
+        self.assertEqual((row(p, "bridge")["install"]["action"], row(p, "bridge")["install"]["label"]),
+                         ("install_bridge", "Install the bridge 0.110.0"))
+        self.assertIn("same CAN interface", row(p, "bridge")["install"]["confirm"][0])
+        self.assertNotIn("install", row(p, "plugin"))
+        b = {"version": "0.110.0", "prefix": "/opt/canworks-bridge", "instances": []}
+        p = plan.plan(probe(runtime={"kind": "none"}, bridge=b), None, "0.110.0")
+        self.assertEqual(row(p, "plugin")["install"]["action"], "install_openplc")
+        p = plan.plan(probe(bridge=b), None, "0.110.0")
+        self.assertEqual(row(p, "plugin")["install"]["label"], "Install canworks 0.110.0")
+        # With a config, the project's target decides: no extra Install.
+        p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.110.0")
+        self.assertNotIn("install", row(p, "bridge"))
+        p = plan.plan(probe(internet=False, plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}),
+                      None, "0.110.0")
+        self.assertIn("github.com", p["blocked"])
 
     def test_blocked_applies_to_the_roles(self):
         self.assertIn("github.com", plan.plan(probe(internet=False), None, "0.110.0")["blocked"])

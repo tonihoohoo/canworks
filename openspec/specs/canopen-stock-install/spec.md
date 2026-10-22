@@ -67,8 +67,8 @@ The install script SHALL have an uninstall mode that removes the `canopen` line 
 ### Requirement: J1939 kernel module loaded
 The install script SHALL load the `can-j1939` kernel module on the host and make it load at boot, in native and in Docker mode. When the module is not available in the running kernel, the install SHALL succeed and say that J1939 networks will not start on this device.
 
-#### Scenario: Raspberry Pi install
-- **WHEN** the script runs on a Raspberry Pi OS host
+#### Scenario: Debian-based device install
+- **WHEN** the script runs on a Debian-based host
 - **THEN** `lsmod` lists `can_j1939` and `/etc/modules-load.d/` holds an entry for it
 
 #### Scenario: Kernel without J1939
@@ -91,7 +91,7 @@ The same install SHALL be possible from a Windows, macOS or Linux PC onto a remo
 CI SHALL run `shellcheck` on the script and test its release lookup, option pass-through and the SSH command line it builds (for both scripts) without network access.
 
 #### Scenario: Install on a fresh device
-- **WHEN** an operator pastes the documented line on a Raspberry Pi with a stock OpenPLC Runtime v4 and no canworks checkout
+- **WHEN** an operator pastes the documented line on a Linux device with a stock OpenPLC Runtime v4 and no canworks checkout
 - **THEN** the newest release's `install-stock.sh` runs, the plugin is installed as in Requirement: Install on a stock runtime, and no source folder of the release is left behind
 
 #### Scenario: Update
@@ -103,11 +103,11 @@ CI SHALL run `shellcheck` on the script and test its release lookup, option pass
 - **THEN** `install-stock.sh` of the release runs with `--with-link`
 
 #### Scenario: Install from a Windows PC
-- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh pi@rpi.local` against a device with a stock runtime
-- **THEN** an SSH session to `pi@rpi.local` asks for the `sudo` password when needed, the newest release's `install-stock.sh` runs on the device, and the PowerShell command ends with its exit status
+- **WHEN** a user on Windows runs the documented PowerShell line with `-Ssh admin@plc.local` against a device with a stock runtime
+- **THEN** an SSH session to `admin@plc.local` asks for the `sudo` password when needed, the newest release's `install-stock.sh` runs on the device, and the PowerShell command ends with its exit status
 
 #### Scenario: Remote update from a Mac with options
-- **WHEN** a Mac user runs `install-runtime.sh --ssh pi@rpi.local --with-link`
+- **WHEN** a Mac user runs `install-runtime.sh --ssh admin@plc.local --with-link`
 - **THEN** the device runs the newest release's `install-stock.sh --with-link`, and the release named on the Mac and on the device is the same
 
 #### Scenario: Not root
@@ -157,7 +157,7 @@ The PC tools package SHALL contain `canworks/devices/device-probe.sh`, a POSIX `
 ### Requirement: Locked dependency versions on the device
 `install-stock.sh` SHALL take `--constraints FILE` and install the tools into `<prefix>/venv` with it. `install-runtime.sh` and `install-runtime.ps1` SHALL download the release's `canworks-<version>-constraints.txt` and pass it on. When no file is given and `uv` is on PATH, `install-stock.sh` SHALL export the constraints from the checkout's `tools/deploy/uv.lock`. Otherwise it SHALL say in one line that the dependency versions are not locked and install as before.
 
-#### Scenario: Release install on the Pi
+#### Scenario: Release install on the device
 - **WHEN** release 0.110.0 is installed with `install-runtime.sh`
 - **THEN** `pip freeze` in `/opt/canworks/venv` lists the versions of `canworks-0.110.0-constraints.txt` for every package that file names
 
@@ -171,3 +171,47 @@ The PC tools package SHALL contain `canworks/devices/device-probe.sh`, a POSIX `
 #### Scenario: Lely commit bumped alone
 - **WHEN** a change updates `_lely_dcf/VERSION` and not `scripts/dcf-tools-constraints.txt`
 - **THEN** the test fails, naming both files
+
+### Requirement: Install stamp
+`install-stock.sh` SHALL write `<prefix>/lib/install-stamp` as the last step of each successful install, holding the canworks version, the protocols built, whether the editor hook is installed and the runtime it was built for (native: the runtime's git commit; Docker: the runtime image id). It SHALL remove the stamp when a full install starts, and `--uninstall` SHALL remove it.
+
+#### Scenario: Interrupted install
+- **WHEN** an install is interrupted during the plugin build and then run again with the same release
+- **THEN** the second run installs fully
+
+### Requirement: Same-version re-run changes nothing
+When a run computes the same stamp and the plugin library and canworks' runtime entries (native: its `plugins.conf` line; Docker: its runtime spec entries) are present, `install-stock.sh` SHALL skip everything that builds or installs canworks, `plugins.conf` and any runtime restart or container recreate, and SHALL say in one line that this version is already installed, the PLC keeps running, and `--force` installs it again. Versions `unknown` and `*-dirty` SHALL never be skipped.
+
+#### Scenario: Same release again on a Docker-mode device
+- **WHEN** `install-runtime.sh --version 0.112.0` runs on a device where 0.112.0 is installed for the same runtime image and the PLC runs a program
+- **THEN** no plugin build runs, the runtime container is not recreated, the PLC still runs the same program afterwards, and the output says 0.112.0 is already installed and names `--force`
+
+#### Scenario: Link added on a same-version run
+- **WHEN** the same release is run again with `--with-link` on a device without the link
+- **THEN** the remote link is installed, and the plugin and the PLC are left as they were
+
+#### Scenario: Newer release
+- **WHEN** a newer release is installed over 0.112.0
+- **THEN** the full install runs as before and the stamp holds the new version
+
+#### Scenario: Runtime changed
+- **WHEN** the runtime image or commit changed since the last install
+- **THEN** the full install runs and builds for the new runtime
+
+#### Scenario: Checkout with local edits
+- **WHEN** `install-stock.sh` runs twice from a checkout whose `git describe` ends in `-dirty`
+- **THEN** both runs install fully
+
+### Requirement: Host steps on a skipped install
+A skipped install SHALL still load the J1939 kernel module and set up discovery and the remote link as asked, with step lines for those steps only.
+
+#### Scenario: Nothing extra asked
+- **WHEN** the same release runs again with no link or discovery options
+- **THEN** the output has the one skip line and no build, restart or recreate
+
+### Requirement: Force a full install
+`install-stock.sh --force` SHALL install fully whatever the stamp says. `install-runtime.sh` and `install-runtime.ps1` SHALL pass `--force` through, also over SSH, and list it in their help.
+
+#### Scenario: Force
+- **WHEN** the same release runs again with `--force`
+- **THEN** the full install runs, including the build and, in Docker mode, the container recreate

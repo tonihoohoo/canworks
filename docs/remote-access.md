@@ -30,7 +30,7 @@ canworks-diag discover
 canworks-diag --runtime line3.local status
 ```
 
-The advertisement does not depend on the PLC running: a stopped PLC is listed, and connecting says diagnostics are not listening. Typing a host name or address always works. Discovery needs Avahi on the device (`apt-get install avahi-daemon`; Raspberry Pi OS has it).
+The advertisement does not depend on the PLC running: a stopped PLC is listed, and connecting says diagnostics are not listening. Typing a host name or address always works. Discovery needs Avahi on the device (`apt-get install avahi-daemon`; many device images have it already).
 
 The search is one question sent on every network adapter of the PC, and the devices answer straight back to it (a legacy unicast answer). Nothing on the PC listens for the network, so Windows Defender Firewall does not ask to allow Python for it, and the list works on a network set to **Public** too. A device is listed at the address its answer came from. `canworks-diag discover line3.local` (or its address) asks one device directly; the tools do the same after connecting to a typed address, so the remote link learns the runtime and pairs this PC. Only an answer from the asked address counts.
 
@@ -95,8 +95,8 @@ CiA 309-3 tools on the PC reach the runtime's gateway over the link too: `canwor
 None of these needs the internet; discovery finds the device on each.
 
 - **Ethernet cable:** connect the PC and the device directly. With no DHCP server both fall back to link-local addresses (169.254.x.x) and the connect box lists the device.
-- **USB-C cable (Raspberry Pi):** the `rpi-usb-gadget` package makes the device a network adapter on the PC. Windows needs the Raspberry Pi RNDIS driver; the laptop port must power the Pi, so a powered hub or a separate supply is safer.
-- **The device's Wi-Fi hotspot:** `nmcli device wifi hotspot ssid NAME password PASSWORD` (WPA2). On a Raspberry Pi with Trixie, run the hotspot alone or add a USB Wi-Fi adapter for a second network: the built-in radio's firmware is unstable with a hotspot and a client connection at once.
+- **USB-C cable:** a device with USB gadget mode shows up as a network adapter on the PC (Windows needs an RNDIS driver); when the laptop port powers the device, a powered hub or a separate supply is safer.
+- **The device's Wi-Fi hotspot:** `nmcli device wifi hotspot ssid NAME password PASSWORD` (WPA2). Some devices' built-in radios are unstable with a hotspot and a client connection at once: run the hotspot alone, or add a USB Wi-Fi adapter for the second network.
 - **A local access point** on the machine, without an internet uplink: the most robust choice for several PCs and devices.
 
 ## What the remote link is for, and what not
