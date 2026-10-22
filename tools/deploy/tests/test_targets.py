@@ -142,8 +142,8 @@ class Unused(unittest.TestCase):
 
     def test_table_for_the_page(self):
         rows = {r["key"]: r for r in targets.table()}
-        self.assertEqual(rows["ui:editor_project"]["targets"], ["openplc"])
-        self.assertEqual(rows["master.sync_source=plc_cycle"]["refused"], ["bridge"])
+        self.assertEqual(rows["ui:editor_project"]["targets"], ["openplc", "openplc_modbus"])
+        self.assertEqual(rows["master.sync_source=plc_cycle"]["refused"], ["bridge", "openplc_modbus"])
 
 
 class EntryName(unittest.TestCase):
