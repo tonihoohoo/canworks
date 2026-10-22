@@ -52,7 +52,7 @@ The configurator writes `update-run.json` in the settings folder (user-readable 
 
 **6. The updater's steps.**
 1. Wait for the pid to end (30 s, then give up and start nothing: the old configurator still runs).
-2. Windows only, the lock probe: rename the tool environment folder to `<name>.update-check` and back. Windows refuses to rename a folder while any file in it is open. On failure it retries for 10 s, then stops with "Close canworks-diag and other canworks windows, then press Update again" and starts the old configurator again.
+2. Windows only, the lock probe: open each program file of the tool environment (`.exe`, `.dll`, `.pyd`) for writing and close it again. Windows refuses that while a process runs or has loaded the file, which is also what makes uv fail to remove it. (Renaming the folder, the first idea, is no probe: the Windows CI runner renamed it while a tools process ran from it, and uv then failed halfway through.) On failure it retries for 10 s, then stops with "Close canworks-diag and other canworks windows, then press Update again" and starts the old configurator again.
 3. `uv tool install --force --compile-bytecode --python <P> --overrides <file> "canworks @ <wheel URL>"`, with the user's environment (so `UV_SYSTEM_CERTS` and proxy variables apply). Output goes to `update.log` next to `configurator.log` (one older file kept).
 4. macOS and Linux: `canworks-config --create-shortcut` from the bin folder when the shortcut exists (not fatal). The Windows `.lnk` files point at the environment's `pythonw.exe` and its icon, paths a reinstall keeps, and writing them needs PowerShell, which the updater does not start.
 5. Start the new configurator as the shortcut does (`canworks-config --from-shortcut`, on Windows the environment's `pythonw.exe -m canworks.configurator.start --from-shortcut`) with `--resume <update-run.json>`, without a browser of its own. Only for Update now: after Update when I quit, nothing starts.
@@ -73,7 +73,7 @@ Runs the check, prints the current and newest version, and when newer and `uv-to
 
 ## Risks / Trade-offs
 
-- **[uv removes part of the old environment, then hits a locked file on Windows]** → The rename probe runs right before uv, and the updater waits for the configurator's pid first. If uv still fails, the rollback reinstalls the old version into a fresh environment. A test on the Windows CI runner holds a file open (a `canworks-diag` process) and checks the clean "close other windows" result with the old install intact.
+- **[uv removes part of the old environment, then hits a locked file on Windows]** → The lock probe runs right before uv, and the updater waits for the configurator's pid first. If uv still fails, the rollback reinstalls the old version into a fresh environment. A test on the Windows CI runner holds a file open (a `canworks-diag` process) and checks the clean "close other windows" result with the old install intact.
 - **[The base interpreter is missing or moved]** → Checked before the hand-off. Without it, Update falls back to the one-line command with Copy.
 - **[A company proxy that the check passes but uv does not]** → uv's own message goes to `update.log`, and the failure message names `UV_SYSTEM_CERTS=1`.
 - **[The release that is newest has no wheel yet (release still running)]** → uv fails while resolving, which leaves the old install untouched; the message says to try again in a few minutes.

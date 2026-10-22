@@ -13,7 +13,7 @@
 
 ## 3. Updater
 
-- [x] 3.1 `canworks/updater.py`, standard library only: read `update-run.json`, wait for the pid, Windows rename probe with retry, `uv tool install` with the installers' arguments and the overrides file, `canworks-config --create-shortcut`, start the new configurator with `--resume`, rollback to the old version, the message window as last resort, `update.log` (one older file kept), the result written back.
+- [x] 3.1 `canworks/updater.py`, standard library only: read `update-run.json`, wait for the pid, Windows lock probe with retry, `uv tool install` with the installers' arguments and the overrides file, `canworks-config --create-shortcut`, start the new configurator with `--resume`, rollback to the old version, the message window as last resort, `update.log` (one older file kept), the result written back.
 - [x] 3.2 Hand-off in the server: guard (unsaved changes, online or local bus, trace, simulator, device jobs), `update-run.json` (user-readable only), copy the updater to a temporary folder, start it detached on the base interpreter with `-I -S` (Windows flags, breakaway with fallback), answer the page, stop as Quit.
 - [x] 3.3 "Update when I quit": `POST /api/update/on_quit`; the stop path (Quit, last tab closed) runs the hand-off.
 - [x] 3.4 `--resume`: bind the old port when free with the old session token (design decision 7: the token is kept instead of a resume code), show the result from `update-run.json` in a message bar and delete it; port taken: new tab as a shortcut start.

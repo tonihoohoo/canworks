@@ -437,12 +437,33 @@ class Updater(unittest.TestCase):
         self.assertTrue(os.path.isdir(self.env_dir))
         self.assertTrue(updater.files_free(os.path.join(self.dir, "missing"), wait_s=0))
 
-    @unittest.skipUnless(os.name == "nt", "Windows keeps open files' folders from being renamed")
-    def test_files_in_use(self):
-        held = open(os.path.join(self.env_dir, "held.txt"), "w")
-        self.addCleanup(held.close)
-        self.assertFalse(updater.files_free(self.env_dir, wait_s=0))
+    def test_program_files_only(self):
+        os.makedirs(os.path.join(self.env_dir, "Scripts"), exist_ok=True)
+        for name in ("Scripts/python.exe", "lib.pyd", "notes.txt"):
+            with open(os.path.join(self.env_dir, name), "w"):
+                pass
+        seen = []
+        real = open
 
+        def fake_open(path, *a, **kw):
+            seen.append(os.path.basename(path))
+            return real(path, *a, **kw)
+        with mock.patch("builtins.open", fake_open):
+            self.assertIsNone(updater.file_in_use(self.env_dir))
+        self.assertEqual(sorted(seen), ["lib.pyd", "python.exe"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows keeps a running program's files from being written")
+    def test_files_in_use(self):
+        import ctypes
+        path = os.path.join(self.env_dir, "held.dll")
+        with open(path, "wb"):
+            pass
+        k32 = ctypes.WinDLL("kernel32")
+        k32.CreateFileW.restype = ctypes.c_void_p
+        h = k32.CreateFileW(path, 0x80000000, 1, None, 3, 0x80, None)  # GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING
+        self.addCleanup(k32.CloseHandle, ctypes.c_void_p(h))
+        self.assertFalse(updater.files_free(self.env_dir, wait_s=0))
+        self.assertEqual(updater.file_in_use(self.env_dir), path)
 
 if __name__ == "__main__":
     unittest.main()

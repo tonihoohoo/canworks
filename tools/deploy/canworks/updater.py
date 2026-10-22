@@ -9,8 +9,8 @@ Standard library only, for the same reason.
 
 Its one argument is the run file (update-run.json in the settings folder)
 the configurator wrote; see configurator/update.py for its fields. The steps:
-wait for the configurator to end; on Windows, check that nothing else uses
-the tools' files; install the new wheel with uv, with the one-line
+wait for the configurator to end; on Windows, check that no other process
+runs a program file of the tools; install the new wheel with uv, with the one-line
 installers' arguments; on a failure that changed the install, install the
 old version again; refresh the app shortcut (macOS and Linux); write the
 result into the run file; start the configurator again when asked to.
@@ -117,31 +117,43 @@ def wait_pid(pid, wait_s=None):
     return True
 
 
-def files_free(env, wait_s=LOCK_WAIT_S):
-    """Windows: whether no process uses a file in the tools' environment.
-    Windows refuses to rename a folder while a file in it is open (a
-    running program, a loaded module), so the folder is renamed and at once
-    renamed back; tried again for wait_s (the venv launcher ends just after
+PROGRAM_FILES = (".exe", ".dll", ".pyd")
+
+
+def file_in_use(env):
+    """Windows: the first program file (.exe, .dll, .pyd) in the tools'
+    environment that a running process has loaded, or None. Windows lets
+    such a file (and its folder) be renamed while it runs, but not opened
+    for writing or removed, which is what uv does to it."""
+    for root, _dirs, files in os.walk(env):
+        for name in files:
+            if not name.lower().endswith(PROGRAM_FILES):
+                continue
+            path = os.path.join(root, name)
+            try:
+                with open(path, "r+b"):
+                    pass
+            except FileNotFoundError:
+                continue
+            except OSError:
+                return path
+    return None
+
+
+def files_free(env, wait_s=LOCK_WAIT_S, run=None):
+    """Windows: whether no process runs a program file of the tools'
+    environment; tried again for wait_s (the venv launcher ends just after
     the interpreter it started)."""
-    aside = env + ".update-check"
     deadline = time.monotonic() + wait_s
     while True:
-        try:
-            os.rename(env, aside)
-        except FileNotFoundError:
-            return True  # nothing installed there: nothing in use either
-        except OSError:
-            if time.monotonic() > deadline:
-                return False
-            time.sleep(0.5)
-            continue
-        for _ in range(100):
-            try:
-                os.rename(aside, env)
-                return True
-            except OSError:
-                time.sleep(0.1)
-        raise OSError("could not rename %s back to %s" % (aside, env))
+        held = file_in_use(env)
+        if held is None:
+            return True
+        if time.monotonic() > deadline:
+            if run:
+                run.say("in use: %s" % held)
+            return False
+        time.sleep(0.5)
 
 
 def run_quiet(cmd, timeout=60):
@@ -231,7 +243,7 @@ def update(run):
 
     if WINDOWS and d.get("pid"):
         time.sleep(1.0)  # the venv launcher (or uv's command shim) ends just after the interpreter
-    if WINDOWS and not files_free(d["env"]):
+    if WINDOWS and not files_free(d["env"], run=run):
         run.finish("locked", "Another canworks program still runs from this install (canworks-diag, a simulator, "
                    "another configurator window): close it and press Update again. Nothing was changed.", old)
         restart(run)
