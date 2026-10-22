@@ -1,20 +1,16 @@
 "use strict";
 // A node of a config in tabs (network-tree-and-node-tabs): General, PDOs,
-// SDOs, Supervision, CiA 402 (drives), Simulation (simulated nodes), Notes
+// SDOs, Supervision, Simulation (simulated nodes), Notes
 // and Advanced, one subject at a time. The open tab stays when the user
 // opens another node, and is kept on this PC. Loaded after app.js.
 
 const NODE_TABS = [["general", "General"], ["pdos", "PDOs"], ["sdos", "SDOs"], ["supervision", "Supervision"],
-  ["cia402", "CiA 402"], ["simulation", "Simulated device"], ["notes", "Notes"], ["advanced", "Advanced"]];
+  ["simulation", "Simulated device"], ["notes", "Notes"], ["advanced", "Advanced"]];
 
-// The tabs node i has: CiA 402 for a drive (or a node with an axis already)
-// when the target runs the axis, Simulation for a simulated node.
+// The tabs node i has: Simulation only for a simulated node.
 function nodeTabs(i) {
   const n = S.config.nodes[i];
-  const eds = edsFor(n);
-  const drive = !!(objectInfo(eds, "0x6040", 0) && objectInfo(eds, "0x6041", 0));
-  const axis = !!n.axis && typeof n.axis === "object";
-  return NODE_TABS.filter(([k]) => (k !== "cia402" || ((drive || axis) && usedBy("nodes.axis"))) && (k !== "simulation" || nodeSimulated(n)));
+  return NODE_TABS.filter(([k]) => k !== "simulation" || nodeSimulated(n));
 }
 
 function nodeTab(i) {
@@ -61,12 +57,10 @@ function renderNode(view, i) {
       renderPdos(i, "tx_pdos", "input", targetText("pdo_inputs"), eds),
       renderPdos(i, "rx_pdos", "output", targetText("pdo_outputs"), eds)));
   } else if (tab === "sdos") {
-    // SDO variables are the plugin's and the bridge's.
+    // SDO variables are the bridge's.
     panel.append(renderSdos(i, eds), ...(usedBy("nodes.sdo_variables") ? [renderSdoVars(i, eds)] : []));
   } else if (tab === "supervision") {
     panel.append(supervisionTab(i, eds));
-  } else if (tab === "cia402") {
-    panel.append(axisFields(i, eds));
   } else if (tab === "simulation") {
     panel.append(nodeSimTab(n));
   } else if (tab === "notes") {

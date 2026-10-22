@@ -1,6 +1,6 @@
 // PDO links page (canopen-pdo-links, canopen-configurator "Links table"): one
 // node's TPDO received directly by other nodes' RPDOs, the master configuring
-// both ends at boot. The checks are the plugin's, from /api/check; this page
+// both ends at boot. The checks are the bridge's, from /api/check; this page
 // builds the links, shows both layouts side by side and edits the consumers'
 // heartbeat watch. Loaded after app.js, whose helpers it uses.
 "use strict";
@@ -50,7 +50,7 @@ function consumerLayout(c) {
   return (c.entries || []).map((e) => ({ index: e.index, subindex: num(e.subindex || 0), bits: typeBits(e.type), type: e.type }));
 }
 
-// The producer's COB-ID as the plugin resolves it.
+// The producer's COB-ID as the bridge resolves it.
 function linkCobId(l) {
   const n = linkNode((l.from || {}).node);
   if (!n) return null;

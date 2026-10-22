@@ -85,7 +85,7 @@ function simLoad() {
 
 function simVersion() { return Number.isInteger(SIM.file.schema_version) ? SIM.file.schema_version : 1; }
 
-// The section name of the shown network (as the plugin: its name, or its
+// The section name of the shown network (as the bridge: its name, or its
 // interface).
 function simSectionName() {
   return netName(S.config) || (S.config.adapter && typeof S.config.adapter.interface === "string" ? S.config.adapter.interface : "");

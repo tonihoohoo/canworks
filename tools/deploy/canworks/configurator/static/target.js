@@ -1,7 +1,7 @@
 // Project targets (canopen-configurator "Project target", "Only what the
 // target uses is shown", "Switching the target", "CODESYS settings",
 // "CODESYS actions"; docs/configurator.md): OpenPLC through Modbus, the
-// Modbus bridge or CODESYS; a config of the OpenPLC plugin can still be
+// Modbus bridge or CODESYS; a config of the bridge can still be
 // opened and switched to OpenPLC through Modbus. The server's relevance table (S.state.targets, targets.py) says
 // what each target uses; the page hides the rest, and a value the target
 // does not use but the config still has stays shown, marked, with Remove.
@@ -16,13 +16,14 @@ const TARGET_CHOICES = [
   { value: "codesys", label: "CODESYS",
     help: "A CODESYS PLC runs the CANopen master networks: canworks builds the bus, the nodes and their named I/O channels into a CODESYS project. No PLC locations: each PDO entry's variable name names its channel." },
 ];
-// The plugin choice is only shown for a config that still has it.
-const TARGET_PLUGIN_CHOICE = { value: "openplc", label: "OpenPLC plugin (no longer offered)",
-  help: "The canworks plugin inside the OpenPLC Runtime. New configs use OpenPLC through Modbus instead, which keeps working when OpenPLC is updated." };
-const TARGET_TITLE = { openplc: "OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
-const TARGET_LABEL = { openplc: "the OpenPLC plugin", openplc_modbus: "OpenPLC through Modbus", bridge: "the Modbus bridge", codesys: "CODESYS" };
+// A config of the removed OpenPLC plugin (no bridge or codesys key) opens
+// read-only with the switch to OpenPLC through Modbus.
+const TARGET_PLUGIN_CHOICE = { value: "plugin", label: "OpenPLC plugin (removed)",
+  help: "The canworks plugin inside the OpenPLC Runtime was removed. OpenPLC through Modbus runs the same networks in canworks-bridge." };
+const TARGET_TITLE = { plugin: "OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
+const TARGET_LABEL = { plugin: "the removed OpenPLC plugin", openplc_modbus: "OpenPLC through Modbus", bridge: "the Modbus bridge", codesys: "CODESYS" };
 // What refuses a config with errors, per target (a save with errors says so).
-const TARGET_RUNNER = { openplc: "the runtime", openplc_modbus: "the bridge", bridge: "the bridge", codesys: "the CODESYS build" };
+const TARGET_RUNNER = { plugin: "nothing", openplc_modbus: "the bridge", bridge: "the bridge", codesys: "the CODESYS build" };
 
 // Whether a target runs the networks in canworks-bridge (the Modbus bridge
 // page, byte locations, register numbers).
@@ -34,99 +35,76 @@ function bridgeTarget(tgt) {
 const CODESYS_TOP_KEYS = ["project", "device", "create", "variables"];
 
 // Page texts that differ per target (canopen-configurator "Only what the
-// target uses is shown"): { openplc, bridge, codesys }; OpenPLC through
-// Modbus uses the bridge's (the bridge runs its networks), a missing one is
-// OpenPLC's. Bridge and CODESYS texts do not speak of the plugin, the Linux device,
-// the PLC scan or PLC locations.
+// target uses is shown"): { bridge, codesys }; OpenPLC through Modbus and a
+// missing one use the bridge's (the bridge runs the networks). The texts do
+// not speak of the PLC scan or PLC locations.
 const TARGET_TEXT = {
   role_master: {
-    openplc: "Default. The plugin is the network's master: it boots and configures the nodes listed here.",
     bridge: "Default. The bridge is the network's master: it boots and configures the nodes listed here.",
     codesys: "Default. The CODESYS CANopen manager is the network's master: it boots and configures the nodes listed here.",
   },
   sim_network: {
-    openplc: "A virtual bus inside the plugin: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back.",
     bridge: "A virtual bus inside the bridge: no CAN interface or serial device is used and nothing needs installing. Every node is a simulated device unless switched off (then it is absent). The adapter settings below are kept for switching back.",
   },
   sim_plain: {
-    openplc: "A virtual bus inside the plugin: no CAN interface is used. Plain CAN devices from the simulation file (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
     bridge: "A virtual bus inside the bridge: no CAN interface is used. Plain CAN devices from the simulation file (simulation.json) send and answer on it. The adapter settings below are kept for switching back.",
   },
   interface: {
-    openplc: "Required. The interface on the PLC (the Linux device), not on this computer: can0 for the first CAN HAT, vcan0 for a virtual bus.",
     bridge: "Required. The interface on the computer that runs the bridge, not necessarily this one: can0 for the first CAN interface, vcan0 for a virtual bus.",
   },
   configure_link: {
-    openplc: "Plugin sets up the link (bit rate, up)",
     bridge: "Bridge sets up the link (bit rate, up)",
   },
   restart: {
-    openplc: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the plugin sets up the link.",
     bridge: "Empty: keep the interface's own setting. 0 turns automatic restart after bus-off off. Used only when the bridge sets up the link.",
   },
   lint_communication: {
-    openplc: "Default. The PLC stops only on lint findings in the objects 0x1000-0x1FFF that dcfgen writes, and not on findings only about limits. Other findings are logged as one warning per EDS.",
     bridge: "Default. Only lint findings in the objects 0x1000-0x1FFF that dcfgen writes keep the bridge from starting, not findings only about limits. Other findings are logged as one warning per EDS.",
   },
   lint_all: {
-    openplc: "The PLC stops on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it.",
     bridge: "The bridge does not start on any lint finding, as dcfgen's strict check does. Many vendor EDS files fail it.",
   },
   lint_off: {
-    openplc: "The PLC never stops on a lint finding; findings are logged as one warning per EDS.",
     bridge: "The bridge always starts; lint findings are logged as one warning per EDS.",
   },
   bus_off_count: {
-    openplc: "Bus-off events since the PLC started, also those shorter than a scan. Empty: none.",
     bridge: "Bus-off events since the bridge started. Empty: none.",
   },
   sdo_hidden: {
-    openplc: "communication objects the plugin sets from the node's settings",
     bridge: "communication objects the bridge sets from the node's settings",
     codesys: "communication objects CODESYS sets from the node's settings",
   },
   raw_rx: {
-    openplc: "Messages the PLC reads from the bus. Their signals go to %I.",
     bridge: "Messages the bridge reads from the bus. Their signals go to input registers.",
   },
   raw_tx: {
-    openplc: "Messages the PLC sends. Their signals come from %Q.",
     bridge: "Messages the bridge sends. Their signals come from holding registers.",
   },
   free_location: {
-    openplc: "Each signal gets a free PLC location of the right size.",
     bridge: "Each signal gets a free register location of the right size.",
   },
   links: {
-    openplc: "the data no longer passes through the PLC scan, and with \"Keep running\" it moves on while the PLC is stopped. " +
-      "The master configures both ends at boot and keeps receiving the TPDO, so the PLC can still read it.",
     bridge: "the data no longer passes through the bridge. " +
       "The master configures both ends at boot and keeps receiving the TPDO, so Modbus clients can still read it.",
     codesys: "the data no longer passes through the PLC program. " +
       "The consumers' DCFs carry the link, so CODESYS configures both ends at boot.",
   },
   location_column: {
-    openplc: "PLC location",
     bridge: "Location",
   },
   pdo_inputs: {
-    openplc: "Inputs (TPDOs, device to PLC)",
     bridge: "Inputs (TPDOs, device to Modbus registers)",
   },
   pdo_outputs: {
-    openplc: "Outputs (RPDOs, PLC to device)",
     bridge: "Outputs (RPDOs, Modbus registers to device)",
   },
   set_by_runtime: {
-    openplc: "none: the plugin sets it",
     bridge: "none: the bridge sets it",
   },
   diag_port: {
-    openplc: "Off by default; the plugin opens no port without it.",
     bridge: "Off by default; the bridge opens no port without it.",
   },
   links_none: {
-    openplc: "No links yet. A link copies a PDO from one node straight to another, without the PLC; add one with Add link.",
     bridge: "No links yet. A link copies a PDO from one node straight to another, without the bridge; add one with Add link.",
     codesys: "No links yet. A link copies a PDO from one node straight to another, without the PLC program; add one with Add link.",
   },
@@ -135,7 +113,7 @@ const TARGET_TEXT = {
 function targetText(key) {
   const t = TARGET_TEXT[key];
   const tgt = projectTarget();
-  return t[tgt] || (tgt === "openplc_modbus" && t.bridge) || t.openplc;
+  return t[tgt] || t.bridge;
 }
 
 // The target of a config (or of the draft's top-level keys).
@@ -143,10 +121,10 @@ function targetOf(cfg) {
   const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
   if (cfg && obj(cfg.bridge)) return obj(cfg.bridge.openplc) ? "openplc_modbus" : "bridge";
   if (cfg && obj(cfg.codesys)) return "codesys";
-  return "openplc";
+  return "plugin";
 }
 
-function projectTarget() { return S.model ? targetOf(S.model.top) : "openplc"; }
+function projectTarget() { return S.model ? targetOf(S.model.top) : "openplc_modbus"; }
 
 function targetRow(key) { return ((S.state && S.state.targets) || []).find((r) => r.key === key) || null; }
 
@@ -234,9 +212,9 @@ function isUnusedItem(it) { return !!(it && it.unused && it.removable); }
 
 function targetField() {
   const tgt = projectTarget();
-  const plugin = tgt === "openplc";
+  const plugin = tgt === "plugin";
   return el("fieldset", { dataset: { bridgeTarget: "1", projectTarget: "1" } }, el("legend", null, "Project target"),
-    plugin ? notice("warning", "This config is for the OpenPLC plugin, which canworks no longer offers. OpenPLC through Modbus runs the same networks in canworks-bridge and keeps working when OpenPLC is updated.",
+    plugin ? notice("warning", "This config is for the OpenPLC plugin, which was removed, so it cannot be saved. Switch to OpenPLC through Modbus: canworks-bridge runs the same networks next to the OpenPLC Runtime.",
       { live: false, dataset: { pluginTarget: "1" }, actions: [el("button", { type: "button", class: "primary", dataset: { switchModbus: "1" },
         onclick: () => switchTarget("openplc_modbus") }, "Switch to OpenPLC through Modbus")] }) : null,
     el("div", { class: "grid" }, choice("Target", "", plugin ? [TARGET_PLUGIN_CHOICE].concat(TARGET_CHOICES) : TARGET_CHOICES,

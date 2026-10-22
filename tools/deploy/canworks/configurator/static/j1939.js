@@ -877,7 +877,7 @@ function faultsUpdate(st) {
   const names = (S.onlineLast && S.onlineLast.spn_names) || {};
   const fresh = el("div");
   if (!dm) {
-    fresh.append(el("p", { class: "muted" }, "The runtime's plugin reports no trouble codes (it is older than J1939 diagnostics)."));
+    fresh.append(el("p", { class: "muted" }, "The bridge reports no trouble codes (it is older than J1939 diagnostics)."));
   } else {
     const watched = dm.watched || [];
     const seen = new Set((dm.sources || []).map((s) => s.address));

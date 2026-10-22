@@ -23,7 +23,7 @@ const S = {
   net: 0,           // the open network tab
   config: null,     // the open network of the draft (adapter, master, nodes)
   dirty: false,
-  view: "bus",      // "bus" | "node:<i>" | "declarations" | "online" | "nodes" (commissioning) | "trace" | "simulation"
+  view: "bus",      // "bus" | "node:<i>" | "online" | "nodes" (commissioning) | "trace" | "simulation"
   check: null,      // last /api/check
   objectFilter: "",
   sdoFilter: "",
@@ -218,7 +218,7 @@ async function api(method, path, body) {
   // After Quit nothing answers: the page's timers wait for good (life.js).
   if (typeof LIFE !== "undefined" && LIFE.stopped) return new Promise(() => {});
   // Requests to the runtime name the picked network; the server passes it
-  // on only to a plugin that runs several.
+  // on only to a bridge that runs several.
   const net = onlineNetwork();
   if (net !== null && body && body.network === undefined && (path.startsWith("/api/online/") || path.startsWith("/api/trace/") || path.startsWith("/api/sim/"))) {
     body = Object.assign({ network: net }, body);
@@ -538,7 +538,7 @@ function importReport(res, { slave = false } = {}) {
     const reader = dcfs ? " The DCFs exported to CODESYS are built from a corrected copy:"
       : bridgeTarget(target) ? " The Modbus bridge reads a corrected copy" + why
       : target === "codesys" ? " canworks reads a corrected copy" + why
-      : " The OpenPLC plugin reads a corrected copy" + why;
+      : " The bridge reads a corrected copy" + why;
     lines.push(el("div", { dataset: { report: "corrections" } },
       el("div", null, el("code", null, res.name), " is kept as imported." + reader),
       el("ul", null, fixes.map((c) => el("li", null, correctionLine(c))))));
@@ -1191,7 +1191,7 @@ function renderStart() {
   $("#start-first").hidden = items.length > 0;
   $("#start-recent").hidden = items.length === 0;
   $("#recent").replaceChildren(...items.map((r) => {
-    const target = r.target || (r.mode === "project" ? "openplc" : null);
+    const target = r.target;
     return el("li", null, el("button", { type: "button", class: "folder", title: r.path, onclick: () => openFolder(r.path, r.mode) },
       el("span", { class: "recent-name" }, folderName(r.path)),
       target ? el("span", { class: "tag", dataset: { recentTarget: target } }, TARGET_TITLES[target]) : null,
@@ -1203,7 +1203,7 @@ function renderStart() {
   }));
 }
 
-const TARGET_TITLES = { openplc: "OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
+const TARGET_TITLES = { plugin: "OpenPLC plugin (removed)", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
 
 // The last part of a path, on Windows too.
 function folderName(path) {
@@ -1279,7 +1279,7 @@ async function newConfig(folder) {
   } }, "Choose…");
   const project = el("input", { type: "checkbox", dataset: { newConfig: "project" }, disabled: !cli || null,
     checked: (cli && !folder) || null });
-  const projectRow = el("label", { class: "inline" }, project, " Also create an OpenPLC Editor project here, with the I/O declared in main");
+  const projectRow = el("label", { class: "inline" }, project, " Also create an OpenPLC Editor project here");
   const projectHint = el("p", { class: "hint", dataset: { newConfig: "project-hint" } }, cli
     ? "Untick to keep just a config folder; Project → New editor project… makes one later."
     : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so only a config folder can be made.");
@@ -1491,7 +1491,7 @@ async function openFolder(path, mode, isNew) {
   try {
     banner("");
     await api("POST", "/api/open", { path, mode, new: isNew });
-    await opened(null);
+    await opened();
   } catch (e) {
     if (e.body && e.body.no_config) {
       const v = await modal(e.message + ". Start a new config there?", [["new", "New config…", true], ["cancel", "Cancel"]]);
@@ -1508,16 +1508,11 @@ async function openFolder(path, mode, isNew) {
   }
 }
 
-// After a folder opened: the page shows it; a new config for the bridge or
-// CODESYS starts as that target's empty config.
-async function opened(target) {
+// After a folder opened: the page shows it.
+async function opened() {
   S.view = "bus";
   await loadState();
   if (S.state.folder) S.lastFolder = splitPath(S.state.folder)[0];
-  if (target && target !== "openplc" && S.model) {
-    bridgeReplaceDraft((await api("POST", "/api/switch_target", { config: fileConfig(), target })).config);
-    changed(true);
-  }
   // The start page is gone: keyboard focus goes to the network tree, not the page body.
   const a = document.activeElement;
   if (!a || a === document.body || !a.isConnected || a.closest("#start")) {
@@ -1586,7 +1581,6 @@ function render() {
     if (S.view === "codesys" && !codesysOn()) S.view = "bus";
     if (S.view === "raw" && !usedBy("raw")) S.view = "bus";
     if (S.view === "gateway" && !usedBy("/gateway")) S.view = "bus";
-    if (S.view === "declarations" && !usedBy("ui:declarations")) S.view = "bus";
     if (S.view === "links" && !linksNetwork(S.config)) S.view = "bus";
   }
   // The view belongs to the workspace shown (shell.js).
@@ -1606,7 +1600,6 @@ function render() {
     (isJ1939(S.config) ? renderJ1939(view) : isPlain(S.config) ? renderPlainBus(view) : renderBus(view));
   }
   else if (S.view === "raw") renderCanMessages(view);
-  else if (S.view === "declarations") renderDeclarations(view);
   else if (S.view === "online") renderOnline(view);
   else if (S.view === "nodes") renderCommNodes(view);
   else if (S.view === "trace") renderTrace(view);
@@ -1688,7 +1681,7 @@ function netSimSummary(net) {
   if (isSlave(net)) {
     if (!simNetwork(net)) return "";
     const iface = (net.adapter && net.adapter.interface) || "";
-    return `The slave runs on the simulated bus ${iface} inside the plugin, where a simulated master network with the same interface name reaches it.`;
+    return `The slave runs on the simulated bus ${iface} inside the bridge, where a simulated master network with the same interface name reaches it.`;
   }
   const nodes = net.nodes || [];
   const sim = nodes.filter((n) => nodeSimulated(n, net));
@@ -1699,7 +1692,7 @@ function netSimSummary(net) {
       o.adapter.interface === iface && o.slave && Number.isInteger(o.slave.node_id)).map((o) => o.slave.node_id);
     const served = nodes.filter((n) => !nodeSimulated(n, net) && slaveIds.includes(n.node_id));
     const absent = nodes.filter((n) => !nodeSimulated(n, net) && !served.includes(n));
-    return "The network is simulated: the master runs on a virtual bus inside the plugin" +
+    return "The network is simulated: the master runs on a virtual bus inside the bridge" +
       (sim.length ? `, with ${plural(sim, "node", "nodes")} ${nodeIds(sim)} simulated` : ", with no node simulated") +
       (absent.length ? ` and ${plural(absent, "node", "nodes")} ${nodeIds(absent)} absent` : "") +
       (served.length ? `; node ${nodeIds(served)} is canworks' own slave on the same bus` : "") + ".";
@@ -1811,7 +1804,7 @@ function networkSettings() {
     el("div", { class: "grid" },
       choice("Network", "adapter.simulate", [
         { value: undefined, label: "Real",
-          help: "The CAN adapter below. Nodes switched to Simulated run as simulated devices inside the plugin on the same interface, next to the real devices." },
+          help: "The CAN adapter below. Nodes switched to Simulated run as simulated devices inside the bridge on the same interface, next to the real devices." },
         { value: true, label: "Simulated",
           help: targetText("sim_network") },
       ], { onChange: (v) => setNetwork(v === true) })),
@@ -1831,7 +1824,7 @@ function slaveNetworkSettings() {
         { value: undefined, label: "Real",
           help: "The CAN adapter below." },
         { value: true, label: "Simulated",
-          help: "The simulated bus inside the plugin named by the interface below: a simulated master network with the same interface name runs the plugin's own master against this slave, with no CAN adapter. On that master, set the node for this slave to not simulated. The adapter settings below are kept for switching back." },
+          help: "The simulated bus inside the bridge named by the interface below: a simulated master network with the same interface name runs the bridge's own master against this slave, with no CAN adapter. On that master, set the node for this slave to not simulated. The adapter settings below are kept for switching back." },
       ], { onChange: (v) => {
         const ad = S.config.adapter || (S.config.adapter = {});
         if (v === true) ad.simulate = true; else delete ad.simulate;
@@ -1856,7 +1849,7 @@ function simSwitch(i) {
   input.addEventListener("change", () => setNodeSimulated(i, input.checked));
   const help = simNetwork()
     ? (on ? "A simulated device on the simulated network (the default there)." : "Absent: the node is left off the simulated network, as an unplugged device. Its status bit stays FALSE.")
-    : (on ? "A simulated device inside the plugin on the real network, next to the real devices. It starts only when no real device answers with its node ID."
+    : (on ? "A simulated device inside the bridge on the real network, next to the real devices. It starts only when no real device answers with its node ID."
       : "A real device on the bus (the default on a real network).");
   return el("div", { class: "check-field" }, el("label", { class: "check" }, input, " Simulated"), hint(help));
 }
@@ -1914,13 +1907,13 @@ function adapterFieldset() {
           { value: "socketcan", label: "SocketCAN (CAN HAT, candleLight/gs_usb, PEAK, vcan)",
             help: "An interface the PLC already has: a CAN HAT, a CANable with candleLight firmware, a PEAK USB adapter, or vcan0." },
           { value: "slcan", label: "CANable / serial (slcan)",
-            help: "A serial-line adapter: a CANable with its stock slcan firmware, or a Lawicel CANUSB. The plugin creates the interface from the serial device itself, so no slcand service is needed." },
+            help: "A serial-line adapter: a CANable with its stock slcan firmware, or a Lawicel CANUSB. The bridge creates the interface from the serial device itself, so no slcand service is needed." },
         ], { onChange: switchAdapterType }),
         slcan ? field("Serial device", a + ".device", "text", { placeholder: "/dev/serial/by-id/usb-…",
           hint: "Required. The adapter's device on the PLC (the Linux device). Use the /dev/serial/by-id/… path (ls /dev/serial/by-id/): /dev/ttyACM0 can change number when the adapter is plugged in again." }) : null,
         field("Interface", a + ".interface", "text", { list: "ifaces", placeholder: "can0",
           hint: codesysOn() ? "Optional. The bus's name in canworks; a name ending in a number (can1) gives the CODESYS network number when it is not set below."
-            : slcan ? "Required. The name the plugin gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."
+            : slcan ? "Required. The name the bridge gives the interface it creates, such as can0. Nothing else may use that name (stop an old slcand service)."
             : targetText("interface") }),
         el("label", null, "Bit rate", rateSel, hint("Required. Every node on the bus must use the same rate."),
           el("span", { class: "field-msg", dataset: { for: "adapter.bitrate" } })),
@@ -2011,7 +2004,7 @@ function renderBus(view) {
     ...(slave ? [] : [masterAdvanced()]));
 }
 
-// Online access (the plugin's diagnostics channel, with the CiA 309-3
+// Online access (the bridge's diagnostics channel, with the CiA 309-3
 // gateway part): one setting for the whole config, its own tree entry.
 // The Project page: what the whole project is, not one network. The target
 // (target.js) and, when the target runs canworks, Online access.
@@ -2166,7 +2159,7 @@ function roleField() {
   return el("fieldset", null, el("legend", null, "Role"),
     el("div", { class: "grid" }, choice("This network", "role", [
       { value: undefined, literal: "master", label: "Master", help: targetText("role_master") },
-      { value: "slave", label: "Slave", help: "Another master runs this network; the plugin is one of its nodes, with an EDS for that master's tool." },
+      { value: "slave", label: "Slave", help: "Another master runs this network; the bridge is one of its nodes, with an EDS for that master's tool." },
     ], { onChange: switchRole })));
 }
 
@@ -2226,7 +2219,7 @@ function slaveFieldsets() {
   const edsBox = edsField({ name: s.eds || "", product: edsProduct(s.eds), none: "None yet: build one below, or choose an EDS file",
     label: "the slave", buttonData: { path: base + ".eds" }, onChoose: chooseSlaveEds,
     extra: [el("button", { type: "button", class: "small", dataset: { exportEds: "1" }, onclick: exportSlaveEds, disabled: !s.eds,
-      title: "The EDS the plugin runs, for import into the other master's configuration tool" }, "Export EDS")] });
+      title: "The EDS the bridge runs, for import into the other master's configuration tool" }, "Export EDS")] });
   return [
     el("fieldset", null, el("legend", null, "Slave device"),
       el("div", { class: "grid" },
@@ -2442,7 +2435,7 @@ async function chooseSlaveEds() {
   edsNotesArrived(res);
 }
 
-// Export EDS: the exact file the plugin runs, named after its device name.
+// Export EDS: the exact file the bridge runs, named after its device name.
 async function exportSlaveEds() {
   try {
     const r = await api("POST", "/api/export_eds", { config: fileConfig(), network: S.net });
@@ -2481,7 +2474,7 @@ function renderGateway(view) {
   });
   view.append(el("fieldset", null, el("legend", null, "Gateway"),
     el("div", { class: "check-field" }, el("label", { class: "check" }, on, " OpenPLC copies values between the upper network and the field"),
-      hint("The plugin moves routed values at bus speed, without the PLC program. Default: off."))));
+      hint("The bridge moves routed values at bus speed, without the PLC program. Default: off."))));
   const g = top.gateway;
   if (!g) return;
   const upperSlave = (S.model.networks.find((n) => isSlave(n) && netName(n) === g.upper) || {}).slave || {};
@@ -2625,112 +2618,8 @@ function collapsible(key, i, label, count, body, summaryExtra) {
   return el("div", { class: "section-wrap" }, d, el("div", { class: "section-tools" }, summaryExtra));
 }
 
-// The node as a CiA 402 axis for the editor's PLCopen motion blocks: the
-// `axis` object (left out when off) with its scaling, and "Map CiA 402
-// objects" (/api/map_cia402), which puts the standard objects into PDOs.
-function axisFields(i, eds) {
-  const base = `nodes[${i}]`;
-  const n = S.config.nodes[i];
-  const on = !!n.axis && typeof n.axis === "object";
-  // Only a drive: the EDS has the controlword and statusword. An axis set
-  // already can still be switched off.
-  const drive = !!(objectInfo(eds, "0x6040", 0) && objectInfo(eds, "0x6041", 0));
-  const why = drive || on ? null : "The EDS has no controlword (0x6040) and statusword (0x6041): this device is not a CiA 402 drive.";
-  const box = el("input", { type: "checkbox", disabled: !!why, title: why, dataset: { path: base + ".axis" } });
-  box.checked = on;
-  box.addEventListener("change", () => { setPath(base + ".axis", box.checked ? {} : undefined); render(); });
-  // The section's messages (profile, status bit, the mapping's result) under its legend.
-  const slot = noticeSlot({ dataset: { axisNotices: "" } });
-  const fs = el("fieldset", { dataset: { axis: base } }, el("legend", null, "CiA 402 axis"), slot,
-    el("div", { class: "check-field" },
-      el("label", { class: "check" + (why ? " muted" : "") }, box, " Use as a CiA 402 axis"),
-      why ? el("p", { class: "muted", dataset: { axisNoDrive: "" } }, why) : null,
-      hint("The generated program declares an axis (AXIS_REF_SM3) for this node and calls the editor's CiA 402 drive bridge first in every scan, so MC_Power, MC_MoveAbsolute, MC_MoveVelocity and the other motion blocks drive it. Default: off."),
-      el("span", { class: "field-msg", dataset: { for: base + ".axis" } })));
-  if (!on) return fs;
-  const dt = objectInfo(eds, "0x1000", 0);
-  const value = dt ? num(dt.default) : NaN;
-  if (eds && !eds.error && !(Number.isFinite(value) && (value & 0xFFFF) === 402))
-    slot.append(notice("warning", "The EDS device type (0x1000) does not say device profile 402. Check that this device is a CiA 402 drive.",
-      { live: false, dataset: { axisProfile: "" } }));
-  if (!n.status_location)
-    slot.append(notice("error", "An axis needs the status bit (under Supervision): the axis goes into error stop when the drive is lost.",
-      { live: false, dataset: { axisStatus: "" } }));
-  fs.append(el("div", { class: "grid" },
-    field("Scale numerator", base + ".axis.scale_numerator", "int", { placeholder: "1",
-      hint: "Drive increments for 'denominator' units of the program (10: a move of 25 units is 250 increments). Empty: 1." }),
-    field("Scale denominator", base + ".axis.scale_denominator", "intstr", { placeholder: "1",
-      hint: "Program units the numerator's increments stand for. Empty: 1." }),
-    field("Scale factor", base + ".axis.scale_factor", "text", { placeholder: "1.0",
-      parse: (t) => (/^-?[0-9]*\.?[0-9]+(e-?[0-9]+)?$/i.test(t) ? Number(t) : t), hint: "The motion library's extra scale factor on that ratio. Empty: 1.0." })));
-  fs.append(cyclicFields(base, n));
-  fs.append(el("div", { class: "toolbar" },
-    el("button", { type: "button", dataset: { mapCia402: base }, disabled: !eds || !!eds.error, onclick: async () => {
-      const r = await api("POST", "/api/map_cia402", { config: fileConfig(), network: S.net, node: i });
-      S.config.nodes[i] = r.node;
-      S.axisResult = { node: i, mapped: r.mapped, missing: r.missing, changes: r.changes || [] };
-      changed(true);
-    } }, "Map CiA 402 objects"),
-    hint(n.axis.cyclic === true
-      ? "Puts the drive's objects that are not mapped yet into its PDOs for cyclic use: controlword, modes and target position in one RPDO, the other set-points in the next, statusword, modes display and actual position in one TPDO, with transmission type 1 (every SYNC)."
-      : "Puts the drive's controlword, statusword, modes, positions, velocities and torques that are not mapped yet into its PDOs, with suggested locations, as the drive's own default mapping has them where it can.")));
-  // Map CiA 402 objects' result: a bar at the top of the section.
-  const last = S.axisResult && S.axisResult.node === i ? S.axisResult : null;
-  if (last) {
-    const lines = [];
-    lines.push(el("p", null, last.mapped.length
-      ? "Mapped: " + last.mapped.map((m) => m.index ? `${m.index} ${m.name} (${m.pdo}, ${m.location})` : `${m.name} ${m.location}`).join("; ") + "."
-      : "Nothing new to map."));
-    if (last.changes && last.changes.length)
-      lines.push(el("p", { dataset: { axisChanges: "" } }, "Transmission type 1 (every SYNC) for the cyclic axis: " +
-        last.changes.map((c) => `${c.pdo} (was ${c.was === null || c.was === undefined ? "not set" : c.was})`).join(", ") + "."));
-    if (last.missing.length) lines.push(el("ul", null, ...last.missing.map((m) => el("li", null, `${m.index} ${m.name}: ${m.reason}`))));
-    slot.append(notice(last.missing.length ? "warning" : last.mapped.length ? "done" : "info", lines, { dataset: { axisResult: "" } }));
-    slot.replaceChildren(...byKind([...slot.children]));
-  }
-  return fs;
-}
-
-// Cyclic synchronous modes (CSP/CSV/CST with the CO402_Cyclic* blocks):
-// `axis.cyclic` and `axis.interpolation_period_us`. A cyclic axis needs one
-// SYNC every PLC cycle; the button switches this network to it.
-function cyclicFields(base, n) {
-  const cyclic = n.axis.cyclic === true;
-  const box = el("input", { type: "checkbox", dataset: { path: base + ".axis.cyclic" } });
-  box.checked = cyclic;
-  box.addEventListener("change", () => {
-    setPath(base + ".axis.cyclic", box.checked ? true : undefined);
-    if (!box.checked) setPath(base + ".axis.interpolation_period_us", undefined);
-    render();
-  });
-  const wrap = el("div", { dataset: { axisCyclic: base } },
-    el("div", { class: "check-field" },
-      el("label", { class: "check" }, box, " Cyclic synchronous"),
-      hint("The program sends a set-point every cycle (CSP, CSV, CST) with the CO402_Cyclic* blocks of the canworks library; the drive interpolates between them. Needs SYNC from the PLC cycle and synchronous PDOs. Default: off."),
-      el("span", { class: "field-msg", dataset: { for: base + ".axis.cyclic" } })));
-  if (!cyclic) return wrap;
-  const m = S.config.master || {};
-  const cycles = num(m.sync_cycles);
-  if (m.sync_source !== "plc_cycle" || (Number.isFinite(cycles) && cycles !== 1)) {
-    // The check's error shows under the switch; this is its fix.
-    wrap.append(el("div", { class: "toolbar", dataset: { cyclicSync: "" } },
-      el("button", { type: "button", dataset: { cyclicFix: "" }, onclick: () => {
-        const mm = S.config.master || (S.config.master = {});
-        mm.sync_source = "plc_cycle";
-        delete mm.sync_period_us;
-        delete mm.sync_cycles;
-        changed(true);
-      } }, "Use SYNC from the PLC cycle"),
-      hint("Sets this network's SYNC source to the PLC cycle, one SYNC every cycle (Bus settings).")));
-  }
-  wrap.append(el("div", { class: "grid" },
-    field("Interpolation period (us)", base + ".axis.interpolation_period_us", "int", { placeholder: "the PLC cycle",
-      hint: "Written to the drive's 0x60C2 at boot. Empty: the runtime's cycle time, which is right when the task interval is the base tick." })));
-  return wrap;
-}
-
 // emcy_cob_id: Device (the default, saved as no field), EDS, or a COB-ID
-// typed in hex or decimal. The Check gives the plugin's messages for a
+// typed in hex or decimal. The Check gives the bridge's messages for a
 // COB-ID it does not take.
 const EMCY_COB_HELP = {
   device: "Read from the node's 0x1014 after each boot; the master listens on the COB-ID the device uses.",
@@ -3369,7 +3258,7 @@ function pdoMap(eds, dir, number) {
   return eds && eds.pdo_maps && eds.pdo_maps[dir] ? eds.pdo_maps[dir][String(number)] || null : null;
 }
 
-// Whether the PDO keeps the device's mapping, decided as the plugin does:
+// Whether the PDO keeps the device's mapping, decided as the bridge does:
 // "device", or left out on a mapping the EDS makes read-only.
 function usesDeviceMapping(p, m) {
   return p.mapping === "device" || (p.mapping === undefined && !!m && !m.writable);
@@ -3424,7 +3313,7 @@ function pdoField(label, path, dflt, help) {
     el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
-// The CiA 301 default COB-ID the plugin uses when cob_id is left out (PDOs 1-4).
+// The CiA 301 default COB-ID the bridge uses when cob_id is left out (PDOs 1-4).
 function defaultCobId(n, dir, number) {
   const id = num(n.node_id);
   const nr = num(number);
@@ -3434,7 +3323,7 @@ function defaultCobId(n, dir, number) {
   return "0x" + cob.toString(16).toUpperCase();
 }
 
-// What "auto" COB-IDs resolve to, as the plugin does it (contract.auto_cob_ids):
+// What "auto" COB-IDs resolve to, as the bridge does it (contract.auto_cob_ids):
 // the CiA 301 default for PDOs 1-4; above, the highest COB-ID in 0x181-0x57F
 // outside every node's predefined set and not used by another PDO, in config
 // order. Returns { "nodes[i].tx_pdos[j]": cob }.
@@ -3999,9 +3888,9 @@ function renderSdoVars(i, eds) {
   return collapsible("sdo_variables", i, "SDO variables", list.length, fs, summaryAdd("sdo_variables", filter));
 }
 
-// Communication objects the plugin writes itself from the node's settings
+// Communication objects the bridge writes itself from the node's settings
 // (SYNC, guarding, heartbeat, PDOs, NMT startup).
-// What to say before an online write to an object: the plugin's own
+// What to say before an online write to an object: the bridge's own
 // objects on a master network; on a slave network the objects its master
 // configures and the objects bound in the draft.
 function ownWriteWarnings(index, sub) {
@@ -4033,74 +3922,8 @@ function sdoHiddenReason(list, o) {
   return null;
 }
 
-// A cyclic CiA 402 axis's cycle time line (fCycleTime) comes from the
-// program's task interval, which this page does not know: the user gives it.
-function cyclicInterval() {
-  const cyclic = S.model.networks.some((net) => (net.nodes || []).some((n) => n.axis && n.axis.cyclic === true));
-  if (!cyclic) return null;
-  const input = el("input", { type: "text", spellcheck: "false", id: "task-interval", placeholder: "T#20ms",
-    "aria-label": "Task interval" });
-  // A check that lands while the user types renders the view again: keep
-  // the text not yet committed (no change event yet) and the focus.
-  const typing = S.taskIntervalTyping;
-  input.value = typing ? typing.value : S.taskInterval || "";
-  if (typing) setTimeout(() => { input.focus(); input.setSelectionRange(typing.caret, typing.caret); });
-  S.taskIntervalTyping = null;
-  input.addEventListener("input", () => { S.taskIntervalDirty = true; });
-  input.addEventListener("change", () => {
-    S.taskIntervalDirty = false;
-    S.taskInterval = input.value.trim();
-    scheduleCheck();
-  });
-  return el("div", { class: "grid" }, el("label", null, "Task interval", input,
-    hint("The interval of the editor task that runs the program, for the cyclic axis's fCycleTime line. Change the line with the interval. Empty: T#20ms, the project generator's default."),
-    el("span", { class: "field-msg", dataset: { for: "task_interval" } })));
-}
-
-function renderDeclarations(view) {
-  const decls = (S.check && S.check.declarations) || [];
-  const block = (S.check && S.check.block) || "";
-  const ta = el("textarea", { class: "block", readonly: true, "aria-label": "Declarations block" });
-  ta.value = block || "(every mapped entry is already declared in the project)";
-  view.append(
-    el("h2", null, "Variable declarations"),
-    el("p", { class: "muted" }, "Paste this block into the VAR block of the program that uses these variables, not into a global variable list: " +
-      "located variables there do not reach the runtime. You can also type the rows below into the program's variables table. " +
-      "Entries the project already declares at the same location are left out."),
-    el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", id: "copy-block", onclick: async () => {
-      try { await navigator.clipboard.writeText(block); banner("Copied the declarations block."); }
-      catch (e) { ta.select(); document.execCommand("copy"); banner("Copied the declarations block."); }
-    } }, "Copy block")),
-    ta,
-    cyclicInterval() || "",
-    declTable(decls));
-}
-
-// The declarations table: a check mark for an entry the project declares
-// under the same name, the project's name only when it differs; "Only
-// missing" leaves out the declared ones.
-function declTable(decls) {
-  const only = el("input", { type: "checkbox", dataset: { declMissing: "" }, checked: !!S.declOnlyMissing,
-    onchange: () => { S.declOnlyMissing = only.checked; fill(); } });
-  const body = el("tbody");
-  const fill = () => {
-    const rows = S.declOnlyMissing ? decls.filter((d) => !d.declared_as) : decls;
-    body.replaceChildren(...rows.map((d) => el("tr", null, el("td", null, d.name), el("td", null, d.location), el("td", null, d.type),
-      el("td", { dataset: { declState: d.declared_as ? (d.declared_as === d.name ? "same" : "other") : "missing" } },
-        !d.declared_as ? "not yet"
-          : d.declared_as === d.name ? el("span", { title: "Declared in the project under this name" }, "\u2713", el("span", { class: "visually-hidden" }, " declared"))
-          : "declared as " + d.declared_as))));
-    if (!rows.length) body.append(el("tr", null, el("td", { colspan: 4, class: "muted", dataset: { declEmpty: "" } },
-      decls.length ? "Every entry is declared in the project." : "No mapped entries yet.")));
-  };
-  fill();
-  return el("div", null,
-    el("label", { class: "check" }, only, " Only missing"),
-    el("table", { dataset: { declTable: "" } }, el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "In the project"]))), body));
-}
-
 // ---------------------------------------------------------------------------
-// Online access: the diagnostics channel of the plugin on the runtime. The
+// Online access: the diagnostics channel of the bridge on the runtime. The
 // token stays on this PC (server.py keeps it in its settings); the config
 // holds only its SHA-256. Every runtime request goes through /api/online/*,
 // and only while the online view or the scan page is open.
@@ -4434,7 +4257,7 @@ function onlineAccessSettings() {
   });
   const old = typeof d.token_sha256 === "string" && !d.token_verifier;
   const tokenState = old
-    ? "This config has the former unencrypted token (token_sha256), which the plugin no longer accepts: " +
+    ? "This config has the former unencrypted token (token_sha256), which the bridge does not accept: " +
       (S.online.tokenOk ? "press Upgrade to set the same token for the encrypted channel." : "enter the token or make a new one.")
     : !S.online.token ? "This PC has no token for this project."
       : S.online.tokenOk ? "This PC has the token (it matches the config)."
@@ -4518,7 +4341,7 @@ function remoteLinkSettings() {
 // cia309 at the top level of the file (master.cia309 in a version 1 file).
 function cia309Config() { return S.model ? S.model.cia309 : undefined; }
 
-// [[number, network label]] as the plugin numbers them: nets when given
+// [[number, network label]] as the bridge numbers them: nets when given
 // (several networks), else 1..n in config order.
 function cia309Numbering() {
   const g = cia309Config() || {};
@@ -4812,7 +4635,7 @@ function onlineApply(r, err) {
   if (st.simulation_forced) notes.push(noteBar("warning",
     `This runtime simulates every network${/^local$/i.test((S.online.host || "").trim()) ? " (the local runtime)" : ""}: no CAN interface is used, whatever the adapter settings say.`, { online: "forced" }));
   // The connection line is a live region: it is rewritten only when it changes.
-  stateBars(conn, "done", `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: plugin ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
+  stateBars(conn, "done", `Connected to ${S.online.host}${r.network ? ", network " + r.network : ""}: canworks ${st.version || "?"}, ${st.protocol === "none" ? "plain CAN network" : protocol + " session"} up ${Math.floor(st.uptime_s || 0)} s, ` +
     (r.hello.allow_changes ? "changes allowed." : "read-only."), notes);
   // This PC was just paired in the background and can reach the runtime from other networks: said once.
   if (r.pairing_note) banner(r.pairing_note, "info");
@@ -4894,13 +4717,13 @@ function onlineApply(r, err) {
 }
 
 // ---------------------------------------------------------------------------
-// A slave network in the online view: the plugin's own device, the PDO
+// A slave network in the online view: the bridge's own device, the PDO
 // mappings in force and, on a gateway's upper network, the gateway. Its
 // own dictionary opens below; the master's tools (node list, NMT, LSS, scan,
 // parameter backup) need a master network.
 
-const SLAVE_MASTER_ONLY = "This is a slave network: the plugin is a node of another master. The node list, NMT, LSS, " +
-  "the bus scan and parameter backup need a master network; here you read and write the plugin's own dictionary.";
+const SLAVE_MASTER_ONLY = "This is a slave network: the bridge is a node of another master. The node list, NMT, LSS, " +
+  "the bus scan and parameter backup need a master network; here you read and write the bridge's own dictionary.";
 
 // The slave object of the online network's draft when that is a slave network, else null.
 function onlineSlaveCfg() {
@@ -5308,7 +5131,7 @@ function sdoStatus(v) {
 
 // A status node's EMCY COB-ID in use (emcy_cob_id: value, source, valid),
 // shown when it is not 0x80 + node ID or the device switched its EMCY off;
-// null for the default and for a plugin that does not send it.
+// null for the default and for a bridge that does not send it.
 function emcyCobNote(n) {
   const e = n && n.emcy_cob_id;
   if (!e || !Number.isInteger(e.value)) return null;
@@ -5474,7 +5297,7 @@ function errorFieldPanel(id, allow) {
 function pdoTimeoutTable(n) {
   const list = (n && n.pdo_timeouts) || [];
   if (!list.length) return el("p", { class: "muted" }, "No TPDO of this node has a receive timeout.");
-  // The plugin times a PDO out only while the node is OPERATIONAL.
+  // The bridge times a PDO out only while the node is OPERATIONAL.
   const up = n.state === 5;
   return el("table", null,
     el("thead", null, el("tr", null, thCells(["TPDO", "Timeout", "Now", "Timeouts", "Last PDO"]))),
@@ -5488,7 +5311,7 @@ function pdoTimeoutTable(n) {
 // An SDO write and NMT other than START to an OPERATIONAL node, and a scan
 // while a node is OPERATIONAL, need force: the PLC program drives the node.
 // The page asks first ("node N is running; send anyway?"), when the last
-// status shows the node OPERATIONAL or the plugin refuses for that reason,
+// status shows the node OPERATIONAL or the bridge refuses for that reason,
 // and only then sends the request with force.
 function nodeRunning(id) {
   const st = S.onlineLast && S.onlineLast.status;
@@ -7609,8 +7432,8 @@ async function addSdo(i, index, subindex) {
     if (!info.type) { banner(`${hex4(ix)}:${sx} has a data type the config does not support.`, true); return; }
     type = info.type;
   } else {
-    // The plugin checks every startup SDO against the EDS and refuses the config otherwise.
-    banner(`${hex4(ix)}:${sx} is not in ${n.eds || "the node's EDS"}; the plugin only writes objects the EDS defines.`, true);
+    // The bridge checks every startup SDO against the EDS and refuses the config otherwise.
+    banner(`${hex4(ix)}:${sx} is not in ${n.eds || "the node's EDS"}; the bridge only writes objects the EDS defines.`, true);
     return;
   }
   n.sdo = n.sdo || [];
@@ -7630,7 +7453,7 @@ async function addSdoVar(i, index, subindex, direction) {
   const info = objectInfo(edsFor(n), ix, sx);
   const write = direction === "write";
   if (!info) {
-    // The plugin checks every SDO variable against the EDS and refuses the config otherwise.
+    // The bridge checks every SDO variable against the EDS and refuses the config otherwise.
     banner(`${hex4(ix)}:${sx} is not in ${n.eds || "the node's EDS"}; SDO variables must name objects the EDS defines.`, true);
     return;
   }
@@ -7672,15 +7495,10 @@ async function runCheck() {
   try {
     const cfg = fileConfig();
     const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked,
-      task_interval: S.taskInterval || undefined, notes: S.model.notes });
+      notes: S.model.notes });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
-    if (S.view === "declarations") {
-      const ti = $("#task-interval");
-      if (ti && (S.taskIntervalDirty || document.activeElement === ti))
-        S.taskIntervalTyping = { value: ti.value, caret: ti.selectionStart ?? ti.value.length };
-      render();
-    } else applyCheck();
+    applyCheck();
     // The register map follows the draft (bridge.js).
     if (S.view === "bridge") await bridgeRefreshMap();
   } catch (e) {
@@ -7822,8 +7640,7 @@ async function exportDbc() {
 // An export's check in the Problems pane: the config check's items stay as
 // they are (the export repeats them, without the warnings) and the export's
 // own findings join them, so the count does not jump; the previous check's
-// declarations stay too, so the declarations page and the "declared as"
-// hints do not go blank.
+// declarations stay too, so the "declared as" hints do not go blank.
 function exportProblems(r, cfg) {
   const fresh = normCheck(r, fileVersion(cfg));
   // The config check's, not an earlier export's: a failed export's findings
@@ -7836,7 +7653,7 @@ function exportProblems(r, cfg) {
     fresh.items = prev.items.concat((fresh.items || []).filter((it) => !seen.has(key(it))));
     fresh.errors = fresh.items.filter((it) => it.level === "error").length;
   }
-  for (const k of ["declared", "declarations", "block"]) if (fresh[k] === undefined && prev[k] !== undefined) fresh[k] = prev[k];
+  for (const k of ["declared", "declarations"]) if (fresh[k] === undefined && prev[k] !== undefined) fresh[k] = prev[k];
   return fresh;
 }
 
@@ -8081,7 +7898,7 @@ function fieldText(it, first, w) {
 // when the draft has several.
 const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device.";
 
-// The plugin's refusal of a node without supervision (contract.supervision_message).
+// The bridge's refusal of a node without supervision (contract.supervision_message).
 const NO_SUPERVISION = /has no heartbeat or guarding \(its EDS heartbeat 0x1017 defaults to 0\)/;
 
 function problemText(it, w) {
@@ -8416,7 +8233,7 @@ async function moveIntoProject() {
 }
 
 // A new editor project around the saved standalone config: openplc-cli create,
-// the target set, main declaring every CANopen location, the config copied in.
+// the config copied in and, for OpenPLC through Modbus, the editor files.
 async function newEditorProject() {
   if (S.dirty) { banner("Save the config before creating a project from it.", true); return; }
   const field = (label, value, aria) => {
@@ -8428,11 +8245,11 @@ async function newEditorProject() {
   const [nl, name] = field("Project name (its folder: new, or an existing empty one)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
   const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
-  const sl = el("label", { class: "inline", title: "Enables the canworks function block library (CANopen, CiA 402, CAN and J1939 blocks) in the project and installs it into the editor" },
+  const sl = el("label", { class: "inline", title: "Enables the canworks function block library (SDO, NMT and node-live blocks) in the project and installs it into the editor" },
     blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
-    el("p", { class: "hint" }, "The program main declares every CANopen location once. Later config changes do not " +
-      "change it: declare new locations from Variable declarations."));
+    el("p", { class: "hint" }, "For OpenPLC through Modbus, Save keeps the remote device, canworks_in, canworks_out and " +
+      "the canworks variable list in the project up to date."));
   let text = "New OpenPLC Editor project (target OpenPLC Runtime v4) with this config in its canworks/ folder:";
   for (;;) {
     const v = await modal(text, [["create", "Create project", true], ["cancel", "Cancel"]], form);
@@ -8454,7 +8271,8 @@ async function newEditorProject() {
     S.dirty = false;
     S.view = "bus";
     render();
-    banner(`Created ${r.project} with ${r.declared} CANopen variable${r.declared === 1 ? "" : "s"} declared in main. ` +
+    const files = r.editor && r.editor.written ? ` with ${r.editor.written.length} canworks file${r.editor.written.length === 1 ? "" : "s"}` : "";
+    banner(`Created ${r.project}${files}. ` +
       "Open it in the editor with Open Project." + (r.library ? " " + r.library[0].toUpperCase() + r.library.slice(1) + "." : ""),
       r.library_ok === false);
     runCheck();

@@ -328,7 +328,7 @@ function logEvents(st) {
       } else if (S.onlineNode !== id || (S.onlineTab || "status") !== "status") S.emcyNew[id] = "pending";
     }
     // A reset and boot can both fall between two answers, leaving state and
-    // boot result as they were: the plugin's boot count still goes up.
+    // boot result as they were: the bridge's boot count still goes up.
     const rebooted = cur.boots !== null && p.boots !== null && cur.boots > p.boots;
     if (cur.boot !== p.boot || (rebooted && !cur.boot)) commEvent(id, net, cur.boot ? `Boot failed: error ${cur.boot} ${n.boot_error_text || ""}`.trim() : "Booted", cur.boot ? "failed" : "ok");
     if (cur.timeouts !== p.timeouts && cur.timeouts) commEvent(id, net, `TPDO ${cur.timeouts} timed out`, "timeout");
