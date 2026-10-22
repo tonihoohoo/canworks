@@ -214,7 +214,7 @@ class Page(unittest.TestCase):
         self.assertTrue(pg.is_checked("[data-new-config=project]"))
         pg.click('label:has([data-new-target="bridge"])')
         self.assertFalse(pg.is_visible("[data-new-config=project]"))
-        pg.click('label:has([data-new-target="openplc"])')
+        pg.click('label:has([data-new-target="openplc_modbus"])')
         pg.fill("[data-new-config=location]", self.dir)
         pg.fill("[data-new-config=name]", "new-machine")
         pg.click("#modal-buttons button[data-value=create]")

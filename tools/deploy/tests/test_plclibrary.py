@@ -14,14 +14,14 @@ from canworks import __version__, cli, editorproject, plclibrary
 from .helpers import fake_editor_cli, pingpong_config, tmpdir
 from .test_deploy import deploy
 
-BLOCKS = ["CAN_BUS_INFO", "CAN_RECEIVE", "CAN_SEND", "CAN_SEND_CYCLIC", "CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
-          "CO_GET_STATE", "CO_NETWORK_START", "CO_NETWORK_STOP", "CO_NMT", "CO_RECV_EMCY", "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING", "CO_SDO_WRITE",
-          "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING", "J1939_DM_CLEAR", "J1939_DM_READ",
-          "J1939_DTC_SPLIT", "J1939_ECU_INFO", "J1939_FIND_ECU", "J1939_NAME_SPLIT", "J1939_RECEIVE", "J1939_REQUEST",
-          "J1939_SEND"]
+# The ST blocks over the Modbus bridge's PLC link (add-openplc-modbus-target);
+# the C++ plugin blocks are no longer packaged.
+BLOCKS = ["CO402_CYCLICMOVEABSOLUTE", "CO402_CYCLICPOSITION", "CO402_CYCLICTORQUE", "CO402_CYCLICVELOCITY",
+          "CO_NMT", "CO_NODE_LIVE", "CO_SDO_READ", "CO_SDO_WRITE", "J1939_DTC_SPLIT", "J1939_NAME_SPLIT"]
 FUNCTIONS = ["CAN_GET_BITS", "CAN_GET_UINT16", "CAN_GET_UINT32", "CAN_J1939_ID", "CAN_J1939_PGN", "CAN_J1939_SOURCE",
-             "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "J1939_DTC_MAKE", "J1939_GET_BITS",
-             "J1939_NAME_MAKE", "J1939_SET_BITS"]
+             "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "CW_DWORD_TO_REAL", "CW_LREAL_TO_LWORD",
+             "CW_LWORD_TO_LREAL", "CW_REAL_TO_DWORD", "J1939_DTC_MAKE", "J1939_GET_BITS", "J1939_NAME_MAKE",
+             "J1939_SET_BITS"]
 
 
 def load(path):
@@ -37,14 +37,14 @@ class Archive(unittest.TestCase):
         self.assertEqual(sorted(plclibrary.block_names()), BLOCKS)
         self.assertEqual(sorted(plclibrary.function_names()), FUNCTIONS)
         # Every block's source travels in the archive (the editor shows it and
-        # compiles it into the program): C++ for the SDO, NMT and frame blocks, ST
-        # for the cyclic CiA 402 blocks, the CAN_ byte and bit helpers and the
-        # J1939 value, bit and NAME helpers.
-        helpers = [f + ".st" for f in FUNCTIONS] + ["J1939_DTC_SPLIT.st", "J1939_NAME_SPLIT.st"]
+        # compiles it into the program), all ST: the PLC link blocks, the
+        # REAL helpers, the cyclic CiA 402 blocks, the CAN_ byte and bit
+        # helpers and the J1939 value, bit and NAME helpers.
+        helpers = [f + ".st" for f in FUNCTIONS if not f.startswith("CW_")] + ["CW_REAL.st", "J1939_DTC_SPLIT.st", "J1939_NAME_SPLIT.st"]
         self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
                          sorted(["CO402_CyclicMoveAbsolute.st", "CO402_CyclicPosition.st", "CO402_CyclicTorque.st",
-                                 "CO402_CyclicVelocity.st"] + helpers +
-                                [b + ".cpp" for b in BLOCKS if b.startswith(("CO_SDO", "CO_NMT", "CO_NETWORK_", "CO_GET_STATE", "CO_RECV", "CAN_", "J1939_DM_", "J1939_SEND", "J1939_RECEIVE", "J1939_REQUEST", "J1939_ECU_INFO", "J1939_FIND_ECU"))]))
+                                 "CO402_CyclicVelocity.st", "CO_NMT.st", "CO_NODE_LIVE.st", "CO_SDO_READ.st",
+                                 "CO_SDO_WRITE.st"] + helpers))
 
     def test_function_parameters(self):
         # The editor asks a function call for every manifest parameter, so the
