@@ -146,6 +146,14 @@ jobs:
           python -m pip install -q jsonschema
           test/cia402/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
 
+      - name: OpenPLC Modbus ST tests (the PLC link blocks and canworks_in/canworks_out against a bridge model, ~15 s)
+        run: test/plc_modbus/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
+
+      - name: OpenPLC through Modbus (the pinned runtime's own Modbus master against the bridge, ~10 s)
+        run: |
+          python -m pip install -q "$(grep '^pymodbus' upstream-runtime/core/src/drivers/plugins/python/modbus_master/requirements.txt)"
+          test/openplc_modbus/run.py --bridge build/bin/canworks-bridge --runtime upstream-runtime
+
   vcan:
     # The plugin on vcan, split over three runners (each has its own vcan0) so
     # each runs about the same test time. Test step times (pull request #69, 2026-10-10):
