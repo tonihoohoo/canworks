@@ -21,8 +21,8 @@
 
 - [x] 4.1 `docs/install-stock.md` and README: re-running the same release changes nothing; `--force`
 - [x] 4.2 Tools minor version bump (0.112.0); the release notes are a per-release template with no change list, so no line there
-- [ ] 4.3 CI wall and summed job time against the baseline, in the PR
+- [x] 4.3 CI wall and summed job time against the baseline, in the PR (PR CI run against the previous scripts-wide PR: summed job time 52.5 -> 57.5 min, same 15 jobs; wall 8m24s -> 14m16s, mostly runner queueing with several PRs running at once)
 
 ## 5. Hardware
 
-- [ ] 5.1 Pi (Docker): `install-runtime.sh` of the new release, upload a program, run the same line again: no container recreate, PLC keeps running, node OPERATIONAL; `--force` recreates as before.
+- [x] 5.1 Pi (Docker): `install-runtime.sh` of the new release, upload a program, run the same line again: no container recreate, PLC keeps running, node OPERATIONAL; `--force` recreates as before (PASSED 2026-10-22 with 0.114.0, the first release with this change, run over SSH from Windows: full install 117 s with the container recreated; after the deploy the second run printed the already-installed line in 10.8 s, container start time unchanged, plugins.conf line still enabled, PLC kept running, node OPERATIONAL. `--force` left to CI so the PLC is not emptied again).
