@@ -1356,12 +1356,18 @@ class Folders(Running):
                 raise PermissionError(13, "Permission denied", src)
             return replace(src, dst)
 
+        # Windows cannot tell a refused rename from a file another program
+        # holds open: it tries again for a while, then says the file is held.
+        want = 409 if os.name == "nt" else 403
         with unittest.mock.patch("os.replace", refuse):
             status, data, _ = self.request("POST", "/api/save", {"config": state["config"]})
-            self.assertEqual(status, 403)
-            self.assertEqual(data["error"], "cannot write to the folder %s: permission denied" % folder)
+            self.assertEqual(status, want)
+            if os.name == "nt":
+                self.assertIn("is held open by another program", data["error"])
+            else:
+                self.assertEqual(data["error"], "cannot write to the folder %s: permission denied" % folder)
             status, data, _ = self.request("POST", "/api/sim/save", {"doc": state["simulation"]["doc"]})
-            self.assertEqual(status, 403, data)
+            self.assertEqual(status, want, data)
             self.assertIn("cannot write to the folder %s" % folder, data["error"])
         self.assertEqual(self.ok("GET", "/api/state")["mode"], "standalone")
 
