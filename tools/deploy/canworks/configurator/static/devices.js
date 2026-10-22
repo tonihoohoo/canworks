@@ -12,6 +12,7 @@ const DEV = {
   sel: null,          // the selected device's id
   probes: {},         // device id -> the last probe answer of this page ({ probe, plan, latest })
   errors: {},         // device id -> the last connection error
+  unreached: {},      // device id -> true when the last error was "can't reach"
   jobs: {},           // device id -> the job this page follows
   found: null,        // devices runtime discovery found, not in the list
   keyOffered: {},     // device ids offered key login in this session
@@ -175,8 +176,8 @@ function devPagePane() {
   const job = DEV.jobs[d.id];
   const check = el("button", { type: "button", dataset: { devices: "check" }, disabled: job && !job.done ? "An install is running." : null,
     onclick: (e) => busy(e.currentTarget, "Checking…", () => devProbe(d.id, true)) }, "Check again");
-  const menu = el("details", { class: "menu", dataset: { devices: "menu" } }, el("summary", { "aria-haspopup": "menu" }, "Device"),
-    el("div", { role: "menu", "aria-label": "Device" },
+  const menu = el("details", { class: "menu", dataset: { devices: "menu" } }, el("summary", { "aria-haspopup": "menu" }, "Actions"),
+    el("div", { role: "menu", "aria-label": "Actions" },
       el("button", { type: "button", class: "item", role: "menuitem", dataset: { devices: "remove-all" },
         disabled: !p || (job && !job.done) ? "Check the device first." : null, onclick: () => devStart(d.id, "remove_all") }, "Remove everything…"),
       el("button", { type: "button", class: "item", role: "menuitem", dataset: { devices: "remove" }, onclick: () => devRemove(d.id) }, "Remove device")));
@@ -185,7 +186,15 @@ function devPagePane() {
   if (head) pane.append(el("p", { class: "muted", dataset: { devices: "header" } }, head));
   const slot = noticeSlot({ dataset: { devices: "device-bars" } });
   pane.append(slot);
-  if (DEV.errors[d.id]) slot.append(notice("error", DEV.errors[d.id], { live: false }));
+  if (DEV.errors[d.id]) {
+    // Not reached: one sentence and what to check, without the socket's text.
+    const text = !DEV.unreached[d.id] ? DEV.errors[d.id] : el("div", { dataset: { devices: "unreached" } }, DEV.errors[d.id],
+      el("ul", { class: "checklist" }, el("li", null, "SSH is on in the device (on a Raspberry Pi: raspi-config, Interface Options)."),
+        el("li", null, "This PC and the device are on the same network."),
+        el("li", null, "The host name or address is right; try the address if the name is not found."),
+        el("li", null, `The SSH port is right (${d.port || 22}).`)));
+    slot.append(notice("error", text, { live: false }));
+  }
   if (!p) {
     pane.append(el("p", { class: "muted" }, DEV.errors[d.id] ? "Check the device again once it is reachable." : "Checking the device…"));
     return pane;
@@ -253,8 +262,13 @@ async function devAdd(host) {
   const p = el("input", { type: "text", inputmode: "numeric", placeholder: "22", dataset: { devices: "port" } });
   if (host) h.value = host;
   const err = msgBar({ devices: "add-error" });
+  // A refused field says so under itself; anything else in the bar.
+  const msgs = { host: el("span", { class: "field-msg", dataset: { devicesMsg: "host" } }),
+    user: el("span", { class: "field-msg", dataset: { devicesMsg: "user" } }),
+    port: el("span", { class: "field-msg", dataset: { devicesMsg: "port" } }) };
+  const inputs = { host: h, user: u, port: p };
   const form = el("div", { class: "grid" }, err,
-    el("label", null, "Host", h), el("label", null, "SSH user", u), el("label", null, "SSH port", p));
+    el("label", null, "Host", h, msgs.host), el("label", null, "SSH user", u, msgs.user), el("label", null, "SSH port", p, msgs.port));
   for (;;) {
     const v = await modal("Add a device: a Linux computer this PC reaches over SSH.", [["cancel", "Cancel"], ["add", "Add", true]], form);
     if (v !== "add") return;
@@ -266,7 +280,15 @@ async function devAdd(host) {
       render();
       devProbe(r.device);
       return;
-    } catch (e) { err.say(e.message); }
+    } catch (e) {
+      const f = e.body && e.body.field;
+      err.say(f && msgs[f] ? "" : e.message);
+      for (const [k, m] of Object.entries(msgs)) {
+        m.textContent = k === f ? e.message : "";
+        inputs[k].setAttribute("aria-invalid", String(k === f));
+      }
+      if (f && inputs[f]) setTimeout(() => inputs[f].focus(), 0);
+    }
   }
 }
 
@@ -279,9 +301,10 @@ function devSelect(id) {
 
 async function devProbe(id, refresh) {
   delete DEV.errors[id];
+  delete DEV.unreached[id];
   let r;
   try { r = await devCall("/api/devices/probe", { device: id, refresh: !!refresh }); }
-  catch (e) { DEV.errors[id] = e.message; if (S.view === "devices") render(); return; }
+  catch (e) { DEV.errors[id] = e.message; DEV.unreached[id] = !!(e.body && e.body.unreachable); if (S.view === "devices") render(); return; }
   if (!r) { DEV.errors[id] = "Not connected."; if (S.view === "devices") render(); return; }
   DEV.probes[id] = { plan: r.plan, latest: r.latest, at: Date.now() / 1000 };
   const job = r.probe.install_job;

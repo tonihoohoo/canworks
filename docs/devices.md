@@ -38,7 +38,9 @@ X is the newest `deploy-v` release, looked up on github.com from this PC (or fro
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Device** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC. The OpenPLC Runtime itself is never removed from here.
+The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Actions** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC. The OpenPLC Runtime itself is never removed from here.
+
+In **Add device…** a wrong host, user or port is said under its field. A device that does not answer reads **Not reached**, with one sentence ("Can't reach 192.0.2.10 on SSH port 22.") and what to check: SSH on the device, the same network, the address and the port.
 
 ## Starting an action
 

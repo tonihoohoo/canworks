@@ -22,7 +22,11 @@ FIELDS = ("host", "port", "user", "probe", "probe_at", "latest", "job", "job_sec
 
 
 class DeviceError(ValueError):
-    pass
+    """A device setting refused; `field` names the field it is about."""
+
+    def __init__(self, message, field=None):
+        super().__init__(message)
+        self.field = field
 
 
 def device_id(host, port):
@@ -32,14 +36,14 @@ def device_id(host, port):
 def check_host(host):
     host = (host or "").strip()
     if not _HOST.match(host) or host.startswith("-"):
-        raise DeviceError("give the device's host name or address, such as line3.local or 192.168.1.20")
+        raise DeviceError("Give the device's host name or address, such as line3.local or 192.168.1.20.", field="host")
     return host
 
 
 def check_user(user):
     user = (user or "").strip()
     if user and not _USER.match(user):
-        raise DeviceError("the SSH user name may have letters, digits, ., - and _ only")
+        raise DeviceError("The SSH user name may have letters, digits, ., - and _ only.", field="user")
     return user
 
 
@@ -47,7 +51,7 @@ def check_port(port):
     if port in (None, ""):
         return 22
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-        raise DeviceError("the SSH port must be 1-65535")
+        raise DeviceError("The SSH port is a number from 1 to 65535.", field="port")
     return port
 
 

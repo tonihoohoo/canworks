@@ -383,7 +383,7 @@ async function renderSimulation(view) {
       el("div", { class: "spacer" }), simSaveBar()),
     // Only what is particular to simulation, as bars under the title; the connection bar says what is connected.
     noticeSlot({ id: "sim-conn", hidden: true, "aria-live": "polite" }),
-    notice("warning", "", { id: "sim-readonly", live: false, dataset: { sim: "readonly" } }),
+    Object.assign(notice("warning", "", { id: "sim-readonly", live: false, dataset: { sim: "readonly" } }), { hidden: true }),
     tabList,
     el("div", { id: "sim-body", role: "tabpanel", "aria-labelledby": "sim-body-tab-" + SIM.tab }));
   simRenderTab();
@@ -423,11 +423,13 @@ function simShowFileState(target) {
   if (save) simSaveAllowed(save);
 }
 
-// The server refuses a file with errors; so does the button.
+// The server refuses a file with errors; so does the button. Nothing to
+// save (the file is as on disk) disables it too, like the header's Save.
 function simSaveAllowed(btn) {
   const errors = SIM.problems.filter((p) => p.level !== "warning").length;
-  btn.disabled = errors > 0;
-  btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in the simulation file` : "";
+  const saved = !simDirty() && !!(S.state.simulation && S.state.simulation.exists);
+  btn.disabled = errors > 0 || saved;
+  btn.title = errors ? `${errors} error${errors === 1 ? "" : "s"} in the simulation file` : saved ? "The simulation file is saved" : "";
 }
 
 async function simPoll(seq) {
@@ -735,8 +737,17 @@ function simRow(ref, key, first) {
   let toggle = null;
   const bits = [];
   const range = SIM_INT_RANGE[type];
-  const lo = info && info.low_limit !== undefined ? info.low_limit : range ? range[0] : null;
-  const hi = info && info.high_limit !== undefined ? info.high_limit : range ? range[1] : null;
+  // The slider spans what the value does: its source's range (with a margin),
+  // else the EDS limits, else the type's range.
+  const src = simSourceRange(ref, key);
+  const eds = info && (info.low_limit !== undefined || info.high_limit !== undefined);
+  let lo = info && info.low_limit !== undefined ? info.low_limit : range ? range[0] : null;
+  let hi = info && info.high_limit !== undefined ? info.high_limit : range ? range[1] : null;
+  if (src) {
+    const pad = Math.max(1, Math.round((src[1] - src[0]) * 0.1));
+    lo = lo === null ? src[0] - pad : Math.max(lo, src[0] - pad);
+    hi = hi === null ? src[1] + pad : Math.min(hi, src[1] + pad);
+  }
   const control = el("div", { class: "sim-control" });
   const send = async (op, v) => {
     if (v === "" || v === undefined || (typeof v === "number" && Number.isNaN(v))) { banner("Enter a value first.", true); return; }
@@ -773,14 +784,16 @@ function simRow(ref, key, first) {
       "aria-label": `Slider ${key}`, dataset: { sim: "slider" } }, off));
     slider.addEventListener("input", () => { input.value = slider.value; });
     slider.addEventListener("change", () => send("sim_override", Number(slider.value)));
-    control.append(slider, el("span", { class: "muted" }, `${l} … ${h}${info && (info.low_limit !== undefined || info.high_limit !== undefined) ? " (EDS)" : ""}`));
+    control.append(slider, el("span", { class: "muted", dataset: { sim: "range" } }, `${l} … ${h}${src ? " (source)" : eds ? " (EDS)" : ""}`));
   }
   const release = el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "release" },
     onclick: async () => { if (await simRequest("sim_release", { node: ref, objects: [key] })) banner(`${simRefText(ref)} ${key}: override released.`); } }, off), "Release");
   const pinned = simPins(ref).includes(key);
   const actions = el("td", { class: "actions" },
-    el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "set" }, onclick: () => send("sim_set", simParseValue(input.value)) }, off), "Set"), " ",
-    el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "override" }, onclick: () => send("sim_override", simParseValue(input.value)) }, off), "Override"), " ",
+    el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "set" }, onclick: () => send("sim_set", simParseValue(input.value)) }, off,
+      allow ? { title: "Writes the value once; the value's source goes on from it" } : {}), "Set"), " ",
+    el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "override" }, onclick: () => send("sim_override", simParseValue(input.value)) }, off,
+      allow ? { title: "Holds the value until Release; the source is paused" } : {}), "Override"), " ",
     release, " ",
     el("button", Object.assign({ type: "button", class: "small", dataset: { sim: "source" }, onclick: () => { SIM.editing = SIM.editing === key ? null : key; simUpdateValues(); } }, off), "Source…"), " ",
     pinned ? el("button", { type: "button", class: "small", dataset: { sim: "unpin" }, onclick: () => simSetPins(ref, simPins(ref).filter((x) => x !== key)) }, "Unpin") : null);
@@ -806,6 +819,20 @@ function simRow(ref, key, first) {
       if (!busy(input) && !(slider && busy(slider))) input.value = String(raw);
     },
   };
+}
+
+// [low, high] a value's source moves in (a wave's or random walk's min and
+// max, a ramp's from and to), or null.
+function simSourceRange(ref, key) {
+  const e = simEntry(ref, false);
+  const found = e && e.sources ? Object.entries(e.sources).find(([o]) => simKey(o) === key) : null;
+  const src = found ? found[1] : null;
+  if (!src || typeof src !== "object") return null;
+  const p = Object.values(src)[0];
+  if (!p || typeof p !== "object") return null;
+  const pair = typeof p.min === "number" && typeof p.max === "number" ? [p.min, p.max]
+    : typeof p.from === "number" && typeof p.to === "number" ? [Math.min(p.from, p.to), Math.max(p.from, p.to)] : null;
+  return pair && pair[1] > pair[0] ? pair : null;
 }
 
 function simSourceRow(ref, key, row) {

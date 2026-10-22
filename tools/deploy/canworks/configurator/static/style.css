@@ -75,6 +75,8 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 /* A link in running text that is a control of its own: the 24 px target. */
 .link.target, a.target { display: inline-block; min-height: 24px; line-height: 24px; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+/* A disabled primary button (Saved) is not filled: it must not look like the selected workspace. */
+button.primary:disabled { background: var(--panel); color: var(--muted); border-color: var(--line); opacity: 1; }
 .busy { pointer-events: none; opacity: .7; }
 input[type=checkbox], input[type=radio] { width: 20px; height: 20px; min-width: 20px; flex: none; margin: 2px; vertical-align: middle; }
 /* Header menus: native details, one open at a time (app.js wireMenus). */
@@ -168,6 +170,7 @@ ul.folders li:last-child { border-bottom: 0; }
 ul.folders li:has(> button.folder) { padding: 0; }
 ul.folders button.folder { flex: 1; min-width: 0; display: flex; gap: 8px; padding: 5px 10px; border: 0; border-radius: 0; background: none; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 ul.folders button.folder:hover { background: var(--hover); }
+ul.folders button.folder[aria-pressed="true"] { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
 ul.folders li:hover { background: var(--hover); }
 /* A placeholder is a default or an example, never a value (codesys-new-project-picker). */
 ::placeholder { color: var(--muted); opacity: .7; font-style: italic; }
@@ -434,6 +437,7 @@ main#editor.wide-view ~ footer #problems { display: none; }
 .series-picker h4 { margin: 6px 0 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .series-item { display: flex; gap: 4px; align-items: center; justify-content: space-between; }
 .series-item label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.series-item:hover label, .series-item:focus-within label { white-space: normal; overflow-wrap: anywhere; }
 .series-item select { font-size: 12px; padding: 1px 2px; flex: 0 0 auto; }
 .graph-main { min-width: 0; }
 #trace-plots .plot { margin-bottom: 6px; }
@@ -1129,3 +1133,16 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
 /* A PDO entry that reaches no PLC variable (add-node-dialog). */
 .unmapped { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin-top: 2px; white-space: normal; }
 .warning-text { color: var(--st-warn); }
+
+/* A message bar never shows without words (ux-cleanup "No empty message bars"). */
+.notice:has(> .notice-text:empty):not(:has(.notice-actions)) { display: none; }
+fieldset.changes-device { border-color: var(--st-warn); }
+
+/* A menu under its button (a network's ⋯). */
+.menu-pop { position: fixed; z-index: 50; min-width: 220px; max-width: 280px; display: flex; flex-direction: column; gap: 2px;
+  padding: var(--sp-1); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
+.menu-pop button { text-align: left; border-color: transparent; }
+.menu-pop button:hover, .menu-pop button:focus-visible { background: var(--hover); }
+.menu-pop .menu-pop-title { padding: 2px 6px; font-size: 12px; }
+.single-choice { display: block; padding: 5px 0; font-weight: 600; }
+.notice ul.checklist { margin: 4px 0 0; padding-left: 18px; }

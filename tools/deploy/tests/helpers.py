@@ -301,7 +301,7 @@ def add_network(page):
 def net_action(page, k, action):
     """Rename, role or remove of network k from its tree menu."""
     page.click('#tree [data-net-menu="%d"]' % k)
-    page.click('#modal-buttons [data-value="%s"]' % action)
+    page.click('[data-menu-pop] [data-value="%s"]' % action)
 
 
 def new_config(pg, path, target="openplc", project=False):

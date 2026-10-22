@@ -1334,7 +1334,10 @@ async function newConfig(folder) {
 // (codesys-new-project-picker): `files` (".project") also lists the folder's
 // files with that extension, and picking one resolves its path; `newName`
 // adds a name field whose Create here resolves <folder>/<name><files>.
-async function chooseFolder({ title, start, note, files, newName }) {
+// One click selects a folder (Use this folder takes it), a double-click or
+// Enter opens it; each folder says whether it is an OpenPLC project or holds
+// a canworks config. `eds` (picking an EDS folder) adds the EDS counts.
+async function chooseFolder({ title, start, note, files, newName, eds }) {
   const path = el("input", { type: "text", spellcheck: "false", "aria-label": "Folder path", dataset: { folder: "path" } });
   const up = el("button", { type: "button", title: "Parent folder", "aria-label": "Parent folder", dataset: { folder: "up" } }, "↑");
   const go = el("button", { type: "button", dataset: { folder: "go" } }, "Go");
@@ -1342,6 +1345,7 @@ async function chooseFolder({ title, start, note, files, newName }) {
   const list = el("ul", { class: "folders", "aria-label": "Subfolders", dataset: { folder: "list" } });
   const err = msgBar({ folder: "error" });
   let shown = null;  // the listing on screen
+  let selected = null;  // the folder clicked once
   let pick = () => {};  // file mode: resolves the dialog with a file's path
   // File mode's new name: Create here, refused in the dialog when the name has slashes or its file is listed.
   let create = null;
@@ -1364,7 +1368,14 @@ async function chooseFolder({ title, start, note, files, newName }) {
       el("div", { class: "row" }, name, el("button", { type: "button", dataset: { folder: "create" }, onclick: createNew }, "Create here")),
       hint(`A new file in the folder shown above (${files} is added). Nothing is written until the build.`));
   }
-  const edsTag = (n) => (n ? el("span", { class: "tag" }, n + " EDS") : null);
+  const edsTag = (n) => (eds && n ? el("span", { class: "tag" }, n + " EDS") : null);
+  const kindTag = (e) => (e.project ? el("span", { class: "tag", dataset: { folderKind: "project" } }, "OpenPLC project")
+    : e.config ? el("span", { class: "tag", dataset: { folderKind: "config" } }, "canworks config") : null);
+  const select = (b) => {
+    for (const x of list.querySelectorAll("[aria-pressed]")) x.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-pressed", "true");
+    selected = b.dataset.folderPath;
+  };
   async function open(where, drives) {
     const inList = list.contains(document.activeElement);
     let r;
@@ -1377,16 +1388,20 @@ async function chooseFolder({ title, start, note, files, newName }) {
     }
     err.say("");
     shown = r;
+    selected = null;
     path.value = r.path;
     up.disabled = !r.parent && !r.drive;
     const nFiles = r.entries.filter((e) => e.file).length;
     here.textContent = r.drive_list ? "Drives on this PC"
       : files ? (!nFiles ? `No ${files} files in this folder` : nFiles === 1 ? `1 ${files} file in this folder` : `${nFiles} ${files} files in this folder`)
+      : !eds ? ""
       : !r.eds ? "No EDS files in this folder" : r.eds === 1 ? "1 EDS file in this folder" : r.eds + " EDS files in this folder";
+    here.hidden = !here.textContent;
     list.replaceChildren(...r.entries.map((e) => el("li", null, e.file
       ? el("button", { type: "button", class: "folder file", title: e.path, dataset: { filePath: e.path }, onclick: () => pick(e.path) }, "📄 " + e.name)
-      : el("button", { type: "button", class: "folder", title: e.path, dataset: { folderPath: e.path }, onclick: () => open(e.path) },
-        "📁 " + e.name, files ? null : edsTag(e.eds)))));
+      : el("button", { type: "button", class: "folder", title: e.path, "aria-pressed": "false", dataset: { folderPath: e.path },
+        onclick: (ev) => select(ev.currentTarget), ondblclick: () => open(e.path) },
+        "📁 " + e.name, kindTag(e), files ? null : edsTag(e.eds)))));
     if (!r.entries.length) list.append(el("li", { class: "muted" }, r.drive_list ? "No drives found" : files ? `No subfolders or ${files} files` : "No subfolders"));
     if (create) create.hidden = !!r.drive_list;
     if (inList || (up.disabled && document.activeElement === up)) (list.querySelector("button") || path).focus();
@@ -1402,7 +1417,10 @@ async function chooseFolder({ title, start, note, files, newName }) {
   list.addEventListener("keydown", (e) => {
     const items = [...list.querySelectorAll("button")];
     const i = items.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.key === "Enter" && i >= 0 && items[i].dataset.folderPath) {
+      e.preventDefault();
+      open(items[i].dataset.folderPath);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const to = items[Math.max(0, Math.min(items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
       if (to) to.focus();
@@ -1451,6 +1469,7 @@ async function chooseFolder({ title, start, note, files, newName }) {
   // A typed path not opened with Go is used as typed: the caller checks it.
   const typed = path.value.trim();
   if (typed && (!shown || typed !== shown.path)) return typed;
+  if (selected) return selected;
   return shown && !shown.drive_list ? shown.path : null;
 }
 
@@ -1510,7 +1529,7 @@ function render() {
   const badge = $("#mode");
   badge.hidden = false;
   badge.textContent = S.state.commission ? "commissioning a device (nothing here is saved to a project)"
-    : S.state.mode === "project" ? "project " + S.state.name : "standalone " + S.state.folder;
+    : S.state.mode === "project" ? "project " + S.state.name : "config " + S.state.name;
   badge.title = S.state.config_path;
   if (!S.state.commission && S.model) {
     // The target opens the Project page, where it is switched.
@@ -1847,7 +1866,7 @@ function adapterFieldset() {
   if (rate !== undefined && !BITRATES.includes(rate)) rateSel.prepend(el("option", { value: rate }, String(rate) + " (not CiA 301)"));
   rateSel.value = rate === undefined ? "" : String(rate);
   rateSel.addEventListener("change", () => setPath("adapter.bitrate", Number(rateSel.value)));
-  return el("fieldset", null, el("legend", null, "CAN adapter"),
+  const body = [
       el("div", { class: "grid" },
         choice("Adapter type", a + ".type", [
           { value: "socketcan", label: "SocketCAN (CAN HAT, candleLight/gs_usb, PEAK, vcan)",
@@ -1871,7 +1890,15 @@ function adapterFieldset() {
           "Off: the interface must already be up at the right rate, for example from the OS network setup."),
         slcan ? null : field("Bus-off restart (ms)", a + ".restart_ms", "intstr", { placeholder: "not set",
           hint: targetText("restart") })),
-      el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v }))));
+      el("datalist", { id: "ifaces" }, ["can0", "can1", "vcan0"].map((v) => el("option", { value: v })))];
+  if (!simNetwork()) return el("fieldset", null, el("legend", null, "CAN adapter"), ...body);
+  // A simulated network uses no adapter: the section folds, opened by hand when wanted.
+  S.advOpen = S.advOpen || {};
+  const d = el("details", { class: "advanced", dataset: { advanced: "adapter" } },
+    el("summary", null, "CAN adapter (not used while the network is simulated)"), ...body);
+  d.open = !!S.advOpen.adapter;
+  d.addEventListener("toggle", () => { S.advOpen.adapter = d.open; });
+  return d;
 }
 
 // A CANopen master network without nodes: the first step, not an error
@@ -3742,7 +3769,7 @@ function isMapped(i, o) {
 function renderSdos(i, eds) {
   const n = S.config.nodes[i];
   const list = n.sdo || [];
-  const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo` } }, el("legend", null, "Startup SDO writes"),
+  const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo` } }, el("legend", { class: "visually-hidden" }, "Startup SDO writes"),
     el("p", { class: "muted" }, "Written in this order every time the node is configured at boot, after the PDO parameters. Only objects the EDS marks writable can be added."));
   const nb = notesOf(n.eds);
   const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
@@ -3752,7 +3779,10 @@ function renderSdos(i, eds) {
     const note = info ? noteOfObj(info) : {};
     const value = el("input", { type: "text", dataset: { path: sp + ".value" }, "aria-label": "Value",
       placeholder: info && info.default ? info.default : null });
-    value.value = s.value === undefined ? "" : String(s.value);
+    // The value in its default's notation: hex next to a hex EDS default.
+    const hexDefault = !!(info && typeof info.default === "string" && /^0x/i.test(info.default.trim()));
+    value.value = s.value === undefined ? "" : typeof s.value === "number" && hexDefault && Number.isInteger(s.value) && s.value >= 0
+      ? "0x" + s.value.toString(16).toUpperCase() : String(s.value);
     const meaning = el("span", { class: "muted", dataset: { sdoMeaning: sp } });
     const showMeaning = () => { const t = value.value.trim(); const w = /^-?[0-9]+(\.[0-9]+)?$/.test(t) ? noteMeaning(note, Number(t)) : ""; meaning.textContent = w ? ` (${w})` : ""; };
     const setValue = () => {
@@ -3804,7 +3834,7 @@ function renderSdos(i, eds) {
   all.addEventListener("change", () => { S.sdoShowAll = all.checked; fill(); });
   const fill = () => {
     const f = S.sdoFilter.toLowerCase();
-    const writable = ((eds && eds.objects) || []).filter((o) => o.writable && o.type);
+    const writable = ((eds && eds.objects) || []).filter((o) => o.writable && o.type && !NO_STORE_WRITE[num(o.index)]);
     const why = { signal: 0, plugin: 0, listed: 0 };
     const shown = S.sdoShowAll ? writable : writable.filter((o) => {
       const r = sdoHiddenReason(list, o);
@@ -3859,7 +3889,7 @@ function renderSdoVars(i, eds) {
   const list = n.sdo_variables || [];
   const nb = notesOf(n.eds);
   const noteOfObj = (o) => noteFor(nb, n.eds, o.index, o.subindex, !!o.var);
-  const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo_variables` } }, el("legend", null, "SDO variables"),
+  const fs = el("fieldset", { dataset: { path: `nodes[${i}].sdo_variables` } }, el("legend", { class: "visually-hidden" }, "SDO variables"),
     el("p", { class: "muted" }, "Objects read into or written from the program over SDO while the network runs. A read lands after each boot, every period and on each trigger edge. A write without a trigger is owned by the program: sent after each boot and whenever the value changes. With a trigger it is sent only on each rising edge. The status byte reads 0 idle, 1 busy, 2 done, 3 aborted (see the abort code), 4 node not available."));
   // One block per variable that wraps to the view's width: object, name,
   // type, direction and remove on the first line, the labelled locations
@@ -4016,11 +4046,32 @@ function renderDeclarations(view) {
       try { await navigator.clipboard.writeText(block); banner("Copied the declarations block."); }
       catch (e) { ta.select(); document.execCommand("copy"); banner("Copied the declarations block."); }
     } }, "Copy block")),
-    cyclicInterval() || "",
     ta,
-    el("table", null, el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "In the project"]))),
-      el("tbody", null, decls.map((d) => el("tr", null, el("td", null, d.name), el("td", null, d.location), el("td", null, d.type),
-        el("td", null, d.declared_as ? "declared as " + d.declared_as : "not yet"))))));
+    cyclicInterval() || "",
+    declTable(decls));
+}
+
+// The declarations table: a check mark for an entry the project declares
+// under the same name, the project's name only when it differs; "Only
+// missing" leaves out the declared ones.
+function declTable(decls) {
+  const only = el("input", { type: "checkbox", dataset: { declMissing: "" }, checked: !!S.declOnlyMissing,
+    onchange: () => { S.declOnlyMissing = only.checked; fill(); } });
+  const body = el("tbody");
+  const fill = () => {
+    const rows = S.declOnlyMissing ? decls.filter((d) => !d.declared_as) : decls;
+    body.replaceChildren(...rows.map((d) => el("tr", null, el("td", null, d.name), el("td", null, d.location), el("td", null, d.type),
+      el("td", { dataset: { declState: d.declared_as ? (d.declared_as === d.name ? "same" : "other") : "missing" } },
+        !d.declared_as ? "not yet"
+          : d.declared_as === d.name ? el("span", { title: "Declared in the project under this name" }, "\u2713", el("span", { class: "visually-hidden" }, " declared"))
+          : "declared as " + d.declared_as))));
+    if (!rows.length) body.append(el("tr", null, el("td", { colspan: 4, class: "muted", dataset: { declEmpty: "" } },
+      decls.length ? "Every entry is declared in the project." : "No mapped entries yet.")));
+  };
+  fill();
+  return el("div", null,
+    el("label", { class: "check-field" }, only, "Only missing"),
+    el("table", { dataset: { declTable: "" } }, el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "In the project"]))), body));
 }
 
 // ---------------------------------------------------------------------------
@@ -6840,6 +6891,13 @@ function odEdit(id, n, e, cell, readKeys, note, done) {
 
 // -- parameters tab ---------------------------------------------------------------
 
+// A styled file button (the input inside, invisible) with the picked file's name after it.
+function fileButton(label, input) {
+  const name = el("span", { class: "muted", dataset: { fileName: input.dataset.online || "" } }, "no file chosen");
+  input.addEventListener("change", () => { name.textContent = input.files[0] ? input.files[0].name : "no file chosen"; });
+  return el("span", { class: "row" }, el("label", { class: "file-button" }, label, input), name);
+}
+
 function paramsPanel(id, n, allow) {
   const box = el("div", { dataset: { online: "params" } });
   if (!nodeSource(id)) { put(box, paramsNeedEds(id)); return box; }
@@ -6937,7 +6995,7 @@ function paramsPanel(id, n, allow) {
   const storeBox = el("div", { dataset: { online: "store-box" } });
   odEntries(id).then((data) => {
     const defaults = restoreDefaultsBox(id, data, allow);
-    const defaultsHint = defaults ? hint("Restore defaults writes \"load\" to 0x1011: the device takes its factory values at its next reset.") : null;
+    const defaultsHint = defaults ? hint("Factory defaults writes \"load\" to 0x1011: the device takes its factory values at its next reset, and what was stored on it is lost.") : null;
     if (!data.has_store) {
       put(storeBox, el("p", { class: "muted" }, "The EDS has no store object (0x1010), so values cannot be stored on this device from here."), defaults, defaultsHint);
       return;
@@ -6959,16 +7017,17 @@ function paramsPanel(id, n, allow) {
       el("div", { class: "toolbar" }, el("button", { type: "button", class: "primary", dataset: { online: "backup" }, onclick: backup }, "Back up")),
       hint("Reads every readable entry of the node's EDS and downloads a DCF with the values (ParameterValue), which other CANopen tools can open too.")),
     el("fieldset", null, el("legend", null, "Compare"),
-      el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Against ", ref), cmpFile,
+      el("div", { class: "toolbar" }, el("label", { class: "inline" }, "Against ", ref), fileButton("Choose file…", cmpFile),
         el("label", { class: "inline" }, ro, " include read-only entries"),
         el("button", { type: "button", dataset: { online: "compare" }, onclick: compare }, "Compare"),
         el("label", { class: "inline" }, showEqual, " show equal entries"))),
-    el("fieldset", null, el("legend", null, "Restore"),
-      el("div", { class: "toolbar" }, resFile, el("label", { class: "inline" }, comm, " include communication objects (0x1000-0x1FFF)"),
-        el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "restore" }, onclick: restore }, "Restore…")),
+    el("fieldset", null, el("legend", null, "Restore from a backup"),
+      el("div", { class: "toolbar" }, fileButton("Choose backup…", resFile), el("label", { class: "inline" }, comm, " include communication objects (0x1000-0x1FFF)"),
+        el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "restore" }, onclick: restore }, "Restore from backup…")),
       hint("Shows what would be written first. Writes only differing manufacturer and profile entries; PDO objects, store/restore commands and what the configuration writes at boot are left out. Restored values are not stored on the device.")),
     onlineIsSlave() ? null : configureBox(id, n, allow, status, out),
-    el("fieldset", null, el("legend", null, "Store on device"), storeBox));
+    // What changes the device's own memory, apart from the rest.
+    el("fieldset", { class: "changes-device", dataset: { online: "device-memory" } }, el("legend", null, "Device memory (changes the device)"), storeBox));
   resumeJob(id, ["backup", "compare", "restore_plan", "restore", "configure", "configure_verify"], status, (j, resumed) => {
     if (j.kind === "backup") showBackup(j, resumed);
     else if (j.kind === "compare") compareDone(j);
@@ -7523,11 +7582,20 @@ async function removeNode(i) {
   removedBanner(`node ${n.node_id} ${n.name || ""}`.trim());
 }
 
+// A startup write runs at every boot: storing (0x1010) would wear the
+// device's flash each time, restoring (0x1011) would reset it to factory
+// values each time. Never listed, refused when typed.
+const NO_STORE_WRITE = {
+  0x1010: "0x1010 (store parameters) is never a startup write: it would store at every boot and wear the device's memory. Use Store on device on the node's Parameters tab, once, when you mean it.",
+  0x1011: "0x1011 (restore defaults) is never a startup write: it would reset the device to factory values at every boot. Use Factory defaults on the node's Parameters tab, or the master's Restore before configure.",
+};
+
 async function addSdo(i, index, subindex) {
   const n = S.config.nodes[i];
   const eds = edsFor(n);
   const ix = num(index), sx = num(String(subindex));
   if (isNaN(ix) || ix > 0xFFFF || isNaN(sx) || sx > 255) { banner("Give the index as 0x… and the subindex as 0–255.", true); return; }
+  if (ix === 0x1010 || ix === 0x1011) { banner(NO_STORE_WRITE[ix], true); return; }
   const info = objectInfo(eds, ix, sx);
   let type;
   if (info) {

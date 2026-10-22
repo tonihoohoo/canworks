@@ -2969,7 +2969,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ApiError(409, str(e), need="password", wrong=e.wrong)
         except djobs.NeedSudo as e:
             raise ApiError(409, str(e), need="sudo", wrong=e.wrong)
-        except (dssh.SshError, dstore.DeviceError) as e:
+        except dssh.Unreachable as e:
+            raise ApiError(422, str(e), unreachable=True)
+        except dstore.DeviceError as e:
+            raise ApiError(422, str(e), **({"field": e.field} if e.field else {}))
+        except dssh.SshError as e:
             raise ApiError(422, str(e))
         raise ApiError(404, "no such API: %s %s" % route)
 

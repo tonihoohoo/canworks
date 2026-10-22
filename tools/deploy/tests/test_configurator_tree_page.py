@@ -234,8 +234,10 @@ class Tree(unittest.TestCase):
         pg.wait_for_selector('#tree [data-key="0"][aria-expanded="true"]')
         # Shift+F10 opens the network's menu.
         pg.keyboard.press("Shift+F10")
-        pg.wait_for_selector('#modal-buttons [data-value="rename"]')
+        pg.wait_for_selector('[data-menu-pop] [data-value="rename"]')
+        self.assertEqual(pg.evaluate("document.activeElement.dataset.value"), "rename")
         pg.keyboard.press("Escape")
+        pg.wait_for_selector("[data-menu-pop]", state="detached")
 
     def test_network_menu_and_add_node(self):
         pg = self.page
@@ -326,9 +328,13 @@ class Tree(unittest.TestCase):
             self.assertEqual(pg.evaluate(FIT_CHECK), [], where)
             for k in range(4):
                 pg.click('#tree [data-net-menu="%d"]' % k)
+                pg.wait_for_selector("[data-menu-pop]")
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "%s, menu of network %d" % (where, k))
+                # The menu sits under its button.
+                menu, button = pg.locator("[data-menu-pop]").bounding_box(), pg.locator('#tree [data-net-menu="%d"]' % k).bounding_box()
+                self.assertLess(abs(menu["y"] - (button["y"] + button["height"])), 12, where)
                 pg.keyboard.press("Escape")
-                pg.wait_for_selector("#modal", state="hidden")
+                pg.wait_for_selector("[data-menu-pop]", state="detached")
                 if width <= 1100 and not pg.is_visible("#tree"):
                     pg.click("#tree-toggle")
             add_network(pg)

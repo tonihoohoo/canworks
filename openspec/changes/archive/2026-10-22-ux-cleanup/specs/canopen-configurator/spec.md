@@ -128,4 +128,4 @@ The header's mode badge SHALL show the folder's name for both projects and confi
 
 #### Scenario: Config folder
 - **WHEN** the config folder `/home/user/work/cs-machine` is open
-- **THEN** the badge reads "cs-machine" and its tooltip the full path
+- **THEN** the badge reads "config cs-machine" and its tooltip the full path
