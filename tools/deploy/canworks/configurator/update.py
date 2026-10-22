@@ -421,7 +421,7 @@ def cli(yes=False, out=None, ask=input):
         print("canworks-config: could not find the newest release: %s" % (getattr(e, "reason", None) or e),
               file=sys.stderr)
         return 2
-    print("Installed: %s. Newest release: %s." % (__version__, latest), file=out)
+    print("Installed: %s. Newest release: %s." % (__version__, latest), file=out, flush=True)  # before the updater's lines
     if not is_newer(latest):
         print("The newest version is installed.", file=out)
         return 0
