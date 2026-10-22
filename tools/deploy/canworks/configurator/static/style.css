@@ -1169,3 +1169,9 @@ fieldset.changes-device { border-color: var(--st-warn); }
 .menu-pop .menu-pop-title { padding: 2px 6px; font-size: 12px; }
 .single-choice { display: block; padding: 5px 0; font-weight: 600; }
 .notice ul.checklist { margin: 4px 0 0; padding-left: 18px; }
+
+/* The EDS field (one-eds-picker): the chosen EDS as text with Choose EDS… or Change EDS…. */
+.grid > .field { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+.eds-field { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.eds-field .eds-name { color: var(--text); overflow-wrap: anywhere; }
+dialog.eds-dialog .grid { grid-template-columns: 1fr; }

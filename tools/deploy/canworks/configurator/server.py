@@ -1142,6 +1142,67 @@ class Session:
                 "lint": {"mode": mode, "corrections": [c.to_json() for c in corrections],
                          "accepted": [f.to_json() for f in lint.accepted(mode)]}}
 
+    def import_eds_path(self, path, on_conflict=None, eds_lint=None):
+        """An EDS (or a simulation's DCF) picked in the page's file browser
+        (one-eds-picker): one in the config folder as it is, any other
+        imported as an EDS import would be, with the notes next to it."""
+        if not isinstance(path, str) or not path.lower().endswith((".eds", ".dcf")):
+            raise ApiError(400, "path must be an EDS or DCF file")
+        real = os.path.realpath(os.path.expanduser(path))
+        if not os.path.isfile(real):
+            raise ApiError(404, "%s is not a file" % path)
+        with self.lock:
+            if os.path.normcase(os.path.dirname(real)) == os.path.normcase(os.path.realpath(self.canopen_dir)):
+                name = os.path.basename(real)
+                return {"name": name, "summary": self.eds_info([name])[name], "converted": False}
+        try:
+            with open(real, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            raise folder_error(e, "read", real)
+        with self.lock:
+            res = self.import_eds(os.path.basename(real), data, on_conflict, eds_lint)
+            res.update(self.notes_beside(real, res["name"]))
+        return res
+
+    def notes_beside(self, eds_path, name):
+        """The notes next to an EDS taken from a folder (canopen-device-notes
+        "Notes come with a picked EDS"), for the import `name`. In a config:
+        the notes file's own entries, which the page adds as unsaved edits
+        when the config has no notes for that EDS. In Commission a device,
+        which has no Save: the file copied at once next to the import, unless
+        one is there. A datasheet notes file is only named."""
+        out = {}
+        datasheet = eds_path + ".datasheet" + notes_mod.SUFFIX
+        if os.path.isfile(datasheet):
+            out["datasheet_notes"] = os.path.basename(datasheet)
+        src = notes_mod.notes_path(eds_path)
+        if not os.path.isfile(src):
+            return out
+        try:
+            with open(src, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError):
+            return out
+        doc, error = notes_mod.load_text(text, os.path.basename(src))
+        objects = notes_mod.own_objects(doc["objects"]) if doc else {}
+        if error or not objects:
+            return out
+        if not self.commission:
+            out["notes"] = {"file": os.path.basename(src), "objects": objects}
+            return out
+        dest = notes_mod.notes_path(self.notes_eds_path(name))
+        if os.path.exists(dest):
+            out["notes_kept"] = {"file": os.path.basename(src), "count": len(objects)}
+            return out
+        try:
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError:
+            return out
+        out["notes_copied"] = {"file": os.path.basename(dest), "count": len(objects)}
+        return out
+
     # -- J1939 DBC import (j1939-pc-tools "J1939 network in the configurator") --
     def dbc_path(self, name):
         if name in self.pending_dbc:
@@ -2363,7 +2424,8 @@ def list_folders(path, drives=False, files=None):
     EDS files (`eds`). On Windows, `drives` lists the drive roots, and a
     drive root says so (`drive`), so Up can go there. `files` (an extension
     such as ".project") adds the folder's files with that extension after
-    the subfolders, each with `file` true."""
+    the subfolders, each with `file` true; several are comma-separated
+    (".eds,.dcf")."""
     if drives:
         if os.name != "nt":
             raise ApiError(404, "only Windows has drives")
@@ -2390,7 +2452,7 @@ def list_folders(path, drives=False, files=None):
                         "project": os.path.isfile(os.path.join(full, "project.json")),
                         "config": os.path.isfile(os.path.join(full, CONFIG))})
     if files:
-        ext = files.lower()
+        ext = tuple(x.strip() for x in files.lower().split(",") if x.strip())
         entries.extend({"name": name, "path": os.path.join(path, name), "file": True}
                        for name in names if not name.startswith(".") and name.lower().endswith(ext)
                        and os.path.isfile(os.path.join(path, name)))
@@ -2759,6 +2821,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     except ValueError:
                         raise ApiError(400, "data must be base64")
                     out = s.import_eds(body.get("name"), data, body.get("on_conflict"), body.get("eds_lint"))
+                elif route == ("POST", "/api/eds_path"):
+                    self._need_open(s)
+                    out = s.import_eds_path(body.get("path"), body.get("on_conflict"), body.get("eds_lint"))
                 elif route == ("POST", "/api/j1939/dbc"):
                     self._need_open(s)
                     data = None
@@ -4286,7 +4351,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {"name": name, "summary": s.eds_info([name])[name], "converted": False}
             with open(real, "rb") as f:
                 data = f.read()
-            return s.import_eds(os.path.basename(real), data, "keep_both", eds_lint)
+            res = s.import_eds(os.path.basename(real), data, "keep_both", eds_lint)
+            res.update(s.notes_beside(real, res["name"]))
+            return res
 
 
 SEND_ROUTES = (("POST", "/api/online/send_frame"), ("POST", "/api/online/send_stop"),

@@ -214,15 +214,10 @@ function edsMatchesOf(id) {
   return (d && d.eds_matches) || [];
 }
 
-// The EDS choices of a node without one: matching library files and Pick EDS file….
+// Choose EDS… for a node without one: the node's EDS dialog (one-eds-picker).
 function edsChoices(id, where) {
-  const matches = edsMatchesOf(id);
-  const input = el("input", { type: "file", accept: ".eds,.EDS", dataset: { online: "pick-eds" } });
-  input.addEventListener("change", () => { const f = input.files[0]; if (f) openPickedOd(Object.assign({ node_id: id }, identityOf(id) || {}), f); });
   return el("span", { class: "eds-choices", dataset: { edsChoices: where } },
-    matches.map((m, k) => el("button", { type: "button", class: "small", dataset: { edsMatch: k }, title: m.path,
-      onclick: () => openScannedOd(Object.assign({ node_id: id }, identityOf(id) || {}), m) }, `Use ${m.name}`)),
-    el("label", { class: "file-button small" }, "Pick EDS file…", input));
+    el("button", { type: "button", class: "small", dataset: { edsChoose: id }, onclick: () => chooseCommEds(id) }, "Choose EDS…"));
 }
 
 // The line at the top of a standard dictionary.
@@ -252,40 +247,39 @@ function pageEdsOf(id) {
   return path ? { name: (S.onlineEdsName || {})[id] || path.split(/[\\/]/).pop(), path } : null;
 }
 
-async function changeEds(id) {
+function changeEds(id) { return chooseCommEds(id); }
+
+// The EDS of node `id` on this page, chosen in the EDS dialog with the
+// node's matches first; with an EDS, Clear EDS (or Remove node for a node
+// only added here) beside Use. `after(match)`: what to do with the pick
+// (default: the node's object dictionary opens with it). Returns whether
+// anything changed.
+async function chooseCommEds(id, after) {
   const cur = pageEdsOf(id);
   const added = commNodes()[id] && !commNodes()[id].lss;
   const n = ((S.onlineLast && S.onlineLast.status && S.onlineLast.status.nodes) || []).find((x) => x.node_id === id);
   const onlyAdded = added && !heardState(n) && !scannedOf(id);
-  const matches = edsMatchesOf(id).filter((m) => !cur || m.path !== cur.path);
-  const buttons = matches.map((m, k) => ["m" + k, `Use ${m.name}`]).concat([["pick", "Pick EDS file…"],
-    onlyAdded ? ["remove", "Remove node", { danger: true }] : ["clear", "Clear EDS"], ["cancel", "Cancel"]]);
-  const v = await modal(`Node ${id} uses ${cur ? cur.name : "no EDS"} on this page. ` +
-    (onlyAdded ? "Use another EDS, or remove the node from this page." : "Use another EDS, or clear it to see the standard objects."), buttons);
-  if (!v || v === "cancel") return;
-  if (v === "pick") {
-    const input = el("input", { type: "file", accept: ".eds,.EDS", hidden: true, dataset: { online: "change-eds-file" } });
-    document.body.append(input);
-    input.addEventListener("change", () => {
-      const f = input.files[0];
-      input.remove();
-      if (f) openPickedOd(Object.assign({ node_id: id }, identityOf(id) || {}), f, cur);
-    });
-    input.click();
-    return;
-  }
-  if (v === "clear" || v === "remove") {
+  const actions = cur ? [onlyAdded ? ["remove", "Remove node", { danger: true }] : ["clear", "Clear EDS"]] : [];
+  const a = await chooseEds({ title: `EDS of node ${id}` + (cur ? `: ${cur.name} on this page` : ""), current: cur ? cur.path : null,
+    matches: edsMatchesOf(id), lint: edsLint(), actions });
+  if (!a) return false;
+  if (a.action) {
     dropPageEds(id);
-    if (v === "remove") {
+    if (a.action === "remove") {
       delete commNodes()[id];
       if (S.onlineNode === id) S.onlineNode = null;
       commLog(id, "Remove node from this page", cur ? `had ${cur.name}` : "done");
     } else commLog(id, `Clear EDS ${cur ? cur.name : ""}`.trim(), "standard objects shown");
     edsChanged(id);
-    return;
+    return true;
   }
-  const m = matches[Number(v.slice(1))];
-  if (m) openScannedOd(Object.assign({ node_id: id }, identityOf(id) || {}), m, cur);
+  const m = edsForPage(a.choice);
+  if (cur && m.path === cur.path) return false;
+  const d = Object.assign({ node_id: id }, identityOf(id) || {});
+  if (after) after(m, d);
+  else openScannedOd(d, m);
+  edsNotesArrived(a.choice.res);
+  return true;
 }
 
 // Forgets the EDS the page holds for node `id`, with what was read through it.

@@ -16,7 +16,7 @@ import can
 from canworks.localbus import core as core_mod
 
 from .fake_canopen import FakeDevice, Peer
-from .helpers import REPO, back_to_nodes, header_action, tool_tab
+from .helpers import REPO, back_to_nodes, browse_eds, header_action, tool_tab
 from .test_configurator_online_page import OnlineBase
 
 _n = itertools.count(1)
@@ -238,15 +238,16 @@ class CommissionPage(AdapterPage):
         pg.click('button[data-online="scan"]')
         pg.wait_for_selector('tr[data-online-node="7"]:has-text("scanned")', timeout=20000)
         # No EDS in the library matches: the device's own EDS file opens its object dictionary.
-        pg.set_input_files('tr[data-online-node="7"] input[data-online="pick-eds"]',
-                           os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
+        pg.click('tr[data-online-node="7"] button[data-eds-pick="7"]')
+        browse_eds(pg, os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
         pg.wait_for_selector('tr[data-od-key="%d:1"]' % 0x1018, state="attached", timeout=20000)
         self.assertTrue(pg.is_visible('button[data-online="add-to-config"]'))
         # Add node from EDS: a node of this page only.
         back_to_nodes(pg)
-        pg.set_input_files('input[data-online="add-eds-file"]', os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
+        pg.click('button[data-online="add-eds"]')
+        browse_eds(pg, os.path.join(REPO, "config", "gateway", "cpp-slave.eds"))
         pg.fill('input[data-online="add-node-id"]', "9")
-        pg.click('#modal button[data-value="add"]')
+        pg.click('[data-eds="use"]')
         pg.wait_for_selector('[data-online="node-heading"]:has-text("9")')
         back_to_nodes(pg)
         pg.wait_for_selector('tr[data-online-node="9"]:has-text("added")')
