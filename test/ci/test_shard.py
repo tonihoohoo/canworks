@@ -172,6 +172,22 @@ class Run(unittest.TestCase):
         self.assertEqual(sorted(w for w, _ in seen), ["1", "2"])
         self.assertNotEqual(seen[0][1], seen[1][1])
 
+    def test_workers_see_no_terminal_and_absolute_module_paths(self):
+        with open(os.path.join(self.dir, self.pkg, "test_env.py"), "w") as f:
+            f.write(textwrap.dedent("""\
+                import os, sys, unittest
+                class E1(unittest.TestCase):
+                    def test_e1(self): print("ENV", sys.stdin.isatty(), sys.stdin.read() == "", os.path.isabs(__file__))
+                class E2(unittest.TestCase):
+                    def test_e2(self): pass
+                """))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):  # --top relative, as CI passes it
+            rc = shard.main(["--start", os.path.join(self.dir, self.pkg), "--top", os.path.relpath(self.dir),
+                             "--shard", "1/1", "--pattern", "test_env.py", "--jobs", "2"])
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("ENV False True True", out.getvalue())
+
     def test_split_class_runs_each_method_once_with_its_own_setup(self):
         with open(os.path.join(self.dir, self.pkg, "test_big.py"), "w") as f:
             f.write(textwrap.dedent("""\

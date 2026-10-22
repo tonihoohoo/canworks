@@ -181,7 +181,9 @@ def run_workers(groups, top, base):
         log = open(os.path.join(wdir, "log.txt"), "w")
         proc = subprocess.Popen([sys.executable, os.path.abspath(__file__), "--worker", os.path.join(wdir, "names.json"),
                                  "--result", os.path.join(wdir, "result.json"), "--top", top],
-                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env)
+                                stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, env=env)
+        # stdin at its end and not a terminal (Windows reports NUL as a terminal)
+        proc.stdin.close()
         procs.append((i, proc, log, wdir, time.monotonic()))
     ok, times, waiting, said, failed = True, {}, list(procs), time.monotonic(), []
     while waiting:
@@ -239,6 +241,7 @@ def main(argv=None):
     p.add_argument("--worker", help=argparse.SUPPRESS)
     p.add_argument("--result", help=argparse.SUPPRESS)
     a = p.parse_args(argv)
+    a.top = os.path.abspath(a.top)  # as unittest discover does: modules get absolute __file__ paths
     if a.top not in sys.path:
         sys.path.insert(0, a.top)
     if a.worker:
