@@ -563,9 +563,6 @@ def serve(args, out=sys.stdout):
     except (ServeError, OSError) as e:
         raise DiagError("usage", str(e))
     srv.write_status()
-    _log("serving adapter %s at %d kbit/s on port %d%s, %s" % (
-        spec, bitrate // 1000, srv.port, " of %s" % args.bind if args.bind else "",
-        "changes allowed (each PC still allows changes for its session)" if args.allow_changes else "read-only"))
     import signal
     how = ["Ctrl-C"]
 
@@ -578,6 +575,10 @@ def serve(args, out=sys.stdout):
         pass
     stopped, pcs = False, 0
     try:
+        # Logged inside the try: a Ctrl-C right after the line still stops cleanly.
+        _log("serving adapter %s at %d kbit/s on port %d%s, %s" % (
+            spec, bitrate // 1000, srv.port, " of %s" % args.bind if args.bind else "",
+            "changes allowed (each PC still allows changes for its session)" if args.allow_changes else "read-only"))
         srv.serve_forever()
     except KeyboardInterrupt:
         stopped = True
