@@ -61,6 +61,25 @@ check '[ ! -e "$T/opt" ] && [ ! -e "$T/units/canworks-link.service" ]' "--withou
 check '! grep -q "runtime=" "$T/avahi/services/canworks.service" && ! grep -q "id=" "$T/avahi/services/canworks.service"' \
     "the advertisement has no runtime port or link ID"
 
+# device-link-switches: discovery next to an installed link keeps its ID,
+# link off with --keep-discovery, discovery off, link without discovery.
+rm -f "$T/avahi/services/canworks.service"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --config /opt/canworks/lib/canworks.json --without-discovery > "$T/out"
+check '[ -f "$T/units/canworks-link.service" ] && [ ! -e "$T/avahi/services/canworks.service" ]' \
+    "--without-discovery installs the link without the advertisement"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --discovery-only --config /opt/canworks/lib/canworks.json > "$T/out"
+check 'grep -q "<txt-record>id=0123456789abcdef" "$T/avahi/services/canworks.service" && grep -q "<txt-record>link=7533</txt-record>" "$T/avahi/services/canworks.service"' \
+    "--discovery-only next to the link keeps the link ID"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --uninstall --keep-discovery > "$T/out"
+check '[ ! -e "$T/units/canworks-link.service" ] && [ -f "$T/avahi/services/canworks.service" ] && ! grep -q "id=\|link=" "$T/avahi/services/canworks.service"' \
+    "--keep-discovery keeps the advertisement without the link"
+check '[ -f "$T/etc/link.json" ]' "link off keeps the key and paired PCs"
+"$REPO/scripts/install-link.sh" --remove-discovery > "$T/out"
+check '[ ! -e "$T/avahi/services/canworks.service" ]' "--remove-discovery removes the advertisement"
+r=$(CANWORKS_LINK_PIP="" "$REPO/scripts/install-link.sh" --version 0.113.0 --dry-run --config /c.json --runtime-port none)
+check 'grep -q "would download: .*/deploy-v0.113.0.tar.gz" <<<"$r" && grep -q "install-link.sh --config /c.json --runtime-port none" <<<"$r"' \
+    "--version downloads the release and runs its script"
+
 if "$REPO/scripts/install-link.sh" --prefix "$T/opt" > "$T/out" 2>&1; then
     check false "--config is required"
 else

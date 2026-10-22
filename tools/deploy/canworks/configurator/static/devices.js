@@ -32,11 +32,18 @@ const DEV_ACTION_DONE = {
   uninstall_plugin: "The canworks plugin was uninstalled.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
   remove_all: "canworks was removed from the device.",
+  link_on: "The remote link is on. PCs pair with it as before (docs/remote-access.md).",
+  link_off: "The remote link is off. Its key and paired PCs stay on the device for when it is turned on again.",
+  link_start: "The remote link was started.",
+  discovery_on: "The device is advertised on the local network again.",
+  discovery_off: "The device is no longer advertised on the local network; typing its address still works.",
 };
 const DEV_ACTION_NAME = {
   install_openplc: "Install OpenPLC Runtime and canworks", install_plugin: "Install canworks", install_bridge: "Install the bridge",
   bridge_config: "Start this project's bridge", uninstall_plugin: "Uninstall the plugin", uninstall_bridge: "Uninstall the bridge",
-  remove_all: "Remove everything",
+  remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
+  link_start: "Start the remote link", discovery_on: "Advertise on the local network",
+  discovery_off: "Stop advertising on the local network",
 };
 
 // The host key file's name part of an SSH key type (ssh-ed25519 -> ed25519).
@@ -67,7 +74,7 @@ function devMainOf(id, plan) {
 function devActionOf(id, plan, action) {
   const main = devMainOf(id, plan);
   if (main && main.action === action) return main;
-  return ((plan && plan.rows) || []).map((r) => r.install).find((m) => m && m.action === action) || null;
+  return ((plan && plan.rows) || []).flatMap((r) => r.actions || []).find((m) => m.action === action) || null;
 }
 
 // The start page's Install on a device: Devices with no config open.
@@ -299,9 +306,10 @@ function devRows(d, plan, job) {
       el("td", null, r.uninstall ? el("button", { type: "button", class: "small", dataset: { devicesUninstall: r.part },
         disabled: running ? "An install is running." : null,
         onclick: () => devStart(d.id, r.part === "plugin" ? "uninstall_plugin" : "uninstall_bridge") }, "Uninstall…")
-        : r.install ? el("button", { type: "button", class: "small", dataset: { devicesInstall: r.part },
+        : (r.actions || []).map((a) => el("button", { type: "button", class: "small",
+          dataset: Object.assign({ devicesAction: a.action }, a.action.startsWith("install") ? { devicesInstall: r.part } : {}),
           disabled: running || plan.blocked ? (plan.blocked || "An install is running.") : null, title: plan.blocked || null,
-          onclick: () => devStart(d.id, r.install.action) }, "Install…") : null)))));
+          onclick: () => devStart(d.id, a.action) }, a.button)))))));
 }
 
 function devMain(d, plan) {
@@ -464,13 +472,18 @@ async function devStart(id, action) {
   const sudo = plan.sudo === "password";
   const main = devActionOf(id, plan, action);
   const title = main ? main.label : DEV_ACTION_NAME[action];
+  // Several bridge configs and nothing saying which: the link serves the picked one.
+  const choose = main && main.choose;
+  const pickField = choose ? el("select", { dataset: { devices: "link-instance" }, "aria-label": "Bridge config the link serves" },
+    choose.map((n) => el("option", { value: n }, n))) : null;
   let pw = null;
   let wrong = false;
   for (;;) {
-    if (effects.length || sudo) {
+    if (effects.length || sudo || choose) {
       const field = sudo ? el("input", { type: "password", autocomplete: "off", dataset: { devices: "sudo" }, "aria-label": `sudo password of ${d.user || "the SSH user"}` }) : null;
       const err = msgBar({ devices: "sudo-error" }, wrong ? "sudo on the device did not accept the password." : "");
       const extra = el("div", null, err, effects.map((t) => el("p", { dataset: { devices: "effect" } }, t)),
+        choose ? el("label", null, "The bridge config the link serves", pickField) : null,
         sudo ? el("label", null, `sudo password of ${d.user || "the SSH user"} on the device`, field,
           hint("Used to start this job only; not kept.")) : null);
       const danger = action.startsWith("uninstall") || action === "remove_all";
@@ -479,7 +492,8 @@ async function devStart(id, action) {
       pw = field ? field.value : null;
     }
     try {
-      const r = await devCall("/api/devices/start", { device: id, action, options: DEV.options || {}, sudo_password: pw || undefined });
+      const options = Object.assign({}, DEV.options || {}, pickField ? { link_instance: pickField.value } : {});
+      const r = await devCall("/api/devices/start", { device: id, action, options, sudo_password: pw || undefined });
       if (!r) return;
       devFollowStart(id, r.job, action);
       render();

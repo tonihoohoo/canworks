@@ -794,6 +794,18 @@ class InstallBridgeCheckout(unittest.TestCase):
         self.assertIn("--prefix %s" % self.fallback, r.stdout)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "the link script runs on Linux devices")
+class InstallLinkSh(unittest.TestCase):
+    """scripts/install-link.sh with stub systemctl and pip (test/link/install_test.sh):
+    install, discovery on and off, link off keeping discovery, release mode."""
+
+    def test_install_test(self):
+        r = subprocess.run(["bash", os.path.join(REPO, "test", "link", "install_test.sh")],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("FAIL", r.stdout)
+
+
 class Shellcheck(unittest.TestCase):
     def test_scripts(self):
         tool = shutil.which("shellcheck")
@@ -803,7 +815,7 @@ class Shellcheck(unittest.TestCase):
                 self.fail("shellcheck is missing on the Linux CI runner")
             self.skipTest("shellcheck is not installed")
         r = subprocess.run([tool] + [os.path.join(SCRIPTS, name) for name in
-                                    ("install-pc.sh", "install-runtime.sh", "install-bridge.sh")],
+                                    ("install-pc.sh", "install-runtime.sh", "install-bridge.sh", "install-link.sh")],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         self.assertEqual(r.returncode, 0, r.stdout)
 

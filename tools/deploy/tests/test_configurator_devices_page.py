@@ -38,6 +38,20 @@ mkdir -p "$FAKE_FS/opt/canworks/lib"
 echo 0.98.0 > "$FAKE_FS/opt/canworks/VERSION"
 """
 
+# The release's install-link.sh: the files the probe looks at (device-link-switches).
+LINK_SCRIPT = """#!/bin/bash
+echo "args: $*"
+case " $* " in
+    *" --remove-discovery "*) rm -f "$FAKE_FS/etc/avahi/services/canworks.service" ;;
+    *" --discovery-only "*) mkdir -p "$FAKE_FS/etc/avahi/services"; : > "$FAKE_FS/etc/avahi/services/canworks.service" ;;
+    *" --uninstall "*) rm -f "$FAKE_FS/etc/systemd/system/canworks-link.service" "$FAKE_UNITS/canworks-link.service" ;;
+    *) mkdir -p "$FAKE_FS/etc/systemd/system" "$FAKE_FS/etc/canworks-link"
+       : > "$FAKE_FS/etc/systemd/system/canworks-link.service"
+       echo '{"config": "/opt/canworks/lib/canworks.json"}' > "$FAKE_FS/etc/canworks-link/link.json"
+       echo active > "$FAKE_UNITS/canworks-link.service" ;;
+esac
+"""
+
 
 @unittest.skipUnless(paramiko is not None and sys.platform != "win32" and shutil.which("flock")
                      and shutil.which("setsid"), "needs paramiko, sh, flock and setsid")
@@ -58,6 +72,7 @@ class DevicesPage(OnlineBase):
         self.put("opt/canworks/lib/runtime-version", "v4.2.4\n")
         raw = os.path.join(self.device.root, "raw")
         self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-runtime.sh"), RUNTIME_SCRIPT)
+        self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-link.sh"), LINK_SCRIPT)
         paths = self.device.paths(self.fs)
         paths.raw = "file://" + raw
         stub = os.path.join(self.device.bin, "curl-ok")
@@ -281,6 +296,38 @@ class DevicesPage(OnlineBase):
         pg.click(".devices-list [data-device]")
         pg.wait_for_selector("[data-devices=rows]")
         self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 4)
+
+    def test_link_and_discovery_switches(self):
+        # device-link-switches: the remote link and the advertisement turned
+        # on and off from their rows, with no config open.
+        pg = self.page
+        pg.goto(self.server.url)
+        pg.click("#start-devices")
+        self.add_device(config=False)
+        self.answer("cancel")  # no key login
+        link = "[data-devices=rows] tr[data-part=link]"
+        disc = "[data-devices=rows] tr[data-part=discovery]"
+        pg.wait_for_selector(link + " [data-devices-action=link_on]")
+        self.assertIn("not installed", pg.inner_text(link))
+        self.assertIn("no", pg.inner_text(disc))
+
+        def run(sel, action, effect=None):
+            pg.click(f"{sel} [data-devices-action={action}]")
+            pg.wait_for_selector("#modal[open]")
+            if effect:
+                self.assertIn(effect, pg.inner_text("#modal"))
+            self.answer("go", {"[data-devices=sudo]": SUDO_PW})
+            pg.wait_for_selector("[data-devices=done]", timeout=20000)
+
+        run(link, "link_on")
+        pg.wait_for_selector(link + ":has-text('running · serves the PLC')")
+        self.assertIn("The remote link is on", pg.inner_text("[data-devices=done]"))
+        run(link, "link_off", "stay paired")
+        pg.wait_for_selector(link + " [data-devices-action=link_on]")
+        self.assertIn("not installed", pg.inner_text(link))
+        run(disc, "discovery_on")
+        pg.wait_for_selector(disc + " [data-devices-action=discovery_off]")
+        self.assertIn("yes", pg.inner_text(disc))
 
     def test_pc_tools_older_than_the_device(self):
         # A newer minor on the device: a note with Update PC tools…, which

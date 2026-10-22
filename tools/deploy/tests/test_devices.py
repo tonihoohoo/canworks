@@ -243,21 +243,52 @@ class PlanWithoutConfig(unittest.TestCase):
         # its row has Install, the main action stays the installed part's.
         p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), None, "0.110.0")
         self.assertIsNone(p["main"])
-        self.assertEqual((row(p, "bridge")["install"]["action"], row(p, "bridge")["install"]["label"]),
+        self.assertEqual((row(p, "bridge")["actions"][0]["action"], row(p, "bridge")["actions"][0]["label"]),
                          ("install_bridge", "Install the bridge 0.110.0"))
-        self.assertIn("same CAN interface", row(p, "bridge")["install"]["confirm"][0])
-        self.assertNotIn("install", row(p, "plugin"))
+        self.assertIn("same CAN interface", row(p, "bridge")["actions"][0]["confirm"][0])
+        self.assertNotIn("actions", row(p, "plugin"))
         b = {"version": "0.110.0", "prefix": "/opt/canworks-bridge", "instances": []}
         p = plan.plan(probe(runtime={"kind": "none"}, bridge=b), None, "0.110.0")
-        self.assertEqual(row(p, "plugin")["install"]["action"], "install_openplc")
+        self.assertEqual(row(p, "plugin")["actions"][0]["action"], "install_openplc")
         p = plan.plan(probe(bridge=b), None, "0.110.0")
-        self.assertEqual(row(p, "plugin")["install"]["label"], "Install canworks 0.110.0")
+        self.assertEqual(row(p, "plugin")["actions"][0]["label"], "Install canworks 0.110.0")
         # With a config, the project's target decides: no extra Install.
         p = plan.plan(probe(plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}), "openplc", "0.110.0")
-        self.assertNotIn("install", row(p, "bridge"))
+        self.assertNotIn("actions", row(p, "bridge"))
         p = plan.plan(probe(internet=False, plugin={"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}),
                       None, "0.110.0")
         self.assertIn("github.com", p["blocked"])
+
+    def test_link_and_discovery_switches(self):
+        # device-link-switches: the rows' own actions and what the link serves.
+        on = {"version": "0.110.0", "built_for": "v4.2.4", "enabled": True}
+        p = plan.plan(probe(plugin=on), None, "0.110.0")
+        self.assertEqual([a["action"] for a in row(p, "link")["actions"]], ["link_on"])
+        self.assertEqual([a["action"] for a in row(p, "discovery")["actions"]], ["discovery_on"])
+        p = plan.plan(probe(plugin=on, link="active", link_config="/opt/canworks/lib/canworks.json", discovery=True),
+                      "openplc", "0.110.0")
+        self.assertEqual(row(p, "link")["have"], "running · serves the PLC")
+        self.assertEqual([a["action"] for a in row(p, "link")["actions"]], ["link_off"])
+        self.assertIn("stay paired", row(p, "link")["actions"][0]["confirm"][0])
+        self.assertEqual([a["action"] for a in row(p, "discovery")["actions"]], ["discovery_off"])
+        p = plan.plan(probe(plugin=on, link="failed", link_config="/opt/canworks/lib/canworks.json"), None, "0.110.0")
+        self.assertEqual([a["action"] for a in row(p, "link")["actions"]], ["link_start", "link_off"])
+        # Nothing to serve, or a CODESYS project: no switches.
+        self.assertNotIn("actions", row(plan.plan(probe(), None, "0.110.0"), "link"))
+        self.assertNotIn("actions", row(plan.plan(probe(plugin=on), "codesys", "0.110.0"), "discovery"))
+
+    def test_link_serves(self):
+        two = {"version": "0.110.0", "instances": [{"name": "packer"}, {"name": "line2"}]}
+        self.assertEqual(plan.link_serves(probe(bridge=two)), {"choose": ["packer", "line2"]})
+        self.assertEqual(plan.link_serves(probe(bridge=two), "line2")["config"], "/etc/canworks-bridge/line2/canworks.json")
+        self.assertEqual(plan.link_serves(probe(bridge=dict(two, instances=[{"name": "packer"}])))["text"], "the bridge packer")
+        self.assertEqual(plan.link_serves(probe(bridge=two, plugin={"version": "0.110.0"}))["runtime_port"], "8443")
+        self.assertEqual(plan.link_serves(probe(bridge=two, link="active",
+                                                link_config="/etc/canworks-bridge/line2/canworks.json"))["text"],
+                         "the bridge line2")
+        self.assertIsNone(plan.link_serves(probe(bridge=dict(two, instances=[]))))
+        p = plan.plan(probe(runtime={"kind": "none"}, bridge=two), None, "0.110.0")
+        self.assertEqual(row(p, "link")["actions"][0]["choose"], ["packer", "line2"])
 
     def test_blocked_applies_to_the_roles(self):
         self.assertIn("github.com", plan.plan(probe(internet=False), None, "0.110.0")["blocked"])
@@ -321,6 +352,26 @@ class Jobs(unittest.TestCase):
                 args.update(bad)
                 jobs.commands("install_bridge", args["version"], self.paths, instance=args["instance"],
                               upload=args["upload"])
+
+    def test_link_commands(self):
+        sh = "install-link.sh | bash -s -- "
+        on = jobs.commands("link_on", "0.98.0", self.paths, discovery=False,
+                           link_config="/opt/canworks/lib/canworks.json", runtime_port="8443")[0]
+        self.assertTrue(on.endswith(sh + "--version 0.98.0 --config /opt/canworks/lib/canworks.json "
+                                         "--runtime-port 8443 --without-discovery"), on)
+        self.assertTrue(jobs.commands("link_off", "0.98.0", self.paths)[0].endswith(sh + "--uninstall --keep-discovery"))
+        self.assertTrue(jobs.commands("link_off", "0.98.0", self.paths, discovery=False)[0].endswith(sh + "--uninstall"))
+        self.assertIn("systemctl restart canworks-link.service", jobs.commands("link_start", "0.98.0", self.paths))
+        self.assertTrue(jobs.commands("discovery_on", "0.98.0", self.paths,
+                                      link_config="/etc/canworks-bridge/packer/canworks.json", runtime_port="none")[0]
+                        .endswith(sh + "--discovery-only --config /etc/canworks-bridge/packer/canworks.json "
+                                       "--runtime-port none"))
+        self.assertTrue(jobs.commands("discovery_off", "0.98.0", self.paths)[0].endswith(sh + "--remove-discovery"))
+        for bad in (dict(link_config="/etc/passwd"), dict(link_config=None), dict(runtime_port="22; reboot")):
+            with self.subTest(bad=bad), self.assertRaises(jobs.JobError):
+                args = dict(link_config="/opt/canworks/lib/canworks.json", runtime_port="8443")
+                args.update(bad)
+                jobs.commands("link_on", "0.98.0", self.paths, **args)
 
     def test_bridge_config_needs_the_service(self):
         lines = jobs.commands("bridge_config", "0.98.0", self.paths, instance="line3",

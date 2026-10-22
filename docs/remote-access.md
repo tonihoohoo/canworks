@@ -135,6 +135,17 @@ On the device (`canworks-link`, settings in `/etc/canworks-link`):
 
 The service logs connections, path changes, pairings and refusals: `journalctl -u canworks-link`. The configurator's Online access section lists paired PCs with **Remove** while connected.
 
+To turn the link or the advertisement on or off later, use the configurator's Devices page ([devices.md](devices.md#remote-link-and-discovery)), or run `install-link.sh` on the device yourself:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-link.sh | sudo bash -s -- --config /opt/canworks/lib/canworks.json   # link on (newest release)
+curl -LsSf .../install-link.sh | sudo bash -s -- --uninstall --keep-discovery     # link off; key, paired PCs and discovery stay
+curl -LsSf .../install-link.sh | sudo bash -s -- --discovery-only --config /opt/canworks/lib/canworks.json   # discovery on
+curl -LsSf .../install-link.sh | sudo bash -s -- --remove-discovery                # discovery off
+```
+
+A bridge's link serves `/etc/canworks-bridge/NAME/canworks.json` with `--runtime-port none`. `--without-discovery` installs the link without the advertisement.
+
 ## Security
 
 - Never expose 7531 or 8443 to the internet (no port forwarding, no public tunnels): use the remote link or a VPN.
