@@ -55,6 +55,7 @@ function edsList(opts) {
   const entries = {};  // option value -> choice
   const picked = [];  // Commission a device: files browsed on this page
   let lib = null;
+  let importing = null;  // a browsed file being imported
   const opt = (value, choice, text) => { entries[value] = choice; return el("option", { value, title: choice.path || choice.name }, text); };
   const group = (label, items) => (items.length ? el("optgroup", { label }, items) : null);
   const fill = () => {
@@ -94,7 +95,9 @@ function edsList(opts) {
     const path = await chooseFolder({ title: "Browse for an EDS file", start: edsBrowseStart(), files: o.dcf ? ".eds,.dcf" : ".eds" });
     if (!path) return;
     S.edsBrowsed = splitPath(path)[0];
-    const res = await busy(browse, "Adding…", () => importEdsPath(path, o.lint));
+    importing = busy(browse, "Adding…", () => importEdsPath(path, o.lint));
+    const res = await importing;
+    importing = null;
     if (!res) return;
     if (commission) picked.push(res);
     else {
@@ -116,7 +119,9 @@ function edsList(opts) {
     api("POST", "/api/online/eds_library", {}).then((r) => { lib = r.files || []; fill(); if (o.onFill) o.onFill(); }).catch(() => {});
   }
   fill();
-  return { list, browse, empty, fill, select, choice: () => entries[list.value] || null };
+  // ready(): after the browsed file being imported, if any, is in the list.
+  const ready = async () => { while (importing) await importing.catch(() => {}); };
+  return { list, browse, empty, fill, select, ready, choice: () => entries[list.value] || null };
 }
 
 // The EDS dialog: the list, Browse…, `fields` (an element with the place's
@@ -143,7 +148,9 @@ async function chooseEds({ title, current, matches, builtHere, files, dcf, lint,
   const opener = document.activeElement;
   document.body.append(dlg);
   const answer = await new Promise((resolve) => {
-    finish = () => {
+    finish = async () => {
+      // The main button while a browsed file is still being added waits for it.
+      await e.ready();
       const c = e.choice();
       if (!c) { err.say("Pick the device's EDS file, or Browse… for it."); e.list.focus(); return; }
       const why = check ? check(c) : "";

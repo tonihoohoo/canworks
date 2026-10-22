@@ -375,6 +375,8 @@ def browse_eds(page, path):
     page.press('[data-folder="path"]', "Enter")
     page.click('dialog[data-folder="dialog"] [data-file-path="%s"]' % path)
     page.wait_for_selector('dialog[data-folder="dialog"]', state="detached")
+    # The file is being added: done, or asking Replace or Keep both.
+    page.wait_for_function("() => !document.querySelector('[data-eds=browse][data-busy]') || document.querySelector('#modal[open]')")
 
 
 def add_node(page, eds, map_pdos=False, node_id=None, name=None):
