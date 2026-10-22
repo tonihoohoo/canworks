@@ -172,6 +172,29 @@ class DevicesPage(OnlineBase):
         with open(os.path.join(self.cfg_dir, "online.json")) as f:
             self.assertEqual(json.load(f)["projects"][self.project]["host"], "127.0.0.1")
 
+    def test_field_message_and_not_reached(self):
+        # ux-cleanup "Device messages": a refused field says so under itself;
+        # a device that does not answer gets one sentence and a checklist.
+        import socket
+        pg = self.page
+        self.open()
+        pg.click('#ws button[data-ws="devices"]')
+        pg.click("[data-devices=add]")
+        self.answer("add", {"[data-devices=host]": "127.0.0.1", "[data-devices=port]": "ssh"})
+        pg.wait_for_selector("[data-devices-msg=port]:has-text('The SSH port is a number')")
+        self.assertEqual(pg.inner_text("[data-devices-msg=host]"), "")
+        with socket.socket() as sk:
+            sk.bind(("127.0.0.1", 0))
+            closed = sk.getsockname()[1]
+        self.answer("add", {"[data-devices=port]": str(closed)})
+        pg.wait_for_selector("[data-devices=unreached]")
+        text = pg.inner_text("[data-devices=device-bars]")
+        self.assertIn("Can't reach 127.0.0.1 on SSH port %d." % closed, text)
+        self.assertIn("same network", text)
+        self.assertNotIn("Errno", text)
+        self.assertIn("Not reached", pg.inner_text(".devices-list"))
+        self.assertEqual(pg.inner_text("[data-devices=menu] summary"), "Actions")
+
     def test_blocked_and_entry_points(self):
         pg = self.page
         self.write_config({"token_verifier": diag.token_verifier(TOKEN)})

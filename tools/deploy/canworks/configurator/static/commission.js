@@ -423,7 +423,7 @@ function edsLibraryRow() {
     if (S.scanResult && S.adapterOn) runScan(false);  // the shown devices, matched against the new folder
   };
   const choose = el("button", { type: "button", dataset: { online: "library-choose" }, onclick: async () => {
-    const path = await chooseFolder({ title: "Choose the EDS library folder", start: S.online.eds_library || "",
+    const path = await chooseFolder({ title: "Choose the EDS library folder", eds: true, start: S.online.eds_library || "",
       note: "Scanned devices are matched against the EDS files in this folder and its subfolders." });
     if (path !== null) await set(path);
     choose.focus();
@@ -694,7 +694,8 @@ function configureBox(id, n, allow, status, out) {
   const folder = el("input", { type: "text", spellcheck: "false", class: "wide", placeholder: "config folder on this PC", "aria-label": "Config folder", dataset: { online: "configure-folder" } });
   const fromNode = el("input", { type: "number", min: 1, max: 127, class: "short", value: id, "aria-label": "Node in that config", dataset: { online: "configure-from" } });
   const folderBox = el("span", { class: "row" }, folder, el("label", { class: "inline" }, "node ", fromNode));
-  const sync = () => { file.hidden = src.value !== "dcf"; folderBox.hidden = src.value !== "folder"; };
+  const fileBox = fileButton("Choose DCF…", file);
+  const sync = () => { fileBox.hidden = src.value !== "dcf"; folderBox.hidden = src.value !== "folder"; };
   src.addEventListener("change", sync);
   sync();
   const body = async () => {
@@ -729,7 +730,7 @@ function configureBox(id, n, allow, status, out) {
     startJob("/api/online/configure_verify", b, status, (j) => showVerify(named(j, b).result, out));
   };
   return el("fieldset", { dataset: { online: "configure-box" } }, el("legend", null, "Write configuration"),
-    el("div", { class: "toolbar" }, el("label", { class: "inline" }, "From ", src), file, folderBox),
+    el("div", { class: "toolbar" }, el("label", { class: "inline" }, "From ", src), fileBox, folderBox),
     el("div", { class: "toolbar" },
       el("button", { type: "button", disabled: !allow, title: why, dataset: { online: "configure" }, onclick: write }, "Write configuration…"),
       el("button", { type: "button", dataset: { online: "configure-verify" }, onclick: verify }, "Verify")),
@@ -847,7 +848,7 @@ function restoreDefaultsBox(id, data, allow) {
     data.restore_subindices.map((s) => el("option", { value: s }, `sub ${s}: ${names[s] || "manufacturer-specific"}`)));
   return el("div", { class: "toolbar" }, sub,
     el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "restore-defaults" },
-      onclick: () => restoreDefaultsDialog(id, Number(sub.value), names[Number(sub.value)]) }, "Restore defaults…"));
+      onclick: () => restoreDefaultsDialog(id, Number(sub.value), names[Number(sub.value)]) }, "Factory defaults (0x1011)…"));
 }
 
 async function restoreDefaultsDialog(id, sub, what) {
@@ -855,7 +856,7 @@ async function restoreDefaultsDialog(id, sub, what) {
   const running = nodeRunning(id);
   const v = await modal(`${runningNote(id, running)}Restore node ${id}'s default ${what || "values"} (write "load" to 0x1011 sub ${sub})? ` +
     "The device takes its factory values at its next reset; what was stored on it is lost.",
-  [["cancel", "Cancel"], ["restore", "Restore defaults", { danger: true }]],
+  [["cancel", "Cancel"], ["restore", "Restore factory defaults", { danger: true }]],
   el("label", { class: "check" }, reset, " Reset the node afterwards"));
   if (v !== "restore") return;
   try {

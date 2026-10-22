@@ -21,6 +21,10 @@ class SshError(Exception):
     """A connection or command problem, said for people."""
 
 
+class Unreachable(SshError):
+    """The device did not answer: one sentence, without the socket's text."""
+
+
 class ConnectionLost(SshError):
     """A kept connection that died under a command: the caller may connect again."""
 
@@ -218,19 +222,19 @@ def connect(store, host, user="", port=22, password=None, trust=None, timeout=CO
         raise NeedPassword(where["user"], host, wrong=password is not None)
     except (socket.timeout, TimeoutError):
         client.close()
-        raise SshError("%s did not answer on SSH port %d" % (host, where["port"]))
+        raise Unreachable("Can't reach %s on SSH port %d." % (host, where["port"]))
     except socket.gaierror:
         client.close()
-        raise SshError("%s is not known on this network (check the name, or use its address)" % host)
+        raise Unreachable("Can't find %s on this network." % host)
     except paramiko.SSHException as e:
         client.close()
         if password is None and "No authentication methods available" in str(e):
             # No agent and no key file on this PC: the password is the way in.
             raise NeedPassword(where["user"], host)
         raise SshError("cannot connect to %s on SSH port %d: %s" % (host, where["port"], e))
-    except (OSError, EOFError) as e:
+    except (OSError, EOFError):
         client.close()
-        raise SshError("cannot connect to %s on SSH port %d: %s" % (host, where["port"], e))
+        raise Unreachable("Can't reach %s on SSH port %d." % (host, where["port"]))
     return Connection(client, label)
 
 

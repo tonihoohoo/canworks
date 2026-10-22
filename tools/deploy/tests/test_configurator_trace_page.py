@@ -247,9 +247,11 @@ class Networks(TraceBase):
         pg.wait_for_selector("#trace-plots .uplot")
         pg.select_option('[data-online="network"]', "line")
         pg.wait_for_selector('[data-trace-series="bus.rate"]')
-        self.assertEqual(pg.locator("#trace-plots .uplot").count(), 0)
-        self.assertEqual(pg.locator("[data-trace-series]:checked").count(), 0)
-        self.assertEqual(pg.evaluate("T.chosen"), [])
+        # The other network's series go; its own first graph starts with
+        # its first PDO signal (ux-cleanup "Graph series names").
+        first = pg.evaluate("() => T.st.series.filter((s) => s.kind === 'signal').map((s) => s.key).slice(0, 1)")
+        self.assertEqual(pg.evaluate("T.chosen"), first)
+        self.assertEqual(pg.locator("[data-trace-series]:checked").count(), len(first))
 
 
 class Live(TraceBase):

@@ -196,7 +196,7 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.input_value("[data-new-config=location]"), self.dir)
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#editor:not([hidden])")
-        self.assertIn("standalone " + empty, pg.inner_text("#mode"))
+        self.assertIn("config " + os.path.basename(empty), pg.inner_text("#mode"))
 
     def test_new_config_with_editor_project(self):
         pg = self.page
@@ -1432,7 +1432,7 @@ class Page(unittest.TestCase):
         pg = self.page
         folder = os.path.join(self.dir, "canopen-rtd")
         self.open_from_start("#start-new", folder)
-        self.assertIn("standalone", pg.inner_text("#mode"))
+        self.assertIn("config ", pg.inner_text("#mode"))
         self.assertIn("skipped", pg.inner_text("#scan-info"))
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.pick("0x7130:1")

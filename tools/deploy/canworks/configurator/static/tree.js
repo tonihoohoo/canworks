@@ -407,15 +407,51 @@ function typeAhead(ch, items, cur) {
 async function netMenu(k, anchor) {
   if (k !== S.net) { openNet(k); if (S.view.startsWith("node:")) S.view = "bus"; render(); }
   const net = S.model.networks[k];
-  const buttons = [["cancel", "Cancel"], ["rename", "Rename…"]];
+  const buttons = [["rename", "Rename…"]];
   if (!isJ1939(net) && !isPlain(net)) buttons.push(["role", isSlave(net) ? "Make it a master network…" : "Make it a slave network…"]);
   if (S.model.networks.length > 1) buttons.push(["remove", "Remove…", { danger: true }]);
-  const v = await modal(`${netNamed(net, k)} (${protocolText(net)})`, buttons);
+  // The tree was drawn again for the opened network: anchor to its new button.
+  const at = document.querySelector(`#tree [data-net-menu="${k}"]`) || anchor;
+  const v = await anchoredMenu(at, `${netNamed(net, k)} (${protocolText(net)})`, buttons);
   if (v === "rename") await renameNetwork();
   else if (v === "role") await switchRole(isSlave(net) ? "master" : "slave");
   else if (v === "remove") await removeNetwork();
   const back = treeVisible().find((x) => x.dataset.key === String(Math.min(k, S.model.networks.length - 1)));
   if (back) back.focus(); else if (anchor && anchor.isConnected) anchor.focus();
+}
+
+// A small menu under its button (a network's ⋯): the items as buttons,
+// arrow keys between them, Escape or a click elsewhere closes it. Resolves
+// to the picked item's value, or null.
+function anchoredMenu(anchor, label, items) {
+  return new Promise((resolve) => {
+    const pop = el("div", { class: "menu-pop", role: "menu", "aria-label": label, dataset: { menuPop: "1" } },
+      el("div", { class: "menu-pop-title muted" }, label),
+      items.map(([value, text, opts]) => el("button", { type: "button", role: "menuitem",
+        class: opts && opts.danger ? "danger" : null, dataset: { value } }, text)));
+    const r = anchor && anchor.isConnected ? anchor.getBoundingClientRect() : { left: 16, bottom: 80 };
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 280)) + "px";
+    pop.style.top = r.bottom + 4 + "px";
+    const done = (v) => {
+      document.removeEventListener("mousedown", outside, true);
+      pop.remove();
+      resolve(v);
+    };
+    const outside = (e) => { if (!pop.contains(e.target)) done(null); };
+    pop.addEventListener("click", (e) => { const b = e.target.closest("button[data-value]"); if (b) done(b.dataset.value); });
+    pop.addEventListener("keydown", (e) => {
+      const list = [...pop.querySelectorAll("button")];
+      const i = list.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); if (anchor && anchor.isConnected) anchor.focus(); }
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length].focus();
+      } else if (e.key === "Tab") done(null);
+    });
+    document.body.append(pop);
+    document.addEventListener("mousedown", outside, true);
+    pop.querySelector("button").focus();
+  });
 }
 
 // Narrow windows: the tree opens over the page from its button.

@@ -115,6 +115,7 @@ function onlineReady() {
 // The graph's series, cursors and zoom belong to one network's trace.
 function dropSeries() {
   T.chosen = [];
+  T.picked = false;
   T.lane = {};
   T.data = {};
   T.zoom = null;
@@ -952,11 +953,17 @@ function seriesLabel(key) {
 
 function renderGraph(box) {
   const picker = el("div", { class: "series-picker", dataset: { trace: "series" } });
+  // A first graph of the network starts with its first PDO signal.
+  if (!T.picked && !T.chosen.length) {
+    const first = ((T.st && T.st.series) || []).find((s) => s.kind === "signal");
+    if (first) { T.chosen.push(first.key); T.lane[first.key] = 1; T.picked = true; }
+  }
   for (const [group, list] of seriesGroups()) {
     picker.append(el("h4", null, group));
     for (const s of list) {
       const cb = el("input", { type: "checkbox", checked: T.chosen.includes(s.key), dataset: { traceSeries: s.key } });
       cb.onchange = () => {
+        T.picked = true;
         if (cb.checked) { T.chosen.push(s.key); T.lane[s.key] = T.lane[s.key] || Math.min(LANES, T.chosen.length); }
         else T.chosen = T.chosen.filter((k) => k !== s.key);
         renderTraceTab();
@@ -965,7 +972,7 @@ function renderGraph(box) {
         hidden: !T.chosen.includes(s.key) },
         Array.from({ length: LANES }, (_, k) => el("option", { value: k + 1, selected: (T.lane[s.key] || 1) === k + 1 }, "L" + (k + 1))));
       lane.onchange = () => { T.lane[s.key] = Number(lane.value); renderTraceTab(); };
-      picker.append(el("div", { class: "series-item" }, el("label", { class: "check inline", title: s.key }, cb, s.label), lane));
+      picker.append(el("div", { class: "series-item" }, el("label", { class: "check inline", title: s.label === s.key ? s.key : `${s.label} (${s.key})` }, cb, s.label), lane));
     }
   }
   const readout = el("div", { id: "trace-cursors", class: "trace-cursors", dataset: { trace: "cursors" } });

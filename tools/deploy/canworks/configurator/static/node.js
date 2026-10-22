@@ -60,8 +60,8 @@ function renderNode(view, i) {
   } else if (tab === "pdos") {
     if (eds && eds.error) panel.append(notice("error", eds.error, { live: false, dataset: { nodeMsg: "eds-error" } }));
     panel.append(el("div", { class: "pdo-columns" },
-      renderPdos(i, "tx_pdos", "input", "Inputs (TPDOs, slave to PLC)", eds),
-      renderPdos(i, "rx_pdos", "output", "Outputs (RPDOs, PLC to slave)", eds)));
+      renderPdos(i, "tx_pdos", "input", targetText("pdo_inputs"), eds),
+      renderPdos(i, "rx_pdos", "output", targetText("pdo_outputs"), eds)));
   } else if (tab === "sdos") {
     // SDO variables are the plugin's and the bridge's.
     panel.append(renderSdos(i, eds), ...(usedBy("nodes.sdo_variables") ? [renderSdoVars(i, eds)] : []));
@@ -101,9 +101,27 @@ function supervisionTab(i, eds) {
       hint(help),
       el("span", { class: "field-msg", dataset: { for: base + "." + key } }),
       declNote(base + "." + key));
+  // Every empty PLC signal gets a free location, one after another so each
+  // suggestion sees the ones before it.
+  const signals = [["status", "status_location"], ["state", "state_location"],
+    ["nmt", "nmt_command_location"], ["boot_error", "boot_error_location"]];
+  const suggestAll = el("button", { type: "button", dataset: { suggestAll: "" },
+    onclick: async () => {
+      suggestAll.disabled = true;
+      try {
+        for (const [direction, key] of signals) {
+          if (getPath(base + "." + key)) continue;
+          const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction });
+          setPath(base + "." + key, r.location);
+        }
+      } finally { render(); }
+    } }, "Suggest all");
   return el("div", { class: "wide-cols" },
     el("fieldset", null, el("legend", null, "Supervision"),
-      el("div", { class: "grid" }, supervisionFields(i),
+      el("div", { class: "grid" }, supervisionFields(i))),
+    !signals.some(([, key]) => usedBy("nodes." + key)) ? null : el("fieldset", { dataset: { plcSignals: "" } }, el("legend", null, "PLC signals"),
+      el("div", { class: "row" }, suggestAll, hint("Fills every empty field below with a free location.")),
+      el("div", { class: "grid" },
         nodeInput("Status bit", "status", "status_location", "%IX…",
           "Optional. TRUE while the node is configured and running. Empty: no status bit."),
         nodeInput("State byte", "state", "state_location", "%IB…",
@@ -252,10 +270,10 @@ function nodeNotesTab(n, eds, readBlock, live) {
     const showAll = el("button", { type: "button", dataset: { notesShowAll: "1" },
       onclick: () => { S.notesView = "all"; render(); focusSel('[data-notes-view-pick="all"]'); } }, "Show all notes");
     empty.replaceChildren(view === "mine"
+      // The toolbar above has Add note… and Import notes…: they are not repeated here.
       ? el("div", { class: "empty-state" }, el("p", { class: "muted" }, "You have not written any notes for this device yet. "
-          + (editable ? "Add a note for any object, or import a notes file." : "")),
-        el("div", { class: "toolbar" }, editable ? el("button", { type: "button", onclick: () => addNote(name, eds, live) }, "Add note…") : null,
-          editable ? el("button", { type: "button", onclick: () => importNotes(name, live) }, "Import notes…") : null, showAll))
+          + (editable ? "Add a note for any object with Add note…, or import a notes file." : "")),
+        el("div", { class: "toolbar" }, showAll))
       : el("p", { class: "muted" }, "No object of this EDS has a note yet."));
   };
   const table = el("table", { class: "od notes-table" },

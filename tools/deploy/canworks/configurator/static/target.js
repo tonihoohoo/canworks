@@ -97,6 +97,14 @@ const TARGET_TEXT = {
     openplc: "PLC location",
     bridge: "Location",
   },
+  pdo_inputs: {
+    openplc: "Inputs (TPDOs, device to PLC)",
+    bridge: "Inputs (TPDOs, device to Modbus registers)",
+  },
+  pdo_outputs: {
+    openplc: "Outputs (RPDOs, PLC to device)",
+    bridge: "Outputs (RPDOs, Modbus registers to device)",
+  },
   set_by_runtime: {
     openplc: "none: the plugin sets it",
     bridge: "none: the bridge sets it",
@@ -196,6 +204,11 @@ function pruneOptions(sel, path, tgt) {
     const r = targetRow(`${base}=${o.value}`);
     if (!r || r.targets.includes(tgt)) continue;
     if (o.value !== sel.value) o.remove();
+  }
+  // One choice left: shown as text, not as a dropdown with nothing to pick.
+  if (sel.options.length === 1 && !sel.nextElementSibling?.matches(".single-choice")) {
+    sel.hidden = true;
+    sel.after(el("span", { class: "single-choice", dataset: { singleFor: path } }, sel.options[0].textContent));
   }
 }
 

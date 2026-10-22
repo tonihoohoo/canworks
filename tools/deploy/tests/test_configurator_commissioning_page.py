@@ -276,7 +276,7 @@ class LogPage(Page):
         pg.wait_for_selector('dialog[data-folder="dialog"][open]')
         self.assertEqual(pg.input_value('[data-folder="path"]'), self.dir)  # the nearest folder that exists
         audit(pg, "folder dialog over add to a config")
-        pg.click('[data-folder-path="%s"]' % folder)
+        pg.dblclick('[data-folder-path="%s"]' % folder)
         pg.wait_for_function("(f) => document.querySelector('[data-folder=path]').value === f", arg=folder)
         pg.click('dialog[data-folder="dialog"] button[data-value="use"]')
         pg.wait_for_selector('dialog[data-folder="dialog"]', state="detached")

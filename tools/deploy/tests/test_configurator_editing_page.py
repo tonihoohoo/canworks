@@ -107,7 +107,7 @@ class Base(unittest.TestCase):
     def net_menu(self, name, action):
         """Rename, role or remove of the network named `name` from its tree menu."""
         self.page.click(self.net_entry(name) + " > .tree-row [data-net-menu]")
-        self.answer(action)
+        self.page.click('[data-menu-pop] [data-value="%s"]' % action)
 
     def pdo_settings(self, pb):
         """Opens the collapsed communication settings of the PDO at `pb` (nodes[i].tx_pdos[j])."""
@@ -135,7 +135,8 @@ class StartPage(Base):
         self.assertIn("already has a canworks.json. Open it instead?", pg.inner_text("#modal-text"))
         self.answer("open")
         pg.wait_for_selector("#editor:not([hidden])")
-        self.assertIn("standalone " + folder, pg.inner_text("#mode"))
+        self.assertIn("config " + os.path.basename(folder), pg.inner_text("#mode"))
+        self.assertIn(folder, pg.get_attribute("#mode", "title"))
 
     def test_folder_dialog_and_recent(self):
         pg = self.page
