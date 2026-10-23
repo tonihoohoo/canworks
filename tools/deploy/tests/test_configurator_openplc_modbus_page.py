@@ -134,6 +134,31 @@ class OpenplcModbusPage(OnlineBase):
         with open(main, encoding="utf-8") as f:
             self.assertIn("x := canworks.%s;" % name, f.read())
 
+        # canworks_in made by an older canworks: Save is on without a change
+        # and writes it again (openplc-outdated-editor-files).
+        with open(changed, "w", encoding="utf-8") as f:
+            f.write("PROGRAM canworks_in\nEND_PROGRAM\n")
+        stamp = os.path.join(self.project, openplcmodbus.STAMP)
+        with open(stamp, encoding="utf-8") as f:
+            stamps = json.load(f)
+        stamps["pous/programs/canworks_in.st"] = openplcmodbus._sha(changed)
+        with open(stamp, "w", encoding="utf-8") as f:
+            json.dump(stamps, f)
+        pg.reload()
+        tree_view(pg, "project")
+        pg.wait_for_selector("[data-outdated='1']")
+        self.assertIn("pous/programs/canworks_in.st", pg.inner_text("[data-outdated]"))
+        self.assertTrue(pg.is_enabled("#btn-save"))
+        self.assertEqual(pg.get_attribute("#btn-save", "title"),
+                         "The editor files are from an older canworks; Save writes them again")
+        self.checked()
+        self.assertIn("made by an older canworks", pg.inner_text("#problem-list"))
+        pg.click("[data-save-outdated]")
+        pg.wait_for_function("() => !document.querySelector('[data-outdated]')")
+        pg.wait_for_function("() => document.querySelector('#btn-save').disabled")
+        with open(changed, encoding="utf-8") as f:
+            self.assertIn("canworks.ok :=", f.read())
+
 
 if __name__ == "__main__":
     import unittest

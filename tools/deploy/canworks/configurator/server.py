@@ -591,6 +591,7 @@ class Session:
         self.commission = False  # "Commission a device": a scratch folder, online pages on a USB adapter
         self.folder = None
         self.loaded = None  # (mtime, sha256) of canworks.json as loaded, or None when there was none
+        self.saved_cfg = None  # canworks.json as the last state read it (outdated editor files are for it)
         self.sim_loaded = None  # sha256 of simulation.json as loaded, or None when there was none
         self.pending = {}  # EDS name -> UTF-8 bytes imported but not yet saved
         self.descriptions = {}  # EDS name -> slave EDS description built but not yet saved
@@ -1103,6 +1104,7 @@ class Session:
 
     def _state(self, base):
         cfg, notices, error = self.read_config()
+        self.saved_cfg = cfg
         sim = simulation.read(self.sim_path)
         sim_eds = simulation.eds_files(self.canopen_dir)
         referenced = {n.get("eds") for n in contract.eds_users(cfg)}
@@ -2031,7 +2033,21 @@ class Session:
         return {"remote_device": s["remote_device"], "poll_ms": s["poll_ms"], "port": s["port"],
                 "watchdog_ms": s["watchdog_ms"], "map_hash": "0x%08x" % modbusmap.map_hash(cfg),
                 "requests": openplcmodbus.request_count(groups), "warning": openplcmodbus.budget_warning(groups),
-                "iec_base": base, "files": openplcmodbus.own_files(cfg), "old_main": self.old_main(cfg)}
+                "iec_base": base, "files": openplcmodbus.own_files(cfg), "old_main": self.old_main(cfg),
+                "outdated": self.outdated(cfg)}
+
+    def outdated(self, cfg):
+        """The editor files Save would write again for `cfg` when it is the
+        saved config (openplcmodbus.outdated_files), else []: a draft
+        with changes is saved anyway."""
+        if self.mode != "project" or not self.folder or cfg != self.saved_cfg:
+            return []
+        try:
+            decls = editorproject.declarations(cfg, self.config_path)
+            return openplcmodbus.outdated_files(self.folder, cfg, decls, self.uses)
+        except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError,
+                OSError):
+            return []  # a config the check refuses: Save writes no editor files for it
 
     def main_members(self, cfg):
         """The `canworks` list's member names for `cfg`."""
@@ -2075,6 +2091,10 @@ class Session:
                 "now: Use canworks.* in main on the Project page" % (
                     old["count"], "" if old["count"] == 1 else "s", ", ".join(old["locations"]),
                     ", ..." if old["count"] > len(old["locations"]) else ""))})
+        if info["outdated"]:
+            items.append({"level": "warning", "paths": ["project"], "message": (
+                "The editor files were made by an older canworks (%s): Save writes them again"
+                % ", ".join(info["outdated"]))})
         return items
 
     def sync_openplc(self, cfg, force=False):
@@ -2097,12 +2117,7 @@ class Session:
         """The 409 of sync_openplc before anything is written."""
         try:
             decls = editorproject.declarations(cfg, self.config_path)
-            base = openplcmodbus.settings(cfg)["iec_base"]
-            if base is None:
-                base = openplcmodbus.free_iec_base(cfg, decls, self.uses)
-            in_st, out_st = openplcmodbus.programs(cfg, decls, base)
-            rel = openplcmodbus.own_files(cfg)
-            texts = {rel[0]: openplcmodbus.remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
+            _, texts = openplcmodbus.own_texts(cfg, decls, self.uses)
         except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError,
                 OSError):
             return  # a config the check refuses: nothing is written for it

@@ -8093,9 +8093,12 @@ function updateSave() {
   // Save always saves: errors are listed in Problems and refused by the
   // steps that hand the config over, not here.
   const n = S.check ? (S.check.items || []).length : 0;
-  btn.disabled = !S.dirty;
-  btn.title = S.dirty ? "" : n ? `No unsaved changes; ${counted(n, "problem", "problems")} in Problems` : "No unsaved changes";
-  btn.textContent = S.dirty ? "Save" : n ? `Saved, ${counted(n, "problem", "problems")}` : "Saved";
+  // Editor files an older canworks made: Save writes them again without a change.
+  const outdated = !S.dirty && !!(S.state && S.state.openplc && (S.state.openplc.outdated || []).length);
+  btn.disabled = !S.dirty && !outdated;
+  btn.title = S.dirty ? "" : outdated ? "The editor files are from an older canworks; Save writes them again"
+    : n ? `No unsaved changes; ${counted(n, "problem", "problems")} in Problems` : "No unsaved changes";
+  btn.textContent = S.dirty || outdated ? "Save" : n ? `Saved, ${counted(n, "problem", "problems")}` : "Saved";
   const mark = document.querySelector("[data-unsaved]");
   if (mark) mark.hidden = !S.dirty;
 }

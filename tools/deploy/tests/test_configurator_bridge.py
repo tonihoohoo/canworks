@@ -51,10 +51,10 @@ class Base(unittest.TestCase):
         shutil.copytree(EXAMPLE, self.folder)
         self.cfg = load()
 
-    def request(self, path, body):
+    def request(self, path, body, method="POST"):
         import http.client
         c = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
-        c.request("POST", path, json.dumps(body), {"Host": "127.0.0.1:%d" % self.server.server_port,
+        c.request(method, path, None if body is None else json.dumps(body), {"Host": "127.0.0.1:%d" % self.server.server_port,
                                                    srv.TOKEN_HEADER: self.server.token,
                                                    "Content-Type": "application/json"})
         r = c.getresponse()
@@ -62,8 +62,8 @@ class Base(unittest.TestCase):
         c.close()
         return r.status, data
 
-    def ok(self, path, body):
-        status, data = self.request(path, body)
+    def ok(self, path, body, method="POST"):
+        status, data = self.request(path, body, method)
         self.assertEqual(status, 200, data)
         return data
 
@@ -375,6 +375,39 @@ class OpenplcModbus(Base):
         self.assertIsNone(self.ok("/api/check", {"config": cfg}).get("state", {}).get("old_main"))
         status, data = self.request("/api/openplc/move_main", {"config": cfg})
         self.assertEqual(status, 422)
+
+    def test_outdated_editor_files(self):
+        # Spec canopen-configurator "Out-of-date OpenPLC editor files".
+        project = self.project()
+        self.open(project, "project")
+        state = self.ok("/api/save", {"config": self.switched()})["state"]
+        self.assertEqual(state["openplc"]["outdated"], [])
+        saved = state["config"]
+        # canworks_in as an older canworks wrote it
+        path = os.path.join(project, "pous", "programs", "canworks_in.st")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("PROGRAM canworks_in\nEND_PROGRAM\n")
+        stamp = os.path.join(project, openplcmodbus.STAMP)
+        with open(stamp, encoding="utf-8") as f:
+            stamps = json.load(f)
+        stamps["pous/programs/canworks_in.st"] = openplcmodbus._sha(path)
+        with open(stamp, "w", encoding="utf-8") as f:
+            json.dump(stamps, f)
+        state = self.ok("/api/state", None, method="GET")
+        self.assertEqual(state["openplc"]["outdated"], ["pous/programs/canworks_in.st"])
+        warn = lambda cfg: [i for i in self.ok("/api/check", {"config": cfg})["items"] if "older canworks" in i["message"]]
+        self.assertEqual([i["paths"] for i in warn(saved)], [["project"]])
+        edited = copy.deepcopy(saved)
+        edited["bridge"]["openplc"]["poll_ms"] = 20
+        self.assertEqual(warn(edited), [])  # a changed draft is saved anyway
+        # Save without a change writes it again; canworks.json stays as it is
+        config = os.path.join(project, "canworks", "canworks.json")
+        before = load(config)
+        r = self.ok("/api/save", {"config": saved})
+        self.assertEqual(r["state"]["openplc"]["outdated"], [])
+        self.assertEqual(load(config), before)
+        with open(path, encoding="utf-8") as f:
+            self.assertIn("canworks.ok :=", f.read())
 
     def test_standalone_writes_no_editor_files(self):
         self.open()

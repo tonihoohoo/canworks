@@ -651,17 +651,69 @@ def changed_files(project_dir, cfg, texts):
     return out
 
 
-def sync_project(project_dir, cfg, decls, uses=(), force=False):
-    """Writes the remote device, canworks_in, canworks_out and the list and
-    instances in project.json for an openplc config. Raises ChangedFiles
-    unless `force` when one of canworks' files was changed by someone else.
-    Returns {written, iec_base, requests, warning}."""
+def own_texts(cfg, decls, uses=()):
+    """(%IW/%QW base, {own file: the text Save writes there})."""
     base = settings(cfg)["iec_base"]
     if base is None:
         base = free_iec_base(cfg, decls, uses)
     in_st, out_st = programs(cfg, decls, base)
     rel = own_files(cfg)
-    texts = {rel[0]: remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
+    return base, {rel[0]: remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
+
+
+def _list_shape(lst):
+    """A `canworks` list as [(name, type)], what the program sees of it; the
+    editor may store the rest in its own way."""
+    out = []
+    for v in lst.get("variables") or []:
+        t = v.get("type") if isinstance(v, dict) else None
+        out.append((v.get("name"), t.get("value") if isinstance(t, dict) else None) if isinstance(v, dict) else None)
+    return out
+
+
+def outdated_files(project_dir, cfg, decls, uses=()):
+    """What Save would write again although the config did not change: own
+    files canworks wrote that are missing now or that it would now write
+    differently (a newer canworks), and "project.json" when its `canworks`
+    list differs from what Save writes or it does not enable the canworks
+    library. Files someone else changed are left to
+    changed_files."""
+    stamps = _stamps(project_dir)
+    if not stamps:
+        return []  # canworks never wrote into this project: its first Save does
+    _, texts = own_texts(cfg, decls, uses)
+    out = []
+    for rel in own_files(cfg):
+        path = os.path.join(project_dir, *rel.split("/"))
+        if rel not in stamps:
+            continue
+        if not os.path.isfile(path):
+            out.append(rel)
+            continue
+        sha = _sha(path)
+        if sha == stamps[rel] and sha != hashlib.sha256(texts[rel].encode("utf-8")).hexdigest():
+            out.append(rel)
+    try:
+        with open(os.path.join(project_dir, "project.json"), encoding="utf-8") as f:
+            data = json.load(f).get("data") or {}
+    except (OSError, ValueError, AttributeError):
+        return out
+    lists = [l for l in data.get("globalVariableLists") or [] if isinstance(l, dict) and l.get("name") == LIST_NAME]
+    libs = [l for l in data.get("libraries") or [] if isinstance(l, dict) and l.get("name") == plclibrary.NAME]
+    # The library's version is not checked: Save installs this canworks'
+    # library into the editor whatever the entry names.
+    if [_list_shape(l) for l in lists] != [_list_shape(global_list(decls))] or not libs:
+        out.append("project.json")
+    return out
+
+
+def sync_project(project_dir, cfg, decls, uses=(), force=False):
+    """Writes the remote device, canworks_in, canworks_out and the list and
+    instances in project.json for an openplc config. Raises ChangedFiles
+    unless `force` when one of canworks' files was changed by someone else.
+    Returns {written, iec_base, requests, warning}."""
+    base, texts = own_texts(cfg, decls, uses)
+    rel = own_files(cfg)
     changed = changed_files(project_dir, cfg, texts)
     if changed and not force:
         raise ChangedFiles(changed)

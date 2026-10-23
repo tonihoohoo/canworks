@@ -250,6 +250,7 @@ function editorProjectSection() {
       el("tr", null, el("th", null, "Project"), el("td", null, S.state.name)),
       el("tr", null, el("th", null, "Folder"), el("td", { class: "mono" }, S.state.folder || "")))),
     o && o.old_main ? oldMainNotice(o.old_main) : null,
+    o && o.outdated && o.outdated.length ? outdatedNotice(o.outdated) : null,
     el("p", { class: "muted" }, o
       ? "Save writes " + o.files.join(", ") + " and the canworks variable list into this editor project. An open OpenPLC Editor must reopen the project before Build."
       : "Save writes the remote device, the canworks_in and canworks_out programs and the canworks variable list into this editor project once the config has no errors."));
@@ -275,6 +276,16 @@ function oldMainNotice(old) {
     "Use canworks.* in main removes those declarations and writes each use as canworks.<name>; your own I/O, comments and other programs stay as they are.",
     { live: false, dataset: { oldMain: String(n) }, actions: [el("button", { type: "button", class: "primary",
       dataset: { moveMain: "1" }, onclick: () => moveMain() }, "Use canworks.* in main")] });
+}
+
+// Editor files an older canworks made, which Save writes again although
+// the config did not change (canopen-configurator "Out-of-date OpenPLC
+// editor files").
+function outdatedNotice(files) {
+  return notice("warning",
+    `The editor files were made by an older canworks: ${files.join(", ")}. Save writes them again; canworks.json stays as it is.`,
+    { live: false, dataset: { outdated: String(files.length) }, actions: [el("button", { type: "button", class: "primary",
+      dataset: { saveOutdated: "1" }, onclick: () => $("#btn-save").click() }, "Save")] });
 }
 
 async function moveMain() {
