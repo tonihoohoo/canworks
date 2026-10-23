@@ -192,6 +192,15 @@ class Programs(unittest.TestCase):
         self.assertIn("q6 := canworks.link[4];", self.out_st)
         self.assertIn("q15 := canworks.link[13];", self.out_st)
 
+    def test_live_list_of_an_unnamed_network(self):
+        # A network without a name goes by its interface's, as in the bridge.
+        cfg = plain()
+        del cfg["networks"][0]["name"]
+        cfg["bridge"]["live_lists"][0]["network"] = "sim0"
+        in_st, _ = openplcmodbus.programs(cfg, decls(cfg))
+        self.assertIn("canworks.link[21] := 16#0106 OR BOOL_TO_WORD(canworks.ok);", in_st)
+        self.assertIn("canworks.link[25] := i18;", in_st)
+
     def test_shared_register(self):
         self.assertIn("q3 := SHL((USINT_TO_WORD(canworks.dio_Write_output_8_bit_1) AND 16#00FF), 8) OR "
                       "(USINT_TO_WORD(canworks.dio_Write_output_8_bit_2) AND 16#00FF);", self.out_st)

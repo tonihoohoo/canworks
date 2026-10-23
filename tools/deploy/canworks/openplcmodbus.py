@@ -23,7 +23,7 @@ import json
 import os
 import uuid
 
-from . import bridgecheck, mailboxlayout, modbusmap, plclibrary
+from . import bridgecheck, contract, mailboxlayout, modbusmap, plclibrary
 from .configurator import declare
 from .iec import parse_location
 from .userdirs import replace_file
@@ -361,12 +361,13 @@ def _block_starts(cfg):
             loc = parse_location(sdo.get(key))
             if loc is not None:
                 out[name] = loc.index // 2
-    nets = [n.get("name") for n in cfg.get("networks") or [] if isinstance(n, dict)]
+    # A network without a name goes by its interface's, as in the bridge.
+    nets = {n["name"]: n["index"] for n in contract.networks(cfg) if n["name"]}
     live = []
     for entry in b.get("live_lists") or []:
         loc = parse_location(entry.get("location")) if isinstance(entry, dict) else None
         if loc is not None and entry.get("network") in nets:
-            live.append((nets.index(entry["network"]), loc.index // 2))
+            live.append((nets[entry["network"]], loc.index // 2))
     return out, live
 
 
