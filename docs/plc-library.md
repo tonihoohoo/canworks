@@ -127,6 +127,8 @@ Every client polls the mailboxes' registers on every cycle, whether or not a blo
 
 `canworks_in` and `canworks_out` also copy every mailbox word on every scan.
 
+That copy is what the PLC feels. On a Raspberry Pi 5 bench with one CANopen node and a 10 ms poll, the OpenPLC runtime used about 9 % CPU without mailboxes, 27-29 % with the request and receive mailboxes and 31 % with the defaults. The bridge stayed at about 2 % either way.
+
 **Without mailboxes, use the config instead:**
 
 | Block | Instead |
