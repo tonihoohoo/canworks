@@ -9,7 +9,8 @@ here, through the deploy tool's openplcmodbus module:
                  in one task, as the editor writes them
     programs.st  canworks_in and canworks_out as function blocks without
                  locations, the list as their output and input, for the
-                 conversion tests
+                 conversion tests, and canworks_in_zero_fb, canworks_in
+                 with "inputs_on_loss": "zero"
     other.st     the PLC link file --export-modbus-map OUT.st writes for
                  another Modbus PLC, its global variable list as a STRUCT
                  the way project.st has it, with main and a configuration
@@ -99,6 +100,9 @@ def main():
         f.write(struct(lst))
         f.write(as_block(in_st, "canworks_in", "VAR_OUTPUT"))
         f.write(as_block(out_st, "canworks_out", "VAR_INPUT"))
+        # "inputs_on_loss": "zero", for the loss tests.
+        zero_in, _ = openplcmodbus.programs(cfg, decls, on_loss="zero")
+        f.write(as_block(zero_in, "canworks_in", "VAR_OUTPUT").replace("canworks_in_fb", "canworks_in_zero_fb"))
 
     # Another PLC: its list's VAR_GLOBAL block becomes the STRUCT.
     text = openplcmodbus.other_plc_st(cfg, decls)

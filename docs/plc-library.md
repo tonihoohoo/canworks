@@ -35,6 +35,18 @@ canworks-deploy library --out .      # writes canworks.stlib
 
 Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with **Enable the canworks function blocks** in the configurator's New editor project dialog has it enabled already, and the library is installed into the editor if it is missing or older.
 
+## When the bridge is lost
+
+`canworks.ok` is TRUE while the bridge answers with this program's map and its status counter moves; it goes FALSE within the stale time (3 × the bridge's watchdog, at least 300 ms) after the bridge stops, crashes or loses its network. Gate your outputs and decisions on it. While it is FALSE, the status, state and timeout values (node status bits and state bytes, the master's state and bus state, PDO timeout bits, message status bits) read 0, and the other values keep their last ones, or read 0 when the connection's **Inputs when the bridge is lost** is **Set to 0** (`"inputs_on_loss": "zero"`). `canworks.bus_ok` is TRUE while `canworks.ok` is TRUE and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear): FALSE with a pulled cable, a missing adapter or a bus-off. What the nodes themselves do is in [When the bridge fails](modbus-bridge.md#what-the-nodes-do).
+
+```iecst
+IF canworks.ok AND canworks.bus_ok THEN
+  canworks.dio_valve_1 := want_open;
+ELSE
+  alarm := TRUE;
+END_IF;
+```
+
 ## Blocks over the bridge
 
 Every block takes `LINK`, the generated `canworks.link`, as its in-out, and `NETWORK : USINT`, the network's place in the config's `networks` list counting from 0:

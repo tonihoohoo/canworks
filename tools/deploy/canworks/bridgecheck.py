@@ -43,10 +43,10 @@ OPENPLC_REMOVED = ("field 'openplc' was removed: OpenPLC is a connection on the 
 CONNECTION_KINDS = ("openplc", "trust", "plc", "nodered", "hmi")
 CONNECTION_TITLES = {"openplc": "OpenPLC", "trust": "truST", "plc": "Other PLC", "nodered": "Node-RED",
                      "hmi": "HMI, SCADA or script"}
-CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash")
-CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base"),
-                     "trust": ("format", "library", "bridge_host"),
-                     "plc": ("format", "library", "bridge_host"),
+CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash", "stale")
+CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base", "inputs_on_loss"),
+                     "trust": ("format", "library", "bridge_host", "inputs_on_loss"),
+                     "plc": ("format", "library", "bridge_host", "inputs_on_loss"),
                      "nodered": ("period_ms", "bridge_host"),
                      "hmi": ("format",)}
 CONNECTION_FORMATS = {"trust": ("plcopen",), "plc": ("plcopen", "st"), "hmi": ("csv", "json", "st")}
@@ -204,6 +204,10 @@ def _connections(b, w, err, warn, link):
         if kind in CONNECTION_FORMATS and "format" in c and c["format"] not in CONNECTION_FORMATS[kind]:
             err(cw, "field 'format' of a %s connection must be %s" % (
                 CONNECTION_TITLES[kind], " or ".join('"%s"' % f for f in CONNECTION_FORMATS[kind])), [cw + ".format"])
+        if "inputs_on_loss" in c and c["inputs_on_loss"] not in ("hold", "zero"):
+            err(cw, "field 'inputs_on_loss' must be \"hold\" or \"zero\"", [cw + ".inputs_on_loss"])
+        if "stale" in c and not isinstance(c["stale"], bool):
+            err(cw, "field 'stale' must be true or false", [cw + ".stale"])
         if "library" in c and not isinstance(c["library"], bool):
             err(cw, "field 'library' must be true or false", [cw + ".library"])
         if "bridge_host" in c and not isinstance(c["bridge_host"], str):

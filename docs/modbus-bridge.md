@@ -287,7 +287,7 @@ At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive 
 ]
 ```
 
-Every connection has `kind`, a unique `name` (1-64 characters), `address` (the client's IP address), `writes` and, once downloaded, `map_hash`. The kinds and their own fields:
+Every connection has `kind`, a unique `name` (1-64 characters), `address` (the client's IP address), `writes` and, once downloaded, `map_hash`. `openplc`, `trust` and `plc` also take `inputs_on_loss`: `hold` (the default) keeps the typed inputs at their last values while `canworks.ok` is FALSE, `zero` sets them to 0; status, state and timeout values read 0 either way ([plc-library.md](plc-library.md#when-the-bridge-is-lost)). The kinds and their own fields:
 
 | Kind | Fields | What it gets |
 | --- | --- | --- |
@@ -297,7 +297,7 @@ Every connection has `kind`, a unique `name` (1-64 characters), `address` (the c
 | `nodered` | `period_ms` (10-60000), `bridge_host` | The Node-RED flow ([node-red.md](node-red.md)). |
 | `hmi` | `format` (`csv`, `json` or `st`) | The register map or the ST variable list. |
 
-A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, the row says **Out of date** and Problems warns until the next download.
+A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, or a setting that goes into the file (`inputs_on_loss`) changes, which the configurator marks with `"stale": true`, the row says **Out of date** and Problems warns until the next download.
 
 The writers follow the connections: while there are connections, `writers` is the sorted addresses of those with `writes` true, and the check warns when they differ. A connection on the network while `listen` is a loopback address is an error naming it. With the PLC link, only the PLC writes outputs and mailboxes: a Node-RED or HMI connection that writes gets a warning.
 
@@ -381,6 +381,21 @@ The tool checks the config, sends it with its EDS files and simulation file over
 | Config upload that cannot be put in place, or does not start | puts the previous files back and runs them; when they do not start either, it exits and systemd retries | a short gap | the restart's boot |
 
 The systemd unit is `Type=notify`: `systemctl start` returns once the Modbus port answers. It restarts the bridge after every exit it did not ask for (`Restart=always`, `RestartSec=1`) and never gives up (`StartLimitIntervalSec=0`), so a port held by another program or a full disk delays the bridge instead of leaving the unit failed. The bridge feeds systemd's watchdog (`WatchdogSec=20s`) only while its loop, its Modbus server and every network's bus thread make progress.
+
+### What the nodes do
+
+A node keeps whatever its RPDOs last set until something tells it otherwise. After a clean stop that is the NMT command from `master.on_plc_stop`. After a crash, a kill or a power loss nothing is sent, so a node with outputs needs one of these to react:
+
+| Setting | What the node does when the bridge is gone | After the restart |
+|---|---|---|
+| none (the EDS defaults) | keeps its last outputs and stays operational | boots again (without `config_check` the whole configuration is downloaded again) |
+| `"heartbeat_consumer": true` (needs `master.heartbeat_ms`) | misses the master's heartbeat after `master.heartbeat_ms` × `master.heartbeat_multiplier` and reacts as its error behavior (0x1029 sub 1) says: pre-operational by default, stopped or no change on some devices | boots again and is operational |
+| an RPDO `event_timer_ms` | misses the RPDO after that time and reacts as its device profile says (usually an EMCY, and on many I/O modules the outputs go to their error values) | the RPDO comes again |
+| `"config_check": true` | as above | skips the download when the node still has this configuration, so the restart is quicker |
+
+Check what a device does in its manual or its EDS 0x1029 (`error_behavior` sets it) before you rely on it: "no change" there means it keeps its outputs even with the heartbeat watch. A node with outputs that has neither setting gets one warning at load (`node 6 (valves) keeps its last outputs when the bridge stops without a clean stop ...`), from the bridge and from `canworks-deploy --check`; the configurator shows it in Problems with a **Watch the master heartbeat** button. The configurator sets `heartbeat_consumer` (and a 100 ms master heartbeat) on a node when it gets its first output entry, and `config_check` on every new node whose EDS can keep the stamp; a file you load is not changed.
+
+The status block's byte 7 bit 1 is set while a network's bus is not usable (its interface down or missing, or bus-off), and `canworks-diag status` names those networks (`bus_not_ok`). A SocketCAN adapter that the bridge sets up should have `restart_ms` so the kernel restarts it after a bus-off; the configurator gives new adapters 100 ms and offers **Restart after bus-off (100 ms)** in Problems for one without it.
 
 After a start that follows an unclean stop the log has `the previous run of this config did not stop cleanly`, the status block's byte 7 has bit 0 set until the bridge stops, and `canworks-diag status` says `last stop unclean`. The bridge keeps a small marker file (`.canworks/running` next to the config) for this; it is written once per start.
 

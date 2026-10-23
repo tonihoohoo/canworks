@@ -68,6 +68,42 @@ def eds_has_heartbeat_consumer(eds):
     return any(sub >= 1 and o.writable for sub, o in eds.objects.get(0x1016, {}).items())
 
 
+def stop_protection_message(label):
+    """The bridge's warning for a node with outputs that nothing makes react
+    when the bridge stops without a clean stop (canopen-node-supervision
+    "Nodes not protected against a bridge stop")."""
+    return ("%s keeps its last outputs when the bridge stops without a clean stop (crash, kill, power loss); set "
+            "\"heartbeat_consumer\": true so it reacts when the master's heartbeat stops (per its 0x1029), or an "
+            "RPDO event_timer_ms" % label)
+
+
+def stop_protected(src, node_id, rpdos, eds, master_id, master_hb):
+    """Whether a node whose output RPDOs are `rpdos` ({number: config event
+    timer or None}) reacts to a lost master (engine: check_stop_protection):
+    heartbeat_consumer, an EDS 0x1016 entry for the master the config does
+    not clear, or a deadline on one of those RPDOs."""
+    if src.get("heartbeat_consumer") is True:
+        return True
+    if "heartbeat_consumer" not in src and master_hb:
+        for sub, o in eds.objects.get(0x1016, {}).items():
+            try:
+                v = o.value(node_id) if sub >= 1 else None
+            except (ValueError, eds_mod.EdsError):
+                v = None
+            if v and (v >> 16) & 0xFF == master_id and v & 0xFFFF:
+                return True
+    for number, timer in rpdos.items():
+        if timer is None:
+            sub = eds.find(0x1400 + number - 1, 5)
+            try:
+                timer = sub.value(node_id) if sub is not None else 0
+            except (ValueError, eds_mod.EdsError):
+                timer = 0
+        if timer:
+            return True
+    return False
+
+
 def supervision_message(label):
     """The bridge's refusal of a node without heartbeat or guarding whose EDS
     heartbeat default is 0 (canopen-node-supervision)."""
@@ -2204,6 +2240,23 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     # Heartbeat watch and PDO links against the EDS files (engine: eds_check.cpp).
     links_mod.resolve_watch(cfg["nodes"], nodes, eds_by_id, master, add)
     links_mod.check_eds([l for l in links if "cob_id" in l], nodes, eds_by_id, sync_period, add, eds_warnings)
+    # Output nodes that keep their outputs when the bridge crashes (engine: check_stop_protection).
+    for i, node in enumerate(nodes):
+        eds = eds_by_id.get(node["node_id"])
+        if eds is None:
+            continue
+        src = cfg["nodes"][i]
+        rpdos = {}
+        for j, p in enumerate(src.get("rx_pdos", [])):
+            if any("iec_location" in e for e in p.get("entries", [])):
+                rpdos[_uint(p.get("number", j + 1))] = _uint(p["event_timer_ms"]) if "event_timer_ms" in p else None
+        for l in links:
+            for c in l["consumers"]:
+                if c["node"] == node["node_id"] and c["node"] != l["producer"]:
+                    rpdos[c["rpdo"]] = c.get("event_timer_ms")
+        if rpdos and not stop_protected(src, node["node_id"], rpdos, eds, master_id, master_hb):
+            label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node.get("name") else "")
+            eds_warnings.append((stop_protection_message(label), "nodes[%d]" % i))
     if len(r.errors) == before:
         for msg, at in eds_warnings:
             add("warning", msg, [at])

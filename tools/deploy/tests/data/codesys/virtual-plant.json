@@ -626,6 +626,11 @@
     },
     {
       "where": "io/new_io",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
+    },
+    {
+      "where": "io/new_io",
       "setting": "serial_number",
       "note": "identity check: tick the device's startup checks in CODESYS"
     },
@@ -663,6 +668,11 @@
       "where": "motion/master",
       "setting": "state_location",
       "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "motion/conveyor",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
     },
     {
       "where": "motion/conveyor",
@@ -718,6 +728,11 @@
       "where": "host/master",
       "setting": "state_location",
       "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+    },
+    {
+      "where": "host/cell",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
     },
     {
       "where": "host/cell",

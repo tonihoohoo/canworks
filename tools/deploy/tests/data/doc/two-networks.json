@@ -2,8 +2,8 @@
  "config": {
   "file": "canopen_config.json",
   "schema_version": 2,
-  "sha256": "1a80aeb8c403773f5612e685f297fad6f95700852a1f6a1f6cbe303eb4dce529",
-  "text": "{\n  \"schema_version\": 2,\n  \"bridge\": { \"listen\": \"127.0.0.1:1502\", \"writers\": [ \"127.0.0.1\" ] },\n  \"networks\": [\n    {\n      \"name\": \"io\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] } ]\n        }\n      ]\n    },\n    {\n      \"name\": \"drives\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.1\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID104\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD104\" } ] } ]\n        }\n      ]\n    }\n  ]\n}\n"
+  "sha256": "3078483e9efd0b465016610fb2c795790abd52447e714b270dba3b6a7a9e8031",
+  "text": "{\n  \"schema_version\": 2,\n  \"bridge\": { \"listen\": \"127.0.0.1:1502\", \"writers\": [ \"127.0.0.1\" ] },\n  \"networks\": [\n    {\n      \"name\": \"io\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000, \"heartbeat_ms\": 100 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_consumer\": true,\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] } ]\n        }\n      ]\n    },\n    {\n      \"name\": \"drives\",\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan1\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000, \"heartbeat_ms\": 100 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_consumer\": true,\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.1\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID104\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD104\" } ] } ]\n        }\n      ]\n    }\n  ]\n}\n"
  },
  "doc_schema_version": 2,
  "gateway": null,
@@ -220,11 +220,11 @@
    "anchor": "net-io",
    "bitrate": 125000,
    "bus_load": {
-    "cyclic": 2.48,
+    "cyclic": 3.0,
     "notes": [],
     "sync_ms": 100.0,
     "unbounded": [],
-    "worst": 2.48
+    "worst": 3.0
    },
    "frames": [
     {
@@ -363,19 +363,21 @@
     {
      "bits": 65,
      "cob_id": 1793,
-     "consumers": [],
+     "consumers": [
+      "pingpong"
+     ],
      "dlc": 1,
      "duplicate": false,
      "kind": "master_heartbeat",
      "link": "",
-     "load_cyclic": 0.0,
-     "load_worst": 0.0,
+     "load_cyclic": 0.52,
+     "load_worst": 0.52,
      "name": "Master_Heartbeat",
      "notes": "master (node 1) heartbeat",
      "producer": "Master",
-     "rate_cyclic": 0.0,
-     "rate_worst": 0.0,
-     "trigger": "off (boot-up message only)"
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
     },
     {
      "bits": 65,
@@ -410,6 +412,18 @@
       ],
       "before": [],
       "writes": [
+       {
+        "access": "rw",
+        "data": "2c010100",
+        "eds_default": "0x00000000",
+        "index": 4118,
+        "meaning": "watches the master's heartbeat, timeout 300 ms",
+        "name": "Consumer heartbeat time 1",
+        "note": "A monitored node: node ID in bits 16-23, heartbeat time in ms in bits 0-15; 0 means not used",
+        "source": "node settings",
+        "subindex": 1,
+        "value": "65836 (0x0001012C)"
+       },
        {
         "access": "rw",
         "data": "6400",
@@ -597,6 +611,17 @@
        "low": "",
        "name": "Device type",
        "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "65836 (0x0001012C)",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4118,
+       "low": "",
+       "name": "Consumer heartbeat time 1",
+       "subindex": 1,
        "type": "UNSIGNED32"
       },
       {
@@ -833,6 +858,11 @@
        "value": "300 ms"
       },
       {
+       "label": "Watches the master's heartbeat",
+       "object": "0x1016",
+       "value": "yes"
+      },
+      {
        "label": "Mandatory",
        "object": "master 0x1F81",
        "value": "no"
@@ -882,7 +912,7 @@
     {
      "label": "Master heartbeat",
      "object": "0x1017",
-     "value": "off"
+     "value": "100 ms"
     },
     {
      "label": "Watches node heartbeats",
@@ -910,11 +940,11 @@
    "anchor": "net-drives",
    "bitrate": 125000,
    "bus_load": {
-    "cyclic": 2.48,
+    "cyclic": 3.0,
     "notes": [],
     "sync_ms": 100.0,
     "unbounded": [],
-    "worst": 2.48
+    "worst": 3.0
    },
    "frames": [
     {
@@ -1053,19 +1083,21 @@
     {
      "bits": 65,
      "cob_id": 1793,
-     "consumers": [],
+     "consumers": [
+      "pingpong"
+     ],
      "dlc": 1,
      "duplicate": false,
      "kind": "master_heartbeat",
      "link": "",
-     "load_cyclic": 0.0,
-     "load_worst": 0.0,
+     "load_cyclic": 0.52,
+     "load_worst": 0.52,
      "name": "Master_Heartbeat",
      "notes": "master (node 1) heartbeat",
      "producer": "Master",
-     "rate_cyclic": 0.0,
-     "rate_worst": 0.0,
-     "trigger": "off (boot-up message only)"
+     "rate_cyclic": 10.0,
+     "rate_worst": 10.0,
+     "trigger": "every 100 ms"
     },
     {
      "bits": 65,
@@ -1100,6 +1132,18 @@
       ],
       "before": [],
       "writes": [
+       {
+        "access": "rw",
+        "data": "2c010100",
+        "eds_default": "0x00000000",
+        "index": 4118,
+        "meaning": "watches the master's heartbeat, timeout 300 ms",
+        "name": "Consumer heartbeat time 1",
+        "note": "A monitored node: node ID in bits 16-23, heartbeat time in ms in bits 0-15; 0 means not used",
+        "source": "node settings",
+        "subindex": 1,
+        "value": "65836 (0x0001012C)"
+       },
        {
         "access": "rw",
         "data": "6400",
@@ -1287,6 +1331,17 @@
        "low": "",
        "name": "Device type",
        "subindex": 0,
+       "type": "UNSIGNED32"
+      },
+      {
+       "access": "rw",
+       "configured": "65836 (0x0001012C)",
+       "default": "0x00000000",
+       "high": "",
+       "index": 4118,
+       "low": "",
+       "name": "Consumer heartbeat time 1",
+       "subindex": 1,
        "type": "UNSIGNED32"
       },
       {
@@ -1523,6 +1578,11 @@
        "value": "300 ms"
       },
       {
+       "label": "Watches the master's heartbeat",
+       "object": "0x1016",
+       "value": "yes"
+      },
+      {
        "label": "Mandatory",
        "object": "master 0x1F81",
        "value": "no"
@@ -1572,7 +1632,7 @@
     {
      "label": "Master heartbeat",
      "object": "0x1017",
-     "value": "off"
+     "value": "100 ms"
     },
     {
      "label": "Watches node heartbeats",
@@ -1600,7 +1660,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.125.1"
+  "version": "0.126.0"
  },
  "warnings": []
 }

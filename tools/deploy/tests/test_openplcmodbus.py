@@ -209,9 +209,9 @@ class Programs(unittest.TestCase):
         lst = openplcmodbus.global_list(self.decls)
         self.assertEqual(lst["name"], "canworks")
         names = [v["name"] for v in lst["variables"]]
-        self.assertEqual(names[:2], ["ok", "link"])
+        self.assertEqual(names[:3], ["ok", "bus_ok", "link"])
         self.assertIn("rtd_AI0_Input_PV", names)
-        link = lst["variables"][1]["type"]
+        link = lst["variables"][2]["type"]
         self.assertEqual(link["definition"], "array")
         self.assertEqual(link["data"]["dimensions"], [{"dimension": "0..1279"}])
         self.assertTrue(all(v["location"] == "" for v in lst["variables"]))

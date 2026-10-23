@@ -273,6 +273,10 @@ std::string lss_unsupported_message(const NodeConfig& n);
 // EDS objects"); the deploy tool's check gives the same text.
 std::string emcy_unsupported_message(const NodeConfig& n, const std::string& field);
 std::string heartbeat_consumer_unsupported_message(const NodeConfig& n);
+// The warning for a node with outputs that nothing makes react when the
+// bridge stops without a clean stop (canopen-node-supervision "Nodes not
+// protected against a bridge stop"); the deploy tool's check gives the same text.
+std::string stop_protection_message(const NodeConfig& n);
 
 // One consumer of a PDO link: an RPDO of a node that receives the producer's
 // TPDO directly (canopen-pdo-links).

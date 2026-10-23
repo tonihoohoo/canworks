@@ -130,6 +130,8 @@
               "address": { "description": "The client's IP address (127.0.0.1 for openplc).", "type": "string", "minLength": 1 },
               "writes": { "description": "Whether the client writes outputs; bridge.writers follows the connections that do.", "type": "boolean" },
               "map_hash": { "description": "Map hash of the last download, such as 0x1234abcd.", "type": "string", "pattern": "^0x[0-9a-f]{8}$" },
+              "stale": { "description": "Set by the configurator when a setting that goes into the downloaded file changed after the last download; the download clears it.", "type": "boolean" },
+              "inputs_on_loss": { "description": "openplc, trust and plc: what the typed inputs read while canworks.ok is FALSE: hold (default) keeps their last values, zero sets them to 0. Status, state and timeout inputs read 0 either way.", "enum": [ "hold", "zero" ] },
               "poll_ms": { "description": "openplc: poll period of OpenPLC's Modbus master (default 10).", "type": "integer", "minimum": 5, "maximum": 1000 },
               "remote_device": { "description": "openplc: the editor's remote device file name, devices/remote/<name>.json (default canworks).", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
               "iec_base": { "description": "openplc: first %IW and %QW index of the remote device's points (default: the lowest free run from 100).", "type": "integer", "minimum": 0, "maximum": 65535 },

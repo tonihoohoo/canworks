@@ -41,6 +41,8 @@
           "node_id": 6,
           "name": "dio",
           "eds": "dio16.eds",
+          "heartbeat_consumer": true,
+          "config_check": true,
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
           "status_location": "%IX16.1",

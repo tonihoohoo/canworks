@@ -83,7 +83,9 @@ With `status_location` (8 input bytes), the bridge SHALL publish:
 - bytes 2-3: a counter incremented every 100 ms
 - bytes 4-5: the last control counter handled
 - byte 6: the last control result
-- byte 7: flags; bit 0 set for the whole run when the previous run of this config did not stop cleanly (Requirement: Unclean stop reported); the other bits 0
+- byte 7: flags; bit 0 set for the whole run when the previous run of this config did not stop cleanly (Requirement: Unclean stop reported); bit 1 set while any CAN network of the bridge has its interface down or missing or its controller bus-off (error-warning and error-passive do not set it); the other bits 0
+
+The bridge's diagnostics status SHALL name the networks whose bus is not ok (`bus_not_ok`).
 
 #### Scenario: Bridge alive
 - **WHEN** a client reads the status block twice 500 ms apart
@@ -95,7 +97,15 @@ With `status_location` (8 input bytes), the bridge SHALL publish:
 
 #### Scenario: Start after a crash
 - **WHEN** the bridge was killed with SIGKILL and systemd started it again
-- **THEN** byte 7 reads 1 until the bridge stops, and the counter in bytes 2-3 started again from 0
+- **THEN** byte 7 bit 0 is set until the bridge stops, and the counter in bytes 2-3 started again from 0
+
+#### Scenario: Interface down
+- **WHEN** the bridge runs one network on `can0` and `can0` is taken down
+- **THEN** within 200 ms byte 7 bit 1 is set, and it clears within 200 ms after `can0` is up again
+
+#### Scenario: Simulated network
+- **WHEN** every network is simulated
+- **THEN** bit 1 stays clear
 
 ### Requirement: Control block
 With `control_location` (6 output bytes: counter word, command, network index, node, reserved), the bridge SHALL run a command once each time the counter changes, and SHALL echo the counter with a result in the status block (0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused because the network is down or too many NMT commands wait, 6 not run because the bridge restarted). For a config with an OpenPLC connection (a PLC that rewrites its whole output image every poll), the first control block a client writes after the bridge starts SHALL be taken as the last one handled and SHALL NOT run; when its counter is not 0 the status block SHALL echo it with result 6. Commands:

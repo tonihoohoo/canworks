@@ -17,7 +17,7 @@ function j1939Of(net, add) {
 // A new J1939 network's ECU: NAME fields left out are 0 (false).
 const J1939_ADDRESS = 128;
 function newJ1939Network(bitrate) {
-  return { protocol: "j1939", adapter: { type: "socketcan", bitrate: bitrate || DEFAULT_BITRATE.j1939 },
+  return { protocol: "j1939", adapter: newAdapter(bitrate || DEFAULT_BITRATE.j1939),
     j1939: { ecu: { name: { identity_number: 1 }, address: J1939_ADDRESS }, rx: [], tx: [] } };
 }
 

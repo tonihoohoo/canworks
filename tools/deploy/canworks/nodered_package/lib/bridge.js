@@ -169,7 +169,10 @@ class Bridge extends EventEmitter {
     clearTimeout(this.timer);
     this._down(new CwError(20));
     if (!this.running) return;
-    if (was) this.emit("down");
+    if (was) {
+      this._zeroOnLoss();
+      this.emit("down");
+    }
     this._state("reconnecting", {
       fill: "red", shape: "ring",
       text: "reconnecting" + (err && err.message ? " (" + err.message + ")" : ""),
@@ -314,6 +317,16 @@ class Bridge extends EventEmitter {
     this.emit("value", msg);
   }
 
+  // The bridge is lost: status, state and timeout values, the live lists
+  // and bridge.bus_ok read 0 or false; the other values keep their last.
+  _zeroOnLoss() {
+    const lay = this.lay;
+    if (!lay) return;
+    for (const r of lay.inputs) if (r.z) this._emit(r.n, r.k === "bit" ? false : 0, r.u);
+    for (const l of lay.live || []) for (const id of l.nodes) this._emit(l.net + ".node" + id + ".operational", false);
+    if (lay.status !== null && lay.status !== undefined) this._emit("bridge.bus_ok", false);
+  }
+
   _afterRead() {
     const img = this.inImg, lay = this.lay;
     for (const r of lay.inputs) this._emit(r.n, codec.decode(img, r), r.u);
@@ -322,6 +335,8 @@ class Bridge extends EventEmitter {
       const state = { 1: "running", 2: "watchdog", 3: "idle", 4: "map mismatch", 5: "plc stopped" }[img[s]] || "state " + img[s];
       this._emit("bridge.state", state);
       this._emit("bridge.clients", img[s + 1]);
+      // Byte 7 bit 1: a network's bus is down, missing or bus-off.
+      this._emit("bridge.bus_ok", (img[s + 7] & 2) === 0);
       this._emit("bridge.command", { counter: be16(img, s + 4), result: img[s + 6], text: T.controlResult(img[s + 6]) });
       this._nmtAnswer(be16(img, s + 4), img[s + 6]);
     }

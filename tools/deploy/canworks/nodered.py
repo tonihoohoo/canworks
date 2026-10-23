@@ -145,6 +145,9 @@ def layout(cfg, rows, readonly=None):
     nets = contract.networks(cfg)
     by_name = {r["name"]: r for r in rows}
     data = [r for r in rows if r["type"] != "BLOCK"]
+    # Status, state and timeout inputs read 0 while the bridge is lost
+    # (modbus-connections "PLC inputs while the bridge is lost").
+    status = {it.name for it in modbusmap.collect(cfg) if it.kind == "status" and it.direction == "input"}
     in_regs = out_regs = 0
     for r in rows:
         end = (r["byte"] // 2 + 1) if r["table"] in ("discrete input", "coil") else r["address"] + r["count"]
@@ -198,7 +201,8 @@ def layout(cfg, rows, readonly=None):
         "readOnly": ro,
         "inBytes": in_regs * 2,
         "outBytes": out_regs * 2,
-        "inputs": [_spec_row(r) for r in data if r["direction"] == "input"],
+        "inputs": [dict(_spec_row(r), **({"z": True} if r["name"] in status else {}))
+                   for r in data if r["direction"] == "input"],
         "outputs": [] if ro else [_spec_row(r) for r in data if r["direction"] == "output"],
         "read": [[s, c] for f, s, c, d in channels if d == "input"],
         "write": [] if ro else [[s, c] for f, s, c, d in channels if d == "output"],

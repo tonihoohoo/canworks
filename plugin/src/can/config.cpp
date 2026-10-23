@@ -138,6 +138,13 @@ std::string heartbeat_consumer_unsupported_message(const NodeConfig& n) {
          ": 'heartbeat_consumer' needs an EDS with a writable consumer heartbeat time (0x1016); this node's EDS has none";
 }
 
+std::string stop_protection_message(const NodeConfig& n) {
+  return n.label() +
+         " keeps its last outputs when the bridge stops without a clean stop (crash, kill, power loss); set "
+         "\"heartbeat_consumer\": true so it reacts when the master's heartbeat stops (per its 0x1029), or an RPDO "
+         "event_timer_ms";
+}
+
 std::string NodeConfig::label() const {
   std::string s = "node " + std::to_string(node_id);
   if (!name.empty()) s += " (" + name + ")";

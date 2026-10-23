@@ -658,7 +658,7 @@ class Page(unittest.TestCase):
         pg.click("#btn-save")  # the banner still says Saved from the first save
         pg.wait_for_function("() => document.querySelector('#btn-save').textContent === 'Saved'")
         saved = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["adapter"]
-        self.assertEqual(saved, {"type": "socketcan", "interface": "can0", "bitrate": 500000})
+        self.assertEqual(saved, {"type": "socketcan", "interface": "can0", "bitrate": 500000, "restart_ms": 100})
 
     def test_network_start_hint(self):
         # The bridge has no network start command: the hint says so, and there is no ST call to copy.
@@ -737,8 +737,10 @@ class Page(unittest.TestCase):
         node_tab(pg, "advanced")
         check = 'input[data-path="nodes[0].config_check"]'
         store = 'select[data-path="nodes[0].store_configuration"]'
-        # The save needs the check first.
-        self.assertTrue(pg.is_enabled(check))
+        # A new node starts with the check on; the save needs it.
+        self.assertTrue(pg.is_checked(check))
+        self.assertTrue(pg.is_enabled(store))
+        pg.uncheck(check)
         self.assertTrue(pg.is_disabled(store))
         pg.check(check)
         self.assertTrue(pg.is_enabled(store))

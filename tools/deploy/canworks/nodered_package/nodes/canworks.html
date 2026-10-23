@@ -95,7 +95,7 @@ changing the config. The poll period stays between 10 ms and a third of the brid
 <p>Sends one message per changed value of the bridge, and every value once after the first read.</p>
 <h3>Outputs</h3><dl class="message-properties">
 <dt>topic <span class="property-type">string</span></dt><dd>the register map name, or <code>bridge.state</code>, <code>bridge.clients</code>,
-<code>bridge.command</code>, <code>&lt;network&gt;.node&lt;N&gt;.operational</code>, <code>&lt;network&gt;.bus_state</code>, <code>.bus_load</code>,
+<code>bridge.command</code>, <code>bridge.bus_ok</code>, <code>&lt;network&gt;.node&lt;N&gt;.operational</code>, <code>&lt;network&gt;.bus_state</code>, <code>.bus_load</code>,
 <code>.rx_errors</code>, <code>.tx_errors</code>, <code>.bus_offs</code>, and for J1939 <code>.address</code>, <code>.claim</code>, <code>.name</code>, <code>.ecus</code></dd>
 <dt>payload <span class="property-type">number | boolean | string</span></dt><dd>the value with the map's type, scale and offset</dd>
 <dt class="optional">unit <span class="property-type">string</span></dt><dd>the map's unit</dd></dl>

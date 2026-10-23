@@ -57,7 +57,7 @@ class Networks(unittest.TestCase):
         item = next(i for i in r.items if "does not fit location" in i["message"])
         self.assertEqual(item["paths"], ["networks[1].j1939.rx[0].signals[0].iec_location"])
         r = check(patched(base(), [["set", "networks/1/nodes", []]]))
-        self.assertIn("networks[1].nodes", r.items[0]["paths"])
+        self.assertIn("networks[1].nodes", next(i for i in r.items if i["level"] == "error")["paths"])
 
     def test_misplaced_keys_give_only_the_plugin_message(self):
         r = check(patched(base(), [["set", "networks/1/master", {"node_id": 1}]]))
