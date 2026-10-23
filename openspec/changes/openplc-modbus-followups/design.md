@@ -7,10 +7,11 @@ The hardware run of `add-openplc-modbus-target` (runtime v4.3.1, tools 0.116.0, 
 1. **Restart baseline, not persisted counters.** On start the bridge does not know the client's last counter. Storing counters on disk would still replay after a crash between run and store.
    - So the first control block and the first SDO request after a start are only remembered: echoed with "not run" and not executed.
    - A request the PLC really meant at that moment ends with ERROR_ID 8 instead of running twice. The program can retry; a repeated NMT reset or SDO write cannot be undone.
-   - "First" means the first write that carries the block. With OpenPLC that is the first accepted write, after the PLC link header matched.
+   - Only for configs with `bridge.openplc`. OpenPLC's Modbus master rewrites the whole output image every poll, so its last request is still there after a restart. Other Modbus clients (Node-RED, HMIs, SCADA) usually write the block only when they send a command, so their first write is a real request and must run. A client that rewrites its outputs cyclically without the link header can avoid a replay by putting counter 0 back after its command ended.
+   - "First" means the first write that carries the block (tracked per output byte). With OpenPLC that is the first accepted write, after the PLC link header matched.
    - Alternative rejected: compare with a zero image. The PLC's request block is never zero after its first job.
 2. **Result codes.**
-   - Control result 6 is new. SDO uses its existing status 3 (aborted) with abort code 0x08000022 ("data cannot be transferred because of the present device state").
+   - Control result 6 is new. SDO uses its existing status 3 (aborted) with abort code 0x08000021 ("data cannot be transferred because of local control"; 0x08000022 already means the SDO queue is busy).
    - The blocks map both to the existing ERROR_ID 8 (cancelled), which programs already treat as "start again". `add-bridge-mailboxes` ends a replayed mailbox request the same way, so every bridge block reports a restart with one code; a new code would make programs check two.
 3. **Which declarations in `main` are canworks'.** A declaration `name : TYPE AT %…;` in a `VAR` block of `main` whose name is a member of the `canworks` list.
    - Matching is by name, not location: the switch repacks locations but keeps names, and the user's own hardware I/O never has a canworks value's name.

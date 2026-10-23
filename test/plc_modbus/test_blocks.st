@@ -122,6 +122,28 @@ TEST 'writes not allowed by the config end with 21'
   ASSERT_EQ(wr.ABORT_CODE, 16#08000020);
 END_TEST
 
+TEST 'a request the restarted bridge did not run ends with 8'
+  VAR
+    link : ARRAY[0..88] OF WORD;
+    bridge : BridgeModel;
+    rd : CO_SDO_READ;
+    nmt : CO_NMT;
+  END_VAR
+  link[21] := 16#0007;
+  bridge.RESTARTED := TRUE;
+  rd(EXECUTE := TRUE, NODE := 7, INDEX := 16#1018, SUBINDEX := 1, LINK := link);
+  nmt(EXECUTE := TRUE, NODE := 7, COMMAND := 1, LINK := link);
+  bridge(LINK := link);
+  link := bridge.LINK;
+  rd(EXECUTE := TRUE, NODE := 7, INDEX := 16#1018, SUBINDEX := 1, LINK := link);
+  nmt(EXECUTE := TRUE, NODE := 7, COMMAND := 1, LINK := link);
+  ASSERT_TRUE(rd.ERROR);
+  ASSERT_EQ(rd.ERROR_ID, 8);
+  ASSERT_EQ(rd.ABORT_CODE, 16#08000021);
+  ASSERT_TRUE(nmt.ERROR);
+  ASSERT_EQ(nmt.ERROR_ID, 8);
+END_TEST
+
 TEST 'node abort ends with 1 and the abort code'
   VAR
     link : ARRAY[0..1279] OF WORD;

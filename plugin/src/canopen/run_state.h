@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <string>
 #include <vector>
 
 
@@ -25,7 +26,8 @@ namespace canopen_plugin {
 // control block) or the gateway holds a node in. One hold per node: the
 // command that acted last decides (canopen-plc-nmt "One hold per node").
 enum class Hold : uint8_t { None, Stopped, Preop };
-enum class HoldSource : uint8_t { Byte, Block, Operator, Gateway, Network };
+// Host: the Modbus bridge (its control block or its on_client_loss "preop").
+enum class HoldSource : uint8_t { Byte, Block, Operator, Gateway, Network, Host };
 
 struct RunState {
   bool prog_start = false;    // CO_NETWORK_START ran in this PLC run
@@ -46,6 +48,7 @@ struct RunState {
     // the Modbus control block), the gateway's on_upper_loss "stop_nodes", or
     // CO_NETWORK_STOP's node command (released by CO_NETWORK_START).
     HoldSource hold_src = HoldSource::Byte;
+    std::string hold_by;  // HoldSource::Host: who in the bridge asked
   };
   std::map<unsigned, Node> nodes;  // node ID ->
   // Per SDO variable (ProcessImage::sdo_vars()): trigger edges handled.

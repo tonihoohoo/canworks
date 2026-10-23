@@ -26,6 +26,7 @@
 using canopen_plugin::BridgeConfig;
 using canopen_plugin::IecArea;
 using canopen_plugin::ImageUse;
+using canopen_plugin::log_debug;
 using canopen_plugin::log_error;
 using canopen_plugin::log_info;
 using canopen_plugin::log_warn;
@@ -42,6 +43,7 @@ std::unique_ptr<canopen_plugin::ByteImageHost> g_image;
 class PlcSdoBackend : public SdoBackend {
  public:
   bool start(const SdoRequest& r, uint32_t& abort) override {
+    req_ = r;
     canopen_plc_request q{};
     q.network = r.network;
     q.node = r.node;
@@ -63,8 +65,9 @@ class PlcSdoBackend : public SdoBackend {
       abort = err == CANOPEN_PLC_ERR_BUSY ? 0x08000022u : kAbortGeneral;
       return false;
     }
-    log_info("Modbus SDO bridge: %s of node %u 0x%04X:%u on network %u", q.write ? "write" : "read", r.node, r.index,
-             r.subindex, r.network);
+    // One line per request would fill the journal for a program that reads every scan.
+    log_debug("Modbus SDO bridge: %s of node %u 0x%04X:%u on network %u", q.write ? "write" : "read", r.node, r.index,
+              r.subindex, r.network);
     return true;
   }
   int poll(uint32_t& value, uint32_t& abort) override {
@@ -83,11 +86,14 @@ class PlcSdoBackend : public SdoBackend {
       abort = res.error_id == CANOPEN_PLC_ERR_TIMEOUT       ? 0x05040000u
               : res.error_id == CANOPEN_PLC_ERR_UNAVAILABLE ? 0x08000022u
                                                             : kAbortGeneral;
+    log_info("Modbus SDO bridge: %s of node %u 0x%04X:%u on network %u ended with abort 0x%08X",
+             req_.command == 2 ? "write" : "read", req_.node, req_.index, req_.subindex, req_.network, abort);
     return -1;
   }
 
  private:
   uint32_t handle_ = 0;
+  SdoRequest req_;
 };
 #else
 class PlcSdoBackend : public SdoBackend {
@@ -237,6 +243,10 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   // openplc: outputs stay off until the PLC link header says the PLC runs.
   if (cfg_.openplc) supervisor_->link_off(OutputState::kPlcStopped);
   control_ = ControlBlock();
+  // A PLC behind the link header rewrites its whole output image every poll,
+  // so after a restart its last request would run again: openplc configs
+  // take a baseline first. Other clients write a block when they mean it.
+  control_known_ = sdo_known_ = !cfg_.openplc;
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
   mailboxes_.reset();
   mailbox_backend_.reset();
@@ -397,7 +407,7 @@ void BridgeHost::leave_off(const char* why) {
 void BridgeHost::all_nodes(const char* command) {
 #if CANWORKS_WITH_CANOPEN
   for (unsigned n = 0; n < is_master_.size(); ++n)
-    if (is_master_[n] && !canopen_plugin::HostRequests::instance().nmt(n, 0, command))
+    if (is_master_[n] && !canopen_plugin::HostRequests::instance().nmt(n, 0, command, "the client loss (on_client_loss preop)"))
       log_warn("network %u: NMT %s to all nodes not sent (its bus is down or its commands wait)", n, command);
 #else
   (void)command;
@@ -433,6 +443,23 @@ void BridgeHost::service_control(const uint8_t* out, Clock::time_point now) {
   control_.handled(req.counter, result);
 }
 
+void BridgeHost::take_baselines(const uint8_t* out, bool wrote_control, bool wrote_sdo) {
+  if (wrote_control) {
+    control_known_ = true;
+    if (control_.baseline(out + cfg_.control_location.index))
+      log_info("Modbus control block: counter %u was already there when the bridge started: its command is not run "
+               "(result 6)",
+               control_.counter());
+  }
+  if (wrote_sdo) {
+    sdo_known_ = true;
+    const uint8_t* req = out + cfg_.sdo_request.index;
+    if (sdo_->baseline(req))
+      log_info("Modbus SDO bridge: request %u was already there when the bridge started: not sent (abort 0x%08X)",
+               get_be16(req), kAbortLocalControl);
+  }
+}
+
 void BridgeHost::write_blocks(Clock::time_point now) {
   std::vector<uint8_t>& in = g_image->in;
   if (cfg_.openplc && in.size() >= canopen_plugin::kOpenplcHashBytes) {
@@ -465,9 +492,14 @@ void BridgeHost::loop() {
         zero_pending_ = false;
         canopen_plugin::set_outputs_enabled(false);
       }
+      // Asked before the snapshot, so a write seen here is in it.
+      bool wrote_control = !control_known_ && cfg_.has_control &&
+                           image_.client_wrote(cfg_.control_location.index, 2);
+      bool wrote_sdo = !sdo_known_ && sdo_ && image_.client_wrote(cfg_.sdo_request.index, 2);
       ctl_seen = image_.take_outputs(out_copy_.data(), ctl_seen);
-      service_control(out_copy_.data(), now);
-      if (sdo_) sdo_->service(out_copy_.data() + cfg_.sdo_request.index, g_sdo_backend);
+      take_baselines(out_copy_.data(), wrote_control, wrote_sdo);
+      if (control_known_) service_control(out_copy_.data(), now);
+      if (sdo_ && sdo_known_) sdo_->service(out_copy_.data() + cfg_.sdo_request.index, g_sdo_backend);
       write_blocks(now);
       if (mailboxes_) {
         // Requests count only while the outputs run: a stopped or

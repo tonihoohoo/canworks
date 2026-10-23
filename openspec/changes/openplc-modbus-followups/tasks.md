@@ -4,7 +4,7 @@
 
 ## 1. Bridge and library
 
-- [ ] 1.1 Restart baseline for the control block and the SDO registers (`bridge_blocks.*`), control result 6, SDO abort 0x08000022; bridge tests for restart with a non-zero counter
+- [ ] 1.1 Restart baseline for the control block and the SDO registers (`bridge_blocks.*`), control result 6, SDO abort 0x08000021; bridge tests for restart with a non-zero counter
 - [ ] 1.2 ERROR_ID 8 in `CO_NMT`, `CO_SDO_READ`, `CO_SDO_WRITE`; `test/plc_modbus` model case
 - [ ] 1.3 Client-loss wording in pre-operational/start log lines; bridged SDO requests at DEBUG, aborts and timeouts at INFO
 - [ ] 1.4 `test/openplc_modbus/run.py`: bridge restart with the PLC's last NMT request in place sends nothing

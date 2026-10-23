@@ -11,6 +11,7 @@ void ByteImage::resize(size_t input_bytes, size_t output_bytes) {
   std::lock_guard<std::mutex> lock(mu_);
   in_.assign((input_bytes + 1) & ~size_t(1), 0);
   out_.assign((output_bytes + 1) & ~size_t(1), 0);
+  out_written_.assign(out_.size(), false);
   out_version_.fetch_add(1, std::memory_order_acq_rel);
 }
 
@@ -35,6 +36,18 @@ void ByteImage::write_outputs(size_t offset, const uint8_t* data, size_t n) {
   n = std::min(n, out_.size() - offset);
   std::memcpy(out_.data() + offset, data, n);
   out_version_.fetch_add(1, std::memory_order_acq_rel);
+}
+
+bool ByteImage::client_wrote(size_t offset, size_t n) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (offset + n > out_written_.size()) return false;
+  for (size_t i = offset; i < offset + n; ++i)
+    if (!out_written_[i]) return false;
+  return true;
+}
+
+void ByteImage::Access::mark_written(size_t offset, size_t n) {
+  for (size_t i = offset; i < offset + n && i < img_.out_written_.size(); ++i) img_.out_written_[i] = true;
 }
 
 ByteImage::Access::~Access() {

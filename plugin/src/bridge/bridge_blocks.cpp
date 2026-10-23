@@ -44,6 +44,12 @@ bool ControlBlock::poll(const uint8_t* block, ControlRequest& req) const {
   return true;
 }
 
+bool ControlBlock::baseline(const uint8_t* block) {
+  counter_ = get_be16(block);
+  result_ = counter_ ? kCtrlRestarted : kCtrlOk;
+  return counter_ != 0;
+}
+
 uint8_t ControlBlock::check(const ControlRequest& req, const std::vector<bool>& is_master) {
   switch (req.command) {
     case kCmdNone:
@@ -123,6 +129,16 @@ void SdoBridgeRegisters::service(const uint8_t* request, SdoBackend& backend) {
   busy_ = true;
   status_ = kSdoBusy;
   abort_ = 0;
+}
+
+bool SdoBridgeRegisters::baseline(const uint8_t* request) {
+  counter_ = get_be16(request);
+  busy_ = false;
+  value_ = 0;
+  if (!counter_) return false;
+  status_ = kSdoAborted;
+  abort_ = kAbortLocalControl;
+  return true;
 }
 
 void SdoBridgeRegisters::encode(uint8_t* b) const {

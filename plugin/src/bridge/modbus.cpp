@@ -53,13 +53,19 @@ void write_bytes(ByteImage::Access& a, size_t at, const uint8_t* src, size_t n) 
   std::vector<uint8_t>& out = a.out_for_write();
   size_t head = a.link_bytes() > at ? std::min(n, a.link_bytes() - at) : 0;
   std::copy(src, src + head, out.begin() + static_cast<std::ptrdiff_t>(at));
-  if (n > head && may_write_byte(a, at + head))
+  a.mark_written(at, head);
+  if (n > head && may_write_byte(a, at + head)) {
     std::copy(src + head, src + n, out.begin() + static_cast<std::ptrdiff_t>(at + head));
+    a.mark_written(at + head, n - head);
+  }
 }
 
 void write_coil(ByteImage::Access& a, unsigned bit, bool on) {
   std::vector<uint8_t>& out = a.out_for_write();
-  if (may_write_byte(a, bit / 8)) write_bit(out, bit, on);
+  if (may_write_byte(a, bit / 8)) {
+    write_bit(out, bit, on);
+    a.mark_written(bit / 8, 1);
+  }
 }
 
 }  // namespace

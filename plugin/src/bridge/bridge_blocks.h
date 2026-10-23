@@ -81,6 +81,9 @@ enum ControlResult : uint8_t {
   // An NMT command while the network's bus is down, or with 16 of its
   // commands still waiting.
   kCtrlRefused = 5,
+  // The block held this counter when the bridge started: not run, so a
+  // restart never repeats the client's last command.
+  kCtrlRestarted = 6,
 };
 
 struct ControlRequest {
@@ -100,6 +103,10 @@ class ControlBlock {
     counter_ = counter;
     result_ = result;
   }
+  // The first block a client wrote after the bridge started: its counter
+  // becomes the last one handled, and a request in it is not run.
+  // Returns true when it held one (counter not 0).
+  bool baseline(const uint8_t* block);
   uint16_t counter() const { return counter_; }
   uint8_t result() const { return result_; }
 
@@ -120,6 +127,7 @@ enum SdoStatus : uint8_t { kSdoIdle = 0, kSdoBusy = 1, kSdoDone = 2, kSdoAborted
 constexpr uint32_t kAbortValueRange = 0x06090030u;  // unknown command
 constexpr uint32_t kAbortGeneral = 0x08000000u;
 constexpr uint32_t kAbortNoTransfer = 0x08000020u;  // write not allowed
+constexpr uint32_t kAbortLocalControl = 0x08000021u;  // held when the bridge started: not sent
 
 struct SdoRequest {
   uint16_t counter = 0;
@@ -153,6 +161,10 @@ class SdoBridgeRegisters {
   // running request ends.
   void service(const uint8_t* request, SdoBackend& backend);
   void encode(uint8_t* response) const;
+  // The first request a client wrote after the bridge started: taken as the
+  // last one handled and, when it holds one (counter not 0), ended aborted
+  // with kAbortLocalControl without being sent. Returns true then.
+  bool baseline(const uint8_t* request);
 
   uint8_t status() const { return status_; }
 

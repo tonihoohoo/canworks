@@ -521,6 +521,7 @@ constexpr uint16_t kOStatusReg = 2;     // %IB4
 constexpr uint16_t kOLiveListReg = 18;  // %IB36
 constexpr uint16_t kOOutReg = 4;        // %QW8 -> the simulated device's %IW22
 constexpr uint16_t kOLoopReg = 11;      // %IW22
+constexpr uint16_t kOControlReg = 6;    // %QB12
 
 uint8_t ostate(Client& c) { return static_cast<uint8_t>(reg(c, kOStatusReg) >> 8); }
 bool ooperational(Client& c) { return (reg(c, kOLiveListReg) >> 8) == 0x60; }
@@ -617,8 +618,32 @@ TEST(openplc_watchdog_preop) {
   // No more writes: the watchdog sends every node to pre-operational.
   EXPECT(wait_for([&] { return ostate(c) == 2 && (reg(c, kOLiveListReg) >> 8) == 0; }, 5000));
   EXPECT(logged("nodes sent to pre-operational (on_client_loss preop)"));
+  EXPECT(logged("requested by the client loss (on_client_loss preop)"));
   EXPECT(header(c, 1, hash));
   EXPECT(wait_for([&] { return ostate(c) == 1 && ooperational(c); }, 5000));
+}
+
+// The PLC's last control block and SDO request are still in its output image
+// when the bridge restarts: neither runs again, the next counters do.
+TEST(openplc_restart_does_not_replay) {
+  Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 0); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  EXPECT(header(c, 1, served_hash(c)));
+  // %QB12: counter 7, NMT stop of node 5 on network 0, as the PLC left it.
+  EXPECT(write(c, kOControlReg, {7, (4 << 8) | 0, 5 << 8}));
+  EXPECT(wait_for([&] {
+    auto s = regs(c, kReadInputRegisters, kOStatusReg, 4);
+    return s.size() == 4 && s[2] == 7 && (s[3] >> 8) == 6;
+  }));
+  EXPECT(logged("counter 7 was already there when the bridge started"));
+  usleep(300000);
+  EXPECT(ooperational(c));  // node 5 not stopped
+  EXPECT(write(c, kOControlReg, {8, (4 << 8) | 0, 5 << 8}));
+  EXPECT(wait_for([&] { return (reg(c, kOLiveListReg) >> 8) == 0x40; }, 3000));
+  EXPECT(logged("NMT STOP requested by the Modbus control block"));
 }
 
 TEST(openplc_defaults_and_refusals) {

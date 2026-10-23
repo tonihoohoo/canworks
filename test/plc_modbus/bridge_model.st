@@ -6,7 +6,9 @@
  * SdoBridgeRegisters in plugin/src/bridge/bridge_blocks.cpp: a request runs
  * when its counter changes, the response echoes the counter. A read answers
  * 16#123456nn (nn the node); SILENT_NODE stays busy, ABORT_NODE aborts with
- * 16#06020000, writes without ALLOW_WRITE abort with 16#08000020.
+ * 16#06020000, writes without ALLOW_WRITE abort with 16#08000020;
+ * RESTARTED answers as a bridge that just started with the request in place
+ * (control result 6, SDO abort 16#08000021).
  * STruC++'s test runner does not copy a source block's in-out back, so a
  * test writes `link := bridge.LINK;` after each call.
  *)
@@ -16,6 +18,7 @@ VAR_INPUT
   SILENT_NODE : USINT := 99;
   ABORT_NODE : USINT := 98;
   REFUSE : BOOL;
+  RESTARTED : BOOL;
 END_VAR
 VAR_OUTPUT
   LAST_CMD : WORD;
@@ -39,7 +42,9 @@ END_VAR
     LAST_CMD := SHR(LINK[5], 8);
     LAST_NET := LINK[5] AND 16#00FF;
     LAST_NODE := SHR(LINK[6], 8);
-    IF REFUSE THEN
+    IF RESTARTED THEN
+      LINK[3] := 16#0600;
+    ELSIF REFUSE THEN
       LINK[3] := 16#0500;
     ELSIF LAST_NET > 0 THEN
       LINK[3] := 16#0200;
@@ -56,7 +61,11 @@ END_VAR
     LINK[17] := 0;
     LINK[18] := 0;
     LINK[19] := 0;
-    IF cmd = 2 AND NOT ALLOW_WRITE THEN
+    IF RESTARTED THEN
+      LINK[15] := 16#0300;
+      LINK[16] := 16#0800;
+      LINK[17] := 16#0021;
+    ELSIF cmd = 2 AND NOT ALLOW_WRITE THEN
       LINK[15] := 16#0300;
       LINK[16] := 16#0800;
       LINK[17] := 16#0020;

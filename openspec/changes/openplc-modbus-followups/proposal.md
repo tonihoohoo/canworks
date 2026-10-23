@@ -2,7 +2,7 @@
 
 The hardware run of change 1 (`add-openplc-modbus-target`, PR #240) passed, but it turned up six things to fix in the OpenPLC through Modbus route:
 
-1. **Replayed command after a bridge restart.** The bridge starts with control and SDO counters 0, so the first write after a restart runs the PLC's last request again: it re-sent NMT start, and a last stop, reset or SDO write would repeat too. This affects every Modbus client of the bridge, not only OpenPLC.
+1. **Replayed command after a bridge restart.** The bridge starts with control and SDO counters 0, so the first write after a restart runs the PLC's last request again: it re-sent NMT start, and a last stop, reset or SDO write would repeat too. Any client that rewrites its whole output image every poll is affected; OpenPLC's Modbus master does.
 2. **Old located variables in `main`.** A plugin project switched to OpenPLC through Modbus keeps `main`'s located variables (`rtd_ok : BOOL AT %IX10.0;` …), which read nothing now. The program builds and runs on stale zeros without a warning. Save leaves the user's POUs alone by design, so this needs its own explicit step.
 3. **Library not enabled on Save.** Save writes `canworks_in`/`canworks_out`, which call `CW_*` functions, but neither enables the `canworks` library in the project nor installs it into the editor, though the spec asks for it. The bench project needed it by hand.
 4. **No live list after a switch.** The switch adds live lists only for named networks. A config whose network has no name gets none, so `CO_NODE_LIVE` ends with ERROR_ID 22.
@@ -11,7 +11,7 @@ The hardware run of change 1 (`add-openplc-modbus-target`, PR #240) passed, but 
 
 ## What Changes
 
-- **Restart baseline.** After a bridge start, the first control block and the first SDO request it receives are taken as the baseline and not run. Their counters are echoed with a new result: control result 6 "not run: the bridge restarted"; SDO status 3 with abort code 0x08000022. `CO_NMT`, `CO_SDO_READ` and `CO_SDO_WRITE` report it as ERROR_ID 8 (cancelled), as `add-bridge-mailboxes` does for its mailboxes, so programs check one code for "start again". Counter changes after that run as before.
+- **Restart baseline (OpenPLC configs).** After a bridge start, the first control block and the first SDO request it receives are taken as the baseline and not run. Their counters are echoed with a new result: control result 6 "not run: the bridge restarted"; SDO status 3 with abort code 0x08000021. `CO_NMT`, `CO_SDO_READ` and `CO_SDO_WRITE` report it as ERROR_ID 8 (cancelled), as `add-bridge-mailboxes` does for its mailboxes, so programs check one code for "start again". Counter changes after that run as before.
 - **Use canworks.\* in main.** For an OpenPLC project the configurator finds the located declarations in `main.st` whose names are members of the `canworks` list. The Project page shows a warning with the button **Use canworks.\* in main**, Problems lists it, and the switch banner mentions it.
   - The button keeps the old file as `canworks/main-before-move.st` and removes those declarations and the generated comment.
   - It drops a `VAR` block left empty and replaces uses with `canworks.<name>`, outside comments and strings and not after a `.`.

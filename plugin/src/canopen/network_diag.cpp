@@ -214,7 +214,7 @@ void Network::DiagStatus(const DiagRequest& r) {
     uint8_t hold = n.run->hold == Hold::Stopped ? 1 : n.run->hold == Hold::Preop ? 2 : 0;
     cJSON_AddStringToObject(o, "hold", hold_name(hold));
     if (hold)
-      cJSON_AddStringToObject(o, "hold_by", n.run->hold_src == HoldSource::Operator ? "operator" : "program");
+      cJSON_AddStringToObject(o, "hold_by", n.run->hold_src == HoldSource::Operator || n.run->hold_src == HoldSource::Host ? "operator" : "program");
     else
       cJSON_AddNullToObject(o, "hold_by");
     cJSON* e = cJSON_AddObjectToObject(o, "emcy");
@@ -367,7 +367,7 @@ void Network::DiagPdoRead(const DiagRequest& r) {
 }
 
 std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by,
-                                 bool force) {
+                                 bool force, HoldSource src) {
   uint8_t cs = command == "stop"         ? CANOPEN_PLC_NMT_CS_STOP
                : command == "preop"      ? CANOPEN_PLC_NMT_CS_PREOP
                : command == "start"      ? CANOPEN_PLC_NMT_CS_START
@@ -381,7 +381,7 @@ std::string Network::OperatorNmt(unsigned id, NodeState& n, const std::string& c
                       by);
     return "refused: the gateway holds the node STOPPED while the upper master is lost";
   }
-  return NodeCommand(id, n, cs, HoldSource::Operator, by);
+  return NodeCommand(id, n, cs, src, by);
 }
 
 std::string Network::NodeCommand(unsigned id, NodeState& n, uint8_t cs, HoldSource src, const std::string& by,
@@ -392,6 +392,7 @@ std::string Network::NodeCommand(unsigned id, NodeState& n, uint8_t cs, HoldSour
     case CANOPEN_PLC_NMT_CS_PREOP: {
       const char* what = cs == CANOPEN_PLC_NMT_CS_STOP ? "STOP" : "ENTER PRE-OPERATIONAL";
       SetHold(id, n, cs == CANOPEN_PLC_NMT_CS_STOP ? Hold::Stopped : Hold::Preop, src);
+      n.run->hold_by = by;
       if (n.cfg->boot && !n.booted) {
         if (send) log_info("%s: NMT %s requested by %s; sent when the node has booted", label.c_str(), what, by.c_str());
         return "the node has not booted; the hold applies once it has";

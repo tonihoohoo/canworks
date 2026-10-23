@@ -9,13 +9,13 @@ HostRequests& HostRequests::instance() {
   return r;
 }
 
-bool HostRequests::nmt(unsigned network, unsigned node, const std::string& command) {
+bool HostRequests::nmt(unsigned network, unsigned node, const std::string& command, const std::string& by) {
   std::lock_guard<std::mutex> lock(mu_);
   if (network >= kMaxNetworks || !session_[network]) return false;
   size_t waiting = 0;
   for (const auto& q : queue_) waiting += q.network == network;
   if (waiting >= kMaxQueued) return false;
-  queue_.push_back(HostNmt{network, node, command});
+  queue_.push_back(HostNmt{network, node, command, by});
   return true;
 }
 

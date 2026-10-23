@@ -95,6 +95,11 @@ class BridgeHost {
   // NMT `command` with node 0 to every CANopen master network.
   void all_nodes(const char* command);
   void service_control(const uint8_t* out, Clock::time_point now);
+  // The control block and SDO request a client left in place when the
+  // bridge started are not run: the first written counters become the
+  // last ones handled. `wrote_*`: the client had written them before the
+  // output snapshot `out` was taken.
+  void take_baselines(const uint8_t* out, bool wrote_control, bool wrote_sdo);
   void write_blocks(Clock::time_point now);
   unsigned put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why);
   std::string staged_path(const std::string& name) const;
@@ -117,6 +122,11 @@ class BridgeHost {
   std::unique_ptr<EngineMailboxBackend> mailbox_backend_;
   std::unique_ptr<Mailboxes> mailboxes_;
   uint64_t first_out_version_ = 0;  // the output version before any client wrote
+  // Whether the control block / SDO request counters are known: at once,
+  // except for openplc configs, where a client's first write is the
+  // baseline (restart baseline).
+  bool control_known_ = false;
+  bool sdo_known_ = false;
   Clock::time_point started_;
   Clock::time_point zero_until_{};  // "zero": the gate closes then
   bool zero_pending_ = false;
