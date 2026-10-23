@@ -295,7 +295,7 @@ When `install-bridge.sh` installs a new bridge binary over an existing one, it S
 - **THEN** the link keeps serving that config and the output says the link step was skipped
 
 ### Requirement: Bridge installs locked dependency versions
-`install-bridge.sh` SHALL take `--constraints FILE` and install the tools into the bridge's venv with it. A release install through `install-bridge.sh` (with or without `--with-openplc`) SHALL fetch and use that release's `canworks-<version>-constraints.txt`. The bridge image SHALL be built with the constraints exported from `uv.lock` of the commit it is built from.
+`install-bridge.sh` SHALL take `--constraints FILE` and install the tools into the bridge's venv with it. A release install through `install-bridge.sh` SHALL fetch and use that release's `canworks-<version>-constraints.txt`. The bridge image SHALL be built with the constraints exported from `uv.lock` of the commit it is built from.
 
 #### Scenario: Bridge image
 - **WHEN** the bridge image is built on `main`
@@ -340,21 +340,6 @@ The engine, the bridge, the standalone simulator and their tests SHALL build fro
 #### Scenario: Runtime header added
 - **WHEN** a change adds `#include "plugin_types.h"` to an engine source
 - **THEN** a CI check fails naming the file
-
-### Requirement: OpenPLC runtime installed with the bridge
-`install-bridge.sh --with-openplc` (`-WithOpenplc` in `install-bridge.ps1`, passed over `--ssh` like the other options) SHALL, when no OpenPLC runtime is found on the device (no `openplc-runtime` service and no bootloader runtime spec), download the canworks release first, then run upstream's installer (`https://runtime.getedge.me`) as root with the release's pinned runtime and bootloader versions (`docker/local-runtime/runtime-version`, `bootloader-version`), wait up to 10 minutes until the runtime answers on its local HTTPS port, and then install the bridge as without the option. When a runtime is found it SHALL install the bridge only and leave the runtime alone. A failed upstream install SHALL end the script non-zero with the upstream output and SHALL NOT install the bridge. Nothing of canworks SHALL be put into the runtime or its container. `docs/modbus-bridge.md` and `docs/devices.md` SHALL describe it.
-
-#### Scenario: Fresh device
-- **WHEN** `install-bridge.sh --with-openplc --instance line1 --config DIR` runs on a Linux device without a runtime
-- **THEN** upstream's managed Docker runtime is installed at the pinned version and answers, and `canworks-bridge@line1` runs next to it with the config
-
-#### Scenario: Runtime present
-- **WHEN** the same command runs on a device with a runtime
-- **THEN** upstream's installer is not run and the runtime is unchanged
-
-#### Scenario: Release download fails
-- **WHEN** the canworks release cannot be downloaded
-- **THEN** the script fails before upstream's installer runs, and no runtime or Docker is installed
 
 ### Requirement: Link and discovery with the bridge install
 `install-bridge.sh` SHALL install the Avahi advertisement by default (skipped with `--without-discovery`) and, with `--with-link`, the link service: a Python virtual environment with the pinned `iroh` package under the install prefix, the `canworks-link` command, `canworks-link.service` (enabled and started, watching the instance's config), and `/etc/canworks-link/` with no paired PCs. No other step on the device SHALL be needed. `--uninstall` SHALL remove the service, the command and the Avahi file and keep `/etc/canworks-link/` unless `--purge` is given.
@@ -453,3 +438,14 @@ The bridge SHALL have no PLC scan. Its loop SHALL publish the input image (with 
 #### Scenario: Output from a write
 - **WHEN** a client writes a holding register mapped to an RPDO entry and no SYNC is configured
 - **THEN** the master sends the RPDO with the new value within 1 ms of the write, with no wait for a cycle
+
+### Requirement: Installs canworks only
+`install-bridge.sh` and `install-bridge.ps1` SHALL install, update and remove canworks parts only and SHALL NOT install, switch or remove the OpenPLC runtime, Docker or any other program. They SHALL have no `--with-openplc`, `--pinned-runtime`, `-WithOpenplc` or `-PinnedRuntime` option. `docs/modbus-bridge.md` SHALL point to upstream's installer for the runtime.
+
+#### Scenario: Old option
+- **WHEN** `install-bridge.sh --with-openplc --instance line1 --config DIR` runs
+- **THEN** it ends non-zero naming the unknown option, and nothing is installed
+
+#### Scenario: Device with a runtime
+- **WHEN** `install-bridge.sh --instance line1 --config DIR` runs on a device with the managed Docker OpenPLC runtime
+- **THEN** the bridge runs `line1`, and the runtime's containers and version are unchanged

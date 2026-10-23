@@ -214,11 +214,19 @@ Each CI job SHALL run its Python on the version the code it tests runs on, witho
 - **THEN** the number of jobs and shards is unchanged
 
 ### Requirement: Device install tests in existing jobs
-CI SHALL test the Devices workspace without a real device and without network access, inside the existing tools test job (no new job, CI time kept): the action plan from probe fixtures, the SSH layer and the install job against a local SSH server in the test process (host key trust and change, key and password login, key setup, sudo password on standard input, job start, log follow from an offset, reconnect, stop), password-free settings and logs, the probe script on fake roots, the script's step lines and `VERSION` files with the existing script tests, and the Devices page with the page tests (rows per target, main action, confirmation texts, job progress, entry points). The tests SHALL run only when files of these areas change, as the protocol-area selection does.
+CI SHALL test the Devices workspace without a real device and without network access, inside the existing tools test job (no new job, CI time kept): the action plan from probe fixtures, the SSH layer and the install job against a local SSH server in the test process (host key trust and change, key and password login, key setup, sudo password on standard input, job start, log follow from an offset, reconnect, stop), password-free settings and logs, the probe script on fake roots, the script's step lines and `VERSION` files with the existing script tests, and the Devices page with the page tests (rows per target, main action, confirmation texts, job progress, entry points, the device list's summary line). The tests SHALL run only when files of these areas change, as the protocol-area selection does.
+
+#### Scenario: Probe fixture with backup folders
+- **WHEN** the probe runs on a fake root with the instances `line1` and `line1.bak-271`
+- **THEN** the test expects one instance, `line1`, and the plan's bridge row and summary line name only `line1`
 
 #### Scenario: Probe fixture for a moved runtime
-- **WHEN** the plan is given a probe of a managed Docker runtime v4.3.2 with an OpenPLC project open and the pin v4.3.1
-- **THEN** the test expects the main action **Switch runtime to v4.3.1**
+- **WHEN** the plan is given a stored probe of the old shape (managed Docker runtime v4.3.2 under `runtime`) with an OpenPLC project open and its bridge current and running
+- **THEN** the test expects "Up to date", no runtime row and no **Switch runtime** action
+
+#### Scenario: No runtime actions
+- **WHEN** the plan is given any probe fixture and target
+- **THEN** no main action is `install_openplc_bridge` or `switch_runtime`, and no row is the OpenPLC runtime
 
 ### Requirement: Lock file checked and tested
 CI SHALL fail when `tools/deploy/uv.lock` does not match `tools/deploy/pyproject.toml`, checked only in runs that change one of those two files. CI jobs that install the tools' dependencies SHALL install the locked versions. Test-only packages SHALL stay unlocked. The change SHALL add no job.
