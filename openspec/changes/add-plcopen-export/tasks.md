@@ -1,6 +1,6 @@
 ## 0. Order
 
-- [ ] 0.1 Apply only after `add-openplc-modbus-target`, `remove-openplc-plugin` and `add-bridge-mailboxes` are merged and archived; rebase on main, check that change 3 left out its PLCopen output, switch change 3's `--export-modbus-map OUT.st` copy programs to the raw arrays (MODIFIED `modbus-bridge-map` requirement), and rewrite this change's deltas against the archived text where they touch the same requirements
+- [ ] 0.1 Apply only after `add-openplc-modbus-target`, `remove-openplc-plugin`, `add-bridge-mailboxes` and `tidy-targets-and-exports` are merged and archived; rebase on main, check that change 3 left out its PLCopen output, switch change 3's `--export-modbus-map OUT.st` copy programs to the raw arrays (MODIFIED `modbus-bridge-map` requirement), and rewrite this change's deltas against the archived text where they touch the same requirements
 
 ## 1. Spikes (before the code)
 
@@ -26,7 +26,7 @@
 
 ## 4. Configurator
 
-- [ ] 4.1 Bridge page: Export for another PLC… dialog and zip download (server endpoint reusing the CLI code)
+- [ ] 4.1 Export ▾ → For the program: For another PLC (PLCopen XML)… on Modbus bridge configs only; dialog (CODESYS as Modbus client with the line and link to the CODESYS target, truST, Other) and zip download (server endpoint reusing the CLI code)
 - [ ] 4.2 Turn on the PLC link and repack, one undo step
 - [ ] 4.3 Problems: loopback listen warning; dialog writers/address warnings
 

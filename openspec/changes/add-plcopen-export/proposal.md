@@ -14,7 +14,7 @@ This is change 4 of the Modbus-only plan. It follows `add-bridge-mailboxes` (cha
 - **truST transport.** With `--for trust`, a folder holds the XML (CODESYS-style lists, which truST imports) and an `io.toml` part with a `modbus-tcp` driver whose points fill the raw arrays, plus the import command line.
 - **Generic.** `--for generic` writes standard TC6 global variables (resource `globalVars`, no vendor `addData`) and the register map as CSV, for any other tool that imports PLCopen XML.
 - **PLC link header for any bridge config.** `bridge.plc_link: true` turns on change 1's PLC link header (holding registers 0-2: running, map hash) and the hash at input registers 0-1 on any bridge config, not only `bridge.openplc`. The export requires it; the configurator offers to turn it on and repack. A program built for another map then leaves outputs off on every PLC.
-- **Configurator.** The Modbus bridge page gets **Export for another PLC…**: pick CODESYS, truST or Other, plus the bridge address the PLC uses, and download the folder as a zip. Problems warn when `listen` is loopback-only or the PLC address is not in `writers`.
+- **Configurator.** Export ▾ → For the program gets **For another PLC (PLCopen XML)…** on Modbus bridge configs only, following `tidy-targets-and-exports` (every download in Export ▾; not on OpenPLC configs, whose program side Save writes). The dialog asks for the PLC (CODESYS as a Modbus client of the bridge, truST, or Other) and the bridge address the PLC uses, and downloads the folder as a zip. It explains that CODESYS here only uses the bridge's registers, and links to switching the project target to CODESYS when CODESYS should run the CANopen master itself. Problems warn when `listen` is loopback-only or the PLC address is not in `writers`.
 - **CI.** Golden-file tests, a TC6 schema check, and an import-and-compile check with the truST CLI (open source, pinned release binary) in the existing tools shard, path-filtered.
 - **Docs.** New `docs/plcopen.md`; README, `docs/modbus-bridge.md`, `docs/plc-library.md` and `docs/codesys.md` link to it.
 
@@ -29,13 +29,13 @@ Not included (Toni 2026-10-22): TwinCAT, importing PLCopen XML into canworks, Op
 ### Modified Capabilities
 
 - `modbus-bridge`: `bridge.plc_link` on any bridge config.
-- `canopen-configurator`: Export for another PLC on the bridge page.
+- `canopen-configurator`: For another PLC (PLCopen XML)… in Export ▾ on Modbus bridge configs.
 - `canopen-ci`: PLCopen export tests and the truST import check.
 
 ## Impact
 
-- PC tools: new `tools/deploy/canworks/plcopen.py` (TC6 writer), `tools/deploy/canworks/plcopen_targets.py` (CODESYS plan, truST `io.toml`); a new CODESYS script `tools/deploy/canworks/codesys/script/import_canworks_modbus.py` that shares the PLC lookup with `import_canworks.py`; `openplcmodbus.py` copy-code generator gains a raw-word naming hook (shared with change 3's `.st` export); `cli.py`, `modbusmap.py` (`plc_link`), configurator bridge page and server.
+- PC tools: new `tools/deploy/canworks/plcopen.py` (TC6 writer), `tools/deploy/canworks/plcopen_targets.py` (CODESYS plan, truST `io.toml`); a new CODESYS script `tools/deploy/canworks/codesys/script/import_canworks_modbus.py` that shares the PLC lookup with `import_canworks.py`; `openplcmodbus.py` copy-code generator gains a raw-word naming hook (shared with change 3's `.st` export); `cli.py`, `modbusmap.py` (`plc_link`), configurator Export ▾ and server.
 - Bridge: `plugin/src/can/config.cpp` and `plugin/src/bridge/` accept `plc_link` outside `openplc` (the header logic of change 1, unchanged).
 - Schema: `bridge.plc_link`.
 - CI: a pinned truST release binary fetched in the existing tools job only when the PLCopen files change.
-- Depends on changes 1-3 being merged and archived. Hardware and desktop: CODESYS on the Windows PC against the bridge on the Linux device; truST on the Linux device.
+- Depends on changes 1-3 and on `tidy-targets-and-exports` (Export ▾ groups) being merged and archived. Hardware and desktop: CODESYS on the Windows PC against the bridge on the Linux device; truST on the Linux device.
