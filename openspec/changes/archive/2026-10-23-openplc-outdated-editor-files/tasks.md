@@ -14,7 +14,7 @@
 ## 3. Docs, version, CI
 
 - [x] 3.1 `docs/configurator.md` (Save after a tools update)
-- [ ] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file)
+- [x] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file)
 
 ## 4. Hardware (Linux device with the real node)
 
