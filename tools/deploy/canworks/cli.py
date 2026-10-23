@@ -210,7 +210,7 @@ def parser():
                    help="with --export-html: embed each node's EDS file so it can be saved from the document")
     p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canworks/ folder")
     p.add_argument("--config", required=True, metavar="FILE",
-                   help="the config (canworks.json); EDS and DBC paths are relative to it")
+                   help="the config (canworks.json, or the folder that holds it); EDS and DBC paths are relative to it")
     p.add_argument("--token", help="with --bridge: the diagnostics token (default: $%s, else a prompt)" % diag.TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="with --bridge: read the diagnostics token from this file")
     p.add_argument("--sim", metavar="FILE",
@@ -863,6 +863,9 @@ def main(argv=None):
             print("error: " + str(e), file=sys.stderr)
             return 1
     args = parser().parse_args(argv)
+    if os.path.isdir(args.config):
+        # A project's canworks/ folder: its canworks.json (opening a folder fails differently per OS).
+        args.config = os.path.join(args.config, "canworks.json")
     try:
         return run(args)
     except Failure as e:

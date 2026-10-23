@@ -48,6 +48,7 @@ VAR
   shown : WORD;
   hdr : WORD;
   size : INT;
+  synced : BOOL;          (* the batch on show was built after the open *)
   fresh : BOOL;
   found : BOOL;
   err : UINT;
@@ -67,7 +68,10 @@ END_VAR
     END_IF;
   END_IF;
   IF phase = 2 THEN
-    fresh := ((LINK[724] - tick0) AND 16#8000) = 0;
+    IF NOT synced THEN
+      synced := ((LINK[724] - tick0) AND 16#8000) = 0;
+    END_IF;
+    fresh := synced;
     shown := SHR(LINK[725 + SLOT / 2], 8 * (1 - SLOT MOD 2)) AND 16#00FF;
     IF fresh AND shown <> gen THEN
       phase := 0;
@@ -108,6 +112,7 @@ END_VAR
         SLOT := WORD_TO_INT(LINK[mb.BASE + 74]);
         gen := LINK[mb.BASE + 75];
         tick0 := LINK[mb.BASE + 76];
+        synced := FALSE;
         seq := 0;
         pos := 0;
         phase := 2;
@@ -138,7 +143,10 @@ END_VAR
       seq := LINK[720];
       pos := 741;
     END_IF;
-    fresh := ((LINK[724] - tick0) AND 16#8000) = 0;
+    IF NOT synced THEN
+      synced := ((LINK[724] - tick0) AND 16#8000) = 0;
+    END_IF;
+    fresh := synced;
     IF fresh AND (LINK[722 - SLOT / 16] AND bit) <> 0 AND (LINK[pw] AND bit) <> 0 THEN
       found := FALSE;
       WHILE NOT found AND pos < 741 + WORD_TO_INT(LINK[723]) AND pos < 840 DO

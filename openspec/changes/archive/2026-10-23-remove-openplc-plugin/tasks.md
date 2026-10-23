@@ -83,7 +83,7 @@
 - [x] 11.1 One-off bench cleanup (design decision 10): plugin out of the managed Docker runtime (bind, `PYTHONPATH`, `plugins.conf` line), runtime container recreated, plugin files removed; record what was done in project files, not in the repo
 - [x] 11.2 Devices page on the hardware project: **Install the bridge X** next to the pinned runtime, `canworks-bridge@<project>` owns the CAN interface, node OPERATIONAL
 - [x] 11.3 Editor Build and upload of the generated project: values both ways, `canworks_ok` TRUE, `CO_SDO_READ` of 0x1018:1, `CO_NMT` stop and start; then a clean PLC start
-- [ ] 11.4 Local runtime on the Mac and on the Windows PC: `start`, virtual plant config with `--bridge local`, editor upload, nodes OPERATIONAL, `update`, `remove --data`
+- [x] 11.4 Local runtime on the Mac and on the Windows PC: `start`, virtual plant config with `--bridge local`, editor upload, nodes OPERATIONAL, `update`, `remove --data`
 
 ## Results (2026-10-23)
 
@@ -91,5 +91,5 @@
 - 11.1 PASS: runtime spec without the `/opt/canworks` bind and `PYTHONPATH`, runtime container recreated and healthy, no canworks line in `plugins.conf`; `/opt/canworks` and the old bridge prefix removed.
 - 11.2 PASS: Devices page main action **Install the bridge 0.117.0** next to OpenPLC Runtime v4.3.1; the bridge owns the slcan interface, `map hash ... (OpenPLC through Modbus)`, the node is OPERATIONAL (heartbeat 05).
 - 11.3 PASS: editor project uploaded; `ok` TRUE, state 5, identity serial read; `CO_SDO_READ` 0x1018:1 matches the bus; a forced output toggles its RPDO; `CO_NMT` stop and start (heartbeat 04, then 05); SDO reads while stopped end with ERROR_ID 1, abort 0x08000022; PLC stop gives "outputs off by the PLC link header", start gives outputs on again.
-- 11.4 Mac PASS: `start`, virtual plant with `--bridge local` (every network simulated), program upload, all nodes OPERATIONAL, `update` keeps the bridge's config, `remove --data` removes both containers and volumes. Windows part still open.
+- 11.4 Mac PASS: `start`, virtual plant with `--bridge local` (every network simulated), program upload, all nodes OPERATIONAL, `update` keeps the bridge's config, `remove --data` removes both containers and volumes. Windows PASS (Docker Desktop): the same steps; a first `remove --data` kept the runtime volume because a container of an older install held it and called it "no volume" (now the engine's reason is shown and the settings stay); after removing that container it removed both containers and volumes. `--config` now also takes the config's folder (on Windows opening a folder failed with "Permission denied").
 - Finding: the device probe looks only at `/opt/canworks`, so a bridge that an older release installed beside the plugin (`/opt/canworks-bridge`) shows as not installed; no device is in use, so no code change.

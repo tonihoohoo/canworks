@@ -31,6 +31,7 @@ class FakeEngine:
         self.run_errors = list(run_errors)  # stderr of the next failing `create`s
         self.containers = {}  # name -> [status, image, volume]
         self.volumes = set()
+        self.volumes_in_use = set()  # held by a container of an older install
         self.copied = []  # (source, destination) of each `cp`
         self.bridge_log = STARTED  # what `logs` of the bridge says after a restart
         self.calls = []
@@ -96,9 +97,12 @@ class FakeEngine:
             self.containers.pop(args[-1], None)
             return done(0)
         if cmd == "volume":
-            had = args[-1] in self.volumes
+            if args[-1] in self.volumes_in_use:
+                return done(1, "", "Error response from daemon: remove %s: volume is in use - [0123abcd]\n" % args[-1])
+            if args[-1] not in self.volumes:
+                return done(1, "", "Error response from daemon: get %s: no such volume\n" % args[-1])
             self.volumes.discard(args[-1])
-            return done(0 if had else 1)
+            return done(0)
         if cmd == "logs":
             if args[-1] == localruntime.BRIDGE:
                 return done(0, "", self.bridge_log if "--since" in args else
@@ -371,6 +375,25 @@ class Manage(WithRuntime):
         self.assertIn("removed the volume canworks-local-bridge-config", out)
         self.assertIsNone(localruntime.load_settings())
         self.assertEqual(self.engine.volumes, set())
+
+    def test_remove_names_a_volume_in_use(self):
+        # A volume an older install's container still holds is not "no volume": the error says why,
+        # and the settings stay so the next remove --data tries it again.
+        self.assertEqual(self.start()[0], 0)
+        self.engine.volumes_in_use.add("canworks-local-runtime-data")
+        code, out, err = self.cli("remove", "--data")
+        self.assertEqual(code, 1)
+        self.assertIn("could not remove the volume canworks-local-runtime-data: "
+                      "Error response from daemon: remove canworks-local-runtime-data: volume is in use", err)
+        self.assertNotIn("no volume", out)
+        self.assertIn("removed the volume canworks-local-bridge-config", out)
+        self.assertIsNotNone(localruntime.load_settings())
+        self.engine.volumes_in_use.clear()
+        code, out, err = self.cli("remove", "--data")
+        self.assertEqual(code, 0, err)
+        self.assertIn("removed the volume canworks-local-runtime-data", out)
+        self.assertIn("no volume canworks-local-bridge-config", out)
+        self.assertIsNone(localruntime.load_settings())
 
 
 class Logs(WithRuntime):

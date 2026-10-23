@@ -40,6 +40,7 @@ VAR_INPUT
   CLOSE_SLOT : INT := -1;
   NO_J1939 : BOOL;
   HOLD : BOOL;           (* no new batch this round *)
+  SKIP_MS : WORD;        (* extra milliseconds on the bridge's clock this round *)
 END_VAR
 VAR_OUTPUT
   TX_COUNT : INT;
@@ -131,7 +132,7 @@ VAR
   room : BOOL;
   bits : DWORD;
 END_VAR
-  tick := tick + 10;
+  tick := tick + 10 + SKIP_MS;
   n := WORD_TO_INT(LINK[89] AND 16#0007);
   jobs := WORD_TO_INT(SHR(LINK[89], 8) AND 16#001F);
   (* ---- messages arriving on the bus ---- *)

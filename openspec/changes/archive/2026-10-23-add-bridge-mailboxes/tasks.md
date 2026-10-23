@@ -43,7 +43,8 @@
 ## 5. CI
 
 - [x] 5.1 Change 1's OpenPLC through Modbus integration job: an SDO read through a request mailbox and a CAN receiver's frames through the receive mailbox from the example's simulated nodes, through the pinned runtime's own Modbus master (J1939 round trips are covered by the mailbox model and `test/bridge/`; the example has no J1939 network)
-- [ ] 5.2 CI time: wall and summed job time against the baseline (median of the last 5 green `main` code runs), both numbers in the PR
+- [x] 5.2 CI time: wall and summed job time against the baseline (median of the last 5 green `main` code runs), both numbers in the PR
+  - PR #246: 291 s wall and 1423 s summed, against a baseline of 360 s and 2352 s.
 
 ## 6. Docs
 
@@ -61,8 +62,12 @@
 
 ## 8. Hardware (Linux device with the real node)
 
-- [ ] 8.1 Configurator-generated OpenPLC project with mailboxes, Build and upload from the stock editor: `canworks.ok` TRUE, request count as the page said
-- [ ] 8.2 Real node: `CO_SDO_READ_STRING` of 0x1008:0, `CO_SDO_READ_BYTES` of a long object, `CO_RECV_EMCY` on an EMCY the node sends (or skip with a note if it cannot be provoked)
+- [x] 8.1 Configurator-generated OpenPLC project with mailboxes, Build and upload from the stock editor: `canworks.ok` TRUE, request count as the page said
+  - Raspberry Pi 5, runtime v4.3.1, bridge built from the PR: project uploaded with `openplc-cli upload` (the editor's Build-only output), mailboxes at %IB72 and %QB32, `canworks.ok` TRUE, 7 requests per poll as the page said.
+- [x] 8.2 Real node: `CO_SDO_READ_STRING` of 0x1008:0, `CO_SDO_READ_BYTES` of a long object, `CO_RECV_EMCY` on an EMCY the node sends (or skip with a note if it cannot be provoked)
+  - Name read as a string; 0x1008, 0x1009 and 0x100A read as bytes (4, 4 and 5 bytes). The node sent no EMCY during the run, so `CO_RECV_EMCY` was not exercised on hardware.
 - [ ] 8.3 Measure at a 10 ms poll: `CAN_SEND` round trip, `CAN_RECEIVE` sustained rate before drops, a 1024-byte SDO read; CPU of runtime and bridge; record in the PR
-- [ ] 8.4 PLC stop with a running `CAN_SEND_CYCLIC` and an open `CAN_RECEIVE`: frame stops, receiver closed, both back after start; then a clean PLC start
+  - Partial: `CAN_SEND` round trip about 28 ms on average (20 to 100 ms), SDO reads 20 to 60 ms, `CAN_SEND_CYCLIC` exactly 10 frames/s; CPU 31 % runtime and 2.7 % bridge. The receive rate measurement found a bug: receivers ignored every batch for half of each 65.5 s bridge clock period (fixed in the follow-up, `CW_RX` latches that the batch is newer than the open). Measured again after the fix (main 7619e6f, tools 0.118.1): over 202 s and three clock wraps the any-ID receiver got 862 frames against 861 on candump (4.25 frames/s, node 23 is the only other sender), 0 dropped, no overflow, no reopen. The rate where drops start needs a second sending device on the bus and stays open.
+- [x] 8.4 PLC stop with a running `CAN_SEND_CYCLIC` and an open `CAN_RECEIVE`: frame stops, receiver closed, both back after start; then a clean PLC start
+  - Cyclic frame stopped and the receiver closed on PLC stop, both came back on start; ended with a clean PLC start, node OPERATIONAL.
 - [ ] 8.5 Another Modbus PLC (CODESYS on the Windows PC, if available): bring in the ST library sources and the exported map, run `CAN_SEND` and `CO_SDO_READ` against the bridge on the Linux device
