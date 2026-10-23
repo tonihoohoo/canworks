@@ -663,4 +663,45 @@ TEST(sdo_bridge_new_counter_while_busy) {
   EXPECT(get_be16(&r[0]) == 2 && r[2] == kSdoBusy);
 }
 
+TEST(sdo_bridge_restart_baseline) {
+  // Spec: the client's last SDO write (counter 9) is still in place when the
+  // bridge starts: not sent, aborted with 0x08000021; counter 10 runs.
+  SdoBridgeRegisters regs(true);
+  FakeSdo be;
+  Bytes old = sdo_req(9, 2, 0, 5, 0x2000, 0, 2, 7);
+  EXPECT(regs.baseline(old.data()));
+  regs.service(old.data(), be);
+  Bytes r = sdo_resp(regs);
+  EXPECT(be.starts == 0 && get_be16(&r[0]) == 9 && r[2] == kSdoAborted && get_be32(&r[4]) == kAbortLocalControl);
+  Bytes next = sdo_req(10, 1, 0, 5, 0x1018, 1, 4);
+  regs.service(next.data(), be);
+  EXPECT(be.starts == 1 && regs.status() == kSdoBusy);
+  // A fresh client (counter 0): nothing to report.
+  SdoBridgeRegisters fresh(true);
+  Bytes zero(kSdoRequestBytes, 0);
+  EXPECT(!fresh.baseline(zero.data()) && fresh.status() == kSdoIdle);
+}
+
+TEST(control_block_restart_baseline) {
+  // Spec: command 3 with counter 42 is still in place when the bridge starts.
+  ControlBlock cb;
+  uint8_t blk[kControlBytes] = {0, 42, kCmdNmtStart, 0, 0, 0};
+  EXPECT(cb.baseline(blk) && cb.counter() == 42 && cb.result() == kCtrlRestarted);
+  ControlRequest req;
+  EXPECT(!cb.poll(blk, req));  // not run
+  blk[1] = 43;
+  EXPECT(cb.poll(blk, req) && req.counter == 43);
+  uint8_t zero[kControlBytes] = {};
+  ControlBlock fresh;
+  EXPECT(!fresh.baseline(zero) && fresh.result() == kCtrlOk);
+}
+
+TEST(client_wrote_tracks_written_bytes) {
+  Fixture fx;
+  EXPECT(!fx.image.client_wrote(2, 2));
+  Client c(fx.server.port());
+  c.request(write_regs(1, {0x0001}));
+  EXPECT(fx.image.client_wrote(2, 2) && !fx.image.client_wrote(0, 2) && !fx.image.client_wrote(4, 2));
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

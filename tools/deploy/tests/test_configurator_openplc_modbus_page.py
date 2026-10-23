@@ -1,12 +1,15 @@
 """OpenPLC through Modbus in a real browser (add-openplc-modbus-target,
 spec canopen-configurator "Project target", "Saving an OpenPLC through
 Modbus project"): a plugin config switched with the Project page's button,
-the bridge page's OpenPLC settings and Function blocks section, Save writing the editor files and the
-Project page's facts, and the question when canworks' own editor files were
-changed elsewhere. Needs Playwright, like test_configurator_page.py."""
+the bridge page's OpenPLC settings and Function blocks section, Save writing
+the editor files and the Project page's facts, the question when canworks'
+own editor files were changed elsewhere, and Use canworks.* in main
+(openplc-modbus-followups). Needs Playwright, like test_configurator_page.py."""
 
 import json
 import os
+
+from canworks import editorproject, mainmove, openplcmodbus
 
 from .helpers import tree_view
 from .test_configurator_online_page import OnlineBase
@@ -98,6 +101,24 @@ class OpenplcModbusPage(OnlineBase):
         self.assertEqual(load(self.config_path)["bridge"]["openplc"], {"poll_ms": 10})
         with open(changed, encoding="utf-8") as f:
             self.assertNotIn("(* mine *)", f.read())
+
+        # main still declares a value at the plugin's location: the Project
+        # page offers the move, which writes the use as canworks.<name>.
+        cfg = load(self.config_path)
+        name = [d["name"] for d, _ in openplcmodbus._typed(editorproject.declarations(cfg, self.config_path))][0]
+        main = os.path.join(self.project, mainmove.MAIN)
+        with open(main, "w", encoding="utf-8") as f:
+            f.write("PROGRAM main\n  VAR\n    %s : INT AT %%IW100;\n  END_VAR\n\nx := %s;\n\nEND_PROGRAM\n" % (name, name))
+        pg.reload()
+        tree_view(pg, "project")
+        pg.wait_for_selector("[data-old-main='1']")
+        self.assertIn("%IW100", pg.inner_text("[data-old-main]"))
+        pg.click("[data-move-main]")
+        pg.wait_for_selector("[data-main-moved='1']")
+        self.assertIn("canworks/main-before-move.st", pg.inner_text("#banner"))
+        pg.wait_for_function("() => !document.querySelector('[data-old-main]')")
+        with open(main, encoding="utf-8") as f:
+            self.assertIn("x := canworks.%s;" % name, f.read())
 
 
 if __name__ == "__main__":

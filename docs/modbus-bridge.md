@@ -179,7 +179,7 @@ Every accepted write from a writer feeds the watchdog. When none came for `watch
   The output image is cleared to 0 without sending it, so the write that ends outputs off starts from zeros: one coil written after a loss sends that coil and 0 for every other output, never the values from before the loss. A controller that reconnects should write all its outputs at once.
 - `"zero"`: every output location is set to 0 and sent once, then outputs stop as with `"stop"`. The difference to `"stop"` is only that the zeros reach the devices; after both, outputs restart from zeros.
 - `"hold"`: outputs keep being sent with their last values.
-- `"preop"`: outputs stop as with `"stop"`, and every node of every CANopen master network is sent NMT enter pre-operational (node 0), so each applies its own communication-loss behaviour. Outputs on again sends NMT start the same way.
+- `"preop"`: outputs stop as with `"stop"`, and every configured node of every CANopen master network is sent NMT enter pre-operational, one command per node (not node 0, so devices canworks does not manage are left alone), and each applies its own communication-loss behaviour. Outputs on again sends NMT start the same way. The log names the client loss as the cause.
 
 Inputs, heartbeats, node supervision, the diagnostics channel and J1939 address claim keep running. The next write from a writer ends outputs off. The log names each change (`outputs off by the watchdog (no write from a writer client)`, `outputs on again: a client wrote`). Before the first client writes, the watchdog runs from the bridge's start, so outputs stay off until a writer is there.
 
@@ -195,7 +195,7 @@ Each block is optional and lives where its location says.
 | 1 | connected clients |
 | 2-3 | a counter that grows every 100 ms (the bridge is alive) |
 | 4-5 | the last control counter handled |
-| 6 | the result of that command: 0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused (the network's bus is down, or 16 of its NMT commands still wait) |
+| 6 | the result of that command: 0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused (the network's bus is down, or 16 of its NMT commands still wait), 6 not run because the bridge restarted (OpenPLC configs, [below](#after-a-bridge-restart)) |
 | 7 | 0 |
 
 **Control block** (6 output bytes): counter (word), command, network index, node, reserved. A command runs once each time the counter changes, so a client that writes the block every cycle sends it once. Commands: 1 run (ends outputs off from idle), 2 idle (outputs off with the `on_client_loss` action, until run), 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for that node of that CANopen master network (node 0: all its nodes). The network index counts the config's networks from 0. An NMT command while the network's CAN interface is down is refused with result 5 and is not sent when the bus comes back; write it again then. At most 16 NMT commands wait per network; a further one is refused the same way.
@@ -216,7 +216,11 @@ Each block is optional and lives where its location says.
 | 9 | 0 | | |
 | 10-13 | value (writes) | | |
 
-A request starts when its counter changes and goes through the same queue and timeout as the PLC's SDO function blocks. A write needs `"sdo_bridge_write": true`; without it the request ends aborted with 0x08000020 and nothing is sent. Every request is logged.
+A request starts when its counter changes and goes through the same queue and timeout as the PLC's SDO function blocks. A write needs `"sdo_bridge_write": true`; without it the request ends aborted with 0x08000020 and nothing is sent. Requests are logged at debug level, and aborts and timeouts at info level, so a program that reads every scan does not fill the journal.
+
+#### After a bridge restart
+
+OpenPLC's Modbus master writes the whole output image every poll, so after a bridge restart the PLC's last control block and SDO request are still there. For a config with `bridge.openplc` the bridge takes the first control block and SDO request it gets after a start as the last ones handled and does not run them: the status block echoes that counter with result 6, and the SDO response shows it aborted with 0x08000021. The canworks blocks report both as ERROR_ID 8; start the block again. Other clients usually write a block only when they send a command, so their first command runs; a client that rewrites its outputs cyclically can write counter 0 back after its command ended.
 
 ## Function block mailboxes
 

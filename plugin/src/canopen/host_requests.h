@@ -21,6 +21,7 @@ struct HostNmt {
   unsigned network = 0;
   unsigned node = 0;    // 0: every node of the network
   std::string command;  // start, stop, preop, reset, reset-comm (as the diagnostics nmt op)
+  std::string by;       // for the log: who asked
 };
 
 class HostRequests {
@@ -34,7 +35,8 @@ class HostRequests {
   // and nothing queued, while the network has no bus session (a command
   // must not run minutes later when the bus comes back) or kMaxQueued of
   // its commands wait already.
-  bool nmt(unsigned network, unsigned node, const std::string& command);
+  bool nmt(unsigned network, unsigned node, const std::string& command,
+           const std::string& by = "the Modbus control block");
   // Bus thread: the network's queued commands, oldest first.
   void take(unsigned network, std::vector<HostNmt>& out);
   // Bus thread: the network's bus session started or ended; at the end its

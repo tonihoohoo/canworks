@@ -34,6 +34,8 @@ class ByteImage {
   uint64_t output_version() const { return out_version_.load(std::memory_order_acquire); }
   // Bus side: overwrite output bytes (the "zero" action of outputs off).
   void write_outputs(size_t offset, const uint8_t* data, size_t n);
+  // Whether a client has written all of bytes offset..offset+n-1 since start.
+  bool client_wrote(size_t offset, size_t n) const;
 
   // The PLC link header (openplc configs): output bytes 0..header_bytes-1
   // hold running (word 0) and the map hash (words 1 and 2). Output bytes
@@ -56,6 +58,8 @@ class ByteImage {
       written_ = true;
       return img_.out_;
     }
+    // Records that a client wrote these output bytes (client_wrote).
+    void mark_written(size_t offset, size_t n);
     size_t link_bytes() const { return img_.link_bytes_; }
     Link link_state() const { return img_.link_state(); }
 
@@ -73,6 +77,7 @@ class ByteImage {
   uint32_t link_hash_ = 0;
   std::vector<uint8_t> in_;
   std::vector<uint8_t> out_;
+  std::vector<bool> out_written_;  // per output byte: written by a client since start
   std::atomic<uint64_t> out_version_{0};
 };
 

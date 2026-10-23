@@ -457,7 +457,7 @@ class Network : public lely::canopen::BasicMaster {
   // note when the command waits for the node's boot, or why it was refused
   // (a START or reset of a node the gateway holds, unless `force`).
   std::string OperatorNmt(unsigned id, NodeState& n, const std::string& command, const std::string& by,
-                          bool force = false);
+                          bool force = false, HoldSource src = HoldSource::Operator);
   // The host's requests (host_requests.h) and its outputs gate (outputs_gate.h).
   void ServiceHost();
   void SyncOutputsGate();

@@ -6,7 +6,8 @@
  * bridge has handled it, then DONE or ERROR with ERROR_ID (docs/plc-library.md):
  * 2 no answer within TIMEOUT (T#0s: 5 s), 5 refused (the bus is down or 16
  * commands wait), 6 invalid input, 20 the bridge is not reachable, 22 the
- * config has no control block. Instances share the control block: one waits
+ * config has no control block, 8 cancelled: the bridge restarted and did
+ * not run it (start it again). Instances share the control block: one waits
  * while another uses it.
  *)
 (*
@@ -101,6 +102,8 @@ END_VAR
         fin := TRUE;
       ELSIF result = 5 THEN
         err := 5;
+      ELSIF result = 6 THEN
+        err := 8;              (* the bridge restarted and did not run it *)
       ELSE
         err := 6;
       END_IF;

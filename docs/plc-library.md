@@ -61,6 +61,7 @@ The bridge has one SDO request block and one control block, so instances take tu
 | 2 | No answer within `TIMEOUT`. |
 | 5 | NMT refused: the network's bus is down, or 16 of its commands still wait. |
 | 6 | An input is out of range (node, size, command). |
+| 8 | Cancelled: the bridge restarted and did not run the request ([modbus-bridge.md](modbus-bridge.md#after-a-bridge-restart)). Start the block again. |
 | 20 | The bridge is not reachable: `canworks.ok` is FALSE at the start or during the job. |
 | 21 | SDO writes are not allowed by the config (`ABORT_CODE` 16#08000020). |
 | 22 | The config has no SDO registers or no control block for this block. |

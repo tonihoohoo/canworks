@@ -7,7 +7,8 @@
  * then DONE or ERROR with ERROR_ID (docs/plc-library.md): 1 the node aborted
  * (ABORT_CODE), 2 no answer within TIMEOUT (T#0s: 5 s), 6 invalid input,
  * 20 the bridge is not reachable, 21 SDO writes are not allowed by the
- * config (ABORT_CODE 16#08000020), 22 the config has no SDO registers.
+ * config (ABORT_CODE 16#08000020), 22 the config has no SDO registers,
+ * 8 cancelled: the bridge restarted and did not send it (start it again).
  * Instances share the SDO registers: one waits while another uses them.
  *)
 (*
@@ -104,6 +105,8 @@ END_VAR
         ABORT_CODE := DWORD_TO_UDINT(SHL(WORD_TO_DWORD(LINK[16]), 16) OR WORD_TO_DWORD(LINK[17]));
         IF ABORT_CODE = 16#08000020 THEN
           err := 21;
+        ELSIF ABORT_CODE = 16#08000021 THEN
+          err := 8;            (* the bridge restarted and did not send it *)
         ELSE
           err := 1;
         END_IF;

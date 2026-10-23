@@ -1455,7 +1455,7 @@ void Network::ServiceHost() {
   HostRequests::instance().take(cfg_.network_index, host_nmt_);
   for (const HostNmt& r : host_nmt_) {
     for (auto& it : nodes_)
-      if (r.node == 0 || r.node == it.first) OperatorNmt(it.first, it.second, r.command, "the Modbus control block");
+      if (r.node == 0 || r.node == it.first) OperatorNmt(it.first, it.second, r.command, r.by, false, HoldSource::Host);
   }
 }
 
@@ -1877,6 +1877,7 @@ void Network::SendHold(unsigned id, const NodeState& n) {
     case HoldSource::Operator: by = "a diagnostics client"; break;
     case HoldSource::Gateway: by = "the gateway: the upper master is lost"; break;
     case HoldSource::Network: by = "the program (CO_NETWORK_STOP)"; break;
+    case HoldSource::Host: by = n.run->hold_by.c_str(); break;
   }
   log_info("%s: NMT %s (held by %s)", n.cfg->label().c_str(), n.run->hold == Hold::Stopped ? "STOP" : "ENTER PRE-OPERATIONAL",
            by);

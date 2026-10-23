@@ -23,7 +23,7 @@ import json
 import os
 import uuid
 
-from . import bridgecheck, mailboxlayout, modbusmap
+from . import bridgecheck, mailboxlayout, modbusmap, plclibrary
 from .configurator import declare
 from .iec import parse_location
 from .userdirs import replace_file
@@ -701,8 +701,13 @@ def instances(resource):
 
 
 def project_data(data, decls):
-    """project.json `data` with the canworks list and instances in place."""
+    """project.json `data` with the canworks list and instances in place,
+    and the canworks library enabled (canworks_in and canworks_out call its
+    functions); an entry the project already has is kept."""
     data = dict(data)
+    libs = [l for l in data.get("libraries") or [] if isinstance(l, dict)]
+    if not any(l.get("name") == plclibrary.NAME for l in libs):
+        data["libraries"] = libs + [{"name": plclibrary.NAME, "version": plclibrary.__version__}]
     lists = [l for l in data.get("globalVariableLists") or []
              if not (isinstance(l, dict) and l.get("name") == LIST_NAME)]
     data["globalVariableLists"] = lists + [global_list(decls)]
