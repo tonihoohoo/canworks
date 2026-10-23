@@ -15,7 +15,7 @@ import tempfile
 import threading
 import unittest
 
-from canworks import cli, modbusmap
+from canworks import cli, editorproject, mainmove, modbusmap, openplcmodbus, plclibrary
 from canworks.configurator import server as srv
 
 from .helpers import REPO, tmpdir
@@ -324,6 +324,57 @@ class OpenplcModbus(Base):
         self.ok("/api/save", {"config": cfg, "editor_overwrite": True})
         with open(remote, encoding="utf-8") as f:
             self.assertEqual({g["cycleTime"] for g in json.load(f)["modbusTcpConfig"]["ioGroups"]}, {20})
+
+    def test_save_enables_the_library(self):
+        project = self.project()
+        self.open(project, "project")
+        r = self.ok("/api/save", {"config": self.switched()})
+        self.assertTrue(r["editor"]["library_ok"], r["editor"]["library"])
+        with open(os.path.join(project, "project.json"), encoding="utf-8") as f:
+            libs = json.load(f)["data"]["libraries"]
+        self.assertEqual([l["name"] for l in libs].count("canworks"), 1)
+        self.assertEqual(plclibrary.installed_version(), plclibrary.__version__)
+
+    def test_unnamed_network_gets_a_live_list(self):
+        self.open()
+        cfg = plugin_config()
+        del cfg["networks"][0]["name"]
+        cfg["networks"][0]["adapter"]["interface"] = "can1"
+        out = self.ok("/api/switch_target", {"config": cfg, "target": "openplc_modbus"})["config"]
+        self.assertEqual([l["network"] for l in out["bridge"]["live_lists"]], ["can1"])
+        self.assertNotIn("name", out["networks"][0])
+        self.assertEqual(self.errors(out), [])
+
+    def test_main_with_plugin_locations(self):
+        project = self.project()
+        self.open(project, "project")
+        cfg = self.switched()
+        members = [d["name"] for d, _ in openplcmodbus._typed(
+            editorproject.declarations(cfg, os.path.join(project, "canworks", "canworks.json")))]
+        name = members[0]
+        main = os.path.join(project, mainmove.MAIN)
+        with open(main, "w", encoding="utf-8") as f:
+            f.write("PROGRAM main\n  VAR\n    %s : INT AT %%IW100;\n    start_button : BOOL AT %%IX0.0;\n  END_VAR\n\n"
+                    "(* %s from the plugin *)\nIF start_button THEN x := %s; END_IF;\n\nEND_PROGRAM\n" % (name, name, name))
+        # The switch's answer, Problems and the Project page say so.
+        self.assertEqual(self.ok("/api/switch_target", {"config": plugin_config(), "target": "openplc_modbus"})["old_main"], 1)
+        r = self.ok("/api/check", {"config": cfg})
+        self.assertTrue(any("main declares 1 canworks value at the removed plugin's locations (%IW100)" in i["message"]
+                            for i in r["items"]), r["items"])
+        state = self.ok("/api/save", {"config": cfg})["state"]
+        self.assertEqual(state["openplc"]["old_main"], {"count": 1, "locations": ["%IW100"], "clashes": []})
+        r = self.ok("/api/openplc/move_main", {"config": cfg})
+        self.assertEqual((r["moved"], r["uses"], r["clashes"]), ([name], 1, []))
+        with open(main, encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("%IW100", text)
+        self.assertIn("start_button : BOOL AT %IX0.0;", text)
+        self.assertIn("x := canworks.%s;" % name, text)
+        self.assertIn("(* %s from the plugin *)" % name, text)
+        self.assertTrue(os.path.isfile(os.path.join(project, mainmove.BACKUP)))
+        self.assertIsNone(self.ok("/api/check", {"config": cfg}).get("state", {}).get("old_main"))
+        status, data = self.request("/api/openplc/move_main", {"config": cfg})
+        self.assertEqual(status, 422)
 
     def test_standalone_writes_no_editor_files(self):
         self.open()

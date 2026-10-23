@@ -20,7 +20,7 @@ The hardware run of `add-openplc-modbus-target` (runtime v4.3.1, tools 0.116.0, 
    - Types can differ from the old declaration (for example `WORD` before, `INT` now). The move does not cast; an editor Build error points at the line, and the message says so once.
    - The button writes `canworks/main-before-move.st` first and uses the same atomic replace as Save.
 5. **Library on Save.** Save uses `plclibrary.enable_in_project` and the editor install that New editor project already uses. It runs only when the project does not have the library enabled already, so a normal Save does not touch `project.json` twice.
-6. **Network names on switch.** An unnamed CANopen master network gets the name of its adapter's interface when that is a valid, free name, else `net<k>`. The change is in the switched config, so Undo restores it.
+6. **Live lists for unnamed networks.** A network without a `name` already goes by its adapter's interface in the checks and in the bridge, so the switch uses that name for its live list and renames nothing.
 7. **Pre-operational per node.** NMT node 0 would also stop devices canworks does not manage, such as another master's nodes on a shared bus. The bridge already loops the configured nodes, so only the spec text and scenario change.
 
 ## Risks / Trade-offs

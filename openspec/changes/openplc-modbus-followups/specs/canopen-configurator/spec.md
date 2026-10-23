@@ -1,16 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: Unnamed networks named on switch to OpenPLC
-Switching a config to OpenPLC through Modbus SHALL give every CANopen master network without a `name` the name of its adapter's interface when that is a valid name not used by another network, else `net<k>` with k its place in `networks`, so that the switch adds a live list for every CANopen master network. One Undo SHALL restore the config as it was.
+### Requirement: Live lists for every network on switch to OpenPLC
+Switching a config to OpenPLC through Modbus SHALL add a live list for every CANopen master network, naming a network without a `name` by its adapter's interface as the config's checks and the bridge do, so `CO_NODE_LIVE` works on each. The config's networks SHALL NOT be renamed.
 
 #### Scenario: One unnamed network
 - **WHEN** a plugin config with one unnamed CANopen master network on `can1` is switched to OpenPLC through Modbus
-- **THEN** the network is named `can1`, `bridge.live_lists` has an entry for it, and `CO_NODE_LIVE` on network 0 reads its nodes
+- **THEN** `bridge.live_lists` has an entry for network `can1`, the network keeps no `name`, and `CO_NODE_LIVE` on network 0 reads its nodes
 
 ### Requirement: Old located variables in an OpenPLC project's main
 For an OpenPLC project (target OpenPLC through Modbus, inside an editor project) the configurator SHALL find, in `pous/programs/main.st`, the located declarations whose names are members of the `canworks` variable list. When there are any, the Project page SHALL show a warning that `main` still declares that many canworks values at their old plugin locations, which read nothing now, naming the first locations, with the button **Use canworks.\* in main**; Problems SHALL list the same as a warning that opens the Project page; and the message after **Switch to OpenPLC through Modbus** SHALL mention it.
 
-The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then remove those declarations and the generated comment `(* CANopen I/O declared from canworks/canworks.json *)`, drop a `VAR` block left empty, and replace each use of a removed name in the program's code with `canworks.<name>`, matching names without regard to case, and leaving comments, strings and names after a `.` unchanged. A name that `main` also declares without a location SHALL be neither removed nor replaced. The message SHALL give the number of declarations and uses moved, name any names left, say where the copy is, and say that an OpenPLC Editor with the project open must reopen it before Build. Located declarations of other names, other POUs and the config SHALL NOT change.
+The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then remove those declarations and the generated comment `(* CANopen I/O declared from canworks/canworks.json *)`, keep the `VAR` block even when it is left empty (as the editor writes an empty program), and replace each use of a removed name in the program's code with `canworks.<name>`, matching names without regard to case, and leaving comments, strings and names after a `.` unchanged. A name that `main` also declares without a location SHALL be neither removed nor replaced. The message SHALL give the number of declarations and uses moved, name any names left, say where the copy is, and say that an OpenPLC Editor with the project open must reopen it before Build. Located declarations of other names, other POUs and the config SHALL NOT change.
 
 #### Scenario: Switched plugin project
 - **WHEN** a plugin project whose `main` declares `rtd_ok : BOOL AT %IX10.0;` and uses `IF rtd_ok THEN` is switched to OpenPLC through Modbus and saved

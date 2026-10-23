@@ -34,6 +34,7 @@ function selectedEntry() {
 // The tree's place of a check path ({ net, path }): [entry, node tab or null].
 function entryOfPath(w) {
   const path = typeof w.path === "string" ? w.path : "";
+  if (path === "project") return ["project", null];
   if (path.startsWith("master.diagnostics") || path.startsWith("master.cia309") || (w.net === null && path.startsWith("cia309"))) return ["project", null];
   if (path.startsWith("gateway")) return ["gateway", null];
   if (path.startsWith("bridge")) return ["bridge", null];

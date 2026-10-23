@@ -44,7 +44,7 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
+from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, mainmove, modbusmap, parameters, project as project_mod, plclibrary
 from .. import bundle, mailboxlayout, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
@@ -354,13 +354,13 @@ def openplc_bridge(cfg):
     127.0.0.1 may write), a live list per named CANopen master network and
     the mailboxes with their default counts (one request mailbox, the
     receive mailbox, 4 cyclic jobs, network info), so every canworks block
-    works. Packing places them."""
+    works. A network without a name goes by its interface's, as everywhere
+    in the config. Packing places them."""
     out = {"openplc": {}, "control_location": "%QB0",
            "sdo_bridge_location": {"request": "%QB0", "response": "%IB0"}, "sdo_bridge_write": True,
            "mailboxes": {"input_location": "%IB0", "output_location": "%QB0"}}
-    lists = [{"network": n["name"], "location": "%IB0"} for n in cfg.get("networks") or []
-             if isinstance(n, dict) and isinstance(n.get("name"), str) and n.get("role", "master") == "master"
-             and n.get("protocol", "canopen") == "canopen"]
+    lists = [{"network": n["name"], "location": "%IB0"} for n in contract.networks(cfg)
+             if n["name"] and n["role"] == "master" and n["protocol"] == "canopen"]
     if lists:
         out["live_lists"] = lists
     return out
@@ -1511,7 +1511,9 @@ class Session:
                 out = modbusmap.pack(out)
             except modbusmap.MapError as e:
                 raise ApiError(400, str(e))
-        return {"config": out, "removed": len(gone) + plugin_only, "located": located, "target": target}
+        old = self.old_main(out) if target == targets.OPENPLC_MODBUS else None
+        return {"config": out, "removed": len(gone) + plugin_only, "located": located, "target": target,
+                "old_main": old["count"] if old else 0}
 
     def _name_entries(self, cfg):
         """Gives every PDO entry without a `name` the name part of its
@@ -2029,13 +2031,51 @@ class Session:
         return {"remote_device": s["remote_device"], "poll_ms": s["poll_ms"], "port": s["port"],
                 "watchdog_ms": s["watchdog_ms"], "map_hash": "0x%08x" % modbusmap.map_hash(cfg),
                 "requests": openplcmodbus.request_count(groups), "warning": openplcmodbus.budget_warning(groups),
-                "iec_base": base, "files": openplcmodbus.own_files(cfg)}
+                "iec_base": base, "files": openplcmodbus.own_files(cfg), "old_main": self.old_main(cfg)}
+
+    def main_members(self, cfg):
+        """The `canworks` list's member names for `cfg`."""
+        decls = editorproject.declarations(cfg, self.config_path)
+        return [d["name"] for d, _ in openplcmodbus._typed(decls)]
+
+    def old_main(self, cfg):
+        """The project's main.st still declaring canworks values at the
+        removed plugin's locations (mainmove.project_scan), or None."""
+        if self.mode != "project" or not self.folder:
+            return None
+        try:
+            with open(os.path.join(self.folder, mainmove.MAIN), encoding="utf-8") as f:
+                if " AT " not in f.read().upper():
+                    return None  # nothing located: no need to read the EDS files
+            return mainmove.project_scan(self.folder, self.main_members(cfg))
+        except (OSError, KeyError, TypeError, ValueError, AttributeError):
+            return None
+
+    def move_main(self, cfg):
+        """Use canworks.* in main: rewrites the project's main.st
+        (mainmove.move_project) for the saved OpenPLC config."""
+        if targets.target(cfg) != targets.OPENPLC_MODBUS or self.mode != "project":
+            raise ApiError(422, "main is moved only in an OpenPLC project")
+        try:
+            return mainmove.move_project(self.folder, self.main_members(cfg))
+        except mainmove.MainError as e:
+            raise ApiError(422, str(e))
 
     def openplc_items(self, cfg):
         info = self.openplc_info(cfg)
-        if not info or not info["warning"]:
+        if not info:
             return []
-        return [{"level": "warning", "message": info["warning"], "paths": ["bridge.openplc.poll_ms"]}]
+        items = []
+        if info["warning"]:
+            items.append({"level": "warning", "message": info["warning"], "paths": ["bridge.openplc.poll_ms"]})
+        old = info["old_main"]
+        if old:
+            items.append({"level": "warning", "paths": ["project"], "message": (
+                "main declares %d canworks value%s at the removed plugin's locations (%s%s), which read nothing "
+                "now: Use canworks.* in main on the Project page" % (
+                    old["count"], "" if old["count"] == 1 else "s", ", ".join(old["locations"]),
+                    ", ..." if old["count"] > len(old["locations"]) else ""))})
+        return items
 
     def sync_openplc(self, cfg, force=False):
         """Writes the editor's remote device, canworks_in, canworks_out and
@@ -2044,11 +2084,14 @@ class Session:
         files was changed outside canworks and `force` is not set."""
         decls = editorproject.declarations(cfg, self.config_path)
         try:
-            return openplcmodbus.sync_project(self.folder, cfg, decls, self.uses, force=force)
+            out = openplcmodbus.sync_project(self.folder, cfg, decls, self.uses, force=force)
         except openplcmodbus.ChangedFiles as e:
             raise ApiError(409, "changed outside canworks: %s" % ", ".join(e.files), editor_changed=e.files)
         except openplcmodbus.OpenplcError as e:
             raise ApiError(422, str(e))
+        # The project enables the library; the editor needs it installed to build.
+        out["library_ok"], out["library"] = plclibrary.ensure_installed()
+        return out
 
     def openplc_check(self, cfg):
         """The 409 of sync_openplc before anything is written."""
@@ -2317,7 +2360,7 @@ class Session:
         self._move_descriptions(cfg, os.path.join(path, project_mod.DIR))
         self.open(path, "project")
         out = {"project": path, "editor": synced}
-        if blocks:
+        if blocks or editorproject.uses_library(cfg):
             out["library_ok"], out["library"] = plclibrary.ensure_installed()
         return out
 
@@ -2950,6 +2993,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/export_codesys"):
                     self._need_open(s)
                     out = s.export_codesys(body.get("config"))
+                elif route == ("POST", "/api/openplc/move_main"):
+                    self._need_open(s)
+                    out = s.move_main(body.get("config"))
                 elif route == ("POST", "/api/switch_target"):
                     self._need_open(s)
                     out = s.switch_target(body.get("config"), body.get("target"))

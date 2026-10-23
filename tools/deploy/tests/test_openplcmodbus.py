@@ -13,7 +13,7 @@ import tempfile
 import unittest
 import zlib
 
-from canworks import editorproject, modbusmap, openplcmodbus
+from canworks import editorproject, mainmove, modbusmap, openplcmodbus
 
 from .test_contract import REPO
 
@@ -368,6 +368,66 @@ class SyncProject(unittest.TestCase):
         cfg["bridge"]["openplc"]["iec_base"] = 500
         r = openplcmodbus.sync_project(self.project, cfg, self.decls, uses)
         self.assertEqual(r["iec_base"], 500)
+
+
+class MainMove(unittest.TestCase):
+    """Use canworks.* in main (canopen-configurator "Old located variables in
+    an OpenPLC project's main")."""
+
+    MAIN = """PROGRAM main
+  VAR
+    rtd_ok : BOOL AT %IX10.0;
+    rtd_temp AT %IW100 : INT;
+    start_button : BOOL AT %IX0.0;
+    twice : INT AT %IW102;
+    twice : INT;
+  END_VAR
+
+(* CANopen I/O declared from canworks/canworks.json *)
+(* rtd_ok is the sensor *)
+IF RTD_OK AND start_button THEN
+  x := Rtd_Temp + fb.rtd_ok; // rtd_temp here stays
+  s := 'rtd_ok';
+  y := twice;
+END_IF;
+
+END_PROGRAM
+"""
+
+    def test_scan(self):
+        found, clashes = mainmove.scan(self.MAIN, ["rtd_ok", "rtd_temp", "twice", "other"])
+        self.assertEqual(found, [("rtd_ok", "%IX10.0"), ("rtd_temp", "%IW100")])
+        self.assertEqual(clashes, ["twice"])
+
+    def test_move(self):
+        text, found, uses, clashes = mainmove.move(self.MAIN, ["rtd_ok", "rtd_temp", "twice"])
+        self.assertEqual((len(found), uses, clashes), (2, 2, ["twice"]))
+        self.assertNotIn("%IX10.0", text)
+        self.assertNotIn("%IW100", text)
+        self.assertNotIn("declared from canworks/canworks.json", text)
+        self.assertIn("start_button : BOOL AT %IX0.0;", text)    # the user's own I/O
+        self.assertIn("twice : INT AT %IW102;", text)            # a clash stays
+        self.assertIn("IF canworks.rtd_ok AND start_button THEN", text)
+        self.assertIn("x := canworks.rtd_temp + fb.rtd_ok; // rtd_temp here stays", text)
+        self.assertIn("s := 'rtd_ok';", text)
+        self.assertIn("(* rtd_ok is the sensor *)", text)
+        self.assertIn("  VAR\n", text)  # the VAR block stays, as the editor writes it
+
+    def test_project(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "pous", "programs"))
+        with open(os.path.join(d, mainmove.MAIN), "w", encoding="utf-8") as f:
+            f.write(self.MAIN)
+        self.assertEqual(mainmove.project_scan(d, ["rtd_ok", "rtd_temp"]),
+                         {"count": 2, "locations": ["%IX10.0", "%IW100"], "clashes": []})
+        r = mainmove.move_project(d, ["rtd_ok", "rtd_temp"])
+        self.assertEqual((r["moved"], r["uses"]), (["rtd_ok", "rtd_temp"], 2))
+        with open(os.path.join(d, mainmove.BACKUP), encoding="utf-8") as f:
+            self.assertEqual(f.read(), self.MAIN)
+        self.assertIsNone(mainmove.project_scan(d, ["rtd_ok", "rtd_temp"]))
+        with self.assertRaises(mainmove.MainError):
+            mainmove.move_project(d, ["rtd_ok"])
 
 
 if __name__ == "__main__":
