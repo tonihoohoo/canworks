@@ -45,11 +45,17 @@ CONNECTION_TITLES = {"openplc": "OpenPLC", "trust": "truST", "plc": "Other PLC",
                      "hmi": "HMI, SCADA or script"}
 CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash", "stale")
 CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base", "inputs_on_loss"),
-                     "trust": ("format", "library", "bridge_host", "inputs_on_loss"),
-                     "plc": ("format", "library", "bridge_host", "inputs_on_loss"),
-                     "nodered": ("period_ms", "bridge_host"),
+                     "trust": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
+                     "plc": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
+                     "nodered": ("period_ms", "bridge_host", "blocks"),
                      "hmi": ("format",)}
 CONNECTION_FORMATS = {"trust": ("plcopen",), "plc": ("plcopen", "st"), "hmi": ("csv", "json", "st")}
+# The canworks blocks choice (mailboxes-on-demand): the parts of
+# bridge.mailboxes a connection's program uses. truST moves one request each
+# way, which holds one request mailbox and nothing more.
+CONNECTION_BLOCKS = ("none", "sdo_send", "receive", "all")
+CONNECTION_BLOCKS_TRUST = ("none", "sdo_send")
+BLOCKS_TITLES = {"none": "None", "sdo_send": "SDO and send", "receive": "SDO, send and receive", "all": "All"}
 
 # Every address may write: the explicit form `writers` needs for that.
 ALL_WRITERS = ["0.0.0.0/0", "::/0"]
@@ -166,6 +172,8 @@ def _connections(b, w, err, warn, link):
         return
     names = {}
     openplc = 0
+    owner = None  # the OpenPLC connection's label
+    users = []  # (index, label) of the connections with canworks blocks
     listen = listen_host(b.get("listen"))
     for i, c in enumerate(items):
         cw = "%s.connections[%d]" % (w, i)
@@ -215,8 +223,20 @@ def _connections(b, w, err, warn, link):
         v = _get_uint(c, "period_ms", cw, 60000, err)
         if v is not None and v < 10:
             err(cw, "field 'period_ms' must be 10-60000", [cw + ".period_ms"])
+        if "blocks" in c:
+            if c["blocks"] not in CONNECTION_BLOCKS:
+                err(cw, "field 'blocks' must be %s" % ", ".join('"%s"' % k for k in CONNECTION_BLOCKS), [cw + ".blocks"])
+            elif kind == "trust" and c["blocks"] not in CONNECTION_BLOCKS_TRUST:
+                err(cw, "%s: truST moves one request each way, so only canworks blocks None or SDO and send fit"
+                    % label, [cw + ".blocks"])
+            elif kind == "nodered" and link and c["blocks"] != "none":
+                err(cw, "%s: with the PLC link the flow is read-only, so its block nodes cannot use the mailboxes: "
+                        "set canworks blocks to None" % label, [cw + ".blocks"])
+            elif c["blocks"] != "none":
+                users.append((i, label))
         if kind == "openplc":
             openplc += 1
+            owner = label
             if openplc > 1:
                 err(cw, "a config has one OpenPLC connection", [cw + ".kind"])
             v = _get_uint(c, "poll_ms", cw, 1000, err)
@@ -241,6 +261,17 @@ def _connections(b, w, err, warn, link):
         elif link and c.get("writes") is True and kind in ("nodered", "hmi"):
             warn(cw, "%s writes, but with the PLC link only the PLC writes outputs and mailboxes: untick Writes"
                  % label, [cw + ".writes"])
+    # One program owns the mailboxes (mailboxes-on-demand "One program owns
+    # the mailboxes"): the request words, tickets and receivers assume one client.
+    if owner is not None:
+        for i, label in users:
+            err("%s.connections[%d]" % (w, i), "%s has canworks blocks, but the OpenPLC program owns the mailboxes: "
+                "only one program can use them, so set canworks blocks to None" % label,
+                ["%s.connections[%d].blocks" % (w, i)])
+    elif len(users) > 1:
+        for i, label in users[1:]:
+            err("%s.connections[%d]" % (w, i), "%s and %s both have canworks blocks: only one program can use the "
+                "mailboxes, so set one of them to None" % (users[0][1], label), ["%s.connections[%d].blocks" % (w, i)])
     if items and isinstance(b.get("writers"), list):
         cfg = {"bridge": b}
         if sorted(b["writers"], key=_address_key) != connection_writers(cfg):

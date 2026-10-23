@@ -25,8 +25,8 @@ With an OpenPLC connection, a count change SHALL move both areas to free ranges 
 - **THEN** the areas move to free ranges, the register and request counts grow by 120 registers and one request, and the expected rate reads about 1050 CAN frames/s
 
 #### Scenario: Who needs them
-- **WHEN** the OpenPLC program declares a `CAN_RECEIVE` in `main` and a truST connection has canworks blocks "SDO and send"
-- **THEN** the section lists "OpenPLC program: request and receive mailbox (CAN_RECEIVE in main)" and the truST connection with "1 request mailbox"
+- **WHEN** the OpenPLC program declares a `CAN_RECEIVE` in `main`, or in a config without OpenPLC a truST connection "Line" has canworks blocks SDO and send
+- **THEN** the section says "The OpenPLC program declares CAN_RECEIVE (main)", or "Line: canworks blocks SDO and send (1 request mailbox)"
 
 ### Requirement: New editor project in standalone mode
 In standalone mode the page SHALL offer "New editor project" next to "move into project". It SHALL ask for a parent folder (prefilled with the home folder, as "move into project" does), a project name, the task interval (default `T#20ms`) and whether to install the canworks library in the project ("Install the canworks library in the project", unchecked by default, with a hint that the mailbox blocks also need the bridge's mailboxes, which Problems offers once the program declares them). It SHALL create the project as `canopen-editor-project` describes, and then switch to project mode on the new project. It SHALL require the config to be saved first and SHALL show the reason when creation is refused. The standalone folder SHALL be left unchanged.
@@ -68,7 +68,7 @@ For a config with an OpenPLC connection, Check and Save SHALL scan the editor pr
 - **THEN** the config gets one request mailbox and the receive mailbox, without cyclic jobs or network info, and one Undo removes them again
 
 ### Requirement: Mailboxes nobody needs
-When the config has mailboxes and neither the OpenPLC program nor any connection's canworks blocks choice needs them, Problems SHALL show a warning with the Modbus requests per poll the mailboxes take, and **Turn off the mailboxes**, which removes `bridge.mailboxes` in one undo step.
+When the config has mailboxes and connections, and neither the OpenPLC program nor any connection's canworks blocks choice needs them, Problems SHALL show a warning with what the mailboxes take (the Modbus requests per poll with an OpenPLC connection, otherwise their registers), and **Turn off the mailboxes**, which removes `bridge.mailboxes` in one undo step. A config without connections (a client run by hand) SHALL get no such warning.
 
 #### Scenario: Mailboxes nobody uses
 - **WHEN** the config has the default mailboxes, the program declares no mailbox block and no connection has a canworks blocks choice other than None

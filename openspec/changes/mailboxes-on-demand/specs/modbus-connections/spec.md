@@ -22,7 +22,7 @@ Each kind SHALL have its own fields and download:
 - **THEN** the check fails naming `bridge.connections[0].blocks` and saying truST moves one request each way, so only None or SDO and send fit
 
 ### Requirement: OpenPLC connection bridge settings
-Adding an OpenPLC connection SHALL, in one undo step, set `plc_link` true, `word_order` `low_first`, `listen` `127.0.0.1:1502` when unset, `watchdog_ms` 5 × `poll_ms` (at least 50) when unset, add a live list for every CANopen master network and repack. It SHALL NOT turn the mailboxes on: the program's mailbox blocks do that through Problems (canopen-configurator "Mailbox blocks the OpenPLC program declares"). With an OpenPLC connection the check SHALL refuse `plc_link` false and `word_order` `high_first`.
+Adding an OpenPLC connection SHALL, in one undo step, set `plc_link` true, `word_order` `low_first`, `listen` `127.0.0.1:1502` when unset or when no other connection is on an address other than loopback, `watchdog_ms` 5 × `poll_ms` (at least 50) when unset, add a live list for every CANopen master network and repack. It SHALL NOT turn the mailboxes on: the program's mailbox blocks do that through Problems (canopen-configurator "Mailbox blocks the OpenPLC program declares"). With an OpenPLC connection the check SHALL refuse `plc_link` false and `word_order` `high_first`.
 
 #### Scenario: Add OpenPLC to a new bridge config
 - **WHEN** the user adds an OpenPLC connection to a new Modbus bridge config with one network
@@ -35,14 +35,14 @@ Adding an OpenPLC connection SHALL, in one undo step, set `plc_link` true, `word
 ## ADDED Requirements
 
 ### Requirement: Canworks blocks choice of a connection
-Each `trust`, `plc` and `nodered` connection row SHALL offer "canworks blocks": None, SDO and send (one request mailbox), SDO, send and receive (also the receive mailbox) or All (also 4 cyclic jobs and network info), and SHALL show the choice with the parts it needs. truST SHALL offer only None and SDO and send. Node-RED SHALL offer the choice only when the Node-RED package has block nodes.
+Each `trust`, `plc` and `nodered` connection row SHALL offer "canworks blocks": None, SDO and send (one request mailbox), SDO, send and receive (also the receive mailbox) or All (also 4 cyclic jobs and network info), and SHALL show the choice with the parts it needs. truST SHALL offer only None and SDO and send. Node-RED SHALL offer the choice only without the PLC link: with it the flow is read-only, and the check SHALL refuse a Node-RED `blocks` other than `none`.
 
 #### Scenario: Row text
 - **WHEN** an Other PLC connection has SDO and send
 - **THEN** its row reads "canworks blocks: SDO and send (1 request mailbox)"
 
 ### Requirement: Mailboxes follow the connections
-When a connection's canworks blocks choice changes, the configurator SHALL add the missing parts to `bridge.mailboxes` in the same undo step and place the areas, keep parts that are already on, and mark the connection Out of date.
+When a connection's canworks blocks choice changes, the configurator SHALL add the missing parts to `bridge.mailboxes` in the same undo step and place the areas, keep parts that are already on, and mark the connection Out of date. A connection whose choice needs a part that is off (a config edited by hand) SHALL be an error in Problems with **Turn on what the program uses**.
 
 #### Scenario: truST with SDO blocks
 - **WHEN** a config without mailboxes has a truST connection and the user picks SDO and send

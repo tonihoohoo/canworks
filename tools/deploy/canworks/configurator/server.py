@@ -1949,6 +1949,12 @@ class Session:
             found = mailboxuse.scan_project(self.folder)
             out["program_blocks"] = [{"block": b, "pous": sorted(found[b]), "parts": list(mailboxuse.BLOCK_PARTS[b])}
                                      for b in sorted(found)]
+        # and the connections whose canworks blocks choice asks for them
+        out["connection_blocks"] = [{"index": i, "name": c.get("name") or connections.TITLES[c["kind"]],
+                                     "blocks": c["blocks"], "text": connections.blocks_text(c["blocks"])}
+                                    for i, c in enumerate(cfg["bridge"].get("connections") or [])
+                                    if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered")
+                                    and c.get("blocks") in ("sdo_send", "receive", "all")]
         return out
 
     def mailbox_cost(self, cfg):

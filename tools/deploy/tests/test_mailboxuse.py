@@ -51,6 +51,8 @@ class Scan(unittest.TestCase):
         with open(os.path.join(REPO, "examples", "openplc-modbus", "main.st"), encoding="utf-8") as f:
             need = mailboxuse.parts_needed(mailboxuse.scan_text(f.read(), "main"))
         self.assertEqual(need, {"request": 1, "receive": 1, "cyclic": 4, "info": 1})
+        with open(os.path.join(REPO, "examples", "openplc-modbus", "canworks.json"), encoding="utf-8") as f:
+            self.assertEqual(mailboxuse.missing(json.load(f)["bridge"].get("mailboxes"), need), [])
 
 
 class Parts(unittest.TestCase):

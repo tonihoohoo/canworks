@@ -231,6 +231,23 @@ class BridgePage(OnlineBase):
         pg.wait_for_function("() => !('plc_link' in S.model.top.bridge)")
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
+        # canworks blocks (mailboxes-on-demand): truST offers None and SDO and
+        # send, which turns on one request mailbox, placed, in one undo step.
+        self.open_settings(0)
+        sel = 'select[data-path="bridge.connections[0].blocks"]'
+        self.assertEqual(pg.eval_on_selector_all(sel + " option", "os => os.map(o => o.textContent)"),
+                         ["None", "SDO and send"])
+        pg.select_option(sel, "sdo_send")
+        pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
+        mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
+        self.assertEqual((mb["requests"], mb["receive"], mb["cyclic_jobs"], mb["network_info"]), (1, False, 0, False))
+        self.assertEqual(pg.inner_text('[data-conn-blocks="0"]'), "canworks blocks: SDO and send (1 request mailbox)")
+        pg.wait_for_selector('[data-bridge-mailbox-who]:has-text("Cell PLC: canworks blocks SDO and send")')
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => !S.model.top.bridge.mailboxes && !S.model.top.bridge.connections[0].blocks")
+        pg.keyboard.press("Control+Shift+z")
+        pg.wait_for_function("() => !!S.model.top.bridge.mailboxes && S.model.top.bridge.connections[0].blocks === 'sdo_send'")
         # No bridge address: the listen address is a wildcard, so the row's PLC
         # needs one; Problems says so.
         self.checked()
@@ -409,7 +426,7 @@ class BridgePage(OnlineBase):
         b = pg.evaluate("() => S.model.top.bridge")
         self.assertEqual((b["plc_link"], b["listen"], b["writers"], b["word_order"], b["watchdog_ms"]),
                          (True, "127.0.0.1:1502", ["127.0.0.1"], "low_first", 50))
-        self.assertIn("mailboxes", b)
+        self.assertNotIn("mailboxes", b)  # mailboxes-on-demand
         # Adding it and its repack are one step: undo takes it back, redo adds it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")

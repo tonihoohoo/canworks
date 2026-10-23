@@ -292,12 +292,14 @@ Every connection has `kind`, a unique `name` (1-64 characters), `address` (the c
 | Kind | Fields | What it gets |
 | --- | --- | --- |
 | `openplc` | `poll_ms` (5-1000, default 10), `remote_device` (default `canworks`), `iec_base` | The editor files, kept in sync by Save in an editor project ([OpenPLC](#openplc)). At most one; its address is `127.0.0.1`. |
-| `trust` | `format` (`plcopen`), `library`, `bridge_host` | The PLCopen XML folder for truST, as a zip ([plcopen.md](plcopen.md)). |
-| `plc` | `format` (`plcopen` or `st`), `library`, `bridge_host` | The PLCopen XML folder, or the PLC link as ST ([plc-library.md](plc-library.md#on-another-modbus-plc)). |
-| `nodered` | `period_ms` (10-60000), `bridge_host` | The Node-RED flow ([node-red.md](node-red.md)). |
+| `trust` | `format` (`plcopen`), `library`, `bridge_host`, `blocks` (`none` or `sdo_send`) | The PLCopen XML folder for truST, as a zip ([plcopen.md](plcopen.md)). |
+| `plc` | `format` (`plcopen` or `st`), `library`, `bridge_host`, `blocks` | The PLCopen XML folder, or the PLC link as ST ([plc-library.md](plc-library.md#on-another-modbus-plc)). |
+| `nodered` | `period_ms` (10-60000), `bridge_host`, `blocks` | The Node-RED flow ([node-red.md](node-red.md)). |
 | `hmi` | `format` (`csv`, `json` or `st`) | The register map or the ST variable list. |
 
 A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, or a setting that goes into the file (`inputs_on_loss`) changes, which the configurator marks with `"stale": true`, the row says **Out of date** and Problems warns until the next download. A truST or Other PLC connection whose Download would be refused (no PLC link; for truST a map over 125 input or 123 holding registers, or a watchdog under 500 ms) says **Cannot download** with the reason, and Problems warns before anyone presses Download; `canworks-deploy --check` prints the same warnings. For truST, Problems offers **Set the watchdog to 500 ms** and **Trim the mailboxes for truST** (one request mailbox, nothing else, packed again; next to an OpenPLC connection the warning names the OpenPLC blocks that stop working).
+
+`blocks` says which canworks mailbox blocks the client's program uses: `none` (the default), `sdo_send` (one request mailbox: long SDOs, `CAN_SEND`, the J1939 requests), `receive` (also the receive mailbox) or `all` (also 4 cyclic jobs and network info). Picking one in the configurator turns on those parts of [`bridge.mailboxes`](#function-block-mailboxes) and places them, in the same undo step. One program owns the mailboxes, since their request words, tickets and receivers assume one client: the check refuses a second connection with `blocks`, any next to an `openplc` connection (its program's blocks decide), `receive` or `all` on `trust` (one request each way holds no more), and `blocks` on a `nodered` connection with the PLC link (the flow is read-only then). A connection whose `blocks` needs a part that is off is an error in Problems with **Turn on what the program uses**; mailboxes that neither a connection nor the OpenPLC program needs are a warning with **Turn off the mailboxes**.
 
 The writers follow the connections: while there are connections, `writers` is the sorted addresses of those with `writes` true, and the check warns when they differ. A connection on the network while `listen` is a loopback address is an error naming it. With the PLC link, only the PLC writes outputs and mailboxes: a Node-RED or HMI connection that writes gets a warning.
 
@@ -325,7 +327,7 @@ A bridge config with an OpenPLC connection runs the networks next to an unmodifi
 | `remote_device` | `canworks` | The remote device's name in the editor project (`devices/remote/<name>.json`). |
 | `iec_base` | the first free from 100 | The first `%IW` and `%QW` word the groups get in the editor project. |
 
-Adding the connection in the configurator turns on the PLC link and low word first, sets `listen` to `127.0.0.1:1502` (unless another connection is on the network), the watchdog to 5 × `poll_ms` (at least 50 ms) when unset, turns on the control block, the SDO registers and the mailboxes, adds a live list per CANopen master network and repacks. With an OpenPLC connection `plc_link` false and `word_order` `high_first` are refused. The PLC link fixes the first bytes:
+Adding the connection in the configurator turns on the PLC link and low word first, sets `listen` to `127.0.0.1:1502` (unless another connection is on the network), the watchdog to 5 × `poll_ms` (at least 50 ms) when unset, turns on the control block and the SDO registers, adds a live list per CANopen master network and repacks. It leaves the mailboxes off: the configurator offers them once the program declares a mailbox block ([plc-library.md](plc-library.md#with-or-without-the-mailboxes)). With an OpenPLC connection `plc_link` false and `word_order` `high_first` are refused. The PLC link fixes the first bytes:
 
 | Bytes | Registers | Meaning |
 | --- | --- | --- |

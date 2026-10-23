@@ -15,7 +15,7 @@ import io
 import re
 import zipfile
 
-from . import bridgecheck, contract, modbusmap, nodered, openplcmodbus, plcopen, plcopen_targets
+from . import bridgecheck, contract, mailboxlayout, mailboxuse, modbusmap, nodered, openplcmodbus, plcopen, plcopen_targets
 
 KINDS = bridgecheck.CONNECTION_KINDS
 TITLES = bridgecheck.CONNECTION_TITLES
@@ -254,10 +254,65 @@ def download_problems(cfg):
     return out
 
 
+def blocks_text(choice):
+    """'SDO and send (1 request mailbox)': a canworks blocks choice with the
+    parts it needs (mailboxes-on-demand "Canworks blocks choice of a connection")."""
+    parts = mailboxuse.choice_parts(choice)
+    words = {"request": "1 request mailbox", "receive": "the receive mailbox", "cyclic": "4 cyclic jobs",
+             "info": "network info"}
+    title = bridgecheck.BLOCKS_TITLES.get(choice or "none", str(choice))
+    if not parts:
+        return title
+    have = [words[p] for p in ("request", "receive", "cyclic", "info") if p in parts]
+    return "%s (%s)" % (title, ", ".join(have[:-1]) + " and " + have[-1] if len(have) > 1 else have[0])
+
+
+def mailbox_problems(cfg):
+    """The connections' canworks blocks against `bridge.mailboxes`
+    (mailboxes-on-demand "Mailboxes follow the connections", "Mailboxes
+    nobody needs"): an error per connection whose choice needs a part that
+    is off, with the mailboxes that add it (`mailbox_fix`), and, in a config
+    with connections but none of OpenPLC and none with a choice, a warning
+    that nothing needs the mailboxes. The OpenPLC program's blocks are the
+    configurator's (it reads the editor project)."""
+    b = cfg.get("bridge") if isinstance(cfg, dict) else None
+    items = b.get("connections") if isinstance(b, dict) else None
+    if not isinstance(items, list) or not items:
+        return []
+    mb = b.get("mailboxes")
+    out = []
+    users = 0
+    for i, c in enumerate(items):
+        if not isinstance(c, dict) or c.get("kind") not in ("trust", "plc", "nodered"):
+            continue
+        choice = c.get("blocks")
+        if choice not in bridgecheck.CONNECTION_BLOCKS or choice == "none":
+            continue
+        users += 1
+        need = mailboxuse.choice_parts(choice)
+        gone = mailboxuse.missing(mb, need)
+        if gone:
+            label = c.get("name") or TITLES[c["kind"]]
+            out.append({"level": "error", "paths": ["bridge.connections[%d].blocks" % i, "bridge.mailboxes"],
+                        "mailbox_fix": mailboxuse.mailboxes_for(need, mb), "message": (
+                            "%s has canworks blocks %s, but the config lacks %s: Turn on what the program uses"
+                            % (label, blocks_text(choice), " and ".join(mailboxuse.PART_WORDS[p] for p in gone)))})
+    if isinstance(mb, dict) and not users and not bridgecheck.is_openplc(cfg):
+        try:
+            ins, outs = mailboxlayout.area_bytes(mb, len(contract.networks(cfg)))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            ins = outs = 0
+        out.append({"level": "warning", "paths": ["bridge.mailboxes"], "mailbox_fix": "off", "message": (
+            "No connection has canworks blocks, but every client polls the mailboxes' %d input and %d holding "
+            "registers: Turn off the mailboxes" % (ins // 2, (outs + 1) // 2))})
+    return out
+
+
 def problems(cfg):
     """Problems-pane warnings of the connections: one per out-of-date
-    download, a PLCopen or ST connection with no bridge address, and each
-    reason a PLC connection's Download would be refused."""
+    download, a PLCopen or ST connection with no bridge address, each
+    reason a PLC connection's Download would be refused, and the mailbox
+    problems."""
     out = download_problems(cfg)
     current = map_hash_text(cfg)
     b = cfg.get("bridge") if isinstance(cfg, dict) else None
@@ -277,4 +332,4 @@ def problems(cfg):
         if c["kind"] in ("trust", "plc") and not bridge_host(cfg, c):
             out.append({"level": "warning", "paths": [path + ".bridge_host"], "message": (
                 "%s: the PLC needs the bridge's address: give it in the connection's settings" % label)})
-    return out
+    return out + mailbox_problems(cfg)

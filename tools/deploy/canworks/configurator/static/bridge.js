@@ -242,6 +242,57 @@ const BRIDGE_MAILBOX_NEEDS = [
 ];
 const BRIDGE_WITHOUT_MAILBOXES = "Without mailboxes: the config's values, CO_NMT, CO_NODE_LIVE, and CO_SDO_READ and CO_SDO_WRITE up to 4 bytes.";
 
+// A connection's canworks blocks choice (mailboxes-on-demand): the parts
+// it needs, as mailboxuse.CHOICE_PARTS. truST only None or SDO and send.
+const CONNECTION_BLOCKS = [
+  { value: undefined, label: "None", parts: [], help: "The program uses the values and the blocks over the bridge only (CO_NMT, CO_NODE_LIVE, CO_SDO_READ and CO_SDO_WRITE up to 4 bytes)." },
+  { value: "sdo_send", label: "SDO and send", parts: ["request"], help: "Also long SDOs, CAN_SEND and the J1939 requests: 1 request mailbox." },
+  { value: "receive", label: "SDO, send and receive", parts: ["request", "receive"], help: "Also CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY: the receive mailbox too." },
+  { value: "all", label: "All", parts: ["request", "receive", "cyclic", "info"], help: "Also CAN_SEND_CYCLIC (4 cyclic jobs) and CAN_BUS_INFO / J1939_ECU_INFO (network info)." },
+];
+const BLOCK_PART_WORDS = { request: "1 request mailbox", receive: "the receive mailbox", cyclic: "4 cyclic jobs", info: "network info" };
+
+function connectionBlocksText(v) {
+  const c = CONNECTION_BLOCKS.find((x) => x.value === v) || CONNECTION_BLOCKS[0];
+  const w = c.parts.map((p) => BLOCK_PART_WORDS[p]);
+  return w.length ? `${c.label} (${w.length > 1 ? w.slice(0, -1).join(", ") + " and " + w[w.length - 1] : w[0]})` : c.label;
+}
+
+// The mailboxes with `parts` added, keeping what is on (mailboxuse.mailboxes_for).
+function mailboxesWith(current, parts) {
+  if (!current) {
+    return { requests: parts.includes("request") ? 1 : 0, receive: parts.includes("receive"),
+      cyclic_jobs: parts.includes("cyclic") ? 4 : 0, network_info: parts.includes("info") };
+  }
+  const mb = Object.assign({}, current);
+  if (parts.includes("request") && (mb.requests === undefined ? 1 : mb.requests) < 1) mb.requests = 1;
+  if (parts.includes("receive") && mb.receive === false) mb.receive = true;
+  if (parts.includes("cyclic") && (mb.cyclic_jobs === undefined ? 4 : mb.cyclic_jobs) < 4) mb.cyclic_jobs = 4;
+  if (parts.includes("info") && mb.network_info === false) mb.network_info = true;
+  return mb;
+}
+
+// The choice in a connection's Settings: the parts go into bridge.mailboxes
+// in the same undo step, placed; a downloaded file is then out of date.
+function connectionBlocksField(c, path) {
+  const list = c.kind === "trust" ? CONNECTION_BLOCKS.slice(0, 2) : CONNECTION_BLOCKS;
+  return choice("canworks blocks", path + ".blocks", list, { onChange: async (v) => {
+    const b = S.model.top.bridge;
+    if (v === undefined) delete c.blocks;
+    else c.blocks = v;
+    if (c.map_hash) c.stale = true;
+    const parts = (CONNECTION_BLOCKS.find((x) => x.value === v) || CONNECTION_BLOCKS[0]).parts;
+    if (parts.length) {
+      const had = b.mailboxes;
+      b.mailboxes = mailboxesWith(had, parts);
+      if (!had || !had.input_location || !had.output_location || JSON.stringify(had) !== JSON.stringify(b.mailboxes)) {
+        await bridgeMailboxPlace(b);
+      }
+    }
+    changed(true);
+  } });
+}
+
 async function bridgeMailboxPlace(b) {
   try {
     b.mailboxes.input_location = await bridgeSuggested("mailbox_input");
@@ -277,7 +328,7 @@ function bridgeMailboxes(b, openplc) {
     el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Mailboxes for the canworks mailbox blocks"),
       hint("Long SDO objects, any CAN frame, J1939 messages and trouble codes, every EMCY and bus info from the program. " +
         "Off by default: every client polls them on every cycle, whether or not a block is called." +
-        (openplc ? " Problems offers them when the program declares a mailbox block." : "")),
+        (openplc ? " Problems offers them when the program declares a mailbox block." : " A connection's canworks blocks choice turns on what its program uses.")),
       el("span", { class: "field-msg", dataset: { for: "bridge.mailboxes" } })),
     mb ? el("div", { class: "grid" },
       count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
@@ -318,12 +369,19 @@ function bridgeMailboxCost() {
   return (c.on ? "The mailboxes take " : "Turned on with the default parts, the mailboxes would take ") + regs + req + "." + rx;
 }
 
-// Who needs the mailboxes: the editor project's mailbox blocks.
+// Who needs the mailboxes: the editor project's mailbox blocks and the
+// connections' canworks blocks choices.
 function bridgeMailboxWho() {
   const r = S.bridgeMap;
-  if (!r || !Array.isArray(r.program_blocks)) return "";
-  if (!r.program_blocks.length) return "The OpenPLC program declares no mailbox block.";
-  return "The OpenPLC program declares " + r.program_blocks.map((x) => `${x.block} (${x.pous.join(", ")})`).join(", ") + ".";
+  if (!r) return "";
+  const out = [];
+  if (Array.isArray(r.program_blocks)) {
+    out.push(r.program_blocks.length
+      ? "The OpenPLC program declares " + r.program_blocks.map((x) => `${x.block} (${x.pous.join(", ")})`).join(", ") + "."
+      : "The OpenPLC program declares no mailbox block.");
+  }
+  for (const c of r.connection_blocks || []) out.push(`${c.name}: canworks blocks ${c.text}.`);
+  return out.join(" ");
 }
 
 // -- register map ---------------------------------------------------------------
@@ -566,7 +624,8 @@ function connectionRow(c, i) {
     "aria-label": `Remove ${c.name || kind}`, onclick: () => removeConnection(i) }, "Remove"));
   const row = el("tr", { dataset: { connection: c.name || String(i), connKind: kind || "" } },
     el("td", null, name, el("span", { class: "field-msg", dataset: { for: path + ".name" } })),
-    el("td", null, CONNECTION_TITLE[kind] || String(kind)),
+    el("td", null, CONNECTION_TITLE[kind] || String(kind),
+      c.blocks && c.blocks !== "none" ? el("div", { class: "muted", dataset: { connBlocks: String(i) } }, "canworks blocks: " + connectionBlocksText(c.blocks)) : null),
     el("td", null, address, el("span", { class: "field-msg", dataset: { for: path + ".address" } })),
     el("td", null, writes, el("span", { class: "field-msg", dataset: { for: path + ".writes" } })),
     el("td", null, state),
@@ -635,6 +694,9 @@ function connectionSettings(c, i) {
       field("Period (ms)", path + ".period_ms", "int", { placeholder: "10", hint: "How often the flow reads and writes the registers, 10 to 60000 ms." }),
       field("Bridge address", path + ".bridge_host", "text", { placeholder: "127.0.0.1", hint: "The bridge's address as Node-RED sees it. Empty: 127.0.0.1." }));
   }
+  // With the PLC link the flow is read-only: its block nodes cannot use the mailboxes.
+  if (kind === "trust" || kind === "plc" || (kind === "nodered" && (getPath("bridge.plc_link") !== true || c.blocks)))
+    fields.push(connectionBlocksField(c, path));
   if (!fields.length && !notes.length) return rowNotes;
   const open = S.connOpen === i;
   const box = el("details", { class: "advanced", open: open || null, dataset: { connSettingsOf: String(i) } }, el("summary", null, "Settings"),

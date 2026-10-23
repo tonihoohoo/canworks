@@ -706,5 +706,93 @@ class MailboxUse(Base):
         self.assertEqual(on["requests_without"], 5)
 
 
+class ConnectionBlocks(Base):
+    """mailboxes-on-demand: a connection's canworks blocks choice
+    (modbus-connections "Canworks blocks choice of a connection", "Mailboxes
+    follow the connections", "One program owns the mailboxes")."""
+
+    def setUp(self):
+        super().setUp()
+        self.open()
+
+    def linked(self, *conns):
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["plc_link"] = True
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        for conn in conns:
+            cfg = self.ok("/api/connections/add", {"config": cfg, "connection": conn})["config"]
+        return cfg
+
+    def mailbox_items(self, cfg):
+        return [i for i in self.ok("/api/check", {"config": cfg})["items"]
+                if "bridge.mailboxes" in i.get("paths", []) or any(".blocks" in p for p in i.get("paths", []))]
+
+    def placed(self, cfg, mb):
+        cfg["bridge"]["mailboxes"] = dict(mb)
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
+        return cfg
+
+    def test_trust_with_sdo_blocks(self):
+        cfg = self.linked({"kind": "trust", "name": "Line", "address": "192.168.10.40"})
+        cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"
+        [item] = self.mailbox_items(cfg)
+        self.assertEqual(item["level"], "error")
+        self.assertIn("Line has canworks blocks SDO and send (1 request mailbox), but the config lacks a request "
+                      "mailbox", item["message"])
+        self.assertEqual(item["mailbox_fix"], {"requests": 1, "receive": False, "cyclic_jobs": 0, "network_info": False})
+        cfg = self.placed(cfg, item["mailbox_fix"])
+        self.assertEqual(self.mailbox_items(cfg), [])
+        r = self.ok("/api/bridge/map", {"config": cfg})
+        self.assertEqual(r["connection_blocks"], [{"index": 0, "name": "Line", "blocks": "sdo_send",
+                                                   "text": "SDO and send (1 request mailbox)"}])
+        # truST moves one request each way: no receiving blocks.
+        cfg["bridge"]["connections"][0]["blocks"] = "receive"
+        self.assertTrue(any("only canworks blocks None or SDO and send fit" in e for e in self.errors(cfg)))
+        cfg["bridge"]["connections"][0]["blocks"] = "most"
+        self.assertTrue(any("field 'blocks' must be" in e for e in self.errors(cfg)))
+
+    def test_choice_back_to_none(self):
+        cfg = self.linked({"kind": "plc", "name": "Line PLC", "address": "192.168.10.40", "format": "st"})
+        cfg = self.placed(cfg, {})
+        cfg["bridge"]["connections"][0]["blocks"] = "all"
+        self.assertEqual(self.mailbox_items(cfg), [])
+        cfg["bridge"]["connections"][0]["blocks"] = "none"
+        [item] = self.mailbox_items(cfg)
+        self.assertEqual((item["level"], item["mailbox_fix"]), ("warning", "off"))
+        self.assertIn("No connection has canworks blocks, but every client polls the mailboxes' 227 input and 79 "
+                      "holding registers: Turn off the mailboxes", item["message"])
+
+    def test_one_program_owns_the_mailboxes(self):
+        cfg = self.linked({"kind": "trust", "name": "Line", "address": "192.168.10.40"},
+                          {"kind": "plc", "name": "Cell", "address": "192.168.10.41", "format": "st"})
+        cfg = self.placed(cfg, {})
+        cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"
+        cfg["bridge"]["connections"][1]["blocks"] = "receive"
+        self.assertTrue(any("Line and Cell both have canworks blocks: only one program can use the mailboxes, so set "
+                            "one of them to None" in e for e in self.errors(cfg)))
+        # with the PLC link a Node-RED flow is read-only
+        cfg["bridge"]["connections"][1] = {"kind": "nodered", "name": "Flows", "address": "192.168.10.30",
+                                           "blocks": "receive"}
+        self.assertTrue(any("Flows: with the PLC link the flow is read-only" in e for e in self.errors(cfg)))
+
+    def test_not_next_to_openplc(self):
+        cfg = self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["config"]
+        cfg = self.ok("/api/connections/add", {"config": cfg, "connection": {"kind": "openplc"}})["config"]
+        cfg = self.ok("/api/connections/add", {"config": cfg, "connection": {
+            "kind": "plc", "name": "Cell", "address": "192.168.10.41", "format": "st"}})["config"]
+        cfg["bridge"]["connections"][1]["blocks"] = "sdo_send"
+        self.assertTrue(any("Cell has canworks blocks, but the OpenPLC program owns the mailboxes" in e
+                            for e in self.errors(cfg)), self.errors(cfg))
+
+    def test_nobody_needs_them_without_connections(self):
+        # A hand-run client: no connections listed, no warning.
+        cfg = self.placed(copy.deepcopy(self.cfg), {})
+        self.assertEqual(self.mailbox_items(cfg), [])
+        self.assertEqual(connections.blocks_text("all"),
+                         "All (1 request mailbox, the receive mailbox, 4 cyclic jobs and network info)")
+
+
 if __name__ == "__main__":
     unittest.main()
