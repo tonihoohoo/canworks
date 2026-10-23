@@ -139,13 +139,13 @@ class Jobs(Device):
 
     def test_sudo_password_on_stdin_only(self):
         with self.assertRaises(jobs.NeedSudo) as cm:
-            jobs.start(self.conn, "password", None, "install_plugin", ["true"], self.paths)
+            jobs.start(self.conn, "password", None, "install_bridge", ["true"], self.paths)
         self.assertFalse(cm.exception.wrong)
         with self.assertRaises(jobs.NeedSudo) as cm:
-            jobs.start(self.conn, "password", "wrong", "install_plugin", ["true"], self.paths)
+            jobs.start(self.conn, "password", "wrong", "install_bridge", ["true"], self.paths)
         self.assertTrue(cm.exception.wrong)
         self.assertFalse(os.path.isdir(self.paths.log_dir))  # the wrong password never met the script
-        job = jobs.start(self.conn, "password", SUDO_PW, "install_plugin",
+        job = jobs.start(self.conn, "password", SUDO_PW, "install_bridge",
                          ['echo "::canworks-step 1/1 Doing it"', "echo done"], self.paths)
         out = self.wait_done(self.conn, job, self.paths)
         self.assertEqual(out["exit"], 0)
@@ -159,7 +159,7 @@ class Jobs(Device):
 
     def test_follow_after_a_dropped_connection_and_stop(self):
         self.device.sudo_nopasswd = True
-        job = jobs.start(self.conn, "nopasswd", None, "install_plugin",
+        job = jobs.start(self.conn, "nopasswd", None, "install_bridge",
                          ['echo "::canworks-step 1/2 First"', "echo one", "sleep 1",
                           'echo "::canworks-step 2/2 Second"', "echo two"], self.paths)
         first = jobs.follow(self.conn, job, 0, self.paths)
@@ -171,7 +171,7 @@ class Jobs(Device):
         self.assertEqual([s["text"] for s in out["steps"]], ["First", "Second"])
         self.assertGreaterEqual(first["offset"], 0)
 
-        job = jobs.start(conn, "nopasswd", None, "install_plugin",
+        job = jobs.start(conn, "nopasswd", None, "install_bridge",
                          ['echo "::canworks-step 1/1 Waiting"', "sleep 30"], self.paths)
         time.sleep(0.3)
         jobs.stop(conn, "nopasswd", None, job, self.paths)
@@ -181,9 +181,9 @@ class Jobs(Device):
 
     def test_second_job_refused(self):
         self.device.sudo_nopasswd = True
-        first = jobs.start(self.conn, "nopasswd", None, "install_plugin", ["sleep 2", "echo first"], self.paths)
+        first = jobs.start(self.conn, "nopasswd", None, "install_bridge", ["sleep 2", "echo first"], self.paths)
         time.sleep(0.3)
-        second = jobs.start(self.conn, "nopasswd", None, "install_plugin", ["echo second"], self.paths)
+        second = jobs.start(self.conn, "nopasswd", None, "install_bridge", ["echo second"], self.paths)
         out = self.wait_done(self.conn, second, self.paths)
         self.assertEqual(out["exit"], 75)
         self.assertIn("Another install is running on this device.", out["lines"])
@@ -195,7 +195,7 @@ class Jobs(Device):
         self.device.sudo_nopasswd = True
         ids = []
         for i in range(7):
-            ids.append(jobs.start(self.conn, "nopasswd", None, "install_plugin", ["true"], self.paths,
+            ids.append(jobs.start(self.conn, "nopasswd", None, "install_bridge", ["true"], self.paths,
                                   job_id="20261021T1200%02dZ-abcd" % i))
             self.wait_done(self.conn, ids[-1], self.paths)
         self.assertEqual(sorted(os.listdir(self.paths.log_dir)), [i + ".log" for i in ids[-5:]])
@@ -225,7 +225,7 @@ class Service(Device):
         # The connection is kept: the next calls need no password.
         self.store.update(self.did, probe=dict(out["probe"], sudo="password"))
         with self.assertRaises(jobs.NeedSudo):
-            self.devices.start(self.did, "install_plugin", {}, None)
+            self.devices.start(self.did, "install_bridge", {}, None)
         self.assertEqual(self.devices.running_jobs(), [])
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
@@ -240,7 +240,7 @@ class Service(Device):
         for kind, pinned in (("docker-managed", True), ("native", False)):
             self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd",
                                                    runtime={"kind": kind, "version": "v4.3.2"}))
-            self.devices.start(self.did, "install_plugin", {}, None)
+            self.devices.start(self.did, "install_bridge", {}, None)
             self.assertEqual("--pinned-runtime" in seen[-1][0], pinned, kind)
 
     def test_probe_on_a_dropped_kept_connection(self):
@@ -259,8 +259,8 @@ class Service(Device):
         self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
         conn, _ = self.devices.connection(self.did)
         self.device.sudo_nopasswd = True
-        job = jobs.start(conn, "nopasswd", None, "install_plugin", ["echo ok"], self.devices.paths)
-        self.store.update(self.did, job={"id": job, "action": "install_plugin", "version": "0.98.0"})
+        job = jobs.start(conn, "nopasswd", None, "install_bridge", ["echo ok"], self.devices.paths)
+        self.store.update(self.did, job={"id": job, "action": "install_bridge", "version": "0.98.0"})
         deadline = time.monotonic() + 20
         out, offset = {}, 0
         while not out.get("done") and time.monotonic() < deadline:
@@ -268,9 +268,9 @@ class Service(Device):
             offset = out["offset"]
             time.sleep(0.1)
         self.assertEqual(out["exit"], 0)
-        self.assertIn("install_plugin", self.store.get(self.did)["job_seconds"])
+        self.assertIn("install_bridge", self.store.get(self.did)["job_seconds"])
 
-        job = jobs.start(conn, "nopasswd", None, "install_plugin",
+        job = jobs.start(conn, "nopasswd", None, "install_bridge",
                          ["echo 'cp: write error: No space left on device'", "exit 3"], self.devices.paths)
         out, offset = {}, 0
         while not out.get("done") and time.monotonic() < deadline:

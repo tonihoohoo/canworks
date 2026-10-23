@@ -1,9 +1,9 @@
 """The one-line installers (scripts/install-pc.sh, install-pc.ps1,
-install-runtime.sh, install-runtime.ps1, install-bridge.sh, install-bridge.ps1):
-release lookup, options and the commands they would run, against a local
-stand-in for GitHub, without network access or installing anything
-(--dry-run). install-bridge.sh from a checkout also runs for real into
-temporary folders with a stub bridge and a stub systemctl."""
+install-bridge.sh, install-bridge.ps1): release lookup, options and the
+commands they would run, against a local stand-in for GitHub, without network
+access or installing anything (--dry-run). install-bridge.sh from a checkout
+also runs for real into temporary folders with a stub bridge, a stub
+systemctl, a stub docker and a stand-in for upstream's runtime installer."""
 
 import hashlib
 import http.server
@@ -460,195 +460,6 @@ class UpdaterMatchesInstallers(unittest.TestCase):
 
 
 @POSIX_ONLY
-class InstallRuntimeSh(_Base):
-    script = os.path.join(SCRIPTS, "install-runtime.sh")
-
-    def test_on_the_device(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--with-link", "--runtime-dir", "/srv/my runtime"])
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("would download: %s/archive/refs/tags/deploy-v1.2.3.tar.gz" % self.repo_url, r.stdout)
-        self.assertIn("would download: %s/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
-                      % self.repo_url, r.stdout)
-        self.assertIn("install-stock.sh --with-link --runtime-dir /srv/my\\ runtime", r.stdout)
-
-    def test_over_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
-                             "--identity", "/k/id", "--with-link", "--force"])
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("installing canworks 1.2.3 on admin@plc.local", r.stdout)
-        line = [l for l in r.stdout.splitlines() if l.startswith("would run:")][0]
-        self.assertIn("ssh -t -p 2222 -i /k/id admin@plc.local", line)
-        # The device fetches the script of the release it installs, pinned to it.
-        self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh", line)
-        self.assertIn("sudo bash -s -- --version 1.2.3 --with-link --force", line)
-
-    def test_ssh_options_need_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--port", "22"])
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("--port and --identity need --ssh", r.stdout)
-
-    def test_given_version(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--version", "0.9.0", "--uninstall"])
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("deploy-v0.9.0.tar.gz", r.stdout)
-        self.assertIn("install-stock.sh --uninstall", r.stdout)
-        self.assertNotIn("constraints", r.stdout)
-        self.assertEqual(_Releases.seen, [])
-
-    @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "runs as root here; the refusal is for non-root users")
-    def test_not_root(self):
-        r = self.run_script(["bash", self.script])
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("run it as root", r.stdout)
-        self.assertIn("| sudo bash", r.stdout)
-        self.assertEqual(_Releases.seen, [], "nothing is downloaded before the root check")
-
-    def runtime_env(self, service=False, spec=False):
-        """No OpenPLC runtime on this "device" unless `service` (native) or
-        `spec` (managed Docker); no docker on PATH. The release's pins and
-        tarball are served (freeze-openplc-runtime)."""
-        env = self.env()
-        svc = os.path.join(self.tmp, "openplc-runtime.service")
-        if service:
-            open(svc, "w").close()
-        spec_file = os.path.join(self.tmp, "runtime-spec.json" if spec else "no-spec.json")
-        if spec:
-            with open(spec_file, "w") as f:
-                f.write('{"repository": "r", "version": "v4.2.4"}\n')
-        raw = "http://127.0.0.1:%d/raw" % self.server.server_address[1]
-        for name, value in (("runtime-version", "v4.3.1\n"), ("bootloader-version", "bootloader-v1.1.0\n")):
-            _Releases.files["/raw/deploy-v1.2.3/docker/local-runtime/" + name] = value
-        _Releases.files["/owner/canworks/archive/refs/tags/deploy-v1.2.3.tar.gz"] = self.release_tarball()
-        _Releases.files["/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"] = ""
-        env.update(OPENPLC_SERVICE_FILE=svc, OPENPLC_BOOTLOADER_SPEC=spec_file, CANWORKS_RAW=raw,
-                   CANWORKS_RUNTIME_WAIT="0", PATH=self.bin + os.pathsep + "/usr/bin:/bin")
-        return env
-
-    @staticmethod
-    def release_tarball():
-        """A release with the pins and an install-stock.sh that prints its options."""
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-            for name, text in (("docker/local-runtime/runtime-version", "v4.3.1\n"),
-                               ("docker/local-runtime/bootloader-version", "bootloader-v1.1.0\n"),
-                               ("scripts/install-stock.sh", '#!/bin/sh\necho "install-stock.sh got: $*"\n')):
-                data = text.encode()
-                info = tarfile.TarInfo("canworks-deploy-v1.2.3/" + name)
-                info.size, info.mode = len(data), 0o755
-                tar.addfile(info, io.BytesIO(data))
-        return buf.getvalue()
-
-    def installer(self, script="#!/bin/sh\necho \"upstream got: $*\"\nexit 3\n"):
-        _Releases.files["/openplc-installer"] = script
-        return "http://127.0.0.1:%d/openplc-installer" % self.server.server_address[1]
-
-    def test_with_openplc_installs_the_pinned_runtime(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc"], env=self.runtime_env())
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("would install the OpenPLC runtime: curl -fsSL https://runtime.getedge.me | bash -s -- "
-                      "--runtime-version v4.3.1 --bootloader-version bootloader-v1.1.0", r.stdout)
-        stock = [l for l in r.stdout.splitlines() if "install-stock.sh" in l][0]
-        self.assertNotIn("--with-openplc", stock)
-        # The release is downloaded before upstream's installer runs.
-        out = r.stdout.splitlines()
-        self.assertLess(out.index("would download: %s/archive/refs/tags/deploy-v1.2.3.tar.gz" % self.repo_url),
-                        [i for i, l in enumerate(out) if l.startswith("would install the OpenPLC runtime")][0])
-
-    def test_pin_override(self):
-        env = self.runtime_env()
-        env["CANWORKS_RUNTIME_VERSION"] = "v4.3.2"
-        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc"], env=env)
-        self.assertIn("--runtime-version v4.3.2 --bootloader-version bootloader-v1.1.0", r.stdout)
-
-    def test_with_openplc_leaves_a_runtime(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc"], env=self.runtime_env(service=True))
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertNotIn("would install the OpenPLC runtime", r.stdout)
-
-    def test_with_openplc_and_bridge(self):
-        # OpenPLC through Modbus: the runtime, then the release's bridge installer, no plugin.
-        r = self.run_script(["bash", self.script, "--dry-run", "--with-openplc", "--bridge", "--instance", "cell",
-                             "--config", "/tmp/cell"], env=self.runtime_env())
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("would install the OpenPLC runtime", r.stdout)
-        self.assertIn("would run: CANWORKS_PLUGIN_VERSION=1.2.3 bash <source>/scripts/install-bridge.sh --instance cell "
-                      "--config /tmp/cell", r.stdout)
-        self.assertNotIn("install-stock.sh", r.stdout)
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc", "--bridge"])
-        self.assertIn("--version 1.2.3 --with-openplc --bridge", r.stdout)
-
-    def test_with_openplc_over_ssh(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc",
-                             "--pinned-runtime"])
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("--version 1.2.3 --with-openplc --pinned-runtime", r.stdout)
-
-    def test_pinned_runtime_on_managed_docker(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--pinned-runtime", "--with-link"],
-                            env=self.runtime_env(spec=True))
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("install-stock.sh --with-link --runtime-version v4.3.1", r.stdout)
-
-    def test_pinned_runtime_not_on_native(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--pinned-runtime"], env=self.runtime_env(service=True))
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertNotIn("--runtime-version", r.stdout)
-
-    def test_pinned_runtime_not_on_uninstall(self):
-        r = self.run_script(["bash", self.script, "--dry-run", "--pinned-runtime", "--uninstall"],
-                            env=self.runtime_env(spec=True))
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertNotIn("--runtime-version", r.stdout)
-
-    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
-    def test_failed_runtime_install_stops(self):
-        env = self.runtime_env()
-        env["CANWORKS_OPENPLC_INSTALLER"] = self.installer("#!/bin/sh\necho \"upstream says no: $*\"\nexit 3\n")
-        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("::canworks-step 1/? Downloading canworks 1.2.3", r.stdout)
-        self.assertIn("::canworks-step 2/? Installing OpenPLC runtime v4.3.1", r.stdout)
-        self.assertIn("upstream says no: --runtime-version v4.3.1 --bootloader-version bootloader-v1.1.0", r.stdout)
-        self.assertIn("the OpenPLC runtime install failed (see above); canworks was not installed", r.stdout)
-        self.assertNotIn("install-stock.sh got", r.stdout)
-
-    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
-    def test_failed_download_installs_nothing(self):
-        env = self.runtime_env()
-        env["CANWORKS_OPENPLC_INSTALLER"] = self.installer()
-        _Releases.status["/owner/canworks/archive/refs/tags/deploy-v1.2.3.tar.gz"] = 502
-        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("could not download", r.stdout)
-        self.assertNotIn("upstream got", r.stdout)
-        self.assertNotIn("/openplc-installer", _Releases.seen)
-
-    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
-    def test_pinned_runtime_real_run(self):
-        r = self.run_script(["bash", self.script, "--pinned-runtime", "--version", "1.2.3"],
-                            env=self.runtime_env(spec=True))
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("install-stock.sh got: --runtime-version v4.3.1", r.stdout)
-
-    # lock-dependency-versions: the release's constraints come first, so a
-    # failed download changes nothing; a release without them goes on.
-    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
-    def test_constraints_download(self):
-        asset = "/owner/canworks/releases/download/deploy-v1.2.3/canworks-1.2.3-constraints.txt"
-        env = self.runtime_env()
-        env["CANWORKS_OPENPLC_INSTALLER"] = self.installer()
-        _Releases.status[asset] = 502
-        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("could not download canworks-1.2.3-constraints.txt", r.stdout)
-        self.assertIn("nothing was changed", r.stdout)
-        self.assertNotIn("upstream got", r.stdout)
-        _Releases.status[asset] = 404
-        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"], env=env)
-        self.assertIn("release 1.2.3 does not lock its dependency versions", r.stdout)
-        self.assertIn("upstream got", r.stdout)
-
-@POSIX_ONLY
 class InstallBridgeSh(_Base):
     """install-bridge.sh run as from GitHub: the script alone, outside a checkout."""
 
@@ -699,6 +510,23 @@ class InstallBridgeSh(_Base):
         self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh", lines[0])
         self.assertIn("sudo bash -s -- --version 1.2.3 --with-link line1", lines[0])
 
+    def test_runtime_options_over_ssh(self):
+        r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--with-openplc",
+                             "--pinned-runtime"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("--version 1.2.3 --with-openplc --pinned-runtime", self.would_run(r.stdout)[0])
+
+    @unittest.skipUnless(getattr(os, "geteuid", lambda: -1)() == 0, "the real run needs root")
+    def test_failed_download_installs_no_runtime(self):
+        # The release comes first: without it upstream's installer never runs.
+        installer = "http://127.0.0.1:%d/openplc-installer" % self.server.server_address[1]
+        _Releases.status["/owner/canworks/archive/refs/tags/deploy-v1.2.3.tar.gz"] = 502
+        r = self.run_script(["bash", self.script, "--with-openplc", "--version", "1.2.3"],
+                            env=self.env(CANWORKS_OPENPLC_INSTALLER=installer))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("could not download", r.stdout)
+        self.assertNotIn("/openplc-installer", _Releases.seen)
+
     def test_over_ssh_with_config(self):
         r = self.run_script(["bash", self.script, "--dry-run", "--ssh", "admin@plc.local", "--port", "2222",
                              "--instance", "line1", "--config", self.cfg])
@@ -738,13 +566,14 @@ class InstallBridgeSh(_Base):
 
 @POSIX_ONLY
 @unittest.skipUnless(sys.platform.startswith("linux"), "install-bridge.sh installs on Linux")
-class InstallBridgeCheckout(unittest.TestCase):
+class InstallBridgeCheckout(_Base):
     """install-bridge.sh from this checkout, for real, into temporary folders:
-    a stub bridge (--binary), a stub systemctl that records its calls."""
+    a stub bridge (--binary), a stub systemctl that records its calls, a stub
+    docker and upstream's runtime installer served by the stand-in for GitHub
+    (modbus-bridge "OpenPLC runtime installed with the bridge")."""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.tmp)
+        super().setUp()
         self.log = os.path.join(self.tmp, "systemctl.log")
         self.active = os.path.join(self.tmp, "active")
         open(self.active, "w").close()
@@ -757,7 +586,15 @@ class InstallBridgeCheckout(unittest.TestCase):
                                 'echo "config accepted"')
         self.conf = os.path.join(self.tmp, "etc")
         self.default = os.path.join(self.tmp, "opt-canworks")
-        self.fallback = os.path.join(self.tmp, "opt-bridge")
+        # No OpenPLC runtime on this "device" until a test makes one.
+        self.service = os.path.join(self.tmp, "openplc-runtime.service")
+        self.spec = os.path.join(self.tmp, "runtime-spec.json")
+        self.docker_log = os.path.join(self.tmp, "docker.log")
+        open(self.docker_log, "w").close()
+        self.stub(os.path.join("bin", "docker"), 'echo "$*" >> %s\nexit 0' % self.docker_log)
+        self.extra = {}
+        self.avahi = os.path.join(self.tmp, "avahi", "services")
+        os.makedirs(self.avahi)
 
     def stub(self, name, body):
         path = os.path.join(self.tmp, name)
@@ -770,7 +607,12 @@ class InstallBridgeCheckout(unittest.TestCase):
         env = dict(os.environ, CANWORKS_UNIT_DIR=os.path.join(self.tmp, "units"), CANWORKS_BRIDGE_CONF_DIR=self.conf,
                    CANWORKS_SYSTEMCTL=self.systemctl, CANWORKS_MODULES_LOAD_DIR=os.path.join(self.tmp, "modules"),
                    CANWORKS_MODPROBE="true", CANWORKS_DEFAULT_PREFIX=self.default,
-                   CANWORKS_FALLBACK_PREFIX=self.fallback)
+                   OPENPLC_SERVICE_FILE=self.service, OPENPLC_BOOTLOADER_SPEC=self.spec,
+                   CANWORKS_AVAHI_DIR=self.avahi, CANWORKS_LINK_DIR=os.environ.get("CANWORKS_LINK_DIR", os.path.join(self.tmp, "link")),
+                   CANWORKS_BIN_DIR=os.path.join(self.tmp, "usr-bin"),
+                   CANWORKS_LOCAL_RUNTIME_URL="http://127.0.0.1:%d/runtime" % self.server.server_address[1],
+                   CANWORKS_RUNTIME_WAIT="0", PATH=self.bin + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"))
+        env.update(self.extra)
         return subprocess.run(["bash", os.path.join(SCRIPTS, "install-bridge.sh"), "--no-deps", "--without-canopen",
                                "--binary", self.bridge] + list(args),
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, env=env,
@@ -805,6 +647,13 @@ class InstallBridgeCheckout(unittest.TestCase):
         self.assertIn("enable canworks-bridge@line1.service", calls)
         self.assertIn("restart canworks-bridge@line1.service", calls)
         self.assertIn("config accepted", r.stdout)
+        with open(os.path.join(self.avahi, "canworks.service")) as f:
+            advert = f.read()
+        self.assertIn("<type>_canworks._tcp</type>", advert)
+        self.assertNotIn("runtime=", advert)
+        r = self.install("--instance", "line2", "--config", cfg, "--without-discovery")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.avahi, "canworks.service")))
 
     def test_rejected_config_changes_nothing(self):
         cfg = self.config("BAD")
@@ -825,41 +674,7 @@ class InstallBridgeCheckout(unittest.TestCase):
         self.assertFalse(os.path.exists(up))
         self.assertTrue(os.path.exists(os.path.join(self.conf, "line1", "canworks.json")))
 
-    def docker_runtime_prefix(self):
-        """The default prefix as a Docker runtime leaves it: a venv of another Python."""
-        os.makedirs(os.path.join(self.default, "venv", "bin"))
-        with open(os.path.join(self.default, "venv", "pyvenv.cfg"), "w") as f:
-            f.write("home = /usr/local/bin\nversion = 3.99.0\n")
-        self.stub(os.path.join("opt-canworks", "venv", "bin", "python"), "echo 3.1")
-
-    def test_prefix_next_to_a_docker_runtime(self):
-        self.docker_runtime_prefix()
-        r = self.install()
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("installing the bridge into %s" % self.fallback, r.stdout)
-        self.assertTrue(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
-        self.assertFalse(os.path.exists(os.path.join(self.default, "bin")))
-        # An update and the uninstall find it there.
-        r = self.install()
-        self.assertIn("Using the bridge installed in %s" % self.fallback, r.stdout)
-        r = self.install("--uninstall")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
-
-    def test_docker_runtime_prefix_with_an_old_bridge_in_it(self):
-        self.docker_runtime_prefix()
-        os.makedirs(os.path.join(self.default, "bin"))
-        old = self.stub(os.path.join("opt-canworks", "bin", "canworks-bridge"), "echo old")
-        r = self.install()
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("installing the bridge into %s" % self.fallback, r.stdout)
-        self.assertTrue(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
-        r = self.install("--uninstall")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.fallback, "bin", "canworks-bridge")))
-        self.assertTrue(os.path.exists(old), "the runtime's prefix is not touched")
-
-    def test_uninstall_keeps_the_runtimes_link(self):
+    def test_uninstall_keeps_another_configs_link(self):
         units = os.path.join(self.tmp, "units")
         link = os.path.join(self.tmp, "link")
         os.makedirs(units)
@@ -876,11 +691,93 @@ class InstallBridgeCheckout(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(units, "canworks-link.service")))
         self.assertTrue(os.path.exists(os.path.join(link, "link.json")))
 
-    def test_explicit_prefix_still_refused(self):
-        self.docker_runtime_prefix()
-        r = self.install("--prefix", self.default)
+    @staticmethod
+    def pins():
+        with open(os.path.join(REPO, "docker", "local-runtime", "runtime-version")) as f:
+            runtime = f.read().strip()
+        with open(os.path.join(REPO, "docker", "local-runtime", "bootloader-version")) as f:
+            return runtime, f.read().strip()
+
+    def installer(self, script='#!/bin/sh\necho "upstream got: $*"\n'):
+        _Releases.files["/openplc-installer"] = script
+        self.extra["CANWORKS_OPENPLC_INSTALLER"] = "http://127.0.0.1:%d/openplc-installer" % self.server.server_address[1]
+
+    def test_with_openplc_installs_the_pinned_runtime(self):
+        self.installer()
+        r = self.install("--with-openplc", "--instance", "line1", "--config", self.config())
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("upstream got: --runtime-version %s --bootloader-version %s" % self.pins(), r.stdout)
+        self.assertIn("/runtime", _Releases.seen, "waits until the runtime answers")
+        out = r.stdout.splitlines()
+        steps = [l for l in out if l.startswith("::canworks-step ")]
+        self.assertTrue(steps[0].startswith("::canworks-step 1/5 Installing OpenPLC runtime"), steps)
+        self.assertIn("restart canworks-bridge@line1.service", self.calls())
+
+    def test_pin_override(self):
+        self.installer()
+        self.extra["CANWORKS_RUNTIME_VERSION"] = "v4.3.2"
+        r = self.install("--with-openplc")
+        self.assertIn("upstream got: --runtime-version v4.3.2 --bootloader-version %s" % self.pins()[1], r.stdout)
+
+    def test_with_openplc_leaves_a_runtime(self):
+        self.installer()
+        open(self.service, "w").close()
+        r = self.install("--with-openplc")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("upstream got", r.stdout)
+        self.assertNotIn("/openplc-installer", _Releases.seen)
+
+    def test_failed_runtime_install_stops(self):
+        self.installer('#!/bin/sh\necho "upstream says no: $*"\nexit 3\n')
+        r = self.install("--with-openplc", "--instance", "line1", "--config", self.config())
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("--prefix %s" % self.fallback, r.stdout)
+        self.assertIn("upstream says no", r.stdout)
+        self.assertIn("the OpenPLC runtime install failed (see above); the bridge was not installed", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.default, "bin", "canworks-bridge")))
+        self.assertEqual(self.calls(), [])
+
+    def test_runtime_that_does_not_answer(self):
+        self.installer()
+        self.extra["CANWORKS_LOCAL_RUNTIME_URL"] = "http://127.0.0.1:%d/" % _free_port()
+        r = self.install("--with-openplc")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("did not answer", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.default, "bin", "canworks-bridge")))
+
+    def write_spec(self, version):
+        with open(self.spec, "w") as f:
+            f.write('{"repository": "ghcr.io/autonomy-logic/openplc-runtime", "version": "%s", '
+                    '"extraEnv": ["TZ=UTC"]}\n' % version)
+
+    def test_pinned_runtime_on_managed_docker(self):
+        self.write_spec("v4.2.4")
+        r = self.install("--pinned-runtime")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        runtime = self.pins()[0]
+        with open(self.spec) as f:
+            spec = f.read()
+        self.assertIn('"version": "%s"' % runtime, spec)
+        self.assertIn('"TZ=UTC"', spec, "nothing else in the spec changes")
+        with open(self.docker_log) as f:
+            docker = f.read().splitlines()
+        self.assertEqual(docker, ["pull ghcr.io/autonomy-logic/openplc-runtime:%s" % runtime,
+                                  "rm -f openplc-runtime", "restart openplc-bootloader"])
+
+    def test_pinned_runtime_already_on_the_pin(self):
+        self.write_spec(self.pins()[0])
+        r = self.install("--pinned-runtime")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("The runtime is on %s already" % self.pins()[0], r.stdout)
+        with open(self.docker_log) as f:
+            self.assertEqual(f.read(), "")
+
+    def test_pinned_runtime_leaves_a_native_runtime(self):
+        open(self.service, "w").close()
+        r = self.install("--pinned-runtime")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("--pinned-runtime leaves the runtime as it is", r.stdout)
+        with open(self.docker_log) as f:
+            self.assertEqual(f.read(), "")
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "the link script runs on Linux devices")
@@ -904,7 +801,7 @@ class Shellcheck(unittest.TestCase):
                 self.fail("shellcheck is missing on the Linux CI runner")
             self.skipTest("shellcheck is not installed")
         r = subprocess.run([tool] + [os.path.join(SCRIPTS, name) for name in
-                                    ("install-pc.sh", "install-runtime.sh", "install-bridge.sh", "install-link.sh")],
+                                    ("install-pc.sh", "install-bridge.sh", "install-link.sh")],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         self.assertEqual(r.returncode, 0, r.stdout)
 
@@ -1038,13 +935,10 @@ class PowerShellScripts(_Base):
         self.assertIn("would download: https://uv.example/dl/uv-aarch64-pc-windows-msvc.zip", r.stdout)
         self.assertEqual(_Releases.seen.count("/uv/uv-aarch64-pc-windows-msvc.zip"), 0)
 
-    def test_install_runtime_over_ssh(self):
-        r = self.pwsh("install-runtime.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",
-                      "-Options", "--force")
+    def test_install_bridge_runtime_switches(self):
+        r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-WithOpenplc", "-PinnedRuntime")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("ssh -t -p 2222 admin@plc.local", r.stdout)
-        self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-runtime.sh' | sudo bash -s -- "
-                      "--version '1.2.3' '--force'", r.stdout)
+        self.assertIn("sudo bash -s -- '--version' '1.2.3' '--with-openplc' '--pinned-runtime'", r.stdout)
 
     def test_install_bridge_over_ssh(self):
         r = self.pwsh("install-bridge.ps1", "-DryRun", "-Ssh", "admin@plc.local", "-Port", "2222",

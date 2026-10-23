@@ -3096,7 +3096,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 job = body.get("job")
                 offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
                 out = dev.follow(did, job, offset)
-                if out.get("done") and out.get("exit") == 0 and project and target == "openplc":
+                if out.get("done") and out.get("exit") == 0 and project and target == targets.OPENPLC_MODBUS:
                     # The device becomes the project's runtime host when it had none.
                     settings = online.Settings(config_dir())
                     if not settings.project(project).get("host"):
@@ -4411,8 +4411,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 SEND_ROUTES = (("POST", "/api/online/send_frame"), ("POST", "/api/online/send_stop"),
                ("POST", "/api/online/send_jobs"))
-TOO_OLD_FRAMES = ("the CANopen plugin on the runtime is too old for sending frames; update "
-                  "it (install-stock.sh) and upload again")
+TOO_OLD_FRAMES = "the bridge is too old for sending frames; update it (install-bridge.sh)"
 
 
 def frame_from(body):

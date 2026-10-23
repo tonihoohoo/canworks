@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Reads and edits the OpenPLC bootloader's runtime spec for scripts/install-stock.sh.
+"""Reads and edits the OpenPLC bootloader's runtime spec for
+scripts/install-bridge.sh --pinned-runtime.
 
 The managed Docker install of OpenPLC Runtime v4 keeps the runtime container's
-settings in /var/lib/openplc-bootloader/runtime-spec.json. Operators may only
-add bind mounts (extraBinds) and environment entries (extraEnv); the
-bootloader reads the file when it starts and rejects unknown keys. This adds
-or removes exactly the CANopen entries and leaves everything else as it was.
+settings in /var/lib/openplc-bootloader/runtime-spec.json; the bootloader
+reads the file when it starts and rejects unknown keys. This changes the
+runtime version only and leaves everything else as it was.
 
     docker_spec.py image SPEC            prints <repository>:<version>
-    docker_spec.py add SPEC BIND ENV     adds the entries (once each)
-    docker_spec.py remove SPEC BIND ENV  removes them
-    docker_spec.py has SPEC BIND ENV     exits 0 when both entries are there, else 3
     docker_spec.py version SPEC          prints the runtime version (the image tag)
     docker_spec.py set-version SPEC VER  sets the runtime version, nothing else
 
@@ -48,35 +45,6 @@ def load(path):
 
 def image(spec):
     return "%s:%s" % (spec["repository"], spec["version"])
-
-
-def env_key(entry):
-    return entry.split("=", 1)[0]
-
-
-def add(spec, bind, env):
-    """Adds bind and env once each. An env entry with the same key is replaced."""
-    binds = [b for b in spec.get("extraBinds", []) if b != bind]
-    spec["extraBinds"] = binds + [bind]
-    envs = [e for e in spec.get("extraEnv", []) if env_key(e) != env_key(env)]
-    spec["extraEnv"] = envs + [env]
-    return spec
-
-
-def has(spec, bind, env):
-    return bind in spec.get("extraBinds", []) and env in spec.get("extraEnv", [])
-
-
-def remove(spec, bind, env):
-    """Removes our entries; drops a list that becomes empty."""
-    for key, keep in (("extraBinds", lambda v: v != bind), ("extraEnv", lambda v: v != env)):
-        if key in spec:
-            left = [v for v in spec[key] if keep(v)]
-            if left:
-                spec[key] = left
-            else:
-                del spec[key]
-    return spec
 
 
 def set_version(spec, version):
@@ -124,12 +92,6 @@ def main(argv):
             print(spec["version"])
         elif cmd == "set-version" and len(argv) == 3:
             changed = set_version(json.loads(json.dumps(spec)), argv[2])
-            if changed != spec:
-                save(path, changed)
-        elif cmd == "has" and len(argv) == 4:
-            return 0 if has(spec, argv[2], argv[3]) else 3
-        elif cmd in ("add", "remove") and len(argv) == 4:
-            changed = (add if cmd == "add" else remove)(json.loads(json.dumps(spec)), argv[2], argv[3])
             if changed != spec:
                 save(path, changed)
         else:

@@ -1731,7 +1731,7 @@ TEST(eds_lint_prepared_copy_and_verdict) {
   Config missing = config("cpp-slave.eds", "");
   CHECK(!run_eds_lint(missing, "/nonexistent/python", work, errors));
   CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -I -m canworks.edslint)") &&
-                has_error(errors, "rerun scripts/install-stock.sh"),
+                has_error(errors, "rerun scripts/install-bridge.sh"),
             join(errors));
   errors.clear();
   CHECK(!run_eds_lint(missing, "/bin/false", work, errors));

@@ -27,8 +27,7 @@ FETCH_INTERVAL = 0.1
 STATUS_INTERVAL = 0.5
 RECONNECT_INTERVAL = 1.0
 LOST_AFTER_S = 10.0  # a runtime that answers no reconnect for this long ends the recording
-TOO_OLD = ("the CANopen plugin on the runtime is too old for traces; update it (install-stock.sh) and upload "
-           "again")
+TOO_OLD = "the bridge is too old for traces; update it (install-bridge.sh)"
 
 
 class Session:

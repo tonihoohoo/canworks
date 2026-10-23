@@ -44,7 +44,7 @@ GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopb
 GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
 GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
 FORWARD_MAX = 4  # local connections at a time on a forwarding port (gateway --listen, link open)
-GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
+GATEWAY_TOO_OLD = "the bridge is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a CANopen simulator without a token, on loopback
 SCRAM_MECH = "SCRAM-SHA-256-PLUS"
@@ -56,7 +56,7 @@ NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
-TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+TOO_OLD = "the bridge is too old for this command (update it)"
 # Error kinds an adapter server (localbus/serve.py) names in its answer, as a
 # local adapter would raise them; every other refusal is "refused".
 ANSWER_KINDS = ("bitrate", "busy", "eof")
@@ -2670,7 +2670,7 @@ def _dm(args, out):
                                            "messages" % (net or st.get("bus", {}).get("interface") or ""))
             res = (st.get("j1939") or {}).get("dm")
             if res is None:
-                raise DiagError("refused", TOO_OLD.replace("CANopen plugin", "plugin"))
+                raise DiagError("refused", TOO_OLD)
             if not args.json:
                 out.write("diagnostic messages of network %s:\n" % (net or "?"))
                 _print_dm(res, out, names)

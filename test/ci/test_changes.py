@@ -54,7 +54,7 @@ class Areas(unittest.TestCase):
 
     def test_everything_else_is_shared(self):
         for p in ("plugin/src/can/diag.cpp", "tools/deploy/canworks/contract.py", ".github/workflows/ci.yml",
-                  "scripts/install-stock.sh"):
+                  "scripts/install-bridge.sh"):
             self.assertEqual(ci.areas([p], self.rules), {"shared"}, p)
 
     def test_docs_have_no_area(self):

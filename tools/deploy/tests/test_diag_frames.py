@@ -94,7 +94,7 @@ class Send(unittest.TestCase):
             for argv in (["send", "0x60A"], ["send-stop"]):
                 code, _, err = run("--runtime", fp.runtime, *argv)
                 self.assertEqual(code, 1)
-                self.assertIn("plugin is too old for this command", err)
+                self.assertIn("bridge is too old for this command", err)
 
     def test_cyclic_with_count(self):
         with FakePlugin(allow_changes=True) as fp:
