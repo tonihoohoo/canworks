@@ -1,6 +1,6 @@
 ## 0. Before applying
 
-- [ ] 0.1 Rebase on main after `remove-openplc-plugin` and `add-bridge-mailboxes` merged; re-validate with OpenSpec 1.14.0; change 3 already gives its mailboxes a restart baseline ending with ERROR_ID 8; keep this change's control block and SDO registers on the same code
+- [x] 0.1 Rebase on main after `remove-openplc-plugin` and `add-bridge-mailboxes` merged; re-validate with OpenSpec 1.14.0; change 3 already gives its mailboxes a restart baseline ending with ERROR_ID 8; keep this change's control block and SDO registers on the same code
 
 ## 1. Bridge and library
 
@@ -20,7 +20,7 @@
 ## 3. Docs, version, CI
 
 - [x] 3.1 `docs/modbus-bridge.md` (restart baseline, result 6, per-node pre-operational), `docs/plc-library.md` (ERROR_ID 8, retry), `docs/configurator.md` (move button, library on save); README if it describes the switch
-- [ ] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file)
+- [x] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file)
 
 ## 4. Hardware (Linux device with the real node)
 
