@@ -8,11 +8,11 @@ The configurator SHALL place its parts by one rule. The Project page holds the t
 - **THEN** it is in Export ▾ under For the program, and the Modbus bridge page has no export buttons
 
 ### Requirement: Export menu groups
-Export ▾ SHALL have two labelled groups. **Network files** SHALL hold All DCFs, This node's DCF, DBC with its SDO-frames choice, and Documentation, as "Exports per network in the configurator" says. **For the program** SHALL hold the target's own files: Modbus bridge gets Register map (CSV), Register map (JSON), ST variables and Node-RED flow; OpenPLC gets the two register map files; CODESYS gets Download for CODESYS. A group with no item SHALL be hidden.
+Export ▾ SHALL have two labelled groups. **Network files** SHALL hold All DCFs, This node's DCF, DBC and Documentation. **For the program** SHALL hold the target's own files, and a group with no item SHALL be hidden: Modbus bridge gets Register map (CSV), Register map (JSON), ST variables and Node-RED flow; OpenPLC gets the two register map files and ST for another PLC (the PLC link file); CODESYS gets Download for CODESYS.
 
 #### Scenario: OpenPLC config
 - **WHEN** the user opens Export ▾ on an OpenPLC config
-- **THEN** For the program lists Register map (CSV) and Register map (JSON), and no ST variables or Node-RED flow
+- **THEN** For the program lists Register map (CSV), Register map (JSON) and ST for another PLC, and no Node-RED flow
 
 #### Scenario: Node-RED flow from the menu
 - **WHEN** the user picks Node-RED flow in Export ▾ on a Modbus bridge config with a valid map

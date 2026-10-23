@@ -270,6 +270,14 @@ class OnlinePage(OnlineBase):
             pg.click('button[data-online="nmt-st"]')
             pg.wait_for_function("() => window.__copied.length === 2")
             self.assertIn("COMMAND := 130 (* RESET COMMUNICATION *)", pg.evaluate("() => window.__copied[1]"))
+            # tidy-targets-and-exports: a missing bridge part is named in the first comment.
+            needs = pg.evaluate("() => stNeeds('control')")
+            if needs:
+                self.assertTrue(text.startswith("(* %s *)" % needs), text)
+            self.assertEqual(pg.evaluate("""() => { const b = S.model.top.bridge, old = b.control_location;
+                b.control_location = '%QB12'; const n = stNeeds('control'); b.control_location = old; return n; }"""), "")
+            self.assertIn("the receive mailbox", pg.evaluate("""() => { const b = S.model.top.bridge, old = b.mailboxes;
+                b.mailboxes = { receive: false }; const n = stNeeds('request', 'receive'); b.mailboxes = old; return n; }"""))
             self.assertEqual([q for q in fp.requests if q["op"] == "nmt"], [])
 
     def test_same_config(self):

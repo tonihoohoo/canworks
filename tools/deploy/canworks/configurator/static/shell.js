@@ -216,5 +216,20 @@ function fitHeaderMore() {
       if (e.tagName === "BUTTON") e.classList.remove("item");
     }
   }
+  fitHeaderRow();
 }
 HEADER_NARROW.addEventListener("change", fitHeaderMore);
+
+// The header stays one row (canopen-configurator "Header target action"):
+// when it would wrap, the simulation chip shows only "Simulated", its full
+// text staying in the tooltip and Details.
+function fitHeaderRow() {
+  const row = $("header .top-row");
+  if (!row) return;
+  document.body.classList.remove("header-tight");
+  const actions = $("#actions");
+  const parts = [...row.children, ...(actions ? actions.children : [])].filter((e) => e !== actions && e.offsetParent !== null)
+    .map((e) => e.getBoundingClientRect()).filter((r) => r.height);
+  if (parts.length > 1 && Math.max(...parts.map((r) => r.top)) >= Math.min(...parts.map((r) => r.bottom))) document.body.classList.add("header-tight");
+}
+window.addEventListener("resize", fitHeaderRow);

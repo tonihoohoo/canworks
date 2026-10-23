@@ -1256,8 +1256,8 @@ async function newConfig(folder) {
     el("strong", null, title), el("span", null, text));
   const targets = el("fieldset", null, el("legend", null, "What will run the networks?"),
     el("div", { class: "target-choices" },
-      pick("openplc_modbus", "OpenPLC Runtime", "canworks-bridge runs the networks; OpenPLC's own Modbus master moves the values, and the program uses them by name."),
-      pick("bridge", "Modbus bridge", "No PLC: the values are served as Modbus TCP registers, for Node-RED, an HMI or any Modbus client."),
+      pick("openplc_modbus", "OpenPLC", "canworks-bridge runs the networks next to the OpenPLC Runtime; OpenPLC's own Modbus master moves the values, and the program uses them by name."),
+      pick("bridge", "Modbus bridge", "No OpenPLC: the values are served as Modbus TCP registers, for Node-RED, an HMI, another PLC or any Modbus client."),
       pick("codesys", "CODESYS", "A CODESYS PLC runs the CANopen master; canworks builds it into your CODESYS project.")));
   const [start, startName] = folder ? splitPath(folder) : [S.lastFolder || S.state.home, ""];
   const name = el("input", { type: "text", spellcheck: "false", "aria-label": "Name", dataset: { newConfig: "name" }, placeholder: "new-machine" });
@@ -1544,17 +1544,14 @@ function render() {
   const commission = !!S.state.commission;
   document.body.classList.toggle("commission", commission);
   $("#editor").classList.toggle("commission", commission);
-  // The editor project actions are OpenPLC's (canopen-configurator "Only what the target uses is shown").
-  $("#menu-project").hidden = S.state.mode !== "standalone" || commission || (!!S.model && !usedBy("ui:editor_project"));
-  // The target's own action: one split button in the header (CODESYS:
-  // Build, with Download under ▾; the bridge: Install on device…).
+  // The target's own action: one primary button in the header (CODESYS:
+  // Build; the bridge and OpenPLC: Install on device…). Every download is
+  // in Export (canopen-configurator "Where things are").
   const codesys = !commission && !!S.model && codesysOn();
   const bridge = !commission && !!S.model && bridgeTarget();
   $("#btn-codesys-build").hidden = !codesys;
-  $("#btn-codesys-download").hidden = !codesys;
-  $("#menu-target").hidden = !codesys;
   $("#btn-bridge-install").hidden = !bridge;
-  $("#target-action").hidden = !codesys && !bridge;
+  showProgramExports();
   Icons.setDisabled($("#btn-export-node"), !S.view.startsWith("node:") && "Open a node first.");
   // Exports that do not apply are not offered: no DCF of a slave or J1939
   // network (none at all, and no CODESYS export, without a CANopen master
@@ -1747,6 +1744,7 @@ function updateSimBanner() {
   // In a narrow window only "Simulated" shows, so the header stays one row.
   b.replaceChildren(Icons.stateIcon("warning", { label: false }),
     el("span", { class: "sim-text", title: text + " " + SIM_WARNING, dataset: { sim: "line" } }, "Simulated", el("span", { class: "sim-what" }, ": " + what)), toggle, full);
+  fitHeaderRow();
 }
 
 // Simulating anything needs online access with Allow changes for the
@@ -1986,6 +1984,7 @@ function renderBus(view) {
 // (target.js) and, when the target runs canworks, Online access.
 function renderProject(view) {
   view.append(el("h2", null, "Project"), targetField());
+  if (usedBy("ui:editor_project")) view.append(editorProjectSection());
   if (!usedBy("ui:runtime")) return;
   view.append(el("h3", { id: "online-access" }, "Online access"),
     el("p", { class: "muted" }, "The runtime's encrypted diagnostics channel, for the Commission workspace, Trace and Simulation. One setting for every network of this config."),
@@ -3953,6 +3952,35 @@ function stCall(node, index, subindex, type, write, net = stNetwork()) {
   lines.push(`ELSIF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID, ${inst}.ABORT_CODE *)`, `END_IF;`, ``);
   return lines.join("\n");
 }
+// Copy as ST call is offered only where the program has the canworks blocks:
+// a Modbus bridge or OpenPLC config (canopen-configurator "Copy as ST call
+// only where the blocks run").
+function stCallsShown() { return !!S.model && !(S.state && S.state.commission) && usedBy("ui:st_calls"); }
+// The bridge settings the blocks' parts need that the config lacks, in words;
+// "" when none ("Copy as ST call names the missing part"). Parts: sdo,
+// sdo_write, control, request, receive.
+function stNeeds(...parts) {
+  const b = (S.model && S.model.top.bridge) || {};
+  const mb = b.mailboxes;
+  const missing = [];
+  for (const part of parts) {
+    if (part === "sdo" && !b.sdo_bridge_location) missing.push("the SDO bridge registers");
+    if (part === "sdo_write" && b.sdo_bridge_location && !b.sdo_bridge_write) missing.push("Clients may write under SDO bridge");
+    if (part === "control" && !b.control_location) missing.push("the control block");
+    if (part === "request" && !(mb && (mb.requests ?? 1) > 0)) missing.push("a request mailbox under Function blocks");
+    if (part === "receive" && !(mb && mb.receive !== false)) missing.push("the receive mailbox under Function blocks");
+  }
+  return missing.length ? `Needs ${[...new Set(missing)].join(" and ")} on the Modbus bridge page.` : "";
+}
+// The parts an SDO block needs: the SDO registers and the control block, or
+// a request mailbox for the _BYTES, _STRING and _REAL blocks.
+function stSdoParts(block) {
+  if (block === "CO_SDO_READ") return ["sdo", "control"];
+  if (block === "CO_SDO_WRITE") return ["sdo", "sdo_write", "control"];
+  return ["request"];
+}
+// The copied text with the missing part as its first comment.
+function stWithNeeds(text, needs) { return needs ? `(* ${needs} *)\n${text}` : text; }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); }
   catch (e) {
@@ -3973,9 +4001,9 @@ async function copyStCall(node, index, subindex, type, readable, writable) {
     if (v !== "read" && v !== "write") return;
     write = v === "write";
   } else if (!readable && !writable) return;
-  const text = stCall(node, index, subindex, type, write);
-  await copyText(text);
-  banner(`Copied the ${stBlock(type, write)} call. Enable the canworks library in the editor project to use it.`);
+  const needs = stNeeds(...stSdoParts(stBlock(type, write)));
+  await copyText(stWithNeeds(stCall(node, index, subindex, type, write), needs));
+  banner(`Copied the ${stBlock(type, write)} call. Enable the canworks library in the editor project to use it.` + (needs ? " " + needs : ""), needs ? "warning" : "done");
 }
 // "Copy as ST call" for NMT: a CO_NMT instance and its call for a node and a
 // CiA 301 command code (spec canopen-configurator, Copy NMT calls as ST; the
@@ -5320,17 +5348,19 @@ function nmtButtons(id, allow) {
     Object.keys(NMT_CODES).map((c) => el("option", { value: c }, `${NMT_CODES[c][1]} (${NMT_CODES[c][0]})`)));
   const copy = async () => {
     const v = pick.value;
-    await copyText(stNmtCall(id, v));
-    banner(`Copied the CO_NMT call (${NMT_CODES[v][1]} to node ${id}). Enable the canworks library in the editor project to use it.`);
+    const needs = stNeeds("control");
+    await copyText(stWithNeeds(stNmtCall(id, v), needs));
+    banner(`Copied the CO_NMT call (${NMT_CODES[v][1]} to node ${id}). Enable the canworks library in the editor project to use it.` + (needs ? " " + needs : ""), needs ? "warning" : "done");
   };
+  const st = stCallsShown();
   return el("div", null, allow ? null : lockedNote("no-changes", "[data-nmt=start]"), el("div", { class: "toolbar" },
     btn("start", "Start"),
     btn("stop", "Stop", `Stop node ${id}? Its PDOs stop and it stays STOPPED, also after a reboot, until you start it or the program changes its NMT command byte.`),
     btn("preop", "Pre-operational", `Set node ${id} pre-operational? Its PDOs stop until it is started again, by you or by the program's NMT command byte.`),
     btn("reset", "Reset node", `Reset node ${id}? It reboots and the master configures it again.`),
     btn("reset-comm", "Reset communication", `Reset node ${id}'s communication? It comes back pre-operational and the master configures it again.`),
-    pick, el("button", { type: "button", dataset: { online: "nmt-st" }, title: "Copy as ST call (CO_NMT block)", onclick: copy },
-      "Copy as ST call")),
+    st ? pick : null, st ? el("button", { type: "button", dataset: { online: "nmt-st" }, title: ["Copy as ST call (CO_NMT block).", stNeeds("control")].join(" ").trim(), onclick: copy },
+      "Copy as ST call") : null),
   hint("Stop and pre-operational hold the node until you start it, or until the program changes the node's NMT command byte or sends a CO_NMT command."));
 }
 
@@ -6405,9 +6435,9 @@ function odBuild(box, id, n, allow, data) {
       el("td", { class: "od-type" }, e.type || "?", " ", el("span", { class: "muted" }, e.access),
         e.default ? el("div", { class: "muted", title: "EDS default" }, "default " + e.default) : null),
       value, el("td", { class: "actions" }, read, edit,
-        el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
-          title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)",
-          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST")),
+        stCallsShown() ? el("button", { type: "button", class: "small", disabled: data.slave || (!e.readable && !e.writable),
+          title: data.slave ? NO_ST_SLAVE : ["Copy as ST call (CO_SDO_* block).", stNeeds(...stSdoParts(stBlock(e.type, !e.readable)))].join(" ").trim(),
+          dataset: { online: "od-st" }, onclick: () => copyStCall(id, e.index, e.subindex, e.type, e.readable, e.writable) }, "ST") : null),
       el("td", { class: "od-watch" }, watch));
     selRows[key] = tr;
     cells[key] = { tr, value, marks, watch, text: `${hex4(e.index)}:${e.subindex} ${e.index.toString(16)} ${e.name} ${noteOf(e).text || ""}`.toLowerCase() };
@@ -6621,10 +6651,10 @@ function odBuild(box, id, n, allow, data) {
         el("button", { type: "button", dataset: { online: "od-any-read" }, onclick: anyRead }, "Read"),
         el("label", { class: "inline" }, "Value ", anyValue),
         el("button", { type: "button", disabled: !allow, title: allow ? null : NO_CHANGES, dataset: { online: "od-any-write" }, onclick: anyWrite }, "Write"),
-        el("button", { type: "button", disabled: data.slave, title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)", dataset: { online: "od-any-st" }, onclick: () => {
+        stCallsShown() ? el("button", { type: "button", disabled: data.slave, title: data.slave ? NO_ST_SLAVE : "Copy as ST call (CO_SDO_* block)", dataset: { online: "od-any-st" }, onclick: () => {
           const t = anyTarget();
           if (t) copyStCall(id, t.index, t.subindex, t.type || "", true, true);
-        } }, "Copy as ST call"),
+        } }, "Copy as ST call") : null,
         anyOut)),
     ...groups.map(([det]) => det));
   renderChips();
@@ -8193,7 +8223,7 @@ async function newEditorProject() {
   const sl = el("label", { class: "inline", title: "Enables the canworks function block library (SDO, NMT and node-live blocks) in the project and installs it into the editor" },
     blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
-    el("p", { class: "hint" }, "For OpenPLC through Modbus, Save keeps the remote device, canworks_in, canworks_out and " +
+    el("p", { class: "hint" }, "For OpenPLC, Save keeps the remote device, canworks_in, canworks_out and " +
       "the canworks variable list in the project up to date."));
   let text = "New OpenPLC Editor project (target OpenPLC Runtime v4) with this config in its canworks/ folder:";
   for (;;) {
@@ -8272,14 +8302,16 @@ function wire() {
   exporting("#btn-export-dbc", exportDbc);
   exporting("#btn-export-html", exportHtml);
   $("#btn-codesys-build").onclick = () => busy($("#btn-codesys-build"), "Building…", codesysBuild);
-  $("#btn-codesys-download").onclick = () => busy($("#menu-target > summary"), "…", exportCodesys);
+  $("#btn-codesys-download").onclick = () => busy($("#menu-export > summary"), "Exporting…", exportCodesys);
+  for (const b of document.querySelectorAll("#menu-export [data-export-program]")) {
+    const fmt = b.dataset.exportProgram;
+    if (fmt !== "codesys") b.onclick = () => busy($("#menu-export > summary"), "Exporting…", () => bridgeExport(fmt));
+  }
   $("#btn-bridge-install").onclick = () => switchWorkspace("devices");
   wireDbc();
   wireMenus();
   $("#btn-reload").onclick = () => reload(false);
   $("#btn-close").onclick = () => (S.devicesOnly && !(S.state && S.state.mode) ? devicesOnlyClose() : closeFolder());
-  $("#btn-move").onclick = () => busy($("#btn-move"), "Moving…", moveIntoProject);
-  $("#btn-new-project").onclick = () => busy($("#btn-new-project"), "Creating…", newEditorProject);
   $("#eds-input").addEventListener("change", (e) => {
     const f = e.target.files[0];
     e.target.value = "";
@@ -8323,9 +8355,19 @@ function wire() {
   wireLife();  // Quit, the heartbeat and the leave-page question (life.js)
 }
 
-// The header's Project and Export menus: native details elements, one
-// open at a time, closed by Escape, a pick or a click elsewhere, the
-// arrow keys moving between the items.
+// A menu's panel opens inside the window: right-aligned under its button
+// unless that crosses the window's left edge, then left-aligned
+// (canopen-configurator "Header menus stay inside the window").
+function placeMenu(m) {
+  const panel = m.querySelector(":scope > .menu-panel, :scope > div[role=menu]");
+  if (!panel) return;
+  panel.style.left = panel.style.right = "";
+  if (panel.getBoundingClientRect().left < 0) { panel.style.left = "0"; panel.style.right = "auto"; }
+}
+
+// The header's menus: native details elements, one open at a time,
+// closed by Escape, a pick or a click elsewhere, the arrow keys moving
+// between the items.
 function wireMenus() {
   const menus = [...document.querySelectorAll("details.menu")];
   const close = (m) => { m.open = false; };
@@ -8334,6 +8376,7 @@ function wireMenus() {
       m.querySelector("summary").setAttribute("aria-expanded", String(m.open));
       // A menu inside another (Settings under ⋯) leaves its parent open.
       if (m.open) for (const o of menus) if (o !== m && !o.contains(m)) close(o);
+      if (m.open) placeMenu(m);
     });
     m.addEventListener("keydown", (e) => {
       const items = [...m.querySelectorAll(".item")].filter((b) => !b.disabled && b.offsetParent !== null);

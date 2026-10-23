@@ -40,7 +40,7 @@ The script uses the project's active device (the one whose application is the ac
 
 Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
 
-Get the folder from the configurator (**Download for CODESYS** in a CODESYS project, a zip) or from the command line, for a config of any target:
+Get the folder from the configurator (**Export → Download for CODESYS** or the CODESYS page in a CODESYS project, a zip) or from the command line, for a config of any target:
 
 ```sh
 canworks-deploy --config canworks.json --export-codesys codesys/

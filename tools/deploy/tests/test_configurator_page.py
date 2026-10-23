@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
+from .helpers import PINGPONG, REPO, editor_project_action, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
 
 try:
     from playwright.sync_api import sync_playwright
@@ -1317,8 +1317,7 @@ class Page(unittest.TestCase):
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
         self.assertTrue(os.path.isfile(os.path.join(folder, "canworks.json")))
-        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-        pg.click("#btn-move")
+        editor_project_action(pg, "move")
         pg.fill("#modal-extra input", self.project)
         pg.click("#modal-buttons button[data-value=move]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
@@ -1338,16 +1337,15 @@ class Page(unittest.TestCase):
         with open(os.path.join(work, "taken", "project.json"), "w") as f:
             f.write("{}")
         self.open_from_start("#start-new", folder)
-        self.assertTrue(pg.is_visible("#menu-project"))
+        tree_view(pg, "project")
+        self.assertTrue(pg.is_visible('[data-editor-project="none"]'))
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-        pg.click("#btn-new-project")
+        editor_project_action(pg, "new")
         self.assertIn("Save the config", pg.inner_text("#banner"))
         self.save()
-        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-        pg.click("#btn-new-project")
+        editor_project_action(pg, "new")
         pg.fill('#modal-extra input[aria-label="Parent folder"]', work)
         pg.fill('#modal-extra input[aria-label="Project name"]', "taken")
         self.assertEqual(pg.input_value('#modal-extra input[aria-label="Task interval"]'), "T#20ms")
@@ -1369,7 +1367,8 @@ class Page(unittest.TestCase):
         self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
                          "canworks")
         self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
-        self.assertTrue(pg.is_hidden("#menu-project"))
+        tree_view(pg, "project")
+        self.assertTrue(pg.is_visible('[data-editor-project="project"]'))
         # The bridge's I/O comes in through canworks_in, not main's located variables.
         with open(os.path.join(work, "rtd-monitor", "pous", "programs", "canworks_in.st"), encoding="utf-8") as f:
             self.assertIn("canworks", f.read())

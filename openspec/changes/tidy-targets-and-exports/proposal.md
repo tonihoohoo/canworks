@@ -15,7 +15,7 @@ Running the configurator on the OpenPLC example at 1440 px as all three targets 
 - **"Project" means three things.** The header has a **Project ▾** menu for the OpenPLC Editor project (Move into project…, New editor project…). The tree's **Project** page holds the target and Online access. CODESYS has a **Project file**.
 - **One target, four names.** The same target reads "OpenPLC" (target field, header), "OpenPLC Runtime" (New config), "OpenPLC through Modbus" (messages) and "Modbus bridge for OpenPLC" (bridge page heading).
 - **OpenPLC facts and settings apart.** The Project page shows the poll, remote device and map hash as a read-only table. The same poll and remote device are edited on the Modbus bridge page.
-- **Exports that cannot work on OpenPLC.** An OpenPLC config offers Export Node-RED flow and Export ST variables. OpenPLC's Modbus master is the only writer on 127.0.0.1, so a Node-RED flow cannot write, and Save already writes the variable list into the editor project.
+- **Exports that cannot work on OpenPLC.** An OpenPLC config offers Export Node-RED flow, but OpenPLC's Modbus master is the only writer on 127.0.0.1, so the flow cannot write. Its Export ST variables is really the PLC link file for a second Modbus PLC, which the name does not say.
 - **Copy as ST call where the blocks do not exist.** Commission offers Copy as ST call on a CODESYS config and when a device is commissioned without a config. The copied code calls canworks blocks that only an OpenPLC or bridge client program has.
 
 ## What Changes
@@ -27,7 +27,7 @@ Running the configurator on the OpenPLC example at 1440 px as all three targets 
   - The **target page** (Modbus bridge, CODESYS) holds settings, the register map table and Pack for Modbus.
 - **Export ▾ in two groups.** *Network files* holds All DCFs, This node's DCF, DBC and Documentation, as today. *For the program* depends on the target:
   - Modbus bridge: Register map CSV, Register map JSON, ST variables, Node-RED flow.
-  - OpenPLC: Register map CSV, Register map JSON.
+  - OpenPLC: Register map CSV, Register map JSON, ST for another PLC.
   - CODESYS: Download for CODESYS.
 
   The bridge page's register map toolbar keeps Pack for Modbus and points to Export ▾. The CODESYS header button becomes a plain button with no ▾. The CODESYS page keeps its Build and Download buttons.

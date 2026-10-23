@@ -394,7 +394,8 @@ function rawEditor(kind, i) {
         changed(true);
       } }, "Add signal"),
       el("button", { type: "button", dataset: { rawSuggest: "1" }, onclick: (e) => busy(e.currentTarget, "Suggesting…", () => rawSuggest(kind, i)) }, "Suggest addresses"),
-      el("button", { type: "button", dataset: { rawSt: "1" }, onclick: (e) => busy(e.currentTarget, "Copying…", () => rawCopySt(kind, i)) }, "Copy as ST call")),
+      stCallsShown() ? el("button", { type: "button", dataset: { rawSt: "1" }, title: ["Copy as ST call.", stNeeds(...rawStParts(kind))].join(" ").trim(),
+        onclick: (e) => busy(e.currentTarget, "Copying…", () => rawCopySt(kind, i)) }, "Copy as ST call") : null),
     rawBitGrid(m, `${kind}:${i}`));
 }
 
@@ -460,11 +461,15 @@ async function rawSuggest(kind, i) {
   } catch (e) { banner(e.message, true); }
 }
 
+// CAN_SEND needs a request mailbox; CAN_RECEIVE the receive mailbox too.
+function rawStParts(kind) { return kind === "rx" ? ["request", "receive"] : ["request"]; }
+
 async function rawCopySt(kind, i) {
   try {
     const r = await api("POST", "/api/raw/st", { config: fileConfig(), network: S.net, kind, index: i });
-    await copyText(r.text);
-    banner("Copied the Structured Text call. It needs the canworks library in the project.");
+    const needs = stNeeds(...rawStParts(kind));
+    await copyText(stWithNeeds(r.text, needs));
+    banner("Copied the Structured Text call. It needs the canworks library in the project." + (needs ? " " + needs : ""), needs ? "warning" : "done");
   } catch (e) { banner(e.message, true); }
 }
 

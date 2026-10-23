@@ -25,34 +25,28 @@
   <div id="actions" hidden>
     <button id="btn-reload" type="button" data-config="1">Reload from disk</button>
     <button id="btn-close" type="button">Close</button>
-    <details id="menu-project" class="menu" hidden>
-      <summary aria-haspopup="menu">Project</summary>
-      <div role="menu" aria-label="Project">
-        <button id="btn-move" type="button" class="item" role="menuitem">Move into project…</button>
-        <button id="btn-new-project" type="button" class="item" role="menuitem" title="Create an OpenPLC Editor project with this config: the bridge as its Modbus device, and the canworks variables and programs">New editor project…</button>
-      </div>
-    </details>
     <details id="menu-export" class="menu" data-config="1">
       <summary aria-haspopup="true">Export</summary>
       <div class="menu-panel" role="group" aria-label="Export">
+        <div class="menu-group" data-export-group="network"><span class="menu-heading" id="export-network-h">Network files</span>
         <button id="btn-export-all" type="button" class="item" title="Every node as a CiA 306 DCF file, checked, in one zip">All DCFs</button>
         <button id="btn-export-node" type="button" class="item" title="The open node as a CiA 306 DCF file, checked">This node's DCF</button>
         <div class="menu-row"><select id="dbc-sdo" aria-label="SDO frames in the DBC file" title="SDO frames in the DBC file">
           <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
         </select><button id="btn-export-dbc" type="button" class="item" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">DBC</button></div>
         <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: CANopen topology, COB-ID map, nodes, PDO layouts and boot SDO writes; J1939 ECU, messages and signals; bus load and PLC I/O">Documentation</button>
+        </div>
+        <div class="menu-group" data-export-group="program"><span class="menu-heading">For the program</span>
+        <button id="btn-export-map-csv" type="button" class="item" data-export-program="csv" title="The register map as CSV: Modbus table, address, size, type, name and source of every value">Register map (CSV)</button>
+        <button id="btn-export-map-json" type="button" class="item" data-export-program="json" title="The register map as JSON, for scripts and HMI tools">Register map (JSON)</button>
+        <button id="btn-export-map-st" type="button" class="item" data-export-program="st" title="The ST variable list and the PLC link file for a Modbus client program">ST variables</button>
+        <button id="btn-export-nodered" type="button" class="item" data-export-program="nodered" title="A Node-RED flow (needs node-red-contrib-modbus) that reads and writes these values by name through the bridge">Node-RED flow</button>
+        <button id="btn-codesys-download" type="button" class="item" data-export-program="codesys" title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
+        </div>
       </div>
     </details>
-    <div id="target-action" class="split" data-config="1" hidden>
-      <button id="btn-codesys-build" type="button" class="primary" hidden title="Build the saved config into the CODESYS project with CODESYS on this PC">Build into CODESYS project…</button>
-      <button id="btn-bridge-install" type="button" class="primary" hidden title="Install the bridge with this config on a Linux device, in the Devices workspace">Install on device…</button>
-      <details id="menu-target" class="menu" hidden>
-        <summary aria-haspopup="true" aria-label="More target actions" title="More target actions">▾</summary>
-        <div class="menu-panel" role="group" aria-label="More target actions">
-          <button id="btn-codesys-download" type="button" class="item" hidden title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
-        </div>
-      </details>
-    </div>
+    <button id="btn-codesys-build" type="button" class="primary" data-config="1" hidden title="Build the saved config into the CODESYS project with CODESYS on this PC">Build into CODESYS project…</button>
+    <button id="btn-bridge-install" type="button" class="primary" data-config="1" hidden title="Install the bridge with this config on a Linux device, in the Devices workspace">Install on device…</button>
     <button id="btn-save" type="button" class="primary" data-config="1">Save</button>
   </div>
   <details id="menu-more" class="menu">

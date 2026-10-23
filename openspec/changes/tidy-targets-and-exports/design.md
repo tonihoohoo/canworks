@@ -43,10 +43,10 @@ Two labelled groups in one panel. *Network files* never depends on the target. *
 | Target | For the program |
 |---|---|
 | Modbus bridge | Register map (CSV), Register map (JSON), ST variables, Node-RED flow; later For another PLC (PLCopen XML)… |
-| OpenPLC | Register map (CSV), Register map (JSON) |
+| OpenPLC | Register map (CSV), Register map (JSON), ST for another PLC |
 | CODESYS | Download for CODESYS |
 
-OpenPLC gets no ST variables (Save writes the `canworks` list into the editor project) and no Node-RED flow (OpenPLC's Modbus master is the only writer, on 127.0.0.1). The group is hidden when it would be empty: on a config whose networks the target cannot export, for example a CODESYS config with no CANopen master network, which already disables Download. Each item keeps its existing route, progress and Problems behaviour ("Exports report progress and keep Problems clean").
+OpenPLC gets no Node-RED flow (OpenPLC's Modbus master is the only writer, on 127.0.0.1). Its ST item is named **ST for another PLC**: on an OpenPLC config the `.st` export is the PLC link file a second Modbus PLC uses with the library (`docs/plc-library.md`, "On another Modbus PLC"), not a variable list for OpenPLC itself, which Save writes into the editor project. The group is hidden when it would be empty: on a config whose networks the target cannot export, for example a CODESYS config with no CANopen master network, which already disables Download. Each item keeps its existing route, progress and Problems behaviour ("Exports report progress and keep Problems clean").
 
 The bridge page's register map heading keeps Pack for Modbus and one line, "Export ▾ → For the program has the register map files.", so nobody who learned the old buttons is lost.
 

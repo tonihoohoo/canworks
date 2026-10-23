@@ -264,7 +264,11 @@ def tree_view(page, view):
     """Opens a page of the open network (bus, raw, links) or of the config
     (project, gateway, bridge, codesys) from the tree."""
     if view in ("project", "gateway", "bridge", "codesys"):
-        page.click('#tree > [data-view="%s"] > .tree-row' % view)
+        row = '#tree > [data-view="%s"] > .tree-row' % view
+        # Between 800 and 1100 px the tree is a rail: its button opens the tree.
+        if not page.is_visible(row) and page.is_visible("#tree-toggle"):
+            page.click("#tree-toggle")
+        page.click(row)
     else:
         page.click('#tree .open-net [data-view="%s"] > .tree-row' % view)
 
@@ -331,6 +335,21 @@ def header_action(page, sel):
     if not page.is_visible(sel) and page.is_visible("#menu-more"):
         page.click("#menu-more > summary")
     page.click(sel)
+
+
+def export_program(page, fmt):
+    """Export ▾ → For the program → the item `fmt` (csv, json, st, nodered,
+    codesys): every download is in the Export menu (tidy-targets-and-exports)."""
+    if not page.evaluate("document.querySelector('#menu-export').open"):
+        page.click("#menu-export > summary")
+    page.click(f'#menu-export [data-export-program="{fmt}"]')
+
+
+def editor_project_action(page, which):
+    """The Project page's Editor project section: Move into project… ("move")
+    or New editor project… ("new") (tidy-targets-and-exports)."""
+    tree_view(page, "project")
+    page.click(f'button[data-editor-project="{which}"]')
 
 
 def open_log(page):
