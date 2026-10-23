@@ -15,9 +15,9 @@ from canworks.configurator import server as srv
 from .helpers import PINGPONG, REPO, add_connection, editor_project_action, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
 
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 except ImportError:  # pragma: no cover
-    sync_playwright = None
+    PlaywrightTimeout = sync_playwright = None
 
 RTD = os.path.join(REPO, "config", "rtd-sensor")
 FIXTURE = os.path.join(REPO, "test", "fixtures", "editor-project")
@@ -536,7 +536,15 @@ class Page(unittest.TestCase):
         self.save()
         self.assertEqual(load(path)["networks"][0]["master"], {"node_id": 1, "sync_period_us": 10000, "eds_lint": "off"})
         for value, saved in (("all", "all"), ("", None)):
-            pg.select_option(sel, value)
+            # The page redraws after a save: a choice made on the old select
+            # is lost, so choose again until Save is offered.
+            for _ in range(3):
+                pg.select_option(sel, value)
+                try:
+                    pg.wait_for_selector("#btn-save:not([disabled])", timeout=3000)
+                    break
+                except PlaywrightTimeout:
+                    pass
             self.save()
             deadline = time.time() + 10  # the banner still reads "Saved" from the last save
             while load(path)["networks"][0]["master"].get("eds_lint") != saved and time.time() < deadline:

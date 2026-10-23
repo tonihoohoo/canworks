@@ -8489,8 +8489,11 @@ function wireMenus() {
       else if (e.key === "ArrowUp") { e.preventDefault(); (items[k - 1] || items[items.length - 1]).focus(); }
     });
     m.addEventListener("click", (e) => { const b = e.target.closest(".item"); if (b && m.contains(b)) close(m); });
-    // Tab out of an open menu closes it.
-    m.addEventListener("focusout", (e) => { if (m.open && !(e.relatedTarget && m.contains(e.relatedTarget))) close(m); });
+    // Tab out of an open menu closes it. Focus going nowhere (relatedTarget
+    // null) leaves it open: Safari does not focus a clicked button, so a
+    // click on an item only blurs the summary, and closing then would hide
+    // the item before its click lands. A click elsewhere still closes it.
+    m.addEventListener("focusout", (e) => { if (m.open && e.relatedTarget && !m.contains(e.relatedTarget)) close(m); });
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") for (const m of menus) if (m.open && !m.contains(document.activeElement)) close(m);
