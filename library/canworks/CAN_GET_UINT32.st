@@ -15,7 +15,7 @@ VAR
   i : INT;
   v : DWORD;
 END_VAR
-  v := 0;
+  v := DWORD#0;
   IF USINT_TO_INT(OFFSET) + 4 <= 8 THEN
     FOR i := 0 TO 3 DO
       IF MOTOROLA THEN

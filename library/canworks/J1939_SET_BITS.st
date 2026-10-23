@@ -27,7 +27,7 @@ END_VAR
   pos := UINT_TO_DINT(START_BIT);
   FOR i := 0 TO USINT_TO_DINT(BIT_LENGTH) - 1 DO
     b := SHL(BYTE#1, DINT_TO_UINT(pos MOD 8));
-    IF (SHR(v, DINT_TO_UINT(i)) AND 16#01) = 1 THEN
+    IF (SHR(v, DINT_TO_UINT(i)) AND LWORD#16#01) = LWORD#1 THEN
       DATA[pos / 8] := DATA[pos / 8] OR b;
     ELSE
       DATA[pos / 8] := DATA[pos / 8] AND NOT b;

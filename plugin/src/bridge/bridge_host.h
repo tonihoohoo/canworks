@@ -90,7 +90,7 @@ class BridgeHost {
   // Every data output location of the image to 0 (the blocks keep theirs).
   void clear_outputs();
   void leave_off(const char* why);
-  // openplc: the PLC link header turned outputs off (PLC stopped or mismatch).
+  // plc_link: the PLC link header turned outputs off (PLC stopped or mismatch).
   void link_off(OutputState why, Clock::time_point now);
   // NMT `command` with node 0 to every CANopen master network.
   void all_nodes(const char* command);

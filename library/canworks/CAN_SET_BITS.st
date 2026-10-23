@@ -46,7 +46,7 @@ END_VAR
       shift := i;
     END_IF;
     b := SHL(BYTE#1, INT_TO_UINT(pos MOD 8));
-    IF (SHR(v, INT_TO_UINT(shift)) AND 16#01) = 1 THEN
+    IF (SHR(v, INT_TO_UINT(shift)) AND LWORD#16#01) = LWORD#1 THEN
       DATA[pos / 8] := DATA[pos / 8] OR b;
     ELSE
       DATA[pos / 8] := DATA[pos / 8] AND NOT b;

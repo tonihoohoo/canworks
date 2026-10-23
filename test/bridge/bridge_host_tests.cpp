@@ -678,6 +678,51 @@ TEST(openplc_defaults_and_refusals) {
   EXPECT(logged("must be %IB4 with 'openplc'"));
 }
 
+// The PLC link without openplc (bridge.plc_link): any Modbus client that runs
+// canworks_in/canworks_out gets the same header and map hash guard.
+void plc_link_only(cJSON* r) {
+  cJSON* b = bridge_of(r);
+  cJSON_DeleteItemFromObject(b, "openplc");
+  cJSON_AddBoolToObject(b, "plc_link", true);
+  set_string(b, "listen", "127.0.0.1:1502");
+  set_number(b, "watchdog_ms", 0);
+}
+
+TEST(plc_link_without_openplc) {
+  Host h(plc_link_only, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  EXPECT(logged("(PLC link)"));
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  EXPECT(hash != 0);
+  EXPECT(ostate(c) == 5);  // no header yet
+  EXPECT(write(c, kOOutReg, {77}));
+  usleep(200000);
+  EXPECT(reg(c, kOLoopReg) != 77);
+  EXPECT(header(c, 1, hash ^ 0x1u));
+  EXPECT(wait_for([&] { return ostate(c) == 4; }));
+  EXPECT(header(c, 1, hash));
+  EXPECT(write(c, kOOutReg, {77}));
+  EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 77; }));
+}
+
+TEST(plc_link_refusals) {
+  canopen_plugin::set_log_sink(capture);
+  std::string path = example_copy(
+      [](cJSON* r) {
+        plc_link_only(r);
+        set_string(bridge_of(r), "status_location", "%IB40");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("must be %IB4 with 'plc_link'"));
+  path = example_copy([](cJSON* r) { cJSON_AddBoolToObject(bridge_of(r), "plc_link", false); }, OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("can't be false with 'openplc'"));
+}
+
 TEST(map_hash_vectors) {
   // The same text and CRC as the PC tools (tools/deploy/tests/test_modbusmap.py).
   EXPECT(canopen_plugin::crc32_ieee("123456789") == 0xCBF43926u);

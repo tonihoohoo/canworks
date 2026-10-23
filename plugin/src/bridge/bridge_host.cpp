@@ -219,7 +219,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     if (u.loc.area != IecArea::Input && !u.bridge_block) data_outputs_.push_back(u);
   image_.resize(in_bytes, out_bytes);
   map_hash_ = canopen_plugin::map_hash(s);
-  image_.set_link(cfg_.openplc ? canopen_plugin::kOpenplcHeaderBytes : 0, map_hash_);
+  image_.set_link(cfg_.plc_link ? canopen_plugin::kOpenplcHeaderBytes : 0, map_hash_);
   mismatch_logged_ = false;
   g_image.reset(new canopen_plugin::ByteImageHost);
   g_image->low_first = cfg_.low_first;
@@ -240,8 +240,8 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
 
   Clock::time_point now = Clock::now();
   supervisor_.reset(new OutputSupervisor(cfg_.watchdog_ms, now));
-  // openplc: outputs stay off until the PLC link header says the PLC runs.
-  if (cfg_.openplc) supervisor_->link_off(OutputState::kPlcStopped);
+  // PLC link: outputs stay off until the header says the PLC runs.
+  if (cfg_.plc_link) supervisor_->link_off(OutputState::kPlcStopped);
   control_ = ControlBlock();
   // A PLC behind the link header rewrites its whole output image every poll,
   // so after a restart its last request would run again: openplc configs
@@ -268,7 +268,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
-  canopen_plugin::set_outputs_enabled(!cfg_.openplc);
+  canopen_plugin::set_outputs_enabled(!cfg_.plc_link);
 
   engine_->start();
   if (!server_.start(sc, err)) {
@@ -280,7 +280,8 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
            "%zu output bytes; watchdog %u ms, on client loss %s; map hash 0x%08x%s",
            config_path.c_str(), canopen_plugin::built_in_protocols().c_str(), cfg_.listen.c_str(), cfg_.unit_id,
            cfg_.low_first ? "low_first" : "high_first", image_.input_size(), image_.output_size(), cfg_.watchdog_ms,
-           loss_name(cfg_.on_client_loss), map_hash_, cfg_.openplc ? " (OpenPLC through Modbus)" : "");
+           loss_name(cfg_.on_client_loss), map_hash_,
+           cfg_.openplc ? " (OpenPLC through Modbus)" : cfg_.plc_link ? " (PLC link)" : "");
   started_ = now;
   stop_ = false;
   thread_ = std::thread(&BridgeHost::loop, this);
@@ -310,7 +311,7 @@ void BridgeHost::push_outputs() {
 void BridgeHost::on_write() {
   std::lock_guard<std::mutex> lock(exchange_mu_);
   Clock::time_point now = Clock::now();
-  if (cfg_.openplc) {
+  if (cfg_.plc_link) {
     uint32_t seen = 0;
     ByteImage::Link link = image_.link_now(&seen);
     if (link == ByteImage::Link::kStopped) {
@@ -398,7 +399,7 @@ void BridgeHost::clear_outputs() {
 
 void BridgeHost::leave_off(const char* why) {
   zero_pending_ = false;
-  // Hold never turned them off, but an openplc bridge starts with them off.
+  // Hold never turned them off, but a PLC link bridge starts with them off.
   canopen_plugin::set_outputs_enabled(true);
   if (cfg_.on_client_loss == BridgeConfig::Loss::Preop) all_nodes("start");
   log_info("outputs on again: %s", why);
@@ -462,7 +463,7 @@ void BridgeHost::take_baselines(const uint8_t* out, bool wrote_control, bool wro
 
 void BridgeHost::write_blocks(Clock::time_point now) {
   std::vector<uint8_t>& in = g_image->in;
-  if (cfg_.openplc && in.size() >= canopen_plugin::kOpenplcHashBytes) {
+  if (cfg_.plc_link && in.size() >= canopen_plugin::kOpenplcHashBytes) {
     put_be16(&in[0], static_cast<uint16_t>(map_hash_ >> 16));
     put_be16(&in[2], static_cast<uint16_t>(map_hash_));
   }
@@ -542,6 +543,7 @@ cJSON* BridgeHost::status_json() const {
   std::snprintf(hash, sizeof(hash), "0x%08x", map_hash_);
   cJSON_AddStringToObject(b, "map_hash", hash);
   cJSON_AddBoolToObject(b, "openplc", cfg_.openplc);
+  cJSON_AddBoolToObject(b, "plc_link", cfg_.plc_link);
   cJSON_AddStringToObject(b, "on_client_loss", loss_name(cfg_.on_client_loss));
   cJSON_AddStringToObject(b, "listen", cfg_.listen.c_str());
   cJSON_AddNumberToObject(b, "unit_id", cfg_.unit_id);

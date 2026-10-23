@@ -1,0 +1,18 @@
+# Path rules of the truST import check (.github/scripts/ci_changes.py prints
+# plcopen=true when a changed path matches one): the PLCopen writer and
+# targets, the copy programs and the library they carry, the CODESYS
+# scripts the export ships, the PLCopen tests and their data, the truST pin
+# and the shared CI files. One fnmatch pattern per line on the repository
+# path, where * also matches /.
+
+tools/deploy/canworks/plcopen*.py
+tools/deploy/canworks/openplcmodbus.py
+tools/deploy/canworks/modbusmap.py
+tools/deploy/canworks/plclibrary.py
+tools/deploy/canworks/library/*
+tools/deploy/canworks/codesys/script/*
+tools/deploy/tests/test_plcopen.py
+tools/deploy/tests/data/plcopen/*
+library/*
+test/plcopen/*
+.github/*

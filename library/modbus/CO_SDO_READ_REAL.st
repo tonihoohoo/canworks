@@ -52,7 +52,7 @@ END_VAR
   IF x.DONE AND NOT was THEN
     bad := x.RSIZE <> 4 AND x.RSIZE <> 8;
     IF NOT bad THEN
-      bits := 0;
+      bits := LWORD#0;
       FOR i := UDINT_TO_INT(x.RSIZE) - 1 TO 0 BY -1 DO
         bits := SHL(bits, 8) OR BYTE_TO_LWORD(buf[i]);
       END_FOR;

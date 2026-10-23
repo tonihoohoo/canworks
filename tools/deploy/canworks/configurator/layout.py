@@ -145,7 +145,7 @@ def taken(cfg, project_uses):
     if modbusmap.is_bridge_config(cfg):
         for it in modbusmap.collect(cfg):
             mark(used, it.loc, it.nbytes)
-        if modbusmap.is_openplc(cfg):
+        if modbusmap.has_plc_link(cfg):
             for area, first in modbusmap.OPENPLC_FIRST_FREE.items():
                 for b in range(first):
                     used.add((area, "B", b))

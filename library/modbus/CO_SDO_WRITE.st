@@ -52,8 +52,8 @@ VAR
   err : UINT;
   fin : BOOL;
 END_VAR
-  IF me = 0 THEN
-    LINK[24] := LINK[24] + 1;
+  IF me = WORD#0 THEN
+    LINK[24] := UINT_TO_WORD(WORD_TO_UINT(LINK[24]) + 1);
     me := LINK[24];
   END_IF;
   IF phase = 3 AND NOT EXECUTE THEN
@@ -69,9 +69,9 @@ END_VAR
     ERROR_ID := 0;
     ABORT_CODE := 0;
     timer(IN := FALSE);
-    IF (LINK[21] AND 16#0001) = 0 THEN
+    IF (LINK[21] AND WORD#16#0001) = WORD#0 THEN
       err := 20;
-    ELSIF (LINK[21] AND 16#0004) = 0 THEN
+    ELSIF (LINK[21] AND WORD#16#0004) = WORD#0 THEN
       err := 22;
     ELSIF NODE < 1 OR NODE > 127 OR SIZE < 1 OR SIZE > 4 THEN
       err := 6;
@@ -81,14 +81,14 @@ END_VAR
   END_IF;
   IF phase = 1 OR phase = 2 THEN
     timer(IN := TRUE, PT := SEL(TIMEOUT = T#0s, TIMEOUT, T#5s));
-    IF (LINK[21] AND 16#0001) = 0 THEN
+    IF (LINK[21] AND WORD#16#0001) = WORD#0 THEN
       err := 20;
     ELSIF timer.Q THEN
       err := 2;
       ABORT_CODE := 16#05040000;
-    ELSIF phase = 1 AND (LINK[23] = 0 OR LINK[23] = me) THEN
+    ELSIF phase = 1 AND (LINK[23] = WORD#0 OR LINK[23] = me) THEN
       LINK[23] := me;
-      counter := LINK[14] + 1;
+      counter := UINT_TO_WORD(WORD_TO_UINT(LINK[14]) + 1);
       LINK[7] := counter;
       LINK[8] := SHL(WORD#2, 8) OR USINT_TO_WORD(NETWORK);
       LINK[9] := SHL(USINT_TO_WORD(NODE), 8) OR USINT_TO_WORD(SUBINDEX);
@@ -99,9 +99,9 @@ END_VAR
       phase := 2;
     ELSIF phase = 2 AND LINK[14] = counter THEN
       state := SHR(LINK[15], 8);
-      IF state = 2 THEN
+      IF state = WORD#2 THEN
         fin := TRUE;
-      ELSIF state = 3 THEN
+      ELSIF state = WORD#3 THEN
         ABORT_CODE := DWORD_TO_UDINT(SHL(WORD_TO_DWORD(LINK[16]), 16) OR WORD_TO_DWORD(LINK[17]));
         IF ABORT_CODE = 16#08000020 THEN
           err := 21;
@@ -120,7 +120,7 @@ END_VAR
     ERROR_ID := err;
     timer(IN := FALSE);
     IF LINK[23] = me THEN
-      LINK[23] := 0;
+      LINK[23] := WORD#0;
     END_IF;
   END_IF;
   BUSY := phase = 1 OR phase = 2;

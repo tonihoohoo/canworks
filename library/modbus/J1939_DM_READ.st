@@ -49,7 +49,7 @@ VAR
   was : BOOL;
   i : INT;
 END_VAR
-  ms := TIME_TO_UDINT(TIMEOUT);
+  ms := DWORD_TO_UDINT(TIME_TO_DWORD(TIMEOUT));
   IF ms > 65535 THEN
     ms := 65535;
   END_IF;
@@ -63,7 +63,7 @@ END_VAR
   END_IF;
   prev := EXECUTE;
   x(EXECUTE := EXECUTE AND refused = 0, OP := 13, NET := NETWORK, A0 := USINT_TO_WORD(SOURCE),
-    A1 := SEL(PREVIOUS, WORD#0, WORD#1), A2 := UDINT_TO_WORD(ms), A3 := 0, A4 := 0, A5 := 0, LENGTH := 0,
+    A1 := SEL(PREVIOUS, WORD#0, WORD#1), A2 := UDINT_TO_WORD(ms), A3 := WORD#0, A4 := WORD#0, A5 := WORD#0, LENGTH := 0,
     FETCH_MAX := 128, LINK := LINK, DATA := buf);
   BUSY := x.BUSY;
   DONE := x.DONE;
@@ -73,10 +73,10 @@ END_VAR
     LAMPS := WORD_TO_BYTE(SHR(x.R0, 8));
     FLASH := WORD_TO_BYTE(x.R0);
     COUNT := WORD_TO_UINT(x.R1);
-    AGE := UDINT_TO_TIME(WORD_TO_UDINT(x.R2) * 65536 + WORD_TO_UDINT(x.R3));
+    AGE := DWORD_TO_TIME(SHL(WORD_TO_DWORD(x.R2), 16) OR WORD_TO_DWORD(x.R3));
     FOR i := 0 TO 31 DO
-      DTCS[i] := SHL(BYTE_TO_UDINT(buf[4 * i]), 24) OR SHL(BYTE_TO_UDINT(buf[4 * i + 1]), 16) OR
-                 SHL(BYTE_TO_UDINT(buf[4 * i + 2]), 8) OR BYTE_TO_UDINT(buf[4 * i + 3]);
+      DTCS[i] := DWORD_TO_UDINT(SHL(BYTE_TO_DWORD(buf[4 * i]), 24) OR SHL(BYTE_TO_DWORD(buf[4 * i + 1]), 16) OR
+                 SHL(BYTE_TO_DWORD(buf[4 * i + 2]), 8) OR BYTE_TO_DWORD(buf[4 * i + 3]));
     END_FOR;
   END_IF;
   was := x.DONE;

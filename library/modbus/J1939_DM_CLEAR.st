@@ -40,7 +40,7 @@ VAR
   ms : UDINT;
   buf : ARRAY[0..1784] OF BYTE;
 END_VAR
-  ms := TIME_TO_UDINT(TIMEOUT);
+  ms := DWORD_TO_UDINT(TIME_TO_DWORD(TIMEOUT));
   IF ms > 65535 THEN
     ms := 65535;
   END_IF;
@@ -54,7 +54,7 @@ END_VAR
   END_IF;
   prev := EXECUTE;
   x(EXECUTE := EXECUTE AND refused = 0, OP := 14, NET := NETWORK, A0 := USINT_TO_WORD(DESTINATION),
-    A1 := SEL(PREVIOUS_ONLY, WORD#0, WORD#1), A2 := UDINT_TO_WORD(ms), A3 := 0, A4 := 0, A5 := 0, LENGTH := 0,
+    A1 := SEL(PREVIOUS_ONLY, WORD#0, WORD#1), A2 := UDINT_TO_WORD(ms), A3 := WORD#0, A4 := WORD#0, A5 := WORD#0, LENGTH := 0,
     FETCH_MAX := 0, LINK := LINK, DATA := buf);
   BUSY := x.BUSY;
   DONE := x.DONE;

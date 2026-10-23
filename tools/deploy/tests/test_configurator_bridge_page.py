@@ -10,8 +10,9 @@ test_configurator_page.py."""
 import json
 import os
 import shutil
+import zipfile
 
-from canworks import modbusmap, nodered
+from canworks import modbusmap, nodered, plcopen_targets
 from canworks.configurator import server as srv
 
 from .helpers import REPO, export_program, tree_view
@@ -157,6 +158,58 @@ class BridgePage(OnlineBase):
         pg.wait_for_timeout(300)
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page")
+
+    def test_plcopen_export(self):
+        """Export ▾ → For another PLC (PLCopen XML)… (plcopen-export): the PLC
+        link offered first as one undo step, the dialog per PLC, the zip
+        canworks-deploy --export-plcopen writes, the writers note, and the
+        loopback warning."""
+        pg = self.page
+        self.open()
+        self.to_bridge()
+        tree_view(pg, "bridge")
+        pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24")
+        self.checked()
+        self.assertNotIn("plc_link", pg.evaluate("() => S.model.top.bridge"))
+        export_program(pg, "plcopen")
+        pg.wait_for_selector("#modal[open] #modal-text:has-text('PLC link')")
+        pg.click('#modal-buttons button[data-value="link"]')
+        pg.wait_for_selector("#modal[open] [data-plcopen-dialog]")
+        self.assertTrue(pg.evaluate("() => S.model.top.bridge.plc_link"))
+        # CODESYS: the route line with its link, the CODESYS names, no main.
+        pg.select_option("[data-plcopen-plc]", "codesys")
+        self.assertTrue(pg.is_visible("[data-plcopen-codesys] a"))
+        self.assertTrue(pg.is_visible("[data-plcopen-device]"))
+        self.assertTrue(pg.is_hidden("[data-plcopen-main]"))
+        pg.select_option("[data-plcopen-plc]", "trust")
+        self.assertTrue(pg.is_hidden("[data-plcopen-codesys]"))
+        self.assertEqual(pg.get_attribute("[data-plcopen-host]", "placeholder"), "127.0.0.1")
+        pg.select_option("[data-plcopen-plc]", "codesys")
+        pg.fill("[data-plcopen-host]", "192.168.10.5")
+        pg.fill("[data-plcopen-address]", "192.168.20.7")
+        audit(pg, "PLCopen export dialog")
+        with pg.expect_download() as dl:
+            pg.click('#modal-buttons button[data-value="export"]')
+        self.assertEqual(dl.value.suggested_filename, "rtd-monitor-codesys.zip")
+        with zipfile.ZipFile(dl.value.path()) as z:
+            names = sorted(z.namelist())
+            plan = json.loads(z.read(plcopen_targets.CODESYS_PLAN))
+        self.assertEqual(names, ["README.txt", plcopen_targets.CODESYS_PLAN, "canworks.xml",
+                                 plcopen_targets.CODESYS_HELPER, plcopen_targets.CODESYS_SCRIPT])
+        self.assertEqual(plan["bridge"]["host"], "192.168.10.5")
+        pg.wait_for_selector("#banner:has-text('Exported rtd-monitor-codesys.zip')")
+        self.assertIn("192.168.20.7 is not one of them", pg.inner_text("#banner"))
+        # Turning the link on and its repack were one step.
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => !('plc_link' in S.model.top.bridge)")
+        pg.keyboard.press("Control+Shift+z")
+        pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
+        # A loopback listen: only the bridge's own device reaches it.
+        tree_view(pg, "bridge")
+        pg.fill('input[data-path="bridge.listen"]', "127.0.0.1")
+        self.checked()
+        self.assertIn("only a PLC on the bridge's own device can reach it", pg.inner_text("#problem-list"))
 
     def test_function_blocks_section(self):
         """The Function blocks section (add-bridge-mailboxes): off for a

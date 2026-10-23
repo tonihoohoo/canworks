@@ -29,6 +29,9 @@ jobs:
       # The configurator page tests' paths (.github/ci/ui-paths.txt) changed;
       # always true on main.
       ui: ${{ steps.classify.outputs.ui }}
+      # The PLCopen export's paths (.github/ci/plcopen-paths.txt) changed:
+      # the tools shard runs the truST import check; always true on main.
+      plcopen: ${{ steps.classify.outputs.plcopen }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -395,6 +398,18 @@ jobs:
       - name: CI change classification, test sharding and banned words
         if: matrix.shard == 1
         run: python -m unittest discover -v -s test/ci
+
+      - name: Cache the pinned truST release
+        if: matrix.shard == 1 && needs.changes.outputs.plcopen == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/canworks/trust
+          key: trust-${{ runner.os }}-${{ hashFiles('test/plcopen/fetch-trust.sh') }}
+
+      - name: PLCopen export imported and built by truST (the whole library, ~10 s)
+        if: matrix.shard == 1 && needs.changes.outputs.plcopen == 'true'
+        working-directory: tools/deploy
+        run: CANWORKS_TRUST="$("$GITHUB_WORKSPACE/test/plcopen/fetch-trust.sh")" python -m unittest -v tests.test_plcopen.TrustImport
 
   configurator-page:
     # The configurator's pages in Chromium (every test_*_page.py and the layout

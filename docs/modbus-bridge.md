@@ -136,6 +136,7 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `sdo_bridge_location` | none | The SDO registers: a 14-byte `request` block (`%QB...`) and a 14-byte `response` block (`%IB...`). |
 | `sdo_bridge_write` | false | Allow SDO writes through the SDO registers. |
 | `openplc` | none | OpenPLC's own Modbus master is the client ([OpenPLC through Modbus](#openplc-through-modbus)). |
+| `plc_link` | false (true with `openplc`) | The PLC link for any client: the map hash at input registers 0-1 and the header at holding registers 0-2, as for [OpenPLC](#openplc-through-modbus); needed by the [PLCopen XML export](plcopen.md). `false` with `openplc` is refused. |
 
 The bridge refuses a config without a `bridge` object, naming the configurator's **Switch to OpenPLC through Modbus** for a config made for the removed canworks plugin, and a CODESYS config.
 
@@ -330,7 +331,7 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 ## Clients
 
-**A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations. For a config with the PLC link (`openplc`), the `.st` export is instead the whole PLC link for that PLC: the `canworks` list with the channel variables, the channels to create, and `canworks_in`/`canworks_out`, so the [function blocks](plc-library.md#on-another-modbus-plc) work there as on OpenPLC.
+**A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations. For a config with the PLC link (`plc_link`, or `openplc`), the `.st` export is instead the whole PLC link for that PLC: the `canworks` list with the channel variables, the channels to create, and `canworks_in`/`canworks_out`, so the [function blocks](plc-library.md#on-another-modbus-plc) work there as on OpenPLC. A PLC that imports PLCopen XML (CODESYS-based tools, truST) gets all of it in one file with `--export-plcopen` ([plcopen.md](plcopen.md)).
 
 **Node-RED:** `canworks-deploy --export-nodered flow.json` (or **Export → Node-RED flow** in the configurator) writes a flow for `node-red-contrib-modbus` that reads and writes every value by name, keeps the watchdog fed and wraps the control and SDO registers ([node-red.md](node-red.md)).
 

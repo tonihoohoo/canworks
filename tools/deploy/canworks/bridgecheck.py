@@ -31,7 +31,7 @@ OPENPLC_POLL_MS = 10
 IMAGE_BYTES = 8192
 
 KEYS = ("listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms", "on_client_loss",
-        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc", "mailboxes")
+        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc", "plc_link", "mailboxes")
 OPENPLC_KEYS = ("poll_ms", "remote_device", "iec_base")
 
 # Every address may write: the explicit form `writers` needs for that.
@@ -48,6 +48,25 @@ def is_openplc(cfg):
     """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
     b = cfg.get("bridge") if isinstance(cfg, dict) else None
     return isinstance(b, dict) and isinstance(b.get("openplc"), dict)
+
+
+def has_plc_link(cfg):
+    """The PLC link header and map hash: `bridge.plc_link` or `bridge.openplc`."""
+    b = cfg.get("bridge") if isinstance(cfg, dict) else None
+    return isinstance(b, dict) and (isinstance(b.get("openplc"), dict) or b.get("plc_link") is True)
+
+
+def link_settings(cfg):
+    """The effective settings the generated link code needs: openplc_settings
+    for an openplc config, else the bridge's own (watchdog default 1000 ms)."""
+    if is_openplc(cfg):
+        return openplc_settings(cfg)
+    b = cfg.get("bridge") or {}
+    listen = b.get("listen") if isinstance(b.get("listen"), str) else ""
+    wd = _uint(b.get("watchdog_ms"))
+    return {"poll_ms": None, "remote_device": None, "iec_base": None, "listen": listen,
+            "port": int(listen.rsplit(":", 1)[1]) if _valid_listen(listen) else 502,
+            "watchdog_ms": 1000 if wd is None else wd}
 
 
 def openplc_settings(cfg):
@@ -184,6 +203,15 @@ def check_bridge(cfg, nets, err, warn):
         err("", "field 'bridge' must be an object", ["bridge"])
         return uses
     openplc = _openplc(b, w, err)
+    link = openplc
+    if "plc_link" in b:
+        if not isinstance(b["plc_link"], bool):
+            err(w, "field 'plc_link' must be true or false", [w + ".plc_link"])
+        elif openplc and not b["plc_link"]:
+            err(w, "field 'plc_link' can't be false with 'openplc': OpenPLC always uses the PLC link",
+                [w + ".plc_link"])
+        else:
+            link = link or b["plc_link"]
     listen = b.get("listen")
     if "listen" not in b:
         if not openplc:
@@ -221,10 +249,10 @@ def check_bridge(cfg, nets, err, warn):
     if "on_client_loss" in b and b["on_client_loss"] not in ("stop", "zero", "hold", "preop"):
         err(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\"", [w + ".on_client_loss"])
     loc = _block(b, "status_location", w, "I", STATUS_BYTES, err)
-    if openplc:
+    if link:
         if loc and loc.index != OPENPLC_STATUS_BYTE:
-            err(w, "field 'status_location' must be %IB4 with 'openplc' (input bytes 0-3 hold the map hash), or left "
-                   "out", [w + ".status_location"])
+            err(w, "field 'status_location' must be %%IB4 with '%s' (input bytes 0-3 hold the map hash), or left "
+                   "out" % ("openplc" if openplc else "plc_link"), [w + ".status_location"])
         loc = parse_location("%IB4")
     if loc:
         uses.append((loc, "bridge status_location", w + ".status_location", STATUS_BYTES))
@@ -283,10 +311,10 @@ def check_bridge(cfg, nets, err, warn):
     elif b.get("sdo_bridge_write") is True and "sdo_bridge_location" not in b:
         warn(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'", [w + ".sdo_bridge_write"])
     uses.extend(_mailboxes(b, w, len(nets), err))
-    if openplc:
-        uses.append((parse_location("%IB0"), "bridge map hash (openplc)", w + ".openplc", OPENPLC_HASH_BYTES))
-        uses.append((parse_location("%QB0"), "the PLC link header (openplc, output bytes 0-5)", w + ".openplc",
-                     OPENPLC_HEADER_BYTES))
+    if link:
+        where = w + (".openplc" if openplc else ".plc_link")
+        uses.append((parse_location("%IB0"), "bridge map hash (PLC link)", where, OPENPLC_HASH_BYTES))
+        uses.append((parse_location("%QB0"), "the PLC link header (output bytes 0-5)", where, OPENPLC_HEADER_BYTES))
     return uses
 
 

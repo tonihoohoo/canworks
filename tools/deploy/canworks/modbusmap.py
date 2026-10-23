@@ -38,7 +38,7 @@ BRIDGE_BLOCKS = {
 LIVE_LIST_BYTES = 16
 SDO_BRIDGE_BYTES = 14
 
-# bridge.openplc: the map hash at input bytes 0-3, the status block at input
+# bridge.openplc or bridge.plc_link: the map hash at input bytes 0-3, the status block at input
 # byte 4, the PLC link header (running, hash high, hash low) at output bytes
 # 0-5. Fixed places, packing starts after them.
 OPENPLC_HASH_BYTES = 4
@@ -67,6 +67,12 @@ def is_bridge_config(cfg):
 def is_openplc(cfg):
     """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
     return is_bridge_config(cfg) and isinstance(cfg["bridge"].get("openplc"), dict)
+
+
+def has_plc_link(cfg):
+    """The PLC link header and map hash in the image: `bridge.plc_link` true
+    or `bridge.openplc` (modbus-bridge spec)."""
+    return is_bridge_config(cfg) and (is_openplc(cfg) or cfg["bridge"].get("plc_link") is True)
 
 
 def word_order_of(cfg):
@@ -180,13 +186,13 @@ def _walk(value, ctx, out):
 
 def _bridge_items(bridge, networks=0):
     out = []
-    openplc = isinstance(bridge.get("openplc"), dict)
-    if openplc:
+    link = isinstance(bridge.get("openplc"), dict) or bridge.get("plc_link") is True
+    if link:
         out.append(_block_item({}, "location", "%IB0", "I", OPENPLC_HASH_BYTES, "bridge.map_hash", fixed=True))
         out.append(_block_item({}, "location", "%QB0", "Q", OPENPLC_HEADER_BYTES, "bridge.plc_link", fixed=True))
     for key, (area, nbytes) in BRIDGE_BLOCKS.items():
         text = bridge.get(key)
-        fixed = openplc and key == "status_location"
+        fixed = link and key == "status_location"
         if text is None and fixed:
             out.append(_block_item({}, key, OPENPLC_STATUS, area, nbytes, "bridge.status", fixed=True))
         if text is None:
@@ -412,26 +418,41 @@ def image_sizes(rows):
 def suggest_channels(rows):
     """Client channels that cover the used register ranges in as few requests
     as the Modbus limits allow: [(function, start, count, direction)].
-    Bits are covered by the registers they live in."""
-    used = {"input": set(), "output": set()}
+    Bits are covered by the registers they live in. A channel never cuts a
+    row (a value or a bridge block such as a mailbox, whose counter word must
+    come in the same request as its arguments); only a row longer than a
+    request is cut."""
+    spans = {"input": [], "output": []}
     for r in rows:
         if r["table"] in ("discrete input", "coil"):
-            used[r["direction"]].add(r["byte"] // 2)
+            first = last = r["byte"] // 2
         else:
-            used[r["direction"]].update(range(r["address"], r["address"] + r["count"]))
+            first, last = r["address"], r["address"] + r["count"] - 1
+        spans[r["direction"]].append((first, last))
     channels = []
     for direction, function, limit in (("input", 4, MAX_READ_REGISTERS),
                                        ("output", 16, MAX_WRITE_REGISTERS)):
-        regs = sorted(used[direction])
-        i = 0
-        while i < len(regs):
-            start = regs[i]
-            j = i
-            # Extend while the next used register still fits in this request.
-            while j + 1 < len(regs) and regs[j + 1] - start < limit:
-                j += 1
-            channels.append((function, start, regs[j] - start + 1, direction))
-            i = j + 1
+        # Rows that overlap or share a register are one unit.
+        units = []
+        for first, last in sorted(spans[direction]):
+            if units and first <= units[-1][1]:
+                units[-1][1] = max(units[-1][1], last)
+            else:
+                units.append([first, last])
+        start = end = None
+        for first, last in units:
+            if start is not None and last - start < limit:
+                end = last
+                continue
+            if start is not None:
+                channels.append((function, start, end - start + 1, direction))
+            # A unit longer than one request is cut at the limit.
+            while last - first >= limit:
+                channels.append((function, first, limit, direction))
+                first += limit
+            start, end = first, last
+        if start is not None:
+            channels.append((function, start, end - start + 1, direction))
     return channels
 
 
@@ -555,9 +576,12 @@ def pack(cfg):
     if not is_bridge_config(cfg):
         raise MapError("not a bridge config: it has no top-level \"bridge\" object")
     out = copy.deepcopy(cfg)
+    if has_plc_link(out) and "status_location" in out["bridge"]:
+        # The PLC link fixes the status block right after the map hash.
+        out["bridge"]["status_location"] = OPENPLC_STATUS
     items = [it for it in collect(out) if not it.extra.get("fixed")]
     for area in "IQ":
-        pos = OPENPLC_FIRST_FREE[area] if is_openplc(out) else 0
+        pos = OPENPLC_FIRST_FREE[area] if has_plc_link(out) else 0
         bit_byte = None
         bit_next = 8
         for kind in ("data", "status", "bridge"):

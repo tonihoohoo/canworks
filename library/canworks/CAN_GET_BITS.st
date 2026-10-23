@@ -22,13 +22,13 @@ VAR
   bitv : LWORD;
   v : LWORD;
 END_VAR
-  v := 0;
+  v := LWORD#0;
   pos := USINT_TO_INT(START_BIT);
   FOR i := 0 TO USINT_TO_INT(BIT_LENGTH) - 1 DO
     IF pos >= 0 AND pos < 64 THEN
-      bitv := BYTE_TO_LWORD(SHR(DATA[pos / 8], INT_TO_UINT(pos MOD 8)) AND 16#01);
+      bitv := BYTE_TO_LWORD(SHR(DATA[pos / 8], INT_TO_UINT(pos MOD 8)) AND BYTE#16#01);
     ELSE
-      bitv := 0;
+      bitv := LWORD#0;
     END_IF;
     IF MOTOROLA THEN
       v := SHL(v, 1) OR bitv;
@@ -43,8 +43,8 @@ END_VAR
     END_IF;
   END_FOR;
   IF SIGNED AND BIT_LENGTH > 0 AND BIT_LENGTH < 64 THEN
-    IF (SHR(v, USINT_TO_UINT(BIT_LENGTH) - 1) AND 16#01) = 1 THEN
-      v := v OR SHL(LWORD#16#FFFFFFFFFFFFFFFF, USINT_TO_UINT(BIT_LENGTH));
+    IF (SHR(v, USINT_TO_UINT(BIT_LENGTH) - 1) AND LWORD#16#01) = LWORD#1 THEN
+      v := v OR SHL((NOT LWORD#0), USINT_TO_UINT(BIT_LENGTH));
     END_IF;
   END_IF;
   CAN_GET_BITS := LWORD_TO_LINT(v);

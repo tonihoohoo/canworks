@@ -43,7 +43,7 @@ void write_bit(std::vector<uint8_t>& img, unsigned bit, bool on) {
     img[bit / 8] &= static_cast<uint8_t>(~mask);
 }
 
-// The PLC link header (openplc): its bytes are always written; the bytes
+// The PLC link header (plc_link): its bytes are always written; the bytes
 // past it only while the header, as written so far, is ok.
 bool may_write_byte(const ByteImage::Access& a, size_t byte) {
   return byte < a.link_bytes() || a.link_bytes() == 0 || a.link_state() == ByteImage::Link::kOk;

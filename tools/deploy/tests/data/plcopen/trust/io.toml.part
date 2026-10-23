@@ -1,0 +1,15 @@
+# truST io.toml for canworks-bridge (canworks-deploy --export-plcopen --for trust).
+# Replace the [io] tables of the project's io.toml with these. The driver reads input
+# registers 0..32 into %IB0.. and writes %QB0.. into holding registers 0..15 every cycle;
+# canworks_in and canworks_out copy them to and from canworks.in_w and canworks.out_w.
+[io]
+driver = "modbus-tcp"
+
+[io.params]
+address = "127.0.0.1:1502"
+unit_id = 1
+input_start = 0
+output_start = 0
+timeout_ms = 500
+# canworks.ok goes FALSE when the bridge stops answering; keep the PLC running.
+on_error = "warn"

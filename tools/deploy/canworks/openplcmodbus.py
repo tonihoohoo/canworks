@@ -70,8 +70,9 @@ class OpenplcError(ValueError):
 
 
 def settings(cfg):
-    """bridgecheck.openplc_settings plus the unit id."""
-    out = bridgecheck.openplc_settings(cfg)
+    """bridgecheck.link_settings (openplc_settings for an openplc config)
+    plus the unit id."""
+    out = bridgecheck.link_settings(cfg)
     unit = cfg["bridge"].get("unit_id", 1)
     out["unit_id"] = unit if isinstance(unit, int) and not isinstance(unit, bool) else 1
     return out
@@ -266,7 +267,8 @@ def _raw(area, reg):
 
 
 def _hex(v):
-    return "16#%04X" % v
+    """A WORD literal: typed, as strict IEC checkers (CODESYS, truST) want."""
+    return "WORD#16#%04X" % v
 
 
 def _in_expr(d, loc, iec, raw=_raw):
@@ -276,9 +278,9 @@ def _in_expr(d, loc, iec, raw=_raw):
     w = raw("I", reg)
     if loc.size == "X":
         bit = loc.bit + (8 if loc.index % 2 == 0 else 0)
-        return "(%s AND %s) <> 0" % (w, _hex(1 << bit))
+        return "(%s AND %s) <> WORD#0" % (w, _hex(1 << bit))
     if loc.size == "B":
-        byte = "SHR(%s, 8)" % w if loc.index % 2 == 0 else "(%s AND 16#00FF)" % w
+        byte = "SHR(%s, 8)" % w if loc.index % 2 == 0 else "(%s AND WORD#16#00FF)" % w
         return byte if t == "WORD" else "WORD_TO_%s(%s)" % (t, byte)
     if loc.size == "W":
         return w if t == "WORD" else "WORD_TO_%s(%s)" % (t, w)
@@ -304,10 +306,11 @@ def _out_parts(d, loc, iec, temps):
     high = loc.index % 2 == 0
     if loc.size == "X":
         bit = loc.bit + (8 if high else 0)
-        return [(reg, "SHL(BOOL_TO_WORD(%s), %d)" % (v, bit) if bit else "BOOL_TO_WORD(%s)" % v)]
+        # SEL, not BOOL_TO_WORD: truST has no BOOL to WORD conversion.
+        return [(reg, "SEL(%s, WORD#0, %s)" % (v, _hex(1 << bit)))]
     if loc.size == "B":
         word = v if t == "WORD" else "%s_TO_WORD(%s)" % (t, v)
-        word = "(%s AND 16#00FF)" % word
+        word = "(%s AND WORD#16#00FF)" % word
         return [(reg, "SHL(%s, 8)" % word if high else word)]
     if loc.size == "W":
         return [(reg, v if t == "WORD" else "%s_TO_WORD(%s)" % (t, v))]
@@ -421,6 +424,13 @@ def _used_registers(cfg):
     return used
 
 
+def channel_sizes(cfg):
+    """{"I": n, "Q": n}: the length of canworks.in_w and canworks.out_w, up
+    to the last used input and holding register."""
+    used = _used_registers(cfg)
+    return {a: max([r for (x, r) in used if x == a] or [0]) + 1 for a in "IQ"}
+
+
 def _channel_word(area, reg):
     return "%s.%s[%d]" % (LIST_NAME, "in_w" if area == "I" else "out_w", reg)
 
@@ -432,8 +442,9 @@ def programs(cfg, decls, iec_base=None, other=False):
     %IW/%QW locals."""
     s = settings(cfg)
     if other:
-        if not modbusmap.is_openplc(cfg):
-            raise OpenplcError("not a PLC link config: its bridge has no \"openplc\" object")
+        if not modbusmap.has_plc_link(cfg):
+            raise OpenplcError("not a PLC link config: turn on the bridge's PLC link (\"plc_link\": true) and "
+                               "run Pack for Modbus")
         groups, where, raw = [], dict.fromkeys(_used_registers(cfg)), _channel_word
     else:
         groups, where = layout(cfg, decls, iec_base)
@@ -461,7 +472,7 @@ def programs(cfg, decls, iec_base=None, other=False):
     for net, _ in live:
         if net < LINK_NETWORKS:
             flags |= 1 << (8 + net)
-    body.append("%s.link[%d] := %s OR BOOL_TO_WORD(%s.ok);" % (LIST_NAME, LINK_FLAGS, _hex(flags), LIST_NAME))
+    body.append("%s.link[%d] := %s OR SEL(%s.ok, WORD#0, WORD#1);" % (LIST_NAME, LINK_FLAGS, _hex(flags), LIST_NAME))
     for k in range(4):
         body.append("%s.link[%d] := %s;" % (LIST_NAME, LINK_STATUS + k, raw("I", 2 + k)))
     if "sdo_rsp" in blocks:
@@ -514,12 +525,12 @@ def programs(cfg, decls, iec_base=None, other=False):
     for reg in out_regs:
         if reg < 3:
             continue
-        exprs = parts.get(reg) or ["0"]
+        exprs = parts.get(reg) or ["WORD#0"]
         body.append("%s := %s;" % (raw("Q", reg), " OR ".join(exprs)))
     body.append("(* PLC link header, last: running, then the map hash 0x%08x *)" % h)
     body.append("%s := %s;" % (raw("Q", 1), _hex(h >> 16)))
     body.append("%s := %s;" % (raw("Q", 2), _hex(h & 0xFFFF)))
-    body.append("%s := 1;" % raw("Q", 0))
+    body.append("%s := WORD#1;" % raw("Q", 0))
     out_vars = [] if other else [_raw_block("Q", where, out_regs, {r: names.get(("Q", r), "") for r in out_regs})]
     if temps:
         out_vars.append(declare.editor_block([{"name": name, "type": type_} for name, type_, _ in temps]))
@@ -551,8 +562,7 @@ def other_plc_st(cfg, decls):
     channel variables `in_w` and `out_w`, the client channels to map onto
     them, and canworks_in and canworks_out (modbus-bridge-map spec)."""
     in_st, out_st = programs(cfg, decls, other=True)
-    used = _used_registers(cfg)
-    last = {a: max([r for (x, r) in used if x == a] or [0]) for a in "IQ"}
+    last = {a: n - 1 for a, n in channel_sizes(cfg).items()}
     rows = modbusmap.register_map(cfg)
     lines = ["(* canworks PLC link for a Modbus PLC: the bridge's Modbus TCP port %d, unit %d, word order %s, map hash"
              % (settings(cfg)["port"], settings(cfg)["unit_id"], modbusmap.word_order_of(cfg)),

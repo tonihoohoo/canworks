@@ -23,7 +23,7 @@ constexpr unsigned kSdoResponseBytes = 14;
 
 // Status block byte 0.
 // 4: the PLC link header names another map hash, 5: the PLC link header says
-// the PLC stopped (openplc configs).
+// the PLC stopped (PLC link configs).
 enum class OutputState : uint8_t { kRunning = 1, kWatchdog = 2, kIdle = 3, kMismatch = 4, kPlcStopped = 5 };
 // on_client_loss: what outputs off means.
 enum class LossAction : uint8_t { kStop, kZero, kHold };
@@ -40,7 +40,7 @@ class OutputSupervisor {
   bool tick(Clock::time_point now);
   bool idle();
   bool run(Clock::time_point now);
-  // The PLC link header's state (openplc): off for mismatch or PLC stopped,
+  // The PLC link header's state (plc_link): off for mismatch or PLC stopped,
   // and back to running on an ok header.
   bool link_off(OutputState why) { return set(why); }
 

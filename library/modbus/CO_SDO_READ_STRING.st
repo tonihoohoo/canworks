@@ -53,7 +53,7 @@ END_VAR
   IF x.DONE AND NOT was THEN
     nchars := UINT_TO_INT(x.GOT);
     FOR i := UINT_TO_INT(x.GOT) - 1 TO 0 BY -1 DO
-      IF buf[i] = 0 THEN
+      IF buf[i] = BYTE#0 THEN
         nchars := i;
       END_IF;
     END_FOR;

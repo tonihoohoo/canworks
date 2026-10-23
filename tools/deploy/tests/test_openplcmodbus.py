@@ -178,16 +178,16 @@ class Programs(unittest.TestCase):
         self.assertTrue(self.out_st.startswith("PROGRAM canworks_out\n"))
         self.assertIn("i6  : WORD AT %IW106;", self.in_st)
         self.assertIn("canworks.rtd_AI0_Input_PV := WORD_TO_INT(i6);", self.in_st)
-        self.assertIn("canworks.ok := i0 = 16#D4FD AND i1 = 16#FC35 AND NOT stale.Q;", self.in_st)
+        self.assertIn("canworks.ok := i0 = WORD#16#D4FD AND i1 = WORD#16#FC35 AND NOT stale.Q;", self.in_st)
 
     def test_header_written_last(self):
         lines = self.out_st.rstrip().splitlines()
-        self.assertEqual(lines[-3:], ["q0 := 1;", "", "END_PROGRAM"])
-        self.assertIn("q1 := 16#D4FD;", self.out_st)
-        self.assertIn("q2 := 16#FC35;", self.out_st)
+        self.assertEqual(lines[-3:], ["q0 := WORD#1;", "", "END_PROGRAM"])
+        self.assertIn("q1 := WORD#16#D4FD;", self.out_st)
+        self.assertIn("q2 := WORD#16#FC35;", self.out_st)
 
     def test_link_words(self):
-        self.assertIn("canworks.link[21] := 16#0106 OR BOOL_TO_WORD(canworks.ok);", self.in_st)
+        self.assertIn("canworks.link[21] := WORD#16#0106 OR SEL(canworks.ok, WORD#0, WORD#1);", self.in_st)
         self.assertIn("canworks.link[25] := i18;", self.in_st)
         self.assertIn("q6 := canworks.link[4];", self.out_st)
         self.assertIn("q15 := canworks.link[13];", self.out_st)
@@ -198,12 +198,12 @@ class Programs(unittest.TestCase):
         del cfg["networks"][0]["name"]
         cfg["bridge"]["live_lists"][0]["network"] = "sim0"
         in_st, _ = openplcmodbus.programs(cfg, decls(cfg))
-        self.assertIn("canworks.link[21] := 16#0106 OR BOOL_TO_WORD(canworks.ok);", in_st)
+        self.assertIn("canworks.link[21] := WORD#16#0106 OR SEL(canworks.ok, WORD#0, WORD#1);", in_st)
         self.assertIn("canworks.link[25] := i18;", in_st)
 
     def test_shared_register(self):
-        self.assertIn("q3 := SHL((USINT_TO_WORD(canworks.dio_Write_output_8_bit_1) AND 16#00FF), 8) OR "
-                      "(USINT_TO_WORD(canworks.dio_Write_output_8_bit_2) AND 16#00FF);", self.out_st)
+        self.assertIn("q3 := SHL((USINT_TO_WORD(canworks.dio_Write_output_8_bit_1) AND WORD#16#00FF), 8) OR "
+                      "(USINT_TO_WORD(canworks.dio_Write_output_8_bit_2) AND WORD#16#00FF);", self.out_st)
 
     def test_global_list(self):
         lst = openplcmodbus.global_list(self.decls)
@@ -246,7 +246,7 @@ class Mailboxes(unittest.TestCase):
         self.assertTrue(all(g.count <= 125 for g in self.groups))
 
     def test_link_copies(self):
-        self.assertIn("canworks.link[89] := 16#0431;", self.in_st)
+        self.assertIn("canworks.link[89] := WORD#16#0431;", self.in_st)
         self.assertIn("canworks.link[216] := i33;", self.in_st)    # mailbox 0 response word 0
         self.assertIn("canworks.link[287] := i104;", self.in_st)   # its last word
         self.assertIn("canworks.link[720] := i105;", self.in_st)   # receive mailbox
@@ -263,7 +263,7 @@ class Mailboxes(unittest.TestCase):
         cfg = load()
         cfg["bridge"]["mailboxes"].update({"requests": 2, "receive": False, "network_info": False, "cyclic_jobs": 0})
         in_st, out_st = openplcmodbus.programs(cfg, decls(cfg))
-        self.assertIn("canworks.link[89] := 16#0002;", in_st)
+        self.assertIn("canworks.link[89] := WORD#16#0002;", in_st)
         self.assertIn("canworks.link[360] := i105;", in_st)  # mailbox 1 response
         self.assertNotIn("canworks.link[720]", in_st)
 
@@ -285,17 +285,17 @@ class OtherPlc(unittest.TestCase):
         self.assertIn("  link : ARRAY[0..1279] OF WORD;", self.text)
         self.assertIn("  in_w : ARRAY[0..259] OF WORD; (* input registers 0..259, read with function 4 *)", self.text)
         self.assertIn("  out_w : ARRAY[0..94] OF WORD;", self.text)
-        self.assertIn("function 4  registers 0..124 -> canworks.in_w[0..124]", self.text)
+        self.assertIn("function 4  registers 0..104 -> canworks.in_w[0..104]", self.text)
         self.assertIn("function 16 registers 0..94 -> canworks.out_w[0..94]", self.text)
         self.assertIn("global variable list named canworks", self.text)
 
     def test_programs_over_the_channel_variables(self):
         self.assertNotIn(" AT %", self.text)
-        self.assertIn("canworks.ok := canworks.in_w[0] = 16#FF0E AND canworks.in_w[1] = 16#E490", self.text)
+        self.assertIn("canworks.ok := canworks.in_w[0] = WORD#16#FF0E AND canworks.in_w[1] = WORD#16#E490", self.text)
         self.assertIn("canworks.link[216] := canworks.in_w[33];", self.text)
         self.assertIn("link_service(LINK := canworks.link);", self.text)
         self.assertIn("canworks.out_w[16] := canworks.link[144];", self.text)
-        self.assertTrue(self.text.rstrip().endswith("canworks.out_w[0] := 1;\n\nEND_PROGRAM"))
+        self.assertTrue(self.text.rstrip().endswith("canworks.out_w[0] := WORD#1;\n\nEND_PROGRAM"))
         self.assertIn("export the map again", self.text)
 
     def test_cli(self):

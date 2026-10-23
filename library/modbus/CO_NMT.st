@@ -48,8 +48,8 @@ VAR
   err : UINT;
   fin : BOOL;
 END_VAR
-  IF me = 0 THEN
-    LINK[24] := LINK[24] + 1;
+  IF me = WORD#0 THEN
+    LINK[24] := UINT_TO_WORD(WORD_TO_UINT(LINK[24]) + 1);
     me := LINK[24];
   END_IF;
   IF phase = 3 AND NOT EXECUTE THEN
@@ -65,19 +65,19 @@ END_VAR
     ERROR_ID := 0;
     timer(IN := FALSE);
     CASE COMMAND OF
-      1: cmd := 3;
-      2: cmd := 4;
-      128: cmd := 5;
-      129: cmd := 6;
-      130: cmd := 7;
+      1: cmd := WORD#3;
+      2: cmd := WORD#4;
+      128: cmd := WORD#5;
+      129: cmd := WORD#6;
+      130: cmd := WORD#7;
     ELSE
-      cmd := 0;
+      cmd := WORD#0;
     END_CASE;
-    IF (LINK[21] AND 16#0001) = 0 THEN
+    IF (LINK[21] AND WORD#16#0001) = WORD#0 THEN
       err := 20;
-    ELSIF (LINK[21] AND 16#0002) = 0 THEN
+    ELSIF (LINK[21] AND WORD#16#0002) = WORD#0 THEN
       err := 22;
-    ELSIF cmd = 0 OR NODE > 127 THEN
+    ELSIF cmd = WORD#0 OR NODE > 127 THEN
       err := 6;
     ELSE
       phase := 1;
@@ -85,24 +85,24 @@ END_VAR
   END_IF;
   IF phase = 1 OR phase = 2 THEN
     timer(IN := TRUE, PT := SEL(TIMEOUT = T#0s, TIMEOUT, T#5s));
-    IF (LINK[21] AND 16#0001) = 0 THEN
+    IF (LINK[21] AND WORD#16#0001) = WORD#0 THEN
       err := 20;
     ELSIF timer.Q THEN
       err := 2;
-    ELSIF phase = 1 AND (LINK[22] = 0 OR LINK[22] = me) THEN
+    ELSIF phase = 1 AND (LINK[22] = WORD#0 OR LINK[22] = me) THEN
       LINK[22] := me;
-      counter := LINK[2] + 1;
+      counter := UINT_TO_WORD(WORD_TO_UINT(LINK[2]) + 1);
       LINK[4] := counter;
       LINK[5] := SHL(cmd, 8) OR USINT_TO_WORD(NETWORK);
       LINK[6] := SHL(USINT_TO_WORD(NODE), 8);
       phase := 2;
     ELSIF phase = 2 AND LINK[2] = counter THEN
       result := SHR(LINK[3], 8);
-      IF result = 0 THEN
+      IF result = WORD#0 THEN
         fin := TRUE;
-      ELSIF result = 5 THEN
+      ELSIF result = WORD#5 THEN
         err := 5;
-      ELSIF result = 6 THEN
+      ELSIF result = WORD#6 THEN
         err := 8;              (* the bridge restarted and did not run it *)
       ELSE
         err := 6;
@@ -116,7 +116,7 @@ END_VAR
     ERROR_ID := err;
     timer(IN := FALSE);
     IF LINK[22] = me THEN
-      LINK[22] := 0;
+      LINK[22] := WORD#0;
     END_IF;
   END_IF;
   BUSY := phase = 1 OR phase = 2;

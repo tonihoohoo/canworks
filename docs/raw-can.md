@@ -133,7 +133,7 @@ A message may have several switches, also nested (the DBC's `mNM` with `SG_MUL_V
 
 ```
 rx(ENABLE := TRUE, ID := 16#390, RX_DATA := frame);
-WHILE rx.NEW DO
+WHILE rx.RECEIVED DO
   CASE LINT_TO_USINT(CAN_GET_BITS(DATA := frame, START_BIT := 0, BIT_LENGTH := 8, MOTOROLA := FALSE, SIGNED := FALSE)) OF
     1: temp := LINT_TO_INT(CAN_GET_BITS(DATA := frame, START_BIT := 8, BIT_LENGTH := 8, MOTOROLA := FALSE, SIGNED := FALSE));
     2: press := LINT_TO_INT(CAN_GET_BITS(DATA := frame, START_BIT := 8, BIT_LENGTH := 16, MOTOROLA := FALSE, SIGNED := FALSE));
@@ -204,7 +204,7 @@ VAR
 END_VAR
 
 rx(ENABLE := TRUE, ID := 16#600, MASK := 16#780, RX_DATA := frame, LINK := canworks.link);  (* 0x600..0x67F *)
-WHILE rx.NEW DO
+WHILE rx.RECEIVED DO
   IF rx.RX_ID = 16#605 THEN
     last_temp := CAN_GET_UINT16(DATA := frame, OFFSET := 2, MOTOROLA := FALSE);
   END_IF;
@@ -212,7 +212,7 @@ WHILE rx.NEW DO
 END_WHILE;
 ```
 
-While `ENABLE` is TRUE the bridge queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256), and shows them in batches in its receive mailbox. `MASK` 0 means only `ID` itself; `ANY := TRUE` takes every frame. Each call takes at most one frame of the current batch: `NEW` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, `RX_DATA` and `TIMESTAMP` (UTC microseconds from the kernel), or `NEW` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.NEW DO` loop reads the batch's frames in one scan; the next batch comes in a later scan, and `QUEUED` says how many frames still wait in the bridge. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the bridge sends itself are not queued. Call every enabled receiver every scan: a receiver whose frames wait unread for 1 s is closed (`ERROR_ID` 8, it opens again on the next call), so it does not hold up the others. On a plain CAN network, frames other programs on the PLC host send (`cansend`, for example) are queued like frames from the bus; on a CANopen or J1939 network they are not, because the kernel marks them the same way as the protocol's own frames. All networks together have at most 32 receivers (`CAN_RECEIVE`, `J1939_RECEIVE` and `CO_RECV_EMCY`).
+While `ENABLE` is TRUE the bridge queues every frame of the given format whose `(identifier AND MASK) = (ID AND MASK)`, up to `DEPTH` frames (`0` = 32, at most 256), and shows them in batches in its receive mailbox. `MASK` 0 means only `ID` itself; `ALL_IDS := TRUE` takes every frame. Each call takes at most one frame of the current batch: `RECEIVED` TRUE with its `RX_ID`, `RX_EXTENDED`, `RX_RTR`, `RX_DLC`, `RX_DATA` and `TIMESTAMP` (UTC microseconds from the kernel), or `RECEIVED` FALSE with the last frame's outputs kept. Calling it in a `WHILE rx.RECEIVED DO` loop reads the batch's frames in one scan; the next batch comes in a later scan, and `QUEUED` says how many frames still wait in the bridge. A frame arriving at a full queue is dropped, sets `OVERFLOW` until `ENABLE` falls and counts in `DROPPED`. Frames the bridge sends itself are not queued. Call every enabled receiver every scan: a receiver whose frames wait unread for 1 s is closed (`ERROR_ID` 8, it opens again on the next call), so it does not hold up the others. On a plain CAN network, frames other programs on the PLC host send (`cansend`, for example) are queued like frames from the bus; on a CANopen or J1939 network they are not, because the kernel marks them the same way as the protocol's own frames. All networks together have at most 32 receivers (`CAN_RECEIVE`, `J1939_RECEIVE` and `CO_RECV_EMCY`).
 
 ### `CAN_BUS_INFO`
 

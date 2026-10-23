@@ -403,6 +403,110 @@ async function bridgePack() {
   }
 }
 
+// Export → For another PLC (PLCopen XML)…: the folder `canworks-deploy
+// --export-plcopen DIR --for <plc>` writes, as a zip (plcopen-export). The
+// config needs the PLC link: offered first, with Pack for Modbus, one undo step.
+const PLCOPEN_PLCS = [["codesys", "CODESYS (Modbus client of the bridge)"], ["trust", "truST"],
+  ["generic", "Other PLC with PLCopen XML"]];
+const PLCOPEN_WILDCARD = ["", "0.0.0.0", "::", "*"];
+
+function plcopenDefaultHost(plc) {
+  const host = bridgeSplitListen(getPath("bridge.listen") || "")[0];
+  const loopback = host === "localhost" || host === "::1" || host.startsWith("127.");
+  if (PLCOPEN_WILDCARD.includes(host)) return plc === "trust" ? "127.0.0.1" : "";
+  return plc === "codesys" && loopback ? "" : host;
+}
+
+async function plcLinkOn() {
+  const cfg = fileConfig();
+  cfg.bridge.plc_link = true;
+  try {
+    const r = await api("POST", "/api/bridge/pack", { config: cfg });
+    bridgeReplaceDraft(r.config);
+    changed(true);
+    return true;
+  } catch (e) {
+    banner(`Pack for Modbus failed: ${e.message}`, true);
+    return false;
+  }
+}
+
+async function exportPlcopen() {
+  if (getPath("bridge.plc_link") !== true) {
+    const v = await modal("Another PLC needs the bridge's PLC link: the bridge then puts its map hash at input " +
+      "registers 0-1 and takes a header at holding registers 0-2, so a program built for another map leaves the " +
+      "outputs off. Turn it on and run Pack for Modbus? Undo takes both back.",
+    [["cancel", "Cancel"], ["link", "Turn on the PLC link and repack", true]]);
+    if (v !== "link" || !await plcLinkOn()) return;
+  }
+  const plc = el("select", { id: "plcopen-plc", dataset: { plcopenPlc: "1" } },
+    ...PLCOPEN_PLCS.map(([v, label]) => el("option", { value: v }, label)));
+  const host = el("input", { type: "text", id: "plcopen-host", spellcheck: "false", dataset: { plcopenHost: "1" } });
+  const address = el("input", { type: "text", id: "plcopen-address", spellcheck: "false", placeholder: "optional",
+    dataset: { plcopenAddress: "1" } });
+  const library = el("input", { type: "checkbox", checked: true, dataset: { plcopenLibrary: "1" } });
+  const main = el("input", { type: "checkbox", dataset: { plcopenMain: "1" } });
+  const plcName = el("input", { type: "text", id: "plcopen-device", spellcheck: "false", placeholder: "the active application's device",
+    dataset: { plcopenDevice: "1" } });
+  const ethernet = el("input", { type: "text", id: "plcopen-ethernet", spellcheck: "false", placeholder: "the PLC's only one, or a new one",
+    dataset: { plcopenEthernet: "1" } });
+  const codesysNote = el("p", { class: "hint", dataset: { plcopenCodesys: "1" } },
+    "CODESYS reads and writes the bridge's registers; canworks-bridge still runs the CAN networks. To let CODESYS run " +
+    "the CANopen master itself, ", el("a", { href: "#", onclick: (e) => {
+      e.preventDefault();
+      $("#modal").close();
+      switchWorkspace("configure");
+      showView("project");
+    } }, "switch the project target to CODESYS"), ".");
+  const codesysFields = el("div", { class: "grid", dataset: { plcopenCodesysFields: "1" } },
+    el("div", { class: "field" }, el("label", { for: "plcopen-device" }, "PLC device in CODESYS"), plcName),
+    el("div", { class: "field" }, el("label", { for: "plcopen-ethernet" }, "Ethernet adapter in CODESYS"), ethernet));
+  const mainField = el("label", { class: "check" }, main, " Add an empty main program to the task");
+  const hostHint = el("span", { class: "hint" });
+  const update = () => {
+    const v = plc.value;
+    codesysNote.hidden = codesysFields.hidden = v !== "codesys";
+    mainField.hidden = v === "codesys";
+    host.placeholder = plcopenDefaultHost(v) || "the bridge's address as the PLC sees it";
+    hostHint.textContent = v === "trust" ? "truST's driver moves one request each way: configs with the default mailboxes are refused, with how to trim them."
+      : v === "generic" ? "The README lists the Modbus client channels to set up." : "";
+  };
+  plc.onchange = update;
+  update();
+  const extra = el("div", { dataset: { plcopenDialog: "1" } },
+    el("div", { class: "field" }, el("label", { for: "plcopen-plc" }, "PLC"), plc), codesysNote,
+    el("div", { class: "field" }, el("label", { for: "plcopen-host" }, "Bridge address the PLC uses"), host, hostHint),
+    el("div", { class: "field" }, el("label", { for: "plcopen-address" }, "PLC's own address"), address,
+      hint("Checked against the bridge's writers: the bridge takes writes only from those.")),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, library, " Include the canworks library")),
+    el("div", { class: "check-field" }, mainField), codesysFields);
+  for (;;) {
+    const v = await modal("Export the canworks variables, copy programs and function blocks as PLCopen XML, with what " +
+      "connects them to the bridge on that PLC.", [["cancel", "Cancel"], ["export", "Export", true]], extra);
+    if (v !== "export") return;
+    const target = plc.value;
+    if (target === "codesys" && !host.value.trim() && !plcopenDefaultHost(target)) {
+      host.focus();
+      banner("Give the bridge's address as the CODESYS PLC sees it: the bridge listens on every interface or on loopback.", true);
+      continue;
+    }
+    const cfg = fileConfig();
+    try {
+      const r = await busy($("#menu-export > summary"), "Exporting…", () => api("POST", "/api/export_plcopen", {
+        config: cfg, target, host: host.value, library: library.checked, with_main: main.checked,
+        plc: plcName.value, ethernet: ethernet.value, plc_address: address.value }));
+      if (!r) return;
+      if (r.errors) { exportStopped("PLCopen XML", r, cfg); return; }
+      downloadBase64(r.data, r.name, r.content_type);
+      const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
+      banner(`Exported ${r.name}: unzip it and follow README.txt.${notes}`, notes ? "warning" : "done");
+    } catch (e) {
+      banner(e.message, true);
+    }
+    return;
+  }
+}
+
 // Downloads the file `canworks-deploy --export-modbus-map map.<fmt>` writes for the draft
 // (`--export-nodered <folder>_node-red.json` for "nodered").
 async function bridgeExport(fmt) {

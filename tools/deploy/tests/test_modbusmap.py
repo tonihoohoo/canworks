@@ -144,6 +144,20 @@ class Channels(unittest.TestCase):
         self.assertEqual(modbusmap.suggest_channels(rows),
                          [(4, 0, 125, "input"), (4, 125, 25, "input"), (16, 0, 20, "output")])
 
+    def test_a_block_stays_in_one_request(self):
+        # Two request mailboxes (72 registers each) after 16 registers: the
+        # second must not be split at register 123, or a client could send
+        # its counter word before its arguments.
+        def row(a, n):
+            return {"table": "holding register", "address": a, "count": n, "direction": "output", "byte": 2 * a}
+        rows = [row(a, 1) for a in range(16)] + [row(16, 72), row(88, 72), row(160, 3)]
+        self.assertEqual(modbusmap.suggest_channels(rows), [(16, 0, 88, "output"), (16, 88, 75, "output")])
+
+    def test_a_row_longer_than_a_request_is_cut(self):
+        rows = [{"table": "input register", "address": 0, "count": 300, "direction": "input", "byte": 0}]
+        self.assertEqual(modbusmap.suggest_channels(rows),
+                         [(4, 0, 125, "input"), (4, 125, 125, "input"), (4, 250, 50, "input")])
+
     def test_bits_need_their_register(self):
         rows = [{"table": "coil", "address": 801, "count": 1, "direction": "output", "byte": 100}]
         self.assertEqual(modbusmap.suggest_channels(rows), [(16, 50, 1, "output")])
@@ -192,6 +206,15 @@ class Pack(unittest.TestCase):
         self.assertEqual(rows["field.state"]["location"], "%IB8")
         self.assertEqual(rows["bridge.status"]["location"], "%IB12")
         self.assertEqual(rows["bridge.control"]["location"], "%QB8")
+
+    def test_pack_with_the_plc_link_moves_the_status_block(self):
+        cfg = load()
+        cfg["bridge"]["plc_link"] = True
+        packed = modbusmap.pack(cfg)
+        self.assertEqual(packed["bridge"]["status_location"], "%IB4")
+        rows = by_name(modbusmap.register_map(packed))
+        self.assertEqual(rows["sensor.0x6000:1"]["location"], "%ID12")
+        self.assertEqual(rows["sensor.0x6200:1"]["location"], "%QW6")
 
     def test_pack_mixed_config_is_dense_and_clean(self):
         cfg = load(VIRTUAL_PLANT)

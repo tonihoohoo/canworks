@@ -10,12 +10,14 @@ import copy
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
 import unittest
+import zipfile
 
-from canworks import cli, editorproject, mainmove, modbusmap, openplcmodbus, plclibrary
+from canworks import cli, editorproject, mainmove, modbusmap, openplcmodbus, plclibrary, plcopen_targets
 from canworks.configurator import server as srv
 
 from .helpers import REPO, tmpdir
@@ -221,6 +223,52 @@ class Export(Base):
         status, data = self.request("/api/bridge/export", {"config": self.cfg, "format": "xlsx"})
         self.assertEqual(status, 400)
         self.assertIn("csv, json, st or nodered", data["error"])
+
+
+class Plcopen(Base):
+    """Export → For another PLC (PLCopen XML)… (plcopen-export)."""
+
+    def linked(self):
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["plc_link"] = True
+        return self.ok("/api/bridge/pack", {"config": cfg})["config"]
+
+    def test_same_files_as_the_deploy_tool(self):
+        self.open()
+        cfg = self.linked()
+        r = self.ok("/api/export_plcopen", {"config": cfg, "target": "codesys", "host": "192.168.10.5",
+                                            "plc_address": "192.168.99.1"})
+        self.assertEqual((r["errors"], r["name"], r["content_type"]), (0, "pump-station-codesys.zip", "application/zip"))
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(r["data"]))) as z:
+            got = {n: z.read(n).decode() for n in z.namelist()}
+        path = os.path.join(self.folder, "canworks.json")
+        want = plcopen_targets.files(cfg, editorproject.declarations(cfg, path), "codesys", host="192.168.10.5",
+                                     config_name="canworks.json")
+        # The XML's creation time differs between the two runs.
+        strip = lambda s: re.sub(r'creationDateTime="[^"]*"', "", s)
+        self.assertEqual({n: strip(v) for n, v in got.items()}, {n: strip(v) for n, v in want.items()})
+        self.assertEqual(len(r["notes"]), 1)
+        self.assertIn("192.168.99.1 is not one of them", r["notes"][0])
+
+    def test_refusals(self):
+        self.open()
+        r = self.ok("/api/export_plcopen", {"config": self.cfg, "target": "generic"})
+        self.assertEqual(r["errors"], 1)
+        self.assertIn("turn it on", r["items"][0]["message"])
+        status, data = self.request("/api/export_plcopen", {"config": self.cfg, "target": "twincat"})
+        self.assertEqual(status, 400)
+        r = self.ok("/api/export_plcopen", {"config": self.linked(), "target": "codesys"})
+        self.assertIn("bridge's address as the PLC sees it", r["items"][0]["message"])
+
+    def test_loopback_listen_warning(self):
+        self.open()
+        cfg = self.linked()
+        cfg["bridge"]["listen"] = "127.0.0.1:502"
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        self.assertIn(["bridge.listen"], [i["paths"] for i in items if "own device can reach" in i["message"]])
+        del cfg["bridge"]["plc_link"]
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        self.assertFalse([i for i in items if "own device can reach" in i["message"]])
 
 
 class Target(Base):
