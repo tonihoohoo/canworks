@@ -276,7 +276,7 @@ When uv's bin folder is not on PATH, the one-line installers SHALL print only th
 - **THEN** the output has the installer's hint to open a new terminal once, and no "is not on your PATH" warning from uv
 
 ### Requirement: Windows installers without download-and-run
-The Windows install scripts (`install-pc.ps1`, `install-runtime.ps1`, `install-bridge.ps1`) and every documented Windows line that runs them SHALL NOT use `Invoke-Expression`/`iex`, `[scriptblock]::Create`, `-EncodedCommand` or `-ExecutionPolicy Bypass`, and no script SHALL start another `powershell` or `pwsh` process. CI SHALL fail, naming the file and line, when a `.ps1` script under `scripts/` or a documented Windows line uses one of these.
+The Windows install scripts (`install-pc.ps1`, `install-bridge.ps1`) and every documented Windows line that runs them SHALL NOT use `Invoke-Expression`/`iex`, `[scriptblock]::Create`, `-EncodedCommand` or `-ExecutionPolicy Bypass`, and no script SHALL start another `powershell` or `pwsh` process. CI SHALL fail, naming the file and line, when a `.ps1` script under `scripts/` or a documented Windows line uses one of these.
 
 #### Scenario: Fresh Windows PC with Defender on
 - **WHEN** a Windows user with Defender real-time protection on and no uv pastes the README's Windows line
@@ -287,11 +287,11 @@ The Windows install scripts (`install-pc.ps1`, `install-runtime.ps1`, `install-b
 - **THEN** CI fails naming that file and line
 
 ### Requirement: Install scripts from the release
-Each `deploy-v` release SHALL attach the install scripts `install-pc`, `install-runtime` and `install-bridge`, each as `.sh` and `.ps1`, from the released commit as assets. Every documented install line, on every system, SHALL fetch the script from `releases/latest/download/`. Windows lines SHALL save it to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File`, on one line.
+Each `deploy-v` release SHALL attach the install scripts `install-pc` and `install-bridge`, each as `.sh` and `.ps1`, and the device probe `device-probe.sh`, from the released commit as assets. Every documented install line, on every system, SHALL fetch the script from `releases/latest/download/`. Windows lines SHALL save it to a file and run it with `powershell -NoProfile -ExecutionPolicy RemoteSigned -File`, on one line.
 
 #### Scenario: Release assets
 - **WHEN** release `deploy-v0.92.0` is created
-- **THEN** it has the assets `install-pc.sh`, `install-pc.ps1`, `install-runtime.sh`, `install-runtime.ps1`, `install-bridge.sh` and `install-bridge.ps1` from the released commit
+- **THEN** it has the assets `install-pc.sh`, `install-pc.ps1`, `install-bridge.sh`, `install-bridge.ps1` and `device-probe.sh` from the released commit, and no `install-runtime` script
 
 #### Scenario: macOS line
 - **WHEN** a Mac user pastes the README's macOS and Linux line
