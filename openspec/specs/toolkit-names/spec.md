@@ -1,7 +1,7 @@
 # toolkit-names Specification
 
 ## Purpose
-The names of the project and everything it ships (repository, PC tools package and commands, plugin and its files on the PLC, schemas, simulator image, PLC library), the one-time cleanup of an install from before the rename to canworks, and the check that no earlier project name comes back.
+The names of the project and everything it ships (repository, PC tools package and commands, bridge and its files on the device, schemas, simulator image, PLC library), the one-time cleanup of an install from before the rename to canworks, and the check that no earlier project name comes back.
 
 ## Requirements
 

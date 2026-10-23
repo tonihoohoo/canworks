@@ -108,6 +108,9 @@ jobs:
       - name: README.md has no dead links, commands, options or page labels (Python only, no dependencies)
         run: python3 tools/deploy/tests/test_readme.py
 
+      - name: README, docs and specs name only real subcommands and repository files (Python only, no dependencies)
+        run: python3 tools/deploy/tests/test_doc_references.py
+
   engine:
     # Build, and the C++ unit and simulation tests.
     needs: changes

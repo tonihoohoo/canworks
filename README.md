@@ -160,10 +160,9 @@ Every connection checks the bit rate first and refuses a wrong one, so a single 
 | `canworks-deploy` | Writes the config and the editor files into an editor project, uploads the config to a bridge, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects, Modbus register maps, Node-RED flows, the Node-RED package and PLCopen XML ([docs/deploy.md](docs/deploy.md)). |
 | `canworks-diag` | The online functions from a terminal: parameter backup, compare and restore, LSS, raw frames, trace and replay, simulator control, `explain` for a frame bit by bit, the CiA 309-3 `gateway`, and `discover` and `link` for runtimes on other networks ([docs/diagnostics.md](docs/diagnostics.md)). |
 | `canworks-local-runtime` | The local runtime: the upstream OpenPLC Runtime and `canworks-bridge` in containers on the PC, every network simulated (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). Not a device simulator. |
-| `canworks-canopen-sim` | **CANopen** simulator, on the bridge's Linux device (installed with the bridge): plays CANopen and plain CAN devices from their EDS on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-canopen-sim)). |
 | `canworks-j1939-sim` | **J1939** simulator, on the PC: plays one node of a J1939 DBC file on a SocketCAN interface or USB adapter, with address claim, cycle times, ramps and scenarios ([docs/j1939.md](docs/j1939.md#simulator)). |
 
-On the bridge's device, `canworks-link` is the remote link's service ([docs/remote-access.md](docs/remote-access.md)). Which simulator does what: [docs/simulator.md](docs/simulator.md).
+On the bridge's device, installed with the bridge, `canworks-canopen-sim` plays CANopen and plain CAN devices from their EDS on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-canopen-sim)), and `canworks-link` is the remote link's service ([docs/remote-access.md](docs/remote-access.md)). Which simulator does what: [docs/simulator.md](docs/simulator.md).
 
 ### Configurator
 

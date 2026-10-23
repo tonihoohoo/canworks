@@ -1,7 +1,7 @@
 # canopen-gateway Specification
 
 ## Purpose
-Lets one OpenPLC controller be a CANopen gateway: a slave on an upper network and the master of one or more field networks, passing process data, node status, emergencies and parameter access between them without PLC program code.
+Lets canworks-bridge be a CANopen gateway: a slave on an upper network and the master of one or more field networks, passing process data, node status, emergencies and parameter access between them without PLC program code.
 
 ## Requirements
 

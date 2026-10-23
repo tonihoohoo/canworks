@@ -1,7 +1,7 @@
 # canopen-config-contract Specification
 
 ## Purpose
-Defines the CANopen JSON configuration as a stable, versioned contract shared by the bridge, the deploy tool, and any future editor GUI.
+Defines the CANopen JSON configuration as a stable, versioned contract shared by the bridge, the deploy tool, the configurator and the other PC tools.
 
 ## Requirements
 

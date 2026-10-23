@@ -1,7 +1,7 @@
 # canopen-deploy Specification
 
 ## Purpose
-A command-line tool on the engineering PC that adds the CANopen config and EDS files to an editor-built program bundle, checks it, and uploads it to an OpenPLC Runtime v4 through the runtime's REST API.
+A command-line tool on the engineering PC that checks a canworks config, uploads it with its files to canworks-bridge over the diagnostics channel, writes it into OpenPLC Editor projects and exports it (DCF, DBC, HTML, Modbus map, CODESYS, PLCopen, Node-RED).
 
 ## Requirements
 

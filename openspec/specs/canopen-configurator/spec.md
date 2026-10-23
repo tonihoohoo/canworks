@@ -1,7 +1,7 @@
 # canopen-configurator Specification
 
 ## Purpose
-A local GUI on the engineering PC that creates and edits the CANopen config of an OpenPLC Editor project (its `canworks/` folder), so CANopen nodes can be added and mapped to PLC addresses without hand-writing JSON or changing the editor.
+A local GUI on the engineering PC that creates and edits a canworks config (a config folder, or the `canworks/` folder of an OpenPLC Editor project) for the Modbus bridge or CODESYS, so networks and nodes can be set up and mapped without hand-writing JSON.
 
 ## Requirements
 
