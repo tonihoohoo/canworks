@@ -42,5 +42,5 @@
 
 ## 7. Hardware (Pi, when reachable)
 
-- [ ] 7.1 OpenPLC project on the bench without mailboxes: values, CO_NMT and CO_SDO_READ work; runtime CPU and Modbus requests per poll against the default mailboxes; record in the PR
-- [ ] 7.2 Add a CAN_RECEIVE to `main`, Turn on what the program uses, Save, Build: frames arrive; `diag` shows the operations
+- [x] 7.1 OpenPLC project on the bench without mailboxes: values, CO_NMT and CO_SDO_READ work; runtime CPU and Modbus requests per poll against the default mailboxes; record in the PR (2026-10-23, Pi 5 bench, tools 0.128.2: Turn off the mailboxes offered for a main with values, CO_NMT and CO_SDO_READ only; CO_SDO_READ 0x1018:1 ok, CO_NMT stop/start 5→4→5 ERROR_ID 0. Requests per poll / OpenPLC CPU / bridge CPU: defaults 7 / 31 % / 2.2 %, none 5 / 9.1 % / 2.1 %, request + receive 6 / 27-29 % / 2.5 %)
+- [x] 7.2 Add a CAN_RECEIVE to `main`, Turn on what the program uses, Save, Build: frames arrive; `diag` shows the operations (2026-10-23: the fix set exactly requests 1 + receive; CAN_RECEIVE on the node's heartbeat counted about 1 frame/s; diag "mailboxes: 1 operation, 1 receiver opened since start"; ERROR_ID 20 once in the scans before canworks.ok, then normal)
