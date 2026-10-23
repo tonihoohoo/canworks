@@ -68,8 +68,8 @@ For a config with an OpenPLC connection, Check and Save SHALL scan the editor pr
 - **THEN** the config gets one request mailbox and the receive mailbox, without cyclic jobs or network info, and one Undo removes them again
 
 ### Requirement: Mailboxes nobody needs
-When the config has mailboxes and neither the OpenPLC program nor any connection's canworks blocks choice needs them, Problems SHALL show an info with the Modbus requests per poll the mailboxes take, and **Turn off the mailboxes**, which removes `bridge.mailboxes` in one undo step.
+When the config has mailboxes and neither the OpenPLC program nor any connection's canworks blocks choice needs them, Problems SHALL show a warning with the Modbus requests per poll the mailboxes take, and **Turn off the mailboxes**, which removes `bridge.mailboxes` in one undo step.
 
 #### Scenario: Mailboxes nobody uses
 - **WHEN** the config has the default mailboxes, the program declares no mailbox block and no connection has a canworks blocks choice other than None
-- **THEN** Problems shows an info saying the mailboxes take 2 of the 7 Modbus requests per poll, and Turn off the mailboxes removes `bridge.mailboxes` in one undo step
+- **THEN** Problems shows a warning saying the mailboxes take 2 of the 7 Modbus requests per poll, and Turn off the mailboxes removes `bridge.mailboxes` in one undo step

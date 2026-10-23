@@ -36,6 +36,37 @@ The programs and tools that use the registers are the config's **connections**, 
 
 canworks puts the CANopen master networks of a config into a CODESYS project: **Build into CODESYS project…** runs CODESYS headless on the PC, and **Download for CODESYS** gives the DCFs and an import script ([docs/codesys.md](docs/codesys.md)). Slave, gateway, J1939 and plain CAN networks need the bridge.
 
+## Bridge or native CAN
+
+A PLC with its own CAN interface (such as the CODESYS target) runs the bus inside its cycle. Through `canworks-bridge` the bus runs on the bridge's device, and the PLC reads and writes it as Modbus registers. That works for any Modbus client, at this cost (numbers for a 10 ms poll; a client that polls slower is slower by the same factor):
+
+| | PLC on its own CAN | PLC through the bridge |
+|---|---|---|
+| Delay of a value | Same PLC cycle | Up to one poll more each way (10 ms) |
+| Values from the same moment | Yes, SYNC follows the PLC cycle | Not always: two PDOs can come from different polls, and SYNC runs on the bridge's own timer |
+| Configured messages (PDOs, CAN and J1939 messages) | The latest value at each PLC cycle | The latest value at each poll |
+| Can a CAN message go unseen? | Only when a newer frame of the same message comes within one PLC cycle | Only when a newer frame of the same message comes within one poll. A lone frame is always seen: its value stays until the next one. CAN messages can count their frames (`counter_location`); PDOs and J1939 PGNs can't |
+| Receiving any CAN frame in the program | Every frame | Every frame, queued, at up to about 450 frames/s, about 1050 with two receive blocks (needs mailboxes). A full queue drops frames and says so (`DROPPED`, `OVERFLOW`) |
+| Sending from the program | Every cycle | Configured messages on change, on a trigger bit or periodic; free frames about 50/s per request mailbox, up to 4 (needs mailboxes) |
+| SDO from the program | The bus round trip | Plus about two polls (20–30 ms); over 4 bytes needs mailboxes |
+| Node supervision, NMT, live list | In the PLC | In the bridge; the program reads the live list and status and sends NMT commands |
+| PLC stops or the network drops | Outputs follow the PLC | The bridge's watchdog stops, zeroes or holds the outputs after a set time |
+| Extra load on the PLC | None | A few Modbus requests every poll (about 5 for a small map, 2 more with mailboxes) |
+
+The bridge's mailboxes carry what the program decides at run time. They are off unless the program uses a block that needs them:
+
+| The program wants to | Without mailboxes | With mailboxes |
+|---|---|---|
+| Read and write values, send NMT commands, see which nodes are alive | Yes | Yes |
+| Read or write an SDO of up to 4 bytes on any node | Yes | Yes |
+| Read or write a longer SDO (strings, names, domains) | No (SDO variables in the config cover numbers up to 64 bits) | Yes |
+| Send or receive a CAN id that is not in the config | No | Yes |
+| See every EMCY | Only the latest code per node | Yes |
+| Request any J1939 PGN, read DM2, clear DM3/DM11, find an ECU | Only the config's PGNs and DM1 | Yes |
+| Read bus load and error counters | Only the bus state | Yes |
+
+Rule of thumb: put everything you know when configuring into the config, and use the mailbox blocks only for what the program decides at run time ([docs/plc-library.md](docs/plc-library.md), [docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
+
 ## How it works
 
 You describe the network in one JSON file (`canworks.json`, usually written by the configurator): the nodes, their EDS files, and which PDO entry goes to which location (`%IX`, `%IB`, `%IW`, `%ID`, `%IL` and the `%Q` equivalents), or for CODESYS which variable name. At every start, and for every new config it gets, the bridge checks the file against the EDS files, generates the device configuration with Lely's `dcfgen`, configures every node over SDO and then exchanges PDOs. A node that is missing or drops off the bus never stops the others, and a config with errors is refused with the errors in the bridge's log.
@@ -162,11 +193,10 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 ## Requirements and limits
 
 - **Linux device:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later) for `canworks-bridge`, as a systemd service (it restarts itself after a crash or a hang) or a container. For OpenPLC, the runtime runs next to it unmodified, as upstream's managed Docker install or a native install. canworks is pinned to OpenPLC runtime **v4.3.1** (`docker/local-runtime/runtime-version`): installs put a managed Docker device on it, CI tests it, and a device the OpenPLC Editor moved to another version gets **Switch runtime to v4.3.1** on the Devices page ([docs/devices.md](docs/devices.md)).
-- **OpenPLC:** each value arrives up to one poll (10 ms) after the bus, and two PDOs may come from different moments; no SYNC from the PLC cycle.
 - **CANopen:** master and slave roles, one role per CAN interface; no CiA 402 motion control, flying master, MPDO or SRDO, and no program download as a slave.
 - **Raw CAN:** classic CAN only (no CAN FD), raw integer signals.
 - **Remote link:** device on Linux aarch64 or x86_64, PC on Windows x64, macOS on Apple silicon or Linux (no iroh package for Intel Macs); for diagnostics, commissioning and uploads, not for control traffic ([docs/remote-access.md](docs/remote-access.md#what-the-remote-link-is-for-and-what-not)).
-- **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and one bridge per CAN interface. Function blocks share at most 4 request mailboxes, 32 receivers and 16 cyclic jobs, and a program receives about 450 CAN frames per second (1050 with two receive blocks) at a 10 ms poll and sends about 50 per request mailbox ([docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
+- **Modbus bridge:** Linux with SocketCAN, Modbus TCP server only (no RTU), one config per bridge process, and one bridge per CAN interface. Function blocks share at most 4 request mailboxes, 32 receivers and 16 cyclic jobs ([Bridge or native CAN](#bridge-or-native-can), [docs/modbus-bridge.md](docs/modbus-bridge.md#limits)).
 - **CODESYS target:** CANopen master networks only (slave, J1939 and plain CAN networks stay with canworks), CODESYS V3.5 with CANopen support on Windows for the import, tested with V3.5 SP22 ([docs/codesys.md](docs/codesys.md#requirements-and-limits)).
 - **J1939:** one ECU per interface, raw integer signals, diagnostic messages DM1, DM2, DM3, DM11, DM13 and DM22 only (no freeze frames or emissions DMs) ([docs/j1939.md](docs/j1939.md#limits)).
 

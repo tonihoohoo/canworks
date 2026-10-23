@@ -49,7 +49,7 @@ Block → part (one table, shared with the configurator's Needs table and `stNee
 
 Problems:
 - **error** per missing part: "main declares CAN_RECEIVE, which needs the receive mailbox". The fix **Turn on what the program uses** sets exactly the needed parts: requests 1, `receive` as needed, `cyclic_jobs` 4 if any `CAN_SEND_CYCLIC` (more if more instances are declared, up to 16), `network_info` as needed. It places the areas, in one undo step; Save updates the declarations.
-- **info** when the mailboxes are on and no POU declares a mailbox block: "The program uses no mailbox block: turning the mailboxes off saves N Modbus requests per poll", with **Turn off the mailboxes**. It is an info, not a warning, because another connection may use them (Decision 3 takes the union).
+- **warning** when the mailboxes are on and nothing needs them (no POU declares a mailbox block, no connection chooses blocks): "The program declares no mailbox block, but the mailboxes take N of the M Modbus requests per poll", with **Turn off the mailboxes**. Problems has errors and warnings only, and this costs every poll, so a warning fits.
 
 Alternative considered: scanning only on Build. Rejected, because Save is where canworks already touches the editor project, and Check runs on every change.
 

@@ -7942,6 +7942,7 @@ const NO_BUS_OFF_RESTART = /restart_ms is not set: after a bus-off/;
 // The buttons that fix a problem in one step (spec "Quick fixes in
 // Problems"): each is one undo step.
 function problemFixes(it, w) {
+  if (it.mailbox_fix !== undefined) return mailboxFixes(it);
   const bridgeFix = bridgeProblemFixes(it);
   if (bridgeFix.length) return bridgeFix;
   if (w && NOT_PROTECTED.test(it.message)) return protectionFixes(w);
@@ -8039,6 +8040,24 @@ function busOffFixes(w) {
     net.adapter.restart_ms = BUS_OFF_RESTART_MS;
     changed(true);
   } }, `Restart after bus-off (${BUS_OFF_RESTART_MS} ms)`)];
+}
+
+// The mailboxes a program's blocks need, or none when nothing does
+// (mailboxes-on-demand): one undo step each; turning on places the areas.
+function mailboxFixes(it) {
+  const b = S.model && S.model.top.bridge;
+  if (!b) return [];
+  if (it.mailbox_fix === "off") {
+    return [el("button", { type: "button", class: "small", dataset: { problemFix: "mailboxes-off" }, onclick: () => {
+      delete b.mailboxes;
+      changed(true);
+    } }, "Turn off the mailboxes")];
+  }
+  return [el("button", { type: "button", class: "small", dataset: { problemFix: "mailboxes-on" }, onclick: (e) => busy(e.currentTarget, "Placing…", async () => {
+    b.mailboxes = Object.assign({}, it.mailbox_fix);
+    await bridgeMailboxPlace(b);
+    changed(true);
+  }) }, "Turn on what the program uses")];
 }
 
 // A new node whose EDS heartbeat default is 0 would be unsupervised: it
@@ -8348,9 +8367,10 @@ async function newEditorProject() {
   const [pl, parent] = field("Folder to create it in", S.state.home, "Parent folder");
   const [nl, name] = field("Project name (its folder: new, or an existing empty one)", "", "Project name");
   const [il, interval] = field("Task interval", "T#20ms", "Task interval");
-  const blocks = el("input", { type: "checkbox", "aria-label": "Enable the canworks function blocks", dataset: { newProject: "blocks" } });
-  const sl = el("label", { class: "inline", title: "Enables the canworks function block library (SDO, NMT and node-live blocks) in the project and installs it into the editor" },
-    blocks, " Enable the canworks function blocks");
+  const blocks = el("input", { type: "checkbox", "aria-label": "Install the canworks library in the project", dataset: { newProject: "blocks" } });
+  const sl = el("label", { class: "inline", title: "Enables the canworks function block library in the project and installs it into the editor. " +
+    "The mailbox blocks also need the bridge's mailboxes, which Problems offers once the program declares them." },
+    blocks, " Install the canworks library in the project");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
     el("p", { class: "hint" }, "The config gets an OpenPLC connection when it has none. Save keeps the remote device, canworks_in, canworks_out and " +
       "the canworks variable list in the project up to date."));

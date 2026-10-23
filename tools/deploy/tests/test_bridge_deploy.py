@@ -89,6 +89,14 @@ class BridgeStatusLine(unittest.TestCase):
         self.assertTrue(diag.bridge_status_line(dict(base, last_stop="clean")).endswith("; last stop clean"))
         self.assertNotIn("last stop", diag.bridge_status_line(dict(base, last_stop="unknown")))
 
+    def test_mailbox_use(self):
+        self.assertEqual(diag.mailbox_status_line({}), "mailboxes: no mailboxes")
+        self.assertEqual(diag.mailbox_status_line({"mailboxes": {"operations": 13, "receivers_opened": 1}}),
+                         "mailboxes: 13 operations, 1 receiver opened since start")
+        self.assertEqual(diag.mailbox_status_line({"mailboxes": {"operations": 0, "receivers_opened": 0}}),
+                         "mailboxes: 0 operations, 0 receivers opened since start: nothing has used the mailboxes; "
+                         "turning them off saves Modbus requests")
+
 
 if __name__ == "__main__":
     unittest.main()

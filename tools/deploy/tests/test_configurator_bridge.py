@@ -478,7 +478,7 @@ class OpenplcModbus(Base):
         b = out["bridge"]
         self.assertEqual((b["plc_link"], b["listen"], b["writers"], b["watchdog_ms"]),
                          (True, "127.0.0.1:1502", ["127.0.0.1"], 50))
-        self.assertIn("mailboxes", b)
+        self.assertNotIn("mailboxes", b)
         status, data = self.request("/api/connections/add", {"config": out, "connection": {"kind": "openplc"}})
         self.assertEqual(status, 400)
         self.assertIn("already has an OpenPLC connection", data["error"])
@@ -486,10 +486,22 @@ class OpenplcModbus(Base):
         b["word_order"] = "high_first"
         self.assertTrue(any("lowest word first" in m for m in self.errors(out)))
 
+    def test_switch_adds_no_mailboxes(self):
+        # mailboxes-on-demand: Problems offers them when the program needs them.
+        self.open()
+        self.assertNotIn("mailboxes", self.switched()["bridge"])
+
+    def with_mailboxes(self, cfg, mb=None):
+        cfg["bridge"]["mailboxes"] = dict(mb or {})
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
+        return cfg
+
     def test_place_skips_the_bridge_blocks(self):
         # The mailbox areas reach past byte 100: a new entry lands after them.
         self.open()
-        cfg = self.switched()
+        cfg = self.with_mailboxes(self.switched())
         ends = {}
         for it in modbusmap.collect(cfg):
             if it.kind == "bridge":
@@ -506,7 +518,7 @@ class OpenplcModbus(Base):
         cfg = self.switched()
         r = self.ok("/api/save", {"config": cfg})
         self.assertEqual(r["errors"], 0, r["check"]["items"])
-        self.assertEqual(r["editor"]["requests"], 7)  # 5 data groups + the mailboxes' input and output
+        self.assertEqual(r["editor"]["requests"], 5)  # the data groups, no mailboxes
         remote = os.path.join(project, "devices", "remote", "canworks.json")
         self.assertIn(remote, r["written"])
         with open(remote, encoding="utf-8") as f:
@@ -514,7 +526,7 @@ class OpenplcModbus(Base):
         self.assertEqual(dev["modbusTcpConfig"]["port"], 1502)
         self.assertTrue(os.path.isfile(os.path.join(project, "pous", "programs", "canworks_out.st")))
         info = r["state"]["openplc"]
-        self.assertEqual((info["remote_device"], info["poll_ms"], info["requests"]), ("canworks", 10, 7))
+        self.assertEqual((info["remote_device"], info["poll_ms"], info["requests"]), ("canworks", 10, 5))
         self.assertEqual(info["map_hash"], "0x%08x" % modbusmap.map_hash(load(os.path.join(project, "canworks",
                                                                                             "canworks.json"))))
         # someone edits canworks_in.st: the next save asks first
@@ -622,7 +634,76 @@ class OpenplcModbus(Base):
         self.open()
         r = self.ok("/api/save", {"config": self.switched()})
         self.assertNotIn("editor", r)
-        self.assertEqual(r["state"]["openplc"]["requests"], 7)
+        self.assertEqual(r["state"]["openplc"]["requests"], 5)
+
+
+class MailboxUse(Base):
+    """mailboxes-on-demand: the program's mailbox blocks in Problems
+    (canopen-configurator "Mailbox blocks the OpenPLC program declares",
+    "Mailboxes nobody needs") and the section's cost both ways."""
+
+    def setUp(self):
+        super().setUp()
+        self.dir_project = self.project()
+        self.open(self.dir_project, "project")
+        cfg = self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["config"]
+        if not cfg["bridge"].get("connections"):
+            cfg = self.ok("/api/connections/add", {"config": cfg, "connection": {"kind": "openplc"}})["config"]
+        self.cfg = cfg
+
+    def main(self, body):
+        with open(os.path.join(self.dir_project, mainmove.MAIN), "w", encoding="utf-8") as f:
+            f.write("PROGRAM main\n  VAR\n%s\n  END_VAR\nEND_PROGRAM\n" % body)
+
+    def items(self, cfg):
+        return [i for i in self.ok("/api/check", {"config": cfg})["items"] if "bridge.mailboxes" in i.get("paths", [])]
+
+    def test_program_receives_frames(self):
+        self.main("    rx : CAN_RECEIVE;\n    rd : CO_SDO_READ_STRING;")
+        items = self.items(self.cfg)
+        self.assertEqual([i["level"] for i in items], ["error", "error"], items)
+        self.assertIn("main declares CAN_RECEIVE, which needs the request and receive mailboxes", items[0]["message"])
+        self.assertEqual(items[0]["mailbox_fix"], {"requests": 1, "receive": True, "cyclic_jobs": 0,
+                                                   "network_info": False})
+        # with the fix applied (and placed), no mailbox problem is left
+        fixed = copy.deepcopy(self.cfg)
+        fixed["bridge"]["mailboxes"] = dict(items[0]["mailbox_fix"])
+        for key in ("input", "output"):
+            fixed["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": fixed, "block": "mailbox_" + key})["location"]
+        self.assertEqual(self.items(fixed), [])
+
+    def test_commented_out(self):
+        self.main("    (* rx : CAN_RECEIVE; *)\n    // tx : CAN_SEND;\n    s : STRING := 'CAN_SEND';")
+        self.assertEqual(self.items(self.cfg), [])
+
+    def test_cyclic_jobs_follow_the_instances(self):
+        self.main("    jobs : ARRAY[1..6] OF CAN_SEND_CYCLIC;")
+        fix = self.items(self.cfg)[0]["mailbox_fix"]
+        self.assertEqual((fix["requests"], fix["cyclic_jobs"], fix["receive"]), (1, 6, False))
+
+    def test_mailboxes_nobody_uses(self):
+        self.main("    rd : CO_SDO_READ;")
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["mailboxes"] = {}
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
+        items = self.items(cfg)
+        self.assertEqual([(i["level"], i["mailbox_fix"]) for i in items], [("warning", "off")])
+        self.assertIn("the mailboxes take 2 of the 7 Modbus requests per poll", items[0]["message"])
+
+    def test_cost_both_ways(self):
+        off = self.ok("/api/bridge/map", {"config": self.cfg})["mailbox_cost"]
+        self.assertEqual((off["on"], off["requests_with"], off["requests_without"]), (False, 7, 5))
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["mailboxes"] = {"receive": False, "network_info": False, "cyclic_jobs": 0}
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
+        on = self.ok("/api/bridge/map", {"config": cfg})["mailbox_cost"]
+        self.assertEqual((on["on"], on["input_registers"], on["output_registers"]), (True, 72, 72))
+        self.assertEqual(on["requests_without"], 5)
 
 
 if __name__ == "__main__":

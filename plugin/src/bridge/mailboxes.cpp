@@ -185,7 +185,10 @@ void Mailboxes::serve_request(unsigned m, const uint8_t* req, Clock::time_point 
   if (!r.known) {
     r.known = true;
     r.counter = counter;
-    if (req[2] != kOpNone) finish(r, err_cancelled(kFamilyCan), nullptr);
+    if (req[2] != kOpNone) {
+      ++operations_;
+      finish(r, err_cancelled(kFamilyCan), nullptr);
+    }
     return;
   }
   if (counter == r.counter) return;
@@ -204,6 +207,7 @@ void Mailboxes::serve_request(unsigned m, const uint8_t* req, Clock::time_point 
     r.state = kMbIdle;
     return;
   }
+  ++operations_;
   // STAGE: bytes into the staging buffer.
   if (call.op == kOpStage) {
     unsigned offset = call.a[0], length = call.a[1];
@@ -360,6 +364,7 @@ void Mailboxes::rx_open(Request& r, const MbCall& call) {
     finish(r, error ? error : err_full(fam), nullptr);
     return;
   }
+  ++receivers_opened_;
   Receiver& rx = *receivers_[slot];
   rx = Receiver();
   rx.handle = h;

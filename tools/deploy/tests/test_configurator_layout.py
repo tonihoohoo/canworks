@@ -356,8 +356,8 @@ class Layout(OnlineBase):
             pg.wait_for_selector("#modal[open]")
             self.fits("new project dialog at %d" % width)
             # The SDO blocks box sits on one line with its label.
-            box = pg.locator('#modal-extra input[aria-label="Enable the canworks function blocks"]').bounding_box()
-            label = pg.locator('#modal-extra label:has-text("Enable the canworks function blocks")').bounding_box()
+            box = pg.locator('#modal-extra input[aria-label="Install the canworks library in the project"]').bounding_box()
+            label = pg.locator('#modal-extra label:has-text("Install the canworks library in the project")').bounding_box()
             self.assertLess(abs((box["y"] + box["height"] / 2) - (label["y"] + label["height"] / 2)), 8)
             pg.click("#modal-buttons button[data-value=cancel]")
             header_action(pg, "#btn-close")

@@ -1332,6 +1332,7 @@ def _print_status(st, out):
         _print_raw_status(st["raw"], out)
     if st.get("bridge"):
         out.write(bridge_status_line(st["bridge"]) + "\n")
+        out.write(mailbox_status_line(st["bridge"]) + "\n")
     if st.get("cia309"):
         out.write(gateway_status_line(st["cia309"]) + "\n")
 
@@ -1348,6 +1349,20 @@ def gateway_status_line(g):
     who = ", ".join("%s %s %s commands" % (s.get("address"), s.get("kind"), s.get("commands", 0)) for s in sessions)
     return "CiA 309-3 gateway %s (%s): %d session%s%s" % (where, mode, len(sessions), "" if len(sessions) == 1 else "s",
                                                          ": " + who if who else "")
+
+
+def mailbox_status_line(b):
+    """The mailbox use of a bridge's status answer as one line
+    (modbus-bridge-mailboxes "Mailbox use in diag")."""
+    mb = b.get("mailboxes")
+    if not isinstance(mb, dict):
+        return "mailboxes: no mailboxes"
+    ops, rx = mb.get("operations", 0), mb.get("receivers_opened", 0)
+    line = "mailboxes: %s operation%s, %s receiver%s opened since start" % (
+        ops, "" if ops == 1 else "s", rx, "" if rx == 1 else "s")
+    if not ops and not rx:
+        line += ": nothing has used the mailboxes; turning them off saves Modbus requests"
+    return line
 
 
 def bridge_status_line(b):

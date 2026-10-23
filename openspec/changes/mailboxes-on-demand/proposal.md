@@ -9,7 +9,7 @@ Toni (2026-10-23): "is it clear to user when mailboxes are used and when not?", 
 ## What Changes
 
 - **Off by default.** New configs, adding an OpenPLC connection and every other connection start without `bridge.mailboxes`. `examples/openplc-modbus` keeps them, because its program uses the blocks.
-- **The OpenPLC program decides (Problems).** For a config with an OpenPLC connection, Check and Save scan the editor project's POUs for mailbox block calls. If a called block's part is off, that is an error naming the POU and block, with **Turn on what the program uses**: one undo step that turns on only the needed parts and places the areas. If the mailboxes are on and no POU calls a mailbox block, an info says what turning them off saves, with **Turn off the mailboxes**.
+- **The OpenPLC program decides (Problems).** For a config with an OpenPLC connection, Check and Save scan the editor project's POUs for mailbox block calls. If a called block's part is off, that is an error naming the POU and block, with **Turn on what the program uses**: one undo step that turns on only the needed parts and places the areas. If the mailboxes are on and nothing needs them, a warning says what turning them off saves, with **Turn off the mailboxes**.
 - **The other connections say what their program uses.** truST, Other PLC and Node-RED connections get a **canworks blocks** choice:
   - **None**;
   - **SDO and send** (1 request mailbox);

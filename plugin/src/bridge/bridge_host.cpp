@@ -735,6 +735,13 @@ cJSON* BridgeHost::status_json() const {
     cJSON_AddBoolToObject(o, "writer", c.writer);
     cJSON_AddItemToArray(clients, o);
   }
+  // Mailbox use since the start (modbus-bridge-mailboxes "Mailbox use in the
+  // status"): diag says when nothing has used them.
+  if (mailboxes_) {
+    cJSON* mb = cJSON_AddObjectToObject(b, "mailboxes");
+    cJSON_AddNumberToObject(mb, "operations", static_cast<double>(mailboxes_->operations()));
+    cJSON_AddNumberToObject(mb, "receivers_opened", static_cast<double>(mailboxes_->receivers_opened()));
+  }
   if (supervisor_ && cfg_.watchdog_ms && st == OutputState::kRunning)
     cJSON_AddNumberToObject(b, "watchdog_left_ms", static_cast<double>(supervisor_->left_ms(Clock::now())));
   // CiA 309-3 gateway sessions (modbus-bridge "CiA 309-3 gateway and the

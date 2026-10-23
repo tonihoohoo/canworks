@@ -250,6 +250,10 @@ class Mailboxes {
   // Diagnostics.
   unsigned open_receivers() const;
   unsigned active_jobs() const;
+  // Operations started and receivers opened since the start (the status's
+  // mailbox use, modbus-bridge-mailboxes "Mailbox use in the status").
+  uint64_t operations() const { return operations_; }
+  uint64_t receivers_opened() const { return receivers_opened_; }
 
  private:
   struct Request;
@@ -293,6 +297,8 @@ class Mailboxes {
   std::vector<uint16_t> keepalive_seen_;
   unsigned forgotten_ = 0;  // jobs stopped for a missing keepalive
   unsigned info_count_ = 0;
+  uint64_t operations_ = 0;
+  uint64_t receivers_opened_ = 0;
 
  public:
   // Receivers closed by the last stall since the previous call, and jobs

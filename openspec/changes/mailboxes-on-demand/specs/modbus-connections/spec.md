@@ -50,7 +50,7 @@ When a connection's canworks blocks choice changes, the configurator SHALL add t
 
 #### Scenario: Choice back to None
 - **WHEN** the only connection that needed the mailboxes is set to None
-- **THEN** the mailboxes stay as they are, and Problems shows the info that nothing needs them, with Turn off the mailboxes
+- **THEN** the mailboxes stay as they are, and Problems shows the warning that nothing needs them, with Turn off the mailboxes
 
 ### Requirement: One program owns the mailboxes
 The mailboxes' request words, tickets and receivers assume one client. At most one connection SHALL have a canworks blocks choice other than None, and none when the config has an OpenPLC connection, whose program owns them. Problems SHALL show an error naming both connections otherwise.

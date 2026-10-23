@@ -316,6 +316,10 @@ class BridgePage(OnlineBase):
         self.to_bridge()
         tree_view(pg, "bridge")
         pg.wait_for_selector('[data-bridge-mailboxes="0"]')
+        # Off: what works without them, who needs which part and what turning them on would add.
+        self.assertIn("Without mailboxes: the config's values, CO_NMT", pg.inner_text("[data-bridge-without]"))
+        self.assertIn("a received CAN message or J1939 PGN", pg.inner_text("[data-bridge-mailbox-needs]"))
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("would take +227 input / +79 holding registers")')
         pg.check('input[data-path="bridge.mailboxes"]')
         pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes"),
@@ -324,14 +328,14 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         cost = pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("input")')
         # 72 response + 120 receive + 18 info + 17 cyclic table; 72 request + 3 ack + 4 keepalives.
-        self.assertEqual(cost.inner_text(), "The blocks take 227 input and 79 holding registers. Receiving: 9 CAN frames "
+        self.assertEqual(cost.inner_text(), "The mailboxes take +227 input / +79 holding registers. Receiving: 9 CAN frames "
                                             "per batch, one batch per two of your client's polls.")
         needs = pg.inner_text('[data-bridge-mailbox-needs]')
         self.assertIn("CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY", needs)
         self.assertEqual(pg.locator("[data-bridge-mailbox-update]").count(), 0)  # OpenPLC only
         pg.fill('input[data-path="bridge.mailboxes.requests"]', "2")
         pg.uncheck('input[data-path="bridge.mailboxes.receive"]')
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("179 input")')
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("+179 input")')
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes.input_location"), "%IB24")
         pg.wait_for_selector('#bridge-map tr[data-bridge-row="bridge.mailbox.1.response"]')
         pg.click("#btn-save")

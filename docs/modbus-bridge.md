@@ -227,7 +227,7 @@ A PLC writes its whole output image every poll, so after a bridge restart the PL
 
 ## Function block mailboxes
 
-`bridge.mailboxes` gives the [function blocks](plc-library.md#the-mailboxes) (long SDO transfers, CAN frames, J1939 messages and trouble codes, EMCY) their registers. Any Modbus client can use them; the library's blocks do it for a PLC program.
+`bridge.mailboxes` gives the [function blocks](plc-library.md#the-mailboxes) (long SDO transfers, CAN frames, J1939 messages and trouble codes, EMCY) their registers. Any Modbus client can use them; the library's blocks do it for a PLC program. A config without `mailboxes` has none, and that is the default: every client polls them on every cycle, so they are on only when a program uses them ([plc-library.md](plc-library.md#with-or-without-the-mailboxes)). With mailboxes, the status answer has `bridge.mailboxes` with `operations` and `receivers_opened` since the start, which `canworks-deploy diag` prints.
 
 ```json
 "mailboxes": { "requests": 1, "receive": true, "cyclic_jobs": 4, "network_info": true,

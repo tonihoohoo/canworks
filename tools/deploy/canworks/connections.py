@@ -82,9 +82,10 @@ def openplc_settings(cfg, conn):
     (modbus-connections "OpenPLC connection bridge settings"): the PLC link,
     low word first, 127.0.0.1:1502 unless another connection is on the
     network, the watchdog when unset, the
-    control block, SDO registers and mailboxes when absent (every canworks
-    block then works) and a live list per named CANopen master network.
-    Placed by the pack that follows."""
+    control block and SDO registers when absent and a live list per named
+    CANopen master network. No mailboxes (mailboxes-on-demand): Problems
+    offers them once the program declares a mailbox block. Placed by the
+    pack that follows."""
     b = cfg["bridge"]
     b["plc_link"] = True
     b["word_order"] = "low_first"
@@ -99,7 +100,6 @@ def openplc_settings(cfg, conn):
     if "sdo_bridge_location" not in b:
         b["sdo_bridge_location"] = {"request": "%QB0", "response": "%IB0"}
         b["sdo_bridge_write"] = True
-    b.setdefault("mailboxes", {"input_location": "%IB0", "output_location": "%QB0"})
     lists = b.get("live_lists") if isinstance(b.get("live_lists"), list) else []
     have = {e.get("network") for e in lists if isinstance(e, dict)}
     for n in contract.networks(cfg):
