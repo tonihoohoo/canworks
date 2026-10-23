@@ -232,6 +232,12 @@ def main():
         check(not os.path.exists(os.path.join(work, ".canworks", "running")), "a clean stop removes the run marker")
         proc = start(bridge, work)
         check(status(dport, token).get("last_stop") == "clean", "a start after a clean stop says clean")
+        # The bridge answers status before it writes the run marker, the last
+        # step of its start: a kill before that leaves nothing to report.
+        marker = os.path.join(work, ".canworks", "running")
+        end = time.monotonic() + 10
+        while not os.path.exists(marker) and time.monotonic() < end:
+            time.sleep(0.05)
         proc.kill()
         proc.wait(10)
         proc = start(bridge, work)
