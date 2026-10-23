@@ -4,8 +4,9 @@
 protocol areas the code changes touch.
 
   ci_changes.py [--main-push] <base> <head>
-      prints code=, areas=, canopen=, j1939= and ui=, and the changed files
-      on stderr; --main-push: a push to main (ui=true)
+      prints code=, areas=, canopen=, j1939=, ui= and plcopen=, and the
+      changed files on stderr; --main-push: a push to main (ui=true,
+      plcopen=true)
 
 The documentation allow-list is openspec/**, docs/** and Markdown outside
 test/, config/ and tools/ (fixtures and packaged files a test may read).
@@ -19,6 +20,10 @@ CANopen-only jobs and steps run), j1939=true likewise for J1939.
 UI: ui=true when a changed path matches a rule in .github/ci/ui-paths.txt
 (the configurator page tests run), on a push to main and when the base is
 unknown.
+
+PLCopen: plcopen=true when a changed path matches a rule in
+.github/ci/plcopen-paths.txt (the tools shard fetches truST and runs the
+PLCopen import check), on a push to main and when the base is unknown.
 """
 
 import fnmatch
@@ -30,6 +35,7 @@ NOT_DOCS_MD = ("test/", "config/", "tools/")
 AREAS = ("canopen", "j1939", "shared")
 RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "areas.txt")
 UI_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "ui-paths.txt")
+PLCOPEN_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "plcopen-paths.txt")
 
 
 def is_docs(path):
@@ -83,6 +89,15 @@ def is_ui(paths, rules):
     return any(fnmatch.fnmatchcase(p, pattern) for p in paths for pattern in rules)
 
 
+def load_plcopen_rules(path=PLCOPEN_RULES_FILE):
+    return load_ui_rules(path)
+
+
+def is_plcopen(paths, rules):
+    """Whether the truST import check runs: same matching as is_ui."""
+    return is_ui(paths, rules)
+
+
 def changed(base, head):
     if not base or set(base) == {"0"}:
         return None
@@ -110,6 +125,7 @@ def main(argv):
     print(f"canopen={'true' if shared or 'canopen' in found else 'false'}")
     print(f"j1939={'true' if shared or 'j1939' in found else 'false'}")
     print(f"ui={'true' if main_push or is_ui(paths, load_ui_rules()) else 'false'}")
+    print(f"plcopen={'true' if main_push or is_plcopen(paths, load_plcopen_rules()) else 'false'}")
 
 
 if __name__ == "__main__":

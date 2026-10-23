@@ -268,9 +268,10 @@ def active_device(proj):
     return None
 
 
-def choose_plc(proj, plan, report):
+def choose_plc(proj, plan, report, plan_name=PLAN_NAME):
     """The device that gets the bus: named in the plan, else the active
-    application's device, else the only top-level device."""
+    application's device, else the only top-level device. Shared with
+    import_canworks_modbus.py, which names its own plan file."""
     tops = [c for c in _children(proj) if _is_device(c)]
     active = active_device(proj)
     if plan.get("plc"):
@@ -278,7 +279,7 @@ def choose_plc(proj, plan, report):
         if not found:
             raise Stop("no device named %s in the project (devices: %s)"
                        % (plan["plc"], ", ".join(c.get_name() for c in tops) or "none"))
-        report.add("device", "%s (named in %s)" % (found[0].get_name(), PLAN_NAME))
+        report.add("device", "%s (named in %s)" % (found[0].get_name(), plan_name))
         if active is not None and not _same(active, found[0]):
             report.add("warning", "the active application is on %s, so the build checks %s, not %s"
                        % (active.get_name(), active.get_name(), found[0].get_name()))

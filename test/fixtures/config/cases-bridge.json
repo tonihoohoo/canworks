@@ -763,6 +763,20 @@
     { "name": "bridge entry with bits and no location",
       "patch": [ [ "delete", "networks/0/nodes/0/tx_pdos/0/entries/0/iec_location" ], [ "set", "networks/0/nodes/0/tx_pdos/0/entries/0/bits", [ { "bit": 3 } ] ] ],
       "schema": "valid", "verdict": "reject",
-      "messages": [ "node 2 (pingpong), object 0x4001:0: the bridge serves an entry's bits in its own location" ] }
+      "messages": [ "node 2 (pingpong), object 0x4001:0: the bridge serves an entry's bits in its own location" ] },
+    { "name": "bridge: the PLC link without openplc keeps its blocks in place",
+      "patch": [ [ "set", "bridge/plc_link", true ] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "field 'status_location' must be %IB4 with 'plc_link' (input bytes 0-3 hold the map hash), or left out",
+                    "bridge map hash (PLC link) (%IB0) overlap in input bytes 0 and 1 and 2 and 3",
+                    "the PLC link header (output bytes 0-5) (%QB0) overlap in output bytes 0 and 1 and 2 and 3" ] },
+    { "name": "bridge: plc_link false with openplc",
+      "patch": [ [ "set", "bridge/openplc", {} ], [ "set", "bridge/plc_link", false ] ],
+      "schema": "valid", "verdict": "reject",
+      "messages": [ "field 'plc_link' can't be false with 'openplc': OpenPLC always uses the PLC link" ] },
+    { "name": "bridge: plc_link not a boolean",
+      "patch": [ [ "set", "bridge/plc_link", "yes" ] ],
+      "schema": "invalid", "verdict": "reject",
+      "messages": [ "field 'plc_link' must be true or false" ] }
   ]
 }

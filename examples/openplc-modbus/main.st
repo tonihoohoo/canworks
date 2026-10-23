@@ -26,14 +26,14 @@ PROGRAM main
 
   (* Read every frame of the current batch in this scan. *)
   rx_rtd(ENABLE := TRUE, NETWORK := 0, ID := 16#185, RX_DATA := rtd_frame, LINK := canworks.link);
-  WHILE rx_rtd.NEW DO
+  WHILE rx_rtd.RECEIVED DO
     rtd_frames := rtd_frames + 1;
     channel_0 := LINT_TO_INT(CAN_GET_BITS(DATA := rtd_frame, START_BIT := 0, BIT_LENGTH := 16, MOTOROLA := FALSE, SIGNED := TRUE));
     rx_rtd(ENABLE := TRUE, NETWORK := 0, ID := 16#185, RX_DATA := rtd_frame, LINK := canworks.link);
   END_WHILE;
 
   emcy(ENABLE := TRUE, NETWORK := 0, NODE := 0, MSEF := msef, LINK := canworks.link);
-  WHILE emcy.NEW DO
+  WHILE emcy.RECEIVED DO
     last_emcy := emcy.ERROR_CODE;
     emcy(ENABLE := TRUE, NETWORK := 0, NODE := 0, MSEF := msef, LINK := canworks.link);
   END_WHILE;

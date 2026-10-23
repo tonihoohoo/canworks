@@ -59,15 +59,24 @@ variable names in a CODESYS project (in the IDE, or headless). With
 (docs/codesys.md). A CODESYS config (one with a "codesys" object) holds
 these settings itself; the options override them.
 
+  canworks-deploy --config canworks.json --export-plcopen <dir> --for codesys|trust|generic [--bridge-host HOST]
+
+writes the program side of a bridge config with the PLC link ("plc_link":
+true) for a PLC other than OpenPLC: canworks.xml (PLCopen XML with the
+canworks list, canworks_in, canworks_out and the library) and the Modbus
+client setup of that PLC: a CODESYS script, truST's io.toml driver, or the
+register map (docs/plcopen.md).
+
 A simulation file (simulation.json next to the config, or --sim FILE) is
 checked and travels with the config (docs/simulator.md). A config that
 simulates the network or any node is uploaded to a bridge only after a
 confirmation, --yes or --simulated.
 
-  canworks-deploy library [--out DIR] [--install] [--project DIR]
+  canworks-deploy library [--out DIR] [--format stlib|st|plcopen] [--install] [--project DIR]
 
 writes the canworks function block library for the PLC program (the CO_*
-blocks over the bridge, CAN and J1939 helpers) as canworks.stlib into DIR, installs it
+blocks over the bridge, CAN and J1939 helpers) as canworks.stlib into DIR (or
+the ST sources, or canworks-library.xml in PLCopen XML), installs it
 into OpenPLC Editor on this computer, and/or enables it in an editor
 project. See docs/plc-library.md.
 
@@ -88,6 +97,7 @@ configurator shows for a notes file (docs/configurator.md, Device notes).
 """
 
 import argparse
+import datetime
 import json
 import os
 import shutil
@@ -96,7 +106,8 @@ import tempfile
 import time
 
 from . import (__version__, bundle, contract, dbcexport, dcfexport, diag, docexport, editorproject,
-               localruntime, modbusmap, nodered, notes, openplcmodbus, project, plclibrary, simfile, slaveeds, targets)
+               localruntime, modbusmap, nodered, notes, openplcmodbus, plcopen, plcopen_targets, project, plclibrary,
+               simfile, slaveeds, targets)
 from .userdirs import replace_file
 
 
@@ -158,6 +169,10 @@ def parser():
                      help="write the CODESYS export and run CODESYS headless on this .project file (default: the "
                           "config's codesys.project), which gets the CANbus, CANopen Manager, nodes and variable "
                           "names (Windows, CODESYS installed)")
+    src.add_argument("--export-plcopen", metavar="DIR",
+                     help="write the program side of a bridge config with the PLC link for another PLC into DIR: "
+                          "canworks.xml (PLCopen XML: the canworks list, canworks_in, canworks_out and the library) "
+                          "and the Modbus client setup for the PLC named with --for (docs/plcopen.md)")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
                           "and, for an OpenPLC through Modbus config, the editor files of --into-project")
@@ -181,12 +196,28 @@ def parser():
                         "several networks: export "
                         "only this network (default: every network, DCFs in a folder per network, a DBC file per "
                         "network, one HTML document)")
+    p.add_argument("--for", dest="plcopen_for", choices=("codesys", "trust", "generic"),
+                   help="with --export-plcopen: the PLC: codesys (a script that imports the file and adds the Modbus "
+                        "TCP client), trust (truST: io.toml driver and I/O image) or generic (standard PLCopen XML "
+                        "and the register map)")
+    p.add_argument("--bridge-host", metavar="HOST",
+                   help="with --export-plcopen: the bridge's address as the PLC sees it (default: the bridge's "
+                        "listen address; truST also takes 127.0.0.1 when the bridge listens on every address)")
+    p.add_argument("--no-library", action="store_true",
+                   help="with --export-plcopen: leave the canworks library out (the project has it already)")
+    p.add_argument("--with-main", action="store_true",
+                   help="with --export-plcopen --for trust or generic: add an empty program main to the task, "
+                        "between canworks_in and canworks_out")
+    p.add_argument("--codesys-ethernet", metavar="NAME",
+                   help="with --export-plcopen --for codesys: the Ethernet adapter in the CODESYS device that gets "
+                        "the Modbus TCP Master (default: the device's own, or a new one)")
     p.add_argument("--codesys-net", metavar="NAME=N", action="append",
                    help="with --export-codesys or --codesys-import: the CODESYS network number of network NAME "
                         "(default: the number its interface ends in, can1 -> 1); repeat per network")
     p.add_argument("--codesys-plc", metavar="NAME",
-                   help="with --export-codesys or --codesys-import: the device in the CODESYS project that gets "
-                        "the CANbus (default: the device of the project's active application, or its only device)")
+                   help="with --export-codesys, --codesys-import or --export-plcopen --for codesys: the device in "
+                        "the CODESYS project that gets the CANbus or the Modbus client (default: the device of the "
+                        "project's active application, or its only device)")
     p.add_argument("--codesys-can", metavar="NETWORK=OBJECT", action="append",
                    help="with --export-codesys or --codesys-import: the CAN interface object in the CODESYS device "
                         "that gets network NETWORK's bus (default: the device's only CAN interface, or the one "
@@ -242,7 +273,7 @@ def _export_modbus_map(config, path, out):
     except ValueError as e:
         raise Failure("%s: not valid JSON (%s)" % (config, e))
     try:
-        if path.lower().endswith(".st") and modbusmap.is_openplc(cfg):
+        if path.lower().endswith(".st") and modbusmap.has_plc_link(cfg):
             # A PLC link config: the list, the channels and canworks_in/out
             # for another Modbus PLC.
             text = openplcmodbus.other_plc_st(cfg, editorproject.declarations(cfg, config))
@@ -258,6 +289,37 @@ def _export_modbus_map(config, path, out):
     except OSError as e:
         raise Failure("cannot write %s: %s" % (path, e))
     out("wrote %s: %d register map entries, map hash 0x%08x" % (path, len(rows), modbusmap.map_hash(cfg)))
+    return 0
+
+
+def _export_plcopen(args, out_dir, out):
+    target = args.plcopen_for
+    if not target:
+        raise Failure("--export-plcopen needs --for codesys, trust or generic")
+    if target != "codesys" and (args.codesys_plc or args.codesys_ethernet):
+        raise Failure("--codesys-plc and --codesys-ethernet go with --for codesys")
+    if target == "codesys" and args.with_main:
+        raise Failure("--with-main goes with --for trust or generic: CODESYS keeps your own programs and tasks")
+    try:
+        with open(args.config, encoding="utf-8") as f:
+            cfg = contract.load(f)
+    except OSError as e:
+        raise Failure("cannot read %s: %s" % (args.config, e))
+    except ValueError as e:
+        raise Failure("%s: not valid JSON (%s)" % (args.config, e))
+    try:
+        texts = plcopen_targets.files(
+            cfg, editorproject.declarations(cfg, args.config), target, host=args.bridge_host,
+            library=not args.no_library, with_main=args.with_main, config_name=os.path.basename(args.config),
+            codesys_plc=args.codesys_plc, codesys_ethernet=args.codesys_ethernet,
+            created=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))
+        paths = plcopen_targets.write(out_dir, texts)
+    except (plcopen_targets.ExportError, plcopen.PlcopenError, modbusmap.MapError, openplcmodbus.OpenplcError) as e:
+        raise Failure("%s: %s" % (args.config, e))
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (out_dir, e))
+    out("wrote %d files into %s for %s: %s; next steps in %s" % (
+        len(paths), out_dir, target, ", ".join(os.path.basename(p) for p in paths), plcopen_targets.README_NAME))
     return 0
 
 
@@ -441,6 +503,16 @@ def run(args, out=print, err=None, confirm_source=None):
         if args.check_only:
             raise Failure("--export-modbus-map only writes the register map; leave out --check-only")
         return _export_modbus_map(args.config, map_file, out)
+
+    plcopen_dir = getattr(args, "export_plcopen", None)
+    for opt, key in (("--for", "plcopen_for"), ("--bridge-host", "bridge_host"), ("--no-library", "no_library"),
+                     ("--with-main", "with_main"), ("--codesys-ethernet", "codesys_ethernet")):
+        if getattr(args, key, None) and not plcopen_dir:
+            raise Failure("%s needs --export-plcopen" % opt)
+    if plcopen_dir:
+        if args.check_only:
+            raise Failure("--export-plcopen only writes files; leave out --check-only")
+        return _export_plcopen(args, plcopen_dir, out)
 
     flow_file = getattr(args, "export_nodered", None)
     if flow_file:
@@ -656,10 +728,12 @@ def library_parser():
                     "See docs/plc-library.md." % plclibrary.NAME)
     p.add_argument("--out", metavar="DIR",
                    help="write %s into DIR, for the editor's Library Manager (install from file); with "
-                        "--format st the ST sources instead" % plclibrary.FILE_NAME)
-    p.add_argument("--format", choices=("stlib", "st"), default="stlib",
+                        "--format st the ST sources, with --format plcopen %s instead"
+                        % (plclibrary.FILE_NAME, plcopen_targets.LIBRARY_XML_NAME))
+    p.add_argument("--format", choices=("stlib", "st", "plcopen"), default="stlib",
                    help="with --out: stlib (default) the editor's library file, st one .st file per block and "
-                        "function, for another IEC 61131-3 PLC tool (CODESYS and others) over the Modbus bridge")
+                        "function, plcopen one PLCopen XML file, for another IEC 61131-3 PLC tool (CODESYS, truST "
+                        "and others) over the Modbus bridge (docs/plcopen.md)")
     p.add_argument("--install", action="store_true",
                    help="install the library into OpenPLC Editor on this computer, as its Library Manager does "
                         "(restart the editor afterwards)")
@@ -672,8 +746,8 @@ def run_library(args, out=print, err=None):
     err = err or (lambda m: print(m, file=sys.stderr))
     if not (args.out or args.install or args.project or args.list):
         raise Failure("give --out DIR, --install, --project DIR or --list")
-    if args.format == "st" and not args.out:
-        raise Failure("--format st writes the ST sources with --out DIR")
+    if args.format != "stlib" and not args.out:
+        raise Failure("--format %s writes the library with --out DIR" % args.format)
     try:
         if args.list:
             for name in plclibrary.block_names() + plclibrary.function_names():
@@ -682,6 +756,9 @@ def run_library(args, out=print, err=None):
             paths = plclibrary.write_st(args.out)
             out("wrote %d ST sources of %s %s into %s" % (len(paths), plclibrary.NAME, __version__,
                                                        os.path.dirname(paths[0])))
+        elif args.out and args.format == "plcopen":
+            out("wrote %s (%s %s, PLCopen XML)" % (plcopen_targets.write_library(args.out), plclibrary.NAME,
+                                                   __version__))
         elif args.out:
             out("wrote %s (%s %s)" % (plclibrary.write(args.out), plclibrary.NAME, __version__))
         if args.install:

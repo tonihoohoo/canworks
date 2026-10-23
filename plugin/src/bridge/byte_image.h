@@ -37,7 +37,7 @@ class ByteImage {
   // Whether a client has written all of bytes offset..offset+n-1 since start.
   bool client_wrote(size_t offset, size_t n) const;
 
-  // The PLC link header (openplc configs): output bytes 0..header_bytes-1
+  // The PLC link header (plc_link configs): output bytes 0..header_bytes-1
   // hold running (word 0) and the map hash (words 1 and 2). Output bytes
   // past the header are written only while the header is ok. 0: no header.
   enum class Link : uint8_t { kNone, kOk, kStopped, kMismatch };

@@ -3254,7 +3254,7 @@ class Parser {
 
   // The bridge's own blocks as location uses.
   static void bridge_uses(const BridgeConfig& b, std::vector<Use>& uses) {
-    if (b.openplc) {
+    if (b.plc_link) {
       IecLocation hash, header;
       hash.area = IecArea::Input;
       hash.size = IecSize::B;
@@ -3262,8 +3262,8 @@ class Parser {
       header.area = IecArea::Output;
       header.size = IecSize::B;
       header.index = 0;
-      uses.push_back({hash, "bridge map hash (openplc)", kOpenplcHashBytes});
-      uses.push_back({header, "the PLC link header (openplc, output bytes 0-5)", kOpenplcHeaderBytes});
+      uses.push_back({hash, "bridge map hash (PLC link)", kOpenplcHashBytes});
+      uses.push_back({header, "the PLC link header (output bytes 0-5)", kOpenplcHeaderBytes});
     }
     if (b.has_status) uses.push_back({b.status_location, "bridge status_location", kBridgeStatusBytes});
     if (b.has_control) uses.push_back({b.control_location, "bridge control_location", kBridgeControlBytes});
@@ -3418,8 +3418,15 @@ class Parser {
     check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
                        "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
-                       "sdo_bridge_location", "sdo_bridge_write", "openplc", "mailboxes"});
+                       "sdo_bridge_location", "sdo_bridge_write", "openplc", "plc_link", "mailboxes"});
     parse_openplc(b, w, c);
+    // plc_link: the PLC link header for any client; openplc always has it.
+    bool link = c.openplc;
+    if (cJSON_GetObjectItemCaseSensitive(b, "plc_link")) {
+      get_bool(b, "plc_link", w, link);
+      if (c.openplc && !link) error(w, "field 'plc_link' can't be false with 'openplc': OpenPLC always uses the PLC link");
+    }
+    c.plc_link = c.openplc || link;
     if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "listen")) c.listen = "127.0.0.1:1502";
     if (get_string(b, "listen", w, !c.openplc, c.listen)) {
       bool v6 = !c.listen.empty() && c.listen[0] == '[';
@@ -3492,10 +3499,10 @@ class Parser {
         error(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\"");
     }
     c.has_status = block_location(b, "status_location", w, IecArea::Input, kBridgeStatusBytes, c.status_location);
-    if (c.openplc) {
+    if (c.plc_link) {
       if (c.has_status && c.status_location.index != kOpenplcStatusByte)
-        error(w, "field 'status_location' must be %IB4 with 'openplc' (input bytes 0-3 hold the map hash), or left "
-                 "out");
+        error(w, std::string("field 'status_location' must be %IB4 with '") + (c.openplc ? "openplc" : "plc_link") +
+                     "' (input bytes 0-3 hold the map hash), or left out");
       c.has_status = true;
       c.status_location = IecLocation();
       c.status_location.area = IecArea::Input;

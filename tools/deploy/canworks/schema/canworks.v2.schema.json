@@ -114,6 +114,10 @@
           },
           "required": ["input_location", "output_location"]
         },
+        "plc_link": {
+          "description": "The PLC link for any Modbus client that runs the generated canworks_in and canworks_out (docs/plcopen.md): input bytes 0-3 hold the map hash, the status block is at %IB4, output bytes 0-5 hold the PLC link header (running, map hash), and outputs apply only while the header says running with this map's hash. Implied by openplc.",
+          "type": "boolean"
+        },
         "openplc": {
           "description": "OpenPLC Runtime is the client, through its own Modbus master (docs/modbus-bridge.md#openplc): the configurator writes the editor's remote device. Implies listen 127.0.0.1:1502, writers [\"127.0.0.1\"], word_order low_first, watchdog 5 x poll_ms (at least 50 ms) and the status block at %IB4. Input bytes 0-3 hold the map hash, output bytes 0-5 the PLC link header.",
           "type": "object",

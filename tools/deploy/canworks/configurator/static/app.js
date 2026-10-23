@@ -8308,7 +8308,8 @@ function wire() {
   $("#btn-codesys-download").onclick = () => busy($("#menu-export > summary"), "Exporting…", exportCodesys);
   for (const b of document.querySelectorAll("#menu-export [data-export-program]")) {
     const fmt = b.dataset.exportProgram;
-    if (fmt !== "codesys") b.onclick = () => busy($("#menu-export > summary"), "Exporting…", () => bridgeExport(fmt));
+    if (fmt === "plcopen") b.onclick = () => exportPlcopen();
+    else if (fmt !== "codesys") b.onclick = () => busy($("#menu-export > summary"), "Exporting…", () => bridgeExport(fmt));
   }
   $("#btn-bridge-install").onclick = () => switchWorkspace("devices");
   wireDbc();

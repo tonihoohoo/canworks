@@ -41,44 +41,44 @@ VAR
   ticket : WORD;
   m : INT;
   i : INT;
-  n : INT;
+  cnt : INT;
   counter : WORD;
 END_VAR
-  IF me = 0 THEN
-    LINK[24] := LINK[24] + 1;
+  IF me = WORD#0 THEN
+    LINK[24] := UDINT_TO_WORD(WORD_TO_UDINT(LINK[24]) + 1);
     me := LINK[24];
   END_IF;
   ANSWERED := FALSE;
-  LOST := (LINK[21] AND 16#0001) = 0;
+  LOST := (LINK[21] AND WORD#16#0001) = WORD#0;
   IF OWNED AND LINK[94 + m] <> me THEN
     LOST := TRUE;
     OWNED := FALSE;
   END_IF;
   IF NOT RUN OR LOST THEN
     IF OWNED AND LINK[94 + m] = me THEN
-      LINK[94 + m] := 0;
+      LINK[94 + m] := WORD#0;
     END_IF;
     OWNED := FALSE;
     WAITING := FALSE;
-    ticket := 0;
+    ticket := WORD#0;
     RETURN;
   END_IF;
   IF NOT OWNED THEN
-    IF ticket = 0 THEN
-      LINK[91] := LINK[91] + 1;
-      IF LINK[91] = 0 THEN
-        LINK[91] := 1;
+    IF ticket = WORD#0 THEN
+      LINK[91] := UDINT_TO_WORD(WORD_TO_UDINT(LINK[91]) + 1);
+      IF LINK[91] = WORD#0 THEN
+        LINK[91] := WORD#1;
       END_IF;
       ticket := LINK[91];
     END_IF;
-    n := WORD_TO_INT(LINK[89] AND 16#0007);
-    IF n > 4 THEN
-      n := 4;
+    cnt := WORD_TO_INT(LINK[89] AND WORD#16#0007);
+    IF cnt > 4 THEN
+      cnt := 4;
     END_IF;
     (* My turn: nobody waited in the last scan, or I was the lowest. *)
-    IF LINK[93] = 0 OR ticket = LINK[93] OR ((ticket - LINK[93]) AND 16#8000) <> 0 THEN
-      FOR i := 0 TO n - 1 DO
-        IF NOT OWNED AND LINK[94 + i] = 0 THEN
+    IF LINK[93] = WORD#0 OR ticket = LINK[93] OR (DINT_TO_WORD(WORD_TO_DINT(ticket) - WORD_TO_DINT(LINK[93])) AND WORD#16#8000) <> WORD#0 THEN
+      FOR i := 0 TO cnt - 1 DO
+        IF NOT OWNED AND LINK[94 + i] = WORD#0 THEN
           m := i;
           OWNED := TRUE;
         END_IF;
@@ -88,8 +88,8 @@ END_VAR
       LINK[94 + m] := me;
       BASE := 144 + 144 * m;
       WAITING := FALSE;
-      ticket := 0;
-    ELSIF LINK[92] = 0 OR ((ticket - LINK[92]) AND 16#8000) <> 0 THEN
+      ticket := WORD#0;
+    ELSIF LINK[92] = WORD#0 OR (DINT_TO_WORD(WORD_TO_DINT(ticket) - WORD_TO_DINT(LINK[92])) AND WORD#16#8000) <> WORD#0 THEN
       LINK[92] := ticket;
     END_IF;
   END_IF;
@@ -99,9 +99,9 @@ END_VAR
   LINK[98 + m] := LINK[90];
   IF SEND AND NOT WAITING THEN
     (* A counter the bridge has not seen: not the last request, not the echo. *)
-    counter := LINK[BASE] + 1;
+    counter := UDINT_TO_WORD(WORD_TO_UDINT(LINK[BASE]) + 1);
     IF counter = LINK[BASE + 72] THEN
-      counter := counter + 1;
+      counter := UDINT_TO_WORD(WORD_TO_UDINT(counter) + 1);
     END_IF;
     LINK[BASE] := counter;
     LINK[BASE + 1] := SHL(USINT_TO_WORD(OP), 8) OR USINT_TO_WORD(NET);
@@ -112,9 +112,9 @@ END_VAR
     LINK[BASE + 6] := A4;
     LINK[BASE + 7] := A5;
     WAITING := TRUE;
-  ELSIF WAITING AND LINK[BASE + 72] = counter AND SHR(LINK[BASE + 73], 8) >= 2 THEN
+  ELSIF WAITING AND LINK[BASE + 72] = counter AND SHR(LINK[BASE + 73], 8) >= WORD#2 THEN
     WAITING := FALSE;
     ANSWERED := TRUE;
-    ERR := WORD_TO_UINT(LINK[BASE + 73] AND 16#00FF);
+    ERR := WORD_TO_UINT(LINK[BASE + 73] AND WORD#16#00FF);
   END_IF;
 END_FUNCTION_BLOCK

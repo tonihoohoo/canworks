@@ -138,13 +138,13 @@ END_IF;
 A node's `emcy_code_location` holds only its latest EMCY. `CO_RECV_EMCY` gives the program every EMCY of the network's nodes, in order, from the bridge's history of the network's last 64, kept from the start of the CANopen session.
 
 - Inputs: `ENABLE`, `NETWORK`, `NODE` (0: every node), `SKIP_OLD` (start at the next EMCY instead of the oldest kept one). In-out: `MSEF : ARRAY[0..4] OF BYTE` and `LINK`.
-- Outputs: `ACTIVE`, `NEW`, `EMCY_NODE`, `ERROR_CODE : WORD`, `ERROR_REGISTER : BYTE`, `TIMESTAMP` (UTC microseconds), `QUEUED`, `OVERFLOW`, `LOST`, `ERROR`, `ERROR_ID`.
-- Each call gives at most one EMCY; call it again while `NEW` is TRUE to read every waiting one in the scan. Every instance reads from its own place, so two instances both get every EMCY. An instance that falls more than 64 behind counts the lost ones in `LOST`.
+- Outputs: `ACTIVE`, `RECEIVED`, `EMCY_NODE`, `ERROR_CODE : WORD`, `ERROR_REGISTER : BYTE`, `TIMESTAMP` (UTC microseconds), `QUEUED`, `OVERFLOW`, `LOST`, `ERROR`, `ERROR_ID`.
+- Each call gives at most one EMCY; call it again while `RECEIVED` is TRUE to read every waiting one in the scan. Every instance reads from its own place, so two instances both get every EMCY. An instance that falls more than 64 behind counts the lost ones in `LOST`.
 - `ERROR_ID` 8 for one call: a new CANopen session started; reading goes on with its EMCYs. 4: CANopen is not running (it tries again while `ENABLE` stays TRUE). 5: no free receiver.
 
 ```iecst
 rx(ENABLE := TRUE, NODE := 0, MSEF := msef, LINK := canworks.link);
-WHILE rx.NEW DO
+WHILE rx.RECEIVED DO
   faults := faults + 1;   (* rx.EMCY_NODE, rx.ERROR_CODE, rx.ERROR_REGISTER, msef *)
   rx(ENABLE := TRUE, NODE := 0, MSEF := msef, LINK := canworks.link);
 END_WHILE;
@@ -156,23 +156,23 @@ END_WHILE;
 
 - `CAN_SEND` ends with `DONE` when the bridge reports the frame confirmed on the bus.
 - `CAN_SEND_CYCLIC` starts its job when `ENABLE` rises and sends changed `DATA`, `DLC` or `PERIOD` to the bridge only when they change; the bridge sends the frame from its own timer. The block must be called at least once a second (it writes a keepalive), or the bridge stops the frame.
-- `CAN_RECEIVE` gives the frames of the current batch, one per call; a `WHILE rx.NEW DO ... END_WHILE` loop reads them all in the scan, and the next batch comes in a later scan.
+- `CAN_RECEIVE` gives the frames of the current batch, one per call; a `WHILE rx.RECEIVED DO ... END_WHILE` loop reads them all in the scan, and the next batch comes in a later scan.
 - `CAN_BUS_INFO` reads the network info, updated every 100 ms, for the first 8 networks.
 
 ## J1939 blocks
 
-The J1939 message and trouble code blocks are described with examples in [j1939.md](j1939.md#program-blocks). Over the mailboxes, `J1939_SEND` and `J1939_REQUEST` move messages longer than 128 bytes in 128-byte parts, `J1939_RECEIVE` reads a message longer than 8 bytes whole before it reports `NEW`, `J1939_ECU_INFO` reads the network info, `J1939_FIND_ECU` looks again on every turn it gets while `ENABLE` is TRUE (`VALID` after the first answer), and `J1939_DM_READ` with `PREVIOUS` FALSE gives the bridge's latest DM1 from `SOURCE` without bus traffic.
+The J1939 message and trouble code blocks are described with examples in [j1939.md](j1939.md#program-blocks). Over the mailboxes, `J1939_SEND` and `J1939_REQUEST` move messages longer than 128 bytes in 128-byte parts, `J1939_RECEIVE` reads a message longer than 8 bytes whole before it reports `RECEIVED`, `J1939_ECU_INFO` reads the network info, `J1939_FIND_ECU` looks again on every turn it gets while `ENABLE` is TRUE (`VALID` after the first answer), and `J1939_DM_READ` with `PREVIOUS` FALSE gives the bridge's latest DM1 from `SOURCE` without bus traffic.
 
 ## On another Modbus PLC
 
-The blocks are plain IEC 61131-3 ST that uses only standard functions and `TON`, so they work on any PLC that reads the bridge as a Modbus TCP client and can hold the 1280-word `LINK` array:
+The blocks are plain IEC 61131-3 ST that uses only standard functions and `TON`, with strict typing (typed literals such as `WORD#0`, no reserved words as names), so they build unchanged on STruC++, CODESYS and truST, and work on any PLC that reads the bridge as a Modbus TCP client and can hold the 1280-word `LINK` array. For a PLC that imports PLCopen XML, `--export-plcopen` writes all of the steps below as one file ([plcopen.md](plcopen.md)); `canworks-deploy library --format plcopen --out lib` writes the library alone as `lib/canworks-library.xml`. By hand:
 
 1. Write the library's sources: `canworks-deploy library --format st --out lib` (one `.st` file per block and function, each with the library version in its first line), and add them to the PLC project.
-2. Write the PLC link for the config: `canworks-deploy --config canworks.json --export-modbus-map link.st`, or **Export → ST for another PLC** in the configurator. The config needs the PLC link (`bridge.openplc`, which gives the map hash and the header the bridge checks). The file holds the `canworks` global variable list (`ok`, `link`, the typed values and the channel variables `in_w` and `out_w`), the client channels to create, and the programs `canworks_in` and `canworks_out`.
+2. Write the PLC link for the config: `canworks-deploy --config canworks.json --export-modbus-map link.st`, or **Export → ST for another PLC** in the configurator. The config needs the PLC link (`bridge.plc_link`, or `bridge.openplc`; it gives the map hash and the header the bridge checks). The file holds the `canworks` global variable list (`ok`, `link`, the typed values and the channel variables `in_w` and `out_w`), the client channels to create, and the programs `canworks_in` and `canworks_out`.
 3. Save the list as a global variable list named `canworks`, create the client channels (function 4 into `canworks.in_w`, function 16 from `canworks.out_w`) at a cycle well below the bridge's watchdog, and call `canworks_in` first and `canworks_out` last in every scan of the task that uses the values and the blocks.
 4. Call the blocks with `LINK := canworks.link`, as on OpenPLC.
 
-Export the file again after any config change: the programs carry the map hash. PLCopen XML for tools that import that comes in a later change.
+Export the file again after any config change: the programs carry the map hash.
 
 ## REAL conversions
 
@@ -180,4 +180,4 @@ Export the file again after any config change: the programs carry the map hash. 
 
 ## Building it
 
-The sources are in `library/modbus/` (the blocks over the bridge and its mailboxes, their helpers and the REAL conversions) and `library/canworks/` (the ST helpers); `library/build.sh` builds `canworks.stlib` into the deploy package with STruC++, and `test/plc_modbus/run.sh` runs the blocks against models of the bridge's registers and mailboxes, the generated programs, and builds the PLC link file for another PLC with the library ([development.md](development.md)).
+The sources are in `library/modbus/` (the blocks over the bridge and its mailboxes, their helpers and the REAL conversions) and `library/canworks/` (the ST helpers); `library/build.sh` builds `canworks.stlib` into the deploy package with STruC++, CI builds the whole library with truST through the PLCopen export, and `test/plc_modbus/run.sh` runs the blocks against models of the bridge's registers and mailboxes, the generated programs, and builds the PLC link file for another PLC with the library ([development.md](development.md)).

@@ -204,7 +204,7 @@ class CopyAsStCall(unittest.TestCase):
         call = ("rx_machine_Pressures(ENABLE := TRUE, NETWORK := 0 (* machine *), PGN := 65280, SOURCE := 0, "
                 "FILTER_SOURCE := TRUE, RX_DATA := machine_Pressures_data, LINK := canworks.link);")
         self.assertEqual(st.count(call), 2)
-        self.assertIn("WHILE rx_machine_Pressures.NEW DO\n", st)
+        self.assertIn("WHILE rx_machine_Pressures.RECEIVED DO\n", st)
         self.assertIn("  machine_Pressures_Pressure := J1939_GET_BITS(DATA := machine_Pressures_data, START_BIT := 0, "
                       "BIT_LENGTH := 16, SIGNED := FALSE); (* raw x 0.1 bar *)\n", st)
         self.assertIn("  machine_Pressures_Temp := J1939_GET_BITS(DATA := machine_Pressures_data, START_BIT := 16, "

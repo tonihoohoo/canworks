@@ -346,7 +346,7 @@ function codesysOn() { return projectTarget() === "codesys"; }
 // Export's "For the program" group: the target's own files (canopen-configurator
 // "Export menu groups"). OpenPLC gets no Node-RED flow (OpenPLC is the only
 // writer), and its .st file is the PLC link for a second Modbus PLC, named so.
-const PROGRAM_EXPORTS = { bridge: ["csv", "json", "st", "nodered"], openplc_modbus: ["csv", "json", "st"], codesys: ["codesys"] };
+const PROGRAM_EXPORTS = { bridge: ["csv", "json", "st", "nodered", "plcopen"], openplc_modbus: ["csv", "json", "st"], codesys: ["codesys"] };
 
 function showProgramExports() {
   const tgt = projectTarget();

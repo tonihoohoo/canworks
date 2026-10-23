@@ -85,7 +85,7 @@ def st_call(entry, kind, network=0, net_name=None):
         src = "SOURCE := %d, FILTER_SOURCE := TRUE, " % source if source is not None else ""
         call = "%s(ENABLE := TRUE, %s, PGN := %d, %sRX_DATA := %s, LINK := canworks.link);" % (rx, net, pgn, src, data)
         body.append(call)
-        body.append("WHILE %s.NEW DO" % rx)
+        body.append("WHILE %s.RECEIVED DO" % rx)
         for j, s in enumerate(sigs):
             body.append("  %s := J1939_GET_BITS(DATA := %s, %s, SIGNED := %s);%s" % (
                 sig_var(j, s), data, bits(s), "TRUE" if s.get("signed") else "FALSE", _scaling(s)))

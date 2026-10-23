@@ -116,5 +116,36 @@ class Ui(unittest.TestCase):
         self.assertEqual(self.run_main("HEAD", "HEAD")["ui"], "false")
 
 
+class Plcopen(unittest.TestCase):
+    def setUp(self):
+        self.rules = ci.load_plcopen_rules()
+
+    def test_export_library_and_pin(self):
+        for p in ("tools/deploy/canworks/plcopen.py", "tools/deploy/canworks/plcopen_targets.py",
+                  "tools/deploy/canworks/codesys/script/import_canworks_modbus.py",
+                  "library/modbus/CAN_RECEIVE.st", "tools/deploy/canworks/library/canworks.stlib",
+                  "test/plcopen/fetch-trust.sh", "tools/deploy/tests/test_plcopen.py", ".github/workflows/ci.yml"):
+            self.assertTrue(ci.is_plcopen([p], self.rules), p)
+
+    def test_other_changes_skip_trust(self):
+        self.assertFalse(ci.is_plcopen(["plugin/src/canopen/network.cpp", "tools/deploy/canworks/diag.py",
+                                        "tools/deploy/canworks/configurator/static/app.js", "docs/plcopen.md"],
+                                       self.rules))
+
+    def test_unknown_paths_run_it(self):
+        self.assertTrue(ci.is_plcopen(None, self.rules))
+
+    def test_every_rule_matches_a_file(self):
+        root = os.path.join(os.path.dirname(__file__), "..", "..")
+        files = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True).stdout.split()
+        for pattern in self.rules:
+            self.assertTrue(any(fnmatch.fnmatchcase(f, pattern) for f in files), pattern)
+
+    def test_output(self):
+        out = Ui.run_main(self, "HEAD", "HEAD")
+        self.assertEqual(out["plcopen"], "false")
+        self.assertEqual(Ui.run_main(self, "--main-push", "HEAD", "HEAD")["plcopen"], "true")
+
+
 if __name__ == "__main__":
     unittest.main()

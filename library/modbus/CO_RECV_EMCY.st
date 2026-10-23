@@ -2,7 +2,7 @@
  * CO_RECV_EMCY: receives the EMCY messages of node NODE (0: every node) of
  * CANopen master network NETWORK from the bridge's EMCY history, from the
  * oldest kept message or, with SKIP_OLD, from the next one. ENABLE starts
- * it. Each call gives at most one message, oldest first: NEW with
+ * it. Each call gives at most one message, oldest first: RECEIVED with
  * EMCY_NODE, ERROR_CODE, ERROR_REGISTER, MSEF (5 manufacturer bytes) and
  * TIMESTAMP (UTC microseconds). QUEUED messages still wait, LOST messages
  * the history dropped before they were read (OVERFLOW then TRUE).
@@ -29,7 +29,7 @@ VAR_IN_OUT
 END_VAR
 VAR_OUTPUT
   ACTIVE : BOOL;
-  NEW : BOOL;
+  RECEIVED : BOOL;
   EMCY_NODE : USINT;
   ERROR_CODE : WORD;
   ERROR_REGISTER : BYTE;
@@ -47,9 +47,9 @@ VAR
   last_drop : WORD;
   lost_now : UDINT;
   restart : BOOL;
-  r : INT;
+  rec : INT;
 END_VAR
-  NEW := FALSE;
+  RECEIVED := FALSE;
   restart := FALSE;
   IF ENABLE AND NOT prev THEN
     QUEUED := 0;
@@ -62,34 +62,34 @@ END_VAR
   prev := ENABLE;
   rx(ENABLE := ENABLE, CHANGED := FALSE, NEXT := TRUE, KIND := 3, NETWORK := NETWORK,
      FLAGS := SEL(SKIP_OLD, USINT#0, USINT#1), DEPTH := 0, ID := 0, MASK := USINT_TO_UDINT(NODE),
-     RETRY := 16#00100110, LINK := LINK);
+     RETRY := DWORD#16#00100110, LINK := LINK);
   IF rx.ACTIVE AND NOT was_active THEN
-    last_drop := 0;
+    last_drop := WORD#0;
   END_IF;
   was_active := rx.ACTIVE;
-  IF rx.NEW THEN
-    r := rx.REC;
-    QUEUED := WORD_TO_UINT(LINK[r + 1]);
-    lost_now := WORD_TO_UDINT((LINK[r + 2] - last_drop) AND 16#FFFF);
-    last_drop := LINK[r + 2];
+  IF rx.RECEIVED THEN
+    rec := rx.REC;
+    QUEUED := WORD_TO_UINT(LINK[rec + 1]);
+    lost_now := WORD_TO_UDINT(DINT_TO_WORD(WORD_TO_DINT(LINK[rec + 2]) - WORD_TO_DINT(last_drop)));
+    last_drop := LINK[rec + 2];
     LOST := LOST + lost_now;
     IF lost_now <> 0 THEN
       OVERFLOW := TRUE;
     END_IF;
-    IF (LINK[r] AND 16#0002) <> 0 THEN
+    IF (LINK[rec] AND WORD#16#0002) <> WORD#0 THEN
       restart := TRUE;
     ELSE
-      NEW := TRUE;
-      TIMESTAMP := SHL(WORD_TO_ULINT(LINK[r + 3]), 48) OR SHL(WORD_TO_ULINT(LINK[r + 4]), 32) OR
-                   SHL(WORD_TO_ULINT(LINK[r + 5]), 16) OR WORD_TO_ULINT(LINK[r + 6]);
-      EMCY_NODE := WORD_TO_USINT(SHR(LINK[r + 7], 8));
-      ERROR_REGISTER := WORD_TO_BYTE(LINK[r + 7]);
-      ERROR_CODE := LINK[r + 8];
-      MSEF[0] := WORD_TO_BYTE(SHR(LINK[r + 9], 8));
-      MSEF[1] := WORD_TO_BYTE(LINK[r + 9]);
-      MSEF[2] := WORD_TO_BYTE(SHR(LINK[r + 10], 8));
-      MSEF[3] := WORD_TO_BYTE(LINK[r + 10]);
-      MSEF[4] := WORD_TO_BYTE(SHR(LINK[r + 11], 8));
+      RECEIVED := TRUE;
+      TIMESTAMP := LWORD_TO_ULINT(SHL(WORD_TO_LWORD(LINK[rec + 3]), 48) OR SHL(WORD_TO_LWORD(LINK[rec + 4]), 32) OR
+                   SHL(WORD_TO_LWORD(LINK[rec + 5]), 16) OR WORD_TO_LWORD(LINK[rec + 6]));
+      EMCY_NODE := WORD_TO_USINT(SHR(LINK[rec + 7], 8));
+      ERROR_REGISTER := WORD_TO_BYTE(LINK[rec + 7]);
+      ERROR_CODE := LINK[rec + 8];
+      MSEF[0] := WORD_TO_BYTE(SHR(LINK[rec + 9], 8));
+      MSEF[1] := WORD_TO_BYTE(LINK[rec + 9]);
+      MSEF[2] := WORD_TO_BYTE(SHR(LINK[rec + 10], 8));
+      MSEF[3] := WORD_TO_BYTE(LINK[rec + 10]);
+      MSEF[4] := WORD_TO_BYTE(SHR(LINK[rec + 11], 8));
     END_IF;
   END_IF;
   ACTIVE := rx.ACTIVE;

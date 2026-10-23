@@ -26,26 +26,26 @@ END_VAR
 VAR
   m : INT;
 END_VAR
-  LINK[90] := LINK[90] + 1;
+  LINK[90] := UDINT_TO_WORD(WORD_TO_UDINT(LINK[90]) + 1);
   LINK[93] := LINK[92];
-  LINK[92] := 0;
-  IF (LINK[21] AND 16#0001) = 0 THEN
+  LINK[92] := WORD#0;
+  IF (LINK[21] AND WORD#16#0001) = WORD#0 THEN
     FOR m := 0 TO 3 DO
-      LINK[144 + 144 * m + 1] := 0;
-      LINK[94 + m] := 0;
+      LINK[144 + 144 * m + 1] := WORD#0;
+      LINK[94 + m] := WORD#0;
     END_FOR;
-    LINK[102] := 0;
-    LINK[103] := 0;
-    LINK[104] := 0;
-    LINK[105] := 0;
+    LINK[102] := WORD#0;
+    LINK[103] := WORD#0;
+    LINK[104] := WORD#0;
+    LINK[105] := WORD#0;
     RETURN;
   END_IF;
   FOR m := 0 TO 3 DO
-    IF LINK[94 + m] <> 0 AND ((LINK[90] - LINK[98 + m]) AND 16#FFFF) > 100 THEN
-      LINK[94 + m] := 0;
+    IF LINK[94 + m] <> WORD#0 AND DINT_TO_WORD(WORD_TO_DINT(LINK[90]) - WORD_TO_DINT(LINK[98 + m])) > WORD#100 THEN
+      LINK[94 + m] := WORD#0;
     END_IF;
   END_FOR;
-  IF (LINK[89] AND 16#0010) <> 0 AND LINK[720] <> LINK[105] THEN
+  IF (LINK[89] AND WORD#16#0010) <> WORD#0 AND LINK[720] <> LINK[105] THEN
     LINK[105] := LINK[720];
     LINK[102] := LINK[720];
     LINK[103] := LINK[721];

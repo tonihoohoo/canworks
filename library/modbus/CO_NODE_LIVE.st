@@ -26,19 +26,19 @@ VAR_IN_OUT
 END_VAR
 VAR
   byte_no : INT;
-  word : WORD;
+  wd : WORD;
   bit_no : INT;
 END_VAR
   LIVE := FALSE;
-  IF (LINK[21] AND 16#0001) <> 0 AND NETWORK < 8 AND NODE >= 1 AND NODE <= 127 THEN
-    IF (SHR(LINK[21], USINT_TO_UINT(NETWORK) + 8) AND 16#0001) <> 0 THEN
+  IF (LINK[21] AND WORD#16#0001) <> WORD#0 AND NETWORK < 8 AND NODE >= 1 AND NODE <= 127 THEN
+    IF (SHR(LINK[21], USINT_TO_UINT(NETWORK) + 8) AND WORD#16#0001) <> WORD#0 THEN
       byte_no := USINT_TO_INT(NODE) / 8;
-      word := LINK[25 + USINT_TO_INT(NETWORK) * 8 + byte_no / 2];
+      wd := LINK[25 + USINT_TO_INT(NETWORK) * 8 + byte_no / 2];
       bit_no := USINT_TO_INT(NODE) MOD 8;
       IF byte_no MOD 2 = 0 THEN
         bit_no := bit_no + 8;
       END_IF;
-      LIVE := (SHR(word, INT_TO_UINT(bit_no)) AND 16#0001) <> 0;
+      LIVE := (SHR(wd, INT_TO_UINT(bit_no)) AND WORD#16#0001) <> WORD#0;
     END_IF;
   END_IF;
 END_FUNCTION_BLOCK

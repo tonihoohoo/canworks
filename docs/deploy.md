@@ -74,6 +74,7 @@ An existing folder becomes the project when it has none of the editor's files (`
 canworks-deploy library --install              # into OpenPLC Editor on this PC
 canworks-deploy library --out DIR              # writes DIR/canworks.stlib
 canworks-deploy library --format st --out DIR  # its ST sources, for another Modbus PLC
+canworks-deploy library --format plcopen --out DIR  # as PLCopen XML (canworks-library.xml)
 canworks-deploy library --project <project>    # enables it in an editor project
 canworks-deploy library --list                 # its blocks and functions
 ```
@@ -173,7 +174,7 @@ writes one self-contained HTML document of the configured networks for people: t
 
 ## Modbus clients
 
-`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config); for a config with `bridge.openplc` the `.st` file is the PLC link for another Modbus PLC, [plc-library.md](plc-library.md#on-another-modbus-plc)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)).
+`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config); for a config with the PLC link (`bridge.plc_link` or `bridge.openplc`) the `.st` file is the PLC link for another Modbus PLC, [plc-library.md](plc-library.md#on-another-modbus-plc)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)). `--export-plcopen DIR --for codesys|trust|generic` (with `--bridge-host HOST`, `--no-library`, `--with-main`, `--codesys-plc NAME`, `--codesys-ethernet NAME`) writes PLCopen XML with the PLC link and the library for CODESYS-based tools, truST or another PLC, and the files that connect it to the bridge ([plcopen.md](plcopen.md)).
 
 ## The local runtime
 

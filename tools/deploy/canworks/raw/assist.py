@@ -104,7 +104,7 @@ def st_call(entry, kind, network=0):
         call = "%s(ENABLE := TRUE, %sID := %s, %s%sRX_DATA := %s, LINK := canworks.link);" % (
             block, net, _st_hex(entry.get("id", 0)), mask_pin, ext, data)
         lines.append(call)
-        lines.append("WHILE %s.NEW DO" % block)
+        lines.append("WHILE %s.RECEIVED DO" % block)
         for j, s in enumerate(sigs):
             lines.append("  %s_%s := CAN_GET_BITS(DATA := %s, %s, SIGNED := %s);" % (
                 name, _ident(s.get("name") or "s%d" % j), data, bits(s), "TRUE" if s.get("signed") else "FALSE"))

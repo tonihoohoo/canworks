@@ -133,6 +133,21 @@ class App:
     def __init__(self, project, parent=None):
         self.project, self.parent = project, parent
         self.guid = next(_guids)
+        self.imported = []
+
+    def get_name(self):
+        return "Application"
+
+    def import_xml(self, reporter, path):
+        """PLCopen XML import: records the file; conflicts go to the reporter."""
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        for name in self.imported:
+            reporter.resolve_conflict(name)
+            reporter.replaced(name)
+        self.imported = [path]
+        reporter.added(path)
+        self.project.world.log.append(("import_xml", os.path.basename(path), len(text)))
 
     def build(self):
         w = self.project.world
@@ -187,16 +202,37 @@ class Projects:
         return p
 
 
+class Task(Obj):
+    """A task of the task configuration: `pous` lists the program calls."""
+
+    def __init__(self, world, name, pous=()):
+        super().__init__(world, name)
+        self.pous = PouList(pous)
+
+
+class PouList(list):
+    def add(self, name):
+        self.append(name)
+
+
 class Repository:
     def __init__(self, world):
         self.world = world
         self.sources = ["local"]
         self.devices = []
+        self.names = {}  # (type, id): catalogue name
 
     def get_all_devices(self):
+        names = self.names
+
+        class Info:
+            def __init__(self, name):
+                self.name = name
+
         class Desc:
             def __init__(self, i):
                 self.device_id = i
+                self.device_info = Info(names.get((i.type, i.id), i.id))
         return [Desc(d) for d in self.devices]
 
     def import_device(self, path, source, guid, save):
@@ -242,6 +278,10 @@ class World:
         for v in manager_versions:
             self.repo.devices.append(DeviceId(16, "181016", v))
         self.repo.devices.append(DeviceId(4096, "0000 0004", "3.5.22.40"))
+        for (t, i, name) in ((110, "0000 0002", "Ethernet"), (89, "0000 0001", "Modbus TCP Master"),
+                             (89, "0000 0002", "Modbus TCP Slave")):
+            self.repo.devices.append(DeviceId(t, i, "4.4.0.0"))
+            self.repo.names[(t, i)] = name
 
     def make(self, name, ident):
         if ident.type == 15:
@@ -261,6 +301,9 @@ class World:
             return Obj(self, name, ident, [Connector([Param(1, "Node-ID", "1")])])
         if ident.type == 18:
             return self._remote(name, ident)
+        if (ident.type, ident.id) == (89, "0000 0002"):
+            return Obj(self, name, ident, [Connector([Param(1, "IP address", "0.0.0.0"), Param(2, "Port", "502"),
+                                                      Param(3, "Unit-ID", "255")])])
         return Obj(self, name, ident)
 
     def _remote(self, name, ident):
@@ -305,10 +348,20 @@ class World:
         parent.children.append(obj)
         return obj
 
-    def run(self, folder, primary=None):
-        """Runs the folder's import_canworks.py as CODESYS would."""
+    def add_task(self, device, name, pous=()):
+        """Device > Plc Logic > Application > Task Configuration > task."""
+        tc = Obj(self, "Task Configuration")
+        tc.parent = device
+        device.children.append(tc)
+        task = Task(self, name, pous)
+        task.parent = tc
+        tc.children.append(task)
+        return task
+
+    def run(self, folder, primary=None, script="import_canworks.py"):
+        """Runs the folder's import_canworks.py (or `script`) as CODESYS would."""
         self.projects.primary = primary
-        script = os.path.join(folder, "import_canworks.py")
+        script = os.path.join(folder, script)
         runpy.run_path(script, init_globals={"projects": self.projects, "device_repository": self.repo,
                                              "system": self.system})
         with open(os.path.join(folder, "import_report.txt"), encoding="utf-8") as f:

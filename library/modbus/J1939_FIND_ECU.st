@@ -55,14 +55,14 @@ END_VAR
   END_IF;
   (* One look per EXECUTE edge: the call after an answer drops it. *)
   run := NOT (x.DONE OR x.ERROR);
-  x(EXECUTE := run, OP := 15, NET := NETWORK, A0 := 0, A1 := 0, A2 := 0, A3 := 0, A4 := 0, A5 := 0, LENGTH := 16,
+  x(EXECUTE := run, OP := 15, NET := NETWORK, A0 := WORD#0, A1 := WORD#0, A2 := WORD#0, A3 := WORD#0, A4 := WORD#0, A5 := WORD#0, LENGTH := 16,
     FETCH_MAX := 8, LINK := LINK, DATA := buf);
   IF x.DONE THEN
     VALID := TRUE;
-    FOUND := x.R0 <> 0;
+    FOUND := x.R0 <> WORD#0;
     ADDRESS := SEL(FOUND, USINT#254, WORD_TO_USINT(x.R1));
     COUNT := WORD_TO_UINT(x.R2);
-    FOUND_NAME := 0;
+    FOUND_NAME := LWORD#0;
     FOR i := 0 TO 7 DO
       FOUND_NAME := SHL(FOUND_NAME, 8) OR BYTE_TO_LWORD(buf[i]);
     END_FOR;

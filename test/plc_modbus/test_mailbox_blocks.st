@@ -81,16 +81,16 @@ END_TEST
 TEST 'without mailboxes or bridge the blocks end in the same call'
   VAR
     link : ARRAY[0..1279] OF WORD;
-    s : CAN_SEND;
+    snd : CAN_SEND;
     rd : CO_SDO_READ_STRING;
     rx : CAN_RECEIVE;
     info : CAN_BUS_INFO;
     d : ARRAY[0..7] OF BYTE;
   END_VAR
   link[21] := 1;
-  s(EXECUTE := TRUE, ID := 1, DLC := 0, DATA := d, LINK := link);
-  ASSERT_TRUE(s.ERROR);
-  ASSERT_EQ(s.ERROR_ID, 22);
+  snd(EXECUTE := TRUE, ID := 1, DLC := 0, DATA := d, LINK := link);
+  ASSERT_TRUE(snd.ERROR);
+  ASSERT_EQ(snd.ERROR_ID, 22);
   rd(EXECUTE := TRUE, NODE := 5, INDEX := 16#1008, LINK := link);
   ASSERT_EQ(rd.ERROR_ID, 22);
   rx(ENABLE := TRUE, ID := 1, RX_DATA := d, LINK := link);
@@ -99,12 +99,12 @@ TEST 'without mailboxes or bridge the blocks end in the same call'
   ASSERT_EQ(info.ERROR_ID, 22);
   link[21] := 0;
   link[89] := 16#0431;
-  s(EXECUTE := FALSE, DATA := d, LINK := link);
-  s(EXECUTE := TRUE, ID := 1, DLC := 9, DATA := d, LINK := link);
-  ASSERT_EQ(s.ERROR_ID, 3);
-  s(EXECUTE := FALSE, DATA := d, LINK := link);
-  s(EXECUTE := TRUE, ID := 1, DLC := 0, DATA := d, LINK := link);
-  ASSERT_EQ(s.ERROR_ID, 20);
+  snd(EXECUTE := FALSE, DATA := d, LINK := link);
+  snd(EXECUTE := TRUE, ID := 1, DLC := 9, DATA := d, LINK := link);
+  ASSERT_EQ(snd.ERROR_ID, 3);
+  snd(EXECUTE := FALSE, DATA := d, LINK := link);
+  snd(EXECUTE := TRUE, ID := 1, DLC := 0, DATA := d, LINK := link);
+  ASSERT_EQ(snd.ERROR_ID, 20);
 END_TEST
 
 TEST 'SDO string, bytes and REAL reads'
@@ -312,7 +312,7 @@ TEST 'CAN_RECEIVE drains a batch in one scan'
   link := bridge.LINK;
   svc(LINK := link);
   rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
-  WHILE rx.NEW DO
+  WHILE rx.RECEIVED DO
     ids[got] := rx.RX_ID;
     got := got + 1;
     IF got = 5 THEN
@@ -331,7 +331,7 @@ TEST 'CAN_RECEIVE drains a batch in one scan'
   link := bridge.LINK;
   svc(LINK := link);
   rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
-  ASSERT_TRUE(rx.NEW);
+  ASSERT_TRUE(rx.RECEIVED);
   ASSERT_EQ(rx.RX_ID, 16#186);
   (* disabled: the receiver closes *)
   FOR i := 1 TO 4 DO
@@ -370,7 +370,7 @@ TEST 'CAN_RECEIVE keeps receiving as the bridge clock wraps'
     link := bridge.LINK;
     svc(LINK := link);
     rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
-    IF rx.NEW THEN
+    IF rx.RECEIVED THEN
       got := got + 1;
       rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
     END_IF;
@@ -571,7 +571,7 @@ TEST 'J1939_RECEIVE reads a long message whole'
   FOR i := 1 TO 10 DO
     svc(LINK := link);
     rx(ENABLE := TRUE, PGN := 65282, RX_DATA := data, LINK := link);
-    IF rx.NEW THEN
+    IF rx.RECEIVED THEN
       got := TRUE;
       ASSERT_EQ(rx.RX_LENGTH, 200);
       ASSERT_EQ(rx.RX_PGN, 65282);
@@ -616,14 +616,14 @@ TEST 'two EMCY receivers each get a message; a new session shows 8 once'
     svc(LINK := link);
     e1(ENABLE := TRUE, MSEF := m1, LINK := link);
     e2(ENABLE := TRUE, NODE := 3, MSEF := m2, LINK := link);
-    IF e1.NEW THEN
+    IF e1.RECEIVED THEN
       n1 := n1 + 1;
       ASSERT_EQ(e1.ERROR_CODE, 16#8130);
       ASSERT_EQ(e1.EMCY_NODE, 3);
       ASSERT_EQ(e1.ERROR_REGISTER, 16#81);
       ASSERT_EQ(m1[4], 5);
     END_IF;
-    IF e2.NEW THEN
+    IF e2.RECEIVED THEN
       n2 := n2 + 1;
     END_IF;
     bridge(LINK := link);

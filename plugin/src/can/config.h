@@ -628,6 +628,10 @@ struct BridgeConfig {
   // "openplc": OpenPLC's Modbus master is the client (PLC link header at
   // output bytes 0-5, map hash at input bytes 0-3, status at input byte 4).
   bool openplc = false;
+  // "plc_link" (or "openplc"): the PLC link header at output bytes 0-5, the
+  // map hash at input bytes 0-3 and the status block at input byte 4, for
+  // any Modbus client that runs canworks_in/canworks_out.
+  bool plc_link = false;
   unsigned poll_ms = 10;
   std::string remote_device = "canworks";
   bool has_iec_base = false;

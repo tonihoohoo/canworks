@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, mainmove, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, mailboxlayout, nodered, openplcmodbus, targets
+from .. import bundle, mailboxlayout, nodered, openplcmodbus, plcopen, plcopen_targets, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -1398,6 +1398,8 @@ class Session:
         tgt = targets.target(cfg)
         if tgt == targets.OPENPLC_MODBUS and self.mode == "project":
             items += self.openplc_items(cfg)
+        if tgt == targets.BRIDGE:
+            items += plcopen_targets.problems(cfg)
         if self.mode == "project":
             items += layout.macro_problems(self.uses)
         decls = []
@@ -1987,7 +1989,7 @@ class Session:
             rows = modbusmap.register_map(cfg)
         except modbusmap.MapError as e:
             return self._map_problems(cfg, e.problems)
-        if fmt == "st" and modbusmap.is_openplc(cfg):
+        if fmt == "st" and modbusmap.has_plc_link(cfg):
             # The PLC link for another Modbus PLC, as the command line writes it.
             try:
                 text = openplcmodbus.other_plc_st(cfg, editorproject.declarations(cfg, self.config_path))
@@ -1999,6 +2001,44 @@ class Session:
         return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
                 "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
                 "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+
+    def export_plcopen(self, cfg, target, host=None, library=True, with_main=False, plc=None, ethernet=None,
+                       plc_address=None):
+        """The folder `canworks-deploy --export-plcopen DIR --for <target>`
+        writes for the draft (plcopen-export), as `<folder>-<target>.zip`,
+        base64 in `data`, with `notes` for the dialog (a PLC address that
+        `writers` does not let write). On a problem: the /api/check shape,
+        and no file."""
+        self._bridge_config(cfg)
+        if target not in plcopen_targets.TARGETS:
+            raise ApiError(400, "target must be one of: " + ", ".join(plcopen_targets.TARGETS))
+        for name, v in (("host", host), ("plc", plc), ("ethernet", ethernet), ("plc_address", plc_address)):
+            if v is not None and not isinstance(v, str):
+                raise ApiError(400, "%s must be a string" % name)
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        try:
+            files = plcopen_targets.files(
+                cfg, editorproject.declarations(cfg, self.config_path), target, host=(host or "").strip() or None,
+                library=library is not False, with_main=with_main is True and target != "codesys",
+                config_name=os.path.basename(self.config_path), codesys_plc=(plc or "").strip() or None,
+                codesys_ethernet=(ethernet or "").strip() or None)
+        except (plcopen_targets.ExportError, plcopen.PlcopenError, modbusmap.MapError,
+                openplcmodbus.OpenplcError) as e:
+            return self._map_problems(cfg, getattr(e, "problems", None) or [str(e)])
+        notes = []
+        if plc_address and plc_address.strip():
+            covered = plcopen_targets.writer_covers(cfg, plc_address)
+            if covered is None:
+                notes.append("%s is not an IP address" % plc_address.strip())
+            elif not covered:
+                notes.append("the bridge takes writes only from the addresses in writers, and %s is not one of them: "
+                             "add it on the bridge page, or the PLC's outputs are refused" % plc_address.strip())
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in sorted(files):
+                z.writestr(n, files[n].encode("utf-8"))
+        return {"items": [], "errors": 0, "name": "%s-%s.zip" % (folder, target), "content_type": "application/zip",
+                "files": sorted(files), "notes": notes, "data": base64.b64encode(buf.getvalue()).decode("ascii")}
 
     def _map_problems(self, cfg, problems):
         """A stopped register map or Node-RED export in the /api/check shape:
@@ -3038,6 +3078,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/bridge/suggest"):
                     self._need_open(s)
                     out = s.bridge_suggest(body.get("config"), body.get("block"), body.get("index"))
+                elif route == ("POST", "/api/export_plcopen"):
+                    self._need_open(s)
+                    out = s.export_plcopen(body.get("config"), body.get("target"), body.get("host"),
+                                           body.get("library"), body.get("with_main"), body.get("plc"),
+                                           body.get("ethernet"), body.get("plc_address"))
                 elif route == ("POST", "/api/bridge/export"):
                     self._need_open(s)
                     out = s.export_modbus_map(body.get("config"), body.get("format"))

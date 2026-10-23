@@ -2,6 +2,8 @@
 
 A canworks config can be built into a CODESYS project, so a CODESYS controller or display with a CAN interface runs the same bus with CODESYS's own CANopen Manager: the nodes, their PDOs, COB-IDs, transmission types and timers, heartbeat, startup SDOs and a variable name on every mapped I/O channel. canworks keeps doing what it does around the bus: the configurator, checks, bus trace and commissioning.
 
+The other route keeps canworks on the bus: `canworks-bridge` runs the CAN networks on a Linux device and CODESYS is a Modbus TCP client of it, with the canworks variables, copy programs and function blocks imported from PLCopen XML ([plcopen.md](plcopen.md#codesys)). Pick this page's route when the CODESYS controller has the CAN interface and should be the CANopen master; pick the bridge when the CAN interface is on the Linux device, or for J1939 and raw CAN, which only the bridge runs.
+
 ## CODESYS as the project target
 
 CODESYS is one of the three project targets, next to OpenPLC and the Modbus bridge ([configurator.md](configurator.md#project-target)). A config whose target is CODESYS has a top-level `codesys` object ([config.md](config.md#codesys-target)):
