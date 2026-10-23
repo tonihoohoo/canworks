@@ -33,12 +33,12 @@ The export is a folder:
 
 | File | What it is |
 |---|---|
-| `<network>/node_<id>.dcf` | Each node as a CiA 306 DCF, the same files `--export-dcf` writes ([deploy.md](deploy.md#export-the-nodes-as-dcf-files)). CODESYS's device repository takes a DCF like an EDS and reads its `ParameterValue` entries, so the device arrives with the configured PDO communication and mapping parameters, heartbeat time and startup SDOs. |
+| `<network>/node_<id>.dcf` | Each node as a CiA 306 DCF, the same files `--export-dcf` writes ([deploy.md](deploy.md#export-the-nodes-as-dcf-files)). CODESYS's device repository takes a DCF like an EDS and reads its `ParameterValue` entries, so the device arrives with the configured PDO communication and mapping parameters and startup SDOs. A value equal to the EDS default is not a `ParameterValue`, and CODESYS then leaves its own setting empty, so the script also sets each node's heartbeat producer time itself. |
 | `canworks-codesys.json` | The plan: every network's CODESYS network number, bit rate and CANopen Manager settings, every node's settings and I/O channel names, and the settings that have no CODESYS counterpart. |
 | `import_canworks.py` | The script CODESYS runs. It is the same file for every config. |
 | `README.txt` | How to run it. |
 
-The script uses the project's active device (the one whose application is the active application), finds or adds a CANbus with the network's number and a CANopen Manager under it, installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
+The script uses the project's active device (the one whose application is the active application), finds or adds a CANbus with the network's number and a CANopen Manager under it (a new object gets a name nothing else in the device uses, such as `CANopen_Manager_2` for the second network, because CODESYS wants names unique in the whole device), installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
 
 Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
 

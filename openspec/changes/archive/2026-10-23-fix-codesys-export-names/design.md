@@ -10,8 +10,8 @@ Found in the 2026-10-23 Windows check of the CODESYS import explore: virtual-pla
 
 ## Decisions
 
-- **Name check over the whole tree.** `_unique_name(parent, base)` collects the names of every object of the project (`proj.get_children(True)`, plus `find(name, True)` where available) instead of the parent's children. Suffix stays `_2`, `_3`, ... so existing projects keep their first names.
-- **Heartbeat as a plan device setting.** `plan.py` adds the heartbeat producer parameter to each node's `params` when `heartbeat_ms` > 0, by id `0x01017000` with the element that holds the time (name confirmed from the dump in task 1.1). Setting it through the existing `apply_params` keeps the "Settings found by id" behavior: a CODESYS without it gets a report line, not a stop. Alternative considered: make the DCF always write `ParameterValue` for 0x1017. Rejected: the DCF export is shared with Lely, and the rule "a value equal to the EDS default writes nothing" is deliberate there.
+- **Name check over the whole tree.** `_unique_name(parent, base)` collects the names of every object under the top-level device that holds the parent (the object right below the project) instead of the parent's children. Other top-level devices keep their own names: projects with one device per hardware variant all have a `CANbus`, so the scope is the device, not the project. Suffix stays `_2`, `_3`, ... so existing projects keep their first names.
+- **Heartbeat as a plan device setting.** `plan.py` adds the heartbeat producer parameter to each node's `params` when `heartbeat_ms` > 0, by id `0x01017000` (a plain UINT in ms, "Heartbeat-Producer Time", per the SP22 dump). Setting it through the existing `apply_params` keeps the "Settings found by id" behavior: a CODESYS without it gets a report line, not a stop. Alternative considered: make the DCF always write `ParameterValue` for 0x1017. Rejected: the DCF export is shared with Lely, and the rule "a value equal to the EDS default writes nothing" is deliberate there.
 - **Stand-in refuses duplicate names tree-wide** with CODESYS's message text, so the regression is caught in CI.
 
 ## Risks / Trade-offs

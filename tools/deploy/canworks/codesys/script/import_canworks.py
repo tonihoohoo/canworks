@@ -129,8 +129,20 @@ def _highest(repo, dtype, did):
     return best
 
 
+def _top(obj):
+    """The top-level device holding obj (the object right below the project)."""
+    while _parent(obj) is not None and _parent(_parent(obj)) is not None:
+        obj = _parent(obj)
+    return obj
+
+
 def _unique_name(parent, base):
-    taken = set(c.get_name().lower() for c in _children(parent))
+    """A name no other object of the device uses: CODESYS refuses a name
+    taken anywhere in the device's tree (its I/O names are one namespace),
+    not only among the new object's siblings."""
+    top = _top(parent)
+    taken = set(c.get_name().lower() for c in _children(top, True))
+    taken.add(top.get_name().lower())
     name, n = base, 2
     while name.lower() in taken:
         name = "%s_%d" % (base, n)

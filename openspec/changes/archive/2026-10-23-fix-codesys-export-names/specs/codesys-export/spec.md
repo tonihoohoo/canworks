@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Unique object names
-Every CANbus, CANopen Manager and node object the script adds SHALL get a name that no other object in the project uses, adding `_2`, `_3`, ... to the base name when it is taken anywhere in the device tree, because CODESYS refuses a name used elsewhere in the tree.
+Every CANbus, CANopen Manager and node object the script adds SHALL get a name that no other object under the same top-level device uses, adding `_2`, `_3`, ... to the base name when it is taken anywhere in that device's tree, because CODESYS refuses a name used elsewhere in it. Other top-level devices of the project MAY use the same names.
 
 #### Scenario: Three networks
 - **WHEN** a config with networks `io`, `motion` and `host` is built into a new project with one PLC
@@ -9,7 +9,7 @@ Every CANbus, CANopen Manager and node object the script adds SHALL get a name t
 
 #### Scenario: Node name taken in another network
 - **WHEN** two networks each have a node named `drive`
-- **THEN** the second becomes `drive_2` and the report says it kept that name
+- **THEN** the second CODESYS device is named `drive_2` and the build has no error
 
 ## MODIFIED Requirements
 

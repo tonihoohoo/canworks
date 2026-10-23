@@ -6,7 +6,7 @@ The same run showed nodes whose configured heartbeat equals their EDS default (`
 
 ## What Changes
 
-- **Tree-unique names.** New CANbus, CANopen Manager and node objects get a name no other object in the project uses (`CANopen_Manager`, `CANopen_Manager_2`, ...). A node that cannot get its config name keeps the free name and the report says so, as today.
+- **Tree-unique names.** New CANbus, CANopen Manager and node objects get a name no other object of the same device uses (`CANopen_Manager`, `CANopen_Manager_2`, ...). A node that cannot get its config name keeps the free name and the report says so, as today.
 - **Heartbeat producer always set.** For a node with `heartbeat_ms`, the plan sets the CODESYS heartbeat producer setting to that value (and turns it on), whether or not it equals the EDS default. A node with heartbeat off is left as the DCF makes it.
 - The stand-in CODESYS refuses a name used anywhere in the tree, as the real one does; the virtual-plant test (three networks) covers it.
 - PC tools patch version bump.
