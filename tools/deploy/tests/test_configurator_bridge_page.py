@@ -237,8 +237,8 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.locator('select[data-path="master.sync_source"] option[value="plc_cycle"]').count(), 0)
         # A PLC cycle SYNC the config still has is an error, shown as the config's value.
         pg.evaluate("() => { S.config.master.sync_source = 'plc_cycle'; delete S.config.master.sync_period_us; changed(true); }")
-        self.checked()
-        self.assertIn("needs a PLC cycle, which the Modbus bridge does not have", pg.inner_text("#problem-list"))
+        # The check runs after a short delay, so wait for its result.
+        pg.wait_for_selector("#problem-list:has-text('needs a PLC cycle, which the Modbus bridge does not have')")
                 # The SYNC choice offers Off and Timer only; a timer period replaces it.
         pg.evaluate("() => { delete S.config.master.sync_source; changed(true); render(); }")
         pg.select_option('select[data-path="master.sync_source"]', "timer")
