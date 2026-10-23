@@ -1,8 +1,8 @@
 // Modbus bridge page (canopen-configurator "Bridge settings panel",
-// "Register map preview and export"; docs/modbus-bridge.md; the project
-// target switch is target.js): the bridge object's settings, Suggest for
-// its blocks, the register map with its client channels, Pack for Modbus
-// and the map exports. Paths "bridge…" live at the
+// "Register map preview and export"; modbus-connections; docs/modbus-bridge.md;
+// the project target switch is target.js): the connections with their
+// Downloads, the bridge object's settings, Suggest for its blocks, the
+// register map with its client channels and Pack for Modbus. Paths "bridge…" live at the
 // top of the draft. Loaded after app.js and uses its helpers (el, api,
 // banner, modal, busy, field, checkbox, choice, getPath, setPath, changed,
 // render, fileConfig, toModel, S, ...).
@@ -86,8 +86,13 @@ async function bridgeSuggested(block, index) {
   return (await api("POST", "/api/bridge/suggest", { config: fileConfig(), block, index })).location;
 }
 
-// A bridge of its own: the Modbus TCP server and who may connect and write.
+// The Modbus TCP server and who may connect and write. With connections,
+// the writers follow them and show as "Who may write" (modbus-connections
+// "Writers follow the connections").
 function bridgeServerFields() {
+  const openplc = hasOpenplc();
+  const conns = connectionsOf();
+  const writers = getPath("bridge.writers");
   return [
     el("fieldset", null, el("legend", null, "Server"),
       el("div", { class: "grid" },
@@ -95,41 +100,22 @@ function bridgeServerFields() {
         field("Unit ID", "bridge.unit_id", "int", { placeholder: "1", hint: "0 to 255. Requests to unit 0 and 255 are always answered." }),
         choice("Word order", "bridge.word_order", [
           { value: undefined, literal: "high_first", label: "High word first", help: "Default. The first register of a 32- or 64-bit value holds its high word." },
-          { value: "low_first", label: "Low word first", help: "The first register holds the low word, for clients that expect that order." },
+          { value: "low_first", label: "Low word first", help: "The first register holds the low word, for clients that expect that order." + (openplc ? " OpenPLC reads this order." : "") },
         ]),
         field("Maximum clients", "bridge.max_clients", "int", { placeholder: "16", hint: "Connections served at once, 1 to 64." }),
         field("Clients per address", "bridge.max_clients_per_address", "int", { placeholder: "4",
           hint: "Connections from one address at once, 1 to 64. When every slot is taken, a writer's address closes the oldest connection of a client that may not write." }))),
     el("fieldset", null, el("legend", null, "Clients"),
       el("div", { class: "grid" },
-        bridgeListField("Writers", "bridge.writers", "The addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. Empty: nobody writes. To let every host write, give 0.0.0.0/0, ::/0.", "nobody writes", []),
+        conns.length
+          ? el("label", null, "Who may write", el("span", { dataset: { bridgeWho: "1" } },
+            Array.isArray(writers) && writers.length ? writers.join(", ") : "nobody"),
+          hint("The addresses of the connections with Writes on; no other client can write."),
+          el("span", { class: "field-msg", dataset: { for: "bridge.writers" } }))
+          : bridgeListField("Writers", "bridge.writers", "The addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. Empty: nobody writes. To let every host write, give 0.0.0.0/0, ::/0.", "nobody writes", []),
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
-        field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "1000",
+        field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: openplc ? "5 polls, at least 50" : "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
-        bridgeLossChoice())),
-  ];
-}
-
-// OpenPLC through Modbus: OpenPLC's Modbus master is the only client, on
-// 127.0.0.1, so the page shows its poll and the editor names instead of the
-// server and client settings; word order and the status block are fixed.
-function bridgeOpenplcFields() {
-  return [
-    el("fieldset", { dataset: { bridgeOpenplc: "1" } }, el("legend", null, "OpenPLC"),
-      el("p", { class: "muted" }, "Save writes OpenPLC's remote device, the canworks_in and canworks_out programs and the canworks variable list into the editor project (see the Project page). 32- and 64-bit values are low word first, as OpenPLC reads them."),
-      openplcFacts(),
-      el("div", { class: "grid" },
-        field("Poll (ms)", "bridge.openplc.poll_ms", "int", { placeholder: "10",
-          hint: "How often OpenPLC reads and writes the registers, 5 to 1000 ms. Each poll takes one Modbus request per register group." }),
-        field("Remote device name", "bridge.openplc.remote_device", "text", { placeholder: "canworks",
-          hint: "The remote device in the editor project: devices/remote/<name>.json." }),
-        field("First editor location", "bridge.openplc.iec_base", "int", { placeholder: "first free from 100",
-          hint: "The register groups get %IW and %QW from this word number on in the editor project. Empty: the first number from 100 that the project does not use." }),
-        field("Unit ID", "bridge.unit_id", "int", { placeholder: "1", hint: "0 to 255." }))),
-    el("fieldset", null, el("legend", null, "PLC link"),
-      el("div", { class: "grid" },
-        field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: "5 polls, at least 50",
-          hint: "Outputs go off when OpenPLC wrote nothing for this long (PLC stopped or gone). 0: no watchdog." }),
         bridgeLossChoice())),
   ];
 }
@@ -145,34 +131,35 @@ function bridgeLossChoice() {
 
 function renderBridge(view) {
   const b = S.model.top.bridge;
-  const openplc = projectTarget() === "openplc_modbus";
+  const link = b.plc_link === true;
   view.append(el("h2", null, "Modbus bridge"),
-    el("p", { class: "muted" }, (openplc ? "OpenPLC's Modbus master reads and writes these registers on 127.0.0.1. " : "") +
+    el("p", { class: "muted" },
       "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
       "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way." +
-      (openplc ? " Input bytes 0-11 hold the map hash and the status block, output bytes 0-5 the PLC link header (running, map hash): the bridge takes no output from a PLC whose map differs." : "")),
+      (link ? " Input bytes 0-11 hold the map hash and the status block, output bytes 0-5 the PLC link header (running, map hash): the bridge takes no output from a PLC whose map differs." : "")),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { bridge: "install-device" },
       title: "Install the bridge on a Linux device over SSH and start it with this project's saved config",
       onclick: () => installOnDevice(null) }, "Install on device…")),
-    ...(openplc ? bridgeOpenplcFields() : bridgeServerFields()),
+    bridgeConnections(),
+    ...bridgeServerFields(),
     el("fieldset", null, el("legend", null, "Bridge blocks"),
       el("p", { class: "muted" }, "Optional. Suggest places a block after the packed data, in a free range."),
       el("div", { class: "grid" },
-        openplc ? el("label", null, "Status block", el("span", { dataset: { bridgeStatusFixed: "1" } }, "%IB4"),
-          hint("8 input bytes after the map hash: state, clients, heartbeat counter, control echo and result. Fixed for OpenPLC."))
+        link ? el("label", null, "Status block", el("span", { dataset: { bridgeStatusFixed: "1" } }, "%IB4"),
+          hint("8 input bytes after the map hash: state, clients, heartbeat counter, control echo and result. Fixed with the PLC link."))
           : bridgeLocation("Status block", "bridge.status_location", "status_location", undefined, "%IB…",
             "8 input bytes: state, clients, heartbeat counter, control echo and result."),
         bridgeLocation("Control block", "bridge.control_location", "control_location", undefined, "%QB…",
           "6 output bytes: counter, command, network, node. A command runs when the counter changes." +
-          (openplc ? " The CO_NMT block uses it." : "")))),
+          (link ? " The CO_NMT block uses it." : "")))),
     bridgeLiveLists(b),
     bridgeSdo(b),
-    bridgeMailboxes(b, openplc),
+    bridgeMailboxes(b, hasOpenplc()),
     el("h3", null, "Register map"),
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { bridge: "pack" }, title: "Every location packed densely from byte 0: data, then status, then the bridge blocks",
         onclick: (e) => busy(e.currentTarget, "Packing…", bridgePack) }, "Pack for Modbus"),
-      el("span", { class: "muted", dataset: { bridgeExportsHint: "1" } }, "Export ▾ → For the program has the register map files.")),
+      el("span", { class: "muted", dataset: { bridgeExportsHint: "1" } }, "The map files are the Downloads of the connections above.")),
     el("div", { id: "bridge-map" }, el("p", { class: "muted" }, "Loading the register map…")));
   bridgeRefreshMap();
 }
@@ -309,7 +296,7 @@ function bridgeMailboxCost() {
   if (!r || !r.mailboxes) return "";
   const m = r.mailboxes;
   const regs = `The blocks take ${m.input_registers} input and ${m.output_registers} holding registers.`;
-  if (projectTarget() !== "openplc_modbus") return regs;
+  if (!hasOpenplc()) return regs;
   return regs + ` The whole map needs ${r.requests} Modbus request${r.requests === 1 ? "" : "s"} per poll` +
     (r.requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with.` : ` (budget ${r.request_budget}).`);
 }
@@ -340,6 +327,7 @@ function bridgeFillMap() {
   const host = $("#bridge-map");
   if (!host || !S.bridgeMap) return;
   const r = S.bridgeMap;
+  bridgeConnectionStates();
   const cost = $("#bridge-mailbox-cost");
   if (cost) cost.textContent = bridgeMailboxCost();
   // A refresh while the filter is being typed in keeps it focused.
@@ -403,18 +391,194 @@ async function bridgePack() {
   }
 }
 
-// Export → For another PLC (PLCopen XML)…: the folder `canworks-deploy
-// --export-plcopen DIR --for <plc>` writes, as a zip (plcopen-export). The
-// config needs the PLC link: offered first, with Pack for Modbus, one undo step.
-const PLCOPEN_PLCS = [["codesys", "CODESYS (Modbus client of the bridge)"], ["trust", "truST"],
-  ["generic", "Other PLC with PLCopen XML"]];
+// -- connections (modbus-connections) ------------------------------------------
+
+// The kinds Add connection offers, with one line on what each one gets.
+const CONNECTION_KINDS = [
+  { kind: "openplc", title: "OpenPLC",
+    gets: "OpenPLC Runtime on the bridge's device: Save keeps the editor's remote device and the canworks programs in sync." },
+  { kind: "trust", title: "truST",
+    gets: "A truST runtime: the canworks variables, copy programs and function blocks as PLCopen XML, with its Modbus driver settings." },
+  { kind: "plc", title: "Other PLC",
+    gets: "Another PLC that imports PLCopen XML or ST: the canworks variables, copy programs and client channels." },
+  { kind: "nodered", title: "Node-RED", gets: "A Node-RED flow that reads and writes every value by name." },
+  { kind: "hmi", title: "HMI, SCADA or script", gets: "An HMI, SCADA or script: the register map as CSV, JSON or an ST variable list." },
+];
+const CONNECTION_TITLE = Object.fromEntries(CONNECTION_KINDS.map((k) => [k.kind, k.title]));
+const CONNECTION_FORMATS = {
+  trust: [{ value: undefined, literal: "plcopen", label: "PLCopen XML", help: "The --export-plcopen folder for truST, as one zip." }],
+  plc: [{ value: undefined, literal: "plcopen", label: "PLCopen XML", help: "The --export-plcopen folder for a PLC that imports PLCopen XML, as one zip." },
+    { value: "st", label: "ST", help: "The PLC link file as ST: the canworks variable list, its client channels and the copy programs." }],
+  hmi: [{ value: undefined, literal: "csv", label: "CSV", help: "The register map as CSV: Modbus table, address, size, type, name and source of every value." },
+    { value: "json", label: "JSON", help: "The register map as JSON, for scripts and HMI tools." },
+    { value: "st", label: "ST variables", help: "The ST variable list of the register map for a Modbus client program." }],
+};
 const PLCOPEN_WILDCARD = ["", "0.0.0.0", "::", "*"];
 
-function plcopenDefaultHost(plc) {
-  const host = bridgeSplitListen(getPath("bridge.listen") || "")[0];
-  const loopback = host === "localhost" || host === "::1" || host.startsWith("127.");
-  if (PLCOPEN_WILDCARD.includes(host)) return plc === "trust" ? "127.0.0.1" : "";
-  return plc === "codesys" && loopback ? "" : host;
+function isLoopback(host) { return host === "localhost" || host === "::1" || /^127\./.test(host || ""); }
+
+// IPv4 by number, then the rest by text: the order of `bridge.writers`.
+function addressKey(a) {
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a);
+  return m ? [4, ((+m[1] * 256 + +m[2]) * 256 + +m[3]) * 256 + +m[4], a] : [6, 0, a];
+}
+function compareAddresses(x, y) {
+  const a = addressKey(x), b = addressKey(y);
+  return a[0] - b[0] || a[1] - b[1] || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
+}
+
+// `bridge.writers` set to the addresses of the connections that write.
+function syncWriters() {
+  const b = S.model.top.bridge;
+  if (!b || !connectionsOf().length) return;
+  b.writers = [...new Set(connectionsOf().filter((c) => c.writes === true && typeof c.address === "string" && c.address)
+    .map((c) => c.address))].sort(compareAddresses);
+}
+
+// A change of the connection at `i`, one undo step with the writers.
+function connSet(i, key, value) {
+  const c = S.model.top.bridge.connections[i];
+  if (value === undefined || value === "") delete c[key];
+  else c[key] = value;
+  syncWriters();
+  changed(false, `bridge.connections[${i}].${key}`);
+  const who = document.querySelector("[data-bridge-who]");
+  if (who) who.textContent = (S.model.top.bridge.writers || []).join(", ") || "nobody";
+}
+
+// The row's state: OpenPLC's editor files, or a download against the map hash.
+function connectionState(c) {
+  if (c.kind === "openplc") {
+    if (S.state.mode !== "project") return { key: "no_project", text: "No editor project" };
+    const o = S.state.openplc;
+    return o && o.outdated && o.outdated.length ? { key: "out_of_date", text: "Out of date: Save" } : { key: "in_sync", text: "In sync" };
+  }
+  if (!c.map_hash) return { key: "not_downloaded", text: "Not downloaded yet" };
+  const now = S.bridgeMap && S.bridgeMap.map_hash;
+  return !now || now === c.map_hash ? { key: "up_to_date", text: "In sync" } : { key: "out_of_date", text: "Out of date" };
+}
+
+// The rows' states again once the map hash is known.
+function bridgeConnectionStates() {
+  const list = (S.model.top.bridge || {}).connections;
+  for (const cell of document.querySelectorAll("[data-conn-state]")) {
+    const i = Number(cell.closest("tr").nextElementSibling?.dataset.connSettings);
+    const c = Array.isArray(list) ? list[i] : null;
+    if (!c || c.kind === "openplc") continue;
+    const st = connectionState(c);
+    cell.dataset.connState = st.key;
+    cell.textContent = st.text;
+    const dl = document.querySelector(`[data-conn-download="${i}"]`);
+    if (dl) {
+      dl.textContent = st.key === "out_of_date" ? "Download again" : "Download";
+      dl.classList.toggle("primary", st.key === "out_of_date");
+    }
+  }
+}
+
+function bridgeConnections() {
+  const list = Array.isArray(S.model.top.bridge.connections) ? S.model.top.bridge.connections : [];
+  const add = el("button", { type: "button", class: "primary", dataset: { connAdd: "1" } }, "Add connection…");
+  add.onclick = () => busy(add, "Adding…", addConnection);
+  const rows = list.map((c, i) => connectionRow(c, i));
+  return el("fieldset", { dataset: { connections: String(list.length) } }, el("legend", null, "Connections"),
+    rows.length ? el("table", { class: "od connections" },
+      el("thead", null, el("tr", null, thCells(["Name", "Kind", "Address", "Writes", "State", ""]))),
+      el("tbody", null, rows.flat()))
+      : el("p", { class: "muted", dataset: { connectionsEmpty: "1" } },
+        "Programs, HMIs and Node-RED connect here: OpenPLC, truST or another PLC, a Node-RED flow, or an HMI, SCADA or script. Each connection gets its files with Download."),
+    el("div", { class: "toolbar" }, add));
+}
+
+// One connection: its row, and its Settings below it.
+function connectionRow(c, i) {
+  const path = `bridge.connections[${i}]`;
+  const kind = c && typeof c === "object" ? c.kind : undefined;
+  const openplc = kind === "openplc";
+  const name = el("input", { type: "text", spellcheck: "false", dataset: { path: path + ".name" }, "aria-label": "Connection name" });
+  name.value = c.name || "";
+  name.addEventListener("input", () => connSet(i, "name", name.value.trim()));
+  const address = el("input", { type: "text", spellcheck: "false", dataset: { path: path + ".address" }, "aria-label": "Address of " + (c.name || kind),
+    placeholder: "e.g. 192.168.10.20", disabled: openplc || null, title: openplc ? "OpenPLC runs next to the bridge, on 127.0.0.1" : null });
+  address.value = c.address || "";
+  address.addEventListener("input", () => connSet(i, "address", address.value.trim()));
+  const writes = el("input", { type: "checkbox", dataset: { path: path + ".writes" }, "aria-label": "Writes", disabled: openplc || null });
+  writes.checked = c.writes === true;
+  writes.addEventListener("change", () => connSet(i, "writes", writes.checked));
+  const st = connectionState(c);
+  const state = el("span", { class: "conn-state", dataset: { connState: st.key } }, st.text);
+  const actions = [];
+  if (openplc) {
+    if (st.key === "out_of_date") actions.push(el("button", { type: "button", class: "small", dataset: { connSave: String(i) }, onclick: () => $("#btn-save").click() }, "Save"));
+  } else if (CONNECTION_TITLE[kind]) {
+    const dl = el("button", { type: "button", class: st.key === "out_of_date" ? "small primary" : "small", dataset: { connDownload: String(i) } },
+      st.key === "out_of_date" ? "Download again" : "Download");
+    dl.onclick = () => busy(dl, "Downloading…", () => connectionDownload(i));
+    actions.push(dl);
+  }
+  actions.push(el("button", { type: "button", class: "small danger", dataset: { connRemove: String(i) },
+    "aria-label": `Remove ${c.name || kind}`, onclick: () => removeConnection(i) }, "Remove"));
+  const row = el("tr", { dataset: { connection: c.name || String(i), connKind: kind || "" } },
+    el("td", null, name, el("span", { class: "field-msg", dataset: { for: path + ".name" } })),
+    el("td", null, CONNECTION_TITLE[kind] || String(kind)),
+    el("td", null, address, el("span", { class: "field-msg", dataset: { for: path + ".address" } })),
+    el("td", null, writes, el("span", { class: "field-msg", dataset: { for: path + ".writes" } })),
+    el("td", null, state),
+    el("td", { class: "conn-actions" }, actions));
+  const settings = connectionSettings(c, i);
+  return [row, el("tr", { class: "conn-settings", dataset: { connSettings: String(i) } }, el("td", { colspan: "6" }, settings))];
+}
+
+// The kind's own settings, folded under the row.
+function connectionSettings(c, i) {
+  const path = `bridge.connections[${i}]`;
+  const kind = c.kind;
+  const fields = [];
+  const notes = [];
+  const rowNotes = [];  // shown on the row, outside Settings
+  const bound = (f) => {
+    // A connection field: writers and the undo step follow the connection.
+    for (const x of f.querySelectorAll("input[data-path], select[data-path]")) x.addEventListener("input", syncWriters);
+    return f;
+  };
+  if (kind === "openplc") {
+    notes.push(el("p", { class: "muted" }, "Save writes OpenPLC's remote device, the canworks_in and canworks_out programs and the canworks variable list into the editor project (see the Project page). 32- and 64-bit values are low word first, as OpenPLC reads them."),
+      openplcFacts());
+    fields.push(
+      field("Poll (ms)", path + ".poll_ms", "int", { placeholder: "10",
+        hint: "How often OpenPLC reads and writes the registers, 5 to 1000 ms. Each poll takes one Modbus request per register group." }),
+      field("Remote device name", path + ".remote_device", "text", { placeholder: "canworks",
+        hint: "The remote device in the editor project: devices/remote/<name>.json." }),
+      field("First editor location", path + ".iec_base", "int", { placeholder: "first free from 100",
+        hint: "The register groups get %IW and %QW from this word number on in the editor project. Empty: the first number from 100 that the project does not use." }));
+  }
+  if (kind === "trust" || kind === "plc" || kind === "hmi") {
+    fields.push(choice("Format", path + ".format", CONNECTION_FORMATS[kind]));
+  }
+  if (kind === "trust" || kind === "plc") {
+    const listen = bridgeSplitListen(getPath("bridge.listen") || "")[0];
+    fields.push(field("Bridge address the PLC uses", path + ".bridge_host", "text",
+      { placeholder: PLCOPEN_WILDCARD.includes(listen) || isLoopback(listen) ? "the bridge's address as the PLC sees it" : listen,
+        hint: "Empty: the listen address, when it is neither a wildcard nor loopback." }));
+    if ((c.format || "plcopen") === "plcopen") fields.push(checkbox("Include the canworks library", path + ".library", true));
+    if (kind === "plc") notes.push(el("p", { class: "hint", dataset: { connCodesys: "1" } }, "CODESYS is not a Modbus client of the bridge: for CODESYS pick the CODESYS target, where CODESYS runs the CANopen master."));
+    if (getPath("bridge.plc_link") !== true) {
+      rowNotes.push(notice("info", "This PLC needs the bridge's PLC link: the bridge then puts its map hash at input registers 0-1 and takes a header at holding registers 0-2, so a program built for another map leaves the outputs off.",
+        { live: false, dataset: { connPlcLink: String(i) }, actions: [el("button", { type: "button", class: "primary", dataset: { plcLinkOn: "1" },
+          onclick: (e) => busy(e.currentTarget, "Packing…", plcLinkOn) }, "Turn on the PLC link and repack")] }));
+    }
+  }
+  if (kind === "nodered") {
+    fields.push(
+      field("Period (ms)", path + ".period_ms", "int", { placeholder: "10", hint: "How often the flow reads and writes the registers, 10 to 60000 ms." }),
+      field("Bridge address", path + ".bridge_host", "text", { placeholder: "127.0.0.1", hint: "The bridge's address as Node-RED sees it. Empty: 127.0.0.1." }));
+  }
+  if (!fields.length && !notes.length) return rowNotes;
+  const open = S.connOpen === i;
+  const box = el("details", { class: "advanced", open: open || null, dataset: { connSettingsOf: String(i) } }, el("summary", null, "Settings"),
+    ...notes, fields.length ? el("div", { class: "grid" }, fields.map(bound)) : null);
+  box.addEventListener("toggle", () => { S.connOpen = box.open ? i : (S.connOpen === i ? null : S.connOpen); });
+  return rowNotes.concat([box]);
 }
 
 async function plcLinkOn() {
@@ -424,6 +588,7 @@ async function plcLinkOn() {
     const r = await api("POST", "/api/bridge/pack", { config: cfg });
     bridgeReplaceDraft(r.config);
     changed(true);
+    banner("The PLC link is on and every location is packed. Undo takes both back.");
     return true;
   } catch (e) {
     banner(`Pack for Modbus failed: ${e.message}`, true);
@@ -431,93 +596,122 @@ async function plcLinkOn() {
   }
 }
 
-async function exportPlcopen() {
-  if (getPath("bridge.plc_link") !== true) {
-    const v = await modal("Another PLC needs the bridge's PLC link: the bridge then puts its map hash at input " +
-      "registers 0-1 and takes a header at holding registers 0-2, so a program built for another map leaves the " +
-      "outputs off. Turn it on and run Pack for Modbus? Undo takes both back.",
-    [["cancel", "Cancel"], ["link", "Turn on the PLC link and repack", true]]);
-    if (v !== "link" || !await plcLinkOn()) return;
-  }
-  const plc = el("select", { id: "plcopen-plc", dataset: { plcopenPlc: "1" } },
-    ...PLCOPEN_PLCS.map(([v, label]) => el("option", { value: v }, label)));
-  const host = el("input", { type: "text", id: "plcopen-host", spellcheck: "false", dataset: { plcopenHost: "1" } });
-  const address = el("input", { type: "text", id: "plcopen-address", spellcheck: "false", placeholder: "optional",
-    dataset: { plcopenAddress: "1" } });
-  const library = el("input", { type: "checkbox", checked: true, dataset: { plcopenLibrary: "1" } });
-  const main = el("input", { type: "checkbox", dataset: { plcopenMain: "1" } });
-  const plcName = el("input", { type: "text", id: "plcopen-device", spellcheck: "false", placeholder: "the active application's device",
-    dataset: { plcopenDevice: "1" } });
-  const ethernet = el("input", { type: "text", id: "plcopen-ethernet", spellcheck: "false", placeholder: "the PLC's only one, or a new one",
-    dataset: { plcopenEthernet: "1" } });
-  const codesysNote = el("p", { class: "hint", dataset: { plcopenCodesys: "1" } },
-    "CODESYS reads and writes the bridge's registers; canworks-bridge still runs the CAN networks. To let CODESYS run " +
-    "the CANopen master itself, ", el("a", { href: "#", onclick: (e) => {
-      e.preventDefault();
-      $("#modal").close();
-      switchWorkspace("configure");
-      showView("project");
-    } }, "switch the project target to CODESYS"), ".");
-  const codesysFields = el("div", { class: "grid", dataset: { plcopenCodesysFields: "1" } },
-    el("div", { class: "field" }, el("label", { for: "plcopen-device" }, "PLC device in CODESYS"), plcName),
-    el("div", { class: "field" }, el("label", { for: "plcopen-ethernet" }, "Ethernet adapter in CODESYS"), ethernet));
-  const mainField = el("label", { class: "check" }, main, " Add an empty main program to the task");
-  const hostHint = el("span", { class: "hint" });
-  const update = () => {
-    const v = plc.value;
-    codesysNote.hidden = codesysFields.hidden = v !== "codesys";
-    mainField.hidden = v === "codesys";
-    host.placeholder = plcopenDefaultHost(v) || "the bridge's address as the PLC sees it";
-    hostHint.textContent = v === "trust" ? "truST's driver moves one request each way: configs with the default mailboxes are refused, with how to trim them."
-      : v === "generic" ? "The README lists the Modbus client channels to set up." : "";
+// Add connection: the five kinds, each with what it gets, then its name,
+// address and Writes. OpenPLC on a standalone config also offers New editor
+// project… and Move into project…, which add the connection on the way.
+async function addConnection() {
+  const has = connectionsOf("openplc").length > 0;
+  const pick = (k) => el("label", { class: "choice" },
+    el("input", { type: "radio", name: "conn-kind", value: k.kind, dataset: { connKind: k.kind },
+      disabled: k.kind === "openplc" && has ? "" : null, checked: k.kind === (has ? "hmi" : "openplc") || null }),
+    el("strong", null, k.title), el("span", null, k.kind === "openplc" && has ? "The config already has an OpenPLC connection." : k.gets));
+  const name = el("input", { type: "text", spellcheck: "false", id: "conn-name", dataset: { connName: "1" } });
+  const address = el("input", { type: "text", spellcheck: "false", id: "conn-address", placeholder: "e.g. 192.168.10.20", dataset: { connAddress: "1" } });
+  const writes = el("input", { type: "checkbox", dataset: { connWrites: "1" } });
+  const kindOf = () => (form.querySelector("input[name=conn-kind]:checked") || {}).value || "hmi";
+  const other = el("div", { class: "grid" },
+    el("div", { class: "field" }, el("label", { for: "conn-name" }, "Name"), name, hint("Empty: the kind's name.")),
+    el("div", { class: "field" }, el("label", { for: "conn-address" }, "Address"), address,
+      hint("The client's IP address, as the bridge sees it.")),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, writes, " Writes"),
+      hint("On: the bridge takes writes (outputs, blocks) from this address. With the PLC link only the PLC writes.")));
+  const standalone = S.state.mode !== "project";
+  const cli = !!S.state.openplc_cli;
+  const openplcNote = el("p", { class: "hint", dataset: { connOpenplcNote: "1" } },
+    "OpenPLC runs next to the bridge and reads and writes it on 127.0.0.1:1502. Adding it turns on the PLC link, low word first, the function block mailboxes and a live list per CANopen master network, and repacks." +
+    (standalone ? " Its editor files need an editor project: " + (cli ? "New editor project… or Move into project… make one with this config."
+      : "the OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so New editor project… is off; Move into project… copies the config into an existing one.") : ""));
+  const form = el("div", { class: "new-config", dataset: { connDialog: "1" } },
+    el("fieldset", null, el("legend", null, "Kind"), el("div", { class: "target-choices" }, CONNECTION_KINDS.map(pick))),
+    other, openplcNote);
+  // The buttons follow the kind: OpenPLC on a standalone config also gets
+  // New editor project… and Move into project….
+  const sync = () => {
+    const k = kindOf();
+    other.hidden = k === "openplc";
+    openplcNote.hidden = k !== "openplc";
+    writes.checked = k === "trust" || k === "plc";
+    const project = k === "openplc" && standalone;
+    const btn = (v) => document.querySelector(`#modal-buttons [data-value=${v}]`);
+    if (!btn("add")) return;
+    btn("add").textContent = project ? "Add to this config" : "Add";
+    btn("new").hidden = btn("move").hidden = !project;
+    btn("new").disabled = !cli;
+    btn("new").title = cli ? "Create an OpenPLC Editor project with this config and its OpenPLC connection" : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC";
   };
-  plc.onchange = update;
-  update();
-  const extra = el("div", { dataset: { plcopenDialog: "1" } },
-    el("div", { class: "field" }, el("label", { for: "plcopen-plc" }, "PLC"), plc), codesysNote,
-    el("div", { class: "field" }, el("label", { for: "plcopen-host" }, "Bridge address the PLC uses"), host, hostHint),
-    el("div", { class: "field" }, el("label", { for: "plcopen-address" }, "PLC's own address"), address,
-      hint("Checked against the bridge's writers: the bridge takes writes only from those.")),
-    el("div", { class: "check-field" }, el("label", { class: "check" }, library, " Include the canworks library")),
-    el("div", { class: "check-field" }, mainField), codesysFields);
-  for (;;) {
-    const v = await modal("Export the canworks variables, copy programs and function blocks as PLCopen XML, with what " +
-      "connects them to the bridge on that PLC.", [["cancel", "Cancel"], ["export", "Export", true]], extra);
-    if (v !== "export") return;
-    const target = plc.value;
-    if (target === "codesys" && !host.value.trim() && !plcopenDefaultHost(target)) {
-      host.focus();
-      banner("Give the bridge's address as the CODESYS PLC sees it: the bridge listens on every interface or on loopback.", true);
-      continue;
-    }
-    const cfg = fileConfig();
-    try {
-      const r = await busy($("#menu-export > summary"), "Exporting…", () => api("POST", "/api/export_plcopen", {
-        config: cfg, target, host: host.value, library: library.checked, with_main: main.checked,
-        plc: plcName.value, ethernet: ethernet.value, plc_address: address.value }));
-      if (!r) return;
-      if (r.errors) { exportStopped("PLCopen XML", r, cfg); return; }
-      downloadBase64(r.data, r.name, r.content_type);
-      const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
-      banner(`Exported ${r.name}: unzip it and follow README.txt.${notes}`, notes ? "warning" : "done");
-    } catch (e) {
-      banner(e.message, true);
-    }
+  form.addEventListener("change", (e) => { if (e.target.name === "conn-kind") sync(); });
+  const answer = modal("Add connection", [["add", "Add", true], ["new", "New editor project…"], ["move", "Move into project…"], ["cancel", "Cancel"]], form);
+  sync();
+  const v = await answer;
+  if (v === "new" || v === "move") {
+    if (S.dirty) { banner("Save the config first: the editor project gets the saved config, with an OpenPLC connection.", true); return; }
+    await (v === "new" ? newEditorProject() : moveIntoProject());
     return;
   }
+  if (v !== "add") return;
+  const kind = kindOf();
+  await addConnectionOf(kind, kind === "openplc" ? {} : { name: name.value.trim() || undefined, address: address.value.trim() || undefined, writes: writes.checked });
 }
 
-// Downloads the file `canworks-deploy --export-modbus-map map.<fmt>` writes for the draft
-// (`--export-nodered <folder>_node-red.json` for "nodered").
-async function bridgeExport(fmt) {
+// Adds a connection of `kind` (the server sets an OpenPLC connection's bridge
+// settings and repacks), one undo step.
+async function addConnectionOf(kind, fields) {
+  let r;
   try {
-    const r = await api("POST", "/api/bridge/export", { config: fileConfig(), format: fmt });
-    if (r.errors) { exportStopped(fmt === "nodered" ? "Node-RED flow" : "Register map", r, fileConfig()); return; }
-    downloadBase64(r.data, r.name, r.content_type);
-    const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
-    banner(fmt === "nodered" ? `Exported ${r.name} (${r.rows} values). Import it in Node-RED.${notes}`
-      : `Exported ${r.name} (${r.rows} entries).`, notes ? "warning" : "done");
+    r = await api("POST", "/api/connections/add", { config: fileConfig(), connection: Object.assign({ kind }, fields || {}) });
+  } catch (e) {
+    banner(`The connection was not added: ${e.message}`, true);
+    return;
+  }
+  bridgeReplaceDraft(r.config);
+  S.connOpen = r.index;
+  if (kind === "openplc" && S.view !== "bridge" && S.view !== "project") S.view = "bridge";
+  changed(true);
+  const c = r.config.bridge.connections[r.index];
+  banner(el("span", { dataset: { connAdded: kind } },
+    `Added ${c.name}.` + (kind === "openplc" ? " The PLC link, low word first, the mailboxes and the live lists are on, and every location is packed." +
+      (S.state.mode === "project" ? " Save writes the editor files." : "") +
+      (r.old_main ? ` main still declares ${r.old_main} canworks value${r.old_main === 1 ? "" : "s"} at the plugin's locations: after Save, Use canworks.* in main on the Project page.` : "")
+      : " Download gives its files.") + " ",
+    el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")));
+}
+
+// Removes a connection; OpenPLC asks first (its editor files stay on disk).
+async function removeConnection(i) {
+  const list = S.model.top.bridge.connections;
+  const c = list[i];
+  if (c && c.kind === "openplc") {
+    const v = await modal(`Remove the OpenPLC connection ${c.name}? Save then writes no editor files; the files already in the editor project stay on disk.`,
+      [["cancel", "Cancel"], ["remove", "Remove", { danger: true }]]);
+    if (v !== "remove") return;
+  }
+  list.splice(i, 1);
+  syncWriters();
+  if (!list.length) delete S.model.top.bridge.connections;
+  S.connOpen = null;
+  changed(true);
+}
+
+// Download: the connection's file, the same as the command line writes;
+// the map hash goes into the connection, so the row can say when it is out
+// of date.
+async function connectionDownload(i) {
+  const c = S.model.top.bridge.connections[i];
+  const cfg = fileConfig();
+  let r;
+  try {
+    r = await api("POST", "/api/connections/download", { config: cfg, index: i });
   } catch (e) {
     banner(e.message, true);
+    return;
   }
+  if (r.errors) { exportStopped(c.name || CONNECTION_TITLE[c.kind], r, cfg); return; }
+  downloadBase64(r.data, r.name, r.content_type);
+  if (r.map_hash && c.map_hash !== r.map_hash) {
+    c.map_hash = r.map_hash;
+    changed(true, `bridge.connections[${i}].map_hash`);
+  }
+  const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
+  const how = c.kind === "nodered" ? " Import it in Node-RED." : r.name.endsWith(".zip") ? " Unzip it and follow README.txt." : "";
+  banner(`Downloaded ${r.name}.${how} Save keeps its map hash, so the row says when the map changes.${notes}`, notes ? "warning" : "done");
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenPLC through Modbus end to end (add-openplc-modbus-target 5.1): the
+"""The OpenPLC connection end to end (add-openplc-modbus-target 5.1, modbus-connections): the
 pinned OpenPLC runtime's own Modbus master plugin against canworks-bridge.
 
     test/openplc_modbus/run.py --bridge build/bin/canworks-bridge --runtime DIR
@@ -8,7 +8,7 @@ DIR is a checkout of the pinned runtime (docker/local-runtime/runtime-version);
 its plugin needs pymodbus (its requirements.txt). The example's two simulated
 CANopen nodes run inside the bridge, so no CAN interface is needed.
 
-The PC tools turn the example into an OpenPLC through Modbus config and write
+The PC tools turn the example into a config with an OpenPLC connection and write
 the editor's remote device; the remote device becomes conf/modbus_master.json
 as the editor's Build does (generate-modbus-master-config.ts); the runtime's
 ModbusSlaveDevice thread polls the bridge with it, on an in-memory process
@@ -57,6 +57,14 @@ IEC_BASE = 100
 LONG_TEXT = "".join(chr(0x41 + i % 26) for i in range(1024))
 FAILS = []
 
+
+
+def openplc_config(cfg):
+    """`cfg` on the Modbus bridge with an OpenPLC connection, as the
+    configurator's Use with canworks-bridge and Add connection make it."""
+    s = srv.Session()
+    cfg = s.switch_target(cfg, "bridge", openplc=False)["config"]
+    return s.add_connection(cfg, {"kind": "openplc"})["config"]
 
 def check(ok, text):
     print("    %s %s" % ("ok  " if ok else "FAIL", text), flush=True)
@@ -168,8 +176,8 @@ def set_byte(words, nbyte, value, current):
 
 
 def with_j1939(work):
-    """Step 6: the example with examples/j1939's network as an OpenPLC through
-    Modbus config, checked by the bridge, the remote device and the model."""
+    """Step 6: the example with examples/j1939's network as an config with an
+    OpenPLC connection, checked by the bridge, the remote device and the model."""
     with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
         cfg = json.load(f)
     with open(os.path.join(ROOT, "examples", "j1939", "canworks.json"), encoding="utf-8") as f:
@@ -177,7 +185,7 @@ def with_j1939(work):
     shutil.copy(os.path.join(ROOT, "examples", "j1939", net["j1939"]["dbc"]), work)
     del cfg["bridge"]
     cfg["networks"].append(net)
-    cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+    cfg = openplc_config(cfg)
     path = os.path.join(work, "with-j1939.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
@@ -215,9 +223,10 @@ def main():
         with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         del cfg["bridge"]
-        cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+        cfg = openplc_config(cfg)
         port = free_port()
-        cfg["bridge"].update({"listen": "127.0.0.1:%d" % port, "on_client_loss": "hold", "openplc": {"poll_ms": 10}})
+        cfg["bridge"].update({"listen": "127.0.0.1:%d" % port, "on_client_loss": "hold"})
+        cfg["bridge"]["connections"][0]["poll_ms"] = 10
         # The digital node copies its first output byte to its first input byte.
         sim_path = os.path.join(work, "simulation.json")
         with open(sim_path, encoding="utf-8") as f:

@@ -49,6 +49,14 @@ END_PROGRAM
 """
 
 
+
+def openplc_config(cfg):
+    """`cfg` on the Modbus bridge with an OpenPLC connection, as the
+    configurator's Use with canworks-bridge and Add connection make it."""
+    s = srv.Session()
+    cfg = s.switch_target(cfg, "bridge", openplc=False)["config"]
+    return s.add_connection(cfg, {"kind": "openplc"})["config"]
+
 def verifier(token):
     """diag.token_verifier: SCRAM-SHA-256 (docs/diagnostics.md)."""
     salt = os.urandom(16)
@@ -81,7 +89,7 @@ def pingpong(work):
         cfg = json.load(f)
     assert not cfg["networks"][0]["adapter"].get("simulate"), "the test needs a config with a real adapter"
     del cfg["bridge"]
-    cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+    cfg = openplc_config(cfg)
     cfg["diagnostics"] = {"token_verifier": verifier(TOKEN)}
     path = os.path.join(work, "canworks.json")
     with open(path, "w", encoding="utf-8") as f:

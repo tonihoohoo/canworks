@@ -1194,7 +1194,7 @@ function renderStart() {
   }));
 }
 
-const TARGET_TITLES = { plugin: "OpenPLC plugin (removed)", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
+const TARGET_TITLES = { plugin: "OpenPLC plugin (removed)", bridge: "Modbus bridge", codesys: "CODESYS" };
 
 // The last part of a path, on Windows too.
 function folderName(path) {
@@ -1247,17 +1247,18 @@ async function startOpen() {
   if (path) await openFolder(path, "auto", false);
 }
 
-// New config…: what runs it first, then where; for OpenPLC (through Modbus)
-// optionally a new editor project around it.
+// New config…: what runs the networks first (canopen-configurator "Target
+// of a new config"), then where. OpenPLC, other PLCs, Node-RED and HMIs are
+// connections of a Modbus bridge config, added on its bridge page.
 async function newConfig(folder) {
-  const cli = !!S.state.openplc_cli;
-  const pick = (value, title, text) => el("label", { class: "choice" },
-    el("input", { type: "radio", name: "new-target", value, dataset: { newTarget: value }, checked: value === "openplc_modbus" || null }),
-    el("strong", null, title), el("span", null, text));
-  const targets = el("fieldset", null, el("legend", null, "What will run the networks?"),
+  const pick = (value, title, text, extra) => el("label", { class: "choice" },
+    el("input", { type: "radio", name: "new-target", value, dataset: { newTarget: value }, checked: value === "bridge" || null }),
+    el("strong", null, title), el("span", null, text), extra || null);
+  const targets = el("fieldset", null, el("legend", null, "What runs the CAN networks?"),
     el("div", { class: "target-choices" },
-      pick("openplc_modbus", "OpenPLC", "canworks-bridge runs the networks next to the OpenPLC Runtime; OpenPLC's own Modbus master moves the values, and the program uses them by name."),
-      pick("bridge", "Modbus bridge", "No OpenPLC: the values are served as Modbus TCP registers, for Node-RED, an HMI, another PLC or any Modbus client."),
+      pick("bridge", "Modbus bridge", "canworks-bridge runs the networks and serves the values as Modbus TCP registers.",
+        el("span", { class: "muted", dataset: { newWorksWith: "1" } },
+          "Works with OpenPLC, truST, other PLCs, Node-RED, and HMI, SCADA or scripts: add them as connections on the Modbus bridge page.")),
       pick("codesys", "CODESYS", "A CODESYS PLC runs the CANopen master; canworks builds it into your CODESYS project.")));
   const [start, startName] = folder ? splitPath(folder) : [S.lastFolder || S.state.home, ""];
   const name = el("input", { type: "text", spellcheck: "false", "aria-label": "Name", dataset: { newConfig: "name" }, placeholder: "new-machine" });
@@ -1268,13 +1269,6 @@ async function newConfig(folder) {
     const p = await chooseFolder({ title: "Where the new config goes", start: where.value.trim() || S.state.home });
     if (p) where.value = p;
   } }, "Choose…");
-  const project = el("input", { type: "checkbox", dataset: { newConfig: "project" }, disabled: !cli || null,
-    checked: (cli && !folder) || null });
-  const projectRow = el("label", { class: "inline" }, project, " Also create an OpenPLC Editor project here");
-  const projectHint = el("p", { class: "hint", dataset: { newConfig: "project-hint" } }, cli
-    ? "Untick to keep just a config folder; Project → New editor project… makes one later."
-    : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so only a config folder can be made.");
-  const projectBox = el("div", null, projectRow, projectHint);
   // A problem goes under the field it concerns; the dialog's title stays.
   const nameErr = el("span", { class: "field-msg", id: "new-config-name-msg", dataset: { newConfig: "name-error" } });
   const whereErr = el("span", { class: "field-msg", id: "new-config-location-msg", dataset: { newConfig: "location-error" } });
@@ -1282,13 +1276,9 @@ async function newConfig(folder) {
   where.setAttribute("aria-describedby", whereErr.id);
   const form = el("div", { class: "new-config", dataset: { newConfig: "form" } }, targets,
     el("label", null, "Name (its folder: new, or an existing empty one)", name), nameErr,
-    el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose), whereErr),
-    projectBox);
+    el("div", { class: "field" }, el("label", { for: "new-config-location" }, "Location"), el("div", { class: "row" }, where, choose), whereErr));
   where.id = "new-config-location";
-  const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "openplc_modbus";
-  const sync = () => { projectBox.hidden = target() !== "openplc_modbus"; };
-  form.addEventListener("change", sync);
-  sync();
+  const target = () => (form.querySelector("input[name=new-target]:checked") || {}).value || "bridge";
   let bad = null;
   const fail = (input, msg, text) => {
     for (const [i, m] of [[name, nameErr], [where, whereErr]]) {
@@ -1308,14 +1298,10 @@ async function newConfig(folder) {
     if (/[\\/]/.test(nm)) { fail(name, nameErr, "The name is one folder name, without slashes."); continue; }
     fail(null);
     const path = joinPath(loc, nm);
-    const withProject = target() === "openplc_modbus" && project.checked && !project.disabled;
-    const finish = withProject ? modalWorking("Creating the editor project…") : () => {};
     try {
       banner("");
-      await api("POST", "/api/new", { path, editor_project: withProject, target: target() });
-      finish();
+      await api("POST", "/api/new", { path, target: target() });
     } catch (e) {
-      finish();
       if (e.body && (e.body.has_config || e.body.is_project)) {
         const o = await modal(e.message + ". Open it instead?", [["open", "Open it", true], ["cancel", "Cancel"]]);
         if (o === "open") await openFolder(e.body.path || path, "auto");
@@ -1326,7 +1312,6 @@ async function newConfig(folder) {
     }
     // Create wrote the target's config: the page opens it as saved.
     await opened();
-    if (withProject) banner("Created the OpenPLC Editor project " + path + ". Add nodes, save, then open it in the editor with Open Project.", "info");
     return;
   }
 }
@@ -1612,7 +1597,7 @@ function renderSide() {
   $("#unused-eds").replaceChildren(...(unused.length ? [el("h2", { class: "side-caption" }, "Unused EDS files"),
     el("p", { class: "muted" }, unused.join(", ") + " (left in place, never deleted)")] : []));
   // The editor project's address scan is OpenPLC's.
-  $("#scan-info").hidden = !!S.model && !usedBy("ui:editor_project");
+  $("#scan-info").hidden = !!S.model && !editorProjectShown();
   $("#scan-info").textContent = S.state.mode === "project"
     ? `Project addresses scanned ${S.state.scanned_at}: ${S.state.project_uses.length} in use.`
     : "Standalone: address checks against an editor project are skipped.";
@@ -1984,7 +1969,7 @@ function renderBus(view) {
 // (target.js) and, when the target runs canworks, Online access.
 function renderProject(view) {
   view.append(el("h2", null, "Project"), targetField());
-  if (usedBy("ui:editor_project")) view.append(editorProjectSection());
+  if (editorProjectShown()) view.append(editorProjectSection());
   if (!usedBy("ui:runtime")) return;
   view.append(el("h3", { id: "online-access" }, "Online access"),
     el("p", { class: "muted" }, "The runtime's encrypted diagnostics channel, for the Commission workspace, Trace and Simulation. One setting for every network of this config."),
@@ -7894,6 +7879,8 @@ function problemText(it, w) {
 // The buttons that fix a problem in one step (spec "Quick fixes in
 // Problems"): each is one undo step.
 function problemFixes(it, w) {
+  const bridgeFix = bridgeProblemFixes(it);
+  if (bridgeFix.length) return bridgeFix;
   if (!w || !NO_SUPERVISION.test(it.message)) return [];
   const m = /^nodes\[(\d+)\]/.exec(w.path || "");
   if (!m) return [];
@@ -7917,6 +7904,30 @@ function problemFixes(it, w) {
       : fix("Use heartbeat 1000 ms", "heartbeat", (t) => { t.heartbeat_ms = 1000; }),
     fix("Accept no supervision", "none", (t) => { t.heartbeat_ms = 0; }),
   ];
+}
+
+// The bridge's one-click fixes (modbus-connections "Writers follow the
+// connections", "Connections reach the bridge"; Download again).
+function bridgeProblemFixes(it) {
+  const b = S.model && S.model.top.bridge;
+  if (!b) return [];
+  const fix = (label, key, apply) => el("button", { type: "button", class: "small", dataset: { problemFix: key }, onclick: apply }, label);
+  if (/use the connections' addresses$/.test(it.message)) {
+    return [fix("Use the connections' addresses", "writers", () => { syncWriters(); changed(true); })];
+  }
+  if (/listen on all addresses$/.test(it.message)) {
+    return [fix("Listen on all addresses", "listen-all", () => {
+      const port = bridgeSplitListen(b.listen || "")[1] || "502";
+      b.listen = `0.0.0.0:${port}`;
+      changed(true);
+    })];
+  }
+  const m = /^bridge\.connections\[(\d+)\]$/.exec(((it.paths || [])[0]) || "");
+  if (m && /Download again$/.test(it.message)) {
+    const i = Number(m[1]);
+    return [fix("Download again", "download", (e) => busy(e.currentTarget, "Downloading…", () => connectionDownload(i)))];
+  }
+  return [];
 }
 
 // A new node whose EDS heartbeat default is 0 would be unsupervised: it
@@ -7957,7 +7968,10 @@ function placeOf(w) {
   if (path.startsWith("bridge")) {
     const r = /^bridge\.live_lists\[(\d+)\]/.exec(path);
     const e = r && ((S.model.top.bridge || {}).live_lists || [])[Number(r[1])];
-    return ["Modbus bridge"].concat(r ? [`live list ${(e && e.network) || Number(r[1]) + 1}`] : []);
+    const k = /^bridge\.connections\[(\d+)\]/.exec(path);
+    const c = k && ((S.model.top.bridge || {}).connections || [])[Number(k[1])];
+    return ["Modbus bridge"].concat(r ? [`live list ${(e && e.network) || Number(r[1]) + 1}`] : [],
+      k ? [`connection ${(c && c.name) || Number(k[1]) + 1}`] : []);
   }
   if (!net) return [];
   if (path.startsWith("slave")) {
@@ -8130,7 +8144,7 @@ async function save(overwrite, editorOverwrite) {
       if (v === "overwrite") return save(true);
       if (v === "reload") return reload(true);
     } else if (e.status === 409 && e.body.editor_changed) {
-      // OpenPLC through Modbus: canworks' own editor files were changed in the editor.
+      // The OpenPLC connection: canworks' own editor files were changed in the editor.
       const v = await modal("These editor project files were changed outside canworks since it last wrote them. Save writes them again from the config.",
         [["cancel", "Cancel"], ["overwrite", "Write them again", { danger: true }]],
         el("ul", { dataset: { editorChanged: "1" } }, e.body.editor_changed.map((f) => el("li", null, el("code", null, f)))));
@@ -8211,7 +8225,8 @@ async function moveIntoProject() {
 }
 
 // A new editor project around the saved standalone config: openplc-cli create,
-// the config copied in and, for OpenPLC through Modbus, the editor files.
+// the config copied in with an OpenPLC connection (added when it has none)
+// and the editor files.
 async function newEditorProject() {
   if (S.dirty) { banner("Save the config before creating a project from it.", true); return; }
   const field = (label, value, aria) => {
@@ -8226,7 +8241,7 @@ async function newEditorProject() {
   const sl = el("label", { class: "inline", title: "Enables the canworks function block library (SDO, NMT and node-live blocks) in the project and installs it into the editor" },
     blocks, " Enable the canworks function blocks");
   const form = el("div", { class: "new-project" }, pl, nl, il, sl,
-    el("p", { class: "hint" }, "For OpenPLC, Save keeps the remote device, canworks_in, canworks_out and " +
+    el("p", { class: "hint" }, "The config gets an OpenPLC connection when it has none. Save keeps the remote device, canworks_in, canworks_out and " +
       "the canworks variable list in the project up to date."));
   let text = "New OpenPLC Editor project (target OpenPLC Runtime v4) with this config in its canworks/ folder:";
   for (;;) {
@@ -8306,11 +8321,6 @@ function wire() {
   exporting("#btn-export-html", exportHtml);
   $("#btn-codesys-build").onclick = () => busy($("#btn-codesys-build"), "Building…", codesysBuild);
   $("#btn-codesys-download").onclick = () => busy($("#menu-export > summary"), "Exporting…", exportCodesys);
-  for (const b of document.querySelectorAll("#menu-export [data-export-program]")) {
-    const fmt = b.dataset.exportProgram;
-    if (fmt === "plcopen") b.onclick = () => exportPlcopen();
-    else if (fmt !== "codesys") b.onclick = () => busy($("#menu-export > summary"), "Exporting…", () => bridgeExport(fmt));
-  }
   $("#btn-bridge-install").onclick = () => switchWorkspace("devices");
   wireDbc();
   wireMenus();

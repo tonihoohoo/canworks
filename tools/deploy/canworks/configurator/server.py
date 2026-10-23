@@ -765,8 +765,10 @@ class Session:
             self.rescan()
 
     def default_config(self):
-        """The empty config of the default target, the Modbus bridge."""
-        return self.switch_target(empty_config(), targets.BRIDGE, openplc=False)["config"]
+        """The empty config of the default target, the Modbus bridge; in an
+        editor project with an OpenPLC connection."""
+        cfg = self.switch_target(empty_config(), targets.BRIDGE, openplc=False)["config"]
+        return self._with_openplc(cfg) if self.mode == "project" else cfg
 
     def _write_new(self, target, openplc=False):
         """Writes the empty config of `target` (default the Modbus bridge),
@@ -2314,8 +2316,9 @@ class Session:
         with open(self.config_path, encoding="utf-8") as f:
             cfg = contract.load(f)
         result = contract.check_config(cfg, self.config_path)
-        if not result.ok:
+        if not result.ok and not self._blank(result):
             raise ApiError(422, "\n".join(result.errors))
+        cfg = self._with_openplc(cfg)
         try:
             written, converted = project_mod.write(cfg, self.config_path, target, force=replace,
                                                    sim_path=self._sim_to_move())
@@ -2325,6 +2328,23 @@ class Session:
         self.open(target, "project")
         return {"written": written, "converted": converted}
 
+
+    @staticmethod
+    def _blank(result):
+        """Whether a check failed only because the networks have no nodes
+        yet: such a new config may still go into an editor project."""
+        return bool(result.errors) and all("lists no slave nodes" in e for e in result.errors)
+
+    @staticmethod
+    def _with_openplc(cfg):
+        """A bridge config going into an editor project gets an OpenPLC
+        connection when it has none (modbus-connections)."""
+        if not modbusmap.is_bridge_config(cfg) or bridgecheck.is_openplc(cfg):
+            return cfg
+        try:
+            return connections.add(cfg, connections.new("openplc", cfg))
+        except (ValueError, modbusmap.MapError) as e:
+            raise ApiError(422, str(e))
 
     def _sim_to_move(self):
         """The simulation file that goes along into a project, or None."""
@@ -2366,7 +2386,8 @@ class Session:
         with open(self.config_path, encoding="utf-8") as f:
             cfg = contract.load(f)
         result = contract.check_config(cfg, self.config_path)
-        if not result.ok:
+        blank = not result.ok and self._blank(result)
+        if not result.ok and not blank:
             raise ApiError(422, "\n".join(result.errors))
         address = None
         host = online.Settings(config_dir()).project(self.folder).get("host")
@@ -2375,13 +2396,25 @@ class Session:
                 address = diag.parse_runtime(host)[0]
             except ValueError:
                 address = None
+        cfg = self._with_openplc(cfg)
+        sim = self._sim_to_move()
         try:
-            path, synced = editorproject.create(cfg, self.config_path, target,
+            # A config without nodes yet: the project first, then the config
+            # and the editor files, as New config… did.
+            path, synced = editorproject.create(None if blank else cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
                                                runtime_address=address, blocks=blocks,
-                                               sim_path=self._sim_to_move())
+                                               sim_path=None if blank else sim)
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
+        if blank:
+            self.open(path, "project")
+            try:
+                self._save(cfg, None)
+                synced = self.sync_openplc(cfg, force=True)
+            except OSError as e:
+                raise folder_error(e, "write to", self.folder)
+            self.rescan()
         self._move_descriptions(cfg, os.path.join(path, project_mod.DIR))
         self.open(path, "project")
         out = {"project": path, "editor": synced}

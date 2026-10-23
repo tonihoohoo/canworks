@@ -1,6 +1,7 @@
 """Only what the target uses, on every page (spec canopen-configurator "Only
 what the target uses is shown", "Show fields the target does not use"): the
-Modbus bridge example opened as each of the three targets, with settings the
+Modbus bridge example opened as each target, and as a bridge with an
+OpenPLC connection (modbus-connections), with settings the
 target does not use left in, and every page and node tab walked. No field
 the target does not use is shown, no text speaks of another target, and no
 node tab is blank; with Show fields the target does not use on, they are
@@ -13,16 +14,17 @@ import shutil
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, node_tab, tree_node
+from .helpers import REPO, node_tab, tree_node, with_openplc
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
 
 EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
 
-# Words of another target, per target. The Project target field's help and
-# the list of settings the target does not use are left out of the check.
+# Words of another target, per target. The Project target field's help, the
+# Connections list (which names the kinds a bridge can serve) and the list of
+# settings the target does not use are left out of the check.
 FOREIGN = {
-    "openplc_modbus": re.compile(r"CODESYS|\b[Pp]lugin\b|the Pi\b|PLC scan|[Ss]can watchdog"),
+    "openplc": re.compile(r"CODESYS|\b[Pp]lugin\b|the Pi\b|PLC scan|[Ss]can watchdog"),
     "bridge": re.compile(r"\b[Pp]lugin\b|the Pi\b|PLC scan|PLC location|PLC is stopped|OpenPLC"),
     "codesys": re.compile(r"\bplugin\b|the Pi\b|PLC location|PLC scan|%[IQ][XBWDL]?\d|[Ss]can watchdog|OpenPLC"),
 }
@@ -34,7 +36,7 @@ SWEEP = """() => {
   const fields = [...document.querySelectorAll('#view input[data-path], #view select[data-path], #view textarea[data-path]')]
     .filter(vis).map((x) => x.dataset.path);
   const view = document.querySelector('#view').cloneNode(true);
-  for (const x of view.querySelectorAll('[data-project-target], [hidden], option, select')) x.remove();
+  for (const x of view.querySelectorAll('[data-project-target], [data-connections], [hidden], option, select')) x.remove();
   return { unused: fields.filter((p) => unusedWhy(p) !== null), fields: fields.length, text: view.innerText };
 }"""
 
@@ -47,7 +49,9 @@ class TargetView(OnlineBase):
 
     def use(self, target):
         cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        if target != "bridge":
+        if target == "openplc":
+            cfg = with_openplc(cfg)
+        elif target != "bridge":
             session = srv.Session()
             session.folder = EXAMPLE  # the EDS files, for the entry names a switch to CODESYS keeps
             cfg = session.switch_target(cfg, target)["config"]
@@ -94,14 +98,14 @@ class TargetView(OnlineBase):
         self.use(target)
         self.open()
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.evaluate("() => projectTarget()"), target)
+        self.assertEqual(pg.evaluate("() => projectTarget()"), "bridge" if target == "openplc" else target)
         self.sweep(target)
         # Nothing is listed or asked about what the target does not use (target-cleans-up).
         self.assertEqual(pg.locator("[data-unused-bar], #show-all-fields").count(), 0)
         self.assertTrue(pg.is_hidden("[data-unsaved]"))
 
     def test_openplc(self):
-        self.check("openplc_modbus")
+        self.check("openplc")
 
     def test_bridge(self):
         self.check("bridge")
@@ -118,7 +122,7 @@ class TargetView(OnlineBase):
     def test_messages_without_a_windows_path(self):
         # Readable problem messages: a config path with a drive letter goes too.
         pg = self.page
-        self.use("openplc_modbus")
+        self.use("openplc")
         self.open()
         for lead in ("C:\\Users\\me\\cell\\canworks\\canworks.json: ", "/home/me/cell/canworks/canworks.json: ",
                      "C:\\Claude workspace\\cell\\canworks.json: "):

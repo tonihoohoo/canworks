@@ -1,21 +1,22 @@
-"""The Modbus bridge target and page in a real browser (spec
-canopen-configurator, "Project target", "Only what the target uses is
-shown", "Switching the target", "Bridge settings panel",
-"Register map preview and export", "Node-RED flow export on the bridge page"): an OpenPLC project with two nodes
-switched to the bridge and packed, a live list added and suggested, the map
-filtered and exported as the ST list and Node-RED flow canworks-deploy writes, the plc_cycle
-problem, and the switch back to OpenPLC. Needs Playwright, like
-test_configurator_page.py."""
+"""The Modbus bridge page in a real browser (spec canopen-configurator
+"Bridge settings panel", "Register map preview and export", "Export for
+another PLC", "Reachability warnings for other PLCs"; modbus-connections):
+the example as a plain bridge project, packed, a live list added and
+suggested, the map filtered, Connections with their Downloads (the files
+canworks-deploy writes), out-of-date rows, the writers following the
+connections, a truST connection with the PLC link offer and the loopback
+error, the plc_cycle problem, and an OpenPLC connection added as one undo
+step. Needs Playwright, like test_configurator_page.py."""
 
 import json
 import os
 import shutil
 import zipfile
 
-from canworks import modbusmap, nodered, plcopen_targets
+from canworks import editorproject, modbusmap, nodered, plcopen_targets
 from canworks.configurator import server as srv
 
-from .helpers import REPO, export_program, tree_view
+from .helpers import REPO, add_connection, tree_view
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
@@ -26,9 +27,11 @@ EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
 class BridgePage(OnlineBase):
     def setUp(self):
         super().setUp()
-        # The example as an OpenPLC project.
+        # The example as a plain bridge project: the bridge settings a switch
+        # to the bridge writes, every location packed.
         cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        self.cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+        del cfg["bridge"]
+        self.cfg = srv.Session().switch_target(cfg, "bridge", openplc=False)["config"]
         for name in ("rtd8.eds", "dio16.eds"):
             shutil.copy(os.path.join(EXAMPLE, name), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -41,24 +44,32 @@ class BridgePage(OnlineBase):
         self.page.wait_for_function("() => document.body.dataset.checking === '0'")
 
     def to_bridge(self):
-        pg = self.page
-        tree_view(pg, "project")
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
-        pg.select_option('select[data-target="1"]', "bridge")
-        pg.wait_for_selector("#banner:has-text('Modbus bridge now')")
-        self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
-        pg.wait_for_selector("#tree #nav-bridge")
-        tree_view(pg, "bus")
+        self.open()
+        tree_view(self.page, "bus")
         self.checked()
 
-    def test_switch_pack_and_export_st(self):
+    def open_settings(self, i):
+        """Opens connection `i`'s Settings (adding one opens its own)."""
+        if not self.page.evaluate("i => document.querySelector(`[data-conn-settings-of=\"${i}\"]`).open", i):
+            self.page.click('[data-conn-settings-of="%d"] > summary' % i)
+
+    def download(self, i):
+        """Download on connection `i`: the download."""
+        with self.page.expect_download() as dl:
+            self.page.click('[data-conn-download="%d"]' % i)
+        return dl.value
+
+    def test_bridge_page_and_connections(self):
         pg = self.page
-        self.open()
         self.to_bridge()
         tree_view(pg, "bridge")
         pg.wait_for_selector("h2:has-text('Modbus bridge')")
-        # Writers is required: the switch starts it empty (nobody writes) and
-        # the hint names how to let every host write.
+        # Connections first, empty, saying who connects here.
+        self.assertIn("connect here", pg.inner_text("[data-connections-empty]"))
+        legends = pg.eval_on_selector_all("#view fieldset > legend", "ls => ls.map(l => l.textContent)")
+        self.assertEqual(legends[0], "Connections")
+        # Without connections, Writers is a field: empty is nobody, and the hint
+        # names how to let every host write.
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.get_attribute('input[data-path="bridge.writers"]', "placeholder"), "nobody writes")
@@ -67,17 +78,11 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["0.0.0.0/0", "::/0"])
         pg.fill('input[data-path="bridge.writers"]', "")
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])  # empty: nobody, never missing
-        pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24, 192.168.20.5")
         pg.fill('input[data-path="bridge.max_clients_per_address"]', "2")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertEqual(pg.input_value('input[data-path="bridge.listen"]'), "0.0.0.0")
         self.assertEqual(pg.input_value('input[data-bridge="port"]'), "502")
-        tree_view(pg, "project")
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
-        self.assertEqual(pg.locator('#view select[data-target="1"]').count(), 1)
-        tree_view(pg, "bridge")
-        self.assertEqual(pg.locator('#view select[data-target="1"]').count(), 0)
         pg.wait_for_selector('#bridge-map tr[data-bridge-row="rtd.0x7130:1"]')
         self.assertIn("Input registers", pg.inner_text('tr[data-bridge-row="rtd.0x7130:1"]'))
         # Packed: the rtd's four words are input registers 0-3, the dio's outputs from holding register 0.
@@ -103,50 +108,84 @@ class BridgePage(OnlineBase):
         pg.fill('input[data-bridge="filter"]', "")
         self.assertIn("read input registers", pg.inner_text('[data-bridge="channels"]'))
         self.assertIn("write holding registers", pg.inner_text('[data-bridge="channels"]'))
+        # No export buttons of its own, and none in Export ▾ for the program.
+        self.assertTrue(pg.is_visible("[data-bridge-exports-hint]"))
+        pg.click("#menu-export > summary")
+        shown = pg.eval_on_selector_all("#menu-export button.item", "bs => bs.filter(b => !b.hidden).map(b => b.textContent)")
+        self.assertEqual(shown, ["All DCFs", "This node's DCF", "DBC", "Documentation"])
+        pg.click("#menu-export > summary")
 
+        # Add connection → HMI, SCADA or script: Line HMI, not writing. The
+        # writers follow the connections: nobody, shown as Who may write.
+        add_connection(pg, "hmi", name="Line HMI", address="192.168.10.20", writes=False)
+        pg.wait_for_selector('[data-connection="Line HMI"]')
+        self.assertIn("Not downloaded yet", pg.inner_text('[data-connection="Line HMI"]'))
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), [])
+        self.assertEqual(pg.inner_text("[data-bridge-who]"), "nobody")
+        self.assertEqual(pg.locator('input[data-path="bridge.writers"]').count(), 0)
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
         self.assertEqual(saved["schema_version"], 2)
-        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502", "writers": ["192.168.10.0/24", "192.168.20.5"],
-                                           "max_clients_per_address": 2,
-                                           "live_lists": [{"network": "field", "location": "%IB24"}]})
+        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502", "writers": [], "max_clients_per_address": 2,
+                                           "live_lists": [{"network": "field", "location": "%IB24"}],
+                                           "connections": [{"kind": "hmi", "name": "Line HMI", "address": "192.168.10.20",
+                                                            "writes": False, "format": "csv"}]})
 
-        # Export ▾ → ST variables: the file canworks-deploy --export-modbus-map map.st writes.
-        # The bridge page has no export buttons, only the line pointing to Export.
-        tree_view(pg, "bridge")
-        pg.wait_for_selector('#bridge-map tr[data-bridge-row]')
-        self.assertEqual(pg.locator("#view [data-bridge-export]").count(), 0)
-        self.assertTrue(pg.is_visible("[data-bridge-exports-hint]"))
-        with pg.expect_download() as dl:
-            export_program(pg, "st")
-        self.assertEqual(dl.value.suggested_filename, "rtd-monitor_modbus.st")
-        with open(dl.value.path(), encoding="utf-8") as f:
+        # Its format ST: Download gives the file canworks-deploy --export-modbus-map map.st writes,
+        # and the row is in sync.
+        self.open_settings(0)
+        pg.select_option('select[data-path="bridge.connections[0].format"]', "st")
+        got = self.download(0)
+        self.assertEqual(got.suggested_filename, "rtd-monitor-Line-HMI.st")
+        with open(got.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), modbusmap.to_st(saved, modbusmap.register_map(saved)))
-        pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_modbus.st')")
+        pg.wait_for_selector("#banner:has-text('Downloaded rtd-monitor-Line-HMI.st')")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.connections[0].map_hash"),
+                         "0x%08x" % modbusmap.map_hash(saved))
+        pg.wait_for_selector('[data-connection="Line HMI"] [data-conn-state="up_to_date"]')
 
-        # Export ▾ → Node-RED flow: the file canworks-deploy --export-nodered rtd-monitor_node-red.json writes,
-        # with the note that the writers have no loopback address.
-        with pg.expect_download() as dl:
-            export_program(pg, "nodered")
-        self.assertEqual(dl.value.suggested_filename, "rtd-monitor_node-red.json")
-        with open(dl.value.path(), encoding="utf-8") as f:
-            self.assertEqual(f.read(), nodered.to_json(nodered.flow(saved, "rtd-monitor")[0]))
-        pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_node-red.json')")
-        self.assertIn("no loopback address", pg.inner_text("#banner"))
+        # A value moved: the row is out of date, Problems warns, Download again clears both.
+        pg.evaluate("() => { S.model.top.bridge.live_lists[0].location = '%IB40'; changed(true); }")
+        tree_view(pg, "bridge")
+        pg.wait_for_selector('[data-connection="Line HMI"] [data-conn-state="out_of_date"]')
+        self.checked()
+        self.assertIn("Line HMI: its downloaded file was made for another map", pg.inner_text("#problem-list"))
+        self.assertEqual(pg.inner_text('[data-conn-download="0"]'), "Download again")
+        with pg.expect_download():
+            pg.click('#problem-list [data-problem-fix="download"]')
+        pg.wait_for_selector('[data-connection="Line HMI"] [data-conn-state="up_to_date"]')
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
-        # A stopped register map export: each finding its own Problems row, no message bar.
+        # Node-RED, writing: the writers follow in one undo step, and its
+        # Download is the flow canworks-deploy --export-nodered writes.
+        add_connection(pg, "nodered", name="Flows", address="192.168.10.30", writes=True)
+        pg.wait_for_selector('[data-connection="Flows"]')
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["192.168.10.30"])
+        pg.click('[data-connection="Line HMI"] input[data-path="bridge.connections[0].writes"]')
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["192.168.10.20", "192.168.10.30"])
+        self.assertEqual(pg.inner_text("[data-bridge-who]"), "192.168.10.20, 192.168.10.30")
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => JSON.stringify(S.model.top.bridge.writers) === '[\"192.168.10.30\"]'")
+        cfg = pg.evaluate("() => fileConfig()")
+        got = self.download(1)
+        self.assertEqual(got.suggested_filename, "rtd-monitor-Flows.json")
+        with open(got.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), nodered.to_json(nodered.flow(cfg, "rtd-monitor-Flows")[0]))
+
+        # A stopped download: each finding its own Problems row, no message bar.
         pg.evaluate("""() => {
           const f = window.fetch;
-          window.fetch = (u, o) => String(u).endsWith('/api/bridge/export')
+          window.fetch = (u, o) => String(u).endsWith('/api/connections/download')
             ? Promise.resolve(new Response(JSON.stringify({ errors: 2, items: [
                 { level: 'error', message: 'map finding A', paths: [] }, { level: 'error', message: 'map finding B', paths: [] }] }),
                 { headers: { 'Content-Type': 'application/json' } }))
             : f(u, o);
         }""")
-        export_program(pg, "csv")
-        pg.wait_for_selector("#problems-bars .notice-error:has-text('Register map export stopped')")
-        self.assertTrue(pg.is_hidden("#banner"))
+        pg.click('[data-conn-download="0"]')
+        pg.wait_for_selector("#problems-bars .notice-error:has-text('Line HMI export stopped')")
         texts = pg.eval_on_selector_all("#problem-list li", "ls => ls.map((l) => l.textContent)")
         self.assertEqual([t for t in texts if "map finding" in t], ["map finding A", "map finding B"], texts)
         tree_view(pg, "bridge")
@@ -159,57 +198,68 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page")
 
-    def test_plcopen_export(self):
-        """Export ▾ → For another PLC (PLCopen XML)… (plcopen-export): the PLC
-        link offered first as one undo step, the dialog per PLC, the zip
-        canworks-deploy --export-plcopen writes, the writers note, and the
-        loopback warning."""
+    def test_trust_connection(self):
+        """A truST connection (plcopen-export): the PLC link offered on its row
+        as one undo step, its settings, the zip canworks-deploy
+        --export-plcopen --for trust writes, the missing bridge address and
+        the loopback error with Listen on all addresses."""
         pg = self.page
-        self.open()
         self.to_bridge()
-        tree_view(pg, "bridge")
-        pg.fill('input[data-path="bridge.writers"]', "192.168.10.0/24")
-        self.checked()
+        add_connection(pg, "trust", name="Cell PLC", address="192.168.10.7")
+        pg.wait_for_selector('[data-connection="Cell PLC"]')
+        self.assertTrue(pg.is_checked('input[data-path="bridge.connections[0].writes"]'))
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["192.168.10.7"])
         self.assertNotIn("plc_link", pg.evaluate("() => S.model.top.bridge"))
-        export_program(pg, "plcopen")
-        pg.wait_for_selector("#modal[open] #modal-text:has-text('PLC link')")
-        pg.click('#modal-buttons button[data-value="link"]')
-        pg.wait_for_selector("#modal[open] [data-plcopen-dialog]")
-        self.assertTrue(pg.evaluate("() => S.model.top.bridge.plc_link"))
-        # CODESYS: the route line with its link, the CODESYS names, no main.
-        pg.select_option("[data-plcopen-plc]", "codesys")
-        self.assertTrue(pg.is_visible("[data-plcopen-codesys] a"))
-        self.assertTrue(pg.is_visible("[data-plcopen-device]"))
-        self.assertTrue(pg.is_hidden("[data-plcopen-main]"))
-        pg.select_option("[data-plcopen-plc]", "trust")
-        self.assertTrue(pg.is_hidden("[data-plcopen-codesys]"))
-        self.assertEqual(pg.get_attribute("[data-plcopen-host]", "placeholder"), "127.0.0.1")
-        pg.select_option("[data-plcopen-plc]", "codesys")
-        pg.fill("[data-plcopen-host]", "192.168.10.5")
-        pg.fill("[data-plcopen-address]", "192.168.20.7")
-        audit(pg, "PLCopen export dialog")
-        with pg.expect_download() as dl:
-            pg.click('#modal-buttons button[data-value="export"]')
-        self.assertEqual(dl.value.suggested_filename, "rtd-monitor-codesys.zip")
-        with zipfile.ZipFile(dl.value.path()) as z:
-            names = sorted(z.namelist())
-            plan = json.loads(z.read(plcopen_targets.CODESYS_PLAN))
-        self.assertEqual(names, ["README.txt", plcopen_targets.CODESYS_PLAN, "canworks.xml",
-                                 plcopen_targets.CODESYS_HELPER, plcopen_targets.CODESYS_SCRIPT])
-        self.assertEqual(plan["bridge"]["host"], "192.168.10.5")
-        pg.wait_for_selector("#banner:has-text('Exported rtd-monitor-codesys.zip')")
-        self.assertIn("192.168.20.7 is not one of them", pg.inner_text("#banner"))
+        self.open_settings(0)
+        self.assertIn("PLC link", pg.inner_text('[data-conn-plc-link="0"]'))
+        pg.click('[data-conn-plc-link="0"] [data-plc-link-on]')
+        pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
+        self.assertEqual(pg.locator("[data-conn-plc-link]").count(), 0)
         # Turning the link on and its repack were one step.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")
         pg.wait_for_function("() => !('plc_link' in S.model.top.bridge)")
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
-        # A loopback listen: only the bridge's own device reaches it.
+        # No bridge address: the listen address is a wildcard, so the row's PLC
+        # needs one; Problems says so.
+        self.checked()
+        self.assertIn("Cell PLC: the PLC needs the bridge's address", pg.inner_text("#problem-list"))
+        tree_view(pg, "bridge")
+        self.open_settings(0)
+        pg.fill('input[data-path="bridge.connections[0].bridge_host"]', "192.168.10.5")
+        self.checked()
+        self.assertNotIn("needs the bridge's address", pg.inner_text("#problem-list"))
+        audit(pg, "truST connection")
+        cfg = pg.evaluate("() => fileConfig()")
+        got = self.download(0)
+        self.assertEqual(got.suggested_filename, "rtd-monitor-Cell-PLC.zip")
+        decls = editorproject.declarations(cfg, self.config_path)
+        files = plcopen_targets.files(cfg, decls, "trust", host="192.168.10.5", library=True)
+        with zipfile.ZipFile(got.path()) as z:
+            self.assertEqual(sorted(z.namelist()), sorted(files))
+            for n in files:
+                self.assertEqual(z.read(n).decode("utf-8"), files[n], n)
+        # A loopback listen: the truST connection cannot reach it; one click listens everywhere.
         tree_view(pg, "bridge")
         pg.fill('input[data-path="bridge.listen"]', "127.0.0.1")
         self.checked()
-        self.assertIn("only a PLC on the bridge's own device can reach it", pg.inner_text("#problem-list"))
+        self.assertIn("Cell PLC connects from 192.168.10.7, but the bridge listens on 127.0.0.1:502 only",
+                      pg.inner_text("#problem-list"))
+        pg.click('#problem-list [data-problem-fix="listen-all"]')
+        pg.wait_for_function("() => S.model.top.bridge.listen === '0.0.0.0:502'")
+
+    def test_other_plc_formats(self):
+        """An Other PLC connection: PLCopen XML or ST, no CODESYS choice, and
+        the line pointing CODESYS to its own target."""
+        pg = self.page
+        self.to_bridge()
+        add_connection(pg, "plc", name="Line PLC", address="192.168.10.8")
+        pg.wait_for_selector('[data-connection="Line PLC"]')
+        self.open_settings(0)
+        self.assertEqual(pg.eval_on_selector_all('select[data-path="bridge.connections[0].format"] option',
+                                                 "os => os.map(o => o.textContent)"), ["PLCopen XML", "ST"])
+        self.assertIn("pick the CODESYS target", pg.inner_text("[data-conn-codesys]"))
 
     def test_function_blocks_section(self):
         """The Function blocks section (add-bridge-mailboxes): off for a
@@ -217,7 +267,6 @@ class BridgePage(OnlineBase):
         cost line and which blocks need which part; a count change keeps
         the places for another client."""
         pg = self.page
-        self.open()
         self.to_bridge()
         tree_view(pg, "bridge")
         pg.wait_for_selector('[data-bridge-mailboxes="0"]')
@@ -277,9 +326,8 @@ class BridgePage(OnlineBase):
         pg.click('#modal button[data-value="remove"]')
         self.assertIsNone(pg.evaluate("() => S.model.top.bridge.live_lists || null"))
 
-    def test_plc_cycle_and_back_to_openplc(self):
+    def test_plc_cycle_and_openplc_connection(self):
         pg = self.page
-        self.open()
         self.to_bridge()
         # The master's PLC stop field; the bridge has no PLC scan, so no PLC cycle SYNC.
         self.assertEqual(pg.input_value('select[data-path="master.on_plc_stop"]'), "")
@@ -292,29 +340,44 @@ class BridgePage(OnlineBase):
         pg.evaluate("() => { S.config.master.sync_source = 'plc_cycle'; delete S.config.master.sync_period_us; changed(true); }")
         # The check runs after a short delay, so wait for its result.
         pg.wait_for_selector("#problem-list:has-text('needs a PLC cycle, which the Modbus bridge does not have')")
-                # The SYNC choice offers Off and Timer only; a timer period replaces it.
+        # The SYNC choice offers Off and Timer only; a timer period replaces it.
         pg.evaluate("() => { delete S.config.master.sync_source; changed(true); render(); }")
         pg.select_option('select[data-path="master.sync_source"]', "timer")
         pg.fill('input[data-path="master.sync_period_us"]', "20")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
-        # Back to OpenPLC: the bridge's own settings go, the editor files come back.
+        # A hand-made config in an editor project: the Project page offers Use
+        # with this OpenPLC project, which adds the connection as Add connection does.
         tree_view(pg, "project")
-        pg.select_option('select[data-target="1"]', "openplc_modbus")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        self.assertIn("no OpenPLC connection", pg.inner_text('[data-editor-project="project"]'))
+        pg.click("button[data-use-with-project]")
+        pg.wait_for_selector("[data-conn-added=openplc]")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
-        # The switch and its repack are one step: undo brings the bridge back, redo removes it.
+        b = pg.evaluate("() => S.model.top.bridge")
+        self.assertEqual((b["plc_link"], b["listen"], b["writers"], b["word_order"], b["watchdog_ms"]),
+                         (True, "127.0.0.1:1502", ["127.0.0.1"], "low_first", 50))
+        self.assertIn("mailboxes", b)
+        # Adding it and its repack are one step: undo takes it back, redo adds it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")
-        pg.wait_for_function("() => projectTarget() === 'bridge'")
+        pg.wait_for_function("() => !hasOpenplc() && !S.model.top.bridge.plc_link")
         pg.keyboard.press("Control+Shift+z")
-        pg.wait_for_function("() => projectTarget() === 'openplc_modbus'")
+        pg.wait_for_function("() => hasOpenplc()")
         self.checked()
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        self.assertEqual(load(self.config_path)["bridge"]["openplc"], {})
+        conn = load(self.config_path)["bridge"]["connections"]
+        self.assertEqual(conn, [{"kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1", "writes": True}])
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "devices", "remote", "canworks.json")))
+        # Removing it asks first and leaves the editor files on disk.
+        tree_view(pg, "bridge")
+        pg.click('[data-conn-remove="0"]')
+        self.assertIn("files already in the editor project stay on disk", pg.inner_text("#modal-text"))
+        pg.click('#modal-buttons button[data-value="remove"]')
+        self.assertEqual(pg.evaluate("() => connectionsOf().length"), 0)
+        self.assertTrue(os.path.isfile(os.path.join(self.project, "devices", "remote", "canworks.json")))
 
 
 if __name__ == "__main__":

@@ -35,14 +35,7 @@
           <option value="none">No SDO frames</option><option value="config">SDO: configured objects</option><option value="all">SDO: all EDS objects</option>
         </select><button id="btn-export-dbc" type="button" class="item" title="The network as a DBC file for CAN bus tools (PDOs, heartbeat, EMCY, NMT, SYNC)">DBC</button></div>
         <button id="btn-export-html" type="button" class="item" title="One HTML document of every network for people: CANopen topology, COB-ID map, nodes, PDO layouts and boot SDO writes; J1939 ECU, messages and signals; bus load and PLC I/O">Documentation</button>
-        </div>
-        <div class="menu-group" data-export-group="program"><span class="menu-heading">For the program</span>
-        <button id="btn-export-map-csv" type="button" class="item" data-export-program="csv" title="The register map as CSV: Modbus table, address, size, type, name and source of every value">Register map (CSV)</button>
-        <button id="btn-export-map-json" type="button" class="item" data-export-program="json" title="The register map as JSON, for scripts and HMI tools">Register map (JSON)</button>
-        <button id="btn-export-map-st" type="button" class="item" data-export-program="st" title="The ST variable list and the PLC link file for a Modbus client program">ST variables</button>
-        <button id="btn-export-nodered" type="button" class="item" data-export-program="nodered" title="A Node-RED flow (needs node-red-contrib-modbus) that reads and writes these values by name through the bridge">Node-RED flow</button>
-        <button id="btn-export-plcopen" type="button" class="item" data-export-program="plcopen" title="The canworks variables, copy programs and function blocks as PLCopen XML for CODESYS, truST or another PLC, with what connects them to the bridge, as one zip">For another PLC (PLCopen XML)…</button>
-        <button id="btn-codesys-download" type="button" class="item" data-export-program="codesys" title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
+        <button id="btn-codesys-download" type="button" class="item" hidden title="The node DCFs and a script that builds the CANbus, manager, nodes and variable names in CODESYS, as one zip">Download for CODESYS</button>
         </div>
       </div>
     </details>

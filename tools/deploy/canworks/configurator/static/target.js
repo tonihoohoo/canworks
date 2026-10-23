@@ -1,42 +1,40 @@
 // Project targets (canopen-configurator "Project target", "Only what the
-// target uses is shown", "Switching the target", "CODESYS settings",
-// "CODESYS actions"; docs/configurator.md): OpenPLC through Modbus, the
-// Modbus bridge or CODESYS; a config of the bridge can still be
-// opened and switched to OpenPLC through Modbus. The server's relevance table (S.state.targets, targets.py) says
-// what each target uses; the page hides the rest, and a value the target
-// does not use but the config still has stays shown, marked, with Remove.
-// Loaded after app.js and bridge.js and uses their helpers.
+// target uses is shown", "Switching the target", "Plugin configs", "CODESYS
+// settings", "CODESYS actions"; docs/configurator.md): what runs the CAN
+// networks, the Modbus bridge or CODESYS. OpenPLC is a connection of a
+// bridge config (modbus-connections, bridge.js). The server's relevance
+// table (S.state.targets, targets.py) says what each target uses; rows keyed
+// "conn:<kind>" follow a connection instead. The page hides the rest, and a
+// value the target does not use but the config still has stays shown,
+// marked, with Remove. Loaded after app.js and bridge.js and uses their helpers.
 "use strict";
 
 const TARGET_CHOICES = [
-  { value: "openplc_modbus", label: "OpenPLC",
-    help: "canworks-bridge runs the networks next to the OpenPLC Runtime, and OpenPLC's own Modbus master reads and writes the values on 127.0.0.1:1502. Save writes the remote device and two programs into the editor project. Locations are byte addresses, as for the Modbus bridge." },
   { value: "bridge", label: "Modbus bridge",
-    help: "canworks-bridge runs the networks and serves the values as Modbus TCP registers, with no PLC. Locations are byte addresses: %IW0 is bytes 0 and 1, input register 0." },
+    help: "canworks-bridge runs the networks and serves the values as Modbus TCP registers to its connections: OpenPLC, truST, other PLCs, Node-RED, HMIs. Locations are byte addresses: %IW0 is bytes 0 and 1, input register 0." },
   { value: "codesys", label: "CODESYS",
     help: "A CODESYS PLC runs the CANopen master networks: canworks builds the bus, the nodes and their named I/O channels into a CODESYS project. No PLC locations: each PDO entry's variable name names its channel." },
 ];
 // A config of the removed OpenPLC plugin (no bridge or codesys key) opens
-// read-only with the switch to OpenPLC through Modbus.
+// read-only with Use with canworks-bridge.
 const TARGET_PLUGIN_CHOICE = { value: "plugin", label: "OpenPLC plugin (removed)",
-  help: "The canworks plugin inside the OpenPLC Runtime was removed. OpenPLC through Modbus runs the same networks in canworks-bridge." };
-const TARGET_TITLE = { plugin: "OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "Modbus bridge", codesys: "CODESYS" };
-const TARGET_LABEL = { plugin: "the removed OpenPLC plugin", openplc_modbus: "OpenPLC", bridge: "the Modbus bridge", codesys: "CODESYS" };
+  help: "The canworks plugin inside the OpenPLC Runtime was removed. canworks-bridge runs the same networks." };
+const TARGET_TITLE = { plugin: "OpenPLC plugin", bridge: "Modbus bridge", codesys: "CODESYS" };
+const TARGET_LABEL = { plugin: "the removed OpenPLC plugin", bridge: "the Modbus bridge", codesys: "CODESYS" };
 // What refuses a config with errors, per target (a save with errors says so).
-const TARGET_RUNNER = { plugin: "nothing", openplc_modbus: "the bridge", bridge: "the bridge", codesys: "the CODESYS build" };
+const TARGET_RUNNER = { plugin: "nothing", bridge: "the bridge", codesys: "the CODESYS build" };
 
 // Whether a target runs the networks in canworks-bridge (the Modbus bridge
 // page, byte locations, register numbers).
 function bridgeTarget(tgt) {
-  tgt = tgt || projectTarget();
-  return tgt === "bridge" || tgt === "openplc_modbus";
+  return (tgt || projectTarget()) === "bridge";
 }
 // The top-level `codesys` keys; the network's own are net_id and interface.
 const CODESYS_TOP_KEYS = ["project", "device", "create", "variables"];
 
 // Page texts that differ per target (canopen-configurator "Only what the
-// target uses is shown"): { bridge, codesys }; OpenPLC through Modbus and a
-// missing one use the bridge's (the bridge runs the networks). The texts do
+// target uses is shown"): { bridge, codesys }; a missing one uses the
+// bridge's (the bridge runs the networks). The texts do
 // not speak of the PLC scan or PLC locations.
 const TARGET_TEXT = {
   role_master: {
@@ -119,19 +117,37 @@ function targetText(key) {
 // The target of a config (or of the draft's top-level keys).
 function targetOf(cfg) {
   const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-  if (cfg && obj(cfg.bridge)) return obj(cfg.bridge.openplc) ? "openplc_modbus" : "bridge";
+  if (cfg && obj(cfg.bridge)) return "bridge";
   if (cfg && obj(cfg.codesys)) return "codesys";
   return "plugin";
 }
 
-function projectTarget() { return S.model ? targetOf(S.model.top) : "openplc_modbus"; }
+function projectTarget() { return S.model ? targetOf(S.model.top) : "bridge"; }
+
+// The draft's connections of `kind` (all when no kind).
+function connectionsOf(kind) {
+  const b = S.model && S.model.top.bridge;
+  const list = b && Array.isArray(b.connections) ? b.connections : [];
+  return list.filter((c) => c && typeof c === "object" && (!kind || c.kind === kind));
+}
+
+// Whether the draft has an OpenPLC connection (what OpenPLC-only parts follow).
+function hasOpenplc() { return bridgeTarget() && connectionsOf("openplc").length > 0; }
+
+// Whether the Project page has the Editor project section: a bridge config
+// with an OpenPLC connection or inside an editor project.
+function editorProjectShown() {
+  return bridgeTarget() && (hasOpenplc() || (S.state && S.state.mode === "project"));
+}
 
 function targetRow(key) { return ((S.state && S.state.targets) || []).find((r) => r.key === key) || null; }
 
 // Whether the project's target (or `tgt`) uses a key of the table; a key
-// the table does not list is used by every target.
+// the table does not list is used by every target. A "conn:<kind>" row also
+// needs a connection of that kind.
 function usedBy(key, tgt) {
   const r = targetRow(key);
+  if (r && key.startsWith("conn:") && !connectionsOf(key.slice(5)).length) return false;
   return !r || r.targets.includes(tgt || projectTarget());
 }
 
@@ -214,16 +230,17 @@ function targetField() {
   const tgt = projectTarget();
   const plugin = tgt === "plugin";
   return el("fieldset", { dataset: { bridgeTarget: "1", projectTarget: "1" } }, el("legend", null, "Project target"),
-    plugin ? notice("warning", "This config is for the OpenPLC plugin, which was removed, so it cannot be saved. Switch to OpenPLC through Modbus: canworks-bridge runs the same networks next to the OpenPLC Runtime.",
+    plugin ? notice("warning", "This config is for the OpenPLC plugin, which was removed, so it cannot be saved. canworks-bridge runs the same networks" +
+      (S.state && S.state.mode === "project" ? ", and OpenPLC reads and writes them as its connection." : "."),
       { live: false, dataset: { pluginTarget: "1" }, actions: [el("button", { type: "button", class: "primary", dataset: { switchModbus: "1" },
-        onclick: () => switchTarget("openplc_modbus") }, "Switch to OpenPLC through Modbus")] }) : null,
+        onclick: () => switchTarget("bridge") }, "Use with canworks-bridge")] }) : null,
     el("div", { class: "grid" }, choice("Target", "", plugin ? [TARGET_PLUGIN_CHOICE].concat(TARGET_CHOICES) : TARGET_CHOICES,
       { noPath: true, dataset: { target: "1" }, current: tgt, onChange: switchTarget })));
 }
 
-// The facts of an OpenPLC config's Modbus link (S.state.openplc, from the
-// saved config), at the top of the Modbus bridge page's OpenPLC box, next to
-// the poll and remote device fields they follow from.
+// The facts of the OpenPLC connection's Modbus link (S.state.openplc, from
+// the saved config), in the connection's Settings next to the poll and
+// remote device fields they follow from.
 function openplcFacts() {
   const o = S.state && S.state.openplc;
   if (!o) return el("p", { class: "muted", dataset: { openplcFacts: "none" } }, "The editor files are made once the config has no errors. See Problems.");
@@ -239,11 +256,21 @@ function openplcFacts() {
     o.warning ? notice("warning", o.warning, { live: false, dataset: { openplcWarning: "1" } }) : null);
 }
 
-// The Project page's Editor project section of an OpenPLC config
-// (canopen-configurator "Editor project on the Project page"): the project
-// and what Save writes into it, or, standalone, the actions that make one.
+// The Project page's Editor project section (canopen-configurator "Editor
+// project on the Project page"): the project and what Save writes into it,
+// Use with this OpenPLC project when the config has no OpenPLC connection,
+// or, standalone, the actions that make a project.
 function editorProjectSection() {
   const box = el("fieldset", { dataset: { editorProject: S.state.mode === "project" ? "project" : "none" } }, el("legend", null, "Editor project"));
+  if (S.state.mode === "project" && !hasOpenplc()) {
+    box.append(el("table", { class: "od" }, el("tbody", null,
+      el("tr", null, el("th", null, "Project"), el("td", null, S.state.name)),
+      el("tr", null, el("th", null, "Folder"), el("td", { class: "mono" }, S.state.folder || "")))),
+    notice("info", "This config has no OpenPLC connection, so Save writes no editor files. Use with this OpenPLC project adds the connection: OpenPLC's Modbus master then reads and writes the bridge on 127.0.0.1.",
+      { live: false, dataset: { useWithProject: "1" }, actions: [el("button", { type: "button", class: "primary", dataset: { useWithProject: "1" },
+        onclick: () => addConnectionOf("openplc") }, "Use with this OpenPLC project")] }));
+    return box;
+  }
   if (S.state.mode === "project") {
     const o = S.state.openplc;
     box.append(el("table", { class: "od" }, el("tbody", null,
@@ -330,9 +357,10 @@ async function switchTarget(target) {
   const done = [];
   if (r.removed) done.push(`${r.removed} setting${r.removed === 1 ? "" : "s"} ${TARGET_LABEL[target]} does not use removed`);
   if (r.located) done.push(`${r.located} PDO entr${r.located === 1 ? "y" : "ies"} got a location`);
-  const page = target === "bridge" ? " See the Modbus bridge page."
-    : target === "openplc_modbus" ? " Save writes the editor files; see the Project page." +
+  const openplc = target === "bridge" && hasOpenplc();
+  const page = openplc ? " It has an OpenPLC connection: Save writes the editor files; see the Project page." +
       (r.old_main ? ` main still declares ${r.old_main} canworks value${r.old_main === 1 ? "" : "s"} at the plugin's locations: after Save, Use canworks.* in main there.` : "")
+    : target === "bridge" ? " See the Modbus bridge page."
     : target === "codesys" ? " See the CODESYS page." : "";
   banner(el("span", { dataset: { switchDone: target } },
     `The project targets ${TARGET_TITLE[target]} now` + (done.length ? ": " + done.join(", ") + "." : ".") + page + " ",
@@ -343,21 +371,11 @@ async function switchTarget(target) {
 
 function codesysOn() { return projectTarget() === "codesys"; }
 
-// Export's "For the program" group: the target's own files (canopen-configurator
-// "Export menu groups"). OpenPLC gets no Node-RED flow (OpenPLC is the only
-// writer), and its .st file is the PLC link for a second Modbus PLC, named so.
-const PROGRAM_EXPORTS = { bridge: ["csv", "json", "st", "nodered", "plcopen"], openplc_modbus: ["csv", "json", "st"], codesys: ["codesys"] };
-
+// Export ▾ holds the network files; a CODESYS config also gets Download for
+// CODESYS (canopen-configurator "Export menu groups"). The program-side files
+// are each connection's Download on the Modbus bridge page.
 function showProgramExports() {
-  const tgt = projectTarget();
-  const list = (S.model && PROGRAM_EXPORTS[tgt]) || [];
-  for (const b of document.querySelectorAll("#menu-export [data-export-program]")) b.hidden = !list.includes(b.dataset.exportProgram);
-  $("#menu-export [data-export-group=program]").hidden = !list.length;
-  const st = $("#btn-export-map-st");
-  const other = tgt === "openplc_modbus";
-  st.textContent = other ? "ST for another PLC" : "ST variables";
-  st.title = other ? "The PLC link file for a second Modbus PLC that uses the canworks library: the canworks variable list, its client channels and canworks_in/canworks_out"
-    : "The ST variable list of the register map for a Modbus client program";
+  $("#btn-codesys-download").hidden = !(S.model && codesysOn());
 }
 
 // The network's CODESYS settings on a CANopen master network's Bus page.

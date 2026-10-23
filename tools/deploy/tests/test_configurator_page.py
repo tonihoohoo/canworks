@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, editor_project_action, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
+from .helpers import PINGPONG, REPO, add_connection, editor_project_action, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
 
 try:
     from playwright.sync_api import sync_playwright
@@ -202,25 +202,55 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#editor:not([hidden])")
         self.assertIn("config " + os.path.basename(empty), pg.inner_text("#mode"))
 
-    def test_new_config_with_editor_project(self):
+    def new_bridge_config(self, name):
+        """A new Modbus bridge config `name` in the test folder, opened."""
         pg = self.page
-        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)
-        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
         pg.reload()
         pg.wait_for_selector("#start-new")
         pg.click("#start-new")
         pg.wait_for_selector("[data-new-config=form]")
-        self.assertTrue(pg.is_checked("[data-new-config=project]"))
-        pg.click('label:has([data-new-target="bridge"])')
-        self.assertFalse(pg.is_visible("[data-new-config=project]"))
-        pg.click('label:has([data-new-target="openplc_modbus"])')
+        # Two cards, the bridge preselected, with what it works with.
+        self.assertEqual(pg.eval_on_selector_all("[data-new-target]", "xs => xs.map(x => x.value)"), ["bridge", "codesys"])
+        self.assertTrue(pg.is_checked('[data-new-target="bridge"]'))
+        self.assertIn("What runs the CAN networks?", pg.inner_text("[data-new-config=form]"))
+        works = pg.inner_text("[data-new-works-with]")
+        for kind in ("OpenPLC", "truST", "other PLCs", "Node-RED", "HMI, SCADA or scripts"):
+            self.assertIn(kind, works)
         pg.fill("[data-new-config=location]", self.dir)
-        pg.fill("[data-new-config=name]", "new-machine")
+        pg.fill("[data-new-config=name]", name)
         pg.click("#modal-buttons button[data-value=create]")
-        pg.wait_for_selector("#mode:has-text('project new-machine')")
-        machine = os.path.join(self.dir, "new-machine")
+        pg.wait_for_selector("#mode:has-text('config %s')" % name)
+        with open(os.path.join(self.dir, name, "canworks.json")) as f:
+            cfg = json.load(f)
+        self.assertIn("bridge", cfg)
+        self.assertNotIn("connections", cfg["bridge"])
+
+    def new_editor_project(self, name, existing=False):
+        """Add connection → OpenPLC → New editor project… named `name` in the
+        test folder; returns the dialog's working button."""
+        pg = self.page
+        add_connection(pg, "openplc", button="new")
+        pg.wait_for_selector('#modal-extra input[aria-label="Project name"]')
+        pg.fill('#modal-extra input[aria-label="Parent folder"]', self.dir)
+        pg.fill('#modal-extra input[aria-label="Project name"]', name)
+        pg.click("#modal-buttons button[data-value=create]")
+        return pg.wait_for_selector("#modal-buttons button[data-value=working]")
+
+    def test_new_config_with_editor_project(self):
+        pg = self.page
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        self.new_bridge_config("new-machine")
+        self.new_editor_project("new-project")
+        pg.wait_for_selector("#mode:has-text('project new-project')")
+        machine = os.path.join(self.dir, "new-project")
         self.assertTrue(os.path.isfile(os.path.join(machine, "project.json")))
-        self.assertIn("Created the OpenPLC Editor project", pg.inner_text("#banner"))
+        self.assertTrue(os.path.isfile(os.path.join(machine, "devices", "remote", "canworks.json")))
+        with open(os.path.join(machine, "canworks", "canworks.json")) as f:
+            cfg = json.load(f)
+        self.assertEqual([c["kind"] for c in cfg["bridge"]["connections"]], ["openplc"])
+        self.assertTrue(cfg["bridge"]["plc_link"])
+        self.assertIn("Created", pg.inner_text("#banner"))
 
     def test_new_config_with_editor_project_in_existing_folder(self):
         # windows-safe-new-config 3.1-3.2: an existing folder with a file of
@@ -232,15 +262,8 @@ class Page(unittest.TestCase):
         os.makedirs(cell)
         with open(os.path.join(cell, "notes.txt"), "w") as f:
             f.write("mine")
-        pg.reload()
-        pg.wait_for_selector("#start-new")
-        pg.click("#start-new")
-        pg.wait_for_selector("[data-new-config=form]")
-        self.assertIn("existing empty one", pg.inner_text("[data-new-config=form]"))
-        pg.fill("[data-new-config=location]", self.dir)
-        pg.fill("[data-new-config=name]", "cell")
-        pg.click("#modal-buttons button[data-value=create]")
-        working = pg.wait_for_selector("#modal-buttons button[data-value=working]")
+        self.new_bridge_config("cell-config")
+        working = self.new_editor_project("cell")
         self.assertEqual(working.inner_text(), "Creating the editor project…")
         self.assertTrue(working.is_disabled())
         pg.keyboard.press("Escape")
@@ -252,16 +275,24 @@ class Page(unittest.TestCase):
             self.assertEqual(f.read(), "mine")
 
     def test_new_config_without_editor_cli(self):
+        # modbus-connections "No editor command-line tool": New editor
+        # project… is off with the reason; Add to this config adds it.
         pg = self.page
         os.environ["OPENPLC_CLI"] = os.path.join(self.dir, "no-such-cli")
         self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
-        pg.reload()
-        pg.wait_for_selector("#start-new")
-        pg.click("#start-new")
-        pg.wait_for_selector("[data-new-config=form]")
-        self.assertTrue(pg.is_disabled("[data-new-config=project]"))
-        self.assertFalse(pg.is_checked("[data-new-config=project]"))
-        self.assertIn("was not found", pg.inner_text("[data-new-config=project-hint]"))
+        self.new_bridge_config("plain")
+        tree_view(pg, "bridge")
+        self.assertIn("connect here", pg.inner_text("[data-connections-empty]"))
+        pg.click("[data-conn-add]")
+        pg.wait_for_selector("[data-conn-dialog]")
+        pg.click('label:has([data-conn-kind="openplc"])')
+        self.assertTrue(pg.is_disabled("#modal-buttons button[data-value=new]"))
+        self.assertIn("was not found", pg.inner_text("[data-conn-openplc-note]"))
+        self.assertEqual(pg.inner_text("#modal-buttons button[data-value=add]"), "Add to this config")
+        pg.click("#modal-buttons button[data-value=add]")
+        pg.wait_for_selector('[data-conn-kind="openplc"][data-connection]')
+        self.assertTrue(pg.evaluate("() => S.model.top.bridge.plc_link"))
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["127.0.0.1"])
 
     def test_rtd_node_in_a_project(self):
         pg = self.page
@@ -1311,13 +1342,13 @@ class Page(unittest.TestCase):
         folder = os.path.join(self.dir, "canopen-rtd")
         self.open_from_start("#start-new", folder)
         self.assertIn("config ", pg.inner_text("#mode"))
-        self.assertIn("skipped", pg.inner_text("#scan-info"))
+        self.assertTrue(pg.is_hidden("#scan-info"))  # no OpenPLC: nothing to check against
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
         self.assertTrue(os.path.isfile(os.path.join(folder, "canworks.json")))
-        editor_project_action(pg, "move")
+        add_connection(pg, "openplc", button="move")
         pg.fill("#modal-extra input", self.project)
         pg.click("#modal-buttons button[data-value=move]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
@@ -1327,8 +1358,9 @@ class Page(unittest.TestCase):
         self.assertIn("rtd-monitor", editor)
         self.assertNotIn("null", editor)
         moved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        # A new OpenPLC config targets OpenPLC through Modbus: version 2, with networks.
+        # Moved with an OpenPLC connection (modbus-connections): version 2, with networks.
         self.assertEqual(moved["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
+        self.assertEqual([c["kind"] for c in moved["bridge"]["connections"]], ["openplc"])
         self.assertIn("in use", pg.inner_text("#scan-info"))
 
     def test_standalone_then_new_editor_project(self):
@@ -1342,14 +1374,15 @@ class Page(unittest.TestCase):
             f.write("{}")
         self.open_from_start("#start-new", folder)
         tree_view(pg, "project")
-        self.assertTrue(pg.is_visible('[data-editor-project="none"]'))
+        # No OpenPLC connection: no Editor project section (modbus-connections).
+        self.assertEqual(pg.locator("[data-editor-project]").count(), 0)
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        editor_project_action(pg, "new")
+        add_connection(pg, "openplc", button="new")
         self.assertIn("Save the config", pg.inner_text("#banner"))
         self.save()
-        editor_project_action(pg, "new")
+        add_connection(pg, "openplc", button="new")
         pg.fill('#modal-extra input[aria-label="Parent folder"]', work)
         pg.fill('#modal-extra input[aria-label="Project name"]', "taken")
         self.assertEqual(pg.input_value('#modal-extra input[aria-label="Task interval"]'), "T#20ms")
