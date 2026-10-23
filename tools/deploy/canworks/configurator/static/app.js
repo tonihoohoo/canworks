@@ -8204,7 +8204,7 @@ async function moveIntoProject() {
   setModel(S.state.config);
   if (typeof simLoad === "function") simLoad();
   S.dirty = false;
-  S.view = "bus";
+  S.view = "project";  // the Editor project section it started from
   render();
   banner("Moved into " + project + ": " + r.written.join(", "));
   runCheck();
@@ -8247,7 +8247,7 @@ async function newEditorProject() {
     setModel(S.state.config);
     if (typeof simLoad === "function") simLoad();
     S.dirty = false;
-    S.view = "bus";
+    S.view = "project";
     render();
     const files = r.editor && r.editor.written ? ` with ${r.editor.written.length} canworks file${r.editor.written.length === 1 ? "" : "s"}` : "";
     banner(`Created ${r.project}${files}. ` +
