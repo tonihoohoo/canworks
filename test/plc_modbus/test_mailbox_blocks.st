@@ -344,6 +344,42 @@ TEST 'CAN_RECEIVE drains a batch in one scan'
   ASSERT_EQ(bridge.OPEN_RX, 0);
 END_TEST
 
+TEST 'CAN_RECEIVE keeps receiving as the bridge clock wraps'
+  VAR
+    link : ARRAY[0..1279] OF WORD;
+    svc : CW_LINK_SERVICE;
+    bridge : MailboxModel;
+    rx : CAN_RECEIVE;
+    d : ARRAY[0..7] OF BYTE;
+    i : INT;
+    k : INT;
+    got : INT;
+  END_VAR
+  link[21] := 1;
+  link[89] := 16#0431;
+  FOR i := 1 TO 4 DO
+    svc(LINK := link);
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+    bridge(LINK := link);
+    link := bridge.LINK;
+  END_FOR;
+  ASSERT_TRUE(rx.ACTIVE);
+  (* one frame every 10 s of bridge time, for more than one 65.5 s wrap *)
+  FOR k := 1 TO 10 DO
+    bridge(INJ_CAN := TRUE, INJ_ID := 16#181, SKIP_MS := 10000, LINK := link);
+    link := bridge.LINK;
+    svc(LINK := link);
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+    IF rx.NEW THEN
+      got := got + 1;
+      rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+    END_IF;
+  END_FOR;
+  ASSERT_EQ(got, 10);
+  ASSERT_TRUE(rx.ACTIVE);
+  ASSERT_FALSE(rx.ERROR);
+END_TEST
+
 TEST 'a receiver the bridge closed opens again'
   VAR
     link : ARRAY[0..1279] OF WORD;
