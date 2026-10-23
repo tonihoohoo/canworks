@@ -11,7 +11,7 @@ The hardware run of change 1 (`add-openplc-modbus-target`, PR #240) passed, but 
 
 ## What Changes
 
-- **Restart baseline.** After a bridge start, the first control block and the first SDO request it receives are taken as the baseline and not run. Their counters are echoed with a new result: control result 6 "not run: the bridge restarted"; SDO status 3 with abort code 0x08000022. `CO_NMT`, `CO_SDO_READ` and `CO_SDO_WRITE` report it as ERROR_ID 23. Counter changes after that run as before.
+- **Restart baseline.** After a bridge start, the first control block and the first SDO request it receives are taken as the baseline and not run. Their counters are echoed with a new result: control result 6 "not run: the bridge restarted"; SDO status 3 with abort code 0x08000022. `CO_NMT`, `CO_SDO_READ` and `CO_SDO_WRITE` report it as ERROR_ID 8 (cancelled), as `add-bridge-mailboxes` does for its mailboxes, so programs check one code for "start again". Counter changes after that run as before.
 - **Use canworks.\* in main.** For an OpenPLC project the configurator finds the located declarations in `main.st` whose names are members of the `canworks` list. The Project page shows a warning with the button **Use canworks.\* in main**, Problems lists it, and the switch banner mentions it.
   - The button keeps the old file as `canworks/main-before-move.st` and removes those declarations and the generated comment.
   - It drops a `VAR` block left empty and replaces uses with `canworks.<name>`, outside comments and strings and not after a `.`.
@@ -30,15 +30,15 @@ The hardware run of change 1 (`add-openplc-modbus-target`, PR #240) passed, but 
 ### Modified Capabilities
 
 - `modbus-bridge`: restart baseline for the control block and the SDO registers; pre-operational per configured node.
-- `plc-library`: ERROR_ID 23.
+- `plc-library`: ERROR_ID 8 (cancelled) also when the bridge restarted, the code `add-bridge-mailboxes` uses for a replayed mailbox request.
 - `canopen-configurator`: **Use canworks.\* in main**; the switch names unnamed networks; Save enables and installs the library.
 - `canopen-editor-project`: the explicit move action is the one exception to "the user's POUs SHALL NOT change".
 
 ## Impact
 
 - **Bridge:** `plugin/src/bridge/bridge_blocks.*` (baseline), `bridge_host.cpp` (log level), `canopen/network.cpp` (hold source wording); tests in `test/bridge/`.
-- **Library:** `library/modbus/` (ERROR_ID 23); `test/plc_modbus/` model.
+- **Library:** `library/modbus/` (ERROR_ID 8); `test/plc_modbus/` model.
 - **PC tools:** `openplcmodbus.py` (main scan and move; library on save), `configurator/server.py` (route `POST /api/openplc/move-main`, switch naming), `static/target.js`, checks.
 - **Tests:** unit tests, plus extending the existing `test_configurator_openplc_modbus_page.py` and `test/openplc_modbus/run.py` (restart case). No new job or page test file, so CI time stays flat.
 - **Docs:** `docs/modbus-bridge.md`, `docs/plc-library.md`, `docs/configurator.md`.
-- **Order:** apply after `remove-openplc-plugin` and `add-bridge-mailboxes`, rebased on them. Change 3 must give its mailboxes the same restart baseline. If it merges after this change, it picks the baseline up at rebase.
+- **Order:** apply after `remove-openplc-plugin` and `add-bridge-mailboxes`, rebased on them. `add-bridge-mailboxes` already ends a replayed mailbox request with ERROR_ID 8, so this change covers only the control block and the SDO registers.
