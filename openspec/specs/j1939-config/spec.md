@@ -1,7 +1,7 @@
 # j1939-config Specification
 
 ## Purpose
-How a J1939 network is described in the plugin configuration: the adapter, the ECU with its NAME, address and address range, the PGNs it receives and sends with their signals mapped to PLC locations, and the PGNs it requests.
+How a J1939 network is described in the configuration: the adapter, the ECU with its NAME, address and address range, the PGNs it receives and sends with their signals mapped to PLC locations, and the PGNs it requests.
 
 ## Requirements
 
@@ -82,7 +82,7 @@ A J1939 network SHALL NOT share its interface or serial device with any other ne
 - **THEN** the file has `schema_version: 2` and that network has `"protocol": "j1939"`
 
 ### Requirement: Diagnostics object in the J1939 config
-The `j1939` object MAY have `diagnostics` as described by `j1939-diagnostics`. `schema/canworks.v2.schema.json` SHALL describe it. Its locations SHALL take part in every location check that `rx` and `tx` locations take part in (size, direction, overlap within the config and across networks and plugins). `examples/j1939/canworks.json` SHALL use it with proprietary SPNs (520192..524287) only.
+The `j1939` object MAY have `diagnostics` as described by `j1939-diagnostics`. `schema/canworks.v2.schema.json` SHALL describe it. Its locations SHALL take part in every location check that `rx` and `tx` locations take part in (size, direction, overlap within the config and across networks). `examples/j1939/canworks.json` SHALL use it with proprietary SPNs (520192..524287) only.
 
 #### Scenario: Diagnostics location clash
 - **WHEN** a `diagnostics.rx` `lamps_location` and an `rx` signal both map `%IB221`

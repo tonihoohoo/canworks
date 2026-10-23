@@ -23,7 +23,7 @@ void canopen_init_logging();
 bool canopen_check(ConfigSet& set, std::vector<std::string>& errors);
 
 // The "loaded" and SYNC lines of a CANopen network.
-void canopen_log_loaded(const ConfigSet& set, const Config& cfg, uint64_t base_tick_ns);
+void canopen_log_loaded(const ConfigSet& set, const Config& cfg);
 
 // Everything the CANopen networks of one start share (the gateway link).
 class CanopenShared;
@@ -31,7 +31,7 @@ class CanopenShared;
 // Makes the CANopen networks of `set`: out[i] for network i, others left
 // as they are. Logs and returns false when one cannot be made (dcfgen, the
 // simulation file); nothing has started then.
-bool canopen_create(ConfigSet& set, uint64_t base_tick_ns, const char* version,
+bool canopen_create(ConfigSet& set, const char* version,
                     std::shared_ptr<CanopenShared>& shared, std::vector<std::unique_ptr<NetworkRuntime>>& out);
 
 // The SDO function blocks' request channel (canopen-plc-sdo): opened while

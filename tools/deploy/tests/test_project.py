@@ -38,7 +38,7 @@ class IntoProject(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.canopen)), ["canworks.json", "rtd8.eds", "simulation.json"])
         with open(os.path.join(self.canopen, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
-        self.assertEqual(cfg["nodes"][0]["eds"], "rtd8.eds")
+        self.assertEqual(cfg["networks"][0]["nodes"][0]["eds"], "rtd8.eds")
         self.assertEqual(read(os.path.join(self.canopen, "rtd8.eds")), read(os.path.join(RTD, "rtd8.eds")))
         r = contract.check_config(cfg, os.path.join(self.canopen, "canworks.json"))
         self.assertTrue(r.ok, r.errors)
@@ -49,7 +49,7 @@ class IntoProject(unittest.TestCase):
         config = pingpong_config(self.dir)
         with open(config, encoding="utf-8") as f:
             cfg = json.load(f)
-        cfg["nodes"][0].update(software_file="node2.fw", software_version=2)
+        cfg["networks"][0]["nodes"][0].update(software_file="node2.fw", software_version=2)
         with open(config, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         code, _, err = deploy("--config", config, "--into-project", self.project)
@@ -61,7 +61,7 @@ class IntoProject(unittest.TestCase):
         config = pingpong_config(self.dir)
         with open(config, encoding="utf-8") as f:
             cfg = json.load(f)
-        cfg["nodes"][0]["node_id"] = 200
+        cfg["networks"][0]["nodes"][0]["node_id"] = 200
         with open(config, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         code, _, err = deploy("--config", config, "--into-project", self.project)

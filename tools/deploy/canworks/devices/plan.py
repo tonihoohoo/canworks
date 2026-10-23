@@ -8,8 +8,8 @@ import re
 MIN_FREE_MB = 2048
 DOCKER_STOP = "The PLC stops and comes back without a program; upload it again afterwards."
 OPENPLC_INSTALLER = "https://runtime.getedge.me"
-# The OpenPLC runtime release canworks is pinned to: CI tests it, installs and
-# every Docker-mode plugin job put devices on it, and the upstream bootloader
+# The OpenPLC runtime release canworks is pinned to: CI tests it, the runtime
+# installs and Switch runtime put devices on it, and the upstream bootloader
 # pinned with it (docker/local-runtime/runtime-version and bootloader-version;
 # a test keeps them the same).
 TESTED_RUNTIME = "v4.3.1"
@@ -25,20 +25,6 @@ def version_tuple(text):
 
 def _plain(v):
     return (v or "").strip().lstrip("v")
-
-
-def rebuild_needed(probe):
-    """The runtime the plugin was built for is not the one on the device:
-    the plugin is off until it is built again."""
-    plugin, rt = probe.get("plugin") or {}, probe.get("runtime") or {}
-    built = (plugin.get("built_for") or "").strip()
-    if not plugin or not built:
-        return None
-    if rt.get("kind") == "docker-managed" and rt.get("version"):
-        return rt["version"] if _plain(built) != _plain(rt["version"]) else None
-    if rt.get("kind") == "native" and rt.get("commit"):
-        return (rt.get("version") or rt["commit"][:12]) if built != rt["commit"] else None
-    return None
 
 
 def blocked(probe, latest):
@@ -104,11 +90,7 @@ def _main(action, label, version, confirm=(), **extra):
     return out
 
 
-SHARE_CAN = ("The PLC and the bridge cannot use the same CAN interface: give each its own (can0, can1, …) "
-             "in their configs.")
-
 LINK_OFF = "Paired PCs stay paired: turning the link on again keeps them."
-PLUGIN_CONFIG = "/opt/canworks/lib/canworks.json"
 BRIDGE_CONFIGS = "/etc/canworks-bridge/"
 
 
@@ -116,18 +98,15 @@ def link_serves(probe, instance=None):
     """The config the remote link serves, or would serve when turned on:
     {"config", "runtime_port", "text"}; {"choose": [names]} when several
     bridge instances could and nothing says which; None with no config at
-    all. An installed link keeps its config; else the plugin's; else the
-    bridge instance `instance` (the open project's, or the one picked), or
-    the only one."""
+    all. An installed link keeps its config; else the bridge instance
+    `instance` (the open project's, or the one picked), or the only one."""
     probe = probe or {}
     lc = probe.get("link_config") or ""
     if probe.get("link") is not None and lc:
         if lc.startswith(BRIDGE_CONFIGS):
             name = lc[len(BRIDGE_CONFIGS):].split("/")[0]
             return {"config": lc, "runtime_port": "none", "text": "the bridge %s" % name, "instance": name}
-        return {"config": lc, "runtime_port": "8443", "text": "the PLC"}
-    if probe.get("plugin"):
-        return {"config": PLUGIN_CONFIG, "runtime_port": "8443", "text": "the PLC"}
+        return {"config": lc, "runtime_port": "none", "text": "another config"}
     names = [i.get("name") for i in ((probe.get("bridge") or {}).get("instances") or []) if i.get("name")]
     pick = instance if instance in names else (names[0] if len(names) == 1 else None)
     if pick:
@@ -137,101 +116,42 @@ def link_serves(probe, instance=None):
 
 
 ROLES = (("openplc", "OpenPLC PLC with canworks",
-          "Installs the OpenPLC Runtime when there is none, and the canworks plugin. Upload a program afterwards."),
+          "Installs the OpenPLC Runtime when there is none, and the bridge next to it. Build and upload the "
+          "editor project afterwards."),
          ("bridge", "Modbus bridge",
           "For Node-RED, an HMI or SCADA. It starts with a config when that config's Devices page installs it here."))
 
 
 def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None):
-    """The page's view of one device. `target` is the project's ("openplc",
-    "openplc_modbus", "bridge", "codesys"), or None with no config open: then the parts the
-    device has pick the main action, and a device with neither the plugin nor
-    the bridge gets `roles`, one main action per role for the page to choose
-    from. `latest` is the newest release ("0.98.0") or None, `instance` the
-    bridge instance name of this project and `config_sha256` its saved
+    """The page's view of one device. `target` is the project's
+    ("openplc_modbus", "bridge", "codesys"), or None with no config open:
+    then the bridge on the device picks the main action, and a device without
+    it gets `roles`, one main action per role for the page to choose from.
+    `latest` is the newest release ("0.98.0") or None, `instance` the bridge
+    instance name of this project and `config_sha256` its saved
     canworks.json's."""
     probe = probe or {}
     rt = probe.get("runtime") or {}
-    plugin = probe.get("plugin")
     bridge = probe.get("bridge")
-    docker = rt.get("kind") == "docker-managed"
+    no_runtime = rt.get("kind") in (None, "none")
     new = version_tuple(latest)
     rows, notes, main = [], [], None
     free = target is None
-    # No config: the PLC side when the plugin is there or nothing is (the
-    # first role), the bridge side when only the bridge is.
-    plc = target == "openplc" or (free and (bool(plugin) or not bridge))
-    # OpenPLC through Modbus: the runtime and this project's bridge, no plugin.
-    modbus = target == "openplc_modbus"
+    openplc = target == "openplc_modbus"
     unused = "" if free else "not used by this project"
+    with_latest = (lambda text: "%s %s" % (text, latest) if latest else text)
+    runtime_install = ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
+                       "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)]
 
     if target == "codesys":
         notes.append("CODESYS installs its runtime itself; there is nothing for canworks to install here.")
 
     # OpenPLC runtime
-    need_rt = target in ("openplc", "openplc_modbus")
     rows.append({"part": "runtime", "label": "OpenPLC Runtime", "have": _runtime_text(rt),
-                 "state": ("ok" if rt.get("kind") not in (None, "none") else ("warn" if need_rt else "off")),
-                 "needs": "needed" if need_rt else unused, "used": need_rt or free,
+                 "state": ("ok" if not no_runtime else ("warn" if openplc else "off")),
+                 "needs": "needed" if openplc else unused, "used": openplc or free,
                  "hint": untested_runtime(rt)})
-
-    # canworks plugin
-    need_plugin = target == "openplc"
-    rebuild = rebuild_needed(probe)
     off_pin = runtime_off_pin(rt)
-    if plugin:
-        have = [plugin.get("version") or "unknown"]
-        if plugin.get("built_for"):
-            have.append("built for %s" % plugin["built_for"][:12])
-        if rebuild:
-            have.append("off")
-        elif plugin.get("enabled") is True:
-            have.append("on")
-        elif plugin.get("enabled") is False:
-            have.append("waiting for an upload")
-        cur = version_tuple(plugin.get("version"))
-        state = "warn" if (rebuild or (new and (not cur or cur < new))) else "ok"
-    else:
-        have, state, cur = ["not installed"], ("warn" if need_plugin else "off"), None
-    rows.append({"part": "plugin", "label": "canworks plugin", "have": " · ".join(have),
-                 "state": ("warn" if modbus and plugin else state if need_plugin or plugin else "off"),
-                 "needs": ("newest %s" % latest if latest else "needed") if need_plugin
-                 else "no longer used: OpenPLC reaches the bridge through Modbus" if modbus else unused,
-                 "used": need_plugin or free,
-                 "uninstall": bool(plugin)})
-    if plc:
-        if rt.get("kind") in (None, "none"):
-            main = _main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
-                         else "Install OpenPLC Runtime and canworks", latest,
-                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
-                          "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)])
-        elif rt.get("kind") == "docker-other":
-            notes.append("The runtime runs in a Docker container that no bootloader manages: install canworks "
-                         "with install-stock.sh --docker-image (docs/install-stock.md).")
-        elif not plugin:
-            main = _main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks", latest,
-                         [switch_text(off_pin), DOCKER_STOP if docker else ""])
-        elif cur and new and cur < new:
-            main = _main("install_plugin", "Update %s → %s" % (plugin.get("version"), latest), latest,
-                         [switch_text(off_pin), DOCKER_STOP if docker else ""])
-        elif off_pin:
-            main = _main("install_plugin", "Switch runtime to %s" % TESTED_RUNTIME, latest,
-                         [switch_text(off_pin), DOCKER_STOP])
-        elif rebuild:
-            main = _main("install_plugin", "Rebuild for runtime %s" % rebuild, latest,
-                         [DOCKER_STOP if docker else ""])
-        elif not cur and new:
-            main = _main("install_plugin", "Install canworks %s" % latest, latest, [switch_text(off_pin), DOCKER_STOP if docker else ""])
-        if plugin and rebuild and off_pin:
-            notes.insert(0, "canworks is off on this device: the runtime is %s and canworks runs on %s. "
-                            "Switch the runtime back, then upload the program." % (off_pin, TESTED_RUNTIME))
-        elif plugin and rebuild:
-            notes.insert(0, "canworks is off on this device: the runtime is %s and the plugin was built for %s. "
-                            "Rebuild it, then upload the program." % (rebuild, plugin.get("built_for")))
-
-    if modbus and plugin:
-        notes.append("The canworks plugin is no longer used: uninstall it, so that it does not run the networks "
-                     "next to the bridge.")
 
     # Modbus bridge
     need_bridge = target in ("bridge", "openplc_modbus")
@@ -248,59 +168,47 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     else:
         have, bcur, running = ["not installed"], None, []
     current_cfg = bool(mine and config_sha256 and mine.get("sha256") == config_sha256)
+    older = bool(new and (bcur is None or bcur < new))
     bstate = "off"
     if need_bridge:
-        bstate = "ok" if bridge and bridge.get("unit") is not False and (not new or (bcur and bcur >= new)) and current_cfg \
+        bstate = "ok" if bridge and bridge.get("unit") is not False and not older and current_cfg \
             and mine.get("state") == "active" else "warn"
     elif bridge:
-        bstate = "warn" if free and (bridge.get("unit") is False or (new and (bcur is None or bcur < new))) else "ok"
+        bstate = "warn" if free and (bridge.get("unit") is False or older) else "ok"
     rows.append({"part": "bridge", "label": "Modbus bridge", "have": " · ".join(have), "state": bstate,
                  "needs": ("this project's config as %s" % instance) if need_bridge else unused,
                  "used": need_bridge or free, "uninstall": bool(bridge)})
+    restart = "Running bridges restart." if running else ""
     if need_bridge:
-        restart = "Running bridges restart." if running else ""
-        # A link that serves the PLC (or a config whose place is unknown) stays as it is.
+        # A link that serves another config (or one whose place is unknown) stays as it is.
         lc = probe.get("link_config") or ""
-        kept = {"link_kept": True} if probe.get("link") is not None and not lc.startswith("/etc/canworks-bridge/") else {}
-        if modbus and rt.get("kind") in (None, "none"):
-            main = _main("install_openplc_bridge", "Install OpenPLC Runtime and this project's bridge", latest,
-                         ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
-                          "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)],
-                         **kept)
+        kept = {"link_kept": True} if probe.get("link") is not None and not lc.startswith(BRIDGE_CONFIGS) else {}
+        if openplc and no_runtime:
+            main = _main("install_openplc_bridge", with_latest("Install OpenPLC Runtime and the bridge"), latest,
+                         runtime_install, **kept)
         elif not bridge or bridge.get("unit") is False:
-            main = _main("install_bridge", "Install and start this project's bridge", latest, **kept)
-        elif new and (bcur is None or bcur < new):
+            main = _main("install_bridge", with_latest("Install the bridge") if openplc
+                         else "Install and start this project's bridge", latest, **kept)
+        elif older:
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart], **kept)
+        elif openplc and off_pin:
+            main = _main("switch_runtime", "Switch runtime to %s" % TESTED_RUNTIME, latest,
+                         [switch_text(off_pin), DOCKER_STOP])
         elif not current_cfg or not mine or mine.get("state") != "active":
             main = _main("bridge_config", "Start this project's bridge", latest,
                          ["The bridge %s restarts with this project's saved config." % instance
                           if mine and mine.get("state") == "active" else ""])
-    elif free and bridge and main is None:
+    elif free and bridge:
         # No config: the bridge alone is updated (its configs stay as they run).
-        restart = "Running bridges restart." if running else ""
         if bridge.get("unit") is False:
-            main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
-        elif new and (bcur is None or bcur < new):
+            main = _main("install_bridge", with_latest("Install the bridge"), latest)
+        elif older:
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart])
 
-    # No config: next to the plugin, the bridge installs from its own row
-    # (and the plugin next to the bridge), as the role question is gone.
-    if free and bool(plugin) != bool(bridge):
-        row = next(r for r in rows if r["part"] == ("plugin" if bridge else "bridge"))
-        if not bridge:
-            row["actions"] = [_main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge",
-                                    latest, [SHARE_CAN], button="Install…")]
-        elif rt.get("kind") in (None, "none"):
-            row["actions"] = [_main("install_openplc", "Install OpenPLC Runtime and canworks %s" % latest if latest
-                                    else "Install OpenPLC Runtime and canworks", latest, [SHARE_CAN], button="Install…")]
-        elif rt.get("kind") != "docker-other":
-            row["actions"] = [_main("install_plugin", "Install canworks %s" % latest if latest else "Install canworks",
-                                    latest, [DOCKER_STOP if docker else "", SHARE_CAN], button="Install…")]
-
     # Remote link and discovery (device-link-switches): their own switches
-    # once the plugin or the bridge is there to give them a config.
+    # once the bridge is there to give them a config.
     link = probe.get("link")
-    serves = link_serves(probe, instance) if target != "codesys" and (plugin or bridge) else None
+    serves = link_serves(probe, instance) if target != "codesys" and bridge else None
     have = "not installed" if link is None else ("running" if link == "active" else link or "stopped")
     if link is not None and serves and serves.get("text"):
         have += " · serves %s" % serves["text"]
@@ -343,20 +251,22 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
                  "state": "ok" if can or serial else "off", "needs": "", "used": target != "codesys"})
 
     roles = None
-    if free and not plugin and not bridge:
-        # Nothing of canworks here yet: the page asks what the device should run.
-        bridge_main = _main("install_bridge", "Install the bridge %s" % latest if latest else "Install the bridge", latest)
+    if free and not bridge:
+        # No bridge here yet: the page asks what the device should run, the PLC
+        # side first.
+        bridge_main = _main("install_bridge", with_latest("Install the bridge"), latest)
+        main = (_main("install_openplc_bridge", with_latest("Install OpenPLC Runtime and the bridge"), latest,
+                      runtime_install) if no_runtime else bridge_main)
         roles = [{"role": r, "label": label, "text": text, "main": main if r == "openplc" else bridge_main}
                  for r, label, text in ROLES]
     reason = blocked(probe, latest) if main or roles or any(r.get("actions") for r in rows) else None
     pc = version_tuple(pc_version)
-    seen = [v for v in (version_tuple((plugin or {}).get("version")), version_tuple((bridge or {}).get("version"))) if v]
-    newest_here = max(seen) if seen else None
+    here = version_tuple((bridge or {}).get("version"))
     # Only a newer major or minor on the device is worth a word: patch
     # releases of the PC tools and the device do not depend on each other.
     pc_older = None
-    if pc and newest_here and pc[:2] < newest_here[:2]:
-        pc_older = {"pc": pc_version, "device": ".".join(map(str, newest_here))}
+    if pc and here and pc[:2] < here[:2]:
+        pc_older = {"pc": pc_version, "device": ".".join(map(str, here))}
     job = probe.get("install_job")
     return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
             "up_to_date": main is None and not roles and target != "codesys",

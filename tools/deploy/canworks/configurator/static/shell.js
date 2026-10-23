@@ -8,9 +8,9 @@
 // The views of each workspace. A tool tab (TOOLS) takes the whole width and
 // belongs to one workspace (TOOL_WS, one-place-navigation); the others are
 // the workspace's own pages.
-const TOOLS = ["declarations", "simfile", "simulation", "trace", "framelab"];
-const TOOL_LABELS = { declarations: "Variable declarations", simfile: "Simulation file", simulation: "Simulation", trace: "Trace", framelab: "Frame lab" };
-const TOOL_WS = { declarations: "configure", simfile: "configure", simulation: "commission", trace: "commission", framelab: "commission" };
+const TOOLS = ["simfile", "simulation", "trace", "framelab"];
+const TOOL_LABELS = { simfile: "Simulation file", simulation: "Simulation", trace: "Trace", framelab: "Frame lab" };
+const TOOL_WS = { simfile: "configure", simulation: "commission", trace: "commission", framelab: "commission" };
 const COMMISSION_VIEWS = ["online", "nodes"];
 const DEVICES_VIEWS = ["devices"];
 
@@ -39,11 +39,10 @@ function homeView(ws = workspace()) {
 function toolsOf(ws = workspace()) {
   if (S.state && S.state.commission) return ["trace", "framelab"];
   if (ws === "devices") return [];
-  // A target that does not run canworks has no simulated devices or located declarations (target.js).
+  // A target that does not run canworks has no simulated devices (target.js).
   // A J1939 network keeps Simulation, which points to canworks-j1939-sim, but has no simulation file.
   const sim = !S.model || simulationShown();
-  const decl = !S.model || usedBy("ui:declarations");
-  if (ws === "configure") return (decl ? ["declarations"] : []).concat(sim && !isJ1939(S.config) ? ["simfile"] : []);
+  if (ws === "configure") return sim && !isJ1939(S.config) ? ["simfile"] : [];
   return (sim ? ["simulation"] : []).concat(["trace", "framelab"]);
 }
 

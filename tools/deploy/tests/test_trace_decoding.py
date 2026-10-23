@@ -15,7 +15,7 @@ from canworks.raw import dbc as dbc_mod
 
 from .test_contract import REPO
 
-SERVO = os.path.join(REPO, "config", "cia402-drive", "servo402.eds")
+SERVO = os.path.join(REPO, "test", "fixtures", "eds", "drives", "servo402.eds")
 PINGPONG_DBC = os.path.join(os.path.dirname(__file__), "data", "dbc", "pingpong.dbc")
 T0 = 1_000_000
 

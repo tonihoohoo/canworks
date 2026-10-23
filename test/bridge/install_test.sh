@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # scripts/install-bridge.sh with a stub systemctl and a prebuilt binary
-# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge, a
-# prefix whose venv the runtime's Docker container made, and the runtime
-# archive's sha256 check (local archives, nothing is built).
+# (modbus-bridge "Packaging"): the unit, the binary, uninstall and purge, and
+# a remote link of another config (nothing is built).
 #
 #   test/bridge/install_test.sh CANWORKS_BRIDGE
 
@@ -49,7 +48,7 @@ check '[ -f "$T/etc/line1/canworks.json" ]' "uninstall keeps the configs"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall --purge > "$T/out"
 check '[ ! -e "$T/etc" ]' "--purge removes the configs"
 
-# A remote link that serves the PLC's config is not repointed at a bridge.
+# A remote link that serves another config is not repointed at a bridge.
 mkdir -p "$T/units" "$T/link"
 : > "$T/units/canworks-link.service"
 echo '{"config": "/opt/canworks/lib/canworks.json"}' > "$T/link/link.json"
@@ -57,53 +56,8 @@ CANWORKS_LINK_DIR="$T/link" "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" 
     --binary "$BIN_SRC" --with-link line1 > "$T/out"
 check 'grep -q "The remote link serves another config and stays; --with-link line1 is skipped" "$T/out" &&
        ! grep -q "Setting up discovery and the remote link" "$T/out" &&
-       grep -q "/opt/canworks/lib/canworks.json" "$T/link/link.json"' "the PLC's remote link stays"
+       grep -q "/opt/canworks/lib/canworks.json" "$T/link/link.json"' "another config's remote link stays"
 rm -f "$T/units/canworks-link.service"
 "$REPO/scripts/install-bridge.sh" --prefix "$T/opt" --uninstall > "$T/out"
 
-# A prefix shared with the canworks plugin: uninstalling the bridge keeps the
-# plugin's VERSION and its can-j1939 boot entry.
-mkdir -p "$T/shared/lib"
-: > "$T/shared/lib/libcanworks_plugin.so"
-echo 0.98.1 > "$T/shared/VERSION"
-CANWORKS_DEFAULT_PREFIX="$T/shared" "$REPO/scripts/install-bridge.sh" --prefix "$T/shared" --no-deps --without-canopen \
-    --binary "$BIN_SRC" > "$T/out"
-echo 0.98.1 > "$T/shared/VERSION"
-CANWORKS_DEFAULT_PREFIX="$T/shared" "$REPO/scripts/install-bridge.sh" --prefix "$T/shared" --uninstall > "$T/out"
-check '[ ! -e "$T/shared/bin/canworks-bridge" ] && grep -qx 0.98.1 "$T/shared/VERSION" &&
-       grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "uninstall beside the plugin keeps the plugin's files"
-rm -rf "$T/shared"
-
-# A prefix whose venv another Python made (the runtime's Docker container).
-mkdir -p "$T/docker/venv/bin"
-printf 'home = /usr/local/bin\nversion = 3.0.1\n' > "$T/docker/venv/pyvenv.cfg"
-ln -s "$(command -v python3)" "$T/docker/venv/bin/python"
-if "$REPO/scripts/install-bridge.sh" --prefix "$T/docker" --no-deps --without-canopen --binary "$BIN_SRC" > "$T/out" 2>&1; then
-    check false "a container's venv is refused"
-else
-    check 'grep -q "made by another Python" "$T/out" && grep -q -- "--prefix /opt/canworks-bridge" "$T/out"' \
-        "a container's venv is refused with the way out"
-fi
-
-# The runtime archive: the pinned release's sha256, or the one given with
-# --runtime-ref; a mismatch stops before anything is unpacked.
-mkdir -p "$T/archive/openplc-runtime-x" "$T/plain"
-echo "not a runtime" > "$T/archive/openplc-runtime-x/README"
-PIN=$(cat "$REPO/docker/local-runtime/runtime-version")
-tar czf "$T/plain/$PIN.tar.gz" -C "$T/archive" openplc-runtime-x
-cp "$T/plain/$PIN.tar.gz" "$T/plain/other.tar.gz"
-export CANWORKS_RUNTIME_URL="file://$T/plain"
-if "$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen > "$T/out" 2>&1; then
-    check false "a runtime archive with another sha256 is refused"
-else
-    check 'grep -q "archive $PIN has sha256 .*, expected $(cat "$REPO/docker/local-runtime/runtime-sha256")" "$T/out" &&
-           [ ! -e "$T/fetch/src/openplc-runtime" ]' "a runtime archive with another sha256 is refused"
-fi
-"$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen --runtime-ref other > "$T/out" 2>&1 || true
-check 'grep -q -- "--runtime-ref other needs the sha256" "$T/out"' "another --runtime-ref needs its sha256"
-sum=$(sha256sum "$T/plain/other.tar.gz" | cut -d" " -f1)
-"$REPO/scripts/install-bridge.sh" --prefix "$T/fetch" --no-deps --without-canopen --runtime-ref other \
-    --runtime-sha256 "$sum" > "$T/out" 2>&1 || true
-check 'grep -q "is not an OpenPLC runtime v4 checkout" "$T/out" && [ -f "$T/fetch/src/openplc-runtime/README" ]' \
-    "an archive with the given sha256 is unpacked"
 exit $fail

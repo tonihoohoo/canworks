@@ -89,8 +89,7 @@ void print_usage(bool full) {
       "                                        sdo-delay MS [--object OBJECT] | refuse-write-operational\n"
       "                                        tpdo-stop N | identity [--vendor-id V] [--product-code P]\n"
       "                                        [--revision-number R] [--serial-number S] | device-type V\n"
-      "                                        forget-node-id | drive-input [--blocked] [--positive-limit]\n"
-      "                                        [--negative-limit] [--home-switch] | json '{...}'\n"
+      "                                        forget-node-id | json '{...}'\n"
       "  clear NODE FAULT [OBJECT|TPDO]        FAULT: a fault name (dashes or underscores) or all\n"
       "  scenario list | start NAME | stop NAME\n");
 }
@@ -101,7 +100,7 @@ int main(int argc, char** argv) {
   using namespace sim_tool;
   std::vector<std::string> words(argv + 1, argv + argc);
   if (!words.empty() && (words[0] == "--version" || words[0] == "-V")) {
-    std::printf("canworks-canopen-sim %s\n", CANWORKS_PLUGIN_VERSION);
+    std::printf("canworks-canopen-sim %s\n", CANWORKS_VERSION);
     return kExitOk;
   }
   if (!words.empty() && (words[0] == "--help" || words[0] == "-h" || words[0] == "help")) {

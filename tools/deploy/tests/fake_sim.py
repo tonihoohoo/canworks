@@ -21,9 +21,9 @@ from canworks.simclient import READ_OPS
 from . import fake_tls
 
 FAULT_KINDS = ("emcy", "heartbeat", "power", "reset", "nmt_state", "sdo_abort", "sdo_delay",
-               "refuse_write_operational", "tpdo_stop", "identity", "device_type", "forget_node_id", "drive_input")
+               "refuse_write_operational", "tpdo_stop", "identity", "device_type", "forget_node_id")
 CLEARABLE = ("emcy", "heartbeat", "power", "sdo_abort", "sdo_delay", "refuse_write_operational", "tpdo_stop",
-             "identity", "device_type", "drive_input")
+             "identity", "device_type")
 SOURCE_KINDS = ("constant", "sine", "triangle", "sawtooth", "square", "ramp", "steps", "random_walk", "counter",
                 "csv", "expr")
 INT_TYPES = ("BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER32", "INTEGER64", "UNSIGNED8", "UNSIGNED16", "UNSIGNED32",

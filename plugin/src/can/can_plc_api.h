@@ -1,19 +1,10 @@
-/* can_plc_api.h - the C interface the PLC program's CAN frame function blocks
- * (CAN_SEND, CAN_SEND_CYCLIC, CAN_RECEIVE, CAN_BUS_INFO in library/canworks)
- * use to send and receive raw frames through the loaded plugin. See the spec
- * can-plc-frames.
- *
- * The blocks find the plugin the runtime has loaded with
- * dlopen("libcanworks_plugin.so", RTLD_NOW | RTLD_NOLOAD) and call
- * canworks_can_api(CANWORKS_CAN_API_VERSION), which returns the function
- * table for that version or NULL. Every function is called on a PLC task
- * thread, possibly from several tasks at once (a handle stays with the
- * block instance that got it): none waits on CAN traffic or another task,
- * allocates or logs.
- *
- * The library carries a copy of these declarations
- * (library/src/can_common.inc); test/can_raw checks that the two agree.
- * Change the layout only together with a new version number. */
+/* can_plc_api.h - the call table of the engine's frame port (raw sends,
+ * cyclic sends, receivers, bus info; raw/plc_frames.h). The function blocks
+ * that used it went with the OpenPLC plugin; the table stays as the
+ * engine's internal interface to the port, which its tests use and the
+ * bridge's mailboxes are to build on. Every function may be called from
+ * any thread (a handle stays with the caller that got it): none waits on
+ * CAN traffic, allocates or logs. */
 
 #ifndef CANWORKS_CAN_PLC_API_H
 #define CANWORKS_CAN_PLC_API_H
@@ -104,9 +95,7 @@ typedef struct {
   int (*bus_info)(uint8_t network, canworks_can_bus_info* info, uint16_t* error_id);
 } canworks_can_api_v1;
 
-/* The table for `version`, or NULL when this plugin does not offer it. */
-const void* canworks_can_api(uint32_t version);
-/* The same inside the plugin's code (the plugin exports it as the above). */
+/* The table for `version`, or NULL when canworks does not offer it. */
 const void* canworks_can_api_table(uint32_t version);
 
 #ifdef __cplusplus

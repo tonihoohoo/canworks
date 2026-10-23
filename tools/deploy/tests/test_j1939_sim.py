@@ -142,7 +142,7 @@ class Values(unittest.TestCase):
         self.assertEqual(sim.ramp_limits(self.sig("ComponentInfo", "Serial")), (0, 0xFAFFFFFF))  # below "not available"
 
     def test_not_available_vectors(self):
-        # test/fixtures/j1939_not_available.json, as the plugin runs it.
+        # test/fixtures/j1939_not_available.json, as the bridge runs it.
         with open(os.path.join(REPO, "test", "fixtures", "j1939_not_available.json")) as f:
             cases = json.load(f)["cases"]
         self.assertGreaterEqual(len(cases), 30)
@@ -379,7 +379,7 @@ class Receive(Base):
         self.assertEqual(engine.received, 2)
 
     def test_not_available_and_error_marked(self):
-        # The plugin's rule: unsigned 16 bits from 0xFE00 is error.
+        # The bridge's rule: unsigned 16 bits from 0xFE00 is error.
         engine = self.sim()
         self.assertTrue(engine.wait_claimed(1))
         self.send(0x18FF0180, [0x50, 0xFE, 0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])

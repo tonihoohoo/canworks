@@ -120,7 +120,7 @@ The OpenPLC Editor comes for Linux as an AppImage (x64 and ARM64) on its release
 
 ## CAN adapters
 
-The PC tools reach the CAN bus in one of two ways. Through a runtime: everything online (scan, object dictionary, parameters, trace, LSS, simulated devices) goes to the plugin on the runtime over the network. Or directly through a USB CAN adapter plugged into the PC, with no runtime: scan, object dictionary, parameters, LSS and trace, as a guest on the bus ([pc-adapter.md](pc-adapter.md)). The tools bring what an adapter needs (python-can and pyserial); an slcan adapter such as a CANable with stock firmware needs no driver:
+The PC tools reach the CAN bus in one of two ways. Through a runtime: everything online (scan, object dictionary, parameters, trace, LSS, simulated devices) goes to the bridge on the device over the network. Or directly through a USB CAN adapter plugged into the PC, with no runtime: scan, object dictionary, parameters, LSS and trace, as a guest on the bus ([pc-adapter.md](pc-adapter.md)). The tools bring what an adapter needs (python-can and pyserial); an slcan adapter such as a CANable with stock firmware needs no driver:
 
 - **Windows 10 and 11:** the built-in USB serial driver; the adapter shows as `COM5` or similar (Device Manager, Ports).
 - **macOS:** `/dev/tty.usbmodem14101` or similar.
@@ -132,7 +132,7 @@ A gs_usb (candleLight) adapter works too: on Windows the tools bring its driver 
 
 The adapter can also be in another Linux machine, at the bus, while the configurator stays on this PC ([pc-adapter.md](pc-adapter.md#an-adapter-on-another-machine)). Install the tools on that machine with the same one-line installer (over SSH too: `ssh user@benchbox` and the `curl ... | sh` line above), then run `canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500` there, or `sudo canworks-diag adapter-serve ... --install-service` for a service that starts with the machine. It prints a token once; on the PC, connect with `--adapter remote:benchbox` or **Adapter on another machine** in the connect panel.
 
-To run the plugin on the PC itself, install the runtime and the plugin there ([install-stock.md](install-stock.md), native or Docker) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime with the plugin, and `vcan0` with simulated devices ([simulator.md](simulator.md)).
+To run the networks on a Linux PC itself, install the bridge there ([modbus-bridge.md](modbus-bridge.md#install), with `--with-openplc` for the OpenPLC Runtime next to it) and set the network's `adapter` (`socketcan`, or `slcan` for serial adapters; see [config.md](config.md)). A Linux PC can so carry the whole bench: editor, PC tools, runtime, bridge, and `vcan0` with simulated devices ([simulator.md](simulator.md)). On Windows and macOS the [local runtime](local-runtime.md) does the same with simulated networks.
 
 ## Switching from pipx or a venv
 
@@ -157,7 +157,7 @@ Debian 12 and later, Ubuntu 23.04 and later and other distributions that mark th
 
 ## Dependency versions
 
-`tools/deploy/pyproject.toml` gives each dependency only a lowest version, so the package stays easy to install next to other software. The versions that are tested and shipped are locked in `tools/deploy/uv.lock`, for every supported system and Python 3.11 and newer. CI installs those versions, each release exports them to `canworks-<version>-constraints.txt`, and every install uses that file: the one-line installers, the configurator's update, `install-runtime.sh` and `install-bridge.sh` on a device, and the container images. A CI check (`scripts/check-lock.py`) fails when `uv.lock` no longer matches `pyproject.toml`; run `uv lock --project tools/deploy` after changing a dependency. A version bump alone needs no new lock.
+`tools/deploy/pyproject.toml` gives each dependency only a lowest version, so the package stays easy to install next to other software. The versions that are tested and shipped are locked in `tools/deploy/uv.lock`, for every supported system and Python 3.11 and newer. CI installs those versions, each release exports them to `canworks-<version>-constraints.txt`, and every install uses that file: the one-line installers, the configurator's update, `install-bridge.sh` on a device, and the container images. A CI check (`scripts/check-lock.py`) fails when `uv.lock` no longer matches `pyproject.toml`; run `uv lock --project tools/deploy` after changing a dependency. A version bump alone needs no new lock.
 
 New versions arrive on purpose. Dependabot opens one pull request a month that updates `uv.lock`, plus a security update when an advisory names a locked version. CI tests it like any other change, and it reaches users with the next release. The dcf-tools on a device (dcfgen) have exact versions too, in `scripts/dcf-tools-constraints.txt`, which goes with the pinned Lely commit.
 

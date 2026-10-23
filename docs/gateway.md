@@ -1,6 +1,6 @@
 # OpenPLC as a CANopen gateway
 
-A gateway is one config with a [slave network](slave.md) (the upper network, run by another master) and one or more master networks (the field), plus a top-level `gateway` section. The plugin copies values between the two sides itself, at bus speed and without the PLC program: an upper master sees the field nodes' data as objects of one slave, and writes field outputs through it. Field node states, EMCYs and SDO access can be passed up as well.
+A gateway is one config with a [slave network](slave.md) (the upper network, run by another master) and one or more master networks (the field), plus a top-level `gateway` section. canworks copies values between the two sides itself, at bus speed and without a PLC program: an upper master sees the field nodes' data as objects of one slave, and writes field outputs through it. Field node states, EMCYs and SDO access can be passed up as well.
 
 [`config/gateway`](../config/gateway/README.md) is a complete example: the ping-pong node on the field network `field` and the gateway as node 20 on the upper network `upper`, with one route each way.
 
@@ -50,7 +50,7 @@ A gateway is one config with a [slave network](slave.md) (the upper network, run
 | `field` | `network` (a master network's name), `node` (a node ID on it), `index` and `subindex` of one of that node's PDO entries. |
 | `name` | Optional. Names the slave object the generator adds for the route. |
 
-A route from a field node's TPDO entry goes **up**: the plugin writes the value into the slave object, which must be one the upper master reads (AccessType `ro` or `rwr`). A route to a field node's RPDO entry goes **down**: the plugin reads a slave object the upper master writes (`rww` or `rw`). Both ends need the same CANopen data type. A value moves to the other network's bus thread as soon as it arrives, also while the PLC program is stopped or slow; the program is not involved. When a field network's bus session starts (also after its CAN interface comes back), it takes every route's current value before it sends outputs, so a field node gets the upper master's value and not 0.
+A route from a field node's TPDO entry goes **up**: canworks writes the value into the slave object, which must be one the upper master reads (AccessType `ro` or `rwr`). A route to a field node's RPDO entry goes **down**: canworks reads a slave object the upper master writes (`rww` or `rw`). Both ends need the same CANopen data type. A value moves to the other network's bus thread as soon as it arrives, also while a Modbus client is stopped or slow; no client is involved. When a field network's bus session starts (also after its CAN interface comes back), it takes every route's current value before it sends outputs, so a field node gets the upper master's value and not 0.
 
 A routed entry or slave object may also have a PLC location: an input location then shows the program the same value. An object has one writer, so the target of a route (the slave object of a route up, the RPDO entry of a route down) may not also have an output location, and one target takes one route.
 
@@ -89,7 +89,7 @@ The upper master writes the network, node, object, value and length, then the co
 
 ## Trying it without an upper master
 
-On a simulated bus ([simulator.md](simulator.md)) a master network of the same config can play the upper master: give it the upper slave network's simulated interface and the slave's node ID as a node with `"simulate": false` (the plugin's own slave answers as that node). That network configures the gateway's PDOs, starts it, supervises it and lets the program act as the machine controller. It stands in for the upper master and is not a field network: it has no place in the field node status, routes may not end on it, and EMCYs from its nodes are not forwarded up (the gateway's own EMCY would come back up again and again). Its PDO entries see what a real upper master would. [`examples/virtual-plant`](../examples/virtual-plant/README.md) uses this with network `host`.
+On a simulated bus ([simulator.md](simulator.md)) a master network of the same config can play the upper master: give it the upper slave network's simulated interface and the slave's node ID as a node with `"simulate": false` (canworks' own slave answers as that node). That network configures the gateway's PDOs, starts it, supervises it and lets the program act as the machine controller. It stands in for the upper master and is not a field network: it has no place in the field node status, routes may not end on it, and EMCYs from its nodes are not forwarded up (the gateway's own EMCY would come back up again and again). Its PDO entries see what a real upper master would. [`examples/virtual-plant`](../examples/virtual-plant/README.md) uses this with network `host`.
 
 ## Checks
 

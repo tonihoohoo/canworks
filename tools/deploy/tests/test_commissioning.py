@@ -77,7 +77,7 @@ class ConfigSource(Rtd):
         self.assertEqual(src.values[(0x1800, 1)], struct.pack("<I", 0x185))  # the final value, switched on
 
     def test_store_and_restore_steps_are_left_out(self):
-        node = self.cfg["nodes"][0]
+        node = self.cfg["networks"][0]["nodes"][0]
         node.update(config_check=True, store_configuration=1, restore_configuration=1)
         self.save()
         src = self.source()
@@ -88,7 +88,7 @@ class ConfigSource(Rtd):
         self.assertIn("restore_configuration", reasons[(0x1011, 1)])
 
     def test_consumer_heartbeat_warns(self):
-        self.cfg["nodes"][0]["heartbeat_consumer"] = True
+        self.cfg["networks"][0]["nodes"][0]["heartbeat_consumer"] = True
         self.save()
         src = self.source()
         if any(k[0] == 0x1016 for k in src.values):

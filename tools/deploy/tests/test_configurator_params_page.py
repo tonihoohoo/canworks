@@ -28,11 +28,11 @@ class ParamsPage(OnlineBase):
     def setUp(self):
         super().setUp()
         cfg = load(os.path.join(RTD, "canopen_config.json"))
-        cfg["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
+        cfg["networks"][0]["nodes"][0]["sdo_variables"] = [{"name": "alarm_limit", "index": "0x6126", "subindex": 2, "type": "REAL32",
                                              "direction": "write", "iec_location": "%QD310"}]
-        for e in cfg["nodes"][0]["tx_pdos"][0]["entries"]:
+        for e in cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]:
             e["iec_location"] = e["iec_location"].replace("%IW1", "%IW3")
-        cfg["nodes"][0]["status_location"] = "%IX310.0"
+        cfg["networks"][0]["nodes"][0]["status_location"] = "%IX310.0"
         self.cfg = cfg
         shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -309,7 +309,7 @@ class ParamsPage(OnlineBase):
     def test_watch_list(self):
         """improve-od-browser 3.1-3.2."""
         pg = self.page
-        self.cfg["nodes"][0]["sdo_variables"].append({"name": "sensor5", "index": "0x6110", "subindex": 5, "type": "UNSIGNED16",
+        self.cfg["networks"][0]["nodes"][0]["sdo_variables"].append({"name": "sensor5", "index": "0x6110", "subindex": 5, "type": "UNSIGNED16",
                                                       "direction": "read", "iec_location": "%IW320", "period_ms": 100})
         with self.device() as fp:
             self.open_node(fp, tab="od")
@@ -400,7 +400,7 @@ class ParamsPage(OnlineBase):
             sdo = pg.evaluate("() => S.config.nodes[0].sdo")
             self.assertEqual([x["value"] for x in sdo if x["index"] == "0x6110" and x["subindex"] == 1], [31])
             self.assertEqual(len(sdo), 5)
-            # The heartbeat object is not kept: the plugin sets it.
+            # The heartbeat object is not kept: the bridge sets it.
             self.search("0x1017")
             hb = 'tr[data-od-key="%d:0"]' % 0x1017
             pg.click(hb + ' button[data-online="od-edit"]')
@@ -408,7 +408,7 @@ class ParamsPage(OnlineBase):
             pg.click(hb + ' button[data-online="od-write"]')
             pg.click('#modal button[data-value="write"]')
             pg.wait_for_selector(hb + ' [data-online="od-keep-reason"]')
-            self.assertIn("plugin sets 0x1017 itself from the node's heartbeat setting", pg.inner_text(hb))
+            self.assertIn("bridge sets 0x1017 itself from the node's heartbeat setting", pg.inner_text(hb))
             # Any entry, also one the EDS does not list.
             fp.set(0x2100, 3, b"\x01\x02")
             pg.click('details[data-online="od-any"] > summary')
@@ -565,10 +565,8 @@ class ParamsPage(OnlineBase):
 
     def test_runtime_with_other_network_names_v2(self):
         # The same with a version 2 draft whose one network has a third name.
-        net = copy.deepcopy(self.cfg)
-        net.pop("schema_version", None)
-        net["name"] = "line"
-        v2 = {"schema_version": 2, "networks": [net]}
+        v2 = copy.deepcopy(self.cfg)
+        v2["networks"][0]["name"] = "line"
 
         def write_config(diagnostics=None):
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -707,7 +705,7 @@ class ParamsPage(OnlineBase):
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         with open(self.config_path, encoding="utf-8") as fh:
-            self.assertNotIn("time_period_ms", json.load(fh)["master"])
+            self.assertNotIn("time_period_ms", json.load(fh)["networks"][0]["master"])
 
 
 if __name__ == "__main__":

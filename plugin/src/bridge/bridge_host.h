@@ -1,11 +1,10 @@
-// bridge_host.h - the Modbus bridge's host (modbus-bridge spec): the engine
-// of the OpenPLC plugin (can/engine.h) with a byte image served to Modbus
-// TCP clients in place of a PLC program.
+// bridge_host.h - the Modbus bridge's host (modbus-bridge spec): the
+// canworks engine (can/engine.h) with a byte image served to Modbus TCP
+// clients.
 //
-// The engine exchanges values through a plugin_runtime_args_t, as under
-// OpenPLC. The bridge fills one in whose journal writes land in its input
-// bytes (most significant byte first, word order from the config) and whose
-// output tables are decoded from the newest output snapshot. There is no
+// The engine exchanges values through a ByteImageHost (image_io.h): its
+// writes land in the input bytes (most significant byte first, word order
+// from the config) and it reads the newest output snapshot. There is no
 // scan:
 // - a loop thread takes the inputs every millisecond and publishes them as
 //   one snapshot, with the bridge's own blocks (status, live lists, SDO

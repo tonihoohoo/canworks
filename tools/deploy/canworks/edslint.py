@@ -1,20 +1,20 @@
-"""The EDS lint the plugin runs before dcfgen, shared by the configurator and
+"""The EDS lint the bridge runs before dcfgen, shared by the configurator and
 the deploy tool (canopen-master-bringup: "Prepared EDS copy", "EDS lint scope").
 
 prepare() makes the copy every PLC reader uses (Lely's EDS parser in the
-plugin and dcfgen): UTF-8, "$NODEID+<n>", REAL values as Lely's hex bit
+the bridge and dcfgen): UTF-8, "$NODEID+<n>", REAL values as Lely's hex bit
 pattern, OCTET_STRING/DOMAIN values Lely cannot read cleared. lint() runs
 dcfgen's own lint and read step on that copy (Lely's dcf package, vendored in
 _lely_dcf at the commit the PLC builds) and sorts the findings: blocking ones
 are in the communication area 0x1000-0x1FFF and not limit-only.
 
-On the PLC the plugin runs:
+On the PLC the bridge runs:
   python -m canworks.edslint --json --node-id N --mode MODE
          --label LABEL --name NAME --out COPY EDS
 and reads one JSON object from stdout (see main()): "prepared" (COPY when a
 correction applied, else null), "notes" (one log line per correction),
 "error" (the load must stop) and "warning" (accepted findings), both in the
-plugin's words, besides the raw "corrections" and "findings".
+bridge's words, besides the raw "corrections" and "findings".
 """
 
 import argparse
@@ -393,7 +393,7 @@ def effective_mode(master):
 
 
 def error_text(label, eds_name, failing, mode):
-    """The plugin's error for findings that stop the load."""
+    """The bridge's error for findings that stop the load."""
     other = "\"off\"" if any(f.blocking for f in failing) else "\"communication\""
     parts = "; ".join("%s: %s" % (f.where(), f.message) for f in failing)
     return ("%sEDS %s fails dcfgen's lint (eds_lint \"%s\"): %s; eds_lint: %s would accept it"
@@ -401,7 +401,7 @@ def error_text(label, eds_name, failing, mode):
 
 
 def warning_text(eds_name, accepted, mode=DEFAULT_MODE):
-    """The plugin's one warning for findings that do not stop the load."""
+    """The bridge's one warning for findings that do not stop the load."""
     first = "; ".join("%s: %s" % (f.where(), f.message) for f in accepted[:3])
     why = "eds_lint \"off\"" if mode == "off" else "not in the communication objects, or only about limits"
     return ("EDS %s: %d lint finding%s accepted (%s): %s%s"
@@ -417,7 +417,7 @@ def _object_name(section):
 
 
 def prepared_note(label, eds_name, corrections, prepared):
-    """The plugin's one log line for a node whose EDS needed corrections:
+    """The bridge's one log line for a node whose EDS needed corrections:
     each kind with its count, cleared values with their object and old text."""
     parts = []
     for c in corrections:
@@ -435,7 +435,7 @@ def prepared_note(label, eds_name, corrections, prepared):
 
 def verdict(label, eds_name, corrections, result, mode, prepared=None):
     """(error or None, warning or None, [note]) for one node's EDS under an
-    eds_lint mode, in the plugin's words."""
+    eds_lint mode, in the bridge's words."""
     notes = [prepared_note(label, eds_name, corrections, prepared)] if corrections else []
     if result.read_error:
         return "%s: EDS %s: %s" % (label, eds_name, result.read_error), None, notes
@@ -448,7 +448,7 @@ def verdict(label, eds_name, corrections, result, mode, prepared=None):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m canworks.edslint",
                                 description="Prepare an EDS for dcfgen and run dcfgen's lint, sorted by the "
-                                            "plugin's rule.")
+                                            "bridge's rule.")
     p.add_argument("eds")
     p.add_argument("--node-id", type=int, default=1)
     p.add_argument("--out", help="write the prepared copy here (only when a correction applies)")

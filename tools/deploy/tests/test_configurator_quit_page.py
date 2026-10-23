@@ -49,7 +49,7 @@ class Base(OnlineBase):
 
     def saved_name(self):
         with open(self.config_path, encoding="utf-8") as f:
-            return json.load(f)["nodes"][0]["name"]
+            return json.load(f)["networks"][0]["nodes"][0]["name"]
 
 
 class Quit(Base):
@@ -275,7 +275,7 @@ class Gone(Base):
         saved = os.path.join(self.dir, "downloaded.json")
         download.save_as(saved)
         with open(saved, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["nodes"][0]["name"], "renamed")
+            self.assertEqual(json.load(f)["networks"][0]["nodes"][0]["name"], "renamed")
         # A new configurator opens it as edited.
         os.replace(saved, self.config_path)
         self.server = srv.Server()

@@ -22,8 +22,8 @@ EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
 # Words of another target, per target. The Project target field's help and
 # the list of settings the target does not use are left out of the check.
 FOREIGN = {
-    "openplc": re.compile(r"Modbus|CODESYS"),
-    "bridge": re.compile(r"the plugin|\bPlugin\b|the Pi\b|PLC scan|PLC location|PLC is stopped|OpenPLC"),
+    "openplc_modbus": re.compile(r"CODESYS|\b[Pp]lugin\b|the Pi\b|PLC scan|[Ss]can watchdog"),
+    "bridge": re.compile(r"\b[Pp]lugin\b|the Pi\b|PLC scan|PLC location|PLC is stopped|OpenPLC"),
     "codesys": re.compile(r"\bplugin\b|the Pi\b|PLC location|PLC scan|%[IQ][XBWDL]?\d|[Ss]can watchdog|OpenPLC"),
 }
 
@@ -48,13 +48,12 @@ class TargetView(OnlineBase):
     def use(self, target):
         cfg = load(os.path.join(EXAMPLE, "canworks.json"))
         if target != "bridge":
-            del cfg["bridge"]
-            cfg = srv.Session().pack_openplc(cfg)["config"]
+            session = srv.Session()
+            session.folder = EXAMPLE  # the EDS files, for the entry names a switch to CODESYS keeps
+            cfg = session.switch_target(cfg, target)["config"]
         net = cfg["networks"][0]
-        net["master"]["scan_watchdog_ms"] = 500
         net["master"]["on_plc_stop"] = "keep"
         if target == "codesys":
-            cfg["codesys"] = {}
             # A node with the EDS's own supervision (Method "EDS default").
             for k in ("heartbeat_ms", "heartbeat_timeout_ms", "guard_time_ms", "life_time_factor"):
                 net["nodes"][1].pop(k, None)
@@ -65,7 +64,7 @@ class TargetView(OnlineBase):
         """(name, open) for every page of the tree and every node tab."""
         pg = self.page
         out = [("bus", lambda: pg.evaluate("() => showView('bus')"))]
-        for v in ("access", "gateway", "raw", "links", "bridge", "codesys", "declarations"):
+        for v in ("access", "gateway", "raw", "links", "bridge", "codesys"):
             if pg.locator('#tree [data-view="%s"]' % v).count():
                 out.append((v, lambda v=v: pg.evaluate("v => showView(v)", v)))
         for i, tabs in enumerate(pg.evaluate("() => S.config.nodes.map((_, i) => nodeTabs(i).map((t) => t[0]))")):
@@ -102,7 +101,7 @@ class TargetView(OnlineBase):
         self.assertTrue(pg.is_hidden("[data-unsaved]"))
 
     def test_openplc(self):
-        self.check("openplc")
+        self.check("openplc_modbus")
 
     def test_bridge(self):
         self.check("bridge")
@@ -119,7 +118,7 @@ class TargetView(OnlineBase):
     def test_messages_without_a_windows_path(self):
         # Readable problem messages: a config path with a drive letter goes too.
         pg = self.page
-        self.use("openplc")
+        self.use("openplc_modbus")
         self.open()
         for lead in ("C:\\Users\\me\\cell\\canworks\\canworks.json: ", "/home/me/cell/canworks/canworks.json: ",
                      "C:\\Claude workspace\\cell\\canworks.json: "):

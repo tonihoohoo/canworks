@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs the remote link and the runtime's local-network advertisement on a
-# device (docs/remote-access.md). install-stock.sh and install-bridge.sh call it
+# Installs the remote link and the device's local-network advertisement on a
+# device (docs/remote-access.md). install-bridge.sh calls it
 # (--with-link, and the advertisement unless --without-discovery); it also runs
 # on its own, and the configurator's Devices page runs it to turn the link and
 # discovery on and off.
@@ -12,8 +12,8 @@
 #   sudo scripts/install-link.sh --remove-discovery
 #   sudo scripts/install-link.sh --uninstall [--keep-discovery] [--purge] [--prefix ...]
 #
-# --config is the deployed canworks.json the device runs (a stock runtime:
-# /opt/canworks/lib/canworks.json; a bridge: /etc/canworks-bridge/NAME/canworks.json).
+# --config is the deployed canworks.json the bridge runs
+# (/etc/canworks-bridge/NAME/canworks.json).
 # The link service reads its token_verifier for pairing and its
 # diagnostics.remote_link for internet access, and follows changes to it.
 #

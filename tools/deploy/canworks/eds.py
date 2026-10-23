@@ -1,7 +1,7 @@
-"""EDS (CiA 306) reading and the checks the plugin runs at load.
+"""EDS (CiA 306) reading and the checks the bridge runs at load.
 
 Mirrors plugin/src/canopen/eds_check.cpp, message for message: the shared fixtures in
-test/fixtures/ run through both. The plugin reads EDS files with Lely; this
+test/fixtures/ run through both. The bridge reads EDS files with Lely; this
 module reads the parts the checks need (object list, DataType, AccessType,
 PDOMapping) with configparser.
 """
@@ -104,7 +104,7 @@ def _syntax_error(e, text=None):
 
 
 # The DataTypes Lely's EDS parser creates a sub-object for (co_dev, which the
-# plugin loads every EDS into): the basic types, the strings, DOMAIN and the
+# the bridge loads every EDS into): the basic types, the strings, DOMAIN and the
 # times. Others (0x000E, 0x0017, 0x001C and up) fail its load.
 LELY_DATA_TYPES = frozenset(list(range(0x0001, 0x000E)) + [0x000F] + list(range(0x0010, 0x0017))
                             + list(range(0x0018, 0x001C)))
@@ -314,8 +314,8 @@ def transmission_needs_sync(t):
 
 
 def sync_needed_message(transmission, from_eds):
-    return ("transmission type %d%s needs SYNC, but the master produces none; set master.sync_period_us, "
-            "\"sync_source\": \"plc_cycle\" or \"transmission\": 254 or 255"
+    return ("transmission type %d%s needs SYNC, but the master produces none; set master.sync_period_us or "
+            "\"transmission\": 254 or 255"
             % (transmission, " (from the EDS)" if from_eds else ""))
 
 
@@ -335,7 +335,7 @@ def _check_type(where, sub, type_name, report):
                       % (where, type_name, data_type_name(sub.data_type)))
 
 
-# Communication sub-indices of a PDO: (sub-index, JSON field). The plugin
+# Communication sub-indices of a PDO: (sub-index, JSON field). The bridge
 # writes these from the PDO settings (cob_id is resolved by the caller).
 COMM_FIELDS = ((1, "cob_id"), (2, "transmission"), (3, "inhibit_time_us"), (5, "event_timer_ms"), (6, "sync_start"))
 
@@ -380,11 +380,11 @@ def _check_comm(label, kind, eds, eds_name, node_id, comm, pdo, report):
     cob = eds.find(comm, 1)
     default = pdo.get("default_cob_id")
     if pdo.get("cob_id") is None and default is not None and cob is not None and not cob.writable:
-        # Left out, the plugin still writes the CiA 301 default COB-ID, which
+        # Left out, the bridge still writes the CiA 301 default COB-ID, which
         # a node with a fixed COB-ID only takes when it is the same.
         have = cob.value(node_id)
         if have is not None and ((have & 0x7FF) != default or have & 0x80000000):
-            report("%s: %s %d: %s fixes the COB-ID at 0x%03X%s (0x%04X subindex 1 is %s), but the plugin uses the "
+            report("%s: %s %d: %s fixes the COB-ID at 0x%03X%s (0x%04X subindex 1 is %s), but canworks uses the "
                    "CiA 301 default 0x%03X; set 'cob_id' to the EDS value"
                    % (label, kind, pdo["number"], eds_name, have & 0x7FF,
                       " with the PDO switched off" if have & 0x80000000 else "", comm, cob.access, default), "cob_id")
@@ -397,7 +397,7 @@ def _check_comm(label, kind, eds, eds_name, node_id, comm, pdo, report):
 
 
 def auto_timeout(eds, node_id, pdo):
-    """"timeout_ms": "auto" of a TPDO, as the plugin resolves it: (ms, event
+    """"timeout_ms": "auto" of a TPDO, as the bridge resolves it: (ms, event
     timer it came from), or (None, why) when there is no event timer."""
     comm = 0x1800 + pdo["number"] - 1
     if pdo.get("event_timer_ms") is not None:
@@ -426,7 +426,7 @@ def resolve_auto_timeout(label, eds, node_id, pdo, report):
 
 
 def mapping_info(eds, map_index):
-    """The PDO mapping object as the EDS defines it, like the plugin's
+    """The PDO mapping object as the EDS defines it, like the bridge's
     eds_mapping(): dict with writable, fixed_sub, fixed_access, has_default,
     missing_sub and defaults (one 0xIIIISSLL value per mapped object)."""
     m = {"writable": True, "fixed_sub": 0, "fixed_access": "", "has_default": True, "missing_sub": 0,
@@ -466,7 +466,7 @@ def mapping_list(defaults):
 
 
 def _check_mapping(label, kind, eds, eds_name, node_id, pdo, map_index, report, warn):
-    """The plugin's check_mapping(): the mapping mode against the EDS, and
+    """The bridge's check_mapping(): the mapping mode against the EDS, and
     a device-mapped PDO's entries against its default mapping."""
     if not eds.has(map_index):
         return
@@ -507,7 +507,7 @@ def _check_mapping(label, kind, eds, eds_name, node_id, pdo, map_index, report, 
 
 
 def check_node(node, eds, errors, paths=None, warnings=None):
-    """Runs the plugin's EDS checks for one node (a parsed config node: dict
+    """Runs the bridge's EDS checks for one node (a parsed config node: dict
     with integer node_id, index and subindex values). Appends messages, and
     to `paths` (when given) each message's field path within the node
     (".tx_pdos[0].entries[1]", ".sdo[2]", or "" for the whole node).

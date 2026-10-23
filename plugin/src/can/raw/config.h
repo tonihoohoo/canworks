@@ -76,10 +76,6 @@ struct RawConfig {
   bool present = false;
   std::string dbc;
   bool program_override_protocol = false;
-  // A plain CAN network's scan watchdog (0: off); has_scan_watchdog when
-  // the object gives it (only plain networks may).
-  unsigned scan_watchdog_ms = 1000;
-  bool has_scan_watchdog = false;
   std::vector<RawRx> rx;
   std::vector<RawTx> tx;
   bool empty() const { return rx.empty() && tx.empty(); }

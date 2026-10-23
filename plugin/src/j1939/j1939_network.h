@@ -73,8 +73,8 @@ class J1939Image {
   uint64_t scan_count(const uint64_t* snap) const { return snap[scan_slot_]; }
 
   // ---- PLC scan ----
-  void copy_to_plc(const plugin_runtime_args_t& rt);
-  void copy_from_plc(const plugin_runtime_args_t& rt);
+  void copy_to_plc(ImageHost& rt);
+  void copy_from_plc(ImageHost& rt);
 
  private:
   const J1939Config* cfg_ = nullptr;
@@ -346,8 +346,8 @@ class J1939Network {
   void start();
   void stop();
 
-  void cycle_start(const plugin_runtime_args_t& rt) { image_.copy_to_plc(rt); }
-  void cycle_end(const plugin_runtime_args_t& rt) { image_.copy_from_plc(rt); }
+  void cycle_start(ImageHost& rt) { image_.copy_to_plc(rt); }
+  void cycle_end(ImageHost& rt) { image_.copy_from_plc(rt); }
 
  private:
   void thread_main();

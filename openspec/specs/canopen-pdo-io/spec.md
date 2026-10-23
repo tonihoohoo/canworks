@@ -6,44 +6,26 @@ Connects CANopen process data to the PLC program: every PDO-mapped object is bou
 ## Requirements
 
 ### Requirement: Explicit IEC location per PDO entry
-Each PDO entry in the configuration SHALL name its object index, subindex, and data type, and SHALL give one explicit IEC location. Entries received from a slave (RPDO on the master) SHALL map to input locations (`%IX`, `%IB`, `%IW`, `%ID`, `%IL`). Entries sent to a slave (TPDO on the master) SHALL map to output locations (`%QX`, `%QB`, `%QW`, `%QD`, `%QL`). Addresses SHALL NOT be assigned automatically.
+Each PDO entry in the configuration SHALL name its object index, subindex, and data type, and SHALL give one explicit location in the bridge's byte image, byte-addressed as "Bridge configs are byte-addressed" requires (`%IW2` is input bytes 2 and 3). Entries received from a slave (RPDO on the master) SHALL map to input locations (`%IX`, `%IB`, `%IW`, `%ID`, `%IL`). Entries sent to a slave (TPDO on the master) SHALL map to output locations (`%QX`, `%QB`, `%QW`, `%QD`, `%QL`). Addresses SHALL NOT be assigned automatically by the bridge; the configurator's "Pack for Modbus" assigns them before save.
 
 #### Scenario: Entry mapped to a matching location
 - **WHEN** a slave-to-master UNSIGNED16 entry is configured with `iec_location` `%IW100`
-- **THEN** the value received in that PDO appears in `%IW100`
+- **THEN** the value received in that PDO appears in input bytes 100 and 101 of the bridge image, in the bridge's byte order
 
 #### Scenario: Direction or size mismatch
-- **WHEN** an entry received from a slave is given an output location, or an entry's data type does not fit the size of its IEC location
-- **THEN** the plugin rejects the configuration and names the node ID, the object, and the location
+- **WHEN** an entry received from a slave is given an output location, or an entry's data type does not fit the size of its location
+- **THEN** the bridge rejects the configuration and names the node ID, the object, and the location
 
 #### Scenario: Overlapping locations
-- **WHEN** two PDO entries map to the same or overlapping IEC locations
-- **THEN** the plugin rejects the configuration and names both entries
+- **WHEN** two PDO entries map to overlapping bytes, such as `%IW100` and `%IW101`
+- **THEN** the bridge rejects the configuration and names both entries
 
 #### Scenario: Location outside the image
-- **WHEN** an entry's IEC location lies outside the runtime's I/O image size
-- **THEN** the plugin rejects the configuration and names the entry and the location
-
-### Requirement: Exchange once per scan cycle
-The plugin SHALL copy the latest received PDO values into their input locations once per PLC scan cycle, before the program runs. It SHALL copy the output locations into the PDOs sent to slaves once per scan cycle, after the program has run. Within one scan cycle, the program SHALL see a consistent set of input values that does not change while it runs.
-
-#### Scenario: Ping-pong round trip
-- **WHEN** the tutorial slave on `vcan0` sends a counter value in a PDO mapped to `%IW100`, and the PLC program writes `%IW100 + 1` to `%QW100`, which is mapped to the slave's receive PDO
-- **THEN** the slave receives the incremented value, and the counter keeps increasing on every exchange
-
-#### Scenario: Inputs stable during a scan
-- **WHEN** a new PDO arrives while the PLC program is running
-- **THEN** the program sees the new value no earlier than the next scan cycle
-
-### Requirement: No blocking in the scan path
-The plugin's per-scan I/O copy SHALL NOT allocate memory, perform file I/O, log, or wait on CAN traffic.
-
-#### Scenario: Bus traffic does not stall the scan
-- **WHEN** the CAN bus is saturated or a slave stops answering
-- **THEN** the PLC scan cycle time stays within its configured period
+- **WHEN** an entry's location ends past the bridge's image
+- **THEN** the bridge rejects the configuration and names the entry and the location
 
 ### Requirement: EDS data-type and access-type check
-At load the plugin SHALL check every PDO entry and every startup SDO against the node's EDS. The entry's `type` SHALL equal the object's `DataType` in the EDS. An entry in `rx_pdos` (written by the master) SHALL target an object the slave can receive in a PDO (`AccessType` `wo`, `rw`, `rww`). Every startup SDO SHALL target an object writable over SDO (`wo`, `rw`, `rwr`, `rww`). An entry in `tx_pdos` (sent by the slave) SHALL target an object whose `AccessType` allows reading (`ro`, `rw`, `rwr`, `const`). A failed check SHALL reject the configuration and leave the plugin inactive.
+At load the bridge SHALL check every PDO entry and every startup SDO against the node's EDS. The entry's `type` SHALL equal the object's `DataType` in the EDS. An entry in `rx_pdos` (written by the master) SHALL target an object the slave can receive in a PDO (`AccessType` `wo`, `rw`, `rww`). Every startup SDO SHALL target an object writable over SDO (`wo`, `rw`, `rwr`, `rww`). An entry in `tx_pdos` (sent by the slave) SHALL target an object whose `AccessType` allows reading (`ro`, `rw`, `rwr`, `const`). A failed check SHALL reject the configuration and leave the bridge inactive.
 
 #### Scenario: Type mismatch
 - **WHEN** an entry says `type: "UNSIGNED16"` for an object the EDS declares as `UNSIGNED32`
@@ -54,11 +36,11 @@ At load the plugin SHALL check every PDO entry and every startup SDO against the
 - **THEN** the config is rejected with an error naming the node ID, the index and subindex, and the access type
 
 #### Scenario: Ping-pong config passes
-- **WHEN** the plugin loads the ping-pong example against the tutorial slave's EDS
-- **THEN** every check passes and the plugin starts
+- **WHEN** the bridge loads the ping-pong example against the tutorial slave's EDS
+- **THEN** every check passes and the bridge starts
 
 ### Requirement: PDO communication settings
-Each PDO in `tx_pdos` MAY give `inhibit_time_us`, `event_timer_ms` and `sync_start`; each PDO in `rx_pdos` MAY give `event_timer_ms`; any PDO MAY give `cob_id` as `"auto"`. The plugin SHALL configure the node's PDO communication object accordingly: inhibit time in sub-index 3 (100 µs units), event timer in sub-index 5 (on an RPDO the node's deadline monitor), SYNC start value in sub-index 6. A field left out SHALL write nothing, so the node keeps its EDS value. With `"auto"`, the COB-ID SHALL be the CiA 301 default for PDOs 1-4, and for higher PDOs a COB-ID outside every configured node's predefined set and unused in the config, logged at load. The plugin SHALL reject an `inhibit_time_us` that is not a multiple of 100, a `sync_start` outside 0-240 or on a PDO whose transmission type is not 1-240, and any of these fields on the wrong PDO kind, naming the node, the PDO and the field.
+Each PDO in `tx_pdos` MAY give `inhibit_time_us`, `event_timer_ms` and `sync_start`; each PDO in `rx_pdos` MAY give `event_timer_ms`; any PDO MAY give `cob_id` as `"auto"`. The bridge SHALL configure the node's PDO communication object accordingly: inhibit time in sub-index 3 (100 µs units), event timer in sub-index 5 (on an RPDO the node's deadline monitor), SYNC start value in sub-index 6. A field left out SHALL write nothing, so the node keeps its EDS value. With `"auto"`, the COB-ID SHALL be the CiA 301 default for PDOs 1-4, and for higher PDOs a COB-ID outside every configured node's predefined set and unused in the config, logged at load. The bridge SHALL reject an `inhibit_time_us` that is not a multiple of 100, a `sync_start` outside 0-240 or on a PDO whose transmission type is not 1-240, and any of these fields on the wrong PDO kind, naming the node, the PDO and the field.
 
 #### Scenario: Inhibit time on a node's TPDO
 - **WHEN** node 5's first `tx_pdos` entry has transmission type 255 and `"inhibit_time_us": 10000`
@@ -66,7 +48,7 @@ Each PDO in `tx_pdos` MAY give `inhibit_time_us`, `event_timer_ms` and `sync_sta
 
 #### Scenario: Event timer on a node's RPDO
 - **WHEN** node 23's first `rx_pdos` entry has `"event_timer_ms": 500`
-- **THEN** the configuration loads, node 23's 0x1400 sub 5 is 500, and the plugin writes it itself after dcfgen's downloads
+- **THEN** the configuration loads, node 23's 0x1400 sub 5 is 500, and the bridge writes it itself after dcfgen's downloads
 
 #### Scenario: Automatic COB-ID for PDO 5
 - **WHEN** node 2 has a TPDO numbered 5 with `"cob_id": "auto"` and the config has nodes 2 and 3
@@ -81,7 +63,7 @@ Each PDO in `tx_pdos` MAY give `inhibit_time_us`, `event_timer_ms` and `sync_sta
 - **THEN** the configuration is rejected and the error names the node, the PDO and the field
 
 ### Requirement: EDS check of PDO communication settings
-At load the plugin SHALL check every set PDO communication field (`cob_id`, `transmission`, `inhibit_time_us`, `event_timer_ms`, `sync_start`) against the node's EDS. The sub-index SHALL exist in the PDO's communication object (0x1400+n-1 or 0x1800+n-1), and it SHALL be writable unless the value equals the EDS default. Otherwise the configuration SHALL be rejected with the node, the PDO, the field and the EDS access type named.
+At load the bridge SHALL check every set PDO communication field (`cob_id`, `transmission`, `inhibit_time_us`, `event_timer_ms`, `sync_start`) against the node's EDS. The sub-index SHALL exist in the PDO's communication object (0x1400+n-1 or 0x1800+n-1), and it SHALL be writable unless the value equals the EDS default. Otherwise the configuration SHALL be rejected with the node, the PDO, the field and the EDS access type named.
 
 #### Scenario: Read-only transmission type
 - **WHEN** node 23's EDS marks 0x1400 sub 2 `ro` with default 255 and the config sets RPDO 1 `transmission` to 1
@@ -96,7 +78,7 @@ At load the plugin SHALL check every set PDO communication field (`cob_id`, `tra
 - **THEN** the configuration is rejected and the error says the EDS does not define it
 
 ### Requirement: PDO mapping written by the config or kept by the device
-Each PDO in `tx_pdos` and `rx_pdos` MAY give `mapping` as `"config"` or `"device"`. With `"config"` the master SHALL write the PDO's mapping object from `entries` during node configuration. With `"device"` the master SHALL NOT write the mapping object, and the PDO SHALL carry the mapping that the node's EDS gives as default. When `mapping` is left out, it SHALL be `"device"` if the PDO's mapping object in the EDS is not writable (sub-index 0, or any sub-index from 1 to the default number of entries, has access type `ro` or `const`), and `"config"` otherwise. At load the plugin SHALL reject `"config"` on a PDO whose mapping object is not writable, and `"device"` on a PDO whose EDS has no `DefaultValue` on sub-index 0 or on a sub-index up to that number, naming the node, the PDO and the sub-index.
+Each PDO in `tx_pdos` and `rx_pdos` MAY give `mapping` as `"config"` or `"device"`. With `"config"` the master SHALL write the PDO's mapping object from `entries` during node configuration. With `"device"` the master SHALL NOT write the mapping object, and the PDO SHALL carry the mapping that the node's EDS gives as default. When `mapping` is left out, it SHALL be `"device"` if the PDO's mapping object in the EDS is not writable (sub-index 0, or any sub-index from 1 to the default number of entries, has access type `ro` or `const`), and `"config"` otherwise. At load the bridge SHALL reject `"config"` on a PDO whose mapping object is not writable, and `"device"` on a PDO whose EDS has no `DefaultValue` on sub-index 0 or on a sub-index up to that number, naming the node, the PDO and the sub-index.
 
 #### Scenario: Fixed mapping detected from the EDS
 - **WHEN** node 4's EDS marks 0x1A00 sub-indices 0-2 `ro` with defaults 2, 0x60000108 and 0x60000208, and the config's TPDO 1 gives no `mapping`
@@ -119,7 +101,7 @@ Each PDO in `tx_pdos` and `rx_pdos` MAY give `mapping` as `"config"` or `"device
 - **THEN** the configuration is rejected, naming the node, the PDO and 0x1A00 sub 1
 
 ### Requirement: Entries of a device-mapped PDO
-In a PDO whose mapping is `"device"`, each entry SHALL name an object that appears in the EDS default mapping of that PDO, with a `type` whose size equals the mapped length; the order of entries SHALL NOT matter, and entries MAY name a subset of the mapped objects. Otherwise the plugin SHALL reject the configuration, naming the entry and listing the default mapping. Mapped objects that no entry names (dummy entries included) SHALL travel in the PDO but SHALL NOT be exchanged with the PLC. For an RPDO (master to node), the plugin SHALL send those objects as zero and SHALL log one warning at load naming them.
+In a PDO whose mapping is `"device"`, each entry SHALL name an object that appears in the EDS default mapping of that PDO, with a `type` whose size equals the mapped length; the order of entries SHALL NOT matter, and entries MAY name a subset of the mapped objects. Otherwise the bridge SHALL reject the configuration, naming the entry and listing the default mapping. Mapped objects that no entry names (dummy entries included) SHALL travel in the PDO but SHALL NOT be exchanged with the PLC. For an RPDO (master to node), the bridge SHALL send those objects as zero and SHALL log one warning at load naming them.
 
 #### Scenario: Subset of a fixed TPDO
 - **WHEN** node 4's fixed TPDO 1 maps 0x6000 sub 1 and 0x6000 sub 2 (UNSIGNED8 each) and the config lists only 0x6000 sub 2 at `%IB40`
@@ -134,7 +116,7 @@ In a PDO whose mapping is `"device"`, each entry SHALL name an object that appea
 - **THEN** the configuration loads, a warning names 0x6200 sub 2 of node 4 RPDO 1 as sent as zero, and every RPDO 1 frame carries 0 in that byte
 
 ### Requirement: Read-only PDO communication sub-indices are not written
-The master SHALL NOT write a PDO communication sub-index (0x1400-0x15FF, 0x1800-0x19FF) whose EDS access type is not writable, including the disable and re-enable of a configured PDO's COB-ID during node configuration. For a PDO with a read-only COB-ID, the COB-ID the plugin would use (given in the config, or the CiA 301 default when left out) SHALL equal the EDS value with the PDO enabled, or the configuration SHALL be rejected naming the node, the PDO and both values. A PDO that the configuration does not use and whose COB-ID is read-only SHALL be left as the node has it, and the plugin SHALL log this once at load instead of switching the PDO off.
+The master SHALL NOT write a PDO communication sub-index (0x1400-0x15FF, 0x1800-0x19FF) whose EDS access type is not writable, including the disable and re-enable of a configured PDO's COB-ID during node configuration. For a PDO with a read-only COB-ID, the COB-ID the bridge would use (given in the config, or the CiA 301 default when left out) SHALL equal the EDS value with the PDO enabled, or the configuration SHALL be rejected naming the node, the PDO and both values. A PDO that the configuration does not use and whose COB-ID is read-only SHALL be left as the node has it, and the bridge SHALL log this once at load instead of switching the PDO off.
 
 #### Scenario: Fixed COB-ID equal to the default
 - **WHEN** node 4's EDS marks 0x1800 sub 1 `ro` with value 0x184 and the config uses TPDO 1 without `cob_id`
@@ -148,29 +130,6 @@ The master SHALL NOT write a PDO communication sub-index (0x1400-0x15FF, 0x1800-
 - **WHEN** node 4's EDS has TPDO 2 enabled with a read-only COB-ID and the config does not use TPDO 2
 - **THEN** the configuration loads, nothing is written to 0x1801, and the log says node 4 keeps TPDO 2 enabled
 
-### Requirement: Synchronous PDOs need SYNC
-When the master produces no SYNC, the plugin SHALL reject every configured PDO whose effective transmission type needs SYNC: 0-240 or 252. The effective type SHALL be the PDO's `transmission` when the JSON gives it, otherwise the default value of sub-index 2 of the PDO's communication object in the node's EDS. The plugin SHALL NOT change the transmission type on its own to avoid the error. The error SHALL name the node, the PDO, the type and where it came from (JSON or EDS), and say to set `master.sync_period_us`, `"master.sync_source": "plc_cycle"` or a `transmission` of 254 or 255. A PDO's `sync_start` SHALL likewise be rejected without SYNC. PDOs the config does not list are switched off and SHALL NOT be checked.
-
-#### Scenario: Synchronous EDS default without SYNC
-- **WHEN** the config has no `sync_period_us` and no `sync_source`, and node 5 has a `tx_pdos` entry 1 without `transmission` whose EDS default for 0x1800 sub 2 is 1
-- **THEN** the configuration is rejected, naming node 5, TPDO 1, transmission type 1 from the EDS, and suggesting `sync_period_us`, `"sync_source": "plc_cycle"` or `"transmission": 254`
-
-#### Scenario: Synchronous EDS default with PLC-cycle SYNC
-- **WHEN** the config has `"sync_source": "plc_cycle"` and no `sync_period_us`, and node 5's TPDO 1 has EDS default type 1
-- **THEN** the configuration loads and the node sends TPDO 1 after every SYNC
-
-#### Scenario: Event-driven override
-- **WHEN** the same PDO gives `"transmission": 255` and the EDS marks 0x1800 sub 2 writable
-- **THEN** the configuration loads and the node sends TPDO 1 on change without SYNC
-
-#### Scenario: Event-driven EDS default
-- **WHEN** the config has no `sync_period_us` and node 23's RPDO 1 has no `transmission` and an EDS default of 255
-- **THEN** the configuration loads
-
-#### Scenario: Unlisted synchronous PDO
-- **WHEN** the config has no `sync_period_us` and node 5's EDS has TPDO 2 with default type 1, but the config does not list TPDO 2
-- **THEN** the configuration loads and TPDO 2 is switched off
-
 ### Requirement: Output exchange without SYNC
 When the master produces no SYNC, the bus thread SHALL check for a new output snapshot from the scan at least every 1 ms and SHALL write changed output values to their PDOs, sending each event-driven PDO whose data changed, subject to its inhibit time. When the master produces SYNC, outputs SHALL be sent on SYNC as before. The scan side SHALL NOT change: it SHALL NOT wait on the bus thread.
 
@@ -182,19 +141,8 @@ When the master produces no SYNC, the bus thread SHALL check for a new output sn
 - **WHEN** the config has no `sync_period_us` and the program's outputs do not change
 - **THEN** the master sends no RPDO for those outputs
 
-### Requirement: PDO timing with PLC-cycle SYNC
-With `"sync_source": "plc_cycle"`, the inputs a node samples at the SYNC sent in frame k SHALL reach the PLC at the `cycle_start()` of frame k+1 when they arrive on the bus before it, and the outputs the scan of frame k writes SHALL be sent in the master's synchronous PDOs right after the SYNC of frame k+1. The scan SHALL NOT wait for the bus in either direction. Event-driven master PDOs SHALL be sent when their data changed, at the SYNC that carries the change, as with the timer.
-
-#### Scenario: Fixed output latency
-- **WHEN** `"sync_source"` is `"plc_cycle"` with a 10 ms task, node 23's RPDO 1 has type 1, and the program sets `%QX20.0` to TRUE in one scan
-- **THEN** the master's RPDO 1 for node 23 with the new value follows the next SYNC, and over 1000 such changes the time from the scan's `cycle_end()` to that RPDO never exceeds one frame plus the bus thread's wake-up time
-
-#### Scenario: Inputs one frame old
-- **WHEN** `"sync_source"` is `"plc_cycle"` with a 10 ms task and node 5's TPDO 1 (type 1) carries a counter the node increments at every SYNC
-- **THEN** the PLC sees the counter increase by exactly one in every scan, with no repeated or missed value while no PDO is late
-
 ### Requirement: Receive timeout setting
-Each PDO in `tx_pdos` MAY give `timeout_ms`: a number of milliseconds from 1 to 65535, or `"auto"`. The plugin SHALL write the resolved value as the deadline (sub-index 5) of the master's own RPDO for that PDO, the one whose COB-ID is the PDO's COB-ID, in the generated master DCF, so it also holds after a master NMT reset. Without `timeout_ms` the plugin SHALL monitor nothing and write nothing there, as before.
+Each PDO in `tx_pdos` MAY give `timeout_ms`: a number of milliseconds from 1 to 65535, or `"auto"`. The bridge SHALL write the resolved value as the deadline (sub-index 5) of the master's own RPDO for that PDO, the one whose COB-ID is the PDO's COB-ID, in the generated master DCF, so it also holds after a master NMT reset. Without `timeout_ms` the bridge SHALL monitor nothing and write nothing there, as before.
 
 #### Scenario: Fixed timeout
 - **WHEN** node 5's TPDO 1 has `"timeout_ms": 500`
@@ -209,7 +157,7 @@ Each PDO in `tx_pdos` MAY give `timeout_ms`: a number of milliseconds from 1 to 
 - **THEN** the configuration is rejected naming the node, the PDO and the field
 
 ### Requirement: Automatic receive timeout from the event timer
-`"timeout_ms": "auto"` SHALL resolve to two times the node's event timer for that TPDO: `event_timer_ms` from the config when given, else the `DefaultValue` of the node's 0x1800+n-1 sub-index 5 in its EDS. The plugin SHALL log the resolved value at load. It SHALL reject `"auto"` when that event timer is 0 or the EDS has no sub-index 5.
+`"timeout_ms": "auto"` SHALL resolve to two times the node's event timer for that TPDO: `event_timer_ms` from the config when given, else the `DefaultValue` of the node's 0x1800+n-1 sub-index 5 in its EDS. The bridge SHALL log the resolved value at load. It SHALL reject `"auto"` when that event timer is 0 or the EDS has no sub-index 5.
 
 #### Scenario: Auto from the EDS event timer
 - **WHEN** node 5's TPDO 2 has `"timeout_ms": "auto"`, no `event_timer_ms`, and its EDS gives 0x1801 sub 5 DefaultValue 100
@@ -224,7 +172,7 @@ Each PDO in `tx_pdos` MAY give `timeout_ms`: a number of milliseconds from 1 to 
 - **THEN** the configuration is rejected naming node 5, TPDO 1 and `timeout_ms`, saying there is no event timer to derive it from and a number is needed
 
 ### Requirement: Input PDO timeout detection
-A monitored PDO SHALL count as timed out when, while its node is up (master and node OPERATIONAL), no PDO has arrived within `timeout_ms` after the last received one, or within `timeout_ms` after the node came up when none has arrived since. The plugin SHALL check this itself on every bus cycle, so detection SHALL NOT depend on the master's own deadline timer and SHALL work alike on a SocketCAN interface and on the simulated bus, for event-driven and synchronous PDOs. The next received PDO SHALL end the timeout. While its node is not up a PDO SHALL NOT count as timed out. A timeout SHALL NOT change the node's status bit, state byte, outputs or boot state.
+A monitored PDO SHALL count as timed out when, while its node is up (master and node OPERATIONAL), no PDO has arrived within `timeout_ms` after the last received one, or within `timeout_ms` after the node came up when none has arrived since. The bridge SHALL check this itself on every bus cycle, so detection SHALL NOT depend on the master's own deadline timer and SHALL work alike on a SocketCAN interface and on the simulated bus, for event-driven and synchronous PDOs. The next received PDO SHALL end the timeout. While its node is not up a PDO SHALL NOT count as timed out. A timeout SHALL NOT change the node's status bit, state byte, outputs or boot state.
 
 #### Scenario: Event-driven PDO stops
 - **WHEN** node 23's TPDO 1 has `"timeout_ms": 500`, the node keeps its heartbeat and stops sending TPDO 1
@@ -243,7 +191,7 @@ A monitored PDO SHALL count as timed out when, while its node is up (master and 
 - **THEN** TPDO 1 no longer counts as timed out and nothing more is logged for it until the node is up again
 
 ### Requirement: Timeout reported to the PLC and the log
-A monitored PDO MAY give `timeout_location`, an `%IX` input bit that SHALL be TRUE while the PDO is timed out and FALSE otherwise. On each timeout the plugin SHALL log one warning naming the node, the TPDO and the timeout, and count it; when the PDO arrives again it SHALL log once that it is back and how long it was missing.
+A monitored PDO MAY give `timeout_location`, an `%IX` input bit that SHALL be TRUE while the PDO is timed out and FALSE otherwise. On each timeout the bridge SHALL log one warning naming the node, the TPDO and the timeout, and count it; when the PDO arrives again it SHALL log once that it is back and how long it was missing.
 
 #### Scenario: Timeout bit
 - **WHEN** node 23's TPDO 1 has `"timeout_location": "%IX20.0"` and times out, then arrives again
@@ -254,7 +202,7 @@ A monitored PDO MAY give `timeout_location`, an `%IX` input bit that SHALL be TR
 - **THEN** the configuration is rejected naming both uses
 
 ### Requirement: Inputs while a PDO is timed out
-`on_timeout` SHALL choose what the PDO's inputs show while it is timed out: `"hold"` (default) keeps the last received values, `"zero"` sets every input of that PDO to 0 until the next PDO arrives. The plugin SHALL reject `on_timeout` or `timeout_location` on a PDO without `timeout_ms`, naming the node, the PDO and the field.
+`on_timeout` SHALL choose what the PDO's inputs show while it is timed out: `"hold"` (default) keeps the last received values, `"zero"` sets every input of that PDO to 0 until the next PDO arrives. The bridge SHALL reject `on_timeout` or `timeout_location` on a PDO without `timeout_ms`, naming the node, the PDO and the field.
 
 #### Scenario: Hold by default
 - **WHEN** a monitored TPDO with an `%IW100` entry times out and gives no `on_timeout`
@@ -269,7 +217,7 @@ A monitored PDO MAY give `timeout_location`, an `%IX` input bit that SHALL be TR
 - **THEN** the configuration is rejected naming the node, the PDO and the field
 
 ### Requirement: Short PDOs are logged
-When Lely reports a received PDO that is shorter than its mapping, the plugin SHALL log one warning naming the node, the TPDO and the received and expected lengths, and SHALL NOT log it again for that PDO until a PDO of the right length has arrived. The inputs SHALL keep their values.
+When Lely reports a received PDO that is shorter than its mapping, the bridge SHALL log one warning naming the node, the TPDO and the received and expected lengths, and SHALL NOT log it again for that PDO until a PDO of the right length has arrived. The inputs SHALL keep their values.
 
 #### Scenario: Short PDO
 - **WHEN** node 5 sends its TPDO 1 with 2 data bytes and the mapping needs 4
@@ -286,13 +234,6 @@ When a node becomes up again (after a boot, a reboot it reported itself, or reco
 - **WHEN** node 5 with a synchronous RPDO was lost while the program changed its outputs, and node 5 comes back
 - **THEN** the first RPDO after node 5 is up carries the program's current values
 
-### Requirement: Scan watchdog
-The master SHALL support `master.scan_watchdog_ms` (10 to 60000, default 1000; 0 turns it off). While the PLC runs and its scan has not finished a cycle for that long, the outputs gate SHALL close: no RPDOs, raw or J1939 transmit messages. SYNC, inputs and node supervision SHALL keep running. The next finished scan SHALL open the gate and the outputs SHALL be sent again as when a node comes up. Closing and opening SHALL be logged.
-
-#### Scenario: Program hangs
-- **WHEN** the program's scan stops finishing cycles while the runtime keeps running and `scan_watchdog_ms` is 1000
-- **THEN** about 1 s later the master stops sending RPDOs, SYNC keeps going, and the log names the scan watchdog
-
 ### Requirement: Master outputs after a master NMT reset
 When the master resets itself (for example after a mandatory node's loss with `reset_all_nodes`), every master TPDO SHALL be switched off again as at network start, and a node's outputs SHALL only be sent again through the node-up path, with the program's current values and subject to the outputs gate and a program stop. No DCF default or zero value SHALL be sent in place of the program's outputs.
 
@@ -300,68 +241,44 @@ When the master resets itself (for example after a mandatory node's loss with `r
 - **WHEN** node 3 is mandatory, `reset_all_nodes` is set, the program holds node 5's controlword at 0x000F, and node 3 is lost
 - **THEN** no RPDO with controlword 0 reaches node 5; node 5's next RPDO carries 0x000F after it is up again
 
-### Requirement: Scan watchdog across bus restarts
-The scan watchdog SHALL keep watching the same scan counter across a bus session restart: a scan that was hung before the restart SHALL keep the outputs gate closed after it.
-
-#### Scenario: Hung scan and a link drop
-- **WHEN** the scan has stopped advancing, the outputs gate is closed, and the interface goes down and comes back
-- **THEN** the outputs gate stays closed and no node gets output PDOs until the scan advances
-
-### Requirement: Scan watchdog trip lasts until the scan moves
-A tripped scan watchdog SHALL keep the outputs gate closed until the PLC scan finishes a cycle again or the PLC stops, also when a bus session ends.
-
-#### Scenario: Interface down while the scan is hung
-- **WHEN** the scan watchdog tripped and one network's interface goes down
-- **THEN** the gate stays closed for every other network
-
-### Requirement: Program frames obey the outputs gate
-While the outputs gate is closed, program cyclic jobs SHALL NOT send and SHALL resume at their period when it opens, and frames queued by `CAN_SEND` SHALL be dropped with the not-running error.
-
-#### Scenario: Hung scan with a cyclic heartbeat
-- **WHEN** a `CAN_SEND_CYCLIC` job sends a frame every 100 ms and the scan watchdog trips
-- **THEN** the frame stops on the bus until the scan runs again
-
-### Requirement: Scan watchdog for every protocol
-A J1939 or plain CAN network SHALL accept `scan_watchdog_ms` (0 off, 10-60000, default 1000) under its `j1939` or `raw` block, so a project without a CANopen master also closes the outputs gate on a hung scan.
-
-#### Scenario: J1939-only project
-- **WHEN** a project has one J1939 network and the scan hangs for 1 s
-- **THEN** periodic J1939 transmit messages stop
-
 ### Requirement: Bit channels of a PDO entry
-A PDO entry of an integer type (INTEGER8 to INTEGER64, UNSIGNED8 to UNSIGNED64) MAY list `bits`, each with a bit number `bit`, an optional `name` and, except in a CODESYS or Modbus bridge config, an `iec_location`. Bit 0 SHALL be the least significant bit of the entry's value. A bit channel of a TPDO entry SHALL have an `%IX` location and one of an RPDO entry a `%QX` location. An entry with bits MAY leave out its own `iec_location`; outside a Modbus bridge config an RPDO entry with bits SHALL NOT have one. Bit names SHALL be unique within the node together with the entry names, ignoring case (checked by the PC tools). The plugin SHALL reject, naming the node, the PDO, the object and the bit: `bits` on a BOOLEAN, REAL32 or REAL64 entry, a bit number outside the type's size, a bit listed twice, a location of the wrong area or size, a location outside the image, and a location that overlaps any other location of the config.
+A PDO entry of an integer type (INTEGER8 to INTEGER64, UNSIGNED8 to UNSIGNED64) MAY list `bits`, each with a bit number `bit` and an optional `name`. Bit 0 SHALL be the least significant bit of the entry's value. Bit channels SHALL have no location of their own: they name bits of the entry's value, which the bridge serves at the entry's location, and the generated program side (`canworks_in`/`canworks_out`) or a Modbus client reads or sets them there. Bit names SHALL be unique within the node together with the entry names, ignoring case (checked by the PC tools). The bridge SHALL reject, naming the node, the PDO, the object and the bit: `bits` on a BOOLEAN, REAL32 or REAL64 entry, a bit number outside the type's size, a bit listed twice, and a bit channel with an `iec_location`.
 
 #### Scenario: Input bits
-- **WHEN** node 11's TPDO1 entry 0x6000:1 (UNSIGNED8) has bits 0 and 3 at `%IX140.0` and `%IX140.3` and no `iec_location`
-- **THEN** the configuration is accepted
+- **WHEN** node 11's TPDO1 entry 0x6000:1 (UNSIGNED8) at `%IB140` has bits 0 and 3 named `door` and `lamp_ok`
+- **THEN** the configuration is accepted, and an OpenPLC project gets BOOL variables `door` and `lamp_ok` from bits 0 and 3 of that byte
 
 #### Scenario: Output entry with a location and bits
-- **WHEN** an RPDO entry 0x6200:1 has `iec_location` `%QB40` and a bit at `%QX140.0`
-- **THEN** the plugin rejects the configuration and names the node, the RPDO and 0x6200:1
+- **WHEN** an RPDO entry 0x6200:1 at `%QB40` has a bit with `iec_location` `%QX140.0`
+- **THEN** the bridge rejects the configuration and names the node, the RPDO, the object and the bit
 
 #### Scenario: Bit past the type
 - **WHEN** an UNSIGNED8 entry lists bit 8
-- **THEN** the plugin rejects the configuration and names the entry and bit 8
+- **THEN** the bridge rejects the configuration and names the entry and bit 8
 
 #### Scenario: Bits on a REAL
 - **WHEN** a REAL32 entry lists bits
-- **THEN** the plugin rejects the configuration and names the entry
+- **THEN** the bridge rejects the configuration and names the entry
 
 #### Scenario: Overlap with another location
-- **WHEN** a bit channel is at `%IX10.0` and the same node's status bit is also `%IX10.0`
-- **THEN** the plugin rejects the configuration and names both
+- **WHEN** a bit channel's entry is at `%IB10` and the same node's status bit is `%IX10.0`
+- **THEN** the bridge rejects the configuration and names both
 
-### Requirement: Bit channels exchanged with the scan
-Each scan the plugin SHALL write every input bit channel's bit of the entry's received value to its `%IX` location, together with the entry's own location when it has one, and SHALL build every output entry that has bits from its `%QX` locations, sending 0 for bits that are not listed. Bit channels SHALL follow the entry's value in every other rule: receive timeouts, node failure and outputs sent again when a node comes up.
+### Requirement: Synchronous PDOs need the master's SYNC
+When the master produces no SYNC, the bridge SHALL reject every configured PDO whose effective transmission type needs SYNC: 0-240 or 252. The effective type SHALL be the PDO's `transmission` when the JSON gives it, otherwise the default value of sub-index 2 of the PDO's communication object in the node's EDS. The bridge SHALL NOT change the transmission type on its own to avoid the error. The error SHALL name the node, the PDO, the type and where it came from (JSON or EDS), and say to set `master.sync_period_us` or a `transmission` of 254 or 255. A PDO's `sync_start` SHALL likewise be rejected without SYNC. PDOs the config does not list are switched off and SHALL NOT be checked.
 
-#### Scenario: Button pressed
-- **WHEN** node 11 sends 0x6000:1 = 0x08 and bit 3 is mapped to `%IX140.3`
-- **THEN** `%IX140.3` is TRUE and `%IX140.0` is FALSE in the next scan
+#### Scenario: Synchronous EDS default without SYNC
+- **WHEN** the config has no `sync_period_us`, and node 5 has a `tx_pdos` entry 1 without `transmission` whose EDS default for 0x1800 sub 2 is 1
+- **THEN** the configuration is rejected, naming node 5, TPDO 1, transmission type 1 from the EDS, and suggesting `sync_period_us` or `"transmission": 254`
 
-#### Scenario: Lamps
-- **WHEN** an RPDO entry 0x6200:1 maps bit 0 to `%QX140.0` and bit 2 to `%QX140.2`, and the program sets only `%QX140.2`
-- **THEN** the RPDO carries 0x04 for 0x6200:1
+#### Scenario: Event-driven override
+- **WHEN** the same PDO gives `"transmission": 255` and the EDS marks 0x1800 sub 2 writable
+- **THEN** the configuration loads and the node sends TPDO 1 on change without SYNC
 
-#### Scenario: Whole value and bits
-- **WHEN** a TPDO entry 0x6041 has `iec_location` `%IW100` and bit 3 at `%IX120.3`, and the drive sends 0x0638
-- **THEN** `%IW100` holds 0x0638 and `%IX120.3` is TRUE
+#### Scenario: Event-driven EDS default
+- **WHEN** the config has no `sync_period_us` and node 23's RPDO 1 has no `transmission` and an EDS default of 255
+- **THEN** the configuration loads
+
+#### Scenario: Unlisted synchronous PDO
+- **WHEN** the config has no `sync_period_us` and node 5's EDS has TPDO 2 with default type 1, but the config does not list TPDO 2
+- **THEN** the configuration loads and TPDO 2 is switched off

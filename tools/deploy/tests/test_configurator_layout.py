@@ -1,7 +1,6 @@
 """The configurator page's layout in a real browser (fix-configurator-layout):
 nothing clipped or scrolling sideways on any view, SDO variables and PDO
-settings, the message bar, readable problems, the overlap override, narrow
-windows and the theme. Every view also goes through axe-core (WCAG 2.1 A
+settings, the message bar, readable problems, narrow windows and the theme. Every view also goes through axe-core (WCAG 2.1 A
 and AA) and a contrast check (polish-configurator-ux): a critical or
 serious finding fails the test, the rest is reported. Needs Playwright,
 like test_configurator_page.py."""
@@ -172,25 +171,25 @@ def audit(page, where, report=None):
 class Layout(OnlineBase):
     def setUp(self):
         super().setUp()
-        n = self.cfg["nodes"][0]
+        n = self.cfg["networks"][0]["nodes"][0]
         n["sdo_variables"] = [
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "direction": "read",
-             "name": "producer_heartbeat_time", "iec_location": "%IW300", "period_ms": 1000,
-             "trigger_location": "%QX300.0", "status_location": "%IB301", "abort_code_location": "%ID302"},
+             "name": "producer_heartbeat_time", "iec_location": "%IW306", "period_ms": 1000,
+             "trigger_location": "%QX304.0", "status_location": "%IB305", "abort_code_location": "%ID308"},
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "direction": "write",
-             "name": "heartbeat_setpoint", "iec_location": "%QW301"},
+             "name": "heartbeat_setpoint", "iec_location": "%QW306"},
         ]
         canopen = os.path.join(self.project, "canworks")
         shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "fixed-io.eds"), canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), canopen)
-        self.cfg["nodes"].append({"node_id": 23, "name": "valve", "eds": "fixed-io.eds", "rx_pdos": [
+        self.cfg["networks"][0]["nodes"].append({"node_id": 23, "name": "valve", "eds": "fixed-io.eds", "rx_pdos": [
             {"entries": [{"index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB310"}]}]})
-        rtd = load(os.path.join(RTD, "canopen_config.json"))["nodes"][0]
-        rtd.update(eds="rtd8.eds", status_location="%IX330.0")
-        for p in rtd.get("tx_pdos", []):
+        rtd = load(os.path.join(RTD, "canopen_config.json"))["networks"][0]["nodes"][0]
+        rtd.update(eds="rtd8.eds", status_location="%IX340.0")
+        for j, p in enumerate(rtd.get("tx_pdos", [])):
             for k, e in enumerate(p["entries"]):
-                e["iec_location"] = "%%IW%d" % (320 + k)  # 16-bit: TPDO 2's UNSIGNED8 entries do not fit
-        self.cfg["nodes"].append(rtd)
+                e["iec_location"] = "%%IW%d" % ((330 if j == 0 else 320) + 2 * k)  # 16-bit: TPDO 2's UNSIGNED8 entries do not fit
+        self.cfg["networks"][0]["nodes"].append(rtd)
         self.write_config()
         self.page.set_viewport_size({"width": 1280, "height": 800})
 
@@ -259,8 +258,6 @@ class Layout(OnlineBase):
                         node_tab(pg, tab)
                         self.unfold()
                         self.fits("node %d, tab %s at %d" % (k, tab, width))
-                pg.click('button[data-view="declarations"]')
-                self.fits("declarations at %d" % width)
                 pg.click('button[data-view="online"]')
                 pg.wait_for_selector("text=changes allowed")
                 pg.click('tr[data-online-node="2"]')
@@ -335,7 +332,11 @@ class Layout(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
-        shutil.copy(os.path.join(RTD, "canopen_config.json"), os.path.join(folder, "canworks.json"))
+        # An OpenPLC through Modbus config: its standalone header offers New editor project.
+        with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
+            cfg = srv.Session().switch_target(json.load(f), "openplc_modbus")["config"]
+        with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
         for width in (1000, 1280, 1440):
             pg.set_viewport_size({"width": width, "height": 800})
             pg.goto(self.server.url)
@@ -368,12 +369,12 @@ class Layout(OnlineBase):
         entry = pg.locator('.sdo-var[data-path="%s"]' % vp)
         entry.scroll_into_view_if_needed()
         self.assertEqual(pg.input_value('input[data-path="%s.name"]' % vp), "producer_heartbeat_time")
-        self.assertEqual(pg.input_value('input[data-path="%s.trigger_location"]' % vp), "%QX300.0")
+        self.assertEqual(pg.input_value('input[data-path="%s.trigger_location"]' % vp), "%QX304.0")
         view = pg.locator("#view").bounding_box()
         remove = entry.locator('button[title="Remove"]').bounding_box()
         self.assertLessEqual(remove["x"] + remove["width"], view["x"] + view["width"])
         self.fits("node 0 at 1280")
-        # The plugin-object warning is on its own line under the entry.
+        # The bridge-object warning is on its own line under the entry.
         warn = '.sdo-var[data-path="nodes[0].sdo_variables[1]"] > .field-msg[data-for="nodes[0].sdo_variables[1]"]'
         pg.wait_for_selector(warn + ":has-text('configures itself')")
         self.assertEqual(pg.inner_text('.sdo-var[data-path="nodes[0].sdo_variables[1]"] code'), "0x1017:0")
@@ -439,26 +440,6 @@ class Layout(OnlineBase):
         self.assertEqual(pg.evaluate("document.activeElement.dataset.path"),
                          "nodes[2].tx_pdos[1].entries[0].iec_location")
         self.assertNotIn("nodes[", pg.inner_text(".field-msg[data-for='nodes[2].tx_pdos[1].entries[0].iec_location']"))
-
-    def test_overlap_control(self):
-        pg = self.page
-        self.cfg["nodes"] = self.cfg["nodes"][:1]
-        self.write_config()
-        self.open()
-        self.assertEqual(pg.locator("#top #allow-overlap").count(), 0)
-        pg.wait_for_selector("#problem-count:has-text('1 problem')")  # the SDO variable warning
-        self.assertTrue(pg.is_hidden("#overlap-box"))
-        # %ID100 is the fixture project's EtherCAT input.
-        self.node(0, "pdos")
-        self.fill_path("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID100")
-        pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
-        pg.wait_for_selector("#overlap-box:not([hidden])")
-        pg.check("#allow-overlap")
-        pg.wait_for_selector("#problem-list li.warning:has-text('ecat-bus.json')")
-        self.assertTrue(pg.is_visible("#overlap-box"))
-        pg.click("#btn-save")
-        pg.wait_for_selector("#banner:has-text('Saved')")
-        self.assertEqual(load(self.config_path)["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"], "%ID100")
 
     def fill_path(self, path, value):
         self.page.fill('input[data-path="%s"]' % path, value)
@@ -591,7 +572,7 @@ class Layout(OnlineBase):
         long_eds = os.path.join(self.project, "canworks", "long-names.eds")
         with open(long_eds, "w", encoding="latin-1") as f:
             f.write(text)
-        self.cfg["nodes"][2]["eds"] = "long-names.eds"
+        self.cfg["networks"][0]["nodes"][2]["eds"] = "long-names.eds"
         fp = FakeDevice(eds_path=long_eds)
         import copy
         from .fake_diag import status as fake_status

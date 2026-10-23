@@ -337,9 +337,10 @@ class Editing(Base):
         # The same startup SDO object twice is marked.
         self.tab("motion")
         tree_node(pg, 0, "sdos")
-        pg.fill('input[aria-label="SDO index"]', "0x6065")
-        pg.fill('input[aria-label="SDO subindex"]', "0")
-        pg.click("button:has-text('Add write')")
+        for _ in range(2):
+            pg.fill('input[aria-label="SDO index"]', "0x2000")
+            pg.fill('input[aria-label="SDO subindex"]', "1")
+            pg.click("button:has-text('Add write')")
         pg.wait_for_selector("#banner:has-text('already written at startup')")
         self.assertEqual(pg.locator("[data-twice]").count(), 2)
 
@@ -373,15 +374,6 @@ class Editing(Base):
         pg.fill(path, old)
         pg.wait_for_selector("#btn-save:has-text('Saved')")
         self.assertTrue(pg.is_disabled("#btn-save"))
-
-    def test_declarations_wording(self):
-        pg = self.page
-        self.open(self.folder)
-        pg.click('#tool-tabs button[data-view="declarations"]')
-        pg.wait_for_selector("#view h2:has-text('Variable declarations')")
-        text = pg.inner_text("#view")
-        self.assertIn("into the VAR block of the program", text)
-        self.assertNotIn("in the global list", text)
 
 
 class J1939Dbc(Base):

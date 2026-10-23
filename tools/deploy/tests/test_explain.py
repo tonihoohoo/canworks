@@ -160,7 +160,7 @@ class Layers(unittest.TestCase):
         f = next(f for f in m["fields"] if f["start"] == 16)
         self.assertEqual(f["how"], "bytes 2-3 = EA 00, low byte first, so read backwards: 0x00EA")
         self.assertTrue(f["value"].startswith("234"))
-        self.assertEqual(f["location"], "%IW101")
+        self.assertEqual(f["location"], "%IW102")
 
     def test_signed_value(self):
         m = ex("185#FFFF000000000000")
@@ -169,7 +169,7 @@ class Layers(unittest.TestCase):
     def test_byte_object_bits(self):
         m = ex("285#25000000")
         f = m["fields"][0]
-        self.assertEqual((f["start"], f["length"], f["location"], f["type"]), (0, 8, "%IB100", "UNSIGNED8"))
+        self.assertEqual((f["start"], f["length"], f["location"], f["type"]), (0, 8, "%IB110", "UNSIGNED8"))
         on = [k for k in range(8) if bit_of(bytes.fromhex("25"), k)]
         self.assertEqual(on, [0, 2, 5])
 
@@ -193,7 +193,7 @@ class Layers(unittest.TestCase):
 
     def test_configured_cob_id(self):
         cfg = rtd_config()
-        cfg["nodes"][0]["tx_pdos"][1]["cob_id"] = "0x1A0"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][1]["cob_id"] = "0x1A0"
         dec = rtd_decoder(cfg)
         m = ex("1A0#01020304", dec)
         self.assertEqual(m["kind"], "pdo")
@@ -311,12 +311,12 @@ class Builder(unittest.TestCase):
 
     def test_pdo_values_and_range(self):
         dec = rtd_decoder()
-        f = framebuild.pdo(dec, 0x185, {"%IW100": -1, "%IW101": 234})[0]["frame"]
+        f = framebuild.pdo(dec, 0x185, {"%IW100": -1, "%IW102": 234})[0]["frame"]
         self.assertEqual(f.data.hex(), "ffffea0000000000")
         m = explain(f, dec)
         self.assertTrue(m["fields"][1]["value"].startswith("234"))
         with self.assertRaises(framebuild.BuildError) as cm:
-            framebuild.pdo(dec, 0x285, {"%IB100": 300})
+            framebuild.pdo(dec, 0x285, {"%IB110": 300})
         self.assertIn("out of range 0 to 255", str(cm.exception))
         with self.assertRaises(framebuild.BuildError):
             framebuild.pdo(dec, 0x285, {"nonsense": 1})
@@ -432,7 +432,7 @@ class Sequences(unittest.TestCase):
 
     def test_sync_cycles_and_window(self):
         cfg = copy.deepcopy(self.cfg)
-        cfg["master"]["sync_window_us"] = 2000
+        cfg["networks"][0]["master"]["sync_window_us"] = 2000
         dec = rtd_decoder(cfg)
         t = boot_trace(dec, self.expected, late_us=2600)
         s = Session(dec, trace=t)

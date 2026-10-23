@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks.v1.schema.json",
   "title": "OpenPLC CANopen master configuration, schema_version 1",
-  "description": "The CANopen plugin's JSON config (conf/canworks.json, canopen_config.json). Unknown fields are allowed: the plugin and the deploy tool ignore them with a warning. Checks this schema cannot express are listed in docs/config.md.",
+  "description": "The CANopen bridge's JSON config (conf/canworks.json, canopen_config.json). Unknown fields are allowed: the bridge and the deploy tool ignore them with a warning. Checks this schema cannot express are listed in docs/config.md.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -202,7 +202,7 @@
           ]
         },
         "interface": {
-          "description": "The CAN interface (can0, vcan0) or, for slcan, the interface the plugin creates: 1-15 characters of letters, digits, '_', '.', ':' and '-' (a Linux interface name).",
+          "description": "The CAN interface (can0, vcan0) or, for slcan, the interface the bridge creates: 1-15 characters of letters, digits, '_', '.', ':' and '-' (a Linux interface name).",
           "type": "string",
           "minLength": 1,
           "maxLength": 15,
@@ -249,7 +249,7 @@
       "required": [
         "type"
       ],
-      "description": "The CAN adapter. 'socketcan': an existing SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan). 'slcan': a serial-line adapter (CANable with slcan firmware, Lawicel CANUSB); the plugin creates the interface from the serial device.",
+      "description": "The CAN adapter. 'socketcan': an existing SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan). 'slcan': a serial-line adapter (CANable with slcan firmware, Lawicel CANUSB); the bridge creates the interface from the serial device.",
       "allOf": [
         {
           "if": {
@@ -319,32 +319,12 @@
           "$ref": "#/$defs/node_id"
         },
         "sync_period_us": {
-          "description": "SYNC period of the master's timer. Omitted or 0: no SYNC timer; without \"sync_source\": \"plc_cycle\" the master then produces no SYNC, and every configured PDO must be event-driven. Not allowed with \"sync_source\": \"plc_cycle\".",
+          "description": "SYNC period of the master's timer. Omitted or 0: the master produces no SYNC, and every configured PDO must be event-driven.",
           "anyOf": [
             {
               "type": "integer",
               "minimum": 0,
               "maximum": 4294967295
-            },
-            {
-              "$ref": "#/$defs/uint_string"
-            }
-          ]
-        },
-        "sync_source": {
-          "description": "Where SYNC comes from: \"timer\" (default, every sync_period_us) or \"plc_cycle\" (one SYNC every sync_cycles PLC cycles, sent at the start of the cycle).",
-          "enum": [
-            "timer",
-            "plc_cycle"
-          ]
-        },
-        "sync_cycles": {
-          "description": "With \"sync_source\": \"plc_cycle\": PLC cycles per SYNC, 1-1000. Default 1.",
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
             },
             {
               "$ref": "#/$defs/uint_string"
@@ -367,7 +347,7 @@
           "type": "boolean"
         },
         "bus_state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the CAN bus state: 0 no bus, 1 error-active, 2 error-warning, 3 error-passive, 4 bus-off.",
+          "description": "An input byte (%IB...) the bridge keeps at the CAN bus state: 0 no bus, 1 error-active, 2 error-warning, 3 error-passive, 4 bus-off.",
           "type": "string",
           "pattern": "^%[Ii][Bb][0-9]+$"
         },
@@ -387,7 +367,7 @@
           "pattern": "^%[Ii][Ww][0-9]+$"
         },
         "state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 resetting or not started.",
+          "description": "An input byte (%IB...) the bridge keeps at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 resetting or not started.",
           "$ref": "#/$defs/input_byte"
         },
         "vendor_id": {
@@ -489,27 +469,11 @@
           ]
         },
         "on_plc_stop": {
-          "description": "NMT command to every configured node that is up when the PLC or the plugin stops, before the network closes: preop (default, ENTER PRE-OPERATIONAL), stop (STOP) or keep (no command).",
+          "description": "NMT command to every configured node that is up when the PLC or the bridge stops, before the network closes: preop (default, ENTER PRE-OPERATIONAL), stop (STOP) or keep (no command).",
           "enum": [
             "preop",
             "stop",
             "keep"
-          ]
-        },
-        "scan_watchdog_ms": {
-          "description": "Close the outputs gate (no RPDOs, raw or J1939 transmit messages; SYNC and inputs keep running) when the PLC scan has not finished a cycle for this long while the PLC runs, 10-60000 ms; 0 turns it off. Default 1000.",
-          "anyOf": [
-            {
-              "const": 0
-            },
-            {
-              "type": "integer",
-              "minimum": 10,
-              "maximum": 60000
-            },
-            {
-              "$ref": "#/$defs/uint_string"
-            }
           ]
         },
         "sdo_timeout_ms": {
@@ -526,7 +490,7 @@
           ]
         },
         "diagnostics": {
-          "description": "The diagnostics channel: the plugin listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
+          "description": "The diagnostics channel: the bridge listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
           "type": "object",
           "properties": {
             "token_verifier": {
@@ -558,7 +522,7 @@
               "type": "boolean"
             },
             "remote_link": {
-              "description": "The remote link (docs/remote-access.md), read by the canworks-link service on the device; the plugin and the bridge only check it.",
+              "description": "The remote link (docs/remote-access.md), read by the canworks-link service on the device; the bridge and the bridge only check it.",
               "type": "object",
               "properties": {
                 "internet": {
@@ -680,7 +644,7 @@
           "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
         },
         "state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the node's NMT state: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL, 0 no contact.",
+          "description": "An input byte (%IB...) the bridge keeps at the node's NMT state: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL, 0 no contact.",
           "type": "string",
           "pattern": "^%[Ii][Bb][0-9]+$"
         },
@@ -795,44 +759,6 @@
             }
           }
         },
-        "axis": {
-          "description": "The node is a CiA 402 drive used by the PLC program as one PLCopen axis (AXIS_REF_SM3 of the editor's built-in PLCopen SoftMotion library), named after the node. Its standard objects (0x6040, 0x6041, ...) are found in the node's PDO mapping; needs status_location. The plugin does nothing different on the bus. See docs/cia402.md.",
-          "type": "object",
-          "properties": {
-            "scale_numerator": {
-              "description": "Axis iRatioTechUnitsNum (DINT), not 0: increments per technical unit together with scale_denominator and scale_factor. Default 1.",
-              "type": "integer",
-              "minimum": -2147483648,
-              "maximum": 2147483647,
-              "not": {
-                "const": 0
-              }
-            },
-            "scale_denominator": {
-              "description": "Axis dwRatioTechUnitsDenom (DWORD). Default 1.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4294967295
-            },
-            "scale_factor": {
-              "description": "Axis fScalefactor (LREAL), not 0. Default 1.0.",
-              "type": "number",
-              "not": {
-                "const": 0
-              }
-            },
-            "cyclic": {
-              "description": "The program drives the axis in cyclic synchronous position (8), velocity (9) or torque (10) mode with the CO402_Cyclic* blocks. Needs \"sync_source\": \"plc_cycle\" with sync_cycles 1 and synchronous drive RPDOs; the plugin writes the interpolation time period 0x60C2. Default false. See docs/cia402.md.",
-              "type": "boolean"
-            },
-            "interpolation_period_us": {
-              "description": "With cyclic: the interpolation time period written to 0x60C2 instead of the SYNC period (the PLC base tick times sync_cycles). Must be a value of 1-255 times 1 ms, 100 us, 10 us or 1 us.",
-              "type": "integer",
-              "minimum": 100,
-              "maximum": 255000
-            }
-          }
-        },
         "tx_pdos": {
           "type": "array",
           "items": {
@@ -860,7 +786,7 @@
           }
         },
         "simulate": {
-          "description": "true: this node is a simulated device run by the plugin (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
+          "description": "true: this node is a simulated device run by the bridge (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
           "type": "boolean"
         }
       },
@@ -1117,7 +1043,7 @@
       "maxLength": 64
     },
     "tx_entry": {
-      "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the plugin checks that.",
+      "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the bridge checks that.",
       "allOf": [
         {
           "$ref": "#/$defs/entry"
@@ -1342,7 +1268,7 @@
       ]
     },
     "uint_string": {
-      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"), with no leading zero (\"012\" is refused). Its range is checked by the plugin, not by this schema.",
+      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"), with no leading zero (\"012\" is refused). Its range is checked by the bridge, not by this schema.",
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
     },

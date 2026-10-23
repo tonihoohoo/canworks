@@ -70,11 +70,12 @@ std::string two_networks(const std::string& cia309, bool diagnostics = false) {
   };
   std::string diag = diagnostics ? R"("diagnostics": { "token_verifier": ")" + verifier() + R"(", "bind": "127.0.0.1" },)" : "";
   return R"({ "schema_version": 2, )" + diag + R"( "cia309": )" + cia309 + R"(,
+    "bridge": { "listen": "127.0.0.1:1502", "writers": ["127.0.0.1"] },
     "networks": [
       { "name": "io", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
-        "master": { "node_id": 1 }, "nodes": [ )" + make("2", "10", "11") + R"( ] },
+        "master": { "node_id": 1 }, "nodes": [ )" + make("2", "10", "12") + R"( ] },
       { "name": "drives", "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 125000 },
-        "master": { "node_id": 1 }, "nodes": [ )" + make("4", "12", "13") + R"( ] } ] })";
+        "master": { "node_id": 1 }, "nodes": [ )" + make("4", "14", "16") + R"( ] } ] })";
 }
 
 // The networks, their hubs (attached: the test is the bus thread) and a

@@ -135,13 +135,10 @@ struct J1939DmRx {
   bool has_dtcs_location = false;
   IecLocation dtcs_location;  // %ID, `dtcs` consecutive double words
   unsigned dtcs = 0;
-  // A bridge config counts locations in bytes, so its double words lie 4
-  // apart; a PLC runtime's image counts double words.
-  bool byte_addressed = false;
-  // The double word of code slot `k`.
+  // The double word of code slot `k` (byte-addressed: 4 bytes apart).
   IecLocation dtc_location(unsigned k) const {
     IecLocation l = dtcs_location;
-    l.index += byte_addressed ? 4 * k : k;
+    l.index += 4 * k;
     return l;
   }
 };
@@ -175,9 +172,6 @@ struct J1939Config {
   std::vector<J1939Tx> tx;
   std::vector<J1939Request> requests;
   J1939Diagnostics diagnostics;
-  // Closes the outputs gate while the PLC scan hangs (0: off), as a CANopen
-  // master's scan_watchdog_ms.
-  unsigned scan_watchdog_ms = 1000;
 };
 
 // PDU1 (PDU format below 240): addressed, the low byte is the destination.

@@ -22,7 +22,7 @@ import os
 from .. import __version__, contract
 from .. import dbcexport
 from ..configurator import layout
-from ..iec import element_str
+from ..iec import parse_location
 from . import dm
 from ..raw import dbc as raw_dbc
 
@@ -238,10 +238,8 @@ def config_entry(message, direction, used, start=layout.DEFAULT_START):
     signals = []
     for s in message["signals"]:
         size = location_size(s["length"])
-        element = start * 8 if size == "X" else start
-        while (area, size, element) in used:
-            element += 1
-        used.add((area, size, element))
+        location = layout.suggest(area, size, used, start)
+        layout.mark(used, parse_location(location))
         sig = {"name": s["name"], "start_bit": s["start_bit"], "length": s["length"]}
         if s["byte_order"] == "big":
             sig["byte_order"] = "big"
@@ -256,7 +254,7 @@ def config_entry(message, direction, used, start=layout.DEFAULT_START):
         for key in ("multiplexer", "mux"):
             if key in s:
                 sig[key] = s[key]
-        sig["iec_location"] = element_str(area, size, element)
+        sig["iec_location"] = location
         signals.append(sig)
     entry["signals"] = signals
     return entry
@@ -321,7 +319,7 @@ def build(net, config_path, names=None):
             signal_names = dbcexport._Names()
             for s in m["signals"]:
                 _, loc_text = dbcexport._location_label(str(s["location"]), names) if s["location"] else (
-                    None, "set by the plugin (pages %s)" % m.get("pages"))
+                    None, "set by the bridge (pages %s)" % m.get("pages"))
                 msg.signals.append(dbcexport.Signal(
                     signal_names.add(dbcexport.identifier(s["name"]) or "signal", str(s["start_bit"])),
                     s["start_bit"], s["length"], s["signed"], receivers=[PLC] if rx else [],

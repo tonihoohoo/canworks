@@ -91,7 +91,7 @@ class Expressions(unittest.TestCase):
         self.assertEqual([edge.eval({"t": i * 0.1}) for i in range(5)], [0, 0, 1, 0, 0])
 
     def test_branches_not_taken_still_tick(self):
-        # As in the plugin, if() evaluates every argument: the integral in the
+        # As in the bridge, if() evaluates every argument: the integral in the
         # branch not taken keeps counting.
         ev = simfile.Evaluator(simfile.parse("if(t >= 0.5, integrate(10), 0)"))
         seen = [ev.eval({"t": i * 0.1, "dt": 0.1}) for i in range(6)]
@@ -101,7 +101,7 @@ class Expressions(unittest.TestCase):
         self.assertEqual([hold.eval({"t": i * 0.1}) for i in range(4)], [0, 0, 0.2, 0.2])
 
     def test_delay_limit_only_for_numbers(self):
-        # As in the plugin: a number written as the dead time is checked, a
+        # As in the bridge: a number written as the dead time is checked, a
         # computed one is limited while running.
         simfile.parse("delay(1, 600)")
         simfile.parse("delay(1, t * 1000)")
@@ -410,7 +410,7 @@ class Checks(unittest.TestCase):
         self.assertError(None, "extra_devices[1]", "extra device spare: EDS file", "not found")
 
     def test_csv_path_rules(self):
-        """As the plugin reads them: under the folder of the simulation file
+        """As the bridge reads them: under the folder of the simulation file
         or the config, a regular file of at most 16 MB, lines of at most 4096
         bytes."""
         d = self.f.dir
@@ -511,7 +511,7 @@ class Simulated(unittest.TestCase):
                          "node 5 is a simulated device on the real network can0")
 
     def test_describe_shared_simulated_bus(self):
-        # The plugin's own slave on the master's simulated bus serves node 10.
+        # canworks' own slave on the master's simulated bus serves node 10.
         master = dict(self.cfg(True, ((10, False), (5, None))), name="plc")
         master["adapter"]["interface"] = "sim0"
         slave = {"name": "line", "role": "slave",

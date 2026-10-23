@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installs or updates canworks-bridge, the Modbus TCP bridge
-# (docs/modbus-bridge.md), as a systemd service on a Linux device. No OpenPLC
-# runtime is needed: the bridge runs the CAN networks itself and serves their
-# values as Modbus registers to any PLC or program.
+# (docs/modbus-bridge.md), as a systemd service on a Linux device. The bridge
+# runs the CAN networks itself and serves their values as Modbus registers to
+# any PLC or program; with --with-openplc the OpenPLC runtime goes on first.
 #
 # One line, no git checkout (the newest release; run it again to update):
 #   curl -LsSf https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.sh | sudo bash
@@ -25,26 +25,36 @@
 #                      after installing, check the config DIR/canworks.json, copy the
 #                      files of DIR to /etc/canworks-bridge/NAME/ and start
 #                      canworks-bridge@NAME (with --ssh, DIR is on the PC)
-#   --prefix DIR       install into DIR (default /opt/canworks, or /opt/canworks-bridge
-#                      when /opt/canworks belongs to an OpenPLC runtime in Docker)
-#   --runtime-dir DIR | --runtime-ref REF [--runtime-sha256 HASH]
+#   --prefix DIR       install into DIR (default /opt/canworks)
+#   --with-openplc     when the device has no OpenPLC runtime, install upstream's
+#                      (managed Docker, https://runtime.getedge.me) first, at the
+#                      runtime and bootloader versions this source is pinned to
+#                      (docker/local-runtime/runtime-version and bootloader-version)
+#   --pinned-runtime   put a managed Docker runtime on the pinned runtime version
+#                      (nothing else in the runtime changes; other runtimes stay as they are)
 #   --lely-ref COMMIT  --no-deps  --without-canopen | --without-j1939
-#   --binary FILE      --with-link NAME
+#   --binary FILE      --with-link NAME  --without-discovery
 #   --constraints FILE install the tools with these locked dependency versions (not with --ssh)
 #   --uninstall [--purge]
 #
 # Install: builds Lely CANopen and dcfgen into <prefix> (scripts/build-lely.sh)
 # and the deploy tool into <prefix>/venv (the bridge runs its EDS lint at every
-# load), builds canworks-bridge and installs it to <prefix>/bin/, installs the
+# load), builds canworks-bridge (and canworks-canopen-sim with CANopen) and
+# installs them to <prefix>/bin/, installs the
 # template unit canworks-bridge@.service and creates /etc/canworks-bridge/.
 # Bridge instances that were running are restarted on the new binary.
-# The build needs the plugin interface headers of the OpenPLC runtime source:
-# --runtime-dir uses a checkout, otherwise the script downloads
-# Autonomy-Logic/openplc-runtime into <prefix>/src: by default the release the
-# project pins (docker/local-runtime/runtime-version), whose archive must match
-# the sha256 in docker/local-runtime/runtime-sha256. Another --runtime-ref
-# (a tag, branch or commit) needs the sha256 of its archive in
-# --runtime-sha256.
+# The build needs this source, Lely CANopen and the system's libraries only.
+#
+# --with-openplc runs upstream's installer only when no OpenPLC runtime is
+# found (no openplc-runtime service, no bootloader runtime spec and no runtime
+# container), waits up to 10 minutes until the runtime answers on its local
+# HTTPS port and then installs the bridge; a failed runtime install stops
+# before the bridge. Nothing of canworks goes into the runtime or its
+# container. CANWORKS_RUNTIME_VERSION and CANWORKS_BOOTLOADER_VERSION replace
+# the pins, to try another runtime by hand; canworks is only tested with the
+# pinned one. --pinned-runtime pulls the pinned runtime image and switches the
+# bootloader's runtime spec to it; the runtime container is recreated, so the
+# PLC stops and comes back without a program.
 #
 # One service instance runs one config: --instance/--config, or put it in
 # /etc/canworks-bridge/NAME/canworks.json (its EDS files next to it), then
@@ -60,13 +70,14 @@
 # --binary FILE installs a canworks-bridge built elsewhere and skips the build
 # (and Lely, unless CANopen still needs dcfgen at load).
 #
-# --with-link NAME advertises the bridge NAME on the local network and installs
-# the remote link for its diagnostics channel (docs/remote-access.md,
-# scripts/install-link.sh).
+# --with-link NAME installs the remote link for the diagnostics channel of the
+# bridge NAME (docs/remote-access.md, scripts/install-link.sh). The bridge
+# (NAME, else the --instance) is advertised on the local network unless
+# --without-discovery.
 #
 # Uninstall: stops and disables every canworks-bridge@ instance, removes the
-# unit and the binary (and the remote link when it serves a bridge config, not
-# one the runtime installed); the configs in /etc/canworks-bridge stay.
+# unit and the binary (and the remote link when it serves a bridge config);
+# the configs in /etc/canworks-bridge stay. The OpenPLC runtime stays.
 # --purge also removes them.
 #
 # The one-line forms only install released code, never main. The newest
@@ -94,15 +105,16 @@ GITHUB=${CANWORKS_REPO:-https://github.com/tonihoohoo/canworks}
 RAW=${CANWORKS_RAW:-https://raw.githubusercontent.com/tonihoohoo/canworks}
 API=${CANWORKS_API:-https://api.github.com/repos/tonihoohoo/canworks}
 # Overridable for the tests.
-DEFAULT_PREFIX=${CANWORKS_DEFAULT_PREFIX:-/opt/canworks}
-FALLBACK_PREFIX=${CANWORKS_FALLBACK_PREFIX:-/opt/canworks-bridge}
-PREFIX=$DEFAULT_PREFIX
-PREFIX_GIVEN=0
+PREFIX=${CANWORKS_DEFAULT_PREFIX:-/opt/canworks}
 LELY_REF=${LELY_REF:-}
-RUNTIME_DIR=""
-RUNTIME_REF=""
-RUNTIME_SHA256=""
-RUNTIME_URL=${CANWORKS_RUNTIME_URL:-https://github.com/Autonomy-Logic/openplc-runtime/archive}  # the tests' archives
+WITH_OPENPLC=0
+PINNED_RUNTIME=0
+# The OpenPLC runtime on this device; overridable for the tests.
+SERVICE_FILE=${OPENPLC_SERVICE_FILE:-/etc/systemd/system/openplc-runtime.service}
+BOOTLOADER_SPEC=${OPENPLC_BOOTLOADER_SPEC:-/var/lib/openplc-bootloader/runtime-spec.json}
+OPENPLC_INSTALLER=${CANWORKS_OPENPLC_INSTALLER:-https://runtime.getedge.me}
+LOCAL_RUNTIME_URL=${CANWORKS_LOCAL_RUNTIME_URL:-https://127.0.0.1:8443/}
+RUNTIME_WAIT=${CANWORKS_RUNTIME_WAIT:-600}
 DEPS=1
 UNINSTALL=0
 PURGE=0
@@ -117,6 +129,7 @@ MODULES_LOAD=${CANWORKS_MODULES_LOAD_DIR:-/etc/modules-load.d}/canworks-j1939.co
 MODPROBE=${CANWORKS_MODPROBE:-modprobe}
 LINK_DIR=${CANWORKS_LINK_DIR:-/etc/canworks-link}
 LINK_NAME=""
+DISCOVERY=1
 INSTANCE=""
 CONFIG_DIR=""
 UPLOAD_DIR=""
@@ -159,13 +172,13 @@ while [ $# -gt 0 ]; do
         --config) need "$1" $#; CONFIG_DIR=$2; shift ;;
         # Internal: the device side of --ssh --config removes the uploaded folder.
         --remove-config-dir) UPLOAD_DIR=yes ;;
-        --prefix) need "$1" $#; PREFIX="$2"; PREFIX_GIVEN=1; PASS+=("$1" "$2"); shift ;;
-        --runtime-dir) need "$1" $#; RUNTIME_DIR="$2"; PASS+=("$1" "$2"); shift ;;
-        --runtime-ref) need "$1" $#; RUNTIME_REF="$2"; PASS+=("$1" "$2"); shift ;;
-        --runtime-sha256) need "$1" $#; RUNTIME_SHA256="$2"; PASS+=("$1" "$2"); shift ;;
+        --prefix) need "$1" $#; PREFIX="$2"; PASS+=("$1" "$2"); shift ;;
+        --with-openplc) WITH_OPENPLC=1; PASS+=("$1") ;;
+        --pinned-runtime) PINNED_RUNTIME=1; PASS+=("$1") ;;
         --lely-ref) need "$1" $#; LELY_REF="$2"; PASS+=("$1" "$2"); shift ;;
         --binary) need "$1" $#; BINARY="$2"; PASS+=("$1" "$2"); shift ;;
         --with-link) need "$1" $#; LINK_NAME="$2"; PASS+=("$1" "$2"); shift ;;
+        --without-discovery) DISCOVERY=0; PASS+=("$1") ;;
         --constraints) need "$1" $#; CONSTRAINTS="$2"; PASS+=("$1" "$2"); shift ;;
         --no-deps) DEPS=0; PASS+=("$1") ;;
         --without-canopen) WITH_CANOPEN=0; PASS+=("$1") ;;
@@ -288,7 +301,7 @@ release_install() {
     [ "$UNINSTALL" -eq 1 ] || [ -n "$CONSTRAINTS" ] ||
         fetch_release_constraints "$VERSION" "$SRC/tools/deploy/constraints.txt"
     # The source has no git history: the bridge reports the release's version.
-    CANWORKS_STEP_BASE=1 CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
+    CANWORKS_STEP_BASE=1 CANWORKS_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
 }
 
 # Runs the release's install on another device over SSH.
@@ -332,19 +345,6 @@ ssh_install() {
     exec ssh -t "${ssh_opts[@]+"${ssh_opts[@]}"}" "$SSH_TARGET" "$remote"
 }
 
-# A venv the host's Python cannot run: a prefix the OpenPLC runtime's Docker
-# container set up (install-stock.sh with a managed install), whose venv was
-# made by the container's Python.
-foreign_venv() {
-    local made runs
-    if [ ! -f "$1/venv/pyvenv.cfg" ] || [ ! -x "$1/venv/bin/python" ]; then
-        return 1
-    fi
-    made=$(sed -n 's/^version[_info]* *= *\([0-9]*\.[0-9]*\).*/\1/p' "$1/venv/pyvenv.cfg" | head -n1)
-    runs=$("$1/venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)
-    [ -n "$made" ] && [ "$made" != "$runs" ]
-}
-
 # The remote link is the bridge's when it serves a config of a bridge instance.
 link_is_ours() {
     local f=$LINK_DIR/link.json
@@ -383,28 +383,10 @@ checkout_install() {
 trap cleanup EXIT
 [ -z "$CONFIG_DIR" ] || config_files >/dev/null
 [ -n "$LELY_REF" ] || LELY_REF=$(cat "$REPO/tools/deploy/canworks/_lely_dcf/VERSION")
-PINNED_REF=$(cat "$REPO/docker/local-runtime/runtime-version")
-PINNED_SHA256=$(cat "$REPO/docker/local-runtime/runtime-sha256")
-[ -n "$RUNTIME_REF" ] || RUNTIME_REF=$PINNED_REF
-
-if [ "$PREFIX_GIVEN" -eq 0 ]; then
-    # The runtime's Docker container decides first: a bridge binary left in
-    # its prefix by an older install does not make the prefix the bridge's.
-    if foreign_venv "$PREFIX"; then
-        if [ -e "$FALLBACK_PREFIX/bin/canworks-bridge" ]; then
-            say "Using the bridge installed in $FALLBACK_PREFIX ($PREFIX belongs to the OpenPLC runtime's Docker container)"
-        else
-            say "$PREFIX belongs to the OpenPLC runtime's Docker container; installing the bridge into $FALLBACK_PREFIX"
-        fi
-        PREFIX=$FALLBACK_PREFIX
-    elif [ ! -e "$PREFIX/bin/canworks-bridge" ] && [ -e "$FALLBACK_PREFIX/bin/canworks-bridge" ]; then
-        PREFIX=$FALLBACK_PREFIX
-        say "Using the bridge installed in $PREFIX"
-    fi
-fi
 
 UNIT="$UNIT_DIR/canworks-bridge@.service"
 BIN="$PREFIX/bin/canworks-bridge"
+SIM="$PREFIX/bin/canworks-canopen-sim"
 
 if [ "$UNINSTALL" -eq 1 ]; then
     STEPS=1
@@ -413,18 +395,11 @@ if [ "$UNINSTALL" -eq 1 ]; then
         "$SYSTEMCTL" disable --now "$u" >/dev/null 2>&1 || true
         say "Stopped $u"
     done
-    rm -f "$UNIT" "$BIN"
-    # A prefix shared with the canworks plugin keeps the plugin's VERSION, and
-    # the plugin keeps loading can-j1939 at boot.
-    [ -e "$PREFIX/lib/libcanworks_plugin.so" ] || rm -f "$PREFIX/VERSION"
+    rm -f "$UNIT" "$BIN" "$SIM" "$PREFIX/VERSION"
     "$SYSTEMCTL" daemon-reload || true
-    if [ -e "$DEFAULT_PREFIX/lib/libcanworks_plugin.so" ]; then
-        say "Keeping $MODULES_LOAD (the canworks plugin uses can-j1939 too)"
-    else
-        rm -f "$MODULES_LOAD"
-    fi
+    rm -f "$MODULES_LOAD"
     if [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
-        # Installed for the runtime (install-stock.sh --with-link) or another config.
+        # Set up by hand for another config.
         say "The remote link serves another config and stays"
     elif [ -f "$UNIT_DIR/canworks-link.service" ]; then
         if [ "$PURGE" -eq 1 ]; then
@@ -449,15 +424,30 @@ fi
 # (those that this run takes).
 BUILD_LELY=0
 if [ "$WITH_CANOPEN" -eq 1 ] && { [ -z "$BINARY" ] || [ ! -x "$PREFIX/venv/bin/dcfgen" ]; }; then BUILD_LELY=1; fi
-# A remote link the runtime's install set up (or another config's) is not
-# repointed at a bridge: the PLC would lose it.
+# A remote link set up for another config is not repointed at a bridge.
 if [ -n "$LINK_NAME" ] && [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
     say "The remote link serves another config and stays; --with-link $LINK_NAME is skipped"
     LINK_NAME=""
 fi
-STEPS=$((DEPS + BUILD_LELY + 2))
+INSTALL_OPENPLC=0
+if [ "$WITH_OPENPLC" -eq 1 ] && ! have_runtime; then INSTALL_OPENPLC=1; fi
+# A runtime this run installs is on the pin already; a native one or one in
+# a container of its own is left as it is.
+SWITCH_RUNTIME=0
+if [ "$PINNED_RUNTIME" -eq 1 ] && [ "$INSTALL_OPENPLC" -eq 0 ]; then
+    if [ -f "$BOOTLOADER_SPEC" ]; then
+        SWITCH_RUNTIME=1
+    else
+        say "No managed Docker runtime here ($BOOTLOADER_SPEC): --pinned-runtime leaves the runtime as it is"
+    fi
+fi
+if [ "$INSTALL_OPENPLC" -eq 1 ] || [ "$SWITCH_RUNTIME" -eq 1 ]; then read_pins; fi
+STEPS=$((DEPS + BUILD_LELY + 2 + INSTALL_OPENPLC + SWITCH_RUNTIME))
 [ -z "$INSTANCE" ] || STEPS=$((STEPS + 1))
-[ -z "$LINK_NAME" ] || STEPS=$((STEPS + 1))
+# The advertisement names a config: the linked instance's, else this one's.
+ADVERTISE=""
+[ "$DISCOVERY" -eq 0 ] || ADVERTISE=${LINK_NAME:-$INSTANCE}
+{ [ -z "$LINK_NAME" ] && [ -z "$ADVERTISE" ]; } || STEPS=$((STEPS + 1))
 if [ "$DEPS" -eq 1 ]; then
     [ "$(id -u)" -eq 0 ] || die "run as root to install build dependencies (or pass --no-deps if they are installed)"
     next_step "Installing build tools"
@@ -466,12 +456,9 @@ if [ "$DEPS" -eq 1 ]; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
         build-essential cmake pkg-config autoconf automake libtool git curl python3 python3-venv libssl-dev >/dev/null
 fi
+[ "$INSTALL_OPENPLC" -eq 0 ] || install_openplc
+[ "$SWITCH_RUNTIME" -eq 0 ] || switch_runtime
 mkdir -p "$PREFIX/bin"
-# A prefix the OpenPLC runtime's Docker container set up: leave it to the
-# container (without --prefix the bridge already moved to its own prefix).
-if foreign_venv "$PREFIX"; then
-    die "$PREFIX/venv was made by another Python (a prefix the runtime's Docker container uses?); install the bridge into its own prefix: --prefix $FALLBACK_PREFIX"
-fi
 if [ "$WITH_CANOPEN" -eq 1 ]; then
     if [ "$BUILD_LELY" -eq 1 ]; then
         next_step "Building Lely CANopen and dcfgen"
@@ -491,46 +478,29 @@ if [ -n "$BINARY" ]; then
 else
     pkg-config --atleast-version=3 openssl 2>/dev/null ||
         die "OpenSSL 3 development files are missing: apt-get install libssl-dev"
-    if [ -z "$RUNTIME_DIR" ]; then
-        RUNTIME_DIR="$PREFIX/src/openplc-runtime"
-        if [ -z "$RUNTIME_SHA256" ]; then
-            [ "$RUNTIME_REF" = "$PINNED_REF" ] ||
-                die "--runtime-ref $RUNTIME_REF needs the sha256 of its archive (--runtime-sha256), or use --runtime-dir"
-            RUNTIME_SHA256=$PINNED_SHA256
-        fi
-        say "Fetching the OpenPLC runtime's plugin headers ($RUNTIME_REF)"
-        ARCHIVE=$(mktemp)
-        curl -fsSL -o "$ARCHIVE" "$RUNTIME_URL/$RUNTIME_REF.tar.gz" ||
-            { rm -f "$ARCHIVE"; die "cannot download the OpenPLC runtime $RUNTIME_REF"; }
-        got=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
-        if [ "$got" != "$RUNTIME_SHA256" ]; then
-            rm -f "$ARCHIVE"
-            die "the OpenPLC runtime archive $RUNTIME_REF has sha256 $got, expected $RUNTIME_SHA256; not building against it"
-        fi
-        rm -rf "$RUNTIME_DIR"
-        mkdir -p "$RUNTIME_DIR"
-        tar xzf "$ARCHIVE" -C "$RUNTIME_DIR" --strip-components=1
-        rm -f "$ARCHIVE"
-    fi
-    [ -f "$RUNTIME_DIR/core/src/drivers/plugin_types.h" ] ||
-        die "$RUNTIME_DIR is not an OpenPLC runtime v4 checkout (no core/src/drivers/plugin_types.h)"
     BUILD_DIR=$(mktemp -d)
     on_off() { if [ "$1" -eq 1 ]; then echo ON; else echo OFF; fi; }
     say "Building canworks-bridge"
-    cmake -S "$REPO" -B "$BUILD_DIR" -DOPENPLC_ROOT="$RUNTIME_DIR" -DCANWORKS_BUILD_TESTS=OFF \
+    cmake -S "$REPO" -B "$BUILD_DIR" -DCANWORKS_BUILD_TESTS=OFF \
         -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
         -DLELY_PREFIX="$PREFIX/lely" -DCANWORKS_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
-    cmake --build "$BUILD_DIR" --target canworks-bridge -j"$(nproc)" >/dev/null
+    # The CANopen simulator (docs/simulator.md) comes with a CANopen build.
+    targets=(canworks-bridge)
+    [ "$WITH_CANOPEN" -eq 0 ] || targets+=(canworks-canopen-sim)
+    cmake --build "$BUILD_DIR" --target "${targets[@]}" -j"$(nproc)" >/dev/null
     install -m 0755 "$BUILD_DIR/bin/canworks-bridge" "$BIN.new"
+    if [ "$WITH_CANOPEN" -eq 1 ]; then
+        install -m 0755 "$BUILD_DIR/bin/canworks-canopen-sim" "$SIM"
+        say "Installed $SIM"
+    fi
 fi
 # Bridges running the old binary get the new one once the unit is in place.
 ACTIVE=$("$SYSTEMCTL" list-units --state=active --plain --no-legend 'canworks-bridge@*' 2>/dev/null | awk '{print $1}' || true)
 mv -f "$BIN.new" "$BIN"
 say "Installed $BIN"
 # The installed version, for the configurator's device probe: the release's,
-# else git describe, else what git archive wrote into scripts/SOURCE_VERSION
-# (as in install-stock.sh).
-v=${CANWORKS_PLUGIN_VERSION:-}
+# else git describe, else what git archive wrote into scripts/SOURCE_VERSION.
+v=${CANWORKS_VERSION:-}
 [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || true)
 if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
     s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")
@@ -586,9 +556,22 @@ if [ -n "$INSTANCE" ]; then
     install_instance
 fi
 
+# The runtime's port goes into the advertisement when a runtime is here.
+RT_PORT=none
+! have_runtime || RT_PORT=8443
 if [ -n "$LINK_NAME" ]; then
     next_step "Setting up discovery and the remote link"
-    "$REPO/scripts/install-link.sh" --config "$CONF_DIR/$LINK_NAME/canworks.json" --runtime-port none
+    if [ "$DISCOVERY" -eq 1 ]; then
+        "$REPO/scripts/install-link.sh" --config "$CONF_DIR/$LINK_NAME/canworks.json" --runtime-port "$RT_PORT"
+    else
+        "$REPO/scripts/install-link.sh" --config "$CONF_DIR/$LINK_NAME/canworks.json" --runtime-port "$RT_PORT" \
+            --without-discovery
+    fi
+elif [ -n "$ADVERTISE" ]; then
+    next_step "Advertising the bridge on the local network"
+    "$REPO/scripts/install-link.sh" --discovery-only --config "$CONF_DIR/$ADVERTISE/canworks.json" --runtime-port "$RT_PORT"
+elif [ -n "$INSTANCE" ] && [ -z "$LINK_NAME" ]; then
+    "$REPO/scripts/install-link.sh" --remove-discovery
 fi
 
 cat <<EOF
@@ -598,8 +581,64 @@ canworks-bridge is installed. For each bridge:
      Check it with: $BIN --config $CONF_DIR/NAME/canworks.json --check-only
   2. Start it now and at every boot:  systemctl enable --now canworks-bridge@NAME
   3. Its log:                         journalctl -u canworks-bridge@NAME
-Do not run the OpenPLC plugin and a bridge on the same CAN interface.
+One CAN interface belongs to one bridge.
 EOF
+}
+
+# --- The OpenPLC runtime ---------------------------------------------------------
+
+# Is there an OpenPLC runtime: native service, managed Docker or a container?
+have_runtime() {
+    [ -f "$SERVICE_FILE" ] || [ -f "$BOOTLOADER_SPEC" ] && return 0
+    command -v docker >/dev/null 2>&1 &&
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'openplc-runtime\|openplc-bootloader'
+}
+
+# The runtime and bootloader this source is pinned to (canopen-ci "One
+# runtime pin") into PIN_RT and PIN_BL.
+read_pins() {
+    PIN_RT=${CANWORKS_RUNTIME_VERSION:-$(sed -n 1p "$REPO/docker/local-runtime/runtime-version" 2>/dev/null || true)}
+    PIN_BL=${CANWORKS_BOOTLOADER_VERSION:-$(sed -n 1p "$REPO/docker/local-runtime/bootloader-version" 2>/dev/null || true)}
+    [[ $PIN_RT =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "this source names no pinned OpenPLC runtime version"
+    [[ $PIN_BL =~ ^[A-Za-z0-9._-]+$ ]] || die "this source names no pinned OpenPLC bootloader version"
+}
+
+# --with-openplc on a device without a runtime: upstream's installer at the pins.
+install_openplc() {
+    local waited=0
+    next_step "Installing OpenPLC runtime $PIN_RT (upstream's installer, with Docker)"
+    say "No OpenPLC runtime found: installing OpenPLC runtime $PIN_RT with $OPENPLC_INSTALLER"
+    curl -fsSL "$OPENPLC_INSTALLER" | bash -s -- --runtime-version "$PIN_RT" --bootloader-version "$PIN_BL" ||
+        die "the OpenPLC runtime install failed (see above); the bridge was not installed"
+    say "Waiting for the runtime to answer at $LOCAL_RUNTIME_URL"
+    until [ "$(curl -ks -o /dev/null -w '%{http_code}' "$LOCAL_RUNTIME_URL" 2>/dev/null || true)" != 000 ]; do
+        [ "$waited" -lt "$RUNTIME_WAIT" ] ||
+            die "the OpenPLC runtime did not answer at $LOCAL_RUNTIME_URL within $RUNTIME_WAIT s; the bridge was not installed"
+        sleep 5
+        waited=$((waited + 5))
+    done
+}
+
+# --pinned-runtime: the managed Docker runtime on the pinned version. The image
+# is pulled before anything changes; the bootloader recreates the runtime
+# container from the spec.
+switch_runtime() {
+    local spec_tool=(python3 "$REPO/scripts/docker_spec.py") image
+    next_step "Putting the runtime on OpenPLC runtime $PIN_RT (the PLC stops and comes back without a program)"
+    command -v docker >/dev/null 2>&1 || die "docker not found, but $BOOTLOADER_SPEC exists"
+    if [ "$("${spec_tool[@]}" version "$BOOTLOADER_SPEC")" = "$PIN_RT" ]; then
+        say "The runtime is on $PIN_RT already"
+        return 0
+    fi
+    image=$("${spec_tool[@]}" image "$BOOTLOADER_SPEC") || die "cannot read $BOOTLOADER_SPEC; nothing was changed"
+    image="${image%:*}:$PIN_RT"
+    say "Pulling $image"
+    docker pull "$image" >/dev/null || die "the device cannot download OpenPLC runtime $PIN_RT ($image); nothing was changed"
+    "${spec_tool[@]}" set-version "$BOOTLOADER_SPEC" "$PIN_RT" || die "could not update $BOOTLOADER_SPEC"
+    docker rm -f openplc-runtime >/dev/null 2>&1 || true
+    docker restart openplc-bootloader >/dev/null ||
+        die "could not restart openplc-bootloader; run: docker restart openplc-bootloader"
+    say "The runtime container is recreated on $PIN_RT; upload the program again"
 }
 
 # --instance NAME --config DIR: check the config where it is, then copy it and

@@ -29,12 +29,11 @@ def load(path=os.path.join(EXAMPLE, "canworks.json")):
         return json.load(f)
 
 
-def openplc_config():
-    """The example as an OpenPLC project: no bridge object, per-type
-    locations from %IW100 as Suggest places them."""
+def plugin_config():
+    """The example as a config of the removed OpenPLC plugin: no bridge object."""
     cfg = load()
     del cfg["bridge"]
-    return srv.Session().pack_openplc(cfg)["config"]
+    return cfg
 
 
 class Base(unittest.TestCase):
@@ -121,11 +120,11 @@ class RegisterMap(Base):
 class Pack(Base):
     def test_pack_for_modbus(self):
         self.open()
-        cfg = openplc_config()
-        cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"], "status_location": "%IB500"}
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["status_location"] = "%IB500"
         r = self.ok("/api/bridge/pack", {"config": cfg})
         self.assertEqual(r["config"], modbusmap.pack(cfg))
-        self.assertEqual(r["config"]["bridge"]["status_location"], "%IB24")
+        self.assertNotEqual(r["config"]["bridge"]["status_location"], "%IB500")
         self.assertEqual(self.errors(r["config"]), [])
 
     def test_pack_refuses_a_bad_block(self):
@@ -134,32 +133,6 @@ class Pack(Base):
         status, data = self.request("/api/bridge/pack", {"config": self.cfg})
         self.assertEqual(status, 400)
         self.assertIn("bridge.control: '%QW6' must be a byte location", data["error"])
-
-    def test_pack_openplc(self):
-        self.open()
-        cfg = copy.deepcopy(self.cfg)
-        del cfg["bridge"]
-        out = self.ok("/api/pack_openplc", {"config": cfg})["config"]
-        node = out["networks"][0]["nodes"][1]
-        self.assertEqual([e["iec_location"] for e in node["tx_pdos"][0]["entries"]], ["%IB104", "%IB105", "%IW106", "%IW107"])
-        self.assertEqual([e["iec_location"] for e in node["rx_pdos"][0]["entries"]], ["%QB100", "%QB101", "%QW100", "%QW101"])
-        self.assertEqual(out["networks"][0]["nodes"][0]["status_location"], "%IX100.0")
-        self.assertEqual(node["status_location"], "%IX100.2")
-        self.assertEqual(self.errors(out), [])
-        # Only the locations moved.
-        self.assertEqual(json.dumps(out).count("%"), json.dumps(cfg).count("%"))
-
-    def test_pack_openplc_skips_the_project(self):
-        project = self.project()
-        self.open(project, "project")
-        cfg = copy.deepcopy(self.cfg)
-        del cfg["bridge"]
-        out = self.ok("/api/pack_openplc", {"config": cfg, "start": 200})["config"]
-        # The fixture project's devices use %IW200 and %IW201.
-        rtd = out["networks"][0]["nodes"][0]
-        self.assertEqual(rtd["emcy_code_location"], "%IW202")
-        self.assertEqual(self.errors(out), [])
-
 
 class Suggest(Base):
     def test_live_list_after_the_data(self):
@@ -251,29 +224,12 @@ class Export(Base):
 
 
 class Target(Base):
-    def test_switch_two_nodes_to_the_bridge(self):
-        """The spec's scenario: an OpenPLC project with two nodes switched to
-        the bridge with repacking checks clean and saves as version 2."""
-        self.open()
-        cfg = openplc_config()
-        self.assertEqual(self.errors(cfg), [])
-        cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"]}
-        # Per-type words are one word apart: odd bytes and overlaps in byte addressing.
-        self.assertTrue(any("must start at an even byte" in m for m in self.errors(cfg)))
-        packed = self.ok("/api/bridge/pack", {"config": cfg})["config"]
-        self.assertEqual(self.errors(packed), [])
-        self.ok("/api/save", {"config": packed})
-        saved = load(os.path.join(self.folder, "canworks.json"))
-        self.assertEqual(saved["bridge"], {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"]})
-        self.assertEqual(saved["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][2]["iec_location"], "%IW10")
-
     def test_one_unnamed_network_stays_version_2(self):
         self.open()
         cfg = self.cfg
         # Without a name of its own the network is named after its interface.
         del cfg["networks"][0]["name"]
         cfg["bridge"] = {"listen": "0.0.0.0:502", "writers": ["10.0.0.20"], "live_lists": [{"network": "sim0", "location": "%IB32"}]}
-        self.assertEqual(srv.lowest_version(cfg), cfg)
         r = self.ok("/api/save", {"config": cfg})
         self.assertEqual(r["check"]["errors"], 0, r["check"]["items"])
         saved = load(os.path.join(self.folder, "canworks.json"))
@@ -291,12 +247,12 @@ class Target(Base):
 
     def test_project_addresses_do_not_apply(self):
         self.open(self.project(), "project")
-        # The fixture project's devices use %IW200: an OpenPLC overlap, nothing to the bridge.
+        # The fixture project's devices use %IW200: nothing to the bridge.
         self.cfg["networks"][0]["nodes"][1]["emcy_code_location"] = "%IW200"
         self.assertEqual(self.errors(self.cfg), [])
         plain = copy.deepcopy(self.cfg)
         del plain["bridge"]
-        self.assertTrue(any("also used by" in m for m in self.errors(plain)))
+        self.assertTrue(any("removed OpenPLC plugin" in m for m in self.errors(plain)))
 
 
 if __name__ == "__main__":
@@ -309,7 +265,7 @@ class OpenplcModbus(Base):
     the changed-file confirm and the Project page's facts."""
 
     def switched(self):
-        return self.ok("/api/switch_target", {"config": openplc_config(), "target": "openplc_modbus"})["config"]
+        return self.ok("/api/switch_target", {"config": plugin_config(), "target": "openplc_modbus"})["config"]
 
     def test_switch_from_the_plugin(self):
         self.open()

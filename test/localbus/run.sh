@@ -12,10 +12,10 @@
 #    compare (one difference after a write), restore, lss-find and
 #    lss-set-id (the device gets node ID 7, no LSS store sent), and a trace
 #    exported to pcapng.
-# 2. The real libcanworks_plugin.so in canopen_host on the same bus with the
-#    diagnostics channel: scan and sdo-read through the plugin and through
+# 2. The canworks engine in canopen_host on the same bus with the
+#    diagnostics channel: scan and sdo-read through the engine and through
 #    the adapter give the same identity fields (parity), the adapter's status
-#    shows another master (the plugin's SYNC), and lss-find is refused
+#    shows another master (the engine's SYNC), and lss-find is refused
 #    without --force.
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh),
@@ -38,11 +38,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SENSOR="$BUILD/test/sensor_slave"
 LSS="$BUILD/test/lss_slave"
-for f in "$PLUGIN" "$HOST" "$SENSOR" "$LSS"; do
+for f in "$HOST" "$SENSOR" "$LSS"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -77,9 +76,10 @@ python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.js
 import json, os, sys
 from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
-cfg["adapter"]["interface"] = sys.argv[3]
-cfg["adapter"]["configure_link"] = False
-cfg["master"]["diagnostics"] = {
+net = cfg["networks"][0]
+net["adapter"]["interface"] = sys.argv[3]
+net["adapter"]["configure_link"] = False
+cfg["diagnostics"] = {
     "token_verifier": token_verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1"}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
@@ -136,8 +136,8 @@ if [ -f "$WORK/lss.log" ]; then
     if grep -q "7E5#17" "$WORK/lss.log"; then fail "LSS store was sent without --store"; fi
 fi
 
-echo "==> 2. With the plugin as master on the same bus"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
+echo "==> 2. With the engine as master on the same bus"
+"$HOST" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 40); do
     if "${REMOTE[@]}" --json status 2>/dev/null |
@@ -146,8 +146,8 @@ for _ in $(seq 1 40); do
     fi
     sleep 0.5
 done
-# Node 5 is OPERATIONAL under the plugin: both scans need --force.
-"${REMOTE[@]}" --json scan --force > scan-plugin.json || fail "scan through the plugin"
+# Node 5 is OPERATIONAL under the engine: both scans need --force.
+"${REMOTE[@]}" --json scan --force > scan-plugin.json || fail "scan through the engine"
 "${LOCAL[@]}" --json scan --force --config canopen_config.json > scan-local.json || fail "scan through the adapter"
 python3 - <<'PY' || fail "scan results differ"
 import json
@@ -161,12 +161,12 @@ for nid in (5, 7):
         assert a.get(k) == b.get(k), "node %d %s: plugin %r, adapter %r" % (nid, k, a.get(k), b.get(k))
 print("scan parity: nodes 5 and 7 identical")
 PY
-"${REMOTE[@]}" --json sdo-read 5 0x1018 2 > read-plugin.json || fail "sdo-read through the plugin"
+"${REMOTE[@]}" --json sdo-read 5 0x1018 2 > read-plugin.json || fail "sdo-read through the engine"
 "${LOCAL[@]}" --json sdo-read 5 0x1018 2 > read-local.json || fail "sdo-read through the adapter"
 python3 -c 'import json; a, b = (json.load(open(f)) for f in ("read-plugin.json", "read-local.json")); assert (a["data"], a["size"]) == (b["data"], b["size"]), (a, b); print("sdo-read parity")' \
     || fail "sdo-read results differ"
 "${LOCAL[@]}" status | tee status2.txt
-grep -q "another master is active on this bus" status2.txt || fail "the plugin's SYNC was not seen as another master"
+grep -q "another master is active on this bus" status2.txt || fail "the engine's SYNC was not seen as another master"
 if "${CHANGE[@]}" lss-find 2> refused2.txt; then fail "lss-find ran while another master is active"; fi
 grep -q "another master is active" refused2.txt || fail "lss-find refusal reason"
 echo "PASS"

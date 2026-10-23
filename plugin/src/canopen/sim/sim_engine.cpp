@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 
 #include "cJSON.h"
-#include "sim_drive.h"
 #include "sim_expr.h"
 #include "sim_od.h"
 #include "sim_source.h"
@@ -165,13 +164,6 @@ struct Simulator::Dev {
   };
   std::map<ObjKey, Hold> sets;
 
-  bool has_drive = false;
-  DriveSettings drive_settings;
-  std::unique_ptr<DriveIoImpl> drive_io;
-  std::unique_ptr<DriveModel> drive;
-  std::set<ObjKey> drive_outputs;
-  DriveInputs inputs;
-
   // Fault settings; they last across power cycles until cleared.
   std::vector<SdoRule> rules;
   std::set<unsigned> stopped_tpdos;
@@ -188,32 +180,6 @@ struct Simulator::Dev {
   Clock::time_point emcy_next;
   // Active faults for status: key -> fault JSON.
   std::map<std::string, std::string> active;
-};
-
-class Simulator::DriveIoImpl : public DriveIo {
- public:
-  DriveIoImpl(Simulator& s, Dev& d) : s_(s), d_(d) {}
-  bool has(uint16_t index, uint8_t subindex) const override {
-    return d_.objects.count(ObjKey{index, subindex}) > 0;
-  }
-  double read(uint16_t index, uint8_t subindex) const override {
-    return d_.dev ? od_number(d_.dev->od(), index, subindex) : 0;
-  }
-  void write(uint16_t index, uint8_t subindex, double value) override {
-    s_.Write(d_, ObjKey{index, subindex}, Value::number(value), 1);
-  }
-  void emcy(uint16_t code, uint8_t error_register) override {
-    if (!d_.dev) return;
-    uint8_t msef[5] = {};
-    d_.dev->SendEmcy(code, error_register, msef);
-  }
-  void emcy_reset() override {
-    if (d_.dev) d_.dev->ClearEmcy();
-  }
-
- private:
-  Simulator& s_;
-  Dev& d_;
 };
 
 class Simulator::Resolver : public ExprResolver {
@@ -393,13 +359,6 @@ bool Simulator::Start(std::vector<std::string>& errors) {
     if (!slot) slot = std::make_shared<StoredState>();
     d.store = slot;
     LoadPersisted(d);
-    if (d.spec.behaviour.has_drive) {
-      cJSON* j = cJSON_Parse(d.spec.behaviour.drive_json.c_str());
-      std::string err;
-      if (!parse_drive_settings(j, d.drive_settings, err)) errors.push_back(d.label + ": drive: " + err);
-      cJSON_Delete(j);
-    }
-    d.inputs = DriveInputs();
     // A node ID stored over LSS counts as well: the device would boot with it.
     d.taken = d.spec.conflict || (d.spec.node && opt_.taken.count(d.spec.node)) ||
               (d.store->lss_id && opt_.taken.count(d.store->lss_id));
@@ -488,7 +447,6 @@ void Simulator::Stop() {
   }
   for (auto& d : devs_) {
     if (d->dev) d->dev->powered = false;
-    d->drive.reset();
     d->dev.reset();
     d->chan.reset();
     d->timer.reset();
@@ -580,17 +538,6 @@ void Simulator::PowerOn(Dev& d) {
       d.defaults[k] = std::move(slot);
     }
   }
-  d.drive.reset();
-  d.drive_outputs.clear();
-  d.has_drive = (defaults && d.profile == 402) || d.spec.behaviour.has_drive;
-  if (d.has_drive) {
-    d.drive_io.reset(new DriveIoImpl(*this, d));
-    d.drive.reset(new DriveModel(*d.drive_io, d.drive_settings));
-    d.drive->inputs = d.inputs;
-    for (const auto& o : d.drive->outputs()) d.drive_outputs.insert(ObjKey{o.first, o.second});
-    DriveModel* dm = d.drive.get();
-    dev.on_sync = [dm]() { dm->sync(); };
-  }
 
   Clock::time_point now = Clock::now();
   d.power_on_at = now;
@@ -614,12 +561,6 @@ void Simulator::PowerOn(Dev& d) {
     });
   }
   dev.Reset();
-  if (d.drive) {
-    d.drive->power_on();
-    // NMT reset node restarts the drive's application, as on a real drive.
-    DriveModel* dm = d.drive.get();
-    dev.on_reset_node = [dm]() { dm->power_on(); };
-  }
   Log(Host::Level::Info, d.label + ": powered on (" + basename_of(d.spec.eds_path) +
                              (id == 0xFF ? ", no node ID, waiting for LSS" : "") + ")");
 }
@@ -628,7 +569,6 @@ void Simulator::PowerOff(Dev& d, const std::string& why) {
   if (!d.powered) return;
   d.powered = false;
   if (d.dev) d.dev->powered = false;
-  d.drive.reset();
   d.dev.reset();
   d.chan.reset();
   d.timer.reset();
@@ -659,7 +599,6 @@ void Simulator::ApplyFaultSettings(Dev& d) {
 int Simulator::Owner(const Dev& d, const ObjKey& k) const {
   if (d.overrides.count(k)) return 4;
   if (d.sources.count(k)) return 2;
-  if (d.drive && d.drive_outputs.count(k)) return 1;
   return 0;
 }
 
@@ -889,7 +828,6 @@ void Simulator::TickDevice(Dev& d, Clock::time_point now, double dt) {
     if (!v.is_string && !std::isfinite(v.num)) continue;
     Write(d, s.key, v, 0);
   }
-  if (d.drive) d.drive->step(dt);
 }
 
 void Simulator::RunSources(Clock::time_point now, bool rpdo) {
@@ -999,17 +937,9 @@ bool Simulator::ApplyFault(Dev& d, const Fault& f, std::string& err) {
   } else if (k == "device_type") {
     d.has_fault_device_type = true;
     d.fault_device_type = f.value;
-  } else if (k == "drive_input") {
-    for (const auto& kv : f.inputs) {
-      if (kv.first == "blocked") d.inputs.blocked = kv.second;
-      if (kv.first == "positive_limit") d.inputs.positive_limit = kv.second;
-      if (kv.first == "negative_limit") d.inputs.negative_limit = kv.second;
-      if (kv.first == "home_switch") d.inputs.home_switch = kv.second;
-    }
-    if (d.drive) d.drive->inputs = d.inputs;
   }
   bool setting = k == "heartbeat" || k == "sdo_abort" || k == "sdo_delay" || k == "refuse_write_operational" ||
-                 k == "tpdo_stop" || k == "identity" || k == "device_type" || k == "drive_input";
+                 k == "tpdo_stop" || k == "identity" || k == "device_type";
   if (setting) {
     if (k != "sdo_abort" && k != "tpdo_stop") d.active[k] = f.json;
     if (d.dev) ApplyFaultSettings(d);
@@ -1120,11 +1050,6 @@ bool Simulator::ClearFault(Dev& d, const std::string& name, const cJSON* req, st
     restore_type = d.has_fault_device_type;
     d.has_fault_device_type = false;
     d.active.erase("device_type");
-  }
-  if (all || name == "drive_input") {
-    d.inputs = DriveInputs();
-    if (d.drive) d.drive->inputs = d.inputs;
-    d.active.erase("drive_input");
   }
   if (d.dev) {
     if (restore_identity)
@@ -1471,8 +1396,6 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
       cJSON_AddStringToObject(o, "power", d.powered ? "on" : "off");
       cJSON_AddStringToObject(o, "nmt", d.dev ? nmt_name(d.dev->nmt_state()).c_str() : "off");
       cJSON_AddBoolToObject(o, "conflict", d.taken);
-      cJSON_AddBoolToObject(o, "drive", d.drive != nullptr);
-      if (d.drive) cJSON_AddNumberToObject(o, "oversized_steps", static_cast<double>(d.drive->oversized_steps()));
       cJSON* fa = cJSON_AddArrayToObject(o, "faults");
       for (const auto& kv : d.active) {
         cJSON* j = cJSON_Parse(kv.second.c_str());
@@ -1514,7 +1437,7 @@ std::string Simulator::Handle(const cJSON* req, const std::string& id, const std
         cJSON_AddStringToObject(o, "type", od_type_name(d->dev->od(), k.index, k.subindex).c_str());
         cJSON_AddStringToObject(o, "access", od_access(d->dev->od(), k.index, k.subindex).c_str());
         int owner = Owner(*d, k);
-        const char* w = owner == 4 ? "override" : owner == 2 ? "source" : owner == 1 ? "drive" : nullptr;
+        const char* w = owner == 4 ? "override" : owner == 2 ? "source" : nullptr;
         if (d->sets.count(k) && owner < 4) w = "set";
         if (w) cJSON_AddStringToObject(o, "writer", w);
       }

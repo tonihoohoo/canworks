@@ -12,7 +12,7 @@ Which CiA standards canworks follows, which parts the Lely CANopen stack does an
 | CiA 305 | LSS | Master and slave, Lely's services ([config.md](config.md), [slave.md](slave.md)). |
 | CiA 306 | EDS and DCF files | Reads vendor EDS files; writes the slave EDS and DCF exports, checked against CiA 306 ([below](#files-cia-306)). |
 | CiA 309-1/-3 | ASCII gateway over TCP | Lely's text layer, canworks' own service handling ([cia309-gateway.md](cia309-gateway.md)). |
-| CiA 401, 402, 404 | Device profiles | Used through their objects (simulated devices, the CiA 402 axis library); canworks has no profile conformance of its own. |
+| CiA 401, 402, 404 | Device profiles | Used through their objects (simulated devices); canworks has no profile conformance of its own. |
 | CiA 302-4, -6, -7 | Network variables, redundancy, multi-level networking | Not implemented. |
 
 ## Master (CiA 301 and CiA 302)
@@ -23,7 +23,7 @@ Done by canworks, as CiA 301 says:
 
 - The PDO mapping order: COB-ID invalid, count 0, entries, count, COB-ID valid. Inhibit time, event timer and SYNC start are written while the PDO is off.
 - The EMCY consumer covers every node ID 1-127, and an EMCY COB-ID change goes through "invalid" first.
-- SYNC from the PLC cycle and the TIME producer are sent by canworks itself. Neither is sent while the master is NMT STOPPED, and the SYNC counter starts again at 1 when the master resets communication.
+- SYNC and the TIME producer are sent by canworks itself. Neither is sent while the master is NMT STOPPED, and the SYNC counter starts again at 1 when the master resets communication.
 - The configuration check stamp in 0x1020 stays inside CiA 301's ranges (days since 1984 and milliseconds after midnight), although it is a hash, not a real date ([config.md](config.md#configuration-check)).
 
 ### Departures from CiA 302-2
@@ -35,7 +35,7 @@ These are deliberate, so the PLC keeps control of its network:
 | Starting nodes | "Start all nodes" is one broadcast. | A node the program or an operator holds STOPPED or PRE-OPERATIONAL is not started; the others get their own START. | A held node must stay held ([config.md](config.md)). |
 | Missing mandatory node | Boot-up halts. | The master keeps retrying and starts once every mandatory node has booted. | The machine recovers without a restart. |
 | Boot retries | Left to the application. | Backoff retries; RESET NODE after status L or J; a node that leaves OPERATIONAL is booted again. | Unattended recovery. |
-| Configuration manager (302-3) | Concise DCFs in 0x1F22, 0x1F20/0x1F25. | The plugin downloads the same values itself, one SDO at a time; 0x1F20, 0x1F21, 0x1F25 are not supported. | One download path with logging per write. |
+| Configuration manager (302-3) | Concise DCFs in 0x1F22, 0x1F20/0x1F25. | canworks downloads the same values itself, one SDO at a time; 0x1F20, 0x1F21, 0x1F25 are not supported. | One download path with logging per write. |
 | Saving on the device | Optional. | 0x1010 "save" only with `store_configuration` and `config_check`, never automatic. | Device memory is written only when the user asks. |
 | Master TPDOs | Valid from the start. | Off until their node is up. | No output frames to a node that is not there. |
 
@@ -64,9 +64,9 @@ Lely's text layer parses commands and formats answers. Not served (`ERROR: 100`)
 canworks writes two kinds of file:
 
 - The slave EDS ([slave.md](slave.md)): every key CiA 306 lists in `[FileInfo]` and `[DeviceInfo]`, the standard objects with their CiA 301 names and defaults, printable ASCII, REAL values as decimal numbers.
-- DCF exports ([deploy.md](deploy.md#export-the-nodes-as-dcf-files)): the node's EDS with ParameterValue, `[DeviceComissioning]` and file information added. REAL values are written as decimal numbers; the rest of the file is the vendor's EDS as the plugin reads it.
+- DCF exports ([deploy.md](deploy.md#export-the-nodes-as-dcf-files)): the node's EDS with ParameterValue, `[DeviceComissioning]` and file information added. REAL values are written as decimal numbers; the rest of the file is the vendor's EDS as canworks reads it.
 
-The plugin reads vendor EDS files more leniently than CiA 306 asks (`eds_lint`, [config.md](config.md)), because real devices ship imperfect files.
+canworks reads vendor EDS files more leniently than CiA 306 asks (`eds_lint`, [config.md](config.md)), because real devices ship imperfect files.
 
 ## How conformance is checked
 

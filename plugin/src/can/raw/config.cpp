@@ -165,7 +165,7 @@ bool parse_signals(const cJSON* list, const std::string& path, IecArea area, uns
       sig.has_loc = false;
       // An empty mode: `pages` itself was wrong (reported there).
       if (o.get("iec_location") && *switch_mode)
-        errors.push_back(at(p, "iec_location") + ": the plugin sets switch " + label + " when pages is \"" +
+        errors.push_back(at(p, "iec_location") + ": canworks sets switch " + label + " when pages is \"" +
                          switch_mode + "\"; leave it out");
     } else if (o.text("iec_location", t)) {
       std::string err;
@@ -266,14 +266,6 @@ bool parse_raw(const cJSON* raw, const std::string& path, bool listen_only, RawC
   Obj top{raw, path, errors, warnings, {}};
   top.text("dbc", out.dbc);
   top.flag("program_override_protocol", out.program_override_protocol);
-  uint64_t wd = 0;
-  if (top.uint("scan_watchdog_ms", 0, 60000, wd)) {
-    out.has_scan_watchdog = true;
-    if (wd != 0 && wd < 10)
-      errors.push_back(at(path, "scan_watchdog_ms") + ": must be 0 or 10-60000: " + std::to_string(wd));
-    else
-      out.scan_watchdog_ms = static_cast<unsigned>(wd);
-  }
 
   const cJSON* rx = top.get("rx");
   if (rx && !cJSON_IsArray(rx)) errors.push_back(at(path, "rx") + ": must be a list");

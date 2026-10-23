@@ -1,5 +1,5 @@
 """Checks of a network's `raw` object (spec can-raw-messages), with the same
-messages as the plugin (plugin/src/can/raw/config.cpp). Both run
+messages as the bridge (plugin/src/can/raw/config.cpp). Both run
 test/fixtures/config/cases-raw.json."""
 
 from ..iec import parse_location
@@ -112,7 +112,7 @@ class _Obj:
 
 def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings, switch_mode=None):
     """The signals at `path` as dicts, and their mux.Layout. `switch_mode`:
-    the pages mode of a send entry whose switches the plugin sets ("all" or
+    the pages mode of a send entry whose switches the bridge sets ("all" or
     "rotate"; "" when `pages` itself was wrong), else None."""
     out = []
     if lst is None:
@@ -143,9 +143,9 @@ def _signals(lst, path, area, frame_bytes, dlc_given, errors, warnings, switch_m
         label = name or p
         loc = None
         if is_switch and switch_mode is not None:
-            # The plugin sets the switch; an empty mode was reported at `pages`.
+            # The bridge sets the switch; an empty mode was reported at `pages`.
             if "iec_location" in s and switch_mode:
-                errors.append('%s.iec_location: the plugin sets switch %s when pages is "%s"; leave it out'
+                errors.append('%s.iec_location: canworks sets switch %s when pages is "%s"; leave it out'
                               % (p, label, switch_mode))
         else:
             t = o.text("iec_location")
@@ -200,12 +200,9 @@ def check_raw(raw, path, listen_only=False, protocol_use=None):
         return errors, warnings, overrides
     if not isinstance(raw, dict):
         return ["%s: must be an object" % path], warnings, overrides
-    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "scan_watchdog_ms", "rx", "tx"))
+    top = _Obj(raw, path, errors, warnings, ("dbc", "program_override_protocol", "rx", "tx"))
     top.text("dbc")
     top.flag("program_override_protocol")
-    wd = top.uint("scan_watchdog_ms", 0, 60000)
-    if wd is not None and 0 < wd < 10:
-        errors.append("%s.scan_watchdog_ms: must be 0 or 10-60000: %d" % (path, wd))
     rx = raw.get("rx")
     if rx is not None and not isinstance(rx, list):
         errors.append("%s.rx: must be a list" % path)

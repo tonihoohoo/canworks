@@ -1,7 +1,7 @@
-// host_requests.h - what a host other than the PLC program asks of the
-// CANopen master networks, and what it reads back: NMT commands from the
-// Modbus bridge's control block, and each network's operational nodes for
-// its live list (modbus-bridge spec). The OpenPLC plugin never uses it.
+// host_requests.h - what the host asks of the CANopen master networks, and
+// what it reads back: NMT commands from the Modbus bridge's control block,
+// and each network's operational nodes for its live list (modbus-bridge
+// spec).
 
 #ifndef CANWORKS_HOST_REQUESTS_H
 #define CANWORKS_HOST_REQUESTS_H

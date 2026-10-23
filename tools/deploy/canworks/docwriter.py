@@ -497,7 +497,7 @@ def _links(net):
                      consumers, reads, E(l["on_plc_stop"])])
     return ('<h3 id="%s-links">PDO links</h3><p class="muted">TPDOs other nodes receive directly (CiA 301 '
             'producer/consumer); the master configures both ends at boot. A link adds no frame and no bus load.</p>%s'
-            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "On PLC stop"],
+            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "When the bridge stops"],
                                             rows)))
 
 
@@ -551,7 +551,7 @@ def _gateway(model):
                                                          g["sdo_bridge_write"] else "reads only"))
          if g["sdo_bridge"] else "off"},
     ]
-    return ('<section id="gateway"><h2>Gateway</h2><p class="muted">The plugin copies these values between the upper '
+    return ('<section id="gateway"><h2>Gateway</h2><p class="muted">The bridge copies these values between the upper '
             'network and the master networks without the PLC program.</p>%s<h3>Routes</h3>%s</section>' % (
                 _kv(settings), _table(["Route", "Slave object", "Name", "Type", "Direction", "Field node entry"],
                                       rows, "sortable", empty="No routes.")))

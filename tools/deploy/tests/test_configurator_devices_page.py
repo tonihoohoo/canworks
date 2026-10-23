@@ -26,16 +26,36 @@ if paramiko is not None:
 
 SSH_PW, SUDO_PW = "ssh-secret", "sudo-secret"
 
-# The release's install-runtime.sh, as the job fetches it with curl.
-RUNTIME_SCRIPT = """#!/bin/bash
+# The release's install-bridge.sh, as the job fetches it with curl.
+BRIDGE_SCRIPT = r"""#!/bin/bash
 echo "::canworks-step 1/3 Downloading canworks $2"
 echo "args: $*"
-echo "::canworks-step 2/3 Building the plugin in the runtime's image"
+echo "::canworks-step 2/3 Building canworks-bridge"
 sleep "${FAKE_BUILD_S:-0}"
-echo "::canworks-step 3/3 Restarting the runtime (the PLC stops)"
-mkdir -p "$FAKE_FS/opt/canworks/lib"
-: > "$FAKE_FS/opt/canworks/lib/libcanworks_plugin.so"
+echo "::canworks-step 3/3 Starting the bridge"
+mkdir -p "$FAKE_FS/opt/canworks/bin" "$FAKE_FS/etc/systemd/system"
+printf '#!/bin/sh\n' > "$FAKE_FS/opt/canworks/bin/canworks-bridge"
+chmod +x "$FAKE_FS/opt/canworks/bin/canworks-bridge"
+: > "$FAKE_FS/etc/systemd/system/canworks-bridge@.service"
 echo 0.98.0 > "$FAKE_FS/opt/canworks/VERSION"
+instance=""; config=""; openplc=0
+while [ $# -gt 0 ]; do
+    case $1 in
+        --instance) instance=$2; shift ;;
+        --config) config=$2; shift ;;
+        --with-openplc) openplc=1 ;;
+    esac
+    shift
+done
+if [ "$openplc" = 1 ] && [ ! -f "$FAKE_FS/var/lib/openplc-bootloader/runtime-spec.json" ]; then
+    mkdir -p "$FAKE_FS/var/lib/openplc-bootloader"
+    echo '{"version": "v4.3.1"}' > "$FAKE_FS/var/lib/openplc-bootloader/runtime-spec.json"
+fi
+if [ -n "$instance" ]; then
+    mkdir -p "$FAKE_FS/etc/canworks-bridge/$instance"
+    cp "$config"/* "$FAKE_FS/etc/canworks-bridge/$instance/"
+    echo active > "$FAKE_UNITS/canworks-bridge@$instance.service"
+fi
 """
 
 # The release's install-link.sh: the files the probe looks at (device-link-switches).
@@ -47,7 +67,7 @@ case " $* " in
     *" --uninstall "*) rm -f "$FAKE_FS/etc/systemd/system/canworks-link.service" "$FAKE_UNITS/canworks-link.service" ;;
     *) mkdir -p "$FAKE_FS/etc/systemd/system" "$FAKE_FS/etc/canworks-link"
        : > "$FAKE_FS/etc/systemd/system/canworks-link.service"
-       echo '{"config": "/opt/canworks/lib/canworks.json"}' > "$FAKE_FS/etc/canworks-link/link.json"
+       echo '{"config": "/etc/canworks-bridge/line1/canworks.json"}' > "$FAKE_FS/etc/canworks-link/link.json"
        echo active > "$FAKE_UNITS/canworks-link.service" ;;
 esac
 """
@@ -67,11 +87,12 @@ class DevicesPage(OnlineBase):
         self.fs = os.path.join(self.device.root, "fs")
         os.makedirs(os.path.join(self.fs, "run", "systemd", "system"))
         self.put("var/lib/openplc-bootloader/runtime-spec.json", '{"version": "v4.3.1"}\n')
-        self.put("opt/canworks/lib/libcanworks_plugin.so", "")
+        # An older bridge, not started for this project yet.
+        self.put_file(os.path.join(self.fs, "opt/canworks/bin/canworks-bridge"), "#!/bin/sh\n", 0o755)
+        self.put("etc/systemd/system/canworks-bridge@.service", "")
         self.put("opt/canworks/VERSION", "0.93.4\n")
-        self.put("opt/canworks/lib/runtime-version", "v4.3.1\n")
         raw = os.path.join(self.device.root, "raw")
-        self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-runtime.sh"), RUNTIME_SCRIPT)
+        self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-bridge.sh"), BRIDGE_SCRIPT)
         self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-link.sh"), LINK_SCRIPT)
         paths = self.device.paths(self.fs)
         paths.raw = "file://" + raw
@@ -131,8 +152,9 @@ class DevicesPage(OnlineBase):
             self.assertEqual(len(f.read().splitlines()), 1)
         rows = pg.eval_on_selector_all("[data-devices=rows] tbody tr", "rs => rs.map((r) => [r.dataset.part, "
                                        "r.cells[1].innerText, r.cells[2].innerText, r.classList.contains('muted-row')])")
-        self.assertEqual(rows[1][:3], ["plugin", "0.93.4 · built for v4.3.1 · waiting for an upload", "newest 0.98.0"])
-        self.assertEqual(rows[2], ["bridge", "not installed", "not used by this project", True])
+        self.assertEqual(rows[0][0], "runtime")
+        self.assertEqual(rows[0][2:], ["not used by this project", True])  # the ping-pong config is the bridge's
+        self.assertEqual(rows[1][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
 
@@ -140,8 +162,6 @@ class DevicesPage(OnlineBase):
         self.addCleanup(os.environ.pop, "FAKE_BUILD_S", None)
         pg.click("[data-devices=start]")
         pg.wait_for_selector("#modal[open] [data-devices=sudo]")
-        self.assertEqual(pg.inner_text("[data-devices=effect]"),
-                         "The PLC stops and comes back without a program; upload it again afterwards.")
         self.assertEqual(pg.inner_text("#modal-text"), "Update 0.93.4 → 0.98.0 on 127.0.0.1:%d?" % self.device.port)
         self.answer("go", {"[data-devices=sudo]": "wrong"})
         pg.wait_for_selector("#modal[open] [data-devices=sudo-error]:has-text('did not accept')")
@@ -158,13 +178,12 @@ class DevicesPage(OnlineBase):
         pg.wait_for_selector("[data-devices=done]", timeout=20000)
         self.assertEqual(pg.eval_on_selector_all("[data-devices=steps] li", "ls => ls.map((l) => l.dataset.step)"),
                          ["1", "2", "3"])
-        self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
-        self.assertIn("Until then the PLC has no program.", pg.inner_text("[data-devices=done]"))
+        self.assertIn("The bridge runs this project's saved config as rtd-monitor.", pg.inner_text("[data-devices=done]"))
         pg.click("[data-devices=log] summary")
         # the log text arrives after the click (a busy machine shows that)
-        pg.wait_for_selector("[data-devices=log] pre:has-text('args: --version 0.98.0 --pinned-runtime --with-link')")
+        pg.wait_for_selector("[data-devices=log] pre:has-text('args: --version 0.98.0 --instance rtd-monitor --config')")
         pg.wait_for_selector("[data-devices=up-to-date]")
-        self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="plugin"]'))
+        self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="bridge"]'))
         # The status bar drops the job at its next look (a poll in flight may still list it).
         pg.wait_for_function("() => document.querySelector('#jobs').innerText.trim() === ''")
         # Online access shows the device as the runtime host at once, without a reload.
@@ -184,7 +203,7 @@ class DevicesPage(OnlineBase):
         with open(os.path.join(self.cfg_dir, "devices.json")) as f:
             stored = json.load(f)["devices"][0]
         self.assertEqual(stored["host"], "127.0.0.1")
-        self.assertIn("install_plugin", stored["job_seconds"])
+        self.assertIn("install_bridge", stored["job_seconds"])
         # The device became the project's runtime host (it had none).
         with open(os.path.join(self.cfg_dir, "online.json")) as f:
             self.assertEqual(json.load(f)["projects"][self.project]["host"], "127.0.0.1")
@@ -245,7 +264,10 @@ class DevicesPage(OnlineBase):
         # role question for a device with nothing of canworks, a job, and the
         # same device listed when a config is opened afterwards.
         pg = self.page
+        # A device with nothing on it: no runtime, no bridge.
         shutil.rmtree(os.path.join(self.fs, "opt", "canworks"))
+        shutil.rmtree(os.path.join(self.fs, "var/lib/openplc-bootloader"))
+        os.remove(os.path.join(self.fs, "etc/systemd/system/canworks-bridge@.service"))
         pg.set_viewport_size({"width": 1280, "height": 860})
         pg.goto(self.server.url)
         self.assertEqual(pg.inner_text("#start-devices"), "Install on a device")
@@ -263,25 +285,22 @@ class DevicesPage(OnlineBase):
         self.answer("cancel")  # no key login
         pg.wait_for_selector("[data-devices=roles]")
         self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 3)
-        self.assertEqual(pg.inner_text("[data-devices=start]"), "Install canworks 0.98.0")
+        self.assertEqual(pg.inner_text("[data-devices=start]"), "Install OpenPLC Runtime and the bridge 0.98.0")
         self.assertIn("Nothing installed yet", pg.inner_text(".devices-list"))
         pg.click("label:has([data-devices-role=bridge])")
         pg.wait_for_selector("[data-devices=start]:has-text('Install the bridge 0.98.0')")
         self.assertTrue(pg.is_checked("[data-devices-role=bridge]"))
         self.assertEqual(pg.locator("[data-devices=options]").count(), 0)
         pg.click("label:has([data-devices-role=openplc])")
-        pg.wait_for_selector("[data-devices=start]:has-text('Install canworks 0.98.0')")
+        pg.wait_for_selector("[data-devices=start]:has-text('Install OpenPLC Runtime and the bridge 0.98.0')")
         pg.click("[data-devices=start]")
         self.answer("go", {"[data-devices=sudo]": SUDO_PW})
         pg.wait_for_selector("[data-devices=done]", timeout=20000)
-        self.assertIn("switches on with the next upload", pg.inner_text("[data-devices=done]"))
-        pg.wait_for_selector("[data-devices=up-to-date]")
-        # The bridge can be added next to the PLC from its row.
-        pg.click("[data-devices-install=bridge]")
-        pg.wait_for_selector("#modal[open]")
-        self.assertIn("Install the bridge 0.98.0", pg.inner_text("#modal-text"))
-        self.assertIn("same CAN interface", pg.inner_text("#modal"))
+        self.assertIn("The OpenPLC Runtime and the bridge are installed", pg.inner_text("[data-devices=done]"))
+        # The new runtime asks for its first user, as with a config.
+        pg.wait_for_selector("#modal[open]:has-text('has no user yet')")
         self.answer("cancel")
+        pg.wait_for_selector("[data-devices=up-to-date]")
         # No project took the device as its runtime host.
         online_json = os.path.join(self.cfg_dir, "online.json")
         if os.path.isfile(online_json):
@@ -302,6 +321,7 @@ class DevicesPage(OnlineBase):
         # device-link-switches: the remote link and the advertisement turned
         # on and off from their rows, with no config open.
         pg = self.page
+        self.put("etc/canworks-bridge/line1/canworks.json", "{}\n")  # the bridge the link serves
         pg.goto(self.server.url)
         pg.click("#start-devices")
         self.add_device(config=False)
@@ -321,7 +341,7 @@ class DevicesPage(OnlineBase):
             pg.wait_for_selector("[data-devices=done]", timeout=20000)
 
         run(link, "link_on")
-        pg.wait_for_selector(link + ":has-text('running · serves the PLC')")
+        pg.wait_for_selector(link + ":has-text('running · serves the bridge line1')")
         self.assertIn("The remote link is on", pg.inner_text("[data-devices=done]"))
         run(link, "link_off", "stay paired")
         pg.wait_for_selector(link + " [data-devices-action=link_on]")

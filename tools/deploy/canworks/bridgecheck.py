@@ -38,11 +38,6 @@ ALL_WRITERS = ["0.0.0.0/0", "::/0"]
 WRITERS_MISSING = ("missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", "
                    "\"::/0\"] to let every address write")
 
-NOT_BRIDGE_CONFIG = ("not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' "
-                     "object")
-PLUGIN_REFUSES = ("this is a Modbus bridge config (it has a 'bridge' object): run it with canworks-bridge, not the "
-                  "OpenPLC plugin")
-
 
 def is_bridge_config(cfg):
     return isinstance(cfg, dict) and "bridge" in cfg
@@ -290,21 +285,17 @@ def check_bridge(cfg, nets, err, warn):
         uses.append((parse_location("%IB0"), "bridge map hash (openplc)", w + ".openplc", OPENPLC_HASH_BYTES))
         uses.append((parse_location("%QB0"), "the PLC link header (openplc, output bytes 0-5)", w + ".openplc",
                      OPENPLC_HEADER_BYTES))
-    for n in nets:
-        m = n.get("master") if n["role"] == "master" else None
-        if isinstance(m, dict) and m.get("sync_source") == "plc_cycle":
-            err("networks[%d]: master" % n["index"],
-                "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
-                "\"sync_period_us\" (timer SYNC)", ["networks[%d].master.sync_source" % n["index"]])
     return uses
 
 
 def report_byte_overlaps(uses, where, err):
-    """`uses`: (loc, who, path, nbytes or None). The plugin's
+    """`uses`: (loc, who, path, nbytes or None). The bridge's
     report_byte_overlaps."""
     def count(u):
         return u[3] if u[3] else SIZE_BYTES[u[0].size]
 
+    # A location past the image is its own error (contract._check_image).
+    uses = [u for u in uses if u[0].index + count(u) <= IMAGE_BYTES]
     for u in uses:
         if not u[3] and u[0].size in "WDL" and u[0].index % 2:
             err(where, "%s %s must start at an even byte: word locations are whole Modbus registers" % (u[1], u[0]),

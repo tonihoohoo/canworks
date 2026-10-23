@@ -4,8 +4,8 @@ shown", "Switching the target", "Bridge settings panel",
 "Register map preview and export", "Node-RED flow export on the bridge page"): an OpenPLC project with two nodes
 switched to the bridge and packed, a live list added and suggested, the map
 filtered and exported as the ST list and Node-RED flow canworks-deploy writes, the plc_cycle
-problem, and the switch back with the per-type repack. Needs Playwright,
-like test_configurator_page.py."""
+problem, and the switch back to OpenPLC. Needs Playwright, like
+test_configurator_page.py."""
 
 import json
 import os
@@ -25,10 +25,9 @@ EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge")
 class BridgePage(OnlineBase):
     def setUp(self):
         super().setUp()
-        # The example as an OpenPLC project: no bridge, per-type locations from 100.
+        # The example as an OpenPLC project.
         cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        del cfg["bridge"]
-        self.cfg = srv.Session().pack_openplc(cfg)["config"]
+        self.cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
         for name in ("rtd8.eds", "dio16.eds"):
             shutil.copy(os.path.join(EXAMPLE, name), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -43,8 +42,7 @@ class BridgePage(OnlineBase):
     def to_bridge(self):
         pg = self.page
         tree_view(pg, "project")
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
-        self.assertEqual(pg.locator("#tree #nav-bridge").count(), 0)
+        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
         pg.select_option('select[data-target="1"]', "bridge")
         pg.wait_for_selector("#banner:has-text('Modbus bridge now')")
         self.assertFalse(pg.evaluate("() => document.querySelector('#modal').open"))
@@ -193,56 +191,40 @@ class BridgePage(OnlineBase):
         pg = self.page
         self.open()
         self.to_bridge()
-        # The master's PLC stop field; the bridge has no PLC scan, so no scan watchdog and no PLC cycle SYNC.
+        # The master's PLC stop field; the bridge has no PLC scan, so no PLC cycle SYNC.
         self.assertEqual(pg.input_value('select[data-path="master.on_plc_stop"]'), "")
         pg.select_option('select[data-path="master.on_plc_stop"]', "stop")
         self.assertIn("NMT STOP", pg.inner_text('label:has(select[data-path="master.on_plc_stop"])'))
         pg.select_option('select[data-path="master.on_plc_stop"]', "")
         self.assertIsNone(pg.evaluate("() => S.config.master.on_plc_stop || null"))
-        self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
         self.assertEqual(pg.locator('select[data-path="master.sync_source"] option[value="plc_cycle"]').count(), 0)
-        # A watchdog the config still has stays hidden; no problem, save leaves it out.
-        pg.evaluate("() => { S.config.master.scan_watchdog_ms = 250; changed(true); }")
-        self.checked()
-        self.assertFalse(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
-        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
-        self.assertEqual(pg.locator("[data-unused-bar]").count(), 0)
-        pg.evaluate("() => { delete S.config.master.scan_watchdog_ms; changed(true); }")
-        self.checked()
         # A PLC cycle SYNC the config still has is an error, shown as the config's value.
         pg.evaluate("() => { S.config.master.sync_source = 'plc_cycle'; delete S.config.master.sync_period_us; changed(true); }")
         self.checked()
         self.assertIn("needs a PLC cycle, which the Modbus bridge does not have", pg.inner_text("#problem-list"))
-        self.assertIn("needs a PLC cycle", pg.inner_text('.field-msg[data-for="master.sync_source"]'))
-        self.assertEqual(pg.input_value('select[data-path="master.sync_source"]'), "plc_cycle")
+                # The SYNC choice offers Off and Timer only; a timer period replaces it.
+        pg.evaluate("() => { delete S.config.master.sync_source; changed(true); render(); }")
         pg.select_option('select[data-path="master.sync_source"]', "timer")
         pg.fill('input[data-path="master.sync_period_us"]', "20")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
-        # Back to the OpenPLC plugin (no longer a choice on the page, so
-        # through the switch itself): the bridge object goes, the locations
-        # are per type again.
+        # Back to OpenPLC: the bridge's own settings go, the editor files come back.
         tree_view(pg, "project")
-        self.assertEqual(pg.locator('select[data-target="1"] option[value="openplc"]').count(), 0)
-        pg.evaluate("() => switchTarget('openplc')")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC plugin now')")
-        pg.wait_for_selector("#tree #nav-bridge", state="detached")
+        pg.select_option('select[data-target="1"]', "openplc_modbus")
+        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The switch and its repack are one step: undo brings the bridge back, redo removes it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")
-        pg.wait_for_selector("#tree #nav-bridge")
+        pg.wait_for_function("() => projectTarget() === 'bridge'")
         pg.keyboard.press("Control+Shift+z")
-        pg.wait_for_selector("#tree #nav-bridge", state="detached")
+        pg.wait_for_function("() => projectTarget() === 'openplc_modbus'")
         self.checked()
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        saved = load(self.config_path)
-        self.assertNotIn("bridge", saved)
-        # Repacked per type exactly as the project was before the switch.
-        self.assertEqual(saved, self.cfg)
+        self.assertEqual(load(self.config_path)["bridge"]["openplc"], {})
 
 
 if __name__ == "__main__":

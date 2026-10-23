@@ -1,4 +1,4 @@
-"""canworks-diag: talk to the CANopen plugin's diagnostics channel.
+"""canworks-diag: talk to the CANopen bridge's diagnostics channel.
 
   canworks-diag --runtime plc.local status
   canworks-diag --runtime plc.local sdo-read 23 0x1008 0 --type VISIBLE_STRING
@@ -8,7 +8,7 @@
   canworks-diag --runtime plc.local sim fault 5 emcy 0x5000 --register 1
   canworks-diag sim --sim 127.0.0.1 status
 
-`sim` controls simulated devices (docs/simulator.md): the plugin's, with
+`sim` controls simulated devices (docs/simulator.md): the bridge's, with
 --runtime, or a standalone canworks-canopen-sim's, with --sim HOST[:PORT].
 
 The channel is opt-in (master.diagnostics in canworks.json) and speaks
@@ -42,9 +42,9 @@ from . import __version__, localruntime
 DEFAULT_PORT = 7531
 GATEWAY_PORT = 7533  # the CiA 309-3 gateway's plain port on the runtime's loopback (canworks-diag gateway --listen)
 GATEWAY_IDLE_S = 300  # --listen: a local connection that sends no command line this long is closed
-GATEWAY_MAX_LINE = 16384  # the plugin's line limit (Cia309Session::kMaxLine)
+GATEWAY_MAX_LINE = 16384  # the bridge's line limit (Cia309Session::kMaxLine)
 FORWARD_MAX = 4  # local connections at a time on a forwarding port (gateway --listen, link open)
-GATEWAY_TOO_OLD = "the runtime's plugin is too old for the CiA 309-3 gateway (update it)"
+GATEWAY_TOO_OLD = "the bridge is too old for the CiA 309-3 gateway (update it)"
 PROTOCOL = 2        # TLS and the SCRAM login
 PLAIN_PROTOCOL = 1  # a CANopen simulator without a token, on loopback
 SCRAM_MECH = "SCRAM-SHA-256-PLUS"
@@ -56,7 +56,7 @@ NMT_COMMANDS = ("start", "stop", "preop", "reset", "reset-comm")
 LSS_BITRATES = (10, 20, 50, 125, 250, 500, 800, 1000)  # kbit/s, the CiA 305 bit timing table
 LSS_KEYS = ("vendor_id", "product_code", "revision_number", "serial_number")
 FORCE_NEEDED = "force needed"  # the end of a refusal the request may be repeated with force: true
-TOO_OLD = "the runtime's CANopen plugin is too old for this command (update it)"
+TOO_OLD = "the bridge is too old for this command (update it)"
 # Error kinds an adapter server (localbus/serve.py) names in its answer, as a
 # local adapter would raise them; every other refusal is "refused".
 ANSWER_KINDS = ("bitrate", "busy", "eof")
@@ -129,7 +129,7 @@ def scram_client(token, salt, iterations, auth_message):
 
 def _client_context():
     # The login checks the server (channel binding to its certificate), so
-    # the chain is not checked: the plugin makes a new self-signed
+    # the chain is not checked: the bridge makes a new self-signed
     # certificate whenever it starts.
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
@@ -356,7 +356,7 @@ EMCY_CLASSES = [
 
 def heard_s(nd):
     """Seconds since a node of a status answer was last heard, or None: the
-    plugin reports last_heard_ms, an adapter connection last_heard_s."""
+    the bridge reports last_heard_ms, an adapter connection last_heard_s."""
     if nd.get("last_heard_s") is not None:
         return nd["last_heard_s"]
     if nd.get("last_heard_ms") is not None:
@@ -385,8 +385,8 @@ def state_name(state):
 
 class DiagError(Exception):
     """kind: unreachable, closed (port closed), token, timeout, protocol,
-    old (no TLS: the plugin is too old), impostor (the server could not prove
-    it knows the token), or refused (the plugin answered with an error)."""
+    old (no TLS: the bridge is too old), impostor (the server could not prove
+    it knows the token), or refused (the bridge answered with an error)."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -394,11 +394,11 @@ class DiagError(Exception):
 
 
 class Client:
-    """One connection to the plugin. `network` names the network every
-    request after the hello is for; it is sent only when the plugin runs
-    several networks (an older plugin knows no networks).
+    """One connection to the bridge. `network` names the network every
+    request after the hello is for; it is sent only when the bridge runs
+    several networks (an older bridge knows no networks).
 
-    With a token the connection is TLS with the SCRAM login (the plugin
+    With a token the connection is TLS with the SCRAM login (the bridge
     always; a CANopen simulator with a token); without one it is plain,
     for a local simulator without a token."""
 
@@ -409,7 +409,7 @@ class Client:
         self.network = network
         self.repair = repair    # pair the remote link again when the runtime's link ID changed (--repair)
         # Sent as force: true with sdo_write, nmt and scan unless a call says
-        # otherwise: the plugin refuses them without it while a configured
+        # otherwise: the bridge refuses them without it while a configured
         # node is OPERATIONAL (canworks-diag --force).
         self.force = False
         self.sock = None
@@ -468,7 +468,7 @@ class Client:
     def networks(self):
         """The hello's networks ([{name, interface, bitrate, role,
         master_node_id}], a slave network with node_id instead);
-        [] from a plugin that runs one network and does not list it."""
+        [] from a bridge that runs one network and does not list it."""
         nets = (self.info or {}).get("networks")
         return nets if isinstance(nets, list) else []
 
@@ -518,7 +518,7 @@ class Client:
         return self.info
 
     def _login(self):
-        old = DiagError("old", "%s does not speak encrypted diagnostics: the plugin (or simulator) there is too old; "
+        old = DiagError("old", "%s does not speak encrypted diagnostics: the bridge (or simulator) there is too old; "
                                "update it" % self.where)
         try:
             self.sock = _client_context().wrap_socket(self.sock, server_hostname=None)
@@ -527,12 +527,12 @@ class Client:
             raise old
         except (ssl.SSLEOFError, ssl.SSLZeroReturnError, ConnectionError):
             # Closed before sending a byte (Windows reports it as an aborted
-            # connection): an older plugin answers the TLS
+            # connection): an older bridge answers the TLS
             # hello with an error line instead, so nothing serves the port
-            # (a container's or tunnel's port forward with no plugin behind it).
+            # (a container's or tunnel's port forward with no bridge behind it).
             self.close()
             raise DiagError("unreachable", "%s accepted the connection but closed it without answering: no canworks "
-                                           "diagnostics run there (no PLC program with the plugin is running yet, "
+                                           "diagnostics run there (no PLC program with the bridge is running yet, "
                                            "or a port forward leads nowhere)" % self.where)
         except (ssl.SSLError, OSError):
             self.close()
@@ -595,12 +595,12 @@ class Client:
 
     def request(self, op, timeout=None, **fields):
         """Send one request and return its result; raise DiagError("refused")
-        with the plugin's reason when it answers ok: false."""
+        with the bridge's reason when it answers ok: false."""
         if not self.sock:
             raise DiagError("eof", "not connected to %s" % self.where)
         rid = self.next_id
         self.next_id += 1
-        # "op" first: the plugin reads a long line only for put_config, which
+        # "op" first: the bridge reads a long line only for put_config, which
         # it sees at the start of the line.
         msg = {"op": op, "id": rid}
         msg.update(fields)
@@ -749,7 +749,7 @@ class Client:
 
 
 def too_old(e):
-    """The plugin does not know the op: it predates the command."""
+    """The bridge does not know the op: it predates the command."""
     return e.kind == "refused" and str(e).startswith("unknown op")
 
 
@@ -797,7 +797,7 @@ def frame_text(can_id, ext=False, rtr=False, dlc=None, data=b""):
 
 
 def lss_address_text(a):
-    """An LSS address as the plugin logs it."""
+    """An LSS address as the bridge logs it."""
     return "vendor 0x%08X, product 0x%08X, revision 0x%08X, serial 0x%08X" % tuple(
         a.get(k, 0) if isinstance(a, dict) else a[i] for i, k in enumerate(LSS_KEYS))
 
@@ -857,7 +857,7 @@ def _network_arg(p, text="the network to talk to (needed when the runtime runs s
     p.add_argument("--network", metavar="NAME", help=text)
 
 
-# The commands that talk to one network of the plugin (status takes --network
+# The commands that talk to one network of the bridge (status takes --network
 # too, but goes over every network without it).
 NETWORK_COMMANDS = ("emcy", "errors", "sdo-read", "sdo-write", "nmt", "scan", "lss-find", "lss-inquire", "lss-set-id",
                     "lss-set-bitrate", "trace", "backup", "compare", "restore", "store", "send", "send-stop",
@@ -883,7 +883,7 @@ def _sync_counter(t):
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-diag",
-        description="Read the live state of the CANopen network from the plugin's diagnostics channel "
+        description="Read the live state of the CANopen network from the bridge's diagnostics channel "
                     "(master.diagnostics in canworks.json), and, when the configuration allows changes, write "
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
@@ -914,7 +914,7 @@ def parser():
                         "new ID and pair this PC with it again")
     p.add_argument("--token", help="access token (default: $%s, else a prompt)" % TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="read the access token from this file")
-    p.add_argument("--json", action="store_true", help="print the plugin's answer as JSON")
+    p.add_argument("--json", action="store_true", help="print the bridge's answer as JSON")
     p.add_argument("--timeout", type=float, default=5.0, metavar="S", help="network timeout (default %(default)s s)")
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
@@ -1298,8 +1298,8 @@ def network_names(client):
 
 
 def check_network(client, network):
-    """Checks --network against the networks the plugin runs: several need
-    one, and a name the plugin lists must be among them. An older plugin
+    """Checks --network against the networks the bridge runs: several need
+    one, and a name the bridge lists must be among them. An older bridge
     lists none and runs one network, so any name goes there. Raises
     DiagError("network")."""
     names = network_names(client)
@@ -1313,17 +1313,13 @@ def check_network(client, network):
 
 
 def format_sync(sy):
-    """One line for the status answer's SYNC object, or None (plugins before 0.24)."""
+    """One line for the status answer's SYNC object, or None (bridges before 0.24)."""
     if not sy:
         return None
     src = sy.get("source")
     if src == "none":
         return "SYNC: off"
-    if src == "plc_cycle":
-        n = sy.get("cycles") or 1
-        head = "SYNC: PLC cycle" + ("" if n == 1 else ", every %d cycles" % n)
-    else:
-        head = "SYNC: timer %s us" % sy.get("period_us")
+    head = "SYNC: timer %s us" % sy.get("period_us")
     line = "%s, %d sent" % (head, sy.get("count") or 0)
     if sy.get("count", 0) > 1:
         line += ", interval %s us (min %s, max %s)" % (sy.get("last_us"), sy.get("min_us"), sy.get("max_us"))
@@ -1422,7 +1418,7 @@ def _print_raw_status(raw, out):
 def emcy_cob_id_text(nd):
     """A status node's EMCY COB-ID in use, "EMCY COB-ID 0xC5 (device)", when
     it is not 0x80 + node ID or the device reports it not valid; else ''
-    (also for a plugin that does not send it)."""
+    (also for a bridge that does not send it)."""
     e = nd.get("emcy_cob_id")
     if not isinstance(e, dict) or not isinstance(e.get("value"), int):
         return ""
@@ -1438,7 +1434,7 @@ def _print_protocol_status(st, out):
     j1939 = st.get("protocol") == "j1939"
     plain = st.get("protocol") == "none"
     if plain:
-        out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
+        out.write("bridge %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
                                                        (st.get("config_sha256") or "?")[:12]))
         out.write("plain CAN network on %s, %s kbit/s%s\n" % (
             bus.get("interface"), (bus.get("bitrate") or 0) // 1000,
@@ -1450,7 +1446,7 @@ def _print_protocol_status(st, out):
         return
     if not st.get("session", True) and not j1939:
         out.write("no CANopen session: the CAN interface %s is missing or down\n" % (bus.get("interface") or "?"))
-    out.write("plugin %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
+    out.write("bridge %s, up %d s, config %s\n" % (st.get("version"), int(st.get("uptime_s") or 0),
                                                    (st.get("config_sha256") or "?")[:12]))
     if st.get("protocols"):
         out.write("built-in protocols: %s\n" % ", ".join(str(p) for p in st["protocols"]))
@@ -1701,7 +1697,7 @@ def transmission_text(t):
 
 
 def _print_slave_status(st, out):
-    """The status of a slave network: the plugin's own device, its PDO
+    """The status of a slave network: the bridge's own device, its PDO
     mappings in force and, on a gateway's upper network, the gateway."""
     bus = st.get("bus") or {}
     s = st.get("slave") or {}
@@ -2290,7 +2286,7 @@ def _send(client, args, out):
             job, text, args.period_ms, ", %d frames" % args.count if args.count else ""))
         out.flush()
     started = time.monotonic()
-    # With a count the plugin ends the job itself; wait a little longer than it takes.
+    # With a count the bridge ends the job itself; wait a little longer than it takes.
     limit = args.duration
     if args.count:
         need = args.count * args.period_ms / 1000.0 + 2.0
@@ -2301,10 +2297,10 @@ def _send(client, args, out):
             time.sleep(0.5)
             st = client.status()
             if "send_jobs" not in st:
-                continue  # a plugin that does not list jobs: wait for the time
+                continue  # a bridge that does not list jobs: wait for the time
             mine = [j for j in st["send_jobs"] if j.get("job") == job]
             if not mine or mine[0].get("reason"):
-                break  # ended by the plugin (count reached, transmit error, time limit)
+                break  # ended by the bridge (count reached, transmit error, time limit)
             sent = mine[0].get("sent")
             if not args.json and sys.stderr.isatty():
                 sys.stderr.write("\rjob %s: %s sent, %.0f s " % (job, sent, time.monotonic() - started))
@@ -2491,7 +2487,7 @@ def run(args, out=sys.stdout):
             if not args.json:
                 hist = res.get("emcy") or []
                 if not hist:
-                    out.write("node %d has sent no EMCY since the plugin started\n" % args.node)
+                    out.write("node %d has sent no EMCY since the bridge started\n" % args.node)
                 for e in hist:
                     out.write("%s  0x%04X  %-22s register 0x%02X  manufacturer %s\n" % (
                         e["time"], e["code"], emcy_class(e["code"]), e["error_register"], e.get("manufacturer", "")))
@@ -2670,7 +2666,7 @@ def _dm(args, out):
                                            "messages" % (net or st.get("bus", {}).get("interface") or ""))
             res = (st.get("j1939") or {}).get("dm")
             if res is None:
-                raise DiagError("refused", TOO_OLD.replace("CANopen plugin", "plugin"))
+                raise DiagError("refused", TOO_OLD)
             if not args.json:
                 out.write("diagnostic messages of network %s:\n" % (net or "?"))
                 _print_dm(res, out, names)
@@ -3202,7 +3198,7 @@ def _config_arg(args):
 def _decoder(config, network=None, default=None, dbc=None):
     """A decoder with the nodes of `network` in the config (a trace records
     one network). `default` is the network for a config with several when
-    `network` is None: the one the trace or the plugin names. `dbc`: DBC
+    `network` is None: the one the trace or the bridge names. `dbc`: DBC
     files that decode the identifiers the config does not (canopen-bus-trace:
     "DBC files in a trace")."""
     dec = _config_decoder(config, network, default)
@@ -3382,7 +3378,7 @@ def _record(args, out, fmt, filters, spec, connect, names):
     from .bustrace import formats, triggers
     from .bustrace.recorder import Recorder, Session
     # The traced network's nodes decode its frames; without --network that is
-    # the plugin's only network.
+    # the bridge's only network.
     network = args.network or (names[0] if len(names) == 1 and names[0] else None)
     decoder = _decoder(_config_arg(args), args.network, network, args.dbc)
     if spec:

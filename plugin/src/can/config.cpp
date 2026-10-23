@@ -41,19 +41,6 @@ std::string SdoVariable::label() const {
   return s;
 }
 
-bool interpolation_code(unsigned period_us, uint8_t& value, int8_t& exponent) {
-  static const struct { int8_t exponent; unsigned unit; } units[] = {{-3, 1000}, {-4, 100}, {-5, 10}, {-6, 1}};
-  if (!period_us) return false;
-  for (const auto& u : units) {
-    if (period_us % u.unit == 0 && period_us / u.unit >= 1 && period_us / u.unit <= 255) {
-      value = static_cast<uint8_t>(period_us / u.unit);
-      exponent = u.exponent;
-      return true;
-    }
-  }
-  return false;
-}
-
 // Store (0x1010) and restore (0x1011) write the device's non-volatile
 // memory: never as a startup write, which runs at every boot
 // (canopen-config-contract "Store and restore are never startup writes").
@@ -221,9 +208,11 @@ std::string leading_zero_message(const char* s) {
 // A CODESYS config (canopen-config-contract "CODESYS configs are for CODESYS").
 const char* const kCodesysConfig =
     "this is a CODESYS config (it has a 'codesys' object): build it into a CODESYS project with "
-    "canworks-deploy --codesys-import, not the OpenPLC plugin or canworks-bridge";
+    "canworks-deploy --codesys-import, not canworks-bridge";
+// A config with neither marker (canopen-config-contract "Config target").
 const char* const kNotBridgeConfig =
-    "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' object";
+    "this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to OpenPLC through "
+    "Modbus";
 
 // Node fields of the removed program (firmware) download.
 const std::initializer_list<const char*> kRemovedNodeFields = {"software_file", "software_version"};
@@ -416,7 +405,7 @@ class Parser {
       return false;
     }
     unsigned limit = limits_.buffer_size;
-    if (!iec_location_in_image(out, limit, byte_mode_)) {
+    if (!iec_location_in_image(out, limit)) {
       error(where, std::string(key) + " " + out.str() +
                        " lies outside the runtime I/O image (index must be below " +
                        std::to_string(limit) + ")");
@@ -435,12 +424,6 @@ class Parser {
     std::string what = n.label() + ", object " + obj;
     if (entry.type == CoType::BOOLEAN || entry.type == CoType::REAL32 || entry.type == CoType::REAL64) {
       error(ew, what + ": bits need an integer entry, not " + co_type_name(entry.type));
-      return false;
-    }
-    // On the bridge the bits only name parts of the entry's own location.
-    if (!is_tx && entry.has_location && !byte_mode_) {
-      error(ew, what + ": an RPDO entry with bits has no iec_location of its own (both would write the same bits; "
-                       "remove the iec_location or the bits)");
       return false;
     }
     unsigned size = co_type_bits(entry.type);
@@ -475,25 +458,12 @@ class Parser {
       seen |= 1ull << v;
       PdoBit pb;
       pb.bit = static_cast<uint8_t>(v);
-      if (byte_mode_) {
-        if (cJSON_GetObjectItemCaseSensitive(b, "iec_location")) {
-          error(bw, me + ": a bit has no iec_location in a bridge config (the bridge serves it in the entry's own "
-                         "location)");
-          ok = false;
-          continue;
-        }
-      } else if (!get_location(b, "iec_location", bw, true, pb.location)) {
+      // The bridge serves the bits in the entry's own location.
+      if (cJSON_GetObjectItemCaseSensitive(b, "iec_location")) {
+        error(bw, me + ": a bit has no iec_location in a bridge config (the bridge serves it in the entry's own "
+                       "location)");
         ok = false;
         continue;
-      } else {
-        IecArea want = is_tx ? IecArea::Input : IecArea::Output;
-        if (pb.location.area != want || pb.location.size != IecSize::X) {
-          error(bw, me + ": needs " + (is_tx ? "an input bit location (%IX...)" : "an output bit location (%QX...)") +
-                        ", not " + pb.location.str());
-          ok = false;
-          continue;
-        }
-        pb.has_location = true;
       }
       entry.bits.push_back(pb);
     }
@@ -664,7 +634,7 @@ class Parser {
             // Allowed only for an entry a gateway route uses (checked once
             // the gateway section is read), or one that has bits.
             entry.has_location = false;
-            if (bits_json && byte_mode_) {
+            if (bits_json) {
               error(ew, n.label() + ", object " + obj +
                             ": the bridge serves an entry's bits in its own location; give the entry an iec_location");
               ok = false;
@@ -723,42 +693,19 @@ class Parser {
       return false;
     }
     version_ = set.schema_version;
+    // Version 1 held one network for the removed OpenPLC plugin; the bridge
+    // serves version 2 configs only.
     if (version_ == 1) {
-      for (const char* key : {"role", "slave"})
-        if (cJSON_GetObjectItemCaseSensitive(root, key))
-          error("", std::string("field '") + key + "': slave networks need schema_version: 2 (networks[] with "
-                    "\"role\": \"slave\")");
-      if (cJSON_GetObjectItemCaseSensitive(root, "gateway"))
-        error("", "field 'gateway' needs schema_version: 2");
-      for (const char* key : {"protocol", "j1939", "raw", "bridge", "codesys"})
-        if (cJSON_GetObjectItemCaseSensitive(root, key))
-          error("", std::string("field '") + key + "' needs schema_version 2");
-      if (limits_.bridge_host && !cJSON_GetObjectItemCaseSensitive(root, "bridge"))
-        error("", kNotBridgeConfig);
-      if (cJSON_GetObjectItemCaseSensitive(root, "cia309"))
-        error("", "field 'cia309' belongs in 'master' in schema_version 1 (master.cia309), or at the top level "
-                  "in schema_version 2");
-      check_known(root, "", {"$schema", "schema_version", "adapter", "interface", "bitrate", "master", "nodes",
-                             "links", "role", "slave", "gateway", "protocol", "j1939", "raw", "bridge", "cia309"});
-      Config cfg = blank(set);
-      cfg.work_dir = set.config_dir + "/.canworks";
-      parse_network(root, cfg);
-      report_unlocated(set);
-      set.networks.push_back(cfg);
-      resolve_cia309(set);
-      return errors_.size() == before;
+      error("", kNotBridgeConfig);
+      return false;
     }
 
     // Version 2: networks[] and one diagnostics object for all of them.
     check_known(root, "", {"$schema", "schema_version", "networks", "diagnostics", "gateway", "bridge", "cia309",
                            "codesys"});
     if (cJSON_GetObjectItemCaseSensitive(root, "codesys")) error("", kCodesysConfig);
-    // A bridge config's locations are byte-addressed from the first one on.
-    byte_mode_ = cJSON_GetObjectItemCaseSensitive(root, "bridge") != nullptr;
-    if (byte_mode_ && !limits_.bridge_host)
-      error("", "this is a Modbus bridge config (it has a 'bridge' object): run it with canworks-bridge, not the "
-                "OpenPLC plugin");
-    if (!byte_mode_ && limits_.bridge_host) error("", kNotBridgeConfig);
+    if (!cJSON_GetObjectItemCaseSensitive(root, "bridge") && !cJSON_GetObjectItemCaseSensitive(root, "codesys"))
+      error("", kNotBridgeConfig);
     static const char* const kMoved[][2] = {{"adapter", "networks[].adapter"},
                                             {"master", "networks[].master"},
                                             {"nodes", "networks[].nodes"},
@@ -813,10 +760,10 @@ class Parser {
                        : protocol == "none" ? Protocol::None
                                             : Protocol::CANopen;
         if (pj && !protocol_built_in(cfg.protocol))
-          error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this plugin (built with: " +
+          error("", std::string(cfg.is_j1939() ? "J1939" : "CANopen") + " is not built into this canworks (built with: " +
                         built_in_protocols() + ")");
         else if (!pj && !protocol_built_in(Protocol::CANopen))
-          error("", "CANopen is not built into this plugin (built with: " + built_in_protocols() +
+          error("", "CANopen is not built into this canworks (built with: " + built_in_protocols() +
                         "); a network without 'protocol' is a CANopen network");
         std::string role = "master";
         if (cfg.is_j1939()) {
@@ -857,7 +804,7 @@ class Parser {
       ++i;
     }
     prefix_.clear();
-    if (byte_mode_) parse_bridge(root, set);
+    if (cJSON_GetObjectItemCaseSensitive(root, "bridge")) parse_bridge(root, set);
     check_networks(set);
     check_raw_ownership(set);
     parse_gateway(root, set);
@@ -1071,7 +1018,7 @@ class Parser {
   }
 
   // `switch_mode`: the pages mode ("all", "rotate") of a tx entry whose
-  // switches the plugin sets, "" when its `pages` was wrong, else nullptr.
+  // switches canworks sets, "" when its `pages` was wrong, else nullptr.
   void parse_j1939_signals(const cJSON* msg, const std::string& where, bool rx, const char* switch_mode,
                            std::vector<J1939Signal>& out) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(msg, "signals");
@@ -1133,10 +1080,10 @@ class Parser {
       get_number(sj, "offset", sw, -1e300, 1e300, s.offset);
       get_string(sj, "unit", sw, false, s.unit);
       if (s.mux.is_switch && switch_mode) {
-        // The plugin sets this switch; an empty mode: `pages` was wrong.
+        // canworks sets this switch; an empty mode: `pages` was wrong.
         s.has_location = false;
         if (cJSON_GetObjectItemCaseSensitive(sj, "iec_location") && *switch_mode)
-          error(where, "signals[" + std::to_string(index) + "].iec_location: the plugin sets switch " + s.name +
+          error(where, "signals[" + std::to_string(index) + "].iec_location: canworks sets switch " + s.name +
                            " when pages is \"" + switch_mode + "\"; leave it out");
       } else if (!cJSON_GetObjectItemCaseSensitive(sj, "iec_location")) {
         error(where, me + ": field 'iec_location' is missing");
@@ -1262,14 +1209,10 @@ class Parser {
     std::vector<std::pair<IecLocation, std::string>> locs;
     canworks_raw::raw_locations(cfg.raw, locs);
     for (const auto& l : locs)
-      if (!iec_location_in_image(l.first, limits_.buffer_size, byte_mode_))
+      if (!iec_location_in_image(l.first, limits_.buffer_size))
         errors_.push_back(path_ + ": " + l.second + ": " + l.first.str() +
                           " lies outside the runtime I/O image (index must be below " +
                           std::to_string(limits_.buffer_size) + ")");
-    if (cfg.raw.has_scan_watchdog && !cfg.is_plain())
-      errors_.push_back(path_ + ": " + at + ".scan_watchdog_ms: only a plain CAN network takes it; " +
-                        (cfg.is_j1939() ? "a J1939 network has j1939.scan_watchdog_ms"
-                                        : "a CANopen master has master.scan_watchdog_ms"));
     if (cfg.is_plain() && cfg.raw.empty())
       cfg.notes.push_back("network has no raw messages; it serves the program's CAN_* blocks, traces and diagnostics");
   }
@@ -1313,7 +1256,6 @@ class Parser {
       check_known(m, mw, {"source", "source_name", "source_name_mask", "timeout_ms", "status_location",
                           "lamps_location", "flash_location", "count_location", "dtcs_location", "dtcs"});
       J1939DmRx r;
-      r.byte_addressed = byte_mode_;
       bool src = cJSON_GetObjectItemCaseSensitive(m, "source") != nullptr;
       bool src_name = cJSON_GetObjectItemCaseSensitive(m, "source_name") != nullptr;
       if (src && src_name) {
@@ -1352,7 +1294,7 @@ class Parser {
       if (has_n && !cJSON_GetObjectItemCaseSensitive(m, "dtcs_location")) error(mw, "field 'dtcs' needs 'dtcs_location'");
       if (r.has_dtcs_location && r.dtcs) {
         IecLocation last = r.dtc_location(r.dtcs - 1);
-        if (!iec_location_in_image(last, limits_.buffer_size, byte_mode_)) {
+        if (!iec_location_in_image(last, limits_.buffer_size)) {
           error(mw, "dtcs_location " + r.dtcs_location.str() + " with " + std::to_string(r.dtcs) + " codes ends at " +
                         last.str() + ", outside the runtime I/O image (index must be below " +
                         std::to_string(limits_.buffer_size) + ")");
@@ -1462,17 +1404,11 @@ class Parser {
       error("", "field 'j1939' must be an object");
       return;
     }
-    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics", "scan_watchdog_ms"});
+    check_known(j, "j1939", {"ecu", "dbc", "rx", "tx", "requests", "diagnostics"});
     J1939Config& jc = cfg.j1939;
     parse_j1939_ecu(j, jc.ecu);
     get_string(j, "dbc", "j1939", false, jc.dbc);
     uint64_t v;
-    if (j_uint(j, "scan_watchdog_ms", "j1939", v)) {
-      if (v != 0 && (v < 10 || v > 60000))
-        error("j1939", "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
-      else
-        jc.scan_watchdog_ms = (unsigned)v;
-    }
     for (const char* list : {"rx", "tx", "requests"}) {
       const cJSON* arr = cJSON_GetObjectItemCaseSensitive(j, list);
       if (arr && !cJSON_IsArray(arr)) {
@@ -1564,7 +1500,7 @@ class Parser {
     check_j1939(jc, [this](const std::string& where, const std::string& msg) { error(where, msg); });
   }
 
-  // Parses one network: the version 1 top level, or one networks[] entry.
+  // Parses one networks[] entry.
   void parse_network(const cJSON* root, Config& cfg) {
     uint64_t v;
     parse_adapter(root, cfg.adapter);
@@ -1579,20 +1515,25 @@ class Parser {
       error("", "missing required field 'master' (an object)");
     } else {
       check_known(master, "master",
-                  {"node_id", "sync_period_us", "sync_source", "sync_cycles", "heartbeat_ms", "eds_lint", "strict_eds",
+                  {"node_id", "sync_period_us", "heartbeat_ms", "eds_lint", "strict_eds",
                    "bus_state_location", "tx_error_count_location", "rx_error_count_location",
                    "bus_off_count_location", "state_location", "vendor_id", "product_code", "revision_number", "serial_number", "sync_window_us",
                    "sync_counter_overflow", "time_cob_id", "emcy_inhibit_time_us", "heartbeat_consumer",
                    "heartbeat_multiplier", "error_behavior", "nmt_inhibit_time_us", "start", "start_nodes",
                    "start_all_nodes", "reset_all_nodes", "stop_all_nodes", "boot_time_ms", "sdo_timeout_ms",
-                   "time_period_ms", "on_plc_stop", "scan_watchdog_ms", "diagnostics", "cia309"});
+                   "time_period_ms", "on_plc_stop", "diagnostics", "cia309"});
       if (get_uint(master, "node_id", "master", true, 0xFFFF, v)) {
         if (v < 1 || v > 127) error("master", "node ID " + std::to_string(v) + " is out of range (1-127)");
         cfg.master.node_id = (unsigned)v;
       }
       // Left out or 0: the master produces no SYNC.
       if (get_uint(master, "sync_period_us", "master", false, 0xFFFFFFFF, v)) cfg.master.sync_period_us = (unsigned)v;
-      parse_sync_source(master, cfg.master);
+      // PLC-cycle SYNC went with the OpenPLC plugin: the bridge has no PLC
+      // cycle, and "timer" is the only source left (an unknown field now).
+      const cJSON* src = cJSON_GetObjectItemCaseSensitive(master, "sync_source");
+      if (cJSON_IsString(src) && std::strcmp(src->valuestring, "plc_cycle") == 0)
+        error("master", "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: "
+                        "use \"sync_period_us\" (timer SYNC)");
       if (get_uint(master, "heartbeat_ms", "master", false, 0xFFFF, v)) cfg.master.heartbeat_ms = (unsigned)v;
       bool has_lint = cJSON_GetObjectItemCaseSensitive(master, "eds_lint") != nullptr;
       bool has_strict = cJSON_GetObjectItemCaseSensitive(master, "strict_eds") != nullptr;
@@ -1642,7 +1583,7 @@ class Parser {
                      "emcy_code_location", "error_register_location", "nmt_command_location", "mandatory",
                      "boot", "reset_communication", "revision_number", "serial_number", "heartbeat_consumer",
                      "heartbeat_watch", "retry_factor", "time_cob_id", "error_behavior", "restore_configuration", "config_check",
-                     "store_configuration", "lss", "axis", "tx_pdos", "rx_pdos", "sdo", "sdo_variables", "simulate",
+                     "store_configuration", "lss", "tx_pdos", "rx_pdos", "sdo", "sdo_variables", "simulate",
                      "emcy_cob_id"},
                     kRemovedNodeFields);
         n.simulate = cfg.adapter.simulate;
@@ -1725,9 +1666,8 @@ class Parser {
       // An empty list is a scan-only configuration, which needs the
       // diagnostics channel to be of any use.
       if (cfg.nodes.empty() && !cfg.master.has_diagnostics)
-        error("", std::string("field 'nodes' lists no slave nodes (an empty list needs ") +
-                      (version_ == 1 ? "master.diagnostics" : "a top-level 'diagnostics'") +
-                      ", for a scan-only configuration)");
+        error("", "field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a "
+                  "scan-only configuration)");
     }
 
     parse_links(root, cfg);
@@ -1740,13 +1680,10 @@ class Parser {
           if (t.number == l.tpdo) l.cob_id = p->tpdo_cob_id(t);
     check_emcy_cob_ids(cfg);
     check_pdo_cob_ids(cfg);
-    // A version 2 file checks the locations of all networks at once.
-    if (version_ == 1) check_overlaps(cfg);
     check_sdo_overrides(cfg);
     check_sdo_variable_overrides(cfg);
     check_time_consumers(cfg);
     check_sync_needs(cfg);
-    check_cyclic_axes(cfg);
   }
 
   // ---- PDO links and node-to-node heartbeat watch (canopen-pdo-links) ----
@@ -1933,10 +1870,9 @@ class Parser {
     return ok;
   }
 
-  // The network's `links` (version 1 top level, version 2 network): each
-  // link's form, then the rules between links and nodes (check_links). The
-  // producer TPDO keeps its own settings in tx_pdos; the consumer RPDOs go
-  // into each node's linked_rpdos.
+  // The network's `links`: each link's form, then the rules between links
+  // and nodes (check_links). The producer TPDO keeps its own settings in
+  // tx_pdos; the consumer RPDOs go into each node's linked_rpdos.
   void parse_links(const cJSON* root, Config& cfg) {
     const cJSON* arr = cJSON_GetObjectItemCaseSensitive(root, "links");
     if (!arr) return;
@@ -2057,44 +1993,6 @@ class Parser {
     }
   }
 
-  // A cyclic CiA 402 axis needs one SYNC every PLC cycle: with the master's
-  // timer, scan and SYNC drift and a set-point is applied twice or skipped.
-  void check_cyclic_axes(const Config& cfg) {
-    for (size_t i = 0; i < cfg.nodes.size(); ++i) {
-      const NodeConfig& n = cfg.nodes[i];
-      if (!n.axis_cyclic) continue;
-      std::string w = "nodes[" + std::to_string(i) + "]";
-      if (!cfg.master.sync_plc_cycle)
-        error(w, n.label() + ": a cyclic CiA 402 axis needs SYNC from the PLC cycle (\"sync_source\": \"plc_cycle\")");
-      else if (cfg.master.sync_cycles != 1)
-        error(w, n.label() + ": a cyclic CiA 402 axis needs one SYNC every PLC cycle ('sync_cycles' 1, not " +
-                     std::to_string(cfg.master.sync_cycles) + ")");
-    }
-  }
-
-  // sync_source / sync_cycles; sync_period_us is already read.
-  void parse_sync_source(const cJSON* master, MasterConfig& m) {
-    const std::string w = "master";
-    const cJSON* src = cJSON_GetObjectItemCaseSensitive(master, "sync_source");
-    if (src) {
-      std::string s = cJSON_IsString(src) ? src->valuestring : "";
-      if (s == "plc_cycle")
-        m.sync_plc_cycle = true;
-      else if (s != "timer")
-        error(w, "field 'sync_source' must be \"timer\" or \"plc_cycle\"");
-    }
-    uint64_t v;
-    if (get_uint(master, "sync_cycles", w, false, 1000, v)) {
-      if (v < 1) error(w, "field 'sync_cycles' must be 1-1000");
-      m.has_sync_cycles = true;
-      m.sync_cycles = v < 1 ? 1 : (unsigned)v;
-      if (!m.sync_plc_cycle) error(w, "field 'sync_cycles' needs \"sync_source\": \"plc_cycle\"");
-    }
-    if (m.sync_plc_cycle && m.sync_period_us)
-      error(w, "field 'sync_period_us' cannot be used with \"sync_source\": \"plc_cycle\": the SYNC period comes "
-               "from the PLC cycle");
-  }
-
   void parse_master_options(const cJSON* master, MasterConfig& m) {
     const std::string w = "master";
     uint64_t v;
@@ -2148,27 +2046,16 @@ class Parser {
       else
         error(w, "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"");
     }
-    if (get_uint(master, "scan_watchdog_ms", w, false, 0xFFFFFFFF, v)) {
-      if (v != 0 && (v < 10 || v > 60000))
-        error(w, "field 'scan_watchdog_ms' must be 0 or 10-60000: " + std::to_string(v));
-      else
-        m.scan_watchdog_ms = (unsigned)v;
-    }
-    if (version_ == 1) {
-      parse_diagnostics(master, m, "master");
-      parse_cia309(master, m, "master");
-    } else {
-      if (cJSON_GetObjectItemCaseSensitive(master, "diagnostics"))
-        error(w, "field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master");
-      if (cJSON_GetObjectItemCaseSensitive(master, "cia309"))
-        error(w, "field 'cia309' is a top-level object in schema_version 2, not part of a network's master");
-    }
+    if (cJSON_GetObjectItemCaseSensitive(master, "diagnostics"))
+      error(w, "field 'diagnostics' is a top-level object in schema_version 2, not part of a network's master");
+    if (cJSON_GetObjectItemCaseSensitive(master, "cia309"))
+      error(w, "field 'cia309' is a top-level object in schema_version 2, not part of a network's master");
     if (!m.start)
-      warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged "
-                 "until the PLC program starts it with CO_NETWORK_START");
+      warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged; "
+                 "the bridge has no command that starts it");
   }
 
-  // `parent_where`: "master" in version 1, "" (the top level) in version 2.
+  // `parent_where`: "" (the top level).
   void parse_diagnostics(const cJSON* parent, MasterConfig& m, const std::string& parent_where) {
     const cJSON* d = cJSON_GetObjectItemCaseSensitive(parent, "diagnostics");
     if (!d) return;
@@ -2246,7 +2133,7 @@ class Parser {
       error(w, "field 'pairing' must be lan, anywhere or off");
   }
 
-  // `parent_where`: "master" in version 1, "" (the top level) in version 2
+  // `parent_where`: "" (the top level)
   // (canopen-cia309-gateway "CiA 309-3 gateway is opt-in"). Unlike other
   // objects, an unknown field here rejects the file: the gateway opens a
   // port without a login, so a misspelled setting must not pass unnoticed.
@@ -2325,8 +2212,6 @@ class Parser {
     c.numbering.clear();
     if (!c.has_nets) {
       for (size_t i = 0; i < set.networks.size(); ++i) c.numbering[(unsigned)i + 1] = (unsigned)i;
-    } else if (version_ == 1) {
-      error(w, "field 'nets' needs schema_version 2 (a version 1 file has one network, number 1)");
     } else {
       std::map<unsigned, unsigned> numbered;  // network index -> number
       for (const auto& e : cia309_nets_) {
@@ -2426,7 +2311,6 @@ class Parser {
         n.has_store_configuration = true, n.store_configuration = (unsigned)v;
     }
     parse_lss(node, n, w);
-    parse_axis(node, w, n);
   }
 
   void parse_lss(const cJSON* node, NodeConfig& n, const std::string& w) {
@@ -2448,44 +2332,6 @@ class Parser {
     if (n.lss_assign && !n.reset_communication)
       error(w, n.label() + ": 'lss.assign' needs 'reset_communication' true: a node ID set by LSS becomes active "
                            "only on a communication reset");
-  }
-
-  // A CiA 402 axis is for the PLC program (the editor's motion blocks); the
-  // bus does nothing different, so only its form is checked here. A cyclic
-  // axis gets its interpolation period written (canopen-cia402-axis
-  // "Interpolation time period"), checked in check_cyclic_axes.
-  void parse_axis(const cJSON* node, const std::string& w, NodeConfig& n) {
-    const cJSON* axis = cJSON_GetObjectItemCaseSensitive(node, "axis");
-    if (!axis) return;
-    if (!cJSON_IsObject(axis)) {
-      error(w, "field 'axis' must be an object");
-      return;
-    }
-    std::string aw = w + ": axis";
-    check_known(axis, aw, {"scale_numerator", "scale_denominator", "scale_factor", "cyclic",
-                           "interpolation_period_us"});
-    get_bool(axis, "cyclic", aw, n.axis_cyclic);
-    uint64_t period;
-    if (get_uint(axis, "interpolation_period_us", aw, false, 255000, period)) {
-      uint8_t value;
-      int8_t exponent;
-      if (period < 100 || !interpolation_code((unsigned)period, value, exponent))
-        error(aw, "field 'interpolation_period_us' " + std::to_string(period) +
-                      " cannot be written to 0x60C2: it must be 1-255 times 1 ms, 100 us, 10 us or 1 us");
-      else
-        n.interpolation_period_us = (unsigned)period;
-    }
-    double v = 0;
-    if (get_number(axis, "scale_numerator", aw, -2147483648.0, 2147483647.0, v)) {
-      if (v != std::floor(v))
-        error(aw, "field 'scale_numerator' must be an integer");
-      else if (v == 0)
-        error(aw, "field 'scale_numerator' must not be 0");
-    }
-    if (get_number(axis, "scale_denominator", aw, 1.0, 4294967295.0, v) && v != std::floor(v))
-      error(aw, "field 'scale_denominator' must be an integer");
-    if (get_number(axis, "scale_factor", aw, -DBL_MAX, DBL_MAX, v) && v == 0)
-      error(aw, "field 'scale_factor' must not be 0");
   }
 
   void parse_adapter(const cJSON* root, AdapterConfig& a) {
@@ -2815,7 +2661,7 @@ class Parser {
 
   // TIME produced but no configured node set to consume it (bit 31 of its
   // time_cob_id). Only a warning: a device may consume TIME by its EDS default.
-  // Without a SYNC period or PLC-cycle SYNC the master produces no SYNC, so settings that only
+  // Without a SYNC period the master produces no SYNC, so settings that only
   // act on SYNC would never take effect. A PDO's transmission type from the
   // EDS is checked with the EDS (eds_check.cpp).
   // An optional output location of one size (%QW or %QB).
@@ -3141,7 +2987,7 @@ class Parser {
   void check_sync_needs(const Config& cfg) {
     if (cfg.master.produces_sync()) return;
     const char* why =
-        "' needs 'sync_period_us' or \"sync_source\": \"plc_cycle\" (without them the master produces no SYNC)";
+        "' needs 'sync_period_us' (without it the master produces no SYNC)";
     if (cfg.master.has_sync_window) error("master", std::string("field 'sync_window_us") + why);
     if (cfg.master.has_sync_counter_overflow) error("master", std::string("field 'sync_counter_overflow") + why);
     for (size_t i = 0; i < cfg.nodes.size(); ++i) {
@@ -3175,7 +3021,7 @@ class Parser {
       for (const auto& sv : n.sdo_variables) {
         const char* what = sv.is_read() ? nullptr : plugin_owned_object(sv.index);
         if (!what) continue;
-        warning(n.label(), sv.label() + " writes an object the plugin configures itself; the program can override " +
+        warning(n.label(), sv.label() + " writes an object canworks configures itself; the program can override " +
                                what);
       }
   }
@@ -3270,7 +3116,7 @@ class Parser {
         if (s.index >= 0x1400 && s.index <= 0x17FF && n.linked_rpdos.count((s.index & 0x1FFu) + 1))
           what = "the consumer RPDO of a PDO link ('links')";
         else if (s.index >= 0x1400 && s.index <= 0x1BFF)
-          what = "the PDO settings (the plugin sets up every PDO of the node)";
+          what = "the PDO settings (canworks sets up every PDO of the node)";
         else if (s.index == 0x1017 && s.subindex == 0 && n.has_heartbeat && v != n.heartbeat_ms)
           what = "heartbeat_ms";
         else if (s.index == 0x100C && s.subindex == 0 && n.guard_time_ms && v != n.guard_time_ms)
@@ -3376,24 +3222,10 @@ class Parser {
     unsigned nbytes = 0;  // a bridge block's size; 0: the location's own
   };
 
-  void check_overlaps(const Config& cfg) {
-    std::vector<Use> uses;
-    collect_uses(cfg, "", uses);
-    report_overlaps(uses, "nodes");
-  }
-
-  void report_overlaps(const std::vector<Use>& uses, const std::string& where) {
-    if (byte_mode_) return report_byte_overlaps(uses, where);
-    for (size_t i = 0; i < uses.size(); ++i)
-      for (size_t j = i + 1; j < uses.size(); ++j)
-        if (uses[i].loc.overlaps(uses[j].loc))
-          error(where, uses[i].who + " and " + uses[j].who + " both map to " + uses[i].loc.str());
-  }
-
   // A bridge config (modbus-bridge "Byte-addressed locations"): word and
   // larger locations start at an even byte; two locations clash when their
   // bytes overlap, except bits of one byte with different bit numbers.
-  void report_byte_overlaps(const std::vector<Use>& uses, const std::string& where) {
+  void report_overlaps(const std::vector<Use>& uses, const std::string& where) {
     auto first = [](const Use& u) { return u.loc.index; };
     auto count = [](const Use& u) { return u.nbytes ? u.nbytes : location_bytes(u.loc); };
     for (const Use& u : uses)
@@ -3666,12 +3498,6 @@ class Parser {
     }
     get_bool(b, "sdo_bridge_write", w, c.sdo_bridge_write);
     if (c.sdo_bridge_write && !sdo) warning(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'");
-    // The bridge has no PLC cycle.
-    for (const auto& n : set.networks)
-      if (n.is_canopen() && !n.is_slave() && n.master.sync_plc_cycle)
-        error("networks[" + std::to_string(n.network_index) + "]: master",
-              "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
-              "\"sync_period_us\" (timer SYNC)");
   }
 
   // Every IEC location of one network; `p` goes in front of each name.
@@ -3757,8 +3583,6 @@ class Parser {
             char obj[64];
             std::snprintf(obj, sizeof(obj), " %s %u object 0x%04X:%u", dir, p.number, e.index, e.subindex);
             if (e.has_location) uses.push_back({e.location, nl + obj});
-            for (const auto& b : e.bits)
-              if (b.has_location) uses.push_back({b.location, nl + obj + " bit " + std::to_string(b.bit)});
           }
       };
       add(n.tx_pdos, "TPDO");
@@ -3774,7 +3598,6 @@ class Parser {
   std::vector<std::string>& warnings_;
   std::string prefix_;  // "networks[i]" while parsing a version 2 network
   unsigned version_ = 1;
-  bool byte_mode_ = false;  // a bridge config: byte-addressed locations
   unsigned network_index_ = 0;  // the network being parsed
   // cia309.nets as written (number text, network name) and where the
   // object is ("cia309" or "master.cia309"), for resolve_cia309().
@@ -3852,7 +3675,7 @@ unsigned location_bytes(const IecLocation& loc) { return loc.size == IecSize::X 
 
 std::string sync_needed_message(unsigned transmission, bool from_eds) {
   return "transmission type " + std::to_string(transmission) + (from_eds ? " (from the EDS)" : "") +
-         " needs SYNC, but the master produces none; set master.sync_period_us, \"sync_source\": \"plc_cycle\" or "
+         " needs SYNC, but the master produces none; set master.sync_period_us or "
          "\"transmission\": 254 or 255";
 }
 

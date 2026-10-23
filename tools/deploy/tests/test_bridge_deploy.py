@@ -44,12 +44,6 @@ class BridgeDeploy(unittest.TestCase):
             self.assertIn(node["eds"], files)
         self.assertIn("canworks/simulation.json", files)
 
-    def test_runtime_refuses_a_bridge_config(self):
-        code, out, err = run_cli("--bundle", "/nonexistent", "--runtime", "plc.local", "--config", EXAMPLE)
-        self.assertNotEqual(code, 0)
-        self.assertIn("is a Modbus bridge config (it has a 'bridge' object): canworks-bridge runs it, not the "
-                      "OpenPLC plugin; upload it with --bridge HOST", err)
-
     def test_bridge_refuses_a_plain_config(self):
         with open(EXAMPLE, encoding="utf-8") as f:
             cfg = json.load(f)
@@ -64,10 +58,10 @@ class BridgeDeploy(unittest.TestCase):
                 json.dump(cfg, f)
             code, out, err = run_cli("--bridge", "127.0.0.1", "--config", path, "--check-only")
         self.assertNotEqual(code, 0)
-        self.assertIn("has no top-level \"bridge\" object, so canworks-bridge does not run it", err)
+        self.assertIn("this config is for the removed OpenPLC plugin", err)
 
     def test_token_needs_bridge(self):
-        code, out, err = run_cli("--bundle", "/nonexistent", "--check-only", "--config", EXAMPLE, "--token", "x")
+        code, out, err = run_cli("--check", "--config", EXAMPLE, "--token", "x")
         self.assertNotEqual(code, 0)
         self.assertIn("--token and --token-file go with --bridge", err)
 

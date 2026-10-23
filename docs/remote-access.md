@@ -15,7 +15,7 @@ The diagnostics channel is safe on any network: it is encrypted, and its login i
 
 ## First use of the remote link
 
-1. **Install** the plugin with the link on the device: `sudo scripts/install-stock.sh --with-link` (a bridge: `sudo scripts/install-bridge.sh --with-link NAME`).
+1. **Install** the bridge with the link on the device: `sudo scripts/install-bridge.sh --with-link NAME`.
 2. **Connect once on the local network** with the token, as usual: pick the runtime in the configurator's connect box. The configurator pairs this PC with the runtime in the background.
 3. **Tick Reachable from other networks** under **Online access** (Bus and master) and upload the program.
 
@@ -23,7 +23,7 @@ From then on, picking the runtime in the connect box works from anywhere: the to
 
 ## Same network
 
-The device advertises itself on the local network (mDNS, `_canworks._tcp`; installed with the plugin unless `--without-discovery`), so the configurator's connect box lists it by name, and `canworks-diag discover` prints it:
+The device advertises itself on the local network (mDNS, `_canworks._tcp`; installed with the bridge unless `--without-discovery`), so the configurator's connect box lists it by name, and `canworks-diag discover` prints it:
 
 ```sh
 canworks-diag discover
@@ -55,7 +55,7 @@ The remote link is a small service on the device (`canworks-link`), built on [ir
 - **Pairing uses the diagnostics token.** The first time a PC logs in to the runtime on the local network, the tools prove the token to the link service as well (the same SCRAM login; the token never crosses the network) and the PC is added. By default pairing works only over a direct path from a private or link-local address, so a token alone does not let anyone pair from the internet. Wrong tokens are slowed down and logged: one try per PC a second, 5 failed pairings a minute from one address and 10 in all, where a pairing in progress counts as failed until it succeeds. Listing and removing paired PCs from the configurator checks the token with the same one-try-a-second delay.
 - **Internet access is off** until the config turns it on. Off, the service only accepts paired PCs on the local network and contacts no outside server.
 
-The settings are in the config's diagnostics object (`master.diagnostics` in version 1):
+The settings are in the config's top-level `diagnostics` object:
 
 ```json
 "diagnostics": {
@@ -70,7 +70,7 @@ The settings are in the config's diagnostics object (`master.diagnostics` in ver
 | `relays` | the iroh project's public relays | Relay servers (https URLs, at most 8). |
 | `pairing` | `lan` | Where a PC may pair with the token: `lan` (a direct path from a private or link-local address), `anywhere`, or `off` (only `canworks-link allow` on the device). |
 
-The link service applies a changed config a few seconds after an upload (a change of `internet` or `relays` restarts it, so open link sessions reconnect); the plugin and the bridge only check these fields.
+The link service applies a changed config a few seconds after an upload (a change of `internet` or `relays` restarts it, so open link sessions reconnect); the bridge only checks these fields.
 
 ### Your own relay
 
@@ -101,7 +101,7 @@ None of these needs the internet; discovery finds the device on each.
 
 ## What the remote link is for, and what not
 
-The link carries diagnostics, commissioning and uploads. Everything that has to be on time runs on the device: SDO transfers, scans, LSS, NMT and trace are executed by the plugin at bus speed, and only the request and the result cross the link. Wi-Fi and relayed paths have delay spikes of hundreds of milliseconds and gaps of seconds, so:
+The link carries diagnostics, commissioning and uploads. Everything that has to be on time runs on the device: SDO transfers, scans, LSS, NMT and trace are executed by the bridge at bus speed, and only the request and the result cross the link. Wi-Fi and relayed paths have delay spikes of hundreds of milliseconds and gaps of seconds, so:
 
 - The tools stretch request timeouts with the measured round trip (at least 4 × round trip + 0.5 s).
 - LSS fast scan and a PDO test with a SYNC period ask for confirmation on a relayed path or above 100 ms round trip: they still run on the device, but results and stop commands arrive late.
@@ -122,7 +122,7 @@ On the PC (`canworks-diag`):
 | `--runtime NAME` | A remembered runtime: directly when it answers, else over the link. `link:NAME` uses only the link. |
 | `--repair` | With `--runtime HOST`: a paired runtime that now answers with another link ID (reinstalled, new key) is paired again with its new ID. |
 
-`canworks-deploy --runtime NAME` and `--runtime link:NAME` deploy the same way, with the same certificate checks.
+`canworks-deploy --bridge NAME` and `--bridge link:NAME` deploy to a bridge the same way, with the same certificate checks.
 
 On the device (`canworks-link`, settings in `/etc/canworks-link`):
 

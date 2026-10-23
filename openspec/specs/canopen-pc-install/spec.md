@@ -118,7 +118,7 @@ CI SHALL install the wheel with uv on a Windows runner, a macOS runner, a Linux 
 - **THEN** the installed-wheel jobs do not run unless started by hand on its branch; the Linux tests in CI still run
 
 #### Scenario: Unrelated change
-- **WHEN** a commit on `main` changes only plugin C++ code or docs
+- **WHEN** a commit on `main` changes only bridge C++ code or docs
 - **THEN** the installed-wheel jobs do not run
 
 ### Requirement: pip route kept

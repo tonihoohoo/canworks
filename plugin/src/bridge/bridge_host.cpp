@@ -14,6 +14,7 @@
 #include <cerrno>
 
 #include "cJSON.h"
+#include "image_io.h"
 #include "log.h"
 #include "outputs_gate.h"
 #if CANWORKS_WITH_CANOPEN
@@ -33,149 +34,7 @@ namespace canworks_bridge {
 
 namespace {
 
-// The image tables of the runtime args. The runtime's callbacks carry no
-// context, so they live here; one bridge runs per process.
-struct RuntimeTables {
-  unsigned n = 0;  // table entries (BridgeHost::kImageLimit)
-  bool low_first = false;
-  std::vector<uint8_t> in;  // the input bytes the journal writes
-  std::vector<IEC_BOOL> bool_in, bool_out;
-  std::vector<IEC_BYTE> byte_in, byte_out;
-  std::vector<IEC_UINT> int_in, int_out;
-  std::vector<IEC_UDINT> dint_in, dint_out;
-  std::vector<IEC_ULINT> lint_in, lint_out;
-  std::vector<IEC_BOOL*> p_bool_in, p_bool_out;
-  std::vector<IEC_BYTE*> p_byte_in, p_byte_out;
-  std::vector<IEC_UINT*> p_int_in, p_int_out;
-  std::vector<IEC_UDINT*> p_dint_in, p_dint_out;
-  std::vector<IEC_ULINT*> p_lint_in, p_lint_out;
-  std::vector<uint8_t> out;  // the output snapshot being decoded
-  plugin_runtime_args_t rt;
-};
-
-std::unique_ptr<RuntimeTables> g_tables;
-
-void put_input(int index, uint64_t v, unsigned nbytes) {
-  RuntimeTables& t = *g_tables;
-  if (index < 0 || static_cast<size_t>(index) + nbytes > t.in.size()) return;
-  store_value(&t.in[index], v, nbytes, t.low_first);
-}
-
-int j_bool(int type, int index, int bit, int value) {
-  RuntimeTables& t = *g_tables;
-  if (type != 0 || index < 0 || static_cast<size_t>(index) >= t.in.size() || bit < 0 || bit > 7) return -1;
-  uint8_t mask = static_cast<uint8_t>(1u << bit);
-  if (value)
-    t.in[index] |= mask;
-  else
-    t.in[index] &= static_cast<uint8_t>(~mask);
-  return 0;
-}
-int j_byte(int type, int index, int value) {
-  if (type != 3) return -1;
-  put_input(index, static_cast<uint8_t>(value), 1);
-  return 0;
-}
-int j_int(int type, int index, int value) {
-  if (type != 5) return -1;
-  put_input(index, static_cast<uint16_t>(value), 2);
-  return 0;
-}
-int j_dint(int type, int index, unsigned value) {
-  if (type != 8) return -1;
-  put_input(index, value, 4);
-  return 0;
-}
-int j_lint(int type, int index, unsigned long long value) {
-  if (type != 11) return -1;
-  put_input(index, value, 8);
-  return 0;
-}
-void no_lock() {}
-void rt_log(const char* fmt, ...) {
-  char buf[1024];
-  va_list ap;
-  va_start(ap, fmt);
-  std::vsnprintf(buf, sizeof(buf), fmt, ap);
-  va_end(ap);
-  log_info("%s", buf);
-}
-
-void make_tables(unsigned n, size_t in_bytes, bool low_first) {
-  g_tables.reset(new RuntimeTables);
-  RuntimeTables& t = *g_tables;
-  t.n = n;
-  t.low_first = low_first;
-  t.in.assign(in_bytes, 0);
-  t.bool_in.assign(n * 8, 0);
-  t.bool_out.assign(n * 8, 0);
-  t.byte_in.assign(n, 0);
-  t.byte_out.assign(n, 0);
-  t.int_in.assign(n, 0);
-  t.int_out.assign(n, 0);
-  t.dint_in.assign(n, 0);
-  t.dint_out.assign(n, 0);
-  t.lint_in.assign(n, 0);
-  t.lint_out.assign(n, 0);
-  t.p_bool_in.resize(n * 8);
-  t.p_bool_out.resize(n * 8);
-  for (unsigned i = 0; i < n * 8; ++i) {
-    t.p_bool_in[i] = &t.bool_in[i];
-    t.p_bool_out[i] = &t.bool_out[i];
-  }
-  auto point = [n](auto& values, auto& pointers) {
-    pointers.resize(n);
-    for (unsigned i = 0; i < n; ++i) pointers[i] = &values[i];
-  };
-  point(t.byte_in, t.p_byte_in);
-  point(t.byte_out, t.p_byte_out);
-  point(t.int_in, t.p_int_in);
-  point(t.int_out, t.p_int_out);
-  point(t.dint_in, t.p_dint_in);
-  point(t.dint_out, t.p_dint_out);
-  point(t.lint_in, t.p_lint_in);
-  point(t.lint_out, t.p_lint_out);
-  plugin_runtime_args_t& rt = t.rt;
-  std::memset(&rt, 0, sizeof(rt));
-  rt.bool_input = reinterpret_cast<IEC_BOOL*(*)[8]>(t.p_bool_in.data());
-  rt.bool_output = reinterpret_cast<IEC_BOOL*(*)[8]>(t.p_bool_out.data());
-  rt.byte_input = t.p_byte_in.data();
-  rt.byte_output = t.p_byte_out.data();
-  rt.int_input = t.p_int_in.data();
-  rt.int_output = t.p_int_out.data();
-  rt.dint_input = t.p_dint_in.data();
-  rt.dint_output = t.p_dint_out.data();
-  rt.lint_input = t.p_lint_in.data();
-  rt.lint_output = t.p_lint_out.data();
-  rt.image_lock = no_lock;
-  rt.image_unlock = no_lock;
-  rt.buffer_size = static_cast<int>(n);
-  rt.bits_per_buffer = 8;
-  rt.log_info = rt_log;
-  rt.log_debug = rt_log;
-  rt.log_warn = rt_log;
-  rt.log_error = rt_log;
-  rt.journal_write_bool = j_bool;
-  rt.journal_write_byte = j_byte;
-  rt.journal_write_int = j_int;
-  rt.journal_write_dint = j_dint;
-  rt.journal_write_lint = j_lint;
-  rt.base_tick_ns = 1000000;  // the loop's period
-}
-
-// The output snapshot in g_tables->out into the typed output tables.
-void decode_outputs() {
-  RuntimeTables& t = *g_tables;
-  const size_t size = std::min<size_t>(t.out.size(), t.n);
-  const uint8_t* o = t.out.data();
-  for (size_t i = 0; i < size; ++i) {
-    t.byte_out[i] = o[i];
-    for (unsigned b = 0; b < 8; ++b) t.bool_out[i * 8 + b] = (o[i] >> b) & 1;
-    if (i + 2 <= size) t.int_out[i] = static_cast<IEC_UINT>(load_value(o + i, 2, false));
-    if (i + 4 <= size) t.dint_out[i] = static_cast<IEC_UDINT>(load_value(o + i, 4, t.low_first));
-    if (i + 8 <= size) t.lint_out[i] = static_cast<IEC_ULINT>(load_value(o + i, 8, t.low_first));
-  }
-}
+std::unique_ptr<canopen_plugin::ByteImageHost> g_image;
 
 #if CANWORKS_WITH_CANOPEN
 // The SDO bridge registers on the queue of the SDO function blocks and the
@@ -311,7 +170,6 @@ BridgeHost::~BridgeHost() {
 bool BridgeHost::check(const std::string& config_path, std::vector<std::string>* problems, uint32_t* map_hash) {
   canopen_plugin::ImageLimits limits;
   limits.buffer_size = kImageLimit;
-  limits.bridge_host = true;
   limits.force_simulate = canopen_plugin::force_simulate_from_env(std::getenv("CANWORKS_FORCE_SIMULATE"));
   if (!canopen_plugin::Engine::check(config_path, limits, problems)) return false;
   if (map_hash) {
@@ -327,7 +185,6 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   engine_.reset(new canopen_plugin::Engine);
   canopen_plugin::ImageLimits limits;
   limits.buffer_size = kImageLimit;
-  limits.bridge_host = true;
   limits.force_simulate = canopen_plugin::force_simulate_from_env(std::getenv("CANWORKS_FORCE_SIMULATE"));
   config_path_ = config_path;
   version_ = version;
@@ -338,7 +195,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     return put_config(files, why);
   };
   engine_->set_diag_host(dh);
-  if (!engine_->prepare(config_path, limits, 1000000, version)) return false;
+  if (!engine_->prepare(config_path, limits, version)) return false;
   const canopen_plugin::ConfigSet& s = engine_->set();
   cfg_ = s.bridge;
 
@@ -358,8 +215,10 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   map_hash_ = canopen_plugin::map_hash(s);
   image_.set_link(cfg_.openplc ? canopen_plugin::kOpenplcHeaderBytes : 0, map_hash_);
   mismatch_logged_ = false;
-  make_tables(kImageLimit, image_.input_size(), cfg_.low_first);
-  g_tables->out.assign(image_.output_size(), 0);
+  g_image.reset(new canopen_plugin::ByteImageHost);
+  g_image->low_first = cfg_.low_first;
+  g_image->in.assign(image_.input_size(), 0);
+  g_image->out.assign(image_.output_size(), 0);
   out_copy_.assign(image_.output_size(), 0);
   is_master_.clear();
   unsigned max_sync_us = 0;
@@ -412,11 +271,10 @@ void BridgeHost::stop() {
 }
 
 void BridgeHost::push_outputs() {
-  uint64_t v = image_.take_outputs(g_tables->out.data(), outputs_seen_);
+  uint64_t v = image_.take_outputs(g_image->out.data(), outputs_seen_);
   if (v == outputs_seen_) return;
   outputs_seen_ = v;
-  decode_outputs();
-  engine_->cycle_end(g_tables->rt);
+  engine_->cycle_end(*g_image);
 }
 
 void BridgeHost::on_write() {
@@ -546,7 +404,7 @@ void BridgeHost::service_control(const uint8_t* out, Clock::time_point now) {
 }
 
 void BridgeHost::write_blocks(Clock::time_point now) {
-  std::vector<uint8_t>& in = g_tables->in;
+  std::vector<uint8_t>& in = g_image->in;
   if (cfg_.openplc && in.size() >= canopen_plugin::kOpenplcHashBytes) {
     put_be16(&in[0], static_cast<uint16_t>(map_hash_ >> 16));
     put_be16(&in[2], static_cast<uint16_t>(map_hash_));
@@ -571,7 +429,7 @@ void BridgeHost::loop() {
     {
       std::lock_guard<std::mutex> lock(exchange_mu_);
       Clock::time_point now = Clock::now();
-      engine_->cycle_start(g_tables->rt);
+      engine_->cycle_start(*g_image);
       if (supervisor_->tick(now)) enter_off(OutputState::kWatchdog, now);
       if (zero_pending_ && now >= zero_until_) {
         zero_pending_ = false;
@@ -581,7 +439,7 @@ void BridgeHost::loop() {
       service_control(out_copy_.data(), now);
       if (sdo_) sdo_->service(out_copy_.data() + cfg_.sdo_request.index, g_sdo_backend);
       write_blocks(now);
-      image_.publish_inputs(g_tables->in.data(), g_tables->in.size());
+      image_.publish_inputs(g_image->in.data(), g_image->in.size());
       push_outputs();  // the first snapshot, and the zero action's
     }
     next += std::chrono::milliseconds(1);

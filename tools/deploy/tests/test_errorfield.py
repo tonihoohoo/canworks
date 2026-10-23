@@ -224,7 +224,7 @@ class StatusLine(unittest.TestCase):
 
     def test_text(self):
         t = diag.emcy_cob_id_text
-        self.assertEqual(t(self.node()), "")  # an older plugin
+        self.assertEqual(t(self.node()), "")  # an older bridge
         self.assertEqual(t(self.node(emcy_cob_id={"value": 0x85, "source": "default", "valid": True})), "")
         self.assertEqual(t(self.node(emcy_cob_id={"value": 0xC5, "source": "device", "valid": True})),
                          "EMCY COB-ID 0xC5 (device)")

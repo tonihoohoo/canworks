@@ -1,12 +1,12 @@
 """Exports the configured CANopen network as a DBC file (canopen-dbc-export spec).
 
-The DBC describes every configured PDO at the COB-ID the plugin gives it,
+The DBC describes every configured PDO at the COB-ID the bridge gives it,
 laid out from the config's entries or, for a PDO that keeps the device's
 mapping, from the EDS default mapping; each node's heartbeat and EMCY, NMT
 and SYNC; and, on request, each node's SDO frames as multiplexed messages.
 It is built from the same checks and resolution rules the deploy tool uses
 (contract.check_config, contract.auto_cob_ids, eds.mapping_info), so it
-matches what the plugin puts on the bus.
+matches what the bridge puts on the bus.
 
     model = build(cfg, config_path, sdo="config", names=plc_names(uses))
     text = write(model)
@@ -236,7 +236,7 @@ def _load_eds(cfg, config_path, eds_paths):
 
 def _normalized_pdos(cfg):
     """Per node {"tx_pdos": [...], "rx_pdos": [...]} with number and resolved
-    COB-ID, as the plugin resolves them."""
+    COB-ID, as the bridge resolves them."""
     nodes = []
     for n in cfg["nodes"]:
         node = {"node_id": _u(n["node_id"]), "tx_pdos": [], "rx_pdos": []}
@@ -315,8 +315,6 @@ def pdo_marks(n, eds):
 
 def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
     sync_us = _u(cfg["master"].get("sync_period_us"), 0)
-    plc_cycle = cfg["master"].get("sync_source") == "plc_cycle"
-    sync_cycles = _u(cfg["master"].get("sync_cycles"), 1) or 1
     msgs = []
     linked = links_mod.linked_tpdos(cfg)
     for key in ("tx_pdos", "rx_pdos"):
@@ -337,11 +335,6 @@ def _pdo_messages(n, node_name, eds, pdos, cfg, names, warnings, notes=None):
                 cycle = int(round(sync_us * trans / 1000.0)) or None
             text = "node %d %s %d, transmission %s%s" % (n_id(n), kind, num,
                                                         trans if trans is not None else "not set", source)
-            if trans is not None and 1 <= trans <= 240 and plc_cycle:
-                # The SYNC period is the PLC task's, which the config does not hold.
-                text += ", sent at %s, one SYNC every %s" % (
-                    "every SYNC" if trans == 1 else "every %d SYNCs" % trans,
-                    "PLC cycle" if sync_cycles == 1 else "%d PLC cycles" % sync_cycles)
             msg = Message(cob, "%s_%s%d" % (node_name, kind, num), (total + 7) // 8,
                           node_name if tx else MASTER, text, cycle)
             receiver = MASTER if tx else node_name
@@ -517,6 +510,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         if not result.ok:
             raise ExportFailed([(i["message"], i["paths"]) for i in result.items if i["level"] == "error"])
         warnings = list(result.warnings)
+    if contract.version_of(cfg) == 2:
+        cfg = contract.network_config(cfg)
     eds_list = _load_eds(cfg, config_path, paths)
     pdos = _normalized_pdos(cfg)
     node_names = node_identifiers(cfg)
@@ -530,8 +525,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
         hb.signals.append(Signal("NMT_State", 0, 7, receivers=[MASTER], values=NMT_STATES))
         messages.append(hb)
         # The configured EMCY COB-ID (emcy_cob_id, or a startup SDO to 0x1014),
-        # else the EDS default of 0x1014, which the plugin listens on until a
-        # read (plugin: NodeConfig::emcy_cob_id), else the predefined one; a
+        # else the EDS default of 0x1014, which the bridge listens on until a
+        # read (engine: NodeConfig::emcy_cob_id), else the predefined one; a
         # COB-ID read from the device is not known here.
         emcy = contract.configured_emcy_cob_id(n)
         cob = emcy[0] if emcy and emcy[0] <= 0x7FF else _eds_emcy_cob_id(eds, node_id) or 0x80 + node_id
@@ -547,8 +542,8 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
     nmt.signals += [Signal("Command", 0, 8, receivers=node_names or [NO_RECEIVER], values=NMT_COMMANDS),
                     Signal("Node_ID", 8, 8, receivers=node_names or [NO_RECEIVER])]
     messages.append(nmt)
-    # Without a SYNC period or PLC-cycle SYNC the master produces no SYNC.
-    if _u(cfg["master"].get("sync_period_us"), 0) or cfg["master"].get("sync_source") == "plc_cycle":
+    # Without a SYNC period the master produces no SYNC.
+    if _u(cfg["master"].get("sync_period_us"), 0):
         messages.append(Message(0x080, "SYNC", 0, MASTER, "SYNC"))
     comment = "CANopen network of %s, exported by canworks-deploy %s" % (
         os.path.basename(config_path), __version__)
@@ -557,7 +552,7 @@ def build(cfg, config_path, eds_paths=None, sdo="none", names=None, checked=Fals
 
 def _eds_emcy_cob_id(eds, node_id):
     """The EDS default of 0x1014 sub-index 0 when it is a valid 11-bit
-    COB-ID (plugin: check_eds_files), else None."""
+    COB-ID (engine: check_eds_files), else None."""
     sub = eds.find(0x1014, 0) if eds is not None else None
     try:
         cob = sub.value(node_id) if sub is not None else None

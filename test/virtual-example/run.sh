@@ -8,19 +8,20 @@
 #    cell.eds from cell_eds.json (slave-eds --gateway)
 # 2. the deploy tool's check with no warning beyond the simulation notice,
 #    and the exports: HTML network document, DCF files, DBC file
-# 3. the program compiles with STruC++ and the canworks library
-# 4. `canworks-local-runtime start`, the example deployed with
-#    `--runtime local`: every configured node OPERATIONAL (node 20 on host
-#    included), node 7 given its node ID by LSS, the gateway started by the
-#    stand-in master
+# 3. the editor project (canworks_in, main, canworks_out and the `canworks`
+#    list) compiles with STruC++ and the canworks library
+# 4. `canworks-local-runtime start`, the config put on the local bridge with
+#    `--bridge local` and the program uploaded with the project's remote
+#    device as conf/modbus_master.json (test/local-runtime/program.py), so
+#    the pinned runtime's own Modbus master runs it: every configured node
+#    OPERATIONAL (node 20 on host included), node 7 given its node ID by LSS,
+#    the gateway started by the stand-in master
 # 5. the diagnostics channel with the example's token: the gateway status
 #    and the extra device found by an LSS fastscan
 # 6. the test scenarios of networks io and motion (sim test, JUnit reports
 #    in $JUNIT_DIR when set)
-# The runtime's program is built by test/local-runtime/build_program.mjs,
-# which cannot build the editor's C/C++ blocks: test/virtual-example/
-# ci_program.py leaves the program's SDO blocks section out (the editor
-# builds them; the SDO blocks have their own tests).
+# The runtime's program is built by test/local-runtime/build_program.mjs
+# from the project as one ST file (project_st.py).
 # Needs the PC tools on PATH (pip install tools/deploy), the container engine,
 # Node.js 22 and free ports 8443 and 7531. Leaves nothing behind.
 
@@ -54,7 +55,7 @@ cleanup() {
     rm -rf "$WORK"
 }
 trap cleanup EXIT
-logs() { local text; text=$("$ENGINE" logs canworks-local-runtime 2>&1); printf '%s\n' "$text"; }
+logs() { local text; text=$("$ENGINE" logs canworks-local-bridge 2>&1); printf '%s\n' "$text"; }
 in_logs() { local text; text=$(logs); grep -q "$1" <<<"$text"; }
 CONFIG="$EXAMPLE/canworks/canworks.json"
 
@@ -88,31 +89,31 @@ canworks-deploy --export-dbc "$WORK/plant.dbc" --config "$CONFIG" > "$WORK/dbc.l
 
 echo "3. the program compiles"
 LIBRARY="$ROOT/tools/deploy/canworks/library"
-if "$STRUCPP" "$EXAMPLE/pous/programs/main.st" -L "$LIBRARY" -o "$WORK/main.cpp" > "$WORK/strucpp.log" 2>&1; then
-    ok "main.st with STruC++"
-else
-    tail -20 "$WORK/strucpp.log"; fail "STruC++"
-fi
 mkdir -p "$WORK/bundle"
-python3 "$ROOT/test/virtual-example/ci_program.py" "$EXAMPLE" "$WORK/program.st" &&
+python3 "$ROOT/test/virtual-example/project_st.py" "$EXAMPLE" "$WORK/program.st" &&
     node "$ROOT/test/local-runtime/build_program.mjs" "$STRUCPP" "$WORK/program.st" "$WORK/bundle" --lib "$LIBRARY" \
-        >/dev/null && ok "runtime bundle (SDO blocks left out)" || fail "build_program.mjs"
+        >/dev/null && ok "the editor project with STruC++" || fail "build_program.mjs"
 
-echo "4. deploy to the local runtime"
+echo "4. the local runtime"
 if "${RT[@]}" start --image "$IMAGE" > "$WORK/start.log" 2>&1; then ok "started"; else
     cat "$WORK/start.log"; fail "start"; exit 1; fi
 for _ in $(seq 1 15); do
     "${RT[@]}" status 2>&1 | grep -q "PLC: EMPTY" && break
     sleep 1
 done
-if canworks-deploy --bundle "$WORK/bundle" --config "$CONFIG" --runtime local > "$WORK/deploy.log" 2>&1; then
-    ok "deployed with --runtime local"
+if canworks-deploy --config "$CONFIG" --bridge local > "$WORK/deploy.log" 2>&1; then
+    ok "config put on the bridge with --bridge local"
 else
     cat "$WORK/deploy.log"; fail "deploy"
 fi
-grep -q "the PLC is running" "$WORK/deploy.log" && ok "PLC running" || fail "PLC not running"
+if python3 "$ROOT/test/local-runtime/program.py" upload "$WORK/bundle" "$EXAMPLE/devices/remote/canworks.json" \
+        > "$WORK/upload.log" 2>&1; then
+    ok "program uploaded, built and started"
+else
+    cat "$WORK/upload.log"; fail "upload"
+fi
 NODES=("io: node 5 (rtd) is operational" "io: node 6 (dio) is operational" "io: node 7 (new_io) is operational"
-       "motion: node 4 (drive) is operational" "host: node 20 (cell) is operational")
+       "motion: node 4 (conveyor) is operational" "host: node 20 (cell) is operational")
 for _ in $(seq 1 60); do
     text=$(logs)
     all=1
@@ -124,9 +125,8 @@ for n in "${NODES[@]}"; do in_logs "$n" && ok "$n" || fail "not in the log: $n";
 in_logs "node 7 (new_io): LSS assigned node ID 7" && ok "LSS gave node 7 its node ID" || fail "no LSS assignment"
 in_logs "gateway: the upper master started this node; routes run" && ok "gateway started by host" ||
     fail "gateway not started"
-# The runtime itself logs errors before the first upload (no program yet); only CANopen's count.
-canopen_errors=$(logs | grep "ERROR" | grep "CANOPEN")
-[ -z "$canopen_errors" ] && ok "no CANopen error in the log" || { head <<<"$canopen_errors"; fail "CANopen errors in the log"; }
+canopen_errors=$(logs | grep "ERROR" | grep "CANWORKS")
+[ -z "$canopen_errors" ] && ok "no canworks error in the bridge log" || { head <<<"$canopen_errors"; fail "errors in the bridge log"; }
 
 echo "5. diagnostics"
 st=$(canworks-diag --runtime local status 2>&1)
@@ -137,7 +137,7 @@ grep -q "serial 0x00001BBB" <<<"$found" && ok "LSS fastscan finds the spare devi
 
 echo "6. test scenarios"
 # The scenarios marked "test" in simulation.json (wire-break is the autostart timeline).
-declare -A TESTS=([io]="alarm gateway-route dio-lost" [motion]="drive-moves")
+declare -A TESTS=([io]="alarm gateway-route dio-lost" [motion]="conveyor-runs")
 for net in io motion; do
     scenarios=()
     for t in ${TESTS[$net]}; do scenarios+=(--scenario "$t"); done

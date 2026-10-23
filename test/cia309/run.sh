@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The CiA 309-3 gateway end to end (canopen-cia309-gateway): the real plugin
+# The CiA 309-3 gateway end to end (canopen-cia309-gateway): the canworks engine
 # through canopen_host and canworks-bridge, both on a simulated bus (no CAN
 # interface needed), with the Python client of the deploy tool over the
 # loopback port and through canworks-diag gateway. See client_test.py.
@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-for f in "$BUILD/plugins/libcanworks_plugin.so" "$BUILD/test/canopen_host" "$BUILD/bin/canworks-bridge"; do
+for f in "$BUILD/test/canopen_host" "$BUILD/bin/canworks-bridge"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 

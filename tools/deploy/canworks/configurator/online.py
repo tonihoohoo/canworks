@@ -1,5 +1,5 @@
 """Online access for the configurator: the diagnostics token and runtime host
-kept on this PC, the connection to the plugin's diagnostics channel, config
+kept on this PC, the connection to the bridge's diagnostics channel, config
 fingerprints, and EDS matching for scan results.
 
 The token is never written to the project: canworks.json holds only its
@@ -107,10 +107,10 @@ class Settings:
 
 
 def fingerprints(config_path):
-    """SHA-256 values the runtime may report for this canworks.json: the file
-    itself, and the conf/canworks.json the deploy tool and the editor hook
-    write from it (node and slave EDS paths rewritten, indent 2). Empty when the
-    file does not exist or cannot be read."""
+    """SHA-256 values the bridge may report for this canworks.json: the file
+    itself, and the canworks.json the deploy tool puts on the bridge (node
+    and slave EDS paths rewritten, indent 2). Empty when the file does not
+    exist or cannot be read."""
     try:
         with open(config_path, "rb") as f:
             raw = f.read()
@@ -216,7 +216,7 @@ def adapter_servers_list(wait=2.0):
 
 
 # ---------------------------------------------------------------------------
-# Connection to the plugin
+# Connection to the bridge
 
 
 class AdapterTarget:
@@ -326,7 +326,7 @@ class Connection:
 
     def call(self, host, port, token, fn, network=None):
         """fn(client) on a connected client whose requests go to `network`
-        (when the plugin runs several). After a timeout or a lost connection
+        (when the bridge runs several). After a timeout or a lost connection
         the connection is reopened and fn run once more only when every
         request it sent only reads (READ_ONLY); otherwise the error says the
         request may have been carried out. Raises diag.DiagError."""
@@ -438,7 +438,7 @@ class Sender:
     a cyclic job belongs to the connection that started it and ends when it
     closes, so the online view closing its connection must not stop them. A
     page that goes away without stopping its jobs stops polling, and the
-    connection closes after SEND_IDLE_CLOSE_S, which ends them on the plugin.
+    connection closes after SEND_IDLE_CLOSE_S, which ends them on the bridge.
     `jobs` are the cyclic jobs started here, by (network, job number)."""
 
     def __init__(self, idle=SEND_IDLE_CLOSE_S, timeout=3.0):
@@ -463,7 +463,7 @@ class Sender:
 
     def stop(self, where, network=None, job=None):
         """Stops one job, or every job started here (on every network); the
-        plugin's "stopped" entries. Nothing to stop opens no connection."""
+        bridge's "stopped" entries. Nothing to stop opens no connection."""
         with self.lock:
             keys = [k for k in self.jobs if job is None or k == (network, job)]
         out = []
@@ -481,7 +481,7 @@ class Sender:
         return out
 
     def poll(self, where):
-        """The jobs started here with their sent counts from the plugin's
+        """The jobs started here with their sent counts from the bridge's
         status, and the ones that ended since the last poll (count reached,
         transmit error, time limit) with their reason."""
         with self.lock:
@@ -498,7 +498,7 @@ class Sender:
         for net in sorted({k[0] for k in jobs}, key=str):
             st = self.connection.call(*where, lambda c: c.status(), net)
             if "send_jobs" not in st:
-                continue  # a plugin that does not list jobs: counts stay unknown
+                continue  # a bridge that does not list jobs: counts stay unknown
             live = {j.get("job"): j for j in st.get("send_jobs") or [] if not j.get("reason")}
             for (n, number), j in jobs.items():
                 if n != net:
@@ -515,7 +515,7 @@ class Sender:
             return {"jobs": [dict(j) for j in self.jobs.values()], "ended": ended}
 
     def close(self):
-        """Closes the connection; the plugin ends its jobs."""
+        """Closes the connection; the bridge ends its jobs."""
         self.connection.close()
         with self.lock:
             self.jobs.clear()

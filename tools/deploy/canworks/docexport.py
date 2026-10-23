@@ -1,7 +1,7 @@
 """Builds the network documentation of a config (canopen-network-docs spec).
 
 The document model is a plain JSON-serialisable dict built from the same code
-the other exports use, so it shows what the plugin puts on the bus:
+the other exports use, so it shows what the bridge puts on the bus:
 contract.check_config and location_uses (checks, networks, PLC addresses),
 dbcexport.build and frames (frames, COB-IDs, PDO layouts), and
 dcfexport.plugin_downloads (the boot SDO writes). docwriter turns it into one
@@ -19,7 +19,8 @@ import os
 import struct
 import tempfile
 
-from . import __version__, bridgecheck, bundle, contract, dbcexport, dcfexport, edslint, editorproject, modbusmap
+from . import (__version__, bridgecheck, bundle, contract, dbcexport, dcfexport, edslint, modbusmap, openplcmodbus,
+               targets)
 from . import notes as notes_mod
 from . import eds as eds_mod
 from . import links as links_mod
@@ -103,37 +104,6 @@ def frame_bits(dlc, rtr=False):
     stuff bits of the 34 + 8n stuffed bits + 3."""
     data = 0 if rtr else dlc
     return 47 + 8 * data + (34 + 8 * data - 1) // 4
-
-
-def interval_ms(text):
-    """An IEC duration (T#20ms) in milliseconds, or None."""
-    try:
-        editorproject.check_interval(text)
-    except editorproject.NewProjectError:
-        return None
-    total = 0.0
-    for part in editorproject._PART.finditer(text.split("#", 1)[1]):
-        total += float(part.group(1)) * editorproject._UNITS[part.group(2).lower()]
-    return total
-
-
-def project_cycle_ms(config_path):
-    """The task interval of the editor project a config belongs to
-    (<project>/canworks/<file>): the fastest cyclic task's, in ms. None
-    outside a project or without a cyclic task."""
-    folder = os.path.dirname(os.path.abspath(config_path))
-    path = os.path.join(os.path.dirname(folder), "project.json")
-    if os.path.basename(folder) != "canworks" or not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            tasks = json.load(f)["data"]["configuration"]["resource"]["tasks"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-    found = [interval_ms(t.get("interval", "")) for t in tasks
-             if isinstance(t, dict) and str(t.get("triggering", "Cyclic")).lower() == "cyclic"]
-    found = [v for v in found if v]
-    return min(found) if found else None
 
 
 def _plc_names(names, loc_text):
@@ -257,17 +227,10 @@ def _od_text(eds, index, sub):
 class _Rates:
     """Frame rates of one network (frames per second), cyclic and worst case."""
 
-    def __init__(self, cfg, plc_cycle_ms):
-        m = cfg["master"]
-        self.plc_cycle = m.get("sync_source") == "plc_cycle"
-        cycles = _u(m.get("sync_cycles"), 1) or 1
-        if self.plc_cycle:
-            self.sync_ms = plc_cycle_ms * cycles if plc_cycle_ms else None
-        else:
-            us = _u(m.get("sync_period_us"), 0)
-            self.sync_ms = us / 1000.0 if us else None
-        self.has_sync = self.plc_cycle or bool(_u(m.get("sync_period_us"), 0))
-        self.sync_cycles = cycles
+    def __init__(self, cfg):
+        us = _u(cfg["master"].get("sync_period_us"), 0)
+        self.sync_ms = us / 1000.0 if us else None
+        self.has_sync = bool(us)
 
 
 def _per(ms):
@@ -279,11 +242,7 @@ def _pct(bits, rate, bitrate):
 
 
 def _sync_text(rates, n=1):
-    if not rates.plc_cycle:
-        return "%g ms" % (rates.sync_ms * n)
-    cycles = rates.sync_cycles * n
-    base = "every PLC cycle" if cycles == 1 else "every %d PLC cycles" % cycles
-    return base + (" (%g ms)" % (rates.sync_ms * n) if rates.sync_ms else "")
+    return "%g ms" % (rates.sync_ms * n)
 
 
 def _pdo_rates(pdo, rates):
@@ -295,8 +254,6 @@ def _pdo_rates(pdo, rates):
         if not rates.has_sync:
             return 0.0, 0.0, "synchronous, no SYNC produced", False
         text = "SYNC, " + _sync_text(rates, t)
-        if rates.sync_ms is None:
-            return 0.0, 0.0, text + "; not counted: PLC cycle not given", False
         hz = _per(rates.sync_ms * t)
         return hz, hz, text, False
     if t == 0:
@@ -309,7 +266,7 @@ def _pdo_rates(pdo, rates):
     if not tx:
         if rates.has_sync:
             if rates.sync_ms is None:
-                return 0.0, 0.0, "on change, sent at the next SYNC; not counted: PLC cycle not given", False
+                return 0.0, 0.0, "on change, sent at the next SYNC; not counted: SYNC period not known", False
             return 0.0, _per(rates.sync_ms), "on change, sent at the next SYNC, at most " + _sync_text(rates), False
         return 0.0, _per(OUTPUT_CHECK_MS), "on change, at most every %g ms (the master's output check)" % \
             OUTPUT_CHECK_MS, False
@@ -355,12 +312,9 @@ def _master_settings(net, cfg):
     if "restart_ms" in a:
         add("Restart after bus-off", "%s ms" % a["restart_ms"])
     if a.get("simulate"):
-        add("Simulated network", "yes: every node runs on the in-plugin virtual bus")
+        add("Simulated network", "yes: every node runs on the bridge's virtual bus")
     add("Master node ID", str(_u(m.get("node_id"), 1)))
-    if m.get("sync_source") == "plc_cycle":
-        cyc = _u(m.get("sync_cycles"), 1)
-        add("SYNC", "from the PLC cycle, every %s" % ("cycle" if cyc == 1 else "%d cycles" % cyc), "0x1005")
-    elif _u(m.get("sync_period_us"), 0):
+    if _u(m.get("sync_period_us"), 0):
         add("SYNC", "every %g ms (master timer)" % (_u(m["sync_period_us"]) / 1000.0), "0x1006")
     else:
         add("SYNC", "off", "0x1005")
@@ -449,10 +403,6 @@ def _node_settings(n, master):
     lss = n.get("lss") if isinstance(n.get("lss"), dict) else None
     if lss and lss.get("assign"):
         add("LSS", "node ID assigned by serial number%s" % (", stored in the device" if lss.get("store") else ""))
-    ax = n.get("axis")
-    if isinstance(ax, dict):
-        add("CiA 402 axis", "scale %s/%s × %s" % (ax.get("scale_numerator", 1), ax.get("scale_denominator", 1),
-                                                   ax.get("scale_factor", 1.0)))
     if "simulate" in n:
         add("Simulated device", _yes(n["simulate"]))
     return rows
@@ -613,7 +563,7 @@ def _od(eds, node_id, pdos, download, n, mode):
     return out
 
 
-def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, several, warnings, notes=None):
+def _network(net, cfg, config_path, paths, names, od_mode, embed, several, warnings, notes=None):
     nname = net["name"]
     notes = notes or dbcexport.file_notes(paths)
     model = dbcexport.build(cfg, config_path, paths, sdo="none", names=names, checked=True, notes=notes)
@@ -622,7 +572,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
     m = cfg["master"]
     master_id = _u(m.get("node_id"), 1)
     bitrate = _u(net["adapter"].get("bitrate"), 0) or 0
-    rates = _Rates(cfg, plc_cycle_ms)
+    rates = _Rates(cfg)
     norm = dbcexport._normalized_pdos(cfg)
     idents = dbcexport.node_identifiers(cfg)
     net_anchor = anchor("net", nname or "network")
@@ -702,9 +652,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
             consumers = list(idents)
             if rates.sync_ms:
                 cyc = worst = _per(rates.sync_ms)
-            trigger = "every " + _sync_text(rates) if rates.sync_ms or rates.plc_cycle else "off"
-            if rates.plc_cycle and not rates.sync_ms:
-                trigger += "; not counted: PLC cycle not given"
+            trigger = "every " + _sync_text(rates) if rates.sync_ms else "off"
         elif 0x81 <= msg.cob_id <= 0xFF or msg.name.endswith("_EMCY"):
             kind, trigger = "emcy", "on error"
         elif 0x701 <= msg.cob_id <= 0x77F and msg.name.endswith("_Heartbeat"):
@@ -753,9 +701,6 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
     cyclic = round(100.0 * cyclic_bits / bitrate, 2) if bitrate else None
     worst = round(100.0 * worst_bits / bitrate, 2) if bitrate else None
     notes = []
-    if rates.plc_cycle and rates.sync_ms is None:
-        notes.append("SYNC follows the PLC cycle, which was not given: SYNC and SYNC-driven PDOs are left out "
-                     "of the totals.")
     if worst is not None and worst > LOAD_WARNING_PCT:
         warnings.append("%sestimated worst-case bus load %.1f %% is above %d %%" % (label, worst, LOAD_WARNING_PCT))
 
@@ -773,7 +718,7 @@ def _network(net, cfg, config_path, paths, names, od_mode, embed, plc_cycle_ms, 
         "interface": net["adapter"].get("interface") or net["adapter"].get("type", ""), "bitrate": bitrate,
         "settings": _master_settings(net, cfg), "locations": master_locations, "frames": frames,
         "bus_load": {"cyclic": cyclic, "worst": worst, "unbounded": unbounded, "notes": notes,
-                     "sync_ms": rates.sync_ms, "plc_cycle_ms": plc_cycle_ms if rates.plc_cycle else None},
+                     "sync_ms": rates.sync_ms},
         "nodes": nodes, "io": io, **({"links": links} if links else {}),
     }
 
@@ -914,7 +859,7 @@ def _slave_frame(cob_id, name, kind, producer, consumers, dlc, trigger, bitrate,
             "link": link, "duplicate": False}
 
 
-def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, warnings, gateway):
+def _slave_network(net, paths, names, od_mode, embed, write_ms, several, warnings, gateway):
     """A slave network (canopen-slave-device): the PLC is one device of it and
     another master runs the bus. Documents the device as its EDS and the
     config's bindings define it and the frames it takes part in."""
@@ -978,7 +923,7 @@ def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, war
     if a.get("bitrate"):
         add("Bitrate", "%d kbit/s" % (bitrate // 1000))
     if a.get("simulate"):
-        add("Simulated network", "yes: the network runs on the in-plugin virtual bus")
+        add("Simulated network", "yes: the network runs on the bridge's virtual bus")
     add("Role", "slave: another master runs this bus and OpenPLC is one of its devices")
     add("Own node ID", str(node_id) if node_id is not None else "none at start: assigned by an LSS master")
     add("Heartbeat produced", "%d ms" % hb if hb else "off (boot-up message only)", "0x1017")
@@ -1046,17 +991,17 @@ def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, war
                     cyc = worst = 0.0
                     trigger = "SYNC from the upper master; not counted"
                 else:
-                    # The plugin sends a changed event-driven TPDO at the end
-                    # of the PLC scan (docs/slave.md), so at most once a scan
-                    # unless the inhibit time is longer.
+                    # The bridge sends a changed event-driven TPDO after the
+                    # Modbus write that changed it (docs/slave.md), so at most
+                    # once a write unless the inhibit time is longer.
                     cyc, worst, trigger, _ = _pdo_rates(p, _NoSync())
-                    scan = "at most once per PLC scan"
-                    if plc_cycle_ms and (not worst or _per(plc_cycle_ms) < worst):
-                        worst = _per(plc_cycle_ms)
-                        trigger = "on change, %s (%g ms)" % (scan, plc_cycle_ms) + (
+                    scan = "at most once per Modbus write"
+                    if write_ms and (not worst or _per(write_ms) < worst):
+                        worst = _per(write_ms)
+                        trigger = "on change, %s (OpenPLC polls every %g ms)" % (scan, write_ms) + (
                             ", event timer %d ms" % p["event_timer_ms"] if p["event_timer_ms"] else "")
                     elif not worst:
-                        trigger = "on change, %s; not counted: PLC cycle not given" % scan
+                        trigger = "on change, %s; not counted: the write rate is not known" % scan
                 frames.append(_slave_frame(p["cob_id"], "OpenPLC_TPDO%d" % p["number"], "tpdo", me, [upper],
                                            p["dlc"], trigger, bitrate, cyc, worst, p["anchor"]))
             else:
@@ -1077,9 +1022,9 @@ def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, war
             warnings.append("%sCOB-ID %s is used by %s" % (label, hx(cob, 3), ", ".join(f["name"] for f in same)))
     notes = ["Another master runs this bus: its SYNC, its own frames, other devices and the RPDO rates are not in "
              "this configuration, so the totals count only the frames this device times itself."]
-    if not plc_cycle_ms and any(p["kind"] == "TPDO" and (p["transmission"] or 0) > 240 for p in pdos):
-        notes.append("The PLC cycle was not given: event-driven TPDOs, sent at most once per PLC scan, are left "
-                     "out of the worst case.")
+    if not write_ms and any(p["kind"] == "TPDO" and (p["transmission"] or 0) > 240 for p in pdos):
+        notes.append("The Modbus write rate is not known: event-driven TPDOs, sent at most once per write, are "
+                     "left out of the worst case.")
     if node_id is None:
         notes.append("The node ID is assigned by LSS at run time: the device's COB-IDs follow it and are not listed.")
     io = []
@@ -1092,17 +1037,15 @@ def _slave_network(net, paths, names, od_mode, embed, plc_cycle_ms, several, war
         "settings": rows, "locations": [], "frames": frames,
         "bus_load": {"cyclic": round(100.0 * cyclic_bits / bitrate, 2) if bitrate else None,
                      "worst": round(100.0 * worst_bits / bitrate, 2) if bitrate else None,
-                     "unbounded": unbounded, "notes": notes, "sync_ms": None, "plc_cycle_ms": None},
+                     "unbounded": unbounded, "notes": notes, "sync_ms": None},
         "nodes": [device], "io": io,
     }
 
 
 class _NoSync:
     """Rates of a slave network for _pdo_rates: the SYNC is not this config's."""
-    plc_cycle = False
     sync_ms = None
     has_sync = False
-    sync_cycles = 1
 
 
 J1939_PGN_REQUEST = 0xEA00
@@ -1251,7 +1194,7 @@ def _j1939_network(net, config_path, names, several, warnings):
         dsig = {s["name"]: s for s in (d["signals"] if d else [])}
         signals = []
         for sg in entry["signals"]:
-            loc = str(sg["location"]) if sg["location"] is not None else ""  # a switch the plugin sets: none
+            loc = str(sg["location"]) if sg["location"] is not None else ""  # a switch the bridge sets: none
             valid = str(sg["valid_location"]) if sg["valid_location"] is not None else ""
             signals.append({"name": sg["name"], "start_bit": sg["start_bit"], "length": sg["length"],
                             "byte_order": "big" if sg["big_endian"] else "little", "signed": sg["signed"],
@@ -1312,7 +1255,7 @@ def _j1939_network(net, config_path, names, several, warnings):
         "interface": a.get("interface") or a.get("type", ""), "bitrate": bitrate, "address": ecu.get("address"),
         "settings": rows, "locations": locations, "frames": frames,
         "bus_load": {"cyclic": round(100.0 * cyclic_bits / bitrate, 2) if bitrate else None, "worst": worst,
-                     "unbounded": [], "notes": notes, "sync_ms": None, "plc_cycle_ms": None},
+                     "unbounded": [], "notes": notes, "sync_ms": None},
         "nodes": [], "messages": messages, "requests": requests, "io": io,
     }
 
@@ -1367,7 +1310,7 @@ def _modbus(cfg):
 
 
 def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None, od="used", embed_eds=False,
-          plc_cycle_ms=None, now=None, notes=None):
+          now=None, notes=None):
     """The document model of a config. `names`: {location: [PLC variable
     names]} of an editor project, or None. `notes`: a callable (eds value,
     Eds) -> notes.Notes, default each EDS's notes file next to it. Raises
@@ -1388,18 +1331,20 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     warnings = list(result.warnings)
     several = len(every) > 1
     networks = []
+    # OpenPLC writes the bridge's outputs once a poll; another Modbus client's writes are not known.
+    write_ms = openplcmodbus.settings(cfg)["poll_ms"] if targets.target(cfg) == targets.OPENPLC_MODBUS else None
     gateway_cfg = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
     for net in nets:
         if net["role"] == "j1939":
             networks.append(_j1939_network(net, config_path, names, several, warnings))
             continue
         if net["role"] == "slave":
-            networks.append(_slave_network(net, paths, names, od, embed_eds, plc_cycle_ms, several, warnings,
+            networks.append(_slave_network(net, paths, names, od, embed_eds, write_ms, several, warnings,
                                            gateway_cfg and {
                 "upper": gateway_cfg.get("upper"), "routes": gateway_cfg.get("routes", [])}))
             continue
         one = contract.network_config(cfg, net["name"] if net["path"] else None)
-        networks.append(_network(net, one, config_path, paths, names, od, embed_eds, plc_cycle_ms, several, warnings,
+        networks.append(_network(net, one, config_path, paths, names, od, embed_eds, several, warnings,
                                  notes))
     for n in networks:
         n.setdefault("protocol", "canopen")

@@ -101,46 +101,13 @@ if [ "$rt_kind" != none ] && have "$CURL"; then
     if [ -n "$code" ] && [ "$code" != 000 ]; then rt_answers=true; else rt_answers=false; fi
 fi
 
-# --- The plugin -------------------------------------------------------------------------
-
-P="$R/opt/canworks"
-plugin=null
-if [ -e "$P/lib/libcanworks_plugin.so" ]; then
-    p_version=$(first_line "$P/VERSION")
-    [ -n "$p_version" ] || p_version=unknown
-    built_for=$(first_line "$P/lib/runtime-version")
-    [ -n "$built_for" ] || built_for=$(first_line "$P/lib/runtime-commit")
-    # Native: the runtime's plugins.conf; Docker: the line the editor hook keeps.
-    line=""
-    if [ -n "$rt_dir" ] && [ -r "$R$rt_dir/plugins.conf" ]; then
-        line=$(grep '^canworks,' "$R$rt_dir/plugins.conf" 2>/dev/null | head -n 1)
-    elif [ -r "$P/lib/plugins-line" ]; then
-        line=$(head -n 1 "$P/lib/plugins-line")
-    fi
-    enabled=""
-    if [ -n "$line" ]; then
-        if [ "$(printf '%s' "$line" | cut -d, -f3)" = 1 ]; then enabled=true; else enabled=false; fi
-    fi
-    # Managed Docker before the first upload: no recorded line yet, and the
-    # editor hook puts the line into plugins.conf disabled until an upload.
-    if [ -z "$line" ] && [ "$rt_kind" = docker-managed ] && [ ! -e "$P/lib/plugins-line" ]; then
-        enabled=false
-    fi
-    plugin=$(printf '{"version": %s, "built_for": %s, "enabled": %s}' \
-        "$(js "$p_version")" "$(js "$built_for")" "${enabled:-null}")
-fi
-
 # --- The bridge -------------------------------------------------------------------------
 
 bridge=null
-for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
-    [ -x "$b/bin/canworks-bridge" ] || continue
+b="$R/opt/canworks"
+if [ -x "$b/bin/canworks-bridge" ]; then
     unit=0; [ -f "$R/etc/systemd/system/canworks-bridge@.service" ] && unit=1
-    # The plugin's own venv has the console script too: not a bridge install.
-    [ "$b" = "$R/opt/canworks" ] && [ "$unit" = 0 ] && [ -e "$b/lib/libcanworks_plugin.so" ] && continue
-    # /opt/canworks/VERSION is the plugin's: an older bridge there says its own.
-    b_version=""
-    [ "$b" = "$R/opt/canworks" ] || b_version=$(first_line "$b/VERSION")
+    b_version=$(first_line "$b/VERSION")
     if [ -z "$b_version" ]; then
         b_version=$("$b/bin/canworks-bridge" --version 2>/dev/null | awk '{ print $2; exit }')
     fi
@@ -158,8 +125,7 @@ for b in "$R/opt/canworks-bridge" "$R/opt/canworks"; do
     # Without its template unit no instance can start (a partial install).
     bridge=$(printf '{"version": %s, "prefix": %s, "unit": %s, "instances": [%s]}' \
         "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$(jb "$unit")" "$instances")
-    break
-done
+fi
 
 # --- Remote access, CAN, the last install job ----------------------------------------------
 
@@ -205,7 +171,7 @@ printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "m
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
 printf '"runtime": {"kind": %s, "version": %s, "commit": %s, "answers": %s}, ' \
     "$(js "$rt_kind")" "$(js "$rt_version")" "$(js "$rt_commit")" "${rt_answers:-null}"
-printf '"plugin": %s, "bridge": %s, "link": %s, "link_config": %s, "discovery": %s, ' \
-    "$plugin" "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")"
+printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, ' \
+    "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

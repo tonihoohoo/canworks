@@ -202,18 +202,18 @@ class PairedPcs(base.Online):
 class RemoteLinkInConfig(base.Online):
     def test_saved_with_the_other_diagnostics_fields(self):
         cfg = self.pingpong()
-        cfg["master"]["diagnostics"] = {"remote_link": {"pairing": "lan", "relays": ["https://relay.example.com"],
+        cfg["diagnostics"] = {"remote_link": {"pairing": "lan", "relays": ["https://relay.example.com"],
                                                         "internet": True},
                                         "allow_changes": True, "token_verifier": base.DIAG["token_verifier"]}
         self.save(cfg)
-        saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))["master"]["diagnostics"]
+        saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))["diagnostics"]
         self.assertEqual(list(saved), ["token_verifier", "allow_changes", "remote_link"])
         self.assertEqual(saved["remote_link"], {"pairing": "lan", "relays": ["https://relay.example.com"],
                                                 "internet": True})
 
     def test_http_relay_refused_by_the_check(self):
         cfg = self.pingpong()
-        cfg["master"]["diagnostics"]["remote_link"] = {"internet": True, "relays": ["http://relay.example.com"]}
+        cfg["diagnostics"]["remote_link"] = {"internet": True, "relays": ["http://relay.example.com"]}
         r = self.ok("POST", "/api/check", {"config": cfg})
         text = json.dumps(r)
         self.assertIn("relay URLs must use https", text)

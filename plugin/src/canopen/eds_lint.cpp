@@ -181,8 +181,8 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
                        ((access(python.c_str(), X_OK) != 0 && errno == EACCES) ||
                                 (why + err).find("Permission denied") != std::string::npos
                             ? "; this user may not run it: run as root (sudo), as the service does"
-                            : "; the deploy tool must be installed in the plugin's venv (rerun scripts/install-stock.sh, "
-                              "or scripts/install-bridge.sh for canworks-bridge)"));
+                            : "; the deploy tool must be installed next to canworks-bridge (rerun "
+                              "scripts/install-bridge.sh)"));
       cJSON_Delete(doc);
       return false;
     }

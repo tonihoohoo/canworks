@@ -148,10 +148,6 @@ function renderJ1939(view) {
     protocolField(),
     adapterFieldset(),
     j1939Ecu(),
-    el("fieldset", { dataset: { section: "watchdog" } }, el("legend", null, "PLC scan"),
-      el("div", { class: "grid" },
-        field("Scan watchdog (ms)", "j1939.scan_watchdog_ms", "intstr", { placeholder: "1000",
-          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (J1939 and raw sends; inputs and address claim go on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }))),
     j1939Dbc(j),
     j1939Messages("rx"),
     j1939Messages("tx"),
@@ -176,7 +172,7 @@ function suggestButton(path, direction, type, label) {
 function locationField(label, path, direction, placeholder, help) {
   return el("label", null, label, el("span", { class: "row" },
     field("", path, "text", { placeholder }).querySelector("input"), suggestButton(path, direction, undefined, label)),
-  hint(help), el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+  hint(help), el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
 function j1939Ecu() {
@@ -305,7 +301,7 @@ function cellInput(path, label, parse, placeholder) {
 }
 
 function cell(input, path) {
-  return el("td", null, input, el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+  return el("td", null, input, el("span", { class: "field-msg", dataset: { for: path } }));
 }
 
 const J1939_DIR = {
@@ -382,7 +378,7 @@ function j1939Signal(dir, base, signals, k, m) {
   // then Switch, Page and the PLC locations with their labels.
   const loc = (label, input, button, path) => el("div", null, el("span", { class: "hint" }, label),
     el("span", { class: "row" }, input, button),
-    el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+    el("span", { class: "field-msg", dataset: { for: path } }));
   return [el("tr", { dataset: { path: sp } },
     el("td", null, cellInput(sp + ".name", "Signal name", null), el("span", { class: "field-msg", dataset: { for: sp } }),
       el("span", { class: "field-msg", dataset: { for: sp + ".name" } })),
@@ -573,7 +569,7 @@ function dmWatched(m, i) {
       el("label", null, "Codes", el("span", { class: "row" },
         field("", codesPath, "text", { placeholder: "%ID…" }).querySelector("input"), codesSuggest),
       hint("The first of consecutive double word inputs, one code each in message order, unused ones 0. Empty: none."),
-      el("span", { class: "field-msg", dataset: { for: codesPath } }), declNote(codesPath)),
+      el("span", { class: "field-msg", dataset: { for: codesPath } })),
       field("Codes kept", base + ".dtcs", "int", { parse: intValue, placeholder: "none", hint: "How many codes the Codes inputs take, 1 to 32." })));
 }
 
@@ -877,7 +873,7 @@ function faultsUpdate(st) {
   const names = (S.onlineLast && S.onlineLast.spn_names) || {};
   const fresh = el("div");
   if (!dm) {
-    fresh.append(el("p", { class: "muted" }, "The runtime's plugin reports no trouble codes (it is older than J1939 diagnostics)."));
+    fresh.append(el("p", { class: "muted" }, "The bridge reports no trouble codes (it is older than J1939 diagnostics)."));
   } else {
     const watched = dm.watched || [];
     const seen = new Set((dm.sources || []).map((s) => s.address));

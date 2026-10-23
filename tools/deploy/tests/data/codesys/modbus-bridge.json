@@ -222,12 +222,12 @@
     {
       "where": "field/master",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
       "where": "field/master",
       "setting": "bus_state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
       "where": "field/rtd",
@@ -237,27 +237,27 @@
     {
       "where": "field/rtd",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/rtd",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/rtd",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/rtd",
       "setting": "tx_pdos[0].timeout_ms",
-      "note": "plugin receive timeout of a TPDO"
+      "note": "canworks receive timeout of a TPDO"
     },
     {
       "where": "field/rtd",
       "setting": "tx_pdos[0].timeout_location",
-      "note": "plugin receive timeout of a TPDO"
+      "note": "canworks receive timeout of a TPDO"
     },
     {
       "where": "field/rtd",
@@ -272,17 +272,17 @@
     {
       "where": "field/dio",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/dio",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/dio",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "field/dio",

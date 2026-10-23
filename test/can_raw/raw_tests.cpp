@@ -28,7 +28,6 @@
 #include "can/raw/raw_runtime.h"
 #include "can/config.h"
 #include "can/outputs_gate.h"
-#include "can/scan_watchdog.h"
 #include "canopen/sim/sim_raw.h"
 #include "can/signals.h"
 #include "check.hpp"
@@ -1438,7 +1437,7 @@ class CountLink : public RawLink {
   std::vector<LinkFrame> echoes_;
 };
 
-// The outputs gate closes (a scan watchdog trips): a CAN_SEND_CYCLIC job
+// The outputs gate closes (the bridge's outputs off): a CAN_SEND_CYCLIC job
 // stops on the bus and resumes at its period when the gate opens; a frame
 // CAN_SEND queues meanwhile fails with "not running".
 TEST(program_frames_obey_the_outputs_gate) {
@@ -1456,7 +1455,7 @@ TEST(program_frames_obey_the_outputs_gate) {
   CHECK(job != 0);
   for (int i = 0; i < 100 && link->cyclic < 2; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
   CHECK(link->cyclic >= 2);
-  canopen_plugin::set_scan_hung(true);
+  canopen_plugin::set_outputs_enabled(false);
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
   int held = link->cyclic;
   canworks_can_frame g = frame(0x322, {2});
@@ -1470,7 +1469,7 @@ TEST(program_frames_obey_the_outputs_gate) {
   CHECK_MSG(st == 2 && err == CANWORKS_CAN_ERR_NOT_RUNNING, std::to_string(st) + " " + std::to_string(err));
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   CHECK_MSG(link->cyclic == held, std::to_string(link->cyclic - held) + " frames while the gate was closed");
-  canopen_plugin::set_scan_hung(false);
+  canopen_plugin::set_outputs_enabled(true);
   auto opened = std::chrono::steady_clock::now();
   for (int i = 0; i < 100 && link->cyclic < held + 2; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
   int resumed = link->cyclic - held;
@@ -1513,47 +1512,6 @@ TEST(program_extended_frames_on_owned_pdo_ids) {
     CHECK(p->tx_send(&other, 10, &err) != 0 && err == 0);
     p->cancel_all();
   }
-}
-
-// A J1939 or plain CAN network's scan watchdog (j1939/raw.scan_watchdog_ms):
-// armed by the first finished scan, it closes the shared outputs gate when
-// no scan finishes for its time and opens it at the next one; the PLC stop
-// releases it.
-TEST(scan_watchdog_of_j1939_and_plain_networks) {
-  using canopen_plugin::ScanWatchdog;
-  canopen_plugin::Config c;
-  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 0);  // a CANopen master runs its own
-  c.protocol = canopen_plugin::Protocol::J1939;
-  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 1000);
-  c.j1939.scan_watchdog_ms = 0;
-  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 0);
-  c.protocol = canopen_plugin::Protocol::None;
-  c.raw.scan_watchdog_ms = 250;
-  CHECK(canopen_plugin::own_scan_watchdog_ms(c) == 250);
-  ScanWatchdog w(250, "raw.scan_watchdog_ms", "");
-  auto t0 = ScanWatchdog::clock::now();
-  auto at = [&](int ms) { return t0 + std::chrono::milliseconds(ms); };
-  w.check(at(0));
-  w.check(at(1000));
-  CHECK(canopen_plugin::outputs_enabled());  // no scan finished yet
-  w.scan_done();
-  w.check(at(1010));
-  w.check(at(1259));
-  CHECK(canopen_plugin::outputs_enabled() && !w.hung());
-  w.check(at(1260));
-  CHECK(!canopen_plugin::outputs_enabled() && w.hung());
-  w.check(at(1500));
-  w.scan_done();
-  w.check(at(1510));
-  CHECK(canopen_plugin::outputs_enabled() && !w.hung());
-  w.check(at(1760));
-  CHECK(!canopen_plugin::outputs_enabled());
-  w.release();
-  CHECK(canopen_plugin::outputs_enabled());
-  // The next run starts timing afresh.
-  w.check(at(5000));
-  w.check(at(5100));
-  CHECK(canopen_plugin::outputs_enabled());
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

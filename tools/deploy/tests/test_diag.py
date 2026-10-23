@@ -104,7 +104,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("bus vcan0: error active", out)
         self.assertIn("master node 1: OPERATIONAL", out)
-        self.assertIn("SYNC: PLC cycle, every 2 cycles, 500 sent, interval 10012 us (min 9870, max 10240), "
+        self.assertIn("SYNC: timer 10000 us, 500 sent, interval 10012 us (min 9870, max 10240), "
                       "skipped 0, late PDOs 3", out)
         self.assertRegex(out, r"2\s+pingpong\s+OPERATIONAL\s+yes\s+0\.1 s ago\s+booted\s+none\s+0x4210 temperature")
         self.assertIn("error J: the configuration download failed", out)
@@ -320,7 +320,7 @@ class Cli(unittest.TestCase):
 
 class Force(unittest.TestCase):
     """sdo_write, nmt (but start) and scan carry force: true only with --force
-    (the plugin refuses them without it while a node is OPERATIONAL)."""
+    (the bridge refuses them without it while a node is OPERATIONAL)."""
 
     def test_force_sent_only_when_given(self):
         with FakePlugin(allow_changes=True) as fp:
@@ -361,7 +361,7 @@ class Force(unittest.TestCase):
                 self.assertEqual(diag.main(["--runtime", fp.runtime, "nmt", "2", "stop", "--force"]), 0)
 
     def test_op_first_in_the_line(self):
-        # The plugin reads a long line only when it starts as put_config does.
+        # The bridge reads a long line only when it starts as put_config does.
         c = diag.Client("127.0.0.1")
         sent = []
 
@@ -407,7 +407,7 @@ class Networks(unittest.TestCase):
             code, out, err = run("--runtime", fp.runtime, "status")
             self.assertEqual(code, 0, err)
             self.assertEqual([r.get("network") for r in fp.requests], ["io", "drives"])
-        self.assertTrue(out.startswith("network io (vcan0)\nplugin v-test"), out)
+        self.assertTrue(out.startswith("network io (vcan0)\nbridge v-test"), out)
         io_part, drives_part = out.split("\nnetwork drives (vcan1)\n")
         self.assertRegex(io_part, r"2\s+pingpong\s+OPERATIONAL")
         self.assertIn("bus vcan1: error active", drives_part)
@@ -425,7 +425,7 @@ class Networks(unittest.TestCase):
             code, out, err = run("--runtime", fp.runtime, "status", "--network", "drives")
             self.assertEqual(code, 0, err)
             self.assertEqual([r.get("network") for r in fp.requests], ["drives"])
-        self.assertTrue(out.startswith("plugin v-test"))
+        self.assertTrue(out.startswith("bridge v-test"))
         self.assertIn("bus vcan1", out)
 
     def test_commands_need_a_network(self):
@@ -455,7 +455,7 @@ class Networks(unittest.TestCase):
         with FakePlugin(networks=TWO_NETWORKS[:1]) as fp:
             code, out, err = run("--runtime", fp.runtime, "status")
             self.assertEqual(code, 0, err)
-            self.assertTrue(out.startswith("plugin v-test"))
+            self.assertTrue(out.startswith("bridge v-test"))
             code, out, _ = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "io")
             self.assertEqual(code, 0)
             self.assertFalse([r for r in fp.requests if "network" in r])
@@ -469,7 +469,7 @@ class Networks(unittest.TestCase):
         with FakePlugin() as fp:
             code, out, err = run("--runtime", fp.runtime, "status")
             self.assertEqual(code, 0, err)
-            self.assertTrue(out.startswith("plugin v-test, up 12 s"))
+            self.assertTrue(out.startswith("bridge v-test, up 12 s"))
             self.assertNotIn("network", out)
             code, out, _ = run("--runtime", fp.runtime, "sdo-read", "2", "0x1008", "0", "--network", "io")
             self.assertEqual(code, 0)

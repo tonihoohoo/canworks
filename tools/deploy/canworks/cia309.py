@@ -1,7 +1,7 @@
-"""A small CiA 309-3 client for the plugin's gateway (docs/cia309-gateway.md).
+"""A small CiA 309-3 client for the bridge's gateway (docs/cia309-gateway.md).
 
 Standard library only. A session is a socket that carries CiA 309-3 text
-lines: the plugin's plain port on the loopback address, or a diagnostics
+lines: the bridge's plain port on the loopback address, or a diagnostics
 connection switched with the ``cia309`` op (``Client.tunnel``):
 
     c = Client.plain("127.0.0.1", 7533)

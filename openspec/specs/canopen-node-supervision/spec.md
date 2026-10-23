@@ -6,7 +6,7 @@ Defines what the PLC sees when CANopen nodes are missing or fail: the PLC keeps 
 ## Requirements
 
 ### Requirement: Keep scanning on node failure
-A missing, unconfigurable, or lost slave SHALL NOT stop the PLC. A missing, unconfigurable, or lost slave that is not mandatory SHALL NOT stop the other nodes. The plugin SHALL NOT request a PLC stop because of a node failure.
+A missing, unconfigurable, or lost slave SHALL NOT stop the PLC. A missing, unconfigurable, or lost slave that is not mandatory SHALL NOT stop the other nodes. The bridge SHALL NOT request a PLC stop because of a node failure.
 
 #### Scenario: Slave absent at start-up
 - **WHEN** the PLC starts and a configured slave that is not mandatory never answers boot-up
@@ -24,7 +24,7 @@ The master SHALL detect that an operational slave is lost using the slave's hear
 - **THEN** the master marks the node not operational and logs the node ID and the reason
 
 ### Requirement: Per-node status bit
-Each slave entry MAY give a `status_location` (an `%IX` input bit). When it is given, the plugin SHALL set that bit to TRUE while the node is OPERATIONAL and its PDO exchange is active, and to FALSE otherwise.
+Each slave entry MAY give a `status_location` (an `%IX` input bit). When it is given, the bridge SHALL set that bit to TRUE while the node is OPERATIONAL and its PDO exchange is active, and to FALSE otherwise.
 
 #### Scenario: Status follows node state
 - **WHEN** node 2 has `status_location` `%IX10.0` and goes from operational to lost and back to operational
@@ -46,7 +46,7 @@ The master SHALL keep retrying the boot-up and configuration of every node that 
 - **THEN** the master does not boot node 5 again while it reports STOPPED, and boots and configures it again after a boot-up message, keeping it STOPPED
 
 ### Requirement: Per-node state byte
-Each slave entry MAY give a `state_location` (an `%IB` input byte). When it is given, the plugin SHALL keep that byte at the node's NMT state as CiA 301 codes it: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. A node the master has never heard from, or has detected as lost, SHALL read 0. A boot-up message SHALL set 127. The state SHALL follow heartbeat and node-guarding messages, the NMT commands the master sends to the node, and loss detection.
+Each slave entry MAY give a `state_location` (an `%IB` input byte). When it is given, the bridge SHALL keep that byte at the node's NMT state as CiA 301 codes it: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL. A node the master has never heard from, or has detected as lost, SHALL read 0. A boot-up message SHALL set 127. The state SHALL follow heartbeat and node-guarding messages, the NMT commands the master sends to the node, and loss detection.
 
 #### Scenario: Normal boot
 - **WHEN** node 5 has `state_location` `%IB20` and heartbeat supervision, and boots and is started by the master
@@ -62,10 +62,10 @@ Each slave entry MAY give a `state_location` (an `%IB` input byte). When it is g
 
 #### Scenario: Wrong location type
 - **WHEN** `state_location` is not an `%IB` location, or overlaps another location of the configuration
-- **THEN** the plugin rejects the configuration and names the node and the field
+- **THEN** the bridge rejects the configuration and names the node and the field
 
 ### Requirement: Mandatory nodes
-Each slave entry MAY give `mandatory` (default `false`). The plugin SHALL pass it to the master configuration so that the master stays PRE-OPERATIONAL, and exchanges no PDOs with any node, until every mandatory node has booted. A mandatory node that is missing SHALL be logged as an error that names it as the reason the network is held. The PLC SHALL keep running.
+Each slave entry MAY give `mandatory` (default `false`). The bridge SHALL pass it to the master configuration so that the master stays PRE-OPERATIONAL, and exchanges no PDOs with any node, until every mandatory node has booted. A mandatory node that is missing SHALL be logged as an error that names it as the reason the network is held. The PLC SHALL keep running.
 
 #### Scenario: Mandatory node absent at start-up
 - **WHEN** node 3 has `"mandatory": true` and never answers, and node 2 is present
@@ -87,14 +87,14 @@ A node's status bit SHALL be TRUE only while the node is OPERATIONAL and the mas
 - **THEN** the state bytes of the stopped nodes read 4 and their status bits read FALSE
 
 ### Requirement: Master state byte
-The `master` object MAY give a `state_location` (an `%IB` input byte). When it is given, the plugin SHALL keep it at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 while the master is not running.
+The `master` object MAY give a `state_location` (an `%IB` input byte). When it is given, the bridge SHALL keep it at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 while the master is not running.
 
 #### Scenario: Network held by a mandatory node
 - **WHEN** the master has `state_location` `%IB50` and a mandatory node is missing
 - **THEN** `%IB50` reads 127, and 5 once the mandatory node has booted
 
 ### Requirement: Wrong device reporting
-When a node fails the identity check (error status D, M, N or O), the plugin SHALL log one error naming the node, the field that differs, the value the device reported (when it can be read back) and the expected value with its source (the EDS file name or the configured `revision_number` / `serial_number`). Further boot attempts that fail with the same reported identity SHALL NOT be logged again. The plugin SHALL NOT report a node that failed the identity check as not answering.
+When a node fails the identity check (error status D, M, N or O), the bridge SHALL log one error naming the node, the field that differs, the value the device reported (when it can be read back) and the expected value with its source (the EDS file name or the configured `revision_number` / `serial_number`). Further boot attempts that fail with the same reported identity SHALL NOT be logged again. The bridge SHALL NOT report a node that failed the identity check as not answering.
 
 #### Scenario: Wrong product on the right node ID
 - **WHEN** node 5 (named "rtd") uses rtd8.eds with product code 1028, the device reports 1029, and the master retries its boot several times
@@ -105,7 +105,7 @@ When a node fails the identity check (error status D, M, N or O), the plugin SHA
 - **THEN** the master configures node 5 and makes it OPERATIONAL without a PLC restart
 
 ### Requirement: Per-node boot error byte
-Each slave entry MAY give a `boot_error_location` (an `%IB` input byte). When it is given, the plugin SHALL set that byte to the ASCII code of the CiA 302 error status of the node's last failed boot (66 `B` no response, 68 `D` vendor ID, 74 `J` configuration download refused, 77 `M` product code, 78 `N` revision number, 79 `O` serial number, or another letter as reported), to 66 when the plugin reports the node as not answering, and to 0 while the node is OPERATIONAL. It SHALL read 0 before any boot attempt has failed.
+Each slave entry MAY give a `boot_error_location` (an `%IB` input byte). When it is given, the bridge SHALL set that byte to the ASCII code of the CiA 302 error status of the node's last failed boot (66 `B` no response, 68 `D` vendor ID, 74 `J` configuration download refused, 77 `M` product code, 78 `N` revision number, 79 `O` serial number, or another letter as reported), to 66 when the bridge reports the node as not answering, and to 0 while the node is OPERATIONAL. It SHALL read 0 before any boot attempt has failed.
 
 #### Scenario: Wrong device then right device
 - **WHEN** node 5 has `boot_error_location` `%IB40`, fails the identity check on its product code, and later a matching device is fitted
@@ -113,10 +113,10 @@ Each slave entry MAY give a `boot_error_location` (an `%IB` input byte). When it
 
 #### Scenario: Wrong location type
 - **WHEN** `boot_error_location` or `master.state_location` is not an `%IB` location or overlaps another location of the configuration
-- **THEN** the plugin rejects the configuration and names the field
+- **THEN** the bridge rejects the configuration and names the field
 
 ### Requirement: Emergency message logging
-The master SHALL receive the emergency (EMCY) messages of every configured slave and log each one with the node, the error code in hex, the CiA 301 error class of the code in words, the error register in hex, and the five manufacturer-specific bytes. An EMCY with error code 0x0000 SHALL be logged as the node's error reset. When a node sends more than 5 EMCY messages within one second, the plugin SHALL log at most one summary line per second for that node, giving the number of EMCY messages not logged one by one and the latest error code and error register, as the bus state log does for state changes. Receiving EMCY messages SHALL NOT change the node's NMT state, status bit or state byte, and SHALL NOT stop the PLC.
+The master SHALL receive the emergency (EMCY) messages of every configured slave and log each one with the node, the error code in hex, the CiA 301 error class of the code in words, the error register in hex, and the five manufacturer-specific bytes. An EMCY with error code 0x0000 SHALL be logged as the node's error reset. When a node sends more than 5 EMCY messages within one second, the bridge SHALL log at most one summary line per second for that node, giving the number of EMCY messages not logged one by one and the latest error code and error register, as the bus state log does for state changes. Receiving EMCY messages SHALL NOT change the node's NMT state, status bit or state byte, and SHALL NOT stop the PLC.
 
 #### Scenario: Device reports a fault
 - **WHEN** node 3 sends an EMCY with error code 0x4210 and error register 0x09
@@ -132,10 +132,10 @@ The master SHALL receive the emergency (EMCY) messages of every configured slave
 
 #### Scenario: EMCY from an unknown node
 - **WHEN** an EMCY arrives from node ID 9, which is not in the configuration
-- **THEN** the plugin logs one warning naming node ID 9 and ignores further EMCY messages from it without logging them
+- **THEN** the bridge logs one warning naming node ID 9 and ignores further EMCY messages from it without logging them
 
 ### Requirement: Per-node EMCY inputs
-Each slave entry MAY give an `emcy_code_location` (an `%IW` input word) and an `error_register_location` (an `%IB` input byte), each independently. When given, the plugin SHALL set the word to the error code and the byte to the error register of the node's most recent EMCY, visible by the next scan cycle after the master receives it. An EMCY with error code 0x0000 SHALL set the word to 0 and the byte to the error register it carries. A boot-up message from the node SHALL set both to 0. Both SHALL read 0 before the node sends any EMCY, and SHALL keep their value while the node is lost.
+Each slave entry MAY give an `emcy_code_location` (an `%IW` input word) and an `error_register_location` (an `%IB` input byte), each independently. When given, the bridge SHALL set the word to the error code and the byte to the error register of the node's most recent EMCY, visible by the next scan cycle after the master receives it. An EMCY with error code 0x0000 SHALL set the word to 0 and the byte to the error register it carries. A boot-up message from the node SHALL set both to 0. Both SHALL read 0 before the node sends any EMCY, and SHALL keep their value while the node is lost.
 
 #### Scenario: Fault then reset
 - **WHEN** node 3 has `emcy_code_location` `%IW30` and `error_register_location` `%IB31`, sends an EMCY with code 0x4210 and error register 0x09, and later an EMCY with code 0x0000 and error register 0x00
@@ -151,7 +151,7 @@ Each slave entry MAY give an `emcy_code_location` (an `%IW` input word) and an `
 
 #### Scenario: Wrong location type
 - **WHEN** `emcy_code_location` is not an `%IW` location, `error_register_location` is not an `%IB` location, or either overlaps another location of the configuration
-- **THEN** the plugin rejects the configuration and names the node and the field
+- **THEN** the bridge rejects the configuration and names the node and the field
 
 ### Requirement: Per-node NMT command byte
 Each slave entry MAY give an `nmt_command_location` (an `%QB` output byte) through which the PLC program commands the node with CiA 301 NMT command codes:
@@ -163,7 +163,7 @@ Each slave entry MAY give an `nmt_command_location` (an `%QB` output byte) throu
 
 The master SHALL act on a change within 100 ms or by the next SYNC, whichever comes first, and SHALL NOT act on the byte before the PLC program has completed its first scan cycle since start. For a node with `boot` false the master SHALL never boot or configure it, and a change to 1 SHALL send START. Each command sent SHALL be logged with the node and the command. A node held in STOPPED or PRE-OPERATIONAL SHALL have its status bit FALSE and SHALL exchange no PDOs. The location SHALL be an `%QB` location that does not overlap another location of the configuration, else the configuration SHALL be rejected naming the node and the field.
 
-The byte SHALL act on the same hold as the program's `CO_NMT` block and the NMT commands of the diagnostics channel and the Modbus control block (`canopen-plc-nmt`): whichever acted last decides, and the byte acts only on a change of its value. A hold or reset sent through the byte to a mandatory node SHALL NOT count as a loss of that node.
+The byte SHALL act on the same hold as the program's `CO_NMT` block and the NMT commands of the diagnostics channel and the Modbus control block (`plc-library`, `modbus-bridge`): whichever acted last decides, and the byte acts only on a change of its value. A hold or reset sent through the byte to a mandatory node SHALL NOT count as a loss of that node.
 
 #### Scenario: Stop and restart a node
 - **WHEN** node 5 is OPERATIONAL with `nmt_command_location` `%QB30` and `state_location` `%IB20`, and the program writes 2 to `%QB30` and later 0
@@ -179,11 +179,11 @@ The byte SHALL act on the same hold as the program's `CO_NMT` block and the NMT 
 
 #### Scenario: Unknown command
 - **WHEN** the program writes 7 to `%QB30`
-- **THEN** the plugin logs one warning naming node 5 and the value 7, and node 5 keeps running
+- **THEN** the bridge logs one warning naming node 5 and the value 7, and node 5 keeps running
 
 #### Scenario: Wrong location type
 - **WHEN** `nmt_command_location` is not an `%QB` location or overlaps another location
-- **THEN** the plugin rejects the configuration and names the node and the field
+- **THEN** the bridge rejects the configuration and names the node and the field
 
 #### Scenario: Block releases a byte hold
 - **WHEN** `%QB30` holds 2 and the program runs `CO_NMT` with `NODE := 5, COMMAND := 1`
@@ -205,22 +205,22 @@ A configured node whose heartbeat consumer time is 0 (from `heartbeat_ms`, or fr
 - **THEN** the config is accepted and each start logs a warning that node 7's loss is not detected
 
 ### Requirement: Nodes on PLC stop
-The master SHALL support `master.on_plc_stop`: `"preop"` (default) sends ENTER PRE-OPERATIONAL, `"stop"` sends STOP, each to every configured node that is up, before the network closes when the PLC stops or the plugin stops; `"keep"` sends no NMT command. Nodes of a PDO link with `"on_plc_stop": "keep"` (canopen-pdo-links) SHALL get no NMT command whatever the master's setting. No output PDO SHALL be sent between the stop request and the NMT command. On the next PLC start the nodes SHALL be booted and started as usual.
+The master SHALL support `master.on_plc_stop`: `"preop"` (default) sends ENTER PRE-OPERATIONAL, `"stop"` sends STOP, each to every configured node that is up, before the network closes when the bridge stops or replaces its config; `"keep"` sends no NMT command. Nodes of a PDO link with `"on_plc_stop": "keep"` (canopen-pdo-links) SHALL get no NMT command whatever the master's setting. No output PDO SHALL be sent between the stop request and the NMT command. When the bridge starts again the nodes SHALL be booted and started as usual. What happens when the PLC (the Modbus client) stops is `on_client_loss` (modbus-bridge), not this setting.
 
 #### Scenario: PLC stopped
-- **WHEN** nodes 5 and 23 are OPERATIONAL and the PLC is stopped with the default `on_plc_stop`
-- **THEN** both nodes get ENTER PRE-OPERATIONAL before the network closes, and are OPERATIONAL again after the next PLC start
+- **WHEN** nodes 5 and 23 are OPERATIONAL and the bridge's service is stopped with the default `on_plc_stop`
+- **THEN** both nodes get ENTER PRE-OPERATIONAL before the network closes, and are OPERATIONAL again after the next start
 
 #### Scenario: Old behaviour
-- **WHEN** `on_plc_stop` is `"keep"` and the PLC is stopped
+- **WHEN** `on_plc_stop` is `"keep"` and the bridge is stopped
 - **THEN** no NMT command is sent
 
 #### Scenario: Kept link
-- **WHEN** `on_plc_stop` is `"preop"`, nodes 10 and 20 form a link with `"on_plc_stop": "keep"`, node 5 is in no link, and the PLC is stopped
+- **WHEN** `on_plc_stop` is `"preop"`, nodes 10 and 20 form a link with `"on_plc_stop": "keep"`, node 5 is in no link, and the bridge is stopped
 - **THEN** node 5 gets ENTER PRE-OPERATIONAL, nodes 10 and 20 get no NMT command, and the log says which nodes were left running for which link
 
 ### Requirement: Node-to-node heartbeat watch
-A node MAY give `heartbeat_watch`, a list of `{ "node": <id>, "timeout_ms": <ms> }`. For each entry the plugin SHALL write one heartbeat consumer entry (0x1016, CiA 301) into that node's configuration download, after dcfgen's own writes: the entry that already names the watched node, else the first unused entry that is not the one watching the master. `timeout_ms` SHALL default to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else three times its effective heartbeat period). The plugin SHALL reject the configuration, naming the node, the entry and the reason, when the watched node is not a configured node of the same network, is the node itself or the master, has no heartbeat (node guarding, or an effective 0x1017 of 0), when `timeout_ms` is not above the watched node's heartbeat period, or when the node's EDS has no 0x1016 or too few writable entries. The master's own supervision of either node SHALL NOT change.
+A node MAY give `heartbeat_watch`, a list of `{ "node": <id>, "timeout_ms": <ms> }`. For each entry the bridge SHALL write one heartbeat consumer entry (0x1016, CiA 301) into that node's configuration download, after dcfgen's own writes: the entry that already names the watched node, else the first unused entry that is not the one watching the master. `timeout_ms` SHALL default to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else three times its effective heartbeat period). The bridge SHALL reject the configuration, naming the node, the entry and the reason, when the watched node is not a configured node of the same network, is the node itself or the master, has no heartbeat (node guarding, or an effective 0x1017 of 0), when `timeout_ms` is not above the watched node's heartbeat period, or when the node's EDS has no 0x1016 or too few writable entries. The master's own supervision of either node SHALL NOT change.
 
 #### Scenario: Consumer watches its producer
 - **WHEN** node 20 has `"heartbeat_watch": [{ "node": 10 }]`, node 10 has `heartbeat_ms` 100 and no `heartbeat_timeout_ms`
@@ -240,7 +240,7 @@ A node MAY give `heartbeat_watch`, a list of `{ "node": <id>, "timeout_ms": <ms>
 
 #### Scenario: Startup SDO overrides the watch
 - **WHEN** node 20 has a `heartbeat_watch` and a startup SDO writing 0x1016
-- **THEN** the plugin warns that the startup SDO runs last and overrides `heartbeat_watch`
+- **THEN** the bridge warns that the startup SDO runs last and overrides `heartbeat_watch`
 
 ### Requirement: EMCY COB-ID setting
 Each slave entry MAY give `emcy_cob_id`: `"device"` (the default when left out), `"eds"`, or a number. With `"eds"` the master SHALL listen for the node's EMCY on the COB-ID its EDS gives as the default of 0x1014, or 0x80 + node ID without one, as before. With a number the master SHALL listen on that COB-ID from the start, written into the master DCF's EMCY consumer entry for the node, and SHALL NOT read the node's 0x1014. A startup SDO to 0x1014 sub-index 0 SHALL count as that number when `emcy_cob_id` gives none. A number with bit 31 or bit 29 set, a CiA 301 restricted CAN-ID, or a COB-ID another identifier of the network uses (another configured node's EMCY, a configured PDO, SDO or heartbeat COB-ID, NMT, SYNC, TIME or LSS) SHALL reject the configuration naming the node and `emcy_cob_id`. A predefined consumer entry of a node ID that is not configured and has the same COB-ID SHALL be left out.
@@ -285,7 +285,7 @@ With `"emcy_cob_id": "device"`, after each successful boot of a node whose EDS h
 - **THEN** the master sends no SDO to node 5's 0x1014
 
 ### Requirement: EMCY and heartbeat consumer fields need their EDS objects
-A slave entry whose EDS has no object 0x1014 SHALL NOT give `emcy_code_location`, `error_register_location` or `emcy_cob_id`; the plugin and the deploy tool's check SHALL reject each one given, naming the node, the field and that the EDS has no EMCY COB-ID (0x1014). A slave entry whose EDS has no object 0x1016 with a writable sub-index SHALL NOT give `heartbeat_consumer`, true or false; it SHALL be rejected naming the node, the field and that the EDS has no consumer heartbeat time (0x1016).
+A slave entry whose EDS has no object 0x1014 SHALL NOT give `emcy_code_location`, `error_register_location` or `emcy_cob_id`; the bridge and the deploy tool's check SHALL reject each one given, naming the node, the field and that the EDS has no EMCY COB-ID (0x1014). A slave entry whose EDS has no object 0x1016 with a writable sub-index SHALL NOT give `heartbeat_consumer`, true or false; it SHALL be rejected naming the node, the field and that the EDS has no consumer heartbeat time (0x1016).
 
 #### Scenario: EMCY COB-ID on a device without EMCY
 - **WHEN** node 7's EDS has no 0x1014 and node 7 has `"emcy_cob_id": "eds"`
@@ -307,7 +307,7 @@ While `stop_all_nodes` holds the master STOPPED for the run, a node's state SHAL
 - **THEN** the state bytes of nodes 10 and 23 read 4
 
 ### Requirement: A stopped master reports no absent nodes
-While `stop_all_nodes` holds the master STOPPED for the run, a node that the master does not boot SHALL NOT be reported as not answering, and its boot error SHALL NOT become B. The plugin SHALL log once per bus session that the master boots no node until the plugin restarts, and SHALL NOT log that the master holds the network in PRE-OPERATIONAL.
+While `stop_all_nodes` holds the master STOPPED for the run, a node that the master does not boot SHALL NOT be reported as not answering, and its boot error SHALL NOT become B. The bridge SHALL log once per bus session that the master boots no node until the bridge restarts, and SHALL NOT log that the master holds the network in PRE-OPERATIONAL.
 
 #### Scenario: Silent log after a link bounce
 - **WHEN** `stop_all_nodes` stopped the master and the CAN interface goes down and up

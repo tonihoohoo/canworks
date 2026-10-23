@@ -1,10 +1,10 @@
-"""Recording a trace from the plugin's diagnostics channel
+"""Recording a trace from the bridge's diagnostics channel
 (canopen-bus-trace: "Record a trace on the PC", "Triggers").
 
 A Session is a trace with its decoder and analysis (frames, kind/node index,
 statistics, series); an opened file is a Session too. A Recorder fills a
 Session from its own diagnostics connection in a background thread: it
-fetches every 100 ms (at once again while the plugin has more), polls status
+fetches every 100 ms (at once again while the bridge has more), polls status
 every 500 ms for the status series and status triggers, evaluates the
 trigger, places markers and auto-saves.
 
@@ -27,8 +27,7 @@ FETCH_INTERVAL = 0.1
 STATUS_INTERVAL = 0.5
 RECONNECT_INTERVAL = 1.0
 LOST_AFTER_S = 10.0  # a runtime that answers no reconnect for this long ends the recording
-TOO_OLD = ("the CANopen plugin on the runtime is too old for traces; update it (install-stock.sh) and upload "
-           "again")
+TOO_OLD = "the bridge is too old for traces; update it (install-bridge.sh)"
 
 
 class Session:
@@ -175,7 +174,7 @@ class Recorder:
                         continue
                     with self.session.lock:
                         meta = self.session.trace.meta
-                        # The network the trace records (a plugin with
+                        # The network the trace records (a bridge with
                         # several networks names it; an older one does not).
                         if r.get("network"):
                             meta.setdefault("network", r["network"])

@@ -76,7 +76,7 @@ class LinkPage(base.OnlineBase):
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        saved = load(self.config_path)["master"]["diagnostics"]
+        saved = load(self.config_path)["diagnostics"]
         self.assertEqual(saved["remote_link"], {"internet": True, "relays": ["https://relay.example.com"]})
         self.assertTrue(saved["allow_changes"])  # the other fields stay
         self.assertTrue(diag.token_matches(TOKEN, saved["token_verifier"]))
@@ -88,7 +88,7 @@ class LinkPage(base.OnlineBase):
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        saved = load(self.config_path)["master"]["diagnostics"]
+        saved = load(self.config_path)["diagnostics"]
         self.assertNotIn("remote_link", saved)
         self.assertTrue(saved["allow_changes"])
 

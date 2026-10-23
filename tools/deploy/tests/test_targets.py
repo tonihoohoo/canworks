@@ -49,8 +49,10 @@ class Target(unittest.TestCase):
     def test_target_from_the_markers(self):
         cfg = load(BRIDGE)
         self.assertEqual(targets.target(cfg), "bridge")
+        cfg["bridge"]["openplc"] = {}
+        self.assertEqual(targets.target(cfg), "openplc_modbus")
         del cfg["bridge"]
-        self.assertEqual(targets.target(cfg), "openplc")
+        self.assertEqual(targets.target(cfg), "plugin")  # the removed plugin's config
         cfg["codesys"] = {}
         self.assertEqual(targets.target(cfg), "codesys")
 
@@ -59,10 +61,10 @@ class Target(unittest.TestCase):
         cfg["codesys"] = {}
         self.assertIn(targets.BOTH_MESSAGE, "\n".join(check(cfg).errors))
 
-    def test_codesys_needs_version_2(self):
+    def test_version_1_codesys_refused(self):
         cfg = {"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000}, "codesys": {},
                "nodes": [{"node_id": 5, "eds": "rtd8.eds"}]}
-        self.assertIn("field 'codesys' needs schema_version 2", "\n".join(check(cfg).errors))
+        self.assertIn(contract.NOT_BRIDGE_MESSAGE, "\n".join(check(cfg).errors))
 
     def test_codesys_config_without_locations(self):
         _, cfg = codesys_config(self)
@@ -100,7 +102,7 @@ class Unused(unittest.TestCase):
         item = [i for i in r.items if i["paths"] == ["networks[0].nodes[0].emcy_code_location"]][0]
         self.assertEqual(item["level"], "warning")
         self.assertEqual((item["unused"], item["removable"], item["key"]), ("codesys", True, "nodes.emcy_code_location"))
-        self.assertIn("'emcy_code_location' is not used by CODESYS: plugin status location", item["message"])
+        self.assertIn("'emcy_code_location' is not used by CODESYS: canworks status location", item["message"])
 
     def test_every_setting_has_a_page_label(self):
         # The page's list of settings the target does not use names each one.
@@ -110,29 +112,20 @@ class Unused(unittest.TestCase):
                 self.assertTrue(rows[key]["label"], key)
         self.assertEqual(rows["nodes.tx_pdos.entries.iec_location"]["label"], "PLC location")
 
-    def test_declarations_are_openplc_only(self):
-        self.assertTrue(targets.uses("ui:declarations", targets.OPENPLC))
-        self.assertFalse(targets.uses("ui:declarations", targets.BRIDGE))
-        self.assertFalse(targets.uses("ui:declarations", targets.CODESYS))
-
-    def test_bridge_ignores_the_scan_watchdog(self):
-        cfg = load(BRIDGE)
-        cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
-        r = check(cfg)
-        self.assertIn("networks[0].master.scan_watchdog_ms: 'scan_watchdog_ms' is not used by the Modbus bridge: "
-                      "the bridge has no PLC scan", "\n".join(r.warnings))
-
     def test_openplc_does_not_use_codesys_settings(self):
         cfg = load(BRIDGE)
-        del cfg["bridge"]
+        cfg["bridge"]["openplc"] = {}
         cfg["networks"][0]["codesys"] = {"net_id": 1}
         self.assertEqual(targets.unused(cfg), [("networks[0].codesys", "codesys",
                                                 "CODESYS settings of the network")])
+        del cfg["bridge"]
+        self.assertEqual(targets.unused(cfg), [])  # a plugin config is only switched, not cleaned
 
     def test_refused_values_are_not_warned(self):
         cfg = load(BRIDGE)
-        cfg["networks"][0]["master"]["sync_source"] = "plc_cycle"
+        cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "iec_location": "%IX110.0"}]
         self.assertEqual(targets.unused(cfg), [])
+        self.assertTrue(check(cfg).errors)
 
     def test_network_kinds_are_not_removable(self):
         cfg = {"schema_version": 2, "codesys": {}, "networks": [{"name": "eng", "protocol": "j1939"}]}
@@ -142,8 +135,8 @@ class Unused(unittest.TestCase):
 
     def test_table_for_the_page(self):
         rows = {r["key"]: r for r in targets.table()}
-        self.assertEqual(rows["ui:editor_project"]["targets"], ["openplc", "openplc_modbus"])
-        self.assertEqual(rows["master.sync_source=plc_cycle"]["refused"], ["bridge", "openplc_modbus"])
+        self.assertEqual(rows["ui:editor_project"]["targets"], ["openplc_modbus"])
+        self.assertEqual(rows["nodes.rx_pdos.entries.bits.iec_location"]["refused"], ["bridge", "openplc_modbus"])
 
 
 class EntryName(unittest.TestCase):
@@ -226,13 +219,11 @@ class Plan(unittest.TestCase):
 
 
 class Deploy(unittest.TestCase):
-    def test_runtime_refuses_a_codesys_config(self):
+    def test_bridge_refuses_a_codesys_config(self):
         path, _ = codesys_config(self)
-        code, _, err = deploy("--config", path, "--runtime", "plc.local", "--bundle", "/nonexistent")
+        code, _, err = deploy("--config", path, "--bridge", "plc.local")
         self.assertEqual(code, 1)
         self.assertIn("is a CODESYS config (it has a 'codesys' object): CODESYS runs it", err)
-        code, _, err = deploy("--config", path, "--bridge", "plc.local")
-        self.assertIn("is a CODESYS config", err)
 
     def test_import_without_a_project(self):
         path, _ = codesys_config(self)
@@ -280,13 +271,6 @@ class Deploy(unittest.TestCase):
         self.assertEqual(seen[0]["create"]["device"]["id"], "0000 0004")
 
 
-def openplc_example():
-    """The bridge example as an OpenPLC config, packed per type."""
-    cfg = load(BRIDGE)
-    del cfg["bridge"]
-    return srv.Session().pack_openplc(cfg)["config"]
-
-
 def entries(cfg):
     return [e for n in cfg["networks"][0]["nodes"] for k in ("tx_pdos", "rx_pdos") for p in n.get(k, [])
             for e in p["entries"]]
@@ -302,8 +286,7 @@ class Server(Running):
         os.makedirs(self.folder)
         for name in ("rtd8.eds", "dio16.eds"):
             shutil.copy(os.path.join(os.path.dirname(BRIDGE), name), self.folder)
-        self.cfg = openplc_example()
-        self.cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
+        self.cfg = load(BRIDGE)
         self.cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW90"
         with open(os.path.join(self.folder, "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(self.cfg, f)
@@ -317,7 +300,7 @@ class Server(Running):
         self.assertIn("codesys_found", state)
         self.assertIn("ui:codesys", [r["key"] for r in state["targets"]])
 
-    def test_openplc_to_codesys_and_back(self):
+    def test_bridge_to_codesys_and_back(self):
         # No question: what CODESYS does not use goes (target-cleans-up).
         r = self.switch(self.cfg, "codesys")
         cfg = r["config"]
@@ -326,15 +309,14 @@ class Server(Running):
         self.assertGreaterEqual(r["removed"], 2)
         self.assertNotIn("emcy_code_location", cfg["networks"][0]["nodes"][0])
         self.assertTrue(all("name" in e and "iec_location" not in e for e in entries(cfg)))
-        self.assertNotIn("scan_watchdog_ms", cfg["networks"][0]["master"])
         self.assertEqual(check(cfg).errors, [])
         self.assertEqual([w for w in check(cfg).items if w.get("unused")], [])
         # The names are the generated declaration names (EDS names).
         after = {d["name"] for d in declare.declarations(cfg, lambda *a: None, {}, unlocated=True) if d["kind"] == "pdo"}
         self.assertIn("dio_Read_input_8_bit_1", after)
         self.assertIn("rtd_AI0_Input_PV", after)
-        # Back to OpenPLC: every entry is placed per type, the names stay.
-        back = self.switch(cfg, "openplc")
+        # Back to the bridge: every entry is placed per type, the names stay.
+        back = self.switch(cfg, "bridge")
         self.assertEqual(back["located"], len(entries(cfg)))
         out = back["config"]
         self.assertNotIn("codesys", out)
@@ -343,7 +325,7 @@ class Server(Running):
 
     def test_old_switch_options_are_ignored(self):
         cfg = self.switch(self.cfg, "codesys", keep=True, preview=True)["config"]
-        self.assertNotIn("scan_watchdog_ms", cfg["networks"][0]["master"])
+        self.assertNotIn("emcy_code_location", cfg["networks"][0]["nodes"][0])
 
     def test_codesys_to_bridge_packs(self):
         cfg = self.switch(self.cfg, "codesys")["config"]
@@ -353,33 +335,31 @@ class Server(Running):
         self.assertTrue(all(e.get("iec_location") for e in entries(out)))
         self.assertEqual(check(out).errors, [])
 
-    def test_openplc_and_bridge(self):
-        r = self.switch(self.cfg, "bridge")
-        self.assertGreaterEqual(r["removed"], 1)
-        self.assertEqual(r["config"]["bridge"], {"listen": "0.0.0.0:502", "writers": []})
-        self.assertNotIn("scan_watchdog_ms", r["config"]["networks"][0]["master"])
-        out = self.switch(r["config"], "openplc")["config"]
-        self.assertNotIn("bridge", out)
+    def test_bridge_and_openplc(self):
+        out = self.switch(self.cfg, "openplc_modbus")["config"]
+        self.assertEqual(targets.target(out), "openplc_modbus")
+        self.assertEqual(check(out).errors, [])
+        back = self.switch(out, "bridge")["config"]
+        self.assertEqual(targets.target(back), "bridge")
+        self.assertNotIn("openplc", back["bridge"])
+
+    def test_plugin_config_switches_to_openplc(self):
+        cfg = load(BRIDGE)
+        del cfg["bridge"]
+        status, data, _ = self.request("POST", "/api/save", {"config": cfg})
+        self.assertEqual(status, 409, data)
+        self.assertTrue(data["plugin"])
+        out = self.switch(cfg, "openplc_modbus")["config"]
+        self.assertEqual(targets.target(out), "openplc_modbus")
+        self.assertEqual(check(out).errors, [])
+        self.ok("POST", "/api/save", {"config": out})
+        # The removed plugin is not a target to switch to.
+        self.assertEqual(self.request("POST", "/api/switch_target", {"config": out, "target": "plugin"})[0], 400)
 
     def test_bit_channels_follow_the_target(self):
         dio = self.cfg["networks"][0]["nodes"][1]
-        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "start", "iec_location": "%IX110.0"}]
-        out_entry = dio["rx_pdos"][0]["entries"][0]
-        del out_entry["iec_location"]
-        out_entry["bits"] = [{"bit": 0, "name": "lamp", "iec_location": "%QX110.0"}, {"bit": 1, "iec_location": "%QX110.1"}]
+        dio["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "lamp"}, {"bit": 1}]
         self.assertEqual(check(self.cfg).errors, [])
-        # The bridge serves the bits in the entry's own location: the RPDO entry gets one, the bits keep their names.
-        cfg = self.switch(self.cfg, "bridge")["config"]
-        dio = cfg["networks"][0]["nodes"][1]
-        self.assertTrue(dio["rx_pdos"][0]["entries"][0]["iec_location"])
-        self.assertEqual(dio["rx_pdos"][0]["entries"][0]["bits"], [{"bit": 0, "name": "lamp"}, {"bit": 1}])
-        self.assertEqual(check(cfg).errors, [])
-        # Back to OpenPLC: the bits get locations again and the RPDO entry gives up its own.
-        out = self.switch(cfg, "openplc")["config"]
-        rx = out["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]
-        self.assertNotIn("iec_location", rx)
-        self.assertTrue(all(b["iec_location"].startswith("%QX") for b in rx["bits"]))
-        self.assertEqual(check(out).errors, [])
         # CODESYS: names only, every bit named.
         cs = self.switch(self.cfg, "codesys")["config"]
         bits = cs["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]["bits"]
@@ -387,7 +367,11 @@ class Server(Running):
         self.assertEqual(bits[0]["name"], "lamp")
         self.assertTrue(bits[1]["name"].endswith("_bit1"), bits[1])
         self.assertEqual(check(cs).errors, [])
-        back = self.switch(cs, "openplc")["config"]
+        # Back to the bridge: the bits are served in the entry's own location, which it gets again.
+        back = self.switch(cs, "bridge")["config"]
+        rx = back["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0]
+        self.assertTrue(rx["iec_location"])
+        self.assertEqual(rx["bits"][0], {"bit": 0, "name": "lamp"})
         self.assertEqual(check(back).errors, [])
 
     def test_bridge_to_codesys(self):
@@ -403,13 +387,11 @@ class Server(Running):
     def test_save_leaves_out_what_the_target_does_not_use(self):
         """canopen-configurator "Settings the target does not use are left out on save"."""
         cfg = self.switch(self.cfg, "codesys")["config"]
-        cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
         cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW90"
         r = self.ok("POST", "/api/save", {"config": cfg})
-        self.assertEqual(r["left_out"], 2)
+        self.assertEqual(r["left_out"], 1)
         with open(os.path.join(self.folder, "canworks.json"), encoding="utf-8") as f:
             saved = json.load(f)
-        self.assertNotIn("scan_watchdog_ms", saved["networks"][0]["master"])
         self.assertNotIn("emcy_code_location", saved["networks"][0]["nodes"][0])
         self.assertEqual(r["state"]["config"], saved)
         # Nothing left out: none counted.

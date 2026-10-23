@@ -1,5 +1,5 @@
 // iface_lock.h - one owner per real CAN interface (modbus-bridge "One owner
-// per interface"): every canworks process (OpenPLC plugin or Modbus bridge)
+// per interface"): every canworks process (Modbus bridge or simulator)
 // binds the abstract Unix socket "canworks-iface:<interface>" before it
 // brings the interface up, and keeps it while the network runs. Abstract
 // sockets live in the network namespace, the same scope as the interface

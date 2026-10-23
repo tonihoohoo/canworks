@@ -4,7 +4,7 @@
 #
 #   test/rawframes/run.sh [--build-dir build] [--iface vcan0]
 #
-# Runs the ping-pong (tutorial slave, node 2) with the real plugin through
+# Runs the ping-pong (tutorial slave, node 2) with the canworks engine in
 # canopen_host and diagnostics with allow_changes on 127.0.0.1. Passes (exit 0)
 # when:
 #   - a frame sent with send_frame arrives on a second CAN_RAW socket and shows
@@ -42,10 +42,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/pingpong_slave"
-for f in "$PLUGIN" "$HOST" "$SLAVE"; do
+for f in "$HOST" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -70,27 +69,21 @@ trap cleanup EXIT
 CONFIG="$ROOT/config/pingpong"
 cp "$CONFIG/cpp-slave.eds" "$WORK/"
 VERIFIER="$("$PY" -c 'from canworks.diag import token_verifier; print(token_verifier("raw-test"))')"
-DIAGCFG="\"diagnostics\": { \"token_verifier\": \"$VERIFIER\", \"port\": $PORT, \"bind\": \"127.0.0.1\", \"allow_changes\": true }"
-sed -e "s/\"vcan0\"/\"$IFACE\"/" \
-    -e "s|\"sync_period_us\": 100000 }|\"sync_period_us\": 100000, $DIAGCFG }|" \
-    "$CONFIG/canopen_config.json" > "$WORK/canopen_config.json"
-grep -q token_verifier "$WORK/canopen_config.json" || { echo "FAIL: could not add diagnostics to the config" >&2; exit 1; }
-# Raw messages next to the CANopen network: one sent, one received (version 2).
-"$PY" - "$WORK/canopen_config.json" <<'PY'
+# Diagnostics with allow_changes, and raw messages next to the CANopen
+# network: one sent, one received.
+"$PY" - "$CONFIG/canopen_config.json" "$WORK/canopen_config.json" "$IFACE" "$VERIFIER" "$PORT" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
     cfg = json.load(f)
-cfg["raw"] = {"tx": [{"name": "Beat", "id": 0x3F0, "dlc": 2, "period_ms": 50,
+net = cfg["networks"][0]
+net["name"] = "pingpong"
+net["adapter"]["interface"] = sys.argv[3]
+cfg["diagnostics"] = {"token_verifier": sys.argv[4], "port": int(sys.argv[5]), "bind": "127.0.0.1", "allow_changes": True}
+net["raw"] = {"tx": [{"name": "Beat", "id": 0x3F0, "dlc": 2, "period_ms": 50,
                       "signals": [{"name": "v", "start_bit": 0, "length": 16, "iec_location": "%QW400"}]}],
-              "rx": [{"name": "Remote", "id": 0x3F1, "timeout_ms": 500, "status_location": "%IX400.0",
+              "rx": [{"name": "Remote", "id": 0x3F1, "timeout_ms": 500, "status_location": "%IX402.0",
                       "signals": [{"name": "v", "start_bit": 0, "length": 16, "iec_location": "%IW400"}]}]}
-# raw needs schema_version 2: the network moves into networks[].
-diagnostics = cfg["master"].pop("diagnostics")
-raw = cfg.pop("raw")
-cfg = {"schema_version": 2, "diagnostics": diagnostics,
-       "networks": [{"name": "pingpong", "adapter": cfg["adapter"], "master": cfg["master"], "nodes": cfg["nodes"],
-                     "raw": raw}]}
-with open(sys.argv[1], "w") as f:
+with open(sys.argv[2], "w") as f:
     json.dump(cfg, f)
 PY
 
@@ -98,8 +91,8 @@ PY
 PIDS+=($!)
 sleep 0.5
 
-echo "==> Running the plugin on $IFACE for 40 s with diagnostics (allow_changes) on 127.0.0.1:$PORT"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 40 > "$WORK/host.log" 2>&1 &
+echo "==> Running the engine on $IFACE for 40 s with diagnostics (allow_changes) on 127.0.0.1:$PORT"
+"$HOST" "$WORK/canopen_config.json" 40 > "$WORK/host.log" 2>&1 &
 HOST_PID=$!
 sleep 4
 
@@ -227,7 +220,7 @@ sed -e "s/\"port\": $PORT/\"port\": $SIMPORT/" \
     -e "s/\"interface\": \"$IFACE\"/\"interface\": \"$IFACE\", \"simulate\": true/" \
     "$WORK/canopen_config.json" > "$WORK/sim_config.json"
 grep -q '"simulate": true' "$WORK/sim_config.json" || fail "could not make the config simulated"
-"$HOST" "$PLUGIN" "$WORK/sim_config.json" 12 > "$WORK/sim_host.log" 2>&1 &
+"$HOST" "$WORK/sim_config.json" 12 > "$WORK/sim_host.log" 2>&1 &
 SIM_PID=$!
 sleep 4
 "$PY" - "$SIMPORT" <<'PY' || fail "simulated network check failed"
@@ -257,8 +250,8 @@ PY
 wait "$SIM_PID"
 
 if [ "$RC" -ne 0 ]; then
-    echo "---- plugin log (vcan) ----"; tail -n 60 "$WORK/host.log"
-    echo "---- plugin log (simulated) ----"; tail -n 40 "$WORK/sim_host.log"
+    echo "---- engine log (vcan) ----"; tail -n 60 "$WORK/host.log"
+    echo "---- engine log (simulated) ----"; tail -n 40 "$WORK/sim_host.log"
     echo "---- slave log ----"; tail -n 20 "$WORK/slave.log"
     exit 1
 fi

@@ -43,8 +43,8 @@ class RawRuntime {
   // Ends the I/O thread; every program handle answers "cancelled".
   void stop();
   // The scan hooks (never block, allocate or log).
-  void cycle_start(const plugin_runtime_args_t& rt);
-  void cycle_end(const plugin_runtime_args_t& rt);
+  void cycle_start(canopen_plugin::ImageHost& rt);
+  void cycle_end(canopen_plugin::ImageHost& rt);
 
   // The I/O thread has its link open (frames can be sent).
   bool running() const { return port_ && port_->running(); }

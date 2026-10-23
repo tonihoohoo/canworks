@@ -146,7 +146,6 @@ class Simulator {
   struct SourceSlot;
   class Resolver;
   class Ctx;
-  class DriveIoImpl;
 
   void Log(Host::Level l, const std::string& m);
   void PowerOn(Dev& d);
@@ -163,8 +162,8 @@ class Simulator {
   bool StepRun(Run& r, Clock::time_point now);
   void EndRun(Run& r, bool passed, const std::string& msg);
   bool EvalCondition(const Condition& c, const std::string& self, bool& holds, std::string& seen, std::string& err);
-  // Writes a value from a writer of `level` (0 default, 1 drive, 2 source,
-  // 3 set, 4 override); false when a higher writer owns the object.
+  // Writes a value from a writer of `level` (0 default, 2 source, 3 set,
+  // 4 override); false when a higher writer owns the object.
   void Write(Dev& d, const ObjKey& k, const Value& v, int level);
   int Owner(const Dev& d, const ObjKey& k) const;
   Dev* Find(const std::string& ref);

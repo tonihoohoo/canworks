@@ -1,6 +1,6 @@
 """J1939 networks in the configurator, in a real browser (j1939-pc-tools "J1939
 network in the configurator", "J1939 online view"): a network built from the
-example DBC and saved, and the online view against the fake plugin's
+example DBC and saved, and the online view against the fake bridge's
 recorded status answer. Needs Playwright, like test_configurator_page.py."""
 
 import json
@@ -53,8 +53,8 @@ class J1939Page(OnlineBase):
         pg.select_option('#modal select[data-pick="Command"]', "")
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#banner:has-text('Added 2 received and 1 sent PGNs from machine.dbc')")
-        # Free locations: a device of the editor project uses %ID100.
-        self.assertEqual(pg.input_value('input[data-path="j1939.rx[1].signals[0].iec_location"]'), "%ID101")
+        # Free locations after the ones the config already uses.
+        self.assertEqual(pg.input_value('input[data-path="j1939.rx[1].signals[0].iec_location"]'), "%ID106")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # A problem shows at its field and goes away again.
@@ -62,9 +62,6 @@ class J1939Page(OnlineBase):
         pg.wait_for_selector('input[data-path="j1939.ecu.address"].invalid')
         self.assertIn("ECU identity", pg.inner_text("#problem-list"))
         pg.fill('input[data-path="j1939.ecu.address"]', "128")
-        pg.fill('input[data-path="j1939.scan_watchdog_ms"]', "9")
-        pg.wait_for_selector('input[data-path="j1939.scan_watchdog_ms"].invalid')
-        pg.fill('input[data-path="j1939.scan_watchdog_ms"]', "250")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.click("#btn-save")
@@ -78,7 +75,6 @@ class J1939Page(OnlineBase):
         self.assertEqual([m["name"] for m in net["j1939"]["tx"]], ["Setpoints"])
         self.assertEqual(net["j1939"]["dbc"], "machine.dbc")
         self.assertEqual(net["j1939"]["ecu"]["name"], {"identity_number": 77, "function": 130})
-        self.assertEqual(net["j1939"]["scan_watchdog_ms"], 250)
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "machine.dbc")))
 
     def test_multiplexed_send_pgn(self):
@@ -111,7 +107,7 @@ class J1939Page(OnlineBase):
         pg.fill(f'input[data-path="{base}.signals[2].mux"]', "2-3")
         pg.press(f'input[data-path="{base}.signals[2].mux"]', "Tab")
         pg.wait_for_selector("#problem-list li.ok", state="attached")
-        # All pages: the plugin sets the switch, so its location goes.
+        # All pages: the bridge sets the switch, so its location goes.
         pg.select_option(f'select[data-path="{base}.pages"]', "all")
         self.assertEqual(pg.input_value(f'input[data-path="{base}.signals[0].iec_location"]'), "")
         pg.wait_for_selector("#problem-list li.ok", state="attached")

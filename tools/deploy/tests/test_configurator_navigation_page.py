@@ -1,6 +1,6 @@
 """Each tool in one workspace, one network picker, the Project page and
 Trace Start without a connection (one-place-navigation). Against a fake
-plugin runtime; needs Playwright, like test_configurator_page.py."""
+the bridge runtime; needs Playwright, like test_configurator_page.py."""
 
 import json
 import time
@@ -21,7 +21,7 @@ class Navigation(OnlineBase):
     def test_tools_per_workspace_and_links(self):
         pg = self.page
         self.open()
-        self.assertEqual(tabs(pg), ["network", "declarations", "simfile"])
+        self.assertEqual(tabs(pg), ["network", "simfile"])
         pg.click('#ws [data-ws="commission"]')
         pg.wait_for_selector('#tool-tabs button[data-view="trace"]')
         self.assertEqual(tabs(pg)[1:], ["simulation", "trace", "framelab"])
@@ -44,7 +44,7 @@ class Navigation(OnlineBase):
         pg.wait_for_selector("#view h2:text-is('Project')")
         self.assertEqual(pg.evaluate("workspace()"), "configure")
         self.assertIn("selected", pg.get_attribute('#tree [data-key="project"]', "class"))
-        self.assertEqual(pg.input_value('#view select[data-target="1"]'), "openplc")
+        self.assertEqual(pg.input_value('#view select[data-target="1"]'), "bridge")
 
 
 class TwoNetworks(OnlineBase):

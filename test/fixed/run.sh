@@ -7,10 +7,10 @@
 # test/fixtures/eds/fixed-io.eds: its PDO mappings, PDO COB-IDs and
 # transmission types are read-only, so Lely's SDO server aborts any write to
 # them, as a real fixed-mapping device does. Input 0x6000:2 moves through
-# 10-50. Then loads the real libcanworks_plugin.so through canopen_host with
+# 10-50. Then runs the canworks engine in canopen_host with
 # the `fixed` program, which uses only 0x6000:2 of TPDO 1 (%IB40) and only
 # 0x6200:1 of RPDO 1 (%QB40 := %IB40). Passes (exit 0) when the node status
-# bit %IX10.0 is TRUE and %IB40 follows the module, the plugin logs no SDO
+# bit %IX10.0 is TRUE and %IB40 follows the module, the engine logs no SDO
 # abort, and (with candump) no SDO writes a PDO object of node 4, the node
 # answers no SDO with an abort, TPDO 1 carries 2 bytes, the unused TPDO 2
 # (COB-ID 0x384, fixed) keeps running and RPDO 1 goes out with 2 bytes.
@@ -37,11 +37,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
 CHECK="$BUILD/canopen_check"
-for f in "$PLUGIN" "$HOST" "$SLAVE" "$CHECK"; do
+for f in "$HOST" "$SLAVE" "$CHECK"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -62,16 +61,21 @@ cp "$ROOT/test/fixtures/eds/fixed-io.eds" "$WORK/"
 config() {
     cat <<JSON
 {
-  "schema_version": 1,
-  "adapter": { "type": "socketcan", "interface": "$IFACE", "bitrate": 125000, "configure_link": false },
-  "master": { "node_id": 1, "sync_period_us": 50000 },
-  "nodes": [
+  "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
+  "networks": [
     {
-      "node_id": 4, "name": "io", "eds": "fixed-io.eds",
-      "heartbeat_ms": 100,
-      "status_location": "%IX10.0",
-      "tx_pdos": [ { $1"entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
-      "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40" } ] } ]
+      "adapter": { "type": "socketcan", "interface": "$IFACE", "bitrate": 125000, "configure_link": false },
+      "master": { "node_id": 1, "sync_period_us": 50000 },
+      "nodes": [
+        {
+          "node_id": 4, "name": "io", "eds": "fixed-io.eds",
+          "heartbeat_ms": 100,
+          "status_location": "%IX10.0",
+          "tx_pdos": [ { $1"entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
+          "rx_pdos": [ { "entries": [ { "index": "0x6200", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%QB40" } ] } ]
+        }
+      ]
     }
   ]
 }
@@ -87,15 +91,15 @@ fi
 PIDS+=($!)
 sleep 0.5
 
-echo "==> Running the plugin on $IFACE for ${SECONDS_RUN}s against the fixed-mapping I/O module"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" fixed 2>&1 | tee "$WORK/host.log"
+echo "==> Running the engine on $IFACE for ${SECONDS_RUN}s against the fixed-mapping I/O module"
+"$HOST" "$WORK/canopen_config.json" "$SECONDS_RUN" fixed 2>&1 | tee "$WORK/host.log"
 RC=${PIPESTATUS[0]}
 if grep -q "aborted" "$WORK/host.log"; then
-    echo "FAIL: the plugin logged an SDO abort" >&2
+    echo "FAIL: the engine logged an SDO abort" >&2
     RC=1
 fi
 if [ $RC -eq 0 ] && ! grep -q "node 4 (io): TPDO 1 uses the device mapping from fixed-io.eds" "$WORK/host.log"; then
-    echo "FAIL: the plugin did not log the device mapping of TPDO 1" >&2
+    echo "FAIL: the engine did not log the device mapping of TPDO 1" >&2
     RC=1
 fi
 

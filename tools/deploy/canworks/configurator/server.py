@@ -44,7 +44,7 @@ import urllib.parse
 import webbrowser
 import zipfile
 
-from .. import __version__, axis, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
+from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
 from .. import bundle, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
@@ -55,7 +55,7 @@ from ..iec import CO_TYPES, element_str, parse_location
 from ..devices import service as devices_service
 from ..userdirs import FileLockedError, config_dir, replace_file
 from ..j1939 import dbc as j1939_dbc, dm as j1939_dm, stcall as j1939_stcall
-from . import cia402map, declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
+from . import declare, launch, layout, online, params, rawpage, scan, simulation, start, tracing, transmit
 from . import update as update_mod
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -133,7 +133,7 @@ THEMES = ("auto", "light", "dark")
 # Page settings kept in ui.json, with their choices and defaults.
 UI_SETTINGS = {"theme": (THEMES, "auto"), "dbc_sdo": (dbcexport.SDO_OPTIONS, "none"),
                "workspace": (("configure", "commission", "devices"), "configure"), "panel": (("open", "closed"), "open"),
-               "node_tab": (("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"), "general"),
+               "node_tab": (("general", "pdos", "sdos", "supervision", "simulation", "notes", "advanced"), "general"),
                "update_check": (("on", "off"), "on")}
 
 # The network tree's folded networks: a list of network names (or "#<index>").
@@ -310,10 +310,10 @@ NO_NODES = re.compile(r"field 'nodes' lists no slave nodes")
 
 
 def empty_config():
-    return {"schema_version": 1,
-            "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000},
-            "master": {"node_id": 1},
-            "nodes": []}
+    """A new config before its target's marker (switch_target adds it)."""
+    return {"schema_version": 2,
+            "networks": [{"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000},
+                          "master": {"node_id": 1}, "nodes": []}]}
 
 
 SCHEMA_FILE = "canworks.v%d.schema.json"
@@ -326,7 +326,8 @@ def codesys_found():
 
 
 def version2(cfg):
-    """The config as a version 2 file (the reverse of lowest_version)."""
+    """The config as a version 2 file (a removed plugin config of version 1,
+    for the switch)."""
     if not isinstance(cfg, dict) or contract.version_of(cfg) == 2:
         return cfg
     net, out = {}, {}
@@ -373,11 +374,11 @@ def _at(cfg, path):
     return obj
 
 
-def place_entries(cfg, rx_bits=False):
+def place_entries(cfg):
     """Gives every PDO entry of a master network that has no location a
     stand-in one of its type's size (%IB0, %QW0, ...), for a pack to place
-    it; returns how many. An RPDO entry with bits gets one only with
-    `rx_bits` (the bridge serves its bits there)."""
+    it (an RPDO entry with bits too: the bridge serves its bits there);
+    returns how many."""
     n = 0
     for net in contract.networks(cfg):
         for node in net["nodes"]:
@@ -388,74 +389,45 @@ def place_entries(cfg, rx_bits=False):
                     for e in (p.get("entries") or []) if isinstance(p, dict) else []:
                         if not isinstance(e, dict) or e.get("iec_location") or e.get("type") not in CO_TYPES:
                             continue
-                        # Bit channels carry an RPDO entry's value; place_bits places them.
-                        if key == "rx_pdos" and e.get("bits") and not rx_bits:
-                            continue
                         area, size = layout.area_size(direction, e["type"])
                         e["iec_location"] = element_str(area, size, 0)
                         n += 1
     return n
 
 
-def place_bits(cfg):
-    """Readies the bit channels of every master network for OpenPLC: a bit
-    without a location gets a stand-in one (%IX0.0, %QX0.0), for a pack to
-    place it, and an RPDO entry with bits loses its own location (the bits
-    write the value); returns how many locations changed."""
+# What only the removed OpenPLC plugin had: unknown fields in a bridge config.
+PLUGIN_MASTER_FIELDS = ("sync_source", "sync_cycles", "scan_watchdog_ms")
+
+
+def strip_plugin_fields(cfg):
+    """Removes from a version 2 config what only the removed OpenPLC plugin
+    used: the master's PLC-cycle SYNC and scan watchdog, the J1939 and raw
+    scan watchdogs, a node's CiA 402 `axis` and the bit channels' own
+    locations (the bridge serves bits in the entry's location). Returns how
+    many values went."""
     n = 0
-    for net in contract.networks(cfg):
-        for node in net["nodes"]:
-            if not isinstance(node, dict):
-                continue
-            for key, area in (("tx_pdos", "I"), ("rx_pdos", "Q")):
-                for p in node.get(key) or []:
+
+    def pop(obj, key):
+        nonlocal n
+        if isinstance(obj, dict) and key in obj:
+            del obj[key]
+            n += 1
+
+    for net in cfg.get("networks") or []:
+        if not isinstance(net, dict):
+            continue
+        for key in PLUGIN_MASTER_FIELDS:
+            pop(net.get("master"), key)
+        pop(net.get("j1939"), "scan_watchdog_ms")
+        pop(net.get("raw"), "scan_watchdog_ms")
+        for node in net.get("nodes") or []:
+            pop(node, "axis")
+            for key in ("tx_pdos", "rx_pdos"):
+                for p in (node.get(key) or []) if isinstance(node, dict) else []:
                     for e in (p.get("entries") or []) if isinstance(p, dict) else []:
-                        bits = e.get("bits") if isinstance(e, dict) else None
-                        if not isinstance(bits, list) or not bits:
-                            continue
-                        if key == "rx_pdos" and e.pop("iec_location", None) is not None:
-                            n += 1
-                        for b in bits:
-                            if isinstance(b, dict) and not b.get("iec_location"):
-                                b["iec_location"] = element_str(area, "X", 0)
-                                n += 1
+                        for b in (e.get("bits") or []) if isinstance(e, dict) else []:
+                            pop(b, "iec_location")
     return n
-
-
-def lowest_version(cfg):
-    """The config in the lowest schema version that holds it (canopen-config-
-    contract): a version 2 file with one network that has no name of its own
-    (none, or its interface's) becomes version 1, its diagnostics and CiA
-    309-3 gateway back in the master. Anything else comes back as it is, also a file the checks will
-    refuse, so they report it as the user wrote it. A bridge or CODESYS
-    config stays version 2: their objects need it."""
-    if not isinstance(cfg, dict) or cfg.get("schema_version") != 2 or not isinstance(cfg.get("networks"), list) \
-            or len(cfg["networks"]) != 1 or not isinstance(cfg["networks"][0], dict) or "bridge" in cfg \
-            or "codesys" in cfg:
-        return cfg
-    net = cfg["networks"][0]
-    adapter, master, name = net.get("adapter"), net.get("master"), net.get("name")
-    if name not in (None, "") and not (isinstance(adapter, dict) and name == adapter.get("interface")):
-        return cfg
-    if any(k not in ("name", "adapter", "master", "nodes") for k in net):
-        return cfg
-    for key in ("diagnostics", "cia309"):
-        if (isinstance(master, dict) and key in master) or \
-                (key in cfg and not (isinstance(cfg[key], dict) and isinstance(master, dict))):
-            return cfg
-    out = {}
-    for k, v in cfg.items():
-        if k == "networks":
-            out.update((key, net[key]) for key in ("adapter", "master", "nodes") if key in net)
-        elif k not in ("diagnostics", "cia309"):
-            out[k] = 1 if k == "schema_version" else v
-    ref = out.get("$schema")
-    if isinstance(ref, str) and ref.endswith(SCHEMA_FILE % 2):
-        out["$schema"] = ref[:-len(SCHEMA_FILE % 2)] + SCHEMA_FILE % 1
-    for key in ("diagnostics", "cia309"):
-        if key in cfg:
-            out["master"] = dict(out["master"], **{key: cfg[key]})
-    return out
 
 
 def migrate(cfg):
@@ -472,21 +444,38 @@ def migrate(cfg):
 
 def migrate_strict_eds(cfg):
     """master.strict_eds as eds_lint (true "all", false "off"), in its
-    place. A master with both keeps both, for the check to report."""
-    master = cfg.get("master") if isinstance(cfg, dict) else None
+    place, in a version 1 file and in each network of a version 2 file. A
+    master with both keeps both, for the check to report."""
+    if not isinstance(cfg, dict):
+        return cfg, None
+    if isinstance(cfg.get("networks"), list):
+        cfg = dict(cfg)
+        nets, notice = [], None
+        for net in cfg["networks"]:
+            net, n = _migrate_strict_eds(net)
+            nets.append(net)
+            notice = notice or n
+        cfg["networks"] = nets
+        return cfg, notice
+    return _migrate_strict_eds(cfg)
+
+
+def _migrate_strict_eds(holder):
+    """migrate_strict_eds for one object with a `master`."""
+    master = holder.get("master") if isinstance(holder, dict) else None
     if isinstance(master, dict) and master.get("eds_lint") == "communication" and "strict_eds" not in master:
         # The default; the page saves it as no field.
-        cfg = dict(cfg)
-        cfg["master"] = {k: v for k, v in master.items() if k != "eds_lint"}
-        return cfg, None
+        holder = dict(holder)
+        holder["master"] = {k: v for k, v in master.items() if k != "eds_lint"}
+        return holder, None
     if not isinstance(master, dict) or not isinstance(master.get("strict_eds"), bool) or "eds_lint" in master:
-        return cfg, None
+        return holder, None
     mode = "all" if master["strict_eds"] else "off"
-    cfg = dict(cfg)
-    cfg["master"] = {("eds_lint" if k == "strict_eds" else k): (mode if k == "strict_eds" else v)
-                     for k, v in master.items()}
-    return cfg, ("This file uses the old 'strict_eds': %s. It is shown as EDS lint \"%s\", and saving writes it as "
-                 "'eds_lint'." % ("true" if mode == "all" else "false", {"all": "every object", "off": "off"}[mode]))
+    holder = dict(holder)
+    holder["master"] = {("eds_lint" if k == "strict_eds" else k): (mode if k == "strict_eds" else v)
+                        for k, v in master.items()}
+    return holder, ("This file uses the old 'strict_eds': %s. It is shown as EDS lint \"%s\", and saving writes it as "
+                    "'eds_lint'." % ("true" if mode == "all" else "false", {"all": "every object", "off": "off"}[mode]))
 
 
 def migrate_adapter(cfg):
@@ -778,16 +767,18 @@ class Session:
                 raise folder_error(e, "write to", self.folder)
             self.rescan()
 
+    def default_config(self):
+        """The empty config of the default target, OpenPLC through Modbus."""
+        return self.switch_target(empty_config(), targets.OPENPLC_MODBUS)["config"]
+
     def _write_new(self, target):
-        """Writes the empty config of `target` (default OpenPLC) into the
-        folder just opened, unless it has one."""
+        """Writes the empty config of `target` (default OpenPLC through
+        Modbus) into the folder just opened, unless it has one."""
         if os.path.isfile(self.config_path):
             return
-        cfg = empty_config()
-        if target and target != targets.OPENPLC:
-            cfg = self.switch_target(cfg, target)["config"]
+        cfg = self.switch_target(empty_config(), target or targets.OPENPLC_MODBUS)["config"]
         try:
-            self._save(lowest_version(cfg), None)
+            self._save(cfg, None)
         except OSError as e:
             raise folder_error(e, "write to", self.canopen_dir)
 
@@ -844,15 +835,16 @@ class Session:
 
     def read_config(self):
         """(config, notices, error)."""
+        # Without a readable file: the new config of the default target, as New config... writes it.
         if not os.path.isfile(self.config_path):
-            return empty_config(), [], None
+            return self.default_config(), [], None
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 cfg = contract.load(f)
         except OSError as e:
-            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
+            return self.default_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
         except ValueError as e:
-            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, e)
+            return self.default_config(), [], "%s cannot be read: %s" % (self.config_path, e)
         cfg, notices = migrate(cfg)
         return cfg, notices, None
 
@@ -1136,7 +1128,7 @@ class Session:
         name = os.path.basename(name or "").strip()
         if not name or name in (".", "..") or name == CONFIG:
             raise ApiError(422, "invalid EDS file name %r" % name)
-        mode = eds_lint if eds_lint in edslint.MODES else edslint.effective_mode(self.read_config()[0].get("master"))
+        mode = eds_lint if eds_lint in edslint.MODES else edslint.effective_mode(lint_master(self.read_config()[0]))
         corrections, lint = check_eds(name, data, mode)
         data, converted = utf8_eds(data)
         existing = None
@@ -1387,7 +1379,7 @@ class Session:
             raise ApiError(400, "cannot write the call: %s" % e)
 
     # -- checks -------------------------------------------------------------
-    def check(self, cfg, allow_overlap=False, task_interval=None, notes=None):
+    def check(self, cfg, notes=None):
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         eds_paths = self.eds_paths(cfg)
@@ -1397,20 +1389,13 @@ class Session:
             items += self.notes_problems(cfg, notes)
         except (OSError, ValueError, TypeError, AttributeError):
             pass  # notes are documentation: they never stop a check
-        # A bridge or CODESYS config does not run in OpenPLC: the project's addresses are not its addresses.
+        # The bridge's byte addresses are not the editor project's: no project addresses to clash with.
         tgt = targets.target(cfg)
-        extra, declared = layout.project_checks(cfg, self.uses if tgt == targets.OPENPLC else [], allow_overlap)
         if tgt == targets.OPENPLC_MODBUS and self.mode == "project":
             items += self.openplc_items(cfg)
-        items += extra
-        # A cyclic axis's fCycleTime line: the task interval the page gives.
-        cycle_s = editorproject.interval_seconds(editorproject.DEFAULT_INTERVAL)
-        if task_interval:
-            try:
-                cycle_s = editorproject.interval_seconds(task_interval)
-            except editorproject.NewProjectError as e:
-                items.append({"level": "warning", "message": str(e), "paths": ["task_interval"]})
-        decls, block = [], ""
+        if self.mode == "project":
+            items += layout.macro_problems(self.uses)
+        decls = []
         try:
             summaries = self.eds_info(list(eds_paths))
             names = {}
@@ -1427,12 +1412,8 @@ class Session:
                 return (names[(value, ix, sub)], types[(value, ix, sub)]) if (value, ix, sub) in names else None
 
             decls = declare.declarations(
-                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object,
+                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), {}, slave_object,
                 unlocated=tgt == targets.CODESYS)
-            block = declare.st_block(decls)
-            axes = axis.text_block(cfg, decls, cycle_s)
-            if axes:
-                block = (block + "\n" if block else "") + axes
         except (KeyError, TypeError, ValueError, AttributeError):
             pass  # the contract errors already say what is wrong with the entries
         for it in items:
@@ -1441,7 +1422,7 @@ class Session:
             if it["level"] == "error" and NO_NODES.search(it.get("message", "")):
                 it["level"], it["handoff"] = "warning", True
         errors = sum(1 for i in items if i["level"] == "error")
-        return {"items": items, "errors": errors, "declared": declared, "declarations": decls, "block": block,
+        return {"items": items, "errors": errors, "declarations": decls,
                 "overlaps": sum(1 for i in items if i.get("overlap"))}
 
     # -- DCF export ---------------------------------------------------------
@@ -1485,9 +1466,10 @@ class Session:
         """The draft switched to `target`: the target's marker added and the
         old one removed; to CODESYS every PDO entry without a name gets its
         generated name; from CODESYS every entry gets a location, packed for
-        the new target; with `pack` (OpenPLC and bridge alike) every location
-        is repacked. What the new target does not use is removed and counted
-        in `removed`."""
+        the new target; for the bridge targets every location is repacked.
+        What the new target does not use is removed and counted in
+        `removed`, from a removed plugin config also what only the plugin
+        had (strip_plugin_fields)."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         if target not in targets.TARGETS:
@@ -1496,8 +1478,8 @@ class Session:
         old = targets.target(out)
         if old == target:
             return {"config": out, "removed": 0, "target": target}
-        if target != targets.OPENPLC:
-            out = version2(out)
+        out = version2(out)
+        plugin_only = strip_plugin_fields(out) if old == targets.PLUGIN else 0
         if target == targets.CODESYS:
             self._name_entries(out)
         out.pop("bridge", None)
@@ -1517,22 +1499,16 @@ class Session:
         elif target == targets.CODESYS:
             out["codesys"] = {}
         located = 0
-        if old == targets.CODESYS:
+        if target in targets.BRIDGES:
             located = place_entries(out)
-        if target == targets.OPENPLC:
-            located += place_bits(out)
-        elif target in targets.BRIDGES:
-            located += place_entries(out, rx_bits=True)
         gone = [p for p, k, _ in targets.unused(out, target) if targets.removable(k)]
         targets.remove(out, gone)
         if target != targets.CODESYS:
             try:
-                out = modbusmap.pack(out) if target in targets.BRIDGES else self.pack_openplc(out)["config"]
+                out = modbusmap.pack(out)
             except modbusmap.MapError as e:
                 raise ApiError(400, str(e))
-        if target == targets.OPENPLC:
-            out = lowest_version(out)
-        return {"config": out, "removed": len(gone), "located": located, "target": target}
+        return {"config": out, "removed": len(gone) + plugin_only, "located": located, "target": target}
 
     def _name_entries(self, cfg):
         """Gives every PDO entry without a `name` the name part of its
@@ -1652,7 +1628,6 @@ class Session:
             text, warnings = docexport.export(
                 cfg, self.config_path, eds_paths=self.eds_paths(cfg),
                 names=dbcexport.plc_names(self.uses) if project else None,
-                plc_cycle_ms=docexport.project_cycle_ms(self.config_path) if project else None,
                 notes=self.notes_source(notes))
         except docexport.ExportFailed as e:
             items = [{"level": "error", "message": m, "paths": p} for m, p in e.problems]
@@ -1718,10 +1693,7 @@ class Session:
                 count = 0
             if not 1 <= count <= 32:
                 raise ApiError(400, "the codes of a watched ECU need their number, 1 to 32, as type")
-            element = start
-            while any(("I", "D", element + k) in used for k in range(count)):
-                element += 1
-            return {"location": element_str("I", "D", element)}
+            return {"location": layout.suggest("I", "D", used, start, count)}
         if direction in ("bit_in", "bit_out"):
             # One bit channel: the lowest free bit.
             return {"location": layout.suggest("I" if direction == "bit_in" else "Q", "X", used, start)}
@@ -1735,7 +1707,7 @@ class Session:
                 raise ApiError(400, "an entry's bits need their number, 1 to 64, as type")
             area = "I" if direction == "bits_in" else "Q"
             element = start * 8
-            while any((area, "X", element + k) in used for k in range(count)):
+            while not layout.is_free(used, area, "X", element, count):
                 element += 8
             return {"locations": [element_str(area, "X", element + k) for k in range(count)]}
         if direction in ("j1939_rx", "j1939_tx"):
@@ -1853,8 +1825,7 @@ class Session:
             if loc is None:
                 area, size = layout.area_size("input" if o["direction"] == "from_master" else "output", o["type"])
                 loc = layout.suggest(area, size, used, start)
-                parsed = parse_location(loc)
-                used.add((parsed.area, parsed.size, parsed.element))
+                layout.mark(used, parse_location(loc))
             bindings.append({"index": "0x%04X" % o["index"], "subindex": o["subindex"], "name": o["name"],
                              "iec_location": loc})
         objects = [dict(o, index="0x%04X" % o["index"]) for o in info["objects"]]
@@ -1863,7 +1834,7 @@ class Session:
                 "routes": [{"index": "0x%04X" % r["index"], "subindex": r["subindex"]} for r in info["routes"]]}
 
     def export_eds(self, cfg, network):
-        """A slave network's EDS as the plugin runs it, for the other
+        """A slave network's EDS as the bridge runs it, for the other
         master's tool: the exact bytes, named after its device name."""
         net = self._slave_network(cfg, network)
         value = net["slave"].get("eds")
@@ -1878,26 +1849,6 @@ class Session:
         name = slave_eds_name(device.get("product_name")) if device.get("product_name") else os.path.basename(value)
         return {"name": name, "content_type": "application/octet-stream",
                 "data": base64.b64encode(data).decode("ascii")}
-
-    # -- CiA 402 axis -------------------------------------------------------
-    def map_cia402(self, cfg, node, start=None, network=0):
-        """Node `node` of network `network` (an index) of the draft with the
-        standard CiA 402 objects its EDS has put into PDOs (cia402map), and
-        its status bit when it has none: {node, mapped, missing, changes}. Suggested
-        locations skip those of every network. Nothing is saved."""
-        if not isinstance(cfg, dict):
-            raise ApiError(400, "config must be a JSON object")
-        try:
-            n = contract.networks(cfg)[int(network or 0)]["nodes"][int(node)]
-        except (KeyError, IndexError, TypeError, ValueError):
-            raise ApiError(400, "no node %r in the config" % node)
-        info = self.eds_info([n.get("eds")]).get(n.get("eds"), {}) if n.get("eds") else {}
-        if not info or info.get("error"):
-            raise ApiError(400, info.get("error") or "the node has no EDS file")
-        start = layout.DEFAULT_START if start in (None, "") else int(start)
-        changes = []
-        new, mapped, missing = cia402map.map_objects(n, info, layout.taken(cfg, self.uses), start, changes)
-        return {"node": new, "mapped": mapped, "missing": missing, "changes": changes}
 
     # -- Modbus bridge (canopen-configurator "Modbus bridge target") ---------
     @staticmethod
@@ -2028,28 +1979,6 @@ class Session:
             items = [{"level": "error", "message": m, "paths": []} for m in problems]
         return {"items": items, "errors": len(items)}
 
-    def pack_openplc(self, cfg, start=None):
-        """The draft with every location repacked for OpenPLC's per-type
-        tables, as Suggest places them: per area and size in file order from
-        `start` (layout.DEFAULT_START), skipping the editor project's
-        addresses. The bridge's own blocks are left alone."""
-        if not isinstance(cfg, dict):
-            raise ApiError(400, "config must be a JSON object")
-        try:
-            start = layout.DEFAULT_START if start in (None, "") else int(start)
-        except (TypeError, ValueError):
-            raise ApiError(400, "start must be a number")
-        out = copy.deepcopy(cfg)
-        used = {u.key() for u in self.uses}
-        nxt = {}
-        for holder, key, loc in location_slots(out):
-            element = nxt.get((loc.area, loc.size), start * 8 if loc.size == "X" else start)
-            while (loc.area, loc.size, element) in used:
-                element += 1
-            holder[key] = element_str(loc.area, loc.size, element)
-            nxt[(loc.area, loc.size)] = element + 1
-        return {"config": out}
-
     # -- OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on save") --
     def openplc_info(self, cfg):
         """The Project page's facts of an OpenPLC through Modbus config: the
@@ -2108,7 +2037,7 @@ class Session:
             raise ApiError(409, "changed outside canworks: %s" % ", ".join(changed), editor_changed=changed)
 
     # -- save ---------------------------------------------------------------
-    def save(self, cfg, allow_overlap=False, overwrite=False, notes=None, editor_overwrite=False):
+    def save(self, cfg, overwrite=False, notes=None, editor_overwrite=False):
         """Writes the draft; settings the target does not use are left out
         (spec "Settings the target does not use are left out on save") and
         counted in `left_out`."""
@@ -2118,10 +2047,12 @@ class Session:
             gone = [p for p, k, _ in targets.unused(cfg) if targets.removable(k)]
             targets.remove(cfg, gone)
             left_out = len(gone)
-        cfg = lowest_version(cfg)
+        if targets.target(cfg) == targets.PLUGIN:
+            raise ApiError(409, contract.NOT_BRIDGE_MESSAGE[0].upper() + contract.NOT_BRIDGE_MESSAGE[1:] + " first",
+                           plugin=True)
         # A draft with errors is saved too: the steps that hand the config
         # over refuse it (spec "Hand-off steps need a config without errors").
-        checked = self.check(cfg, allow_overlap, notes=notes)
+        checked = self.check(cfg, notes=notes)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         openplc = self.mode == "project" and targets.target(cfg) == targets.OPENPLC_MODBUS
@@ -2346,7 +2277,7 @@ class Session:
             except ValueError:
                 address = None
         try:
-            path, decls = editorproject.create(cfg, self.config_path, target,
+            path, synced = editorproject.create(cfg, self.config_path, target,
                                                interval=interval or editorproject.DEFAULT_INTERVAL,
                                                runtime_address=address, blocks=blocks,
                                                sim_path=self._sim_to_move())
@@ -2354,7 +2285,7 @@ class Session:
             raise ApiError(422, str(e))
         self._move_descriptions(cfg, os.path.join(path, project_mod.DIR))
         self.open(path, "project")
-        out = {"project": path, "declared": len(decls)}
+        out = {"project": path, "editor": synced}
         if blocks:
             out["library_ok"], out["library"] = plclibrary.ensure_installed()
         return out
@@ -2601,7 +2532,20 @@ def folder_lint_mode(path):
             cfg = json.load(f)
     except (params.Refused, OSError, ValueError, TypeError, AttributeError):
         cfg = {}
-    return edslint.effective_mode(cfg.get("master") if isinstance(cfg, dict) else None)
+    return edslint.effective_mode(lint_master(cfg))
+
+
+def lint_master(cfg):
+    """The master object whose eds_lint an EDS import uses: the first
+    master network's; None without one."""
+    try:
+        nets = contract.networks(cfg) if isinstance(cfg, dict) else []
+    except (ValueError, TypeError, AttributeError):
+        return None
+    for net in nets:
+        if net["role"] != "slave" and isinstance(net.get("master"), dict):
+            return net["master"]
+    return None
 
 
 def folder_nodes(path):
@@ -2965,8 +2909,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.j1939_st(body.get("config"), body.get("network", 0), body.get("kind"), body.get("index"))
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
-                    out = s.check(body.get("config"), bool(body.get("allow_overlap")), body.get("task_interval"),
-                                  body.get("notes"))
+                    out = s.check(body.get("config"), notes=body.get("notes"))
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
                     out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"), body.get("notes"))
@@ -3006,13 +2949,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/bridge/export"):
                     self._need_open(s)
                     out = s.export_modbus_map(body.get("config"), body.get("format"))
-                elif route == ("POST", "/api/pack_openplc"):
-                    self._need_open(s)
-                    out = s.pack_openplc(body.get("config"), body.get("start"))
-                elif route == ("POST", "/api/map_cia402"):
-                    self._need_open(s)
-                    out = s.map_cia402(body.get("config"), body.get("node"), body.get("start"),
-                                       body.get("network", 0))
                 elif route == ("POST", "/api/export_notes"):
                     self._need_open(s)
                     out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"), body.get("own") is True)
@@ -3027,7 +2963,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.import_notes(body.get("config"), body.get("eds"), body.get("text"), body.get("file"), body.get("notes"))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
-                    out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")),
+                    out = s.save(body.get("config"), bool(body.get("overwrite")),
                                  body.get("notes"), bool(body.get("editor_overwrite")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/move"):
@@ -3178,7 +3114,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 job = body.get("job")
                 offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
                 out = dev.follow(did, job, offset)
-                if out.get("done") and out.get("exit") == 0 and project and target == "openplc":
+                if out.get("done") and out.get("exit") == 0 and project and target in targets.BRIDGES:
                     # The device becomes the project's runtime host when it had none.
                     settings = online.Settings(config_dir())
                     if not settings.project(project).get("host"):
@@ -3261,7 +3197,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # -- online access ------------------------------------------------------
     def _online(self, route, body):
         """/api/online/*: the token and host for this project, and requests
-        to the plugin's diagnostics channel through one kept-open connection."""
+        to the bridge's diagnostics channel through one kept-open connection."""
         s, conn = self.server.session, self.server.connection
         settings = online.Settings(config_dir())
         with s.lock:
@@ -3441,7 +3377,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(502, str(e), kind=e.kind)
             return {"jobs": self._jobs(folder, conn, bus_call)}
 
-        # The network the page picked; sent only to a plugin that runs several.
+        # The network the page picked; sent only to a bridge that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
         hostname, port, token = self._online_target(proj, config_path, network, body)
         host = str(hostname) if isinstance(hostname, online.AdapterTarget) else proj.get("host")
@@ -3563,7 +3499,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return res
         if route in (("POST", "/api/online/error_field"), ("POST", "/api/online/error_field_clear")):
             # The device's error history (0x1003) through the manual SDO read
-            # and write, so the plugin's guards apply to the clear: changes
+            # and write, so the bridge's guards apply to the clear: changes
             # allowed, and force (after the page asked) on an OPERATIONAL node.
             from .. import errorfield
             node = node_arg()
@@ -3942,7 +3878,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except ValueError as e:
                 raise ApiError(422, str(e))
 
-        # The network the page picked; sent only to a plugin that runs several.
+        # The network the page picked; sent only to a bridge that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
         def call(fn):
@@ -4293,7 +4229,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             adapter = hasattr(hostname, "client")
-            try:  # a wrong host, token or an old plugin is said at once instead of retried
+            try:  # a wrong host, token or an old bridge is said at once instead of retried
                 c = connect()
                 try:
                     c.trace_stop()
@@ -4493,8 +4429,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 SEND_ROUTES = (("POST", "/api/online/send_frame"), ("POST", "/api/online/send_stop"),
                ("POST", "/api/online/send_jobs"))
-TOO_OLD_FRAMES = ("the CANopen plugin on the runtime is too old for sending frames; update "
-                  "it (install-stock.sh) and upload again")
+TOO_OLD_FRAMES = "the bridge is too old for sending frames; update it (install-bridge.sh)"
 
 
 def frame_from(body):
@@ -4534,7 +4469,7 @@ def frame_from(body):
 
 def frame_error(e):
     """The ApiError for a refused or failed send: `force` true when the
-    plugin's reason says the request may be repeated with force."""
+    bridge's reason says the request may be repeated with force."""
     if diag.too_old(e):
         return ApiError(422, TOO_OLD_FRAMES, kind="too_old")
     return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))

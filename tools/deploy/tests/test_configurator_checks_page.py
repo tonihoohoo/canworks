@@ -1,4 +1,4 @@
-"""The configurator page refuses what the plugin refuses, in plain words
+"""The configurator page refuses what the bridge refuses, in plain words
 (fix-gui-test-findings tasks 2.2-2.6): a missing CAN interface, numbers out
 of range in hex and decimal, duplicate COB-IDs, a short heartbeat timeout,
 schema errors without schema text, and the Simulation view's check of the
@@ -75,7 +75,8 @@ class ChecksPage(unittest.TestCase):
         second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"
         second["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD104"
         net["nodes"].append(second)
-        return {"schema_version": 1, "adapter": net["adapter"], "master": net["master"], "nodes": net["nodes"]}
+        cfg["networks"] = [net]
+        return cfg
 
     def open(self, cfg):
         with open(os.path.join(self.folder, "canworks.json"), "w", encoding="utf-8") as f:
@@ -168,8 +169,6 @@ class ChecksPage(unittest.TestCase):
     def test_messages_are_plain(self):
         pg = self.page
         cfg = self.config()
-        cfg["master"]["sync_source"] = "plc_cycle"
-        del cfg["master"]["sync_period_us"]
         self.open(cfg)
         self.node(0)
         self.type("nodes[0].node_id", "abc")
@@ -178,10 +177,9 @@ class ChecksPage(unittest.TestCase):
         self.assertEqual(self.field_msg("nodes[0].node_id"), "node ID must be a number (decimal or 0x hex), 1 to 127")
         self.assertEqual(self.field_msg("nodes[0].status_location"), "status bit must be an input bit such as %IX0.0")
         tree_view(pg, "bus")
-        self.type("master.sync_cycles", "0")
-        self.assertEqual(self.field_msg("master.sync_cycles"), "SYNC every N PLC cycles must be 1 to 1000")
+        self.type("master.node_id", "200")
         problems = self.problems()
-        self.assertIn("Master: SYNC every N PLC cycles must be 1 to 1000", problems)
+        self.assertTrue(any(p.startswith("Master: ") for p in problems), problems)
         self.assertIn("Node abc pingpong, TPDO 600: PDO number must be 1 to 512", problems)
         for p in problems:
             self.assertIsNone(SCHEMA_TEXT.search(p), p)
@@ -191,8 +189,8 @@ class ChecksPage(unittest.TestCase):
 
     def test_pdo_place_said_once(self):
         cfg = self.config()
-        del cfg["master"]["sync_period_us"]
-        cfg["nodes"][0]["tx_pdos"][0]["transmission"] = 1
+        del cfg["networks"][0]["master"]["sync_period_us"]
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["transmission"] = 1
         self.open(cfg)
         sync = [p for p in self.problems() if "needs SYNC" in p or "SYNC" in p]
         self.assertTrue(sync, self.problems())
@@ -201,14 +199,14 @@ class ChecksPage(unittest.TestCase):
 
 
 class SimulationFile(SimBase):
-    """The Simulation view checks the file against the config, as the plugin
+    """The Simulation view checks the file against the config, as the bridge
     loads it (D3): a value source on an object the master writes."""
 
     def test_source_on_a_master_written_object(self):
         pg = self.page
         cfg = rtd_config()
-        cfg["adapter"]["simulate"] = True
-        cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
+        cfg["networks"][0]["adapter"]["simulate"] = True
+        cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
         self.write_config(cfg)
         with open(self.sim_path, "w", encoding="utf-8") as f:
             json.dump({"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1},

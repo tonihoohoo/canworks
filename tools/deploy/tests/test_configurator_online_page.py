@@ -48,9 +48,9 @@ class OnlineBase(unittest.TestCase):
         shutil.copytree(FIXTURE, self.project)
         # The ping-pong config, moved off the fixture project's EtherCAT addresses.
         cfg = load(os.path.join(PINGPONG, "canopen_config.json"))
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID300"
-        cfg["nodes"][0]["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD300"
-        cfg["nodes"][0]["status_location"] = "%IX300.0"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID300"
+        cfg["networks"][0]["nodes"][0]["rx_pdos"][0]["entries"][0]["iec_location"] = "%QD300"
+        cfg["networks"][0]["nodes"][0]["status_location"] = "%IX304.0"
         self.cfg = cfg
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
@@ -77,7 +77,7 @@ class OnlineBase(unittest.TestCase):
     def write_config(self, diagnostics=None):
         cfg = json.loads(json.dumps(self.cfg))
         if diagnostics:
-            cfg["master"]["diagnostics"] = diagnostics
+            cfg["diagnostics"] = diagnostics
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
 
@@ -121,7 +121,7 @@ class OnlinePage(OnlineBase):
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        saved = load(self.config_path)["master"]["diagnostics"]
+        saved = load(self.config_path)["diagnostics"]
         settings = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
         self.assertTrue(diag.token_matches(settings["token"], saved.pop("token_verifier")))
         self.assertEqual(saved, {"allow_changes": True})
@@ -145,7 +145,7 @@ class OnlinePage(OnlineBase):
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        saved = load(self.config_path)["master"]["diagnostics"]
+        saved = load(self.config_path)["diagnostics"]
         self.assertNotIn("token_sha256", saved)
         self.assertTrue(diag.token_matches(TOKEN, saved["token_verifier"]))
 
@@ -209,7 +209,7 @@ class OnlinePage(OnlineBase):
             self.assertIn("(uptime) = 42", pg.inner_text('tr[data-online-node="2"]'))
             self.assertIn("error-active", pg.inner_text('[data-online="bus"]'))
             self.assertEqual(pg.inner_text('[data-online="sync"]'),
-                             "PLC cycle, every 2 cycles, 500 sent, interval 10012 µs (min 9870, max 10240), "
+                             "timer 10000 µs, 500 sent, interval 10012 µs (min 9870, max 10240), "
                              "skipped 0, late PDOs 3")
             pg.click('tr[data-online-node="23"]')
             pg.wait_for_selector('[data-online="pdo-timeouts"] tr[data-pdo-timeout-row="1"]')
@@ -483,7 +483,7 @@ class OnlinePage(OnlineBase):
             self.assertEqual(fp.forced, [("sdo_write", 2), ("sdo_write", 2)])
 
     def test_plugin_refusal_asks_then_forces(self):
-        # The page's last status said nothing about the node: the plugin's
+        # The page's last status said nothing about the node: the bridge's
         # "force needed" refusal brings the question.
         pg = self.page
         with FakePlugin(allow_changes=True) as fp:
@@ -544,13 +544,13 @@ class OnlinePage(OnlineBase):
             # The user stays in Commission; the node is a draft edit.
             pg.wait_for_selector('tr[data-online-node="40"]:not([data-not-in-config])')
             self.assertEqual(pg.locator(row40).count(), 0)
-            self.assertEqual(len(load(self.config_path)["nodes"]), 1)  # unsaved
+            self.assertEqual(len(load(self.config_path)["networks"][0]["nodes"]), 1)  # unsaved
             # save-anytime: its EDS heartbeat is 0, so the node starts with a 1000 ms heartbeat.
             self.assertEqual(pg.evaluate("() => onlineConfig().nodes[1].heartbeat_ms"), 1000)
             pg.wait_for_function("() => document.body.dataset.checking === '0'")
             pg.click("#btn-save")
             pg.wait_for_selector("#banner:has-text('Saved')")
-            node = load(self.config_path)["nodes"][1]
+            node = load(self.config_path)["networks"][0]["nodes"][1]
             self.assertEqual((node["node_id"], node["eds"], node["serial_number"]), (40, "cpp-slave.eds", 0x42))
             self.assertNotIn("lss", node)
             # The next device: the store box is unticked again, and 3 is still the lowest free ID.
@@ -614,11 +614,11 @@ class SlaveOnlinePage(OnlineBase):
             # The mappings in force, with the objects the config binds.
             tpdo = pg.inner_text('tr[data-slave-pdo="tx1"]')
             self.assertIn("0x18A", tpdo)
-            self.assertIn("0x2100:2 (16 bits) %QW301", tpdo)
+            self.assertIn("0x2100:2 (16 bits) %QW302", tpdo)
             self.assertIn("0x28A (off)", pg.inner_text('tr[data-slave-pdo="tx2"]'))
             rpdo = pg.inner_text('tr[data-slave-pdo="rx1"]')
             self.assertIn("0x2000:1 (16 bits) %IW300 speed_setpoint", rpdo)
-            self.assertIn("0x2002:1 (1 bit) %IX300.0", rpdo)
+            self.assertIn("0x2002:1 (1 bit) %IX303.0", rpdo)
             # No master tools: node list, LSS, NMT, parameters.
             self.assertEqual(pg.locator("table.online-nodes").count(), 0)
             self.assertEqual(pg.locator('[data-online="lss"]').count(), 0)

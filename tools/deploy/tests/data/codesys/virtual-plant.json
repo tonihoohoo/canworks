@@ -296,8 +296,14 @@
         {
           "id": 257,
           "name": "Enable Sync generation",
-          "value": "FALSE",
+          "value": "TRUE",
           "what": "SYNC on or off"
+        },
+        {
+          "id": 256,
+          "name": "Sync CycleTime in Microseconds",
+          "value": "10000",
+          "what": "SYNC period"
         },
         {
           "id": 261,
@@ -321,7 +327,7 @@
       "nodes": [
         {
           "node_id": 4,
-          "name": "drive",
+          "name": "conveyor",
           "dcf": "motion/node_4.dcf",
           "params": [
             {
@@ -342,72 +348,23 @@
             {
               "dir": "in",
               "mapping": 6656,
-              "index": 24641,
-              "sub": 0,
-              "variable": "motion_drive_Statusword"
+              "index": 8448,
+              "sub": 1,
+              "variable": "motion_conveyor_speed_actual"
             },
             {
               "dir": "in",
               "mapping": 6656,
-              "index": 24673,
-              "sub": 0,
-              "variable": "motion_drive_Modes_of_operation_display"
-            },
-            {
-              "dir": "in",
-              "mapping": 6656,
-              "index": 24676,
-              "sub": 0,
-              "variable": "motion_drive_Position_actual_value"
-            },
-            {
-              "dir": "in",
-              "mapping": 6657,
-              "index": 24684,
-              "sub": 0,
-              "variable": "motion_drive_Velocity_actual_value"
-            },
-            {
-              "dir": "in",
-              "mapping": 6657,
-              "index": 24695,
-              "sub": 0,
-              "variable": "motion_drive_Torque_actual_value"
+              "index": 8449,
+              "sub": 1,
+              "variable": "motion_conveyor_belt_position"
             },
             {
               "dir": "out",
               "mapping": 5632,
-              "index": 24640,
-              "sub": 0,
-              "variable": "motion_drive_Controlword"
-            },
-            {
-              "dir": "out",
-              "mapping": 5632,
-              "index": 24672,
-              "sub": 0,
-              "variable": "motion_drive_Modes_of_operation"
-            },
-            {
-              "dir": "out",
-              "mapping": 5632,
-              "index": 24698,
-              "sub": 0,
-              "variable": "motion_drive_Target_position"
-            },
-            {
-              "dir": "out",
-              "mapping": 5633,
-              "index": 24831,
-              "sub": 0,
-              "variable": "motion_drive_Target_velocity"
-            },
-            {
-              "dir": "out",
-              "mapping": 5633,
-              "index": 24689,
-              "sub": 0,
-              "variable": "motion_drive_Target_torque"
+              "index": 8192,
+              "sub": 1,
+              "variable": "motion_conveyor_speed_setpoint"
             }
           ]
         }
@@ -515,7 +472,7 @@
               "mapping": 6656,
               "index": 8449,
               "sub": 1,
-              "variable": "host_cell_axis_position"
+              "variable": "host_cell_belt_position"
             },
             {
               "dir": "in",
@@ -585,12 +542,12 @@
     {
       "where": "io/master",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
       "where": "io/master",
       "setting": "bus_state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
       "where": "io/rtd",
@@ -600,27 +557,27 @@
     {
       "where": "io/rtd",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/rtd",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/rtd",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/rtd",
       "setting": "tx_pdos[0].timeout_ms",
-      "note": "plugin receive timeout of a TPDO"
+      "note": "canworks receive timeout of a TPDO"
     },
     {
       "where": "io/rtd",
       "setting": "tx_pdos[0].timeout_location",
-      "note": "plugin receive timeout of a TPDO"
+      "note": "canworks receive timeout of a TPDO"
     },
     {
       "where": "io/rtd",
@@ -640,27 +597,22 @@
     {
       "where": "io/dio",
       "setting": "store_configuration",
-      "note": "plugin store after the configuration check"
+      "note": "canworks store after the configuration check"
     },
     {
       "where": "io/dio",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/dio",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/dio",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
-    },
-    {
-      "where": "io/dio",
-      "setting": "nmt_command_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/dio",
@@ -670,7 +622,7 @@
     {
       "where": "io/dio",
       "setting": "sdo_variables",
-      "note": "plugin SDO variables; use the CiA 405 SDO blocks in CODESYS"
+      "note": "canworks SDO variables; use the CiA 405 SDO blocks in CODESYS"
     },
     {
       "where": "io/new_io",
@@ -690,7 +642,7 @@
     {
       "where": "io/new_io",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "io/new_io",
@@ -709,41 +661,31 @@
     },
     {
       "where": "motion/master",
-      "setting": "sync_source",
-      "note": "SYNC from the PLC cycle: switch SYNC on in the manager and pick its bus cycle task in CODESYS"
-    },
-    {
-      "where": "motion/master",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
-      "where": "motion/drive",
+      "where": "motion/conveyor",
       "setting": "heartbeat_timeout_ms",
       "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },
     {
-      "where": "motion/drive",
+      "where": "motion/conveyor",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
-      "where": "motion/drive",
+      "where": "motion/conveyor",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
-      "where": "motion/drive",
+      "where": "motion/conveyor",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
-      "where": "motion/drive",
-      "setting": "axis",
-      "note": "canworks CiA 402 axis bridge: use SoftMotion or CiA 402 blocks in CODESYS"
-    },
-    {
-      "where": "motion/drive",
+      "where": "motion/conveyor",
       "setting": "PDO entry locations",
       "note": "CODESYS assigns the I/O addresses itself; the entry's name names the channel"
     },
@@ -775,7 +717,7 @@
     {
       "where": "host/master",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
+      "note": "canworks status location for the PLC program; CODESYS has its own diagnostics (CANopen Manager status, CiA 405 blocks)"
     },
     {
       "where": "host/cell",
@@ -785,17 +727,17 @@
     {
       "where": "host/cell",
       "setting": "status_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "host/cell",
       "setting": "state_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "host/cell",
       "setting": "emcy_code_location",
-      "note": "plugin status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
+      "note": "canworks status location for the PLC program; use the device's diagnostics or the CiA 405 blocks in CODESYS"
     },
     {
       "where": "host/cell",
@@ -810,12 +752,17 @@
     {
       "where": "config",
       "setting": "diagnostics",
-      "note": "the canworks diagnostics channel of the plugin or bridge"
+      "note": "the diagnostics channel of canworks-bridge"
     },
     {
       "where": "io/master",
       "setting": "time_period_ms",
       "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the manager in CODESYS"
+    },
+    {
+      "where": "config",
+      "setting": "bridge",
+      "note": "stays with canworks"
     },
     {
       "where": "every node",

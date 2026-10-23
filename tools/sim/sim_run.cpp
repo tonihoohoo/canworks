@@ -682,7 +682,7 @@ class Session {
       if (!is_loopback(o.bind) && token.empty())
         return report("--bind " + o.bind + " is not a loopback address: the control channel needs a token there "
                       "(--token or --token-file)");
-      server_.reset(new ControlServer(CANWORKS_PLUGIN_VERSION, token, [this](const cJSON* req, const std::string& id,
+      server_.reset(new ControlServer(CANWORKS_VERSION, token, [this](const cJSON* req, const std::string& id,
                                                                             const std::string& peer) {
         return sim_->Handle(req, id, peer);
       }));
@@ -716,7 +716,7 @@ class Session {
       canopen_sim::SimOptions opt;
       opt.defaults = !o.no_defaults;
       opt.state_dir = o.state_dir;
-      opt.version = CANWORKS_PLUGIN_VERSION;
+      opt.version = CANWORKS_VERSION;
       opt.simulated_network = virtual_bus;
       opt.taken = seen;  // also against node IDs stored over LSS (--state-dir)
       size_t count = specs.size() + file.extra.size() + raw->size();
@@ -733,7 +733,7 @@ class Session {
       sim_->on_scenario_end = [this](const canopen_sim::ScenarioResult& r) {
         if (on_end) on_end(r);
       };
-      say(std::string("canworks-canopen-sim ") + CANWORKS_PLUGIN_VERSION + ": " + std::to_string(count) + " device" +
+      say(std::string("canworks-canopen-sim ") + CANWORKS_VERSION + ": " + std::to_string(count) + " device" +
           (count == 1 ? "" : "s") + " on " + (virtual_bus ? std::string("an in-process virtual bus") : o.iface) +
           (real ? " (REAL bus)" : "") + (server_ ? ", control on " + server_->address() : ""));
       if (!sim_->Start(errors)) return report("the simulation does not start");

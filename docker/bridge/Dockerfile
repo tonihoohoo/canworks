@@ -23,7 +23,7 @@ ARG TOOLS_VERSION=dev
 COPY . /src
 # .git is not in the build context: the bridge reports the tools version.
 # No systemd in the image: the unit is written to a scratch folder.
-RUN CANWORKS_PLUGIN_VERSION="${TOOLS_VERSION}" CANWORKS_SYSTEMCTL=true CANWORKS_UNIT_DIR=/tmp/units \
+RUN CANWORKS_VERSION="${TOOLS_VERSION}" CANWORKS_SYSTEMCTL=true CANWORKS_UNIT_DIR=/tmp/units \
         CANWORKS_BRIDGE_CONF_DIR=/tmp/conf CANWORKS_MODPROBE=true CANWORKS_MODULES_LOAD_DIR=/tmp/modules \
         bash /src/scripts/install-bridge.sh && \
     # Build-only: Lely's and the runtime's sources, pip's caches.
@@ -38,7 +38,7 @@ RUN apt-get update -qq && \
 COPY --from=build /opt/canworks /opt/canworks
 VOLUME /etc/canworks-bridge
 ENTRYPOINT ["/opt/canworks/bin/canworks-bridge"]
-CMD ["--config", "/etc/canworks-bridge/canworks.json"]
+CMD ["--config", "/etc/canworks-bridge/canworks.json", "--wait"]
 LABEL org.opencontainers.image.title="canworks-bridge" \
       org.opencontainers.image.description="CANopen and J1939 networks served as Modbus TCP registers" \
       org.opencontainers.image.source="https://github.com/tonihoohoo/canworks" \

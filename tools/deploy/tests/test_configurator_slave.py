@@ -26,7 +26,7 @@ def slave_config(objects=None, eds="", **slave):
     s = dict({"node_id": 10, "eds": eds, "objects": objects or []}, **slave)
     return {"schema_version": 2, "networks": [
         {"name": "line", "role": "slave", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 250000},
-         "slave": s}]}
+         "slave": s}], "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}}
 
 
 class Slave(Running):
@@ -45,8 +45,8 @@ class Slave(Running):
         self.assertEqual(status, 200, r)
         self.assertEqual(r["name"], "line-cell.eds")
         self.assertEqual([(b["index"], b["subindex"], b["name"], b["iec_location"]) for b in r["bindings"]],
-                         [("0x2000", 1, "setpoint", "%IW100"), ("0x2001", 1, "start", "%IX100.0"),
-                          ("0x2100", 1, "actual", "%QW100"), ("0x2101", 1, "level", "%QW101")])
+                         [("0x2000", 1, "setpoint", "%IW100"), ("0x2001", 1, "start", "%IX102.0"),
+                          ("0x2100", 1, "actual", "%QW100"), ("0x2101", 1, "level", "%QW102")])
         self.assertEqual({o["access"] for o in r["summary"]["objects"] if o["index"] == "0x2000"}, {"ro", "rww"})
         # Not in the folder until saved; the page shows it with its description.
         self.assertFalse(os.path.exists(os.path.join(self.folder, "line-cell.eds")))
@@ -58,8 +58,6 @@ class Slave(Running):
         cfg["networks"][0]["slave"].update(eds=r["name"], objects=r["bindings"])
         check = self.ok("POST", "/api/check", {"config": cfg})
         self.assertEqual(check["errors"], 0, check["items"])
-        self.assertRegex(check["block"], r"line_setpoint +AT %IW100 : UINT;")
-        self.assertRegex(check["block"], r"line_level +AT %QW101 : INT;")
         self.ok("POST", "/api/save", {"config": cfg})
         eds = read(os.path.join(self.folder, "line-cell.eds"))
         self.assertTrue(eds.startswith(b"[FileInfo]"))
@@ -82,7 +80,7 @@ class Slave(Running):
         cfg["networks"][0]["slave"].update(eds=r["name"], objects=bindings[:1])
         r = self.build(cfg, {"objects": OBJECTS + [{"name": "extra", "type": "UNSIGNED16", "direction": "to_master"}]})[1]
         self.assertEqual(r["name"], "openplc-slave.eds")
-        self.assertEqual([b["iec_location"] for b in r["bindings"]], ["%IW200", "%IX100.0", "%QW100", "%QW101", "%QW102"])
+        self.assertEqual([b["iec_location"] for b in r["bindings"]], ["%IW200", "%IX100.0", "%QW100", "%QW102", "%QW104"])
 
     def test_rebuild_keeps_the_file_date(self):
         cfg = slave_config()
@@ -117,16 +115,16 @@ class Slave(Running):
     def test_place(self):
         cfg = slave_config([{"index": "0x2100", "subindex": 1, "iec_location": "%QW100"}])
         place = lambda **b: self.request("POST", "/api/place", dict({"config": cfg, "network": 0}, **b))
-        self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="ro")[1]["location"], "%QW101")
-        self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="rwr")[1]["location"], "%QW101")
+        self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="ro")[1]["location"], "%QW102")
+        self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="rwr")[1]["location"], "%QW102")
         self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="rww")[1]["location"], "%IW100")
         self.assertEqual(place(direction="slave_object", type="BOOLEAN", access="rw")[1]["location"], "%IX100.0")
         self.assertEqual(place(direction="slave_object", type="UNSIGNED16", access="const")[0], 400)
         self.assertEqual(place(direction="slave_comm_ok")[1]["location"], "%IX100.0")
         self.assertEqual(place(direction="slave_state")[1]["location"], "%IB100")
         self.assertEqual(place(direction="slave_sync_count")[1]["location"], "%IW100")
-        self.assertEqual(place(direction="slave_emcy")[1]["location"], "%QW101")
-        self.assertEqual(place(direction="slave_errreg")[1]["location"], "%QB100")
+        self.assertEqual(place(direction="slave_emcy")[1]["location"], "%QW102")
+        self.assertEqual(place(direction="slave_errreg")[1]["location"], "%QB102")
 
     def test_check_refuses_wrong_area(self):
         os.makedirs(self.folder)
@@ -178,7 +176,7 @@ class Gateway(Running):
         self.ok("POST", "/api/save", {"config": self.cfg})
         saved = json.loads(read(os.path.join(self.folder, "canworks.json")))
         self.assertEqual(saved, json.loads(read(os.path.join(GATEWAY, "canopen_config.json"))))
-        self.assertEqual(list(saved)[:3], ["schema_version", "networks", "gateway"])
+        self.assertEqual(list(saved)[:4], ["schema_version", "bridge", "networks", "gateway"])
         # The file's own key order stays (fix-gui-test-findings A18).
         self.assertEqual(list(saved["gateway"]["routes"][0]), ["slave", "field", "name"])
 

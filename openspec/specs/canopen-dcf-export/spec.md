@@ -1,7 +1,7 @@
 # canopen-dcf-export Specification
 
 ## Purpose
-Export each configured CANopen node as a CiA 306 Device Configuration File (DCF) that holds exactly the values the plugin configures on that node at boot, checked against CiA 306 before it is written, so the configuration can be inspected, compared and used in other CANopen tools.
+Export each configured CANopen node as a CiA 306 Device Configuration File (DCF) that holds exactly the values the bridge configures on that node at boot, checked against CiA 306 before it is written, so the configuration can be inspected, compared and used in other CANopen tools.
 
 ## Requirements
 
@@ -17,7 +17,7 @@ The export SHALL produce one DCF file per node in the config, named `node_<id>.d
 - **THEN** the export stops with the same message the deploy tool's checks give, and no DCF is written
 
 ### Requirement: DCF body is the node's EDS
-The DCF SHALL contain every section and key of the EDS copy the plugin uses (the prepared copy from the EDS lint step), in the same order and with the same values, so that removing the added lines gives back that copy, except that REAL32 and REAL64 DefaultValue, ParameterValue, LowLimit and HighLimit SHALL be written as decimal numbers that read back to exactly the same value. The export SHALL only add or change the lines this capability names: `ParameterValue` keys, the `[DeviceComissioning]` section, `[FileInfo]` keys, leading `;` comment lines and the decimal form of REAL values.
+The DCF SHALL contain every section and key of the EDS copy the bridge uses (the prepared copy from the EDS lint step), in the same order and with the same values, so that removing the added lines gives back that copy, except that REAL32 and REAL64 DefaultValue, ParameterValue, LowLimit and HighLimit SHALL be written as decimal numbers that read back to exactly the same value. The export SHALL only add or change the lines this capability names: `ParameterValue` keys, the `[DeviceComissioning]` section, `[FileInfo]` keys, leading `;` comment lines and the decimal form of REAL values.
 
 #### Scenario: Unwritten objects untouched
 - **WHEN** a node's EDS defines 0x6000 and the config writes nothing there
@@ -28,10 +28,10 @@ The DCF SHALL contain every section and key of the EDS copy the plugin uses (the
 - **THEN** the DCF has `HighLimit=100.0` on that object
 
 ### Requirement: ParameterValue for every boot write
-For every sub-object the plugin writes to the node during its boot-time configuration, the DCF SHALL carry `ParameterValue=` with the value the sub-object holds after the whole configuration download, i.e. the last value written. This covers the writes from PDO communication and mapping settings, linked consumer RPDOs, heartbeat producer and consumer, heartbeat watch entries, node guarding, TIME COB-ID, RPDO deadlines, the configuration-check stamp and startup SDOs. Writes the plugin drops (read-only PDO communication sub-indices whose EDS value already matches, the 0x1016 clear when `heartbeat_consumer` is unset) SHALL get no ParameterValue. `$NODEID` expressions SHALL be resolved: ParameterValue holds the absolute value. A sub-object defined through `CompactSubObj` SHALL get its value in the object's `[<index>Value]` section.
+For every sub-object the bridge writes to the node during its boot-time configuration, the DCF SHALL carry `ParameterValue=` with the value the sub-object holds after the whole configuration download, i.e. the last value written. This covers the writes from PDO communication and mapping settings, linked consumer RPDOs, heartbeat producer and consumer, heartbeat watch entries, node guarding, TIME COB-ID, RPDO deadlines, the configuration-check stamp and startup SDOs. Writes the bridge drops (read-only PDO communication sub-indices whose EDS value already matches, the 0x1016 clear when `heartbeat_consumer` is unset) SHALL get no ParameterValue. `$NODEID` expressions SHALL be resolved: ParameterValue holds the absolute value. A sub-object defined through `CompactSubObj` SHALL get its value in the object's `[<index>Value]` section.
 
 #### Scenario: PDO COB-ID disable and enable
-- **WHEN** a TPDO is configured and the plugin writes its COB-ID first with the invalid bit set and later without it
+- **WHEN** a TPDO is configured and the bridge writes its COB-ID first with the invalid bit set and later without it
 - **THEN** the DCF's `[1800sub1]` ParameterValue is the final, valid COB-ID
 
 #### Scenario: Startup SDO
@@ -51,11 +51,11 @@ For every sub-object the plugin writes to the node during its boot-time configur
 - **THEN** `[1016sub2]` in `node_20.dcf` has ParameterValue 0x000A012C
 
 ### Requirement: Boot commands are not parameter values
-Writes that are commands rather than settings (0x1010 store and 0x1011 restore) SHALL NOT be written as ParameterValue. The DCF SHALL list each such step the plugin performs for the node in a leading `;` comment, in boot order.
+Writes that are commands rather than settings (0x1010 store and 0x1011 restore) SHALL NOT be written as ParameterValue. The DCF SHALL list each such step the bridge performs for the node in a leading `;` comment, in boot order.
 
 #### Scenario: Store after configuration check
 - **WHEN** a node has the configuration check with store enabled
-- **THEN** the DCF has a ParameterValue on 0x1020 sub 1 and sub 2, none on 0x1010, and a comment line saying the plugin writes "save" to 0x1010 sub 1 after the configuration
+- **THEN** the DCF has a ParameterValue on 0x1020 sub 1 and sub 2, none on 0x1010, and a comment line saying the bridge writes "save" to 0x1010 sub 1 after the configuration
 
 ### Requirement: Commissioning and file information
 The DCF SHALL have a `[DeviceComissioning]` section with `NodeID` (the node ID, decimal), `NodeName` (the node's name in the config, else `node_<id>`), `Baudrate` (the adapter bit rate in kbit/s), `NetNumber=1`, `NetworkName=OpenPLC CANopen`, `CANopenManager=0`, and `LSS_SerialNumber` when the config gives the node a `serial_number`. In `[FileInfo]` it SHALL set `FileName` to the DCF's name, `LastEDS` to the EDS file name, `ModifiedBy` to the tool and its version, and `ModificationDate`/`ModificationTime` to the export time in CiA 306 form, keeping the other FileInfo keys.
@@ -83,8 +83,8 @@ Before writing, the export SHALL check each finished DCF and SHALL write no file
 - **WHEN** node 23 is named `venttiili ä`
 - **THEN** the export fails naming `[DeviceComissioning] NodeName` and writes nothing
 
-### Requirement: Values match the plugin's downloads
-For every node, the set of sub-objects carrying ParameterValue and their values SHALL equal the final per-sub-object result of the configuration download the plugin performs for the same config (`canopen_check --dump-writes`), excluding the boot commands named above.
+### Requirement: Values match the bridge's downloads
+For every node, the set of sub-objects carrying ParameterValue and their values SHALL equal the final per-sub-object result of the configuration download the bridge performs for the same config (`canopen_check --dump-writes`), excluding the boot commands named above.
 
 #### Scenario: Fixture parity
 - **WHEN** CI exports every fixture config and runs `canopen_check --dump-writes` on it

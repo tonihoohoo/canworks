@@ -30,7 +30,7 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
                   std::vector<std::string>& errors);
 
 // $CANWORKS_EDSLINT, else the installer's venv python
-// (<prefix>/venv/bin/python, where install-stock.sh installs the deploy tool),
+// (<prefix>/venv/bin/python, where install-bridge.sh installs the deploy tool),
 // else python3 from PATH.
 std::string default_edslint_python();
 

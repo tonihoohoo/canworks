@@ -1,6 +1,6 @@
 """The CiA 309-3 client (canworks.cia309) and canworks-diag gateway against
 the fake plugin (canopen-cia309-gateway "Gateway client in the command-line
-tools"); the plugin itself is tested in test/cia309/run.sh."""
+tools"); the bridge itself is tested in test/cia309/run.sh."""
 
 import io
 import json
@@ -335,9 +335,9 @@ class NetworkDocs(unittest.TestCase):
             cfg = json.load(f)
         plain = docexport.build(cfg, path)
         self.assertNotIn("cia309", plain)
-        cfg["master"]["cia309"] = {"allow_changes": True}
+        cfg["cia309"] = {"allow_changes": True}
         model = docexport.build(cfg, path)
-        self.assertEqual(model["cia309"]["nets"], [{"number": 1, "name": ""}])
+        self.assertEqual(model["cia309"]["nets"], [{"number": 1, "name": "vcan0"}])
         self.assertEqual(model["networks"][0]["cia309_number"], 1)
         tpdo = [p for p in model["networks"][0]["nodes"][0]["pdos"] if p["kind"] == "TPDO"][0]
         self.assertEqual(tpdo["gateway_rpdo"], 5)  # node 2's TPDO 1

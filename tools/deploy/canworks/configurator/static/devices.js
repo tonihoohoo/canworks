@@ -24,13 +24,11 @@ const DEV = {
 const DEV_POLL_MS = 1500;
 const DEV_PART_ICON = { ok: "operational", warn: "warning", off: "unknown" };
 const DEV_ACTION_DONE = {
-  install_openplc: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
-  install_plugin: "canworks is installed. It switches on with the next upload: the editor's Build and upload, or canworks-deploy.",
   install_bridge: "The bridge runs this project's saved config.",
   install_openplc_bridge: "The OpenPLC Runtime and the bridge are installed. Build and upload the editor project to start the PLC.",
+  switch_runtime: "The runtime is on the version canworks is tested with. Build and upload the editor project again.",
   install_bridge_only: "The bridge is installed. It starts with a config when that config's Devices page installs it here.",
   bridge_config: "The bridge runs this project's saved config.",
-  uninstall_plugin: "The canworks plugin was uninstalled.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
   remove_all: "canworks was removed from the device.",
   link_on: "The remote link is on. PCs pair with it as before, by logging in to the runtime on the local network.",
@@ -40,9 +38,9 @@ const DEV_ACTION_DONE = {
   discovery_off: "The device is no longer advertised on the local network; typing its address still works.",
 };
 const DEV_ACTION_NAME = {
-  install_openplc: "Install OpenPLC Runtime and canworks", install_openplc_bridge: "Install OpenPLC Runtime and this project's bridge",
-  install_plugin: "Install canworks", install_bridge: "Install the bridge",
-  bridge_config: "Start this project's bridge", uninstall_plugin: "Uninstall the plugin", uninstall_bridge: "Uninstall the bridge",
+  install_openplc_bridge: "Install OpenPLC Runtime and the bridge", install_bridge: "Install the bridge",
+  switch_runtime: "Switch the runtime version",
+  bridge_config: "Start this project's bridge", uninstall_bridge: "Uninstall the bridge",
   remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
   link_start: "Start the remote link", discovery_on: "Advertise on the local network",
   discovery_off: "Stop advertising on the local network",
@@ -307,7 +305,7 @@ function devRows(d, plan, job) {
       project ? el("td", null, r.needs) : null,
       el("td", null, r.uninstall ? el("button", { type: "button", class: "small", dataset: { devicesUninstall: r.part },
         disabled: running ? "An install is running." : null,
-        onclick: () => devStart(d.id, r.part === "plugin" ? "uninstall_plugin" : "uninstall_bridge") }, "Uninstall…")
+        onclick: () => devStart(d.id, "uninstall_bridge") }, "Uninstall…")
         : (r.actions || []).map((a) => el("button", { type: "button", class: "small",
           dataset: Object.assign({ devicesAction: a.action }, a.action.startsWith("install") ? { devicesInstall: r.part } : {}),
           disabled: running || plan.blocked ? (plan.blocked || "An install is running.") : null, title: plan.blocked || null,
@@ -338,7 +336,8 @@ function devMain(d, plan) {
   box.append(el("div", { class: "toolbar" }, go, plan.blocked ? el("span", { class: "field-msg warning", dataset: { devices: "blocked" } }, plan.blocked) : null));
   // The options, folded: the remote link and discovery are on unless switched off.
   // A bridge installed with no config has no instance to link or announce: no options.
-  if (m.action !== "bridge_config" && !(m.action === "install_bridge" && !DEV.list.instance)) {
+  if (m.action !== "bridge_config" && m.action !== "switch_runtime"
+      && !(["install_bridge", "install_openplc_bridge"].includes(m.action) && !DEV.list.instance)) {
     const o = DEV.options || (DEV.options = { link: true, discovery: true });
     const box2 = el("details", { class: "devices-options", dataset: { devices: "options" } }, el("summary", null, "Options"));
     const opt = (key, label, help) => {
@@ -348,14 +347,14 @@ function devMain(d, plan) {
       return el("div", { class: "check-field" }, el("label", { class: "check" }, c, " ", label), hint(help));
     };
     if (m.link_kept) {
-      // The device's link serves another config (the PLC's): the bridge install leaves it.
+      // The device's link serves another config: the bridge install leaves it.
       box2.append(el("div", { class: "check-field" }, el("label", { class: "check" },
         el("input", { type: "checkbox", disabled: true, dataset: { devicesOption: "link" } }), " Remote link"),
-        hint("The device's remote link serves another config (the PLC's) and stays as it is.")));
+        hint("The device's remote link serves another config and stays as it is.")));
     } else {
       box2.append(opt("link", "Remote link", "canworks-link: reach this device from a PC on another network (docs/remote-access.md)."));
     }
-    if (m.action !== "install_bridge" && m.action !== "install_openplc_bridge") box2.append(opt("discovery", "Found on the local network", "The device announces itself, so the connect panel lists it."));
+    box2.append(opt("discovery", "Found on the local network", "The device announces itself, so the connect panel lists it."));
     box.append(box2);
   }
   return box;
@@ -461,9 +460,8 @@ function devConfirmText(d, action) {
   const plan = p && p.plan;
   const main = devActionOf(d.id, plan, action);
   if (main) return main.confirm || [];
-  if (action === "uninstall_plugin") return ["The plugin is removed and canworks stops on this device; the OpenPLC runtime and its programs stay."];
   if (action === "uninstall_bridge") return ["The bridges on this device stop and the bridge is removed; their configs stay in /etc/canworks-bridge."];
-  if (action === "remove_all") return ["The canworks plugin, the bridge, the remote link and their settings are removed from the device. The OpenPLC runtime stays."];
+  if (action === "remove_all") return ["The bridge, its configs, the remote link and their settings are removed from the device. The OpenPLC runtime stays."];
   return [];
 }
 
@@ -563,7 +561,7 @@ async function devJobEnded(id, j) {
   // A finished job may have made the device the project's runtime host (Online access).
   if (j.exit === 0 && S.state && S.state.mode) await loadOnlineSettings();
   await devProbe(id);
-  if (j.exit === 0 && j.action === "install_openplc") devFirstUser(id);
+  if (j.exit === 0 && j.action === "install_openplc_bridge") devFirstUser(id);
 }
 
 // Redraws the job box only (the log keeps its scroll and fold).
@@ -604,13 +602,7 @@ function devJobView(d, j) {
   if (total && !j.done) box.append(el("p", { class: "muted" }, `Step ${steps[steps.length - 1].n} of ${total}`));
   if (j.done) {
     if (!failed && j.exit === 0) {
-      const docker = ((DEV.probes[d.id] || {}).plan || {}).rows;
-      const dockerRt = docker && /Docker/.test((docker.find((r) => r.part === "runtime") || {}).have || "");
       let text = DEV_ACTION_DONE[j.action] || "The job ended.";
-      // install-stock.sh found this version already installed and changed nothing.
-      const skipped = j.action === "install_plugin" && j.lines.some((l) => /is already installed for this runtime/.test(l));
-      if (skipped) text = "This version was already installed: nothing was rebuilt, and the PLC keeps running its program.";
-      else if ((j.action === "install_plugin" || j.action === "install_openplc") && dockerRt) text += " Until then the PLC has no program.";
       const projectBridge = ["install_bridge", "bridge_config", "install_openplc_bridge"].includes(j.action) && DEV.list.instance;
       if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.` +
         (j.action === "install_openplc_bridge" ? " Build and upload the editor project to start the PLC." : "");

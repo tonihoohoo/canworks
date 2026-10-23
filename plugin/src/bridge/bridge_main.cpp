@@ -1,12 +1,13 @@
 // canworks-bridge - the networks of a canworks.json served as Modbus TCP
 // registers (docs/modbus-bridge.md).
 //
-//   canworks-bridge --config FILE [--check-only]
+//   canworks-bridge --config FILE [--check-only | --wait]
 
 #include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "bridge_host.h"
@@ -23,10 +24,11 @@ void on_signal(int) { g_stop = 1; }
 
 void usage(FILE* f) {
   std::fprintf(f,
-               "usage: canworks-bridge --config FILE [--check-only]\n"
+               "usage: canworks-bridge --config FILE [--check-only | --wait]\n"
                "  Runs the CAN networks of FILE (a canworks.json with a \"bridge\" object) and serves\n"
                "  their values as Modbus TCP registers. docs/modbus-bridge.md describes the register map.\n"
                "  --check-only   check the config and exit (0 accepted, 1 rejected)\n"
+               "  --wait         while FILE does not exist, wait for it (a container started before its config)\n"
                "  --version, --help\n");
 }
 
@@ -35,6 +37,7 @@ void usage(FILE* f) {
 int main(int argc, char** argv) {
   std::string config;
   bool check_only = false;
+  bool wait = false;
   for (int i = 1; i < argc; ++i) {
     const char* a = argv[i];
     if (!std::strcmp(a, "--config") && i + 1 < argc) {
@@ -43,8 +46,10 @@ int main(int argc, char** argv) {
       config = a + 9;
     } else if (!std::strcmp(a, "--check-only")) {
       check_only = true;
+    } else if (!std::strcmp(a, "--wait")) {
+      wait = true;
     } else if (!std::strcmp(a, "--version")) {
-      std::printf("canworks-bridge %s\n", CANWORKS_PLUGIN_VERSION);
+      std::printf("canworks-bridge %s\n", CANWORKS_VERSION);
       return 0;
     } else if (!std::strcmp(a, "--help") || !std::strcmp(a, "-h")) {
       usage(stdout);
@@ -77,8 +82,20 @@ int main(int argc, char** argv) {
   sigaction(SIGTERM, &sa, nullptr);
   std::signal(SIGPIPE, SIG_IGN);
 
+  if (wait) {
+    struct stat st;
+    bool said = false;
+    while (!g_stop && stat(config.c_str(), &st) != 0) {
+      if (!said) canopen_plugin::log_info("canworks-bridge: waiting for a config at %s", config.c_str());
+      said = true;
+      usleep(500000);
+    }
+    if (g_stop) return 0;
+    if (said) usleep(500000);  // the rest of an upload lands first
+  }
+
   canworks_bridge::BridgeHost host;
-  if (!host.start(config, CANWORKS_PLUGIN_VERSION)) return 1;
+  if (!host.start(config, CANWORKS_VERSION)) return 1;
   while (!g_stop) {
     usleep(50000);
     if (host.upload_pending()) {

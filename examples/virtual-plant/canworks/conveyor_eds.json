@@ -1,0 +1,13 @@
+{
+  "device_name": "Virtual plant conveyor",
+  "date": "2026-10-22",
+  "vendor_id": 0,
+  "product_code": 4,
+  "heartbeat_ms": 50,
+  "layout": "manufacturer",
+  "objects": [
+    { "name": "speed_setpoint", "type": "INTEGER16", "direction": "from_master", "low": -3000, "high": 3000 },
+    { "name": "speed_actual", "type": "INTEGER16", "direction": "to_master" },
+    { "name": "belt_position", "type": "INTEGER32", "direction": "to_master" }
+  ]
+}

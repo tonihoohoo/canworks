@@ -12,7 +12,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import PINGPONG, REPO, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
+from .helpers import PINGPONG, REPO, openplc_config, fake_editor_cli, new_config, node_tab, show_path, tmpdir, tree_node, tree_view, header_action, network_tab, add_node, add_network
 
 try:
     from playwright.sync_api import sync_playwright
@@ -23,7 +23,6 @@ RTD = os.path.join(REPO, "config", "rtd-sensor")
 FIXTURE = os.path.join(REPO, "test", "fixtures", "editor-project")
 LINT = os.path.join(REPO, "test", "fixtures", "eds", "lint")
 DRIVES = os.path.join(REPO, "test", "fixtures", "eds", "drives")
-CIA402 = os.path.join(REPO, "config", "cia402-drive")
 
 
 def load(path):
@@ -181,7 +180,7 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("#start-recent:not([hidden])")
         self.assertFalse(pg.is_visible("#start-first"))
         row = pg.inner_text("#recent li")
-        for part in ("rtd-monitor", "OpenPLC", "editor project", "today", self.project):
+        for part in ("rtd-monitor", "editor project", "today", self.project):
             self.assertIn(part, row)
 
     def test_open_folder_with_nothing(self):
@@ -293,11 +292,13 @@ class Page(unittest.TestCase):
         for sub in range(1, 5):
             self.pick("0x7130:%d" % sub)
             pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[%d].iec_location"]' % (sub - 1))
-        # EMCY inputs: the next free word after the four temperatures, the
+        # EMCY inputs: the next free word after the four temperatures (%IW102
+        # to %IW108, after the state byte), the
         # next free byte after the state byte.
         node_tab(pg, "supervision")
         pg.click('button[data-suggest="emcy"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value === '%IW104'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value !== ''")
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW110")
         pg.click('button[data-suggest="errreg"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].error_register_location\"]').value === '%IB101'")
         # Defaults show where a value is left out: the CiA 301 COB-ID and the
@@ -312,7 +313,7 @@ class Page(unittest.TestCase):
         self.settled()
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].transmission"]', "")
         # Startup SDO: sensor type of channel 0, moved to the top of the list.
-        # 0x1017 is a communication object the plugin sets, so the picker
+        # 0x1017 is a communication object the bridge sets, so the picker
         # lists it only with "Show all writable objects".
         node_tab(pg, "sdos")
         self.open_sections()
@@ -327,30 +328,23 @@ class Page(unittest.TestCase):
         self.save()
 
         saved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(saved["adapter"], {"type": "socketcan", "interface": "can0", "bitrate": 250000,
+        self.assertEqual(saved["networks"][0]["adapter"], {"type": "socketcan", "interface": "can0", "bitrate": 250000,
                                             "restart_ms": 100})
-        self.assertEqual(saved["master"]["sync_period_us"], 10000)
-        node = saved["nodes"][0]
-        want = [e for e in load(os.path.join(RTD, "canopen_config.json"))["nodes"][0]["tx_pdos"][0]["entries"]
+        self.assertEqual(saved["networks"][0]["master"]["sync_period_us"], 10000)
+        node = saved["networks"][0]["nodes"][0]
+        want = [e for e in load(os.path.join(RTD, "canopen_config.json"))["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]
                 if e["index"] == "0x7130"]
+        for k, e in enumerate(want):
+            e["iec_location"] = "%%IW%d" % (102 + 2 * k)  # after the state byte %IB100
         self.assertEqual(node["tx_pdos"][0]["entries"], want)
         self.assertEqual((node["node_id"], node["name"], node["eds"], node["status_location"], node["state_location"]),
                          (5, "rtd", "rtd8.eds", "%IX10.0", "%IB100"))
-        self.assertEqual((node["emcy_code_location"], node["error_register_location"]), ("%IW104", "%IB101"))
+        self.assertEqual((node["emcy_code_location"], node["error_register_location"]), ("%IW110", "%IB101"))
         self.assertEqual(node["sdo"], [
             {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"},
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "value": 100}])
         self.assertTrue(os.path.isfile(os.path.join(self.project, "canworks", "rtd8.eds")))
 
-        # Declarations for the editor.
-        pg.click('button[data-view="declarations"]')
-        block = pg.input_value("textarea.block")
-        self.assertIn("rtd_ok           AT %IX10.0 : BOOL;", block)
-        self.assertIn("rtd_state        AT %IB100 : USINT;", block)
-        self.assertIn("rtd_emcy         AT %IW104 : WORD;", block)
-        self.assertIn("rtd_errreg       AT %IB101 : BYTE;", block)
-        for n in range(4):
-            self.assertIn("rtd_AI%d_Input_PV AT %%IW%d : INT;" % (n, 100 + n), block)
 
     def test_export_dcf(self):
         pg = self.page
@@ -434,19 +428,15 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         tree_view(pg, "bus")
         for key, want in (("bus_state_location", "%IB100"), ("tx_error_count_location", "%IB101"),
-                          ("rx_error_count_location", "%IB102"), ("bus_off_count_location", "%IW100")):
+                          ("rx_error_count_location", "%IB102"), ("bus_off_count_location", "%IW104")):
             pg.click('button[data-suggest="%s"]' % key)
             pg.wait_for_function("() => document.querySelector('input[data-path=\"master.%s\"]').value === '%s'"
                                  % (key, want))
         self.save()
-        master = load(os.path.join(self.project, "canworks", "canworks.json"))["master"]
+        master = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["master"]
         self.assertEqual((master["bus_state_location"], master["tx_error_count_location"],
                           master["rx_error_count_location"], master["bus_off_count_location"]),
-                         ("%IB100", "%IB101", "%IB102", "%IW100"))
-        pg.click('button[data-view="declarations"]')
-        block = pg.input_value("textarea.block")
-        for line in ("can_bus_state AT %IB100 : USINT;", "can_bus_offs  AT %IW100 : UINT;"):
-            self.assertRegex(block, line.replace(" ", " +"))
+                         ("%IB100", "%IB101", "%IB102", "%IW104"))
 
     def test_eds_lint_import_report(self):
         pg = self.page
@@ -466,14 +456,14 @@ class Page(unittest.TestCase):
         self.assertFalse(report.evaluate("d => d.open"))
         self.assertEqual(report.locator("li").all_text_contents(),
                          ["0x60C0: LowLimit overflow in [60C0]", "0x60C2 sub 2: LowLimit overflow in [60C2sub2]"])
-        # Corrections in the copy the plugin reads: the file, that it is
+        # Corrections in the copy the bridge reads: the file, that it is
         # kept, the reader, and one line per kind with its count.
         upload(os.path.join(LINT, "octet-string.eds"))
         self.assertIn('1 OCTET_STRING/DOMAIN value is cleared: [2051] DefaultValue was "----"',
                       pg.locator('#banner [data-report="corrections"]').inner_text())
         upload(os.path.join(LINT, "nodeid-suffix.eds"))
         report = pg.locator('#banner [data-report="corrections"]')
-        self.assertIn("nodeid-suffix.eds is kept as imported. The OpenPLC plugin reads a corrected copy, because its "
+        self.assertIn("nodeid-suffix.eds is kept as imported. The bridge reads a corrected copy, because its "
                       "CANopen stack cannot read these values:", report.inner_text())
         self.assertEqual(report.locator("li").all_text_contents(),
                          ['3 values written "<number>+$NODEID" are read as "$NODEID+<number>"'])
@@ -499,10 +489,10 @@ class Page(unittest.TestCase):
         pg = self.page
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
-        cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000
-        cfg["master"]["strict_eds"] = False
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
+        cfg = openplc_config()
+        cfg["networks"][0]["master"]["sync_period_us"] = 10000
+        cfg["networks"][0]["master"]["strict_eds"] = False
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -513,23 +503,23 @@ class Page(unittest.TestCase):
         sel = 'select[data-path="master.eds_lint"]'
         self.assertEqual(pg.input_value(sel), "off")
         self.save()
-        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_period_us": 10000, "eds_lint": "off"})
+        self.assertEqual(load(path)["networks"][0]["master"], {"node_id": 1, "sync_period_us": 10000, "eds_lint": "off"})
         for value, saved in (("all", "all"), ("", None)):
             pg.select_option(sel, value)
             self.save()
             deadline = time.time() + 10  # the banner still reads "Saved" from the last save
-            while load(path)["master"].get("eds_lint") != saved and time.time() < deadline:
+            while load(path)["networks"][0]["master"].get("eds_lint") != saved and time.time() < deadline:
                 time.sleep(0.1)
-            self.assertEqual(load(path)["master"].get("eds_lint"), saved)
-            self.assertNotIn("strict_eds", load(path)["master"])
+            self.assertEqual(load(path)["networks"][0]["master"].get("eds_lint"), saved)
+            self.assertNotIn("strict_eds", load(path)["networks"][0]["master"])
 
     def test_sync_period_left_empty(self):
         pg = self.page
         os.makedirs(os.path.join(self.project, "canworks"))
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
-        cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
+        cfg = openplc_config()
+        cfg["networks"][0]["master"]["sync_period_us"] = 10000
+        cfg["networks"][0]["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{"transmission": 255,
             "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
         path = os.path.join(self.project, "canworks", "canworks.json")
         with open(path, "w") as f:
@@ -544,7 +534,7 @@ class Page(unittest.TestCase):
         self.assertEqual(pg.input_value('select[data-path="master.sync_source"]'), "")
         self.assertEqual(pg.locator(sel).count(), 0)
         self.save()
-        self.assertEqual(load(path)["master"], {"node_id": 1})
+        self.assertEqual(load(path)["networks"][0]["master"], {"node_id": 1})
 
     def test_new_network_defaults(self):
         # Spec "Defaults of a new network": 500 kbit/s and no SYNC for
@@ -581,10 +571,9 @@ class Page(unittest.TestCase):
         pg.wait_for_selector('input[data-path="master.sync_period_us"]')
         self.assertEqual(pg.input_value('input[data-path="master.sync_period_us"]'), "10")
         self.assertEqual(pg.evaluate("() => S.config.master"), {"node_id": 1, "sync_period_us": 10000})
-        pg.select_option(sel, "plc_cycle")
-        self.fill("master.sync_cycles", "2")
+        self.assertEqual(pg.locator(sel + ' option[value="plc_cycle"]').count(), 0)
         pg.select_option(sel, "")
-        pg.wait_for_function("() => !document.querySelector('input[data-path=\"master.sync_cycles\"]')")
+        pg.wait_for_function("() => !document.querySelector('input[data-path=\"master.sync_period_us\"]')")
         self.assertEqual(pg.evaluate("() => S.config.master"), {"node_id": 1})
 
     def test_default_pdos_without_sync(self):
@@ -602,38 +591,6 @@ class Page(unittest.TestCase):
         add_node(pg, os.path.join(PINGPONG, "cpp-slave.eds"), map_pdos=True, node_id=3)
         pg.wait_for_function("() => S.config.nodes.length === 2 && (S.config.nodes[1].tx_pdos || []).length > 0")
         self.assertIsNone(pg.evaluate("() => S.config.nodes[1].tx_pdos[0].transmission ?? null"))
-
-    def test_sync_source_plc_cycle(self):
-        pg = self.page
-        os.makedirs(os.path.join(self.project, "canworks"))
-        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), os.path.join(self.project, "canworks"))
-        cfg = srv.empty_config()
-        cfg["master"]["sync_period_us"] = 10000  # the EDS's TPDO 1 is type 1
-        cfg["nodes"] = [{"node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 100, "tx_pdos": [{
-            "entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]}]
-        path = os.path.join(self.project, "canworks", "canworks.json")
-        with open(path, "w") as f:
-            json.dump(cfg, f)
-        self.open_from_start("#start-open", self.project)
-        tree_view(pg, "bus")
-        sel = 'select[data-path="master.sync_source"]'
-        self.assertEqual(pg.input_value(sel), "timer")
-        pg.select_option(sel, "plc_cycle")
-        pg.wait_for_selector('input[data-path="master.sync_cycles"]')
-        self.assertEqual(pg.locator('input[data-path="master.sync_period_us"]').count(), 0)
-        self.assertEqual(pg.get_attribute('input[data-path="master.sync_cycles"]', "placeholder"), "1")
-        self.fill("master.sync_cycles", "2")
-        self.save()
-        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 2})
-        # Back to the timer.
-        pg.select_option(sel, "timer")
-        pg.wait_for_selector('input[data-path="master.sync_period_us"]')
-        self.fill("master.sync_period_us", "10")
-        self.save()
-        deadline = time.time() + 10
-        while "sync_source" in load(path)["master"] and time.time() < deadline:
-            time.sleep(0.1)
-        self.assertEqual(load(path)["master"], {"node_id": 1, "sync_period_us": 10000})
 
     def test_slcan_adapter(self):
         pg = self.page
@@ -661,7 +618,7 @@ class Page(unittest.TestCase):
         device = "/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7-if00"
         self.fill("adapter.device", device)
         self.save()
-        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["adapter"]
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["adapter"]
         self.assertEqual(saved, {"type": "slcan", "device": device, "interface": "can0", "bitrate": 500000})
         # Back to SocketCAN: the serial device is dropped.
         pg.select_option('select[data-path="adapter.type"]', "socketcan")
@@ -669,28 +626,17 @@ class Page(unittest.TestCase):
         self.settled()
         pg.click("#btn-save")  # the banner still says Saved from the first save
         pg.wait_for_function("() => document.querySelector('#btn-save').textContent === 'Saved'")
-        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["adapter"]
+        saved = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["adapter"]
         self.assertEqual(saved, {"type": "socketcan", "interface": "can0", "bitrate": 500000})
 
-    def test_network_start_copy_as_st_call(self):
-        # add-plc-network-control 5.2: the corrected hint and a CO_NETWORK_START call.
+    def test_network_start_hint(self):
+        # The bridge has no network start command: the hint says so, and there is no ST call to copy.
         pg = self.page
         self.open_from_start("#start-open", self.project)
         tree_view(pg, "bus")
         pg.click('details[data-advanced="master"] > summary')
-        box = pg.locator('input[data-path="master.start"]').locator("xpath=ancestor::div[1]")
-        self.assertIn("until the PLC program starts it with CO_NETWORK_START", box.inner_text())
-        self.assertNotIn("something starts it", pg.inner_text("body"))
-        pg.uncheck('input[data-path="master.start"]')
-        pg.evaluate("() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { "
-                    "window.__copied.push(t); }; }")
-        pg.click('button[data-action="network-start-st"]')
-        pg.wait_for_function("() => window.__copied.length === 1")
-        text = pg.evaluate("() => window.__copied[0]")
-        self.assertIn("net_start : CO_NETWORK_START;", text)
-        self.assertIn("net_start(EXECUTE := net_start_go, TIMEOUT := T#0s", text)
-        self.assertNotIn("NETWORK :=", text)
-        pg.wait_for_selector("#banner:has-text('Copied the CO_NETWORK_START call')")
+        self.assertIn("the bridge has no command that starts it", pg.inner_text('details[data-advanced="master"]'))
+        self.assertEqual(pg.locator('button[data-action="network-start-st"]').count(), 0)
 
     def test_advanced_settings(self):
         pg = self.page
@@ -731,14 +677,14 @@ class Page(unittest.TestCase):
         self.fill("master.sdo_timeout_ms", "3000")
         self.save()
         cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
-        node, master = cfg["nodes"][0], cfg["master"]
+        node, master = cfg["networks"][0]["nodes"][0], cfg["networks"][0]["master"]
         self.assertEqual((node["boot_error_location"], node["mandatory"], node["revision_number"],
                           node["error_behavior"], node["heartbeat_consumer"]),
                          ("%IB100", True, "0x00010002", {"1": 0, "3": 2}, False))
         self.assertNotIn("time_cob_id", node)
         self.assertEqual((master["state_location"], master["start_nodes"], master["nmt_inhibit_time_us"],
                           master["heartbeat_multiplier"], master["sdo_timeout_ms"]), ("%IB102", False, 200, 2.5, 3000))
-        # Emptied again: nothing saved, the plugin's default applies.
+        # Emptied again: nothing saved, the bridge's default applies.
         tree_view(pg, "bus")
         if not pg.is_visible('input[data-path="master.sdo_timeout_ms"]'):
             pg.click('details[data-advanced="master"] > summary')
@@ -746,13 +692,9 @@ class Page(unittest.TestCase):
         self.save()  # the banner still says Saved from before, so wait for the file
         path = os.path.join(self.project, "canworks", "canworks.json")
         deadline = time.time() + 5
-        while "sdo_timeout_ms" in load(path)["master"] and time.time() < deadline:
+        while "sdo_timeout_ms" in load(path)["networks"][0]["master"] and time.time() < deadline:
             time.sleep(0.05)
-        self.assertNotIn("sdo_timeout_ms", load(path)["master"])
-        pg.click('button[data-view="declarations"]')
-        block = pg.input_value("textarea.block")
-        self.assertRegex(block, "n?\\w+_boot_err +AT %IB100 : USINT;")
-        self.assertRegex(block, "can_master_state +AT %IB102 : USINT;")
+        self.assertNotIn("sdo_timeout_ms", load(path)["networks"][0]["master"])
 
     def test_config_check_settings(self):
         pg = self.page
@@ -775,16 +717,16 @@ class Page(unittest.TestCase):
         pg.select_option(store, "1")
         self.save()
         path = os.path.join(self.project, "canworks", "canworks.json")
-        node = load(path)["nodes"][0]
+        node = load(path)["networks"][0]["nodes"][0]
         self.assertEqual((node["config_check"], node["store_configuration"]), (True, 1))
         # Turning the check off drops both keys.
         pg.uncheck(check)
         self.assertTrue(pg.is_disabled(store))
         self.save()
         deadline = time.time() + 5
-        while "config_check" in load(path)["nodes"][0] and time.time() < deadline:
+        while "config_check" in load(path)["networks"][0]["nodes"][0] and time.time() < deadline:
             time.sleep(0.05)
-        node = load(path)["nodes"][0]
+        node = load(path)["networks"][0]["nodes"][0]
         self.assertNotIn("config_check", node)
         self.assertNotIn("store_configuration", node)
         # A device without 0x1020: the checkbox is off and says why.
@@ -815,13 +757,13 @@ class Page(unittest.TestCase):
         self.assertIn("node ID 12 at every start", pg.locator(assign).locator("xpath=ancestor::div[1]").inner_text())
         # Without a serial number it is an error, and the field says why.
         self.settled()
-        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
+        pg.wait_for_selector("#problem-list li.error")
         pg.wait_for_selector('[data-for="nodes[0].serial_number"]:has-text("serial_number")')
         path = os.path.join(self.project, "canworks", "canworks.json")
         self.assertFalse(os.path.exists(path))
         self.fill("nodes[0].serial_number", "0x1234")
         self.save()
-        node = load(path)["nodes"][0]
+        node = load(path)["networks"][0]["nodes"][0]
         self.assertEqual(node["lss"], {"assign": True})
         self.assertEqual(node["serial_number"], "0x1234")  # as typed, like the other identity fields
         self.assertNotIn("reset_communication", node)
@@ -830,9 +772,9 @@ class Page(unittest.TestCase):
         self.assertTrue(pg.is_enabled(reset))
         self.save()
         deadline = time.time() + 5
-        while "lss" in load(path)["nodes"][0] and time.time() < deadline:
+        while "lss" in load(path)["networks"][0]["nodes"][0] and time.time() < deadline:
             time.sleep(0.05)
-        self.assertNotIn("lss", load(path)["nodes"][0])
+        self.assertNotIn("lss", load(path)["networks"][0]["nodes"][0])
         # An EDS without LSS_Supported: no LSS for the node, the boxes are off with the reason.
         self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
         node_tab(pg, "advanced")
@@ -846,117 +788,6 @@ class Page(unittest.TestCase):
         pg.wait_for_selector("[data-lss-remove]")
         pg.click("[data-lss-remove]")
         self.assertFalse(pg.evaluate("() => 'lss' in S.config.nodes[1]"))
-
-    def test_cia402_axis(self):
-        pg = self.page
-        self.open_from_start("#start-open", self.project)
-        self.fill("adapter.interface", "can0")
-        self.add_node(os.path.join(CIA402, "servo402.eds"))
-        self.fill("nodes[0].node_id", "4")
-        self.fill("nodes[0].name", "drive")
-        node_tab(pg, "cia402")
-        box = 'input[data-path="nodes[0].axis"]'
-        self.assertEqual(pg.locator("button[data-map-cia402]").count(), 0)
-        pg.check(box)
-        self.assertEqual(pg.locator("[data-axis-status]").count(), 1)
-        self.assertEqual(pg.locator("[data-axis-profile]").count(), 0)  # device type 0x00020192
-        pg.click('button[data-map-cia402="nodes[0]"]')
-        pg.wait_for_selector("[data-axis-result]")
-        self.assertIn("0x6081 profile velocity (RPDO2", pg.inner_text("[data-axis-result]"))
-        self.assertEqual(pg.locator("[data-axis-status]").count(), 0)
-        node_tab(pg, "pdos")
-        pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[3].entries[0].iec_location"]')
-        node_tab(pg, "cia402")
-        self.fill("nodes[0].axis.scale_numerator", "10")
-        self.fill("nodes[0].axis.scale_factor", "2.5")
-        self.save()
-        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
-        self.assertEqual(node["axis"], {"scale_numerator": 10, "scale_factor": 2.5})
-        self.assertEqual(node["status_location"], "%IX100.0")
-        example = load(os.path.join(CIA402, "canopen_config.json"))["nodes"][0]
-
-        def layout_of(n):
-            return {k: [(p["number"], [e["index"] for e in p["entries"]]) for p in n[k]] for k in ("tx_pdos", "rx_pdos")}
-        got, want = layout_of(node), layout_of(example)
-        # The example maps everything but the torques.
-        self.assertEqual(got["tx_pdos"][:3], want["tx_pdos"])
-        self.assertEqual(got["rx_pdos"][:3], want["rx_pdos"])
-        self.assertEqual((got["tx_pdos"][3], got["rx_pdos"][3]), ((4, ["0x6077"]), (4, ["0x6071"])))
-        # Mapping again adds nothing.
-        node_tab(pg, "cia402")
-        pg.click('button[data-map-cia402="nodes[0]"]')
-        pg.wait_for_selector("[data-axis-result]:has-text('Nothing new to map')")
-        # The declarations have the axis and its bridge call.
-        pg.click('button[data-view="declarations"]')
-        block = pg.input_value("textarea.block")
-        self.assertIn("drive        : AXIS_REF_SM3;", block)
-        self.assertIn("drive_bridge : SM_Drive_GenericDS402;", block)
-        self.assertIn("drive.iRatioTechUnitsNum := DINT#10;", block)
-        self.assertIn("drive.fScalefactor := LREAL#2.5;", block)
-        self.assertIn("bOnline := drive_ok", block)
-        # A device that is not a CiA 402 drive (no 0x6040 and 0x6041): no CiA 402 tab.
-        network_tab(pg)
-        tree_node(pg, 0)
-        self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "cpp-slave.eds"))
-        self.assertEqual(pg.locator('.node-tabs [data-node-tab="cia402"]').count(), 0)
-        self.assertEqual(pg.locator('.node-tabs [data-node-tab="general"]').count(), 1)
-        # An axis set already (an older file): the tab shows, the axis can still be switched off; the profile warning shows.
-        pg.evaluate("() => { setPath('nodes[1].axis', {}); changed(); render(); }")
-        node_tab(pg, "cia402")
-        self.assertFalse(pg.is_disabled('input[data-path="nodes[1].axis"]'))
-        self.assertEqual(pg.locator("[data-axis-profile]").count(), 1)
-        pg.click('button[data-map-cia402="nodes[1]"]')
-        pg.wait_for_selector("[data-axis-result] li:has-text('0x6040 controlword: not in the EDS')")
-
-    def test_cia402_cyclic_axis(self):
-        # add-cia402-cyclic-modes: the switch, the SYNC fix button, the cyclic
-        # layout and the cycle time line with its task interval.
-        pg = self.page
-        self.open_from_start("#start-open", self.project)
-        self.fill("adapter.interface", "can0")
-        self.add_node(os.path.join(CIA402, "servo402.eds"))
-        self.fill("nodes[0].node_id", "4")
-        self.fill("nodes[0].name", "drive")
-        node_tab(pg, "cia402")
-        pg.check('input[data-path="nodes[0].axis"]')
-        cyc = 'input[data-path="nodes[0].axis.cyclic"]'
-        self.assertEqual(pg.locator('input[data-path="nodes[0].axis.interpolation_period_us"]').count(), 0)
-        pg.check(cyc)
-        self.assertEqual(pg.locator('input[data-path="nodes[0].axis.interpolation_period_us"]').count(), 1)
-        pg.click('button[data-map-cia402="nodes[0]"]')
-        pg.wait_for_selector("[data-axis-changes]")
-        self.assertIn("RPDO1 (was 255)", pg.inner_text("[data-axis-changes]"))
-        # The SYNC check: an error on the node, fixed by the button.
-        pg.wait_for_selector('[data-for="nodes[0].axis.cyclic"]:has-text("needs SYNC from the PLC cycle")')
-        self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 1)
-        def until(pred):
-            deadline = time.time() + 5
-            while not pred() and time.time() < deadline:
-                time.sleep(0.05)
-            return pred()
-        pg.click("button[data-cyclic-fix]")
-        self.assertTrue(until(lambda: not pg.inner_text('[data-for="nodes[0].axis.cyclic"]')))
-        self.assertEqual(pg.locator("button[data-cyclic-fix]").count(), 0)
-        self.save()
-        cfg = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(cfg["master"].get("sync_source"), "plc_cycle")
-        self.assertNotIn("sync_period_us", cfg["master"])
-        node = cfg["nodes"][0]
-        self.assertEqual(node["axis"], {"cyclic": True})
-        self.assertEqual([e["index"] for e in node["rx_pdos"][0]["entries"]], ["0x6040", "0x6060", "0x607A"])
-        self.assertTrue(all(p["transmission"] == 1 for p in node["rx_pdos"] + node["tx_pdos"]))
-        # The declarations: fCycleTime from the task interval.
-        pg.click('button[data-view="declarations"]')
-        self.assertTrue(until(lambda: "fCycleTime" in pg.input_value("textarea.block")))
-        self.assertIn("drive.fCycleTime := LREAL#0.02;", pg.input_value("textarea.block"))
-        pg.fill("#task-interval", "T#5ms")
-        # A check that lands before Enter renders the view again: the typed
-        # text and the focus stay.
-        pg.evaluate("runCheck()")
-        self.assertEqual(pg.input_value("#task-interval"), "T#5ms")
-        self.assertTrue(pg.evaluate("document.activeElement.id === 'task-interval'"))
-        pg.press("#task-interval", "Enter")
-        self.assertTrue(until(lambda: "drive.fCycleTime := LREAL#0.005;" in pg.input_value("textarea.block")))
 
     def test_startup_sdo_notes(self):
         # Device notes on the startup SDO list (canopen-device-notes): the
@@ -1003,7 +834,7 @@ class Page(unittest.TestCase):
         self.assertIn("four-wire", pg.inner_text(row + " [data-sdo-meaning]"))
         self.save()
         saved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(saved["nodes"][0]["sdo"][1]["value"], 30)
+        self.assertEqual(saved["networks"][0]["nodes"][0]["sdo"][1]["value"], 30)
         notes = load(os.path.join(self.project, "canworks", "rtd8.eds.notes.json"))
         self.assertEqual(notes["objects"]["0x6110:1"], {"name": "AI0_Sensor_Type", "text": "Sensor type of the channel",
                                                         "values": {"1": "two-wire", "30": "four-wire"}})
@@ -1196,7 +1027,7 @@ class Page(unittest.TestCase):
         pg.check('input[aria-label="Show all writable objects"]')
         self.assertEqual(pg.locator('button[data-sdo="0x1400:5"]').count(), 1)
         self.save()
-        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]
         self.assertEqual(node["tx_pdos"][0].get("event_timer_ms"), 50)
         self.assertEqual(node["tx_pdos"][0].get("cob_id"), "auto")
         self.assertNotIn("inhibit_time_us", node["tx_pdos"][0])
@@ -1226,7 +1057,7 @@ class Page(unittest.TestCase):
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].on_timeout"]', "zero")
         self.fill("nodes[0].tx_pdos[0].timeout_location", "%IX10.1")
         self.save()
-        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo.get("timeout_ms"), "auto")
         self.assertEqual(pdo.get("on_timeout"), "zero")
         self.assertEqual(pdo.get("timeout_location"), "%IX10.1")
@@ -1237,9 +1068,9 @@ class Page(unittest.TestCase):
         self.save()  # the banner still says Saved from before, so wait for the file
         path = os.path.join(self.project, "canworks", "canworks.json")
         deadline = time.time() + 5
-        while "timeout_ms" in load(path)["nodes"][0]["tx_pdos"][0] and time.time() < deadline:
+        while "timeout_ms" in load(path)["networks"][0]["nodes"][0]["tx_pdos"][0] and time.time() < deadline:
             time.sleep(0.05)
-        pdo = load(path)["nodes"][0]["tx_pdos"][0]
+        pdo = load(path)["networks"][0]["nodes"][0]["tx_pdos"][0]
         for key in ("timeout_ms", "on_timeout", "timeout_location"):
             self.assertNotIn(key, pdo)
 
@@ -1262,7 +1093,7 @@ class Page(unittest.TestCase):
         self.pick("0x6200:1")
         pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[0].entries[0].iec_location"]')
         self.save()
-        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]
         tx, rx = node["tx_pdos"][0], node["rx_pdos"][0]
         self.assertNotIn("mapping", tx)
         self.assertEqual(tx["number"], 1)
@@ -1282,7 +1113,7 @@ class Page(unittest.TestCase):
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].mapping"]', "device")
         pg.wait_for_selector('.pdo-map:has-text("0x4001:0")')
         self.save()
-        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo["mapping"], "device")
 
     def test_inhibit_time_in_ms(self):
@@ -1298,7 +1129,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].tx_pdos[0].inhibit_time_us", "2.5")
         # cpp-slave.eds has no RPDO sub 5, so no deadline field.
         self.save()
-        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]["tx_pdos"][0]
+        pdo = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]["tx_pdos"][0]
         self.assertEqual(pdo["inhibit_time_us"], 2500)
 
     def test_read_only_sdo_refused(self):
@@ -1340,13 +1171,13 @@ class Page(unittest.TestCase):
         pg.click('button[data-sdo-var="0x1017:0"]')
         pg.wait_for_selector('input[data-path="nodes[0].sdo_variables[1].iec_location"]')
         self.settled()
-        self.assertIn("plugin configures itself",
+        self.assertIn("canworks configures itself",
                       pg.inner_text('.field-msg[data-for="nodes[0].sdo_variables[1]"]'))
         pg.fill('input[aria-label="SDO variable index"]', "0x7FFF")
         pg.click("text=Add variable")
         self.assertIn("not in", pg.inner_text("#banner"))
         self.save()
-        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]
         self.assertEqual(node["nmt_command_location"], nmt)
         read, write = node["sdo_variables"]
         self.assertEqual((read["index"], read["subindex"], read["type"], read["direction"], read["period_ms"]),
@@ -1355,11 +1186,6 @@ class Page(unittest.TestCase):
         self.assertTrue(read["status_location"].startswith("%IB"), read)
         self.assertEqual((write["index"], write["type"], write["direction"]), ("0x1017", "UNSIGNED16", "write"))
         self.assertTrue(write["iec_location"].startswith("%QW"), write)
-        pg.click('button[data-view="declarations"]')
-        block = pg.input_value("textarea.block")
-        self.assertIn("AT %s : USINT;" % nmt, block)
-        self.assertIn("AT %s : UDINT;" % read["iec_location"], block)
-        self.assertIn("AT %s : USINT;" % read["status_location"], block)
 
     def test_selected_rows_resize_and_picker_notes(self):
         # row-highlight-and-list-resize: one selected row per list, kept
@@ -1476,25 +1302,9 @@ class Page(unittest.TestCase):
         self.pick("0x7130:1")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
         self.save()
-        node = load(os.path.join(self.project, "canworks", "canworks.json"))["nodes"][0]
+        node = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["nodes"][0]
         self.assertNotIn("heartbeat_ms", node)
         self.assertEqual((node["guard_time_ms"], node["life_time_factor"]), (100, 3))
-
-    def test_clash_with_ethercat(self):
-        pg = self.page
-        self.open_from_start("#start-open", self.project)
-        self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
-        self.pick("0x4001:0")
-        loc = 'input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]'
-        pg.wait_for_selector(loc)
-        pg.fill(loc, "%ID100")
-        pg.wait_for_selector("#problem-list li.error:has-text('ecat-bus.json')")
-        pg.wait_for_selector(loc + ".invalid")
-        pg.check("#allow-overlap")
-        pg.wait_for_selector("#problem-list li.warning:has-text('ecat-bus.json')")
-        self.save()
-        saved = load(os.path.join(self.project, "canworks", "canworks.json"))
-        self.assertEqual(saved["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"], "%ID100")
 
     def test_standalone_then_move_into_project(self):
         pg = self.page
@@ -1554,15 +1364,15 @@ class Page(unittest.TestCase):
         pg.fill('#modal-extra input[aria-label="Project name"]', "rtd-monitor")
         pg.click("#modal-buttons button[data-value=create]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
-        self.assertIn("1 CANopen variable declared in main", pg.inner_text("#banner"))
+        self.assertIn("canworks files", pg.inner_text("#banner"))
         self.assertIn("Installed canworks", pg.inner_text("#banner"))
         self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
                          "canworks")
         self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
         self.assertTrue(pg.is_hidden("#menu-project"))
-        main = os.path.join(work, "rtd-monitor", "pous", "programs", "main.st")
-        with open(main, encoding="utf-8") as f:
-            self.assertIn(" : INT AT %IW", f.read())
+        # The bridge's I/O comes in through canworks_in, not main's located variables.
+        with open(os.path.join(work, "rtd-monitor", "pous", "programs", "canworks_in.st"), encoding="utf-8") as f:
+            self.assertIn("canworks", f.read())
         self.assertIn("in use", pg.inner_text("#scan-info"))
 
     def test_changed_on_disk(self):
@@ -1574,7 +1384,7 @@ class Page(unittest.TestCase):
         self.save()
         path = os.path.join(self.project, "canworks", "canworks.json")
         doc = load(path)
-        doc["master"]["sync_period_us"] = 20000
+        doc["networks"][0]["master"]["sync_period_us"] = 20000
         with open(path, "w") as f:
             json.dump(doc, f)
         tree_view(pg, "bus")
@@ -1586,7 +1396,7 @@ class Page(unittest.TestCase):
         pg.click("#modal-buttons button[data-value=reload]")
         pg.wait_for_function("() => document.querySelector('input[data-path=\"master.sync_period_us\"]')?.value === '20'")
         self.assertEqual(pg.input_value('input[data-path="master.sync_period_us"]'), "20")
-        self.assertEqual(load(path)["adapter"]["interface"], "can0")
+        self.assertEqual(load(path)["networks"][0]["adapter"]["interface"], "can0")
 
 
 if __name__ == "__main__":

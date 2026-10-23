@@ -3,8 +3,8 @@
 #
 #   test/params/run.sh [--build-dir build] [--iface vcan0]
 #
-# Runs the simulated RTD module (config/rtd-sensor, node 5) and the real
-# libcanworks_plugin.so through canopen_host with the diagnostics channel on
+# Runs the simulated RTD module (config/rtd-sensor, node 5) and the
+# canworks engine in canopen_host with the diagnostics channel on
 # 127.0.0.1 (changes allowed). Then, with canworks-diag: backs node 5
 # up, changes three of its parameters by hand, checks that compare finds the
 # three, restores the backup, and checks that compare finds no difference.
@@ -27,10 +27,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
-for f in "$PLUGIN" "$HOST" "$SLAVE"; do
+for f in "$HOST" "$SLAVE"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -63,8 +62,9 @@ def verifier(token):  # diag.token_verifier: SCRAM-SHA-256 (docs/diagnostics.md)
     b = lambda x: base64.b64encode(x).decode()
     return "SCRAM-SHA-256$4096:%s$%s:%s" % (b(salt), b(hashlib.sha256(key(b"Client Key")).digest()), b(key(b"Server Key")))
 cfg = json.load(open(sys.argv[1]))
-cfg["adapter"]["interface"] = sys.argv[3]
-cfg["master"]["diagnostics"] = {
+net = cfg["networks"][0]
+net["adapter"]["interface"] = sys.argv[3]
+cfg["diagnostics"] = {
     "token_verifier": verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1", "allow_changes": True}
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
@@ -79,7 +79,7 @@ fi
     --signal 0x7130:3=400..460 --signal 0x7130:4=-100..-40 > "$WORK/slave.log" 2>&1 &
 PIDS+=($!)
 sleep 0.5
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
+"$HOST" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
 PIDS+=($!)
 
 fail() {

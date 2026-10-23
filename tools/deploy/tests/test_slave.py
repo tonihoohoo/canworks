@@ -11,11 +11,11 @@ import unittest
 
 import jsonschema
 
-from canworks import bundle, cia306, cli, contract, edslint, editorproject, project, slaveeds
+from canworks import cia306, cli, contract, edslint, editorproject, project, slaveeds
 from canworks.configurator import declare, layout
 from canworks.eds import Eds
 
-from .helpers import REPO, editor_bundle, tmpdir, zip_contents
+from .helpers import REPO, tmpdir
 from .test_deploy import deploy
 
 SLAVE = os.path.join(REPO, "config", "slave")
@@ -35,9 +35,9 @@ def generate(test, desc, gateway=None):
     """Generates, checks the lint verdict with eds_lint "all", and reads it back."""
     text, info = slaveeds.generate(desc, gateway)
     _, corrections, lint = edslint.check(text.encode("utf-8"))
-    # Decimal REALs (CiA 306) are the one correction the plugin's prepared copy makes.
+    # Decimal REALs (CiA 306) are the one correction the bridge's prepared copy makes.
     test.assertEqual([c.kind for c in corrections if c.kind != "real"], [],
-                     "the plugin would read a corrected copy, not the file itself")
+                     "the bridge would read a corrected copy, not the file itself")
     test.assertEqual(cia306.check(text), [])
     test.assertIsNone(lint.read_error)
     test.assertEqual([f.message for f in lint.failing("all")], [])
@@ -196,7 +196,7 @@ class Generator(unittest.TestCase):
             slaveeds.generate({"objects": [obj("l\u00e4mp\u00f6", "UNSIGNED8", "to_master")]})
 
     def test_real_default_reaches_the_plugin(self):
-        # The file has CiA 306's 21.5; the plugin's prepared copy gives Lely
+        # The file has CiA 306's 21.5; the bridge's prepared copy gives Lely
         # the same REAL.
         text, _ = slaveeds.generate({"objects": [obj("temp", "REAL32", "to_master", default=21.5, low=-40.5,
                                                      high=1e20)]})
@@ -329,7 +329,7 @@ class Command(unittest.TestCase):
 
 
 class SlaveContract(unittest.TestCase):
-    """The plugin's checks of a slave network and a gateway, on the PC."""
+    """The bridge's checks of a slave network and a gateway, on the PC."""
 
     def setUp(self):
         self.dir = tmpdir(self)
@@ -383,13 +383,13 @@ class SlaveContract(unittest.TestCase):
     def test_binding_checks(self):
         cfg = self.slave()
         objects = cfg["networks"][0]["slave"]["objects"]
-        objects[1]["iec_location"] = "%IW305"
-        objects.append({"index": "0x2005", "subindex": 1, "iec_location": "%IW330"})
-        objects.append({"index": "0x2001", "subindex": 1, "iec_location": "%IB331"})
-        objects.append({"index": "0x1008", "subindex": 0, "iec_location": "%QD331"})
-        objects.append({"index": "0x1018", "subindex": 0, "iec_location": "%QB331"})
+        objects[1]["iec_location"] = "%IW340"
+        objects.append({"index": "0x2005", "subindex": 1, "iec_location": "%IW342"})
+        objects.append({"index": "0x2001", "subindex": 1, "iec_location": "%IB344"})
+        objects.append({"index": "0x1008", "subindex": 0, "iec_location": "%QD340"})
+        objects.append({"index": "0x1018", "subindex": 0, "iec_location": "%QB344"})
         text = self.errors(cfg)
-        self.assertIn("slave object 0x2001:1: type UNSIGNED8 (8 bit) does not fit location %IW305 (16 bit)", text)
+        self.assertIn("slave object 0x2001:1: type UNSIGNED8 (8 bit) does not fit location %IW340 (16 bit)", text)
         self.assertIn("slave object 0x2005:1 is not defined in openplc-slave.eds", text)
         self.assertIn("slave object 0x2001:1 is bound twice (objects[1] and objects[7])", text)
         self.assertIn("slave object 0x1008:0 has AccessType const in openplc-slave.eds and cannot be bound", text)
@@ -454,15 +454,12 @@ class SlaveContract(unittest.TestCase):
         del cfg["networks"][0]["slave"]
         self.assertIn("networks[0]: the slave section is missing", self.errors(cfg))
 
-    def test_version_1_refuses_slave_and_gateway(self):
+    def test_version_1_refused(self):
         cfg = {"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 125000}, "master": {"node_id": 1},
                "nodes": [{"node_id": 2, "eds": "cpp-slave.eds"}], "slave": {"node_id": 3, "eds": "x.eds"},
                "gateway": {"upper": "x"}}
         r = self.check(cfg)
-        self.assertIn("field 'slave' needs schema_version 2: slave networks are entries of 'networks' with "
-                      "\"role\": \"slave\"", "\n".join(r.errors))
-        self.assertIn("field 'gateway' needs schema_version 2", "\n".join(r.errors))
-        self.assertFalse(any("unknown field" in w for w in r.warnings))
+        self.assertIn(contract.NOT_BRIDGE_MESSAGE, "\n".join(r.errors))
         self.assertFalse(jsonschema.Draft202012Validator(contract.schema(2)).is_valid(cfg))
 
     def test_only_a_slave(self):
@@ -630,21 +627,15 @@ class SlaveContract(unittest.TestCase):
 
 
 class Deploy(unittest.TestCase):
-    def test_bundle_carries_the_slave_eds(self):
-        d = tmpdir(self)
-        src = editor_bundle(os.path.join(d, "src"))
-        out = os.path.join(d, "program.zip")
-        code, stdout, err = deploy("--bundle", src, "--config", os.path.join(GATEWAY, "canopen_config.json"),
-                                   "--check-only", "--output", out)
-        self.assertEqual(code, 0, err)
-        files = zip_contents(out)
+    def test_files_carry_the_slave_eds(self):
+        path = os.path.join(GATEWAY, "canopen_config.json")
+        files = cli.bridge_files(load(path), path)
         with open(os.path.join(GATEWAY, "openplc-gateway.eds"), "rb") as f:
-            self.assertEqual(files["conf/canworks/eds/openplc-gateway.eds"], f.read())
-        deployed = json.loads(files["conf/canworks.json"])
+            self.assertEqual(files["canworks/eds/openplc-gateway.eds"], f.read())
+        deployed = json.loads(files["canworks.json"])
         self.assertEqual(deployed["networks"][1]["slave"]["eds"], "canworks/eds/openplc-gateway.eds")
         self.assertEqual(deployed["networks"][0]["nodes"][0]["eds"], "canworks/eds/cpp-slave.eds")
-        self.assertEqual(deployed["gateway"], load(os.path.join(GATEWAY, "canopen_config.json"))["gateway"])
-        self.assertIn("2 EDS files", stdout)
+        self.assertEqual(deployed["gateway"], load(path)["gateway"])
 
     def test_check_finds_a_binding_error_before_upload(self):
         d = tmpdir(self)
@@ -655,13 +646,12 @@ class Deploy(unittest.TestCase):
         config = os.path.join(d, "canopen_config.json")
         with open(config, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
-        src = editor_bundle(os.path.join(d, "src"))
-        code, _, err = deploy("--bundle", src, "--config", config, "--check-only")
+        code, _, err = deploy("--config", config, "--check")
         self.assertEqual(code, 1)
         self.assertIn("the master writes 0x2000:1 (AccessType rww), so it needs an %I location, not %QW310", err)
         self.assertIn("nothing was uploaded", err)
         os.remove(os.path.join(d, "openplc-slave.eds"))
-        code, _, err = deploy("--bundle", src, "--config", config, "--check-only")
+        code, _, err = deploy("--config", config, "--check")
         self.assertIn("slave: EDS file %s not found" % os.path.join(d, "openplc-slave.eds"), err)
 
     def test_into_project(self):
@@ -676,40 +666,26 @@ class Deploy(unittest.TestCase):
         self.assertEqual(load(os.path.join(proj, "canworks", "canworks.json"))["networks"][0]["slave"]["eds"],
                          "openplc-slave.eds")
 
-    def test_clash_keys(self):
-        from canworks import clash
-        self.assertIn("comm_ok_location", clash.LOCATION_KEYS)
-        self.assertIn("sync_count_location", clash.LOCATION_KEYS)
-
-
 class Declarations(unittest.TestCase):
     def test_slave_declarations(self):
         path = os.path.join(SLAVE, "canopen_config.json")
         decls = editorproject.declarations(load(path), path)
         block = declare.st_block(decls)
         self.assertIn("line_speed_setpoint AT %IW300 : UINT;", block)
-        self.assertIn("line_mode           AT %IB300 : USINT;", block)  # named from the EDS ParameterName
-        self.assertIn("line_run            AT %IX300.0 : BOOL;", block)
-        self.assertIn("line_temperature    AT %QW302 : INT;", block)
-        self.assertIn("line_comm_ok        AT %IX300.1 : BOOL;", block)
-        self.assertIn("line_emcy           AT %QW303 : WORD;", block)
+        self.assertIn("line_mode           AT %IB302 : USINT;", block)  # named from the EDS ParameterName
+        self.assertIn("line_run            AT %IX303.0 : BOOL;", block)
+        self.assertIn("line_temperature    AT %QW304 : INT;", block)
+        self.assertIn("line_comm_ok        AT %IX303.1 : BOOL;", block)
+        self.assertIn("line_emcy           AT %QW306 : WORD;", block)
         self.assertEqual([d["location"][:2] for d in decls], ["%I"] * 6 + ["%Q"] * 5)  # inputs first
 
     def test_without_eds_names(self):
         cfg = load(os.path.join(SLAVE, "canopen_config.json"))
         decls = declare.declarations(cfg, lambda i, ix, sub: None, {"networks[0].slave.objects[0].iec_location": "x"})
         by_loc = {d["location"]: d for d in decls}
-        self.assertEqual((by_loc["%IB300"]["name"], by_loc["%IB300"]["type"]), ("line_x2001_1", "USINT"))
+        self.assertEqual((by_loc["%IB302"]["name"], by_loc["%IB302"]["type"]), ("line_x2001_1", "USINT"))
         self.assertEqual(by_loc["%IW300"]["declared_as"], "x")
-        self.assertEqual(by_loc["%QW302"]["type"], "UINT")  # from the size when the type is unknown
-
-    def test_gateway_project_program(self):
-        path = os.path.join(GATEWAY, "canopen_config.json")
-        text = editorproject.program(load(path), path)
-        self.assertIn("field_pingpong_ok", text)
-        self.assertIn("upper_field_ok", text)
-        self.assertIn("upper_comm_ok", text)
-        self.assertLess(text.index("field_pingpong_ok"), text.index("upper_comm_ok"))
+        self.assertEqual(by_loc["%QW304"]["type"], "UINT")  # from the size when the type is unknown
 
     def test_layout_uses(self):
         cfg = load(os.path.join(SLAVE, "canopen_config.json"))

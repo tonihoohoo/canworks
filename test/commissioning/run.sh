@@ -14,9 +14,9 @@
 #    with --store survives a power cycle, restore-defaults --reset brings the
 #    EDS values back, a DCF of another product and one for another node ID
 #    are refused, and a PDO test with SYNC from the PC receives TPDO1.
-# 2. The real libcanworks_plugin.so in canopen_host as master of node 5:
-#    configure through the plugin's diagnostics channel is refused, because
-#    the plugin writes node 5's configuration at every boot.
+# 2. The canworks engine in canopen_host as master of node 5:
+#    configure through the engine's diagnostics channel is refused, because
+#    the engine writes node 5's configuration at every boot.
 #
 # Needs a build of this repo and an UP interface (sudo scripts/dev-setup.sh),
 # and python-can for the deploy tool package.
@@ -38,10 +38,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SIM="$BUILD/bin/canworks-canopen-sim"
-for f in "$PLUGIN" "$HOST" "$SIM"; do
+for f in "$HOST" "$SIM"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -79,13 +78,14 @@ python3 - "$ROOT/config/rtd-sensor/canopen_config.json" "$WORK/canopen_config.js
 import json, os, sys
 from canworks.diag import token_verifier
 cfg = json.load(open(sys.argv[1]))
-cfg["adapter"]["interface"] = sys.argv[3]
-cfg["adapter"]["configure_link"] = False
-cfg["master"]["diagnostics"] = {
+net = cfg["networks"][0]
+net["adapter"]["interface"] = sys.argv[3]
+net["adapter"]["configure_link"] = False
+cfg["diagnostics"] = {
     "token_verifier": token_verifier(os.environ["CANWORKS_TOKEN"]),
     "port": int(sys.argv[4]), "bind": "127.0.0.1", "allow_changes": True}
 # A remap: TPDO1 with two of its four entries.
-cfg["nodes"][0]["tx_pdos"][0]["entries"] = cfg["nodes"][0]["tx_pdos"][0]["entries"][:2]
+net["nodes"][0]["tx_pdos"][0]["entries"] = net["nodes"][0]["tx_pdos"][0]["entries"][:2]
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)
 PY
 python3 -c 'import sys; from canworks import cli; sys.exit(cli.main(sys.argv[1:]))' \
@@ -169,9 +169,9 @@ grep -q "the source is for node 7 and the device is node 5" node7.txt || { cat n
 grep -Eq "TPDO1 0x185: [1-9][0-9]* received" pdo.txt || fail "no TPDO1 in the PDO test"
 grep -q "SYNC every 50 ms" pdo.txt || fail "no SYNC in the PDO test"
 
-echo "==> 2. With the plugin as master: refused, the plugin configures node 5"
+echo "==> 2. With the engine as master: refused, the engine configures node 5"
 simcmd fault 5 reset node > /dev/null 2>&1
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
+"$HOST" "$WORK/canopen_config.json" 60 rtd > "$WORK/host.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 40); do
     if "${REMOTE[@]}" --json status 2>/dev/null |
@@ -181,7 +181,7 @@ for _ in $(seq 1 40); do
     sleep 0.5
 done
 if "${REMOTE[@]}" configure 5 --from-node 5 --config canopen_config.json --yes > runtime.txt 2>&1; then
-    fail "configure through the plugin was not refused"
+    fail "configure through the engine was not refused"
 fi
 grep -q "writes node 5's configuration at every boot" runtime.txt || { cat runtime.txt; fail "runtime refusal reason"; }
 echo "PASS"

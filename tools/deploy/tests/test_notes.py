@@ -16,7 +16,7 @@ from canworks.eds import Eds
 
 from .helpers import REPO, tmpdir
 
-SERVO = os.path.join(REPO, "config", "cia402-drive", "servo402.eds")
+SERVO = os.path.join(REPO, "test", "fixtures", "eds", "drives", "servo402.eds")
 RTD = os.path.join(REPO, "config", "rtd-sensor", "rtd8.eds")
 DIO = os.path.join(REPO, "examples", "virtual-plant", "canworks", "dio16.eds")
 BUILTIN = os.path.join(REPO, "tools", "deploy", "canworks", "builtin_notes")

@@ -346,7 +346,7 @@ class CommissionPage(AdapterPage):
 
     def test_boot_between_two_answers_is_logged(self):
         # A reset and boot both between two status answers: the state stays
-        # OPERATIONAL, the plugin's boot count goes up, and the log says Booted.
+        # OPERATIONAL, the bridge's boot count goes up, and the log says Booted.
         pg = self.page
         self.device(7, heartbeat_s=0.05)
         self.commission()

@@ -1,7 +1,7 @@
 """DBC-style multiplexed signals (spec can-multiplexed-signals), shared by
 raw CAN messages and J1939: the `multiplexer` and `mux` fields of a signal,
 their checks, which signals a frame carries (its page), the page list of a
-send entry and which signals can share a frame. The plugin has the same
+send entry and which signals can share a frame. The bridge has the same
 rules in plugin/src/can/mux.*; both are checked against the multiplexing
 cases of test/fixtures/config/cases-raw.json and cases-j1939.json.
 

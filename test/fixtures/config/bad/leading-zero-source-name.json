@@ -3,18 +3,12 @@
   "message": "leading zero: write 100 or 0x64",
   "config": {
     "schema_version": 2,
+    "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
     "networks": [
       {
         "name": "io",
-        "adapter": {
-          "type": "socketcan",
-          "interface": "vcan0",
-          "bitrate": 125000
-        },
-        "master": {
-          "node_id": 1,
-          "sync_period_us": 100000
-        },
+        "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+        "master": { "node_id": 1, "sync_period_us": 100000 },
         "nodes": [
           {
             "node_id": 2,
@@ -22,41 +16,15 @@
             "eds": "cpp-slave.eds",
             "heartbeat_ms": 100,
             "status_location": "%IX10.0",
-            "tx_pdos": [
-              {
-                "entries": [
-                  {
-                    "index": "0x4001",
-                    "subindex": 0,
-                    "type": "UNSIGNED32",
-                    "iec_location": "%ID100"
-                  }
-                ]
-              }
-            ],
-            "rx_pdos": [
-              {
-                "entries": [
-                  {
-                    "index": "0x4000",
-                    "subindex": 0,
-                    "type": "UNSIGNED32",
-                    "iec_location": "%QD100"
-                  }
-                ]
-              }
-            ]
+            "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+            "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ]
           }
         ]
       },
       {
         "name": "machine",
         "protocol": "j1939",
-        "adapter": {
-          "type": "socketcan",
-          "interface": "vcan1",
-          "bitrate": 250000
-        },
+        "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 250000 },
         "j1939": {
           "ecu": {
             "name": {
@@ -67,10 +35,7 @@
               "arbitrary_address_capable": true
             },
             "address": 128,
-            "address_range": [
-              128,
-              135
-            ],
+            "address_range": [ 128, 135 ],
             "state_location": "%IB200",
             "address_location": "%IB201"
           },
@@ -90,13 +55,7 @@
                   "iec_location": "%IW210",
                   "valid_location": "%IX202.1"
                 },
-                {
-                  "name": "Temp",
-                  "start_bit": 16,
-                  "length": 8,
-                  "signed": true,
-                  "iec_location": "%IB204"
-                }
+                { "name": "Temp", "start_bit": 16, "length": 8, "signed": true, "iec_location": "%IB204" }
               ],
               "source_name": "0100"
             }
@@ -108,28 +67,12 @@
               "priority": 6,
               "period_ms": 100,
               "signals": [
-                {
-                  "name": "Setpoint",
-                  "start_bit": 0,
-                  "length": 16,
-                  "iec_location": "%QW210"
-                },
-                {
-                  "name": "Run",
-                  "start_bit": 16,
-                  "length": 1,
-                  "iec_location": "%QX202.0"
-                }
+                { "name": "Setpoint", "start_bit": 0, "length": 16, "iec_location": "%QW210" },
+                { "name": "Run", "start_bit": 16, "length": 1, "iec_location": "%QX202.0" }
               ]
             }
           ],
-          "requests": [
-            {
-              "pgn": 65282,
-              "destination": 0,
-              "period_ms": 1000
-            }
-          ]
+          "requests": [ { "pgn": 65282, "destination": 0, "period_ms": 1000 } ]
         }
       }
     ]

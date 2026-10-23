@@ -388,11 +388,11 @@ bool parse_behaviour(const cJSON* o, NodeBehaviour& b, const std::string& dir, b
     return false;
   }
   if (extra) {
-    if (!known_keys(o, {"default_behaviour", "tick_ms", "sources", "drive", "faults", "identity", "device_type", "node",
+    if (!known_keys(o, {"default_behaviour", "tick_ms", "sources", "faults", "identity", "device_type", "node",
                         "name", "eds"},
                     err))
       return false;
-  } else if (!known_keys(o, {"default_behaviour", "tick_ms", "sources", "drive", "faults", "identity", "device_type"},
+  } else if (!known_keys(o, {"default_behaviour", "tick_ms", "sources", "faults", "identity", "device_type"},
                          err)) {
     return false;
   }
@@ -424,32 +424,6 @@ bool parse_behaviour(const cJSON* o, NodeBehaviour& b, const std::string& dir, b
       }
       b.sources.emplace_back(k, sim_json_text(c));
     }
-  }
-  const cJSON* drive = cJSON_GetObjectItemCaseSensitive(o, "drive");
-  if (drive) {
-    // The engine reads the settings (sim_drive.h); the keys are checked here.
-    std::string e;
-    if (!cJSON_IsObject(drive) ||
-        !known_keys(drive, {"max_velocity", "max_acceleration", "lag_ms", "start_position", "torque_accel",
-                            "sync_watchdog"}, e)) {
-      err = "drive: " + (e.empty() ? std::string("must be an object") : e);
-      return false;
-    }
-    for (const cJSON* c = drive->child; c; c = c->next) {
-      if (std::string(c->string) == "sync_watchdog") {
-        if (!cJSON_IsBool(c)) {
-          err = "drive: \"sync_watchdog\" must be true or false";
-          return false;
-        }
-        continue;
-      }
-      if (!cJSON_IsNumber(c)) {
-        err = std::string("drive: \"") + c->string + "\" must be a number";
-        return false;
-      }
-    }
-    b.has_drive = true;
-    b.drive_json = sim_json_text(drive);
   }
   const cJSON* faults = cJSON_GetObjectItemCaseSensitive(o, "faults");
   if (faults) {
@@ -572,7 +546,7 @@ bool parse_device_ref(const cJSON* v, std::string& out) {
 
 bool is_clear_name(const std::string& n) {
   for (const char* k : {"all", "emcy", "heartbeat", "power", "sdo_abort", "sdo_delay", "refuse_write_operational",
-                        "tpdo_stop", "identity", "device_type", "drive_input"})
+                        "tpdo_stop", "identity", "device_type"})
     if (n == k) return true;
   return false;
 }
@@ -740,20 +714,6 @@ bool parse_fault(const cJSON* o, Fault& f, std::string& err) {
     if (!parse_u32(v, f.value)) {
       err = "device_type must be a 32-bit number";
       return false;
-    }
-    return true;
-  }
-  if (f.kind == "drive_input") {
-    if (!cJSON_IsObject(v) || !v->child || !known_keys(v, {"blocked", "positive_limit", "negative_limit", "home_switch"}, err)) {
-      err = "drive_input: " + (err.empty() ? std::string("must name blocked, positive_limit, negative_limit or home_switch") : err);
-      return false;
-    }
-    for (const cJSON* c = v->child; c; c = c->next) {
-      if (!cJSON_IsBool(c)) {
-        err = std::string("drive_input: \"") + c->string + "\" must be true or false";
-        return false;
-      }
-      f.inputs[c->string] = cJSON_IsTrue(c);
     }
     return true;
   }

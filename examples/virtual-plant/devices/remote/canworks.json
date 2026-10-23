@@ -1,0 +1,768 @@
+{
+  "name": "canworks",
+  "protocol": "modbus-tcp",
+  "modbusTcpConfig": {
+    "transport": "tcp",
+    "host": "127.0.0.1",
+    "port": 1502,
+    "timeout": 1000,
+    "slaveId": 1,
+    "ioGroups": [
+      {
+        "id": "fa8824a6-cd35-5920-ac66-f88c15f9a4a2",
+        "name": "out_header_0",
+        "functionCode": "16",
+        "cycleTime": 10,
+        "offset": "0",
+        "length": 3,
+        "errorHandling": "keep-last-value",
+        "ioPoints": [
+          {
+            "id": "out_header_0_0",
+            "name": "out_header_0_0",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW100",
+            "alias": "cw_plc_link"
+          },
+          {
+            "id": "out_header_0_1",
+            "name": "out_header_0_1",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW101",
+            "alias": "cw_plc_link_w1"
+          },
+          {
+            "id": "out_header_0_2",
+            "name": "out_header_0_2",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW102",
+            "alias": "cw_plc_link_w2"
+          }
+        ]
+      },
+      {
+        "id": "6f0ac4c3-9d99-56de-91d2-a8f1e5709741",
+        "name": "in_bridge_0",
+        "functionCode": "4",
+        "cycleTime": 10,
+        "offset": "0",
+        "length": 6,
+        "errorHandling": "set-to-zero",
+        "ioPoints": [
+          {
+            "id": "in_bridge_0_0",
+            "name": "in_bridge_0_0",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW100",
+            "alias": "cw_map_hash"
+          },
+          {
+            "id": "in_bridge_0_1",
+            "name": "in_bridge_0_1",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW101",
+            "alias": "cw_map_hash_w1"
+          },
+          {
+            "id": "in_bridge_0_2",
+            "name": "in_bridge_0_2",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW102",
+            "alias": "cw_status"
+          },
+          {
+            "id": "in_bridge_0_3",
+            "name": "in_bridge_0_3",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW103",
+            "alias": "cw_status_w1"
+          },
+          {
+            "id": "in_bridge_0_4",
+            "name": "in_bridge_0_4",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW104",
+            "alias": "cw_status_w2"
+          },
+          {
+            "id": "in_bridge_0_5",
+            "name": "in_bridge_0_5",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW105",
+            "alias": "cw_status_w3"
+          }
+        ]
+      },
+      {
+        "id": "5fa2a173-5e66-5db8-9d88-5be218b34a8b",
+        "name": "in_data_6",
+        "functionCode": "4",
+        "cycleTime": 10,
+        "offset": "6",
+        "length": 35,
+        "errorHandling": "keep-last-value",
+        "ioPoints": [
+          {
+            "id": "in_data_6_0",
+            "name": "in_data_6_0",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW106",
+            "alias": "io_rtd_AI0_Input_PV"
+          },
+          {
+            "id": "in_data_6_1",
+            "name": "in_data_6_1",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW107",
+            "alias": "io_rtd_AI1_Input_PV"
+          },
+          {
+            "id": "in_data_6_2",
+            "name": "in_data_6_2",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW108",
+            "alias": "io_rtd_AI2_Input_PV"
+          },
+          {
+            "id": "in_data_6_3",
+            "name": "in_data_6_3",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW109",
+            "alias": "io_rtd_AI3_Input_PV"
+          },
+          {
+            "id": "in_data_6_4",
+            "name": "in_data_6_4",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW110",
+            "alias": "io_dio_Read_input_8_bit_1"
+          },
+          {
+            "id": "in_data_6_5",
+            "name": "in_data_6_5",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW111",
+            "alias": "io_dio_Read_analogue_input_1"
+          },
+          {
+            "id": "in_data_6_6",
+            "name": "in_data_6_6",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW112",
+            "alias": "io_dio_Read_analogue_input_2"
+          },
+          {
+            "id": "in_data_6_7",
+            "name": "in_data_6_7",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW113",
+            "alias": "io_dio_operating_hours"
+          },
+          {
+            "id": "in_data_6_8",
+            "name": "in_data_6_8",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW114",
+            "alias": "io_dio_operating_hours_w1"
+          },
+          {
+            "id": "in_data_6_9",
+            "name": "in_data_6_9",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW115",
+            "alias": "io_new_io_Read_input_8_bit_1"
+          },
+          {
+            "id": "in_data_6_10",
+            "name": "in_data_6_10",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW116",
+            "alias": "motion_conveyor_speed_actual"
+          },
+          {
+            "id": "in_data_6_11",
+            "name": "in_data_6_11",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW117",
+            "alias": "motion_conveyor_belt_position"
+          },
+          {
+            "id": "in_data_6_12",
+            "name": "in_data_6_12",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW118",
+            "alias": "motion_conveyor_belt_position_w1"
+          },
+          {
+            "id": "in_data_6_13",
+            "name": "in_data_6_13",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW119",
+            "alias": "host_cell_alarm"
+          },
+          {
+            "id": "in_data_6_14",
+            "name": "in_data_6_14",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW120",
+            "alias": "cell_temp_limit"
+          },
+          {
+            "id": "in_data_6_15",
+            "name": "in_data_6_15",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW121",
+            "alias": "host_cell_belt_position"
+          },
+          {
+            "id": "in_data_6_16",
+            "name": "in_data_6_16",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW122",
+            "alias": "host_cell_belt_position_w1"
+          },
+          {
+            "id": "in_data_6_17",
+            "name": "in_data_6_17",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW123",
+            "alias": "host_cell_cycle_count"
+          },
+          {
+            "id": "in_data_6_18",
+            "name": "in_data_6_18",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW124",
+            "alias": "host_cell_cycle_count_w1"
+          },
+          {
+            "id": "in_data_6_19",
+            "name": "in_data_6_19",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW125",
+            "alias": "host_cell_temperature"
+          },
+          {
+            "id": "in_data_6_20",
+            "name": "in_data_6_20",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW126",
+            "alias": "host_cell_Nodes_0_31"
+          },
+          {
+            "id": "in_data_6_21",
+            "name": "in_data_6_21",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW127",
+            "alias": "host_cell_Nodes_0_31_w1"
+          },
+          {
+            "id": "in_data_6_22",
+            "name": "in_data_6_22",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW128",
+            "alias": "host_cell_Nodes_0_31_2"
+          },
+          {
+            "id": "in_data_6_23",
+            "name": "in_data_6_23",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW129",
+            "alias": "host_cell_Nodes_0_31_2_w1"
+          },
+          {
+            "id": "in_data_6_24",
+            "name": "in_data_6_24",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW130",
+            "alias": "io_can_bus_state"
+          },
+          {
+            "id": "in_data_6_25",
+            "name": "in_data_6_25",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW131",
+            "alias": "io_rtd_ok"
+          },
+          {
+            "id": "in_data_6_26",
+            "name": "in_data_6_26",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW132",
+            "alias": "io_rtd_emcy"
+          },
+          {
+            "id": "in_data_6_27",
+            "name": "in_data_6_27",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW133",
+            "alias": "io_dio_state"
+          },
+          {
+            "id": "in_data_6_28",
+            "name": "in_data_6_28",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW134",
+            "alias": "io_dio_emcy"
+          },
+          {
+            "id": "in_data_6_29",
+            "name": "in_data_6_29",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW135",
+            "alias": "io_dio_operating_hours_status"
+          },
+          {
+            "id": "in_data_6_30",
+            "name": "in_data_6_30",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW136",
+            "alias": "motion_can_master_state"
+          },
+          {
+            "id": "in_data_6_31",
+            "name": "in_data_6_31",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW137",
+            "alias": "motion_conveyor_emcy"
+          },
+          {
+            "id": "in_data_6_32",
+            "name": "in_data_6_32",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW138",
+            "alias": "host_can_master_state"
+          },
+          {
+            "id": "in_data_6_33",
+            "name": "in_data_6_33",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW139",
+            "alias": "host_cell_state"
+          },
+          {
+            "id": "in_data_6_34",
+            "name": "in_data_6_34",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW140",
+            "alias": "host_cell_emcy"
+          }
+        ]
+      },
+      {
+        "id": "1886e0ce-1054-5f99-9802-1d7d54bbd20e",
+        "name": "in_bridge_41",
+        "functionCode": "4",
+        "cycleTime": 10,
+        "offset": "41",
+        "length": 31,
+        "errorHandling": "set-to-zero",
+        "ioPoints": [
+          {
+            "id": "in_bridge_41_0",
+            "name": "in_bridge_41_0",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW141",
+            "alias": "cw_live_list_io"
+          },
+          {
+            "id": "in_bridge_41_1",
+            "name": "in_bridge_41_1",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW142",
+            "alias": "cw_live_list_io_w1"
+          },
+          {
+            "id": "in_bridge_41_2",
+            "name": "in_bridge_41_2",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW143",
+            "alias": "cw_live_list_io_w2"
+          },
+          {
+            "id": "in_bridge_41_3",
+            "name": "in_bridge_41_3",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW144",
+            "alias": "cw_live_list_io_w3"
+          },
+          {
+            "id": "in_bridge_41_4",
+            "name": "in_bridge_41_4",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW145",
+            "alias": "cw_live_list_io_w4"
+          },
+          {
+            "id": "in_bridge_41_5",
+            "name": "in_bridge_41_5",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW146",
+            "alias": "cw_live_list_io_w5"
+          },
+          {
+            "id": "in_bridge_41_6",
+            "name": "in_bridge_41_6",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW147",
+            "alias": "cw_live_list_io_w6"
+          },
+          {
+            "id": "in_bridge_41_7",
+            "name": "in_bridge_41_7",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW148",
+            "alias": "cw_live_list_io_w7"
+          },
+          {
+            "id": "in_bridge_41_8",
+            "name": "in_bridge_41_8",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW149",
+            "alias": "cw_live_list_motion"
+          },
+          {
+            "id": "in_bridge_41_9",
+            "name": "in_bridge_41_9",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW150",
+            "alias": "cw_live_list_motion_w1"
+          },
+          {
+            "id": "in_bridge_41_10",
+            "name": "in_bridge_41_10",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW151",
+            "alias": "cw_live_list_motion_w2"
+          },
+          {
+            "id": "in_bridge_41_11",
+            "name": "in_bridge_41_11",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW152",
+            "alias": "cw_live_list_motion_w3"
+          },
+          {
+            "id": "in_bridge_41_12",
+            "name": "in_bridge_41_12",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW153",
+            "alias": "cw_live_list_motion_w4"
+          },
+          {
+            "id": "in_bridge_41_13",
+            "name": "in_bridge_41_13",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW154",
+            "alias": "cw_live_list_motion_w5"
+          },
+          {
+            "id": "in_bridge_41_14",
+            "name": "in_bridge_41_14",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW155",
+            "alias": "cw_live_list_motion_w6"
+          },
+          {
+            "id": "in_bridge_41_15",
+            "name": "in_bridge_41_15",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW156",
+            "alias": "cw_live_list_motion_w7"
+          },
+          {
+            "id": "in_bridge_41_16",
+            "name": "in_bridge_41_16",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW157",
+            "alias": "cw_live_list_host"
+          },
+          {
+            "id": "in_bridge_41_17",
+            "name": "in_bridge_41_17",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW158",
+            "alias": "cw_live_list_host_w1"
+          },
+          {
+            "id": "in_bridge_41_18",
+            "name": "in_bridge_41_18",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW159",
+            "alias": "cw_live_list_host_w2"
+          },
+          {
+            "id": "in_bridge_41_19",
+            "name": "in_bridge_41_19",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW160",
+            "alias": "cw_live_list_host_w3"
+          },
+          {
+            "id": "in_bridge_41_20",
+            "name": "in_bridge_41_20",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW161",
+            "alias": "cw_live_list_host_w4"
+          },
+          {
+            "id": "in_bridge_41_21",
+            "name": "in_bridge_41_21",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW162",
+            "alias": "cw_live_list_host_w5"
+          },
+          {
+            "id": "in_bridge_41_22",
+            "name": "in_bridge_41_22",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW163",
+            "alias": "cw_live_list_host_w6"
+          },
+          {
+            "id": "in_bridge_41_23",
+            "name": "in_bridge_41_23",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW164",
+            "alias": "cw_live_list_host_w7"
+          },
+          {
+            "id": "in_bridge_41_24",
+            "name": "in_bridge_41_24",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW165",
+            "alias": "cw_sdo_bridge_response"
+          },
+          {
+            "id": "in_bridge_41_25",
+            "name": "in_bridge_41_25",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW166",
+            "alias": "cw_sdo_bridge_response_w1"
+          },
+          {
+            "id": "in_bridge_41_26",
+            "name": "in_bridge_41_26",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW167",
+            "alias": "cw_sdo_bridge_response_w2"
+          },
+          {
+            "id": "in_bridge_41_27",
+            "name": "in_bridge_41_27",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW168",
+            "alias": "cw_sdo_bridge_response_w3"
+          },
+          {
+            "id": "in_bridge_41_28",
+            "name": "in_bridge_41_28",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW169",
+            "alias": "cw_sdo_bridge_response_w4"
+          },
+          {
+            "id": "in_bridge_41_29",
+            "name": "in_bridge_41_29",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW170",
+            "alias": "cw_sdo_bridge_response_w5"
+          },
+          {
+            "id": "in_bridge_41_30",
+            "name": "in_bridge_41_30",
+            "type": "Analog Input (Input Register)",
+            "iecLocation": "%IW171",
+            "alias": "cw_sdo_bridge_response_w6"
+          }
+        ]
+      },
+      {
+        "id": "be4ef6a7-d474-58a6-be38-9af9cef3b3ca",
+        "name": "out_data_3",
+        "functionCode": "16",
+        "cycleTime": 10,
+        "offset": "3",
+        "length": 25,
+        "errorHandling": "keep-last-value",
+        "ioPoints": [
+          {
+            "id": "out_data_3_0",
+            "name": "out_data_3_0",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW103",
+            "alias": "io_dio_Write_output_8_bit_1"
+          },
+          {
+            "id": "out_data_3_1",
+            "name": "out_data_3_1",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW104",
+            "alias": "io_dio_Write_analogue_output_2"
+          },
+          {
+            "id": "out_data_3_2",
+            "name": "out_data_3_2",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW105",
+            "alias": "io_dio_filter_time"
+          },
+          {
+            "id": "out_data_3_3",
+            "name": "out_data_3_3",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW106",
+            "alias": "io_new_io_Write_output_8_bit_1"
+          },
+          {
+            "id": "out_data_3_4",
+            "name": "out_data_3_4",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW107",
+            "alias": "motion_conveyor_speed_setpoint"
+          },
+          {
+            "id": "out_data_3_5",
+            "name": "out_data_3_5",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW108",
+            "alias": "host_cell_line_run"
+          },
+          {
+            "id": "out_data_3_6",
+            "name": "out_data_3_6",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW109",
+            "alias": "cell_belt_position"
+          },
+          {
+            "id": "out_data_3_7",
+            "name": "out_data_3_7",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW110",
+            "alias": "cell_belt_position_w1"
+          },
+          {
+            "id": "out_data_3_8",
+            "name": "out_data_3_8",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW111",
+            "alias": "cell_cycle_count"
+          },
+          {
+            "id": "out_data_3_9",
+            "name": "out_data_3_9",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW112",
+            "alias": "cell_cycle_count_w1"
+          },
+          {
+            "id": "out_data_3_10",
+            "name": "out_data_3_10",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW113",
+            "alias": "host_cell_temp_limit"
+          },
+          {
+            "id": "out_data_3_11",
+            "name": "out_data_3_11",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW114",
+            "alias": "host_cell_analog_out"
+          },
+          {
+            "id": "out_data_3_12",
+            "name": "out_data_3_12",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW115",
+            "alias": "io_dio_filter_time_trig"
+          },
+          {
+            "id": "out_data_3_13",
+            "name": "out_data_3_13",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW116",
+            "alias": "cell_emcy"
+          },
+          {
+            "id": "out_data_3_14",
+            "name": "out_data_3_14",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW117",
+            "alias": "cell_errreg"
+          },
+          {
+            "id": "out_data_3_15",
+            "name": "out_data_3_15",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW118",
+            "alias": "cw_control"
+          },
+          {
+            "id": "out_data_3_16",
+            "name": "out_data_3_16",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW119",
+            "alias": "cw_control_w1"
+          },
+          {
+            "id": "out_data_3_17",
+            "name": "out_data_3_17",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW120",
+            "alias": "cw_control_w2"
+          },
+          {
+            "id": "out_data_3_18",
+            "name": "out_data_3_18",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW121",
+            "alias": "cw_sdo_bridge_request"
+          },
+          {
+            "id": "out_data_3_19",
+            "name": "out_data_3_19",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW122",
+            "alias": "cw_sdo_bridge_request_w1"
+          },
+          {
+            "id": "out_data_3_20",
+            "name": "out_data_3_20",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW123",
+            "alias": "cw_sdo_bridge_request_w2"
+          },
+          {
+            "id": "out_data_3_21",
+            "name": "out_data_3_21",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW124",
+            "alias": "cw_sdo_bridge_request_w3"
+          },
+          {
+            "id": "out_data_3_22",
+            "name": "out_data_3_22",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW125",
+            "alias": "cw_sdo_bridge_request_w4"
+          },
+          {
+            "id": "out_data_3_23",
+            "name": "out_data_3_23",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW126",
+            "alias": "cw_sdo_bridge_request_w5"
+          },
+          {
+            "id": "out_data_3_24",
+            "name": "out_data_3_24",
+            "type": "Analog Output (Multiple Registers)",
+            "iecLocation": "%QW127",
+            "alias": "cw_sdo_bridge_request_w6"
+          }
+        ]
+      }
+    ]
+  }
+}

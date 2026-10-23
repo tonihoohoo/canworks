@@ -1,25 +1,18 @@
-// engine.h - the networks of one config, whatever runs them: the OpenPLC
-// plugin (plugin.cpp) or the Modbus bridge (bridge/bridge_host.cpp). The host
-// gives the engine a config and a plugin_runtime_args_t for the image
-// exchange: the OpenPLC host passes the runtime's own, the bridge one over
-// its byte image (modbus-bridge design Decision 1).
+// engine.h - the networks of one config, whatever runs them: the Modbus
+// bridge (bridge/bridge_host.cpp) or a test. The host gives the engine a
+// config and an ImageHost (image_io.h) over its byte image.
 
 #ifndef CANWORKS_ENGINE_H
 #define CANWORKS_ENGINE_H
 
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "config.h"
 #include "diag.h"
 #include "network_runtime.h"
-#include "plugin_types.h"
-#include "scan_watchdog.h"
 
 namespace canworks_raw {
 class RawRuntime;
@@ -38,21 +31,21 @@ class Engine {
 
   // Loads the config, checks every network and makes them; false (with the
   // reasons logged) when the config is rejected. Nothing is opened yet.
-  bool prepare(const std::string& path, const ImageLimits& limits, uint64_t base_tick_ns, const char* version);
+  bool prepare(const std::string& path, const ImageLimits& limits, const char* version);
   // Before prepare(): the host's part of the diagnostics channel.
   void set_diag_host(DiagHost host) { diag_host_ = std::move(host); }
   // Only loads and checks a config, logging as prepare() does; makes nothing.
   // `problems`, when given, gets the reasons of a rejection.
   static bool check(const std::string& path, const ImageLimits& limits, std::vector<std::string>* problems = nullptr);
   // Starts the networks, raw paths and diagnostics channel, and opens the
-  // PLC request tables.
+  // request queues (SDO, J1939 jobs).
   void start();
   // Stops everything started; idempotent.
   void stop();
 
   // The scan hooks of every network and raw path.
-  void cycle_start(const plugin_runtime_args_t& rt);
-  void cycle_end(const plugin_runtime_args_t& rt);
+  void cycle_start(ImageHost& rt);
+  void cycle_end(ImageHost& rt);
 
   const ConfigSet& set() const { return set_; }
   ConfigSet& set() { return set_; }
@@ -77,13 +70,6 @@ class Engine {
   std::unique_ptr<Cia309Server> cia309_;  // with a `cia309` object only
 #endif
   DiagHost diag_host_;
-  // The scan watchdogs of the J1939 and plain CAN networks, and the thread
-  // that checks them while the PLC runs.
-  std::vector<std::unique_ptr<ScanWatchdog>> watchdogs_;
-  std::thread watchdog_thread_;
-  std::mutex watchdog_mutex_;
-  std::condition_variable watchdog_cv_;
-  bool watchdog_stop_ = false;
   bool started_ = false;
 };
 

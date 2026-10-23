@@ -16,8 +16,8 @@ from .test_configurator_server import RTD, Running, read, rtd_node
 
 def sim_config(**adapter):
     adapter = dict({"type": "socketcan", "interface": "can0", "bitrate": 125000}, **adapter)
-    return {"schema_version": 1, "adapter": adapter,
-            "master": {"node_id": 1}, "nodes": [rtd_node()]}
+    return {"schema_version": 2, "networks": [{"adapter": adapter, "master": {"node_id": 1}, "nodes": [rtd_node()]}],
+            "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}}
 
 
 class Sim(Running):
@@ -37,13 +37,14 @@ class Sim(Running):
 class File(Sim):
     def test_config_with_simulate_fields_saves(self):
         cfg = sim_config(simulate=True)
-        cfg["nodes"][0]["simulate"] = False
+        cfg["networks"][0]["nodes"][0]["simulate"] = False
         out = self.ok("POST", "/api/save", {"config": cfg})
         self.assertEqual(out["check"]["errors"], 0, out["check"]["items"])
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))
-        self.assertEqual(list(saved["adapter"]), ["type", "simulate", "interface", "bitrate"])
-        self.assertIs(saved["nodes"][0]["simulate"], False)
-        self.assertEqual(list(saved["nodes"][0])[:4], ["node_id", "name", "eds", "simulate"])
+        net = saved["networks"][0]
+        self.assertEqual(list(net["adapter"]), ["type", "simulate", "interface", "bitrate"])
+        self.assertIs(net["nodes"][0]["simulate"], False)
+        self.assertEqual(list(net["nodes"][0])[:4], ["node_id", "name", "eds", "simulate"])
 
     def test_state_reads_the_simulation_file(self):
         st = self.ok("GET", "/api/state")["simulation"]
@@ -106,9 +107,9 @@ class File(Sim):
         self.assertEqual(simulation.check({"schema_version": 2}), [])  # no sections: default behaviour
 
     def test_check_and_save_refuse_what_the_plugin_refuses(self):
-        # Against the saved config, as the plugin loads the file (D3, D19).
+        # Against the saved config, as the bridge loads the file (D3, D19).
         cfg = sim_config()
-        cfg["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
+        cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
         self.ok("POST", "/api/save", {"config": cfg})
         doc = {"schema_version": 1, "nodes": {"5": {"sources": {"0x6110:1": {"constant": 1}},
                                                     "faults": [{"tpdo_stop": 9}]}},
@@ -240,7 +241,7 @@ class Offline(Sim):
 
     def test_with_the_real_checker(self):
         # The configurator's own simfile, not a stand-in: errors are shown
-        # without a runtime, with the plugin's positions.
+        # without a runtime, with the bridge's positions.
         self.ok("POST", "/api/save", {"config": sim_config()})
         r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
         self.assertEqual((r["checked"], r["ok"], r["position"], r["by"]), (True, False, 4, "configurator"))

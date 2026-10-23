@@ -16,13 +16,12 @@ import time
 from .ssh import SshError, quote
 
 RAW = "https://raw.githubusercontent.com/tonihoohoo/canworks"
-ACTIONS = ("install_openplc", "install_plugin", "uninstall_plugin", "install_bridge", "bridge_config",
-           "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off",
-           "install_openplc_bridge")
+ACTIONS = ("install_openplc_bridge", "install_bridge", "bridge_config", "switch_runtime", "uninstall_bridge",
+           "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
 # The actions that start the open project's bridge with its saved config:
-# the bridge alone, or (OpenPLC through Modbus) the runtime and the bridge.
+# the bridge alone, or (an OpenPLC project) the runtime and the bridge.
 BRIDGE_ACTIONS = ("install_bridge", "bridge_config", "install_openplc_bridge")
-_CONFIG = re.compile(r"^/(opt/canworks/lib|etc/canworks-bridge/[A-Za-z0-9_-]{1,64})/canworks\.json$")
+_CONFIG = re.compile(r"^/etc/canworks-bridge/[A-Za-z0-9_-]{1,64}/canworks\.json$")
 MAX_CHUNK = 256 * 1024
 _ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4}$")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
@@ -82,9 +81,9 @@ def _fetch(paths, script, version):
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None, link_config=None, runtime_port=None, pinned_runtime=False):
-    """The root shell lines of one action. `pinned_runtime` puts a managed
-    Docker runtime on the version the release is pinned to (freeze-openplc-runtime)."""
+             bridge_prefix=None, link_config=None, runtime_port=None):
+    """The root shell lines of one action, each running the release's
+    install-bridge.sh or install-link.sh."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
     if not isinstance(version, str) or not _VERSION.match(version):
@@ -113,30 +112,18 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         return [link_sh + " --discovery-only" + served]
     if action == "discovery_off":
         return [link_sh + " --remove-discovery"]
-    runtime = _fetch(paths, "install-runtime.sh", version) + " --version " + v
     bridge = _fetch(paths, "install-bridge.sh", version) + " --version " + v
-    plugin_opts = (" --with-link" if link else "") + ("" if discovery else " --without-discovery")
-    pin = " --pinned-runtime" if pinned_runtime else ""
-    if action == "install_openplc":
-        return [runtime + " --with-openplc --pinned-runtime" + plugin_opts]
-    if action == "install_plugin":
-        return [runtime + pin + plugin_opts]
-    if action == "uninstall_plugin":
-        return [runtime + " --uninstall" + (" --purge" if purge else "")]
-    if action == "install_openplc_bridge":
-        # OpenPLC through Modbus: the runtime when there is none, then the bridge, no plugin.
-        line = runtime + " --with-openplc --pinned-runtime --bridge"
+    if action == "switch_runtime":
+        return [bridge + " --pinned-runtime"]
+    if action in ("install_bridge", "install_openplc_bridge"):
+        # An OpenPLC project or role: the runtime at the pin when there is none.
+        line = bridge + (" --with-openplc --pinned-runtime" if action == "install_openplc_bridge" else "")
         if instance and upload:
             line += " --instance %s --config %s --remove-config-dir" % (quote(instance), quote(upload))
         if link and instance:
             line += " --with-link " + quote(instance)
-        return [line]
-    if action == "install_bridge":
-        line = bridge
-        if instance and upload:
-            line += " --instance %s --config %s --remove-config-dir" % (quote(instance), quote(upload))
-        if link and instance:
-            line += " --with-link " + quote(instance)
+        if not discovery:
+            line += " --without-discovery"
         return [line]
     if action == "bridge_config":
         if not (instance and upload and bridge_prefix):
@@ -158,10 +145,8 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
                 'echo "==> Started %s"' % unit.strip("'")]
     if action == "uninstall_bridge":
         return [bridge + " --uninstall" + (" --purge" if purge else "")]
-    # remove_all: the bridge first (it keeps a link the runtime installed), then the plugin.
-    return ["if [ -x /opt/canworks-bridge/bin/canworks-bridge ] || [ -x /opt/canworks/bin/canworks-bridge ]; then "
-            + bridge + " --uninstall --purge; fi",
-            "if [ -e /opt/canworks/lib/libcanworks_plugin.so ]; then " + runtime + " --uninstall --purge; fi"]
+    # remove_all: the bridge, its configs and the remote link; the OpenPLC runtime stays.
+    return [bridge + " --uninstall --purge"]
 
 
 def job_script(job_id, action, lines, paths):
@@ -325,10 +310,10 @@ HINTS = (
     (re.compile(r"could not reach|could not download|cannot download|Could not resolve host|"
                 r"Temporary failure (in name resolution|resolving)"), "The device lost its connection to github.com "
      "during the install: check its network and start again."),
-    (re.compile(r"no OpenPLC runtime found|OpenPLC runtime did not answer"), "The OpenPLC runtime was not found or "
-     "does not answer: check again; a device with no runtime gets Install OpenPLC Runtime and canworks."),
-    (re.compile(r"cannot pull|RUNTIME_VERSION is not set|the build in .* failed"), "The runtime's Docker image "
-     "changed or could not be read: check again, then start the install again."),
+    (re.compile(r"OpenPLC runtime install failed"), "Upstream's OpenPLC Runtime installer failed (its output is in "
+     "the log); the bridge was not installed. Fix what it names and start again."),
+    (re.compile(r"OpenPLC runtime did not answer"), "The OpenPLC runtime does not answer: check again; the bridge "
+     "was not installed."),
 )
 
 

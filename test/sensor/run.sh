@@ -6,13 +6,13 @@
 # Starts the simulated RTD-8 module (8x RTD, CiA 404) as node 5,
 # driven by its EDS (config/rtd-sensor/rtd8.eds), with every PDO
 # mapping blank, so the only PDO map the device ends up with is the one the
-# master writes from config/rtd-sensor/canopen_config.json. Then loads the real
-# libcanworks_plugin.so through canopen_host with the rtd program. Passes (exit
-# 0) when the node status bit %IX10.0 is TRUE and %IW100-%IW103 follow the
+# master writes from config/rtd-sensor/canopen_config.json. Then runs the
+# canworks engine in canopen_host with the rtd program. Passes (exit
+# 0) when the node status bit %IX10.0 is TRUE and %IW100-%IW106 follow the
 # simulated temperatures, and (with candump) TPDO 1 carries the four 16-bit
 # temperatures, TPDO 2 the four status bytes, and the device's TPDO 3 and 4
 # stay silent. Halfway through, the device reports a sensor break (EMCY
-# 0x5000) and a second later resets it; the plugin must log both.
+# 0x5000) and a second later resets it; the engine must log both.
 # --keep-vendor-pdos starts the device with the EDS's own default mapping
 # instead.
 #
@@ -39,10 +39,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
 SLAVE="$BUILD/test/sensor_slave"
-for f in "$PLUGIN" "$HOST" "$SLAVE"; do
+for f in "$HOST" "$SLAVE"; do
     [ -x "$f" ] || [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP\|,UP"; then
@@ -78,15 +77,15 @@ sleep 0.5
 ( sleep $(( (SECONDS_RUN + 1) / 2 )); kill -USR1 $SLAVE_PID; sleep 1; kill -USR2 $SLAVE_PID ) 2>/dev/null &
 PIDS+=($!)
 
-echo "==> Running the plugin on $IFACE for ${SECONDS_RUN}s against the RTD module (${BLANK:-vendor PDO defaults})"
-"$HOST" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" rtd 2>&1 | tee "$WORK/host.log"
+echo "==> Running the engine on $IFACE for ${SECONDS_RUN}s against the RTD module (${BLANK:-vendor PDO defaults})"
+"$HOST" "$WORK/canopen_config.json" "$SECONDS_RUN" rtd 2>&1 | tee "$WORK/host.log"
 RC=${PIPESTATUS[0]}
 if [ $RC -eq 0 ]; then
     if grep -q "node 5 (rtd): EMCY 0x5000 (device hardware), error register 0x01, manufacturer bytes 01 00 00 00 00" "$WORK/host.log" &&
        grep -q "node 5 (rtd): EMCY error reset" "$WORK/host.log"; then
         echo "==> The sensor break EMCY and its reset were logged"
     else
-        echo "FAIL: the plugin did not log the sensor break EMCY and its reset" >&2
+        echo "FAIL: the engine did not log the sensor break EMCY and its reset" >&2
         RC=1
     fi
 fi

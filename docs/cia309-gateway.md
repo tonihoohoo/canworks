@@ -1,6 +1,6 @@
 # CiA 309-3 gateway
 
-The plugin and `canworks-bridge` can serve their CANopen master networks as a **CiA 309-3 ASCII gateway**: one text line per command (`[1] 1 5 r 0x1018 1 u32`), one line per answer, and unsolicited lines for emergencies, boot-ups and lost nodes. SCADA systems, test benches, shell scripts and other CANopen tools that speak CiA 309-3 reach the network without any canworks code, and a Python script needs nothing but a socket.
+`canworks-bridge` can serve its CANopen master networks as a **CiA 309-3 ASCII gateway**: one text line per command (`[1] 1 5 r 0x1018 1 u32`), one line per answer, and unsolicited lines for emergencies, boot-ups and lost nodes. SCADA systems, test benches, shell scripts and other CANopen tools that speak CiA 309-3 reach the network without any canworks code, and a Python script needs nothing but a socket.
 
 It is off unless the config has a `cia309` object. It does nothing the diagnostics channel ([diagnostics.md](diagnostics.md)) would refuse, uses the same bus-thread path, and never touches the PLC scan.
 
@@ -19,7 +19,7 @@ It is off unless the config has a `cia309` object. It does nothing the diagnosti
 }
 ```
 
-A top-level object in a version 2 file, `master.cia309` in a version 1 file. Every field is optional; `"cia309": {}` is a read-only gateway on `127.0.0.1:7533`.
+A top-level object of the config. Every field is optional; `"cia309": {}` is a read-only gateway on `127.0.0.1:7533`.
 
 | Field | Meaning |
 |---|---|
@@ -32,7 +32,7 @@ A top-level object in a version 2 file, `master.cia309` in a version 1 file. Eve
 | `nets` | Explicit network numbers, `{"<1-127>": "<network name>"}` (version 2 only). Without it network *n* is the *n*-th network of the file. Each network at most one number. |
 | `default_net` | The network a command without a network number goes to before the session's `set network`. With one network that network is the default anyway. |
 
-Unknown fields in `cia309` reject the file (elsewhere they are warnings): the gateway opens a port without a login, so a misspelled setting must not pass unnoticed. A plugin built against a Lely CANopen without its text gateway (`co_gw_txt`) rejects a config with `cia309`, saying so; `scripts/build-lely.sh` builds it.
+Unknown fields in `cia309` reject the file (elsewhere they are warnings): the gateway opens a port without a login, so a misspelled setting must not pass unnoticed. A bridge built against a Lely CANopen without its text gateway (`co_gw_txt`) rejects a config with `cia309`, saying so; `scripts/build-lely.sh` builds it.
 
 The configurator has a "CiA 309-3 gateway" part under Online access; `canworks-deploy --check` and the configurator's Check apply the same rules. The log names the address, the mode and the numbering when the port opens:
 
@@ -53,7 +53,7 @@ canworks-diag --runtime plc.local gateway                   # an interactive pro
 canworks-diag --runtime plc.local gateway --network drives  # the session's default network
 ```
 
-With `--listen` each connection to the local port opens its own gateway session once its first command line has come in (blank lines and comments before it are passed on); the tool on the PC needs no token. A first line that is not a CiA 309-3 command, such as a web page's HTTP request, gets one `ERROR: 101` and the connection is closed: no session is opened and nothing reaches the runtime. A local connection that sends no command line for 300 s is closed. The local port takes 4 connections at a time; a fifth gets `ERROR: 102 (too many local connections, at most 4)` and is closed. `--listen` refuses an address that is not loopback unless `--listen-any` is given. A runtime whose plugin is too old answers `unknown op`, and the command says so. Over the remote link ([remote-access.md](remote-access.md)) it works the same way, since it only uses the diagnostics port.
+With `--listen` each connection to the local port opens its own gateway session once its first command line has come in (blank lines and comments before it are passed on); the tool on the PC needs no token. A first line that is not a CiA 309-3 command, such as a web page's HTTP request, gets one `ERROR: 101` and the connection is closed: no session is opened and nothing reaches the runtime. A local connection that sends no command line for 300 s is closed. The local port takes 4 connections at a time; a fifth gets `ERROR: 102 (too many local connections, at most 4)` and is closed. `--listen` refuses an address that is not loopback unless `--listen-any` is given. A bridge that is too old answers `unknown op`, and the command says so. Over the remote link ([remote-access.md](remote-access.md)) it works the same way, since it only uses the diagnostics port.
 
 A tunnelled session leaves the diagnostics channel's limit of 4 clients and counts towards `max_clients`. A full gateway answers the op `too many gateway clients` (the connection stays a diagnostics one) and a further plain connection one `ERROR: 102` line before it is closed.
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# The plugin's master against the plugin's own slave over SocketCAN: a master
+# The engine's master against canworks' own slave over SocketCAN: a master
 # network on vcan0 and a slave network (node 10, config/slave's EDS) on
 # vcan1, joined by two cangw routes, in one config.
 #
 #   test/slave/run.sh [--build-dir build] [--seconds 12]
 #
-# Loads the real libcanworks_plugin.so through canopen_host with the program
-# `%QW10 := %IW10 + 1` (master) and `%QW300 := %IW300` (slave echo). Passes
+# Runs the canworks engine in canopen_host with the program
+# `%QW12 := %IW12 + 1` (master) and `%QW300 := %IW300` (slave echo). Passes
 # (exit 0) when the master boots node 10, the slave reports communication OK
 # and the counter keeps counting through both networks, and the log shows the
 # slave's NMT states. Then takes the vcan1 -> vcan0 route away: the master
@@ -33,9 +33,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PLUGIN="$BUILD/plugins/libcanworks_plugin.so"
 HOST="$BUILD/test/canopen_host"
-for f in "$PLUGIN" "$HOST"; do
+for f in "$HOST"; do
     [ -f "$f" ] || { echo "missing $f; build the repo first" >&2; exit 2; }
 done
 for i in vcan0 vcan1; do
@@ -57,21 +56,22 @@ cp "$ROOT/config/slave/openplc-slave.eds" "$WORK/"
 cat > "$WORK/canopen_config.json" <<'JSON'
 {
   "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
   "networks": [
     { "name": "plc", "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
       "master": { "node_id": 1, "heartbeat_ms": 100 },
       "nodes": [ { "node_id": 10, "name": "openplc", "eds": "openplc-slave.eds", "heartbeat_ms": 100,
         "heartbeat_timeout_ms": 300, "status_location": "%IX10.0",
         "tx_pdos": [ { "number": 1, "entries": [
-          { "index": "0x2100", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%IW10" } ] } ],
+          { "index": "0x2100", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%IW12" } ] } ],
         "rx_pdos": [ { "number": 1, "entries": [
-          { "index": "0x2000", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%QW10" } ] } ] } ] },
+          { "index": "0x2000", "subindex": 1, "type": "UNSIGNED16", "iec_location": "%QW12" } ] } ] } ] },
     { "name": "line", "role": "slave", "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 250000 },
       "slave": { "node_id": 10, "eds": "openplc-slave.eds",
         "objects": [
           { "index": "0x2000", "subindex": 1, "iec_location": "%IW300" },
           { "index": "0x2100", "subindex": 1, "iec_location": "%QW300" } ],
-        "state_location": "%IB301", "comm_ok_location": "%IX300.0" } }
+        "state_location": "%IB302", "comm_ok_location": "%IX303.0" } }
   ]
 }
 JSON
@@ -86,7 +86,7 @@ cangw -A -s vcan1 -d vcan0 -e
 
 RC=0
 echo "==> Running the master on vcan0 and the slave on vcan1 for ${SECONDS_RUN}s"
-"$BUILD/test/canopen_host" "$PLUGIN" "$WORK/canopen_config.json" "$SECONDS_RUN" slave 2> "$WORK/host.log" || RC=1
+"$BUILD/test/canopen_host" "$WORK/canopen_config.json" "$SECONDS_RUN" slave 2> "$WORK/host.log" || RC=1
 grep -E "\[CANWORKS\]" "$WORK/host.log" | head -40
 
 check_log() {
@@ -108,7 +108,7 @@ echo "==> Again, with the vcan1 -> vcan0 route removed for 3 s halfway"
     sleep 3
     cangw -A -s vcan1 -d vcan0 -e
 ) &
-"$BUILD/test/canopen_host" "$PLUGIN" "$WORK/canopen_config.json" 16 slave 2> "$WORK/host2.log"
+"$BUILD/test/canopen_host" "$WORK/canopen_config.json" 16 slave 2> "$WORK/host2.log"
 if [ $? -ne 0 ]; then
     echo "FAIL: the counter did not run again after the route came back" >&2
     RC=1

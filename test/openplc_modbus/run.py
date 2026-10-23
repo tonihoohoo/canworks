@@ -23,7 +23,11 @@ that image (the header canworks_out writes, the values) and checks:
    then the plugin's threads stop): with on_client_loss "hold" the node
    keeps the last real output, not the zeros;
 4. a PLC built for another map (wrong hash in the header): the bridge takes
-   no output from it.
+   no output from it;
+5. the example with a J1939 network too (examples/j1939's, on a CAN
+   interface this test does not open): the bridge accepts the config, and
+   the remote device and the runtime's model of its modbus_master.json
+   cover the J1939 signals.
 """
 
 import argparse
@@ -158,6 +162,23 @@ def set_byte(words, nbyte, value, current):
     return words
 
 
+def with_j1939(work):
+    """Step 5: the example with examples/j1939's network as an OpenPLC through
+    Modbus config, checked by the bridge, the remote device and the model."""
+    with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    with open(os.path.join(ROOT, "examples", "j1939", "canworks.json"), encoding="utf-8") as f:
+        net = json.load(f)["networks"][0]
+    shutil.copy(os.path.join(ROOT, "examples", "j1939", net["j1939"]["dbc"]), work)
+    del cfg["bridge"]
+    cfg["networks"].append(net)
+    cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+    path = os.path.join(work, "with-j1939.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    return cfg, path
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--bridge", required=True)
@@ -279,6 +300,27 @@ def main():
         plc.put(header)
         check(wait(lambda: plc.byte(in_row["byte"]) == 0x33), "with the right hash its outputs go out again")
         stop_plc(master)
+
+        print("5. with a J1939 network", flush=True)
+        cfg5, path5 = with_j1939(work)
+        r = subprocess.run([args.bridge, "--config", path5, "--check-only"], capture_output=True, text=True)
+        check(r.returncode == 0, "the bridge accepts the config" + ("" if r.returncode == 0 else ": " + r.stdout + r.stderr))
+        decls5 = editorproject.declarations(cfg5, path5)
+        remote5 = openplcmodbus.remote_device(cfg5, decls5, IEC_BASE)
+        regs = {("I" if g["functionCode"] == "4" else "Q", int(g["offset"]) + k)
+                for g in remote5["modbusTcpConfig"]["ioGroups"] for k in range(g["length"])}
+        j1939 = [it for it in modbusmap.collect(cfg5) if it.network == cfg5["networks"][-1]["name"]]
+        missing = [it.name for it in j1939 if any((it.loc.area, b // 2) not in regs
+                                                  for b in range(it.loc.index, it.loc.index + (it.nbytes or 1)))]
+        check(bool(j1939) and not missing, "the remote device's registers hold the %d J1939 values%s"
+              % (len(j1939), " (not: %s)" % ", ".join(missing) if missing else ""))
+        conf5 = os.path.join(work, "modbus_master_j1939.json")
+        with open(conf5, "w", encoding="utf-8") as f:
+            json.dump(master_config(remote5), f, indent=2)
+        model5 = ModbusMasterConfig()
+        model5.import_config_from_file(conf5)
+        model5.validate()
+        check(len(model5.devices) == 1, "the runtime reads its modbus_master.json")
     finally:
         for t in threads:
             t.stop()

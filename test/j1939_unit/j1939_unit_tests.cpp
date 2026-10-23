@@ -21,10 +21,9 @@
 #include "cJSON.h"
 #include "check.hpp"
 #include "config.h"
-#include "fake_runtime.hpp"
+#include "fake_host.hpp"
 #include "log.h"
 #include "outputs_gate.h"
-#include "scan_watchdog.h"
 #include "dm.h"
 #include "j1939_network.h"
 #include "j1939_plc_api.h"
@@ -357,7 +356,7 @@ Config engine_config() {
   r.signals.back().has_valid_location = true;
   r.signals.back().valid_location = loc("%IX10.0");
   r.signals.push_back(sig("temp", 16, 8, false, true));
-  r.signals.back().location = loc("%IL1");
+  r.signals.back().location = loc("%IL24");
   j.rx.push_back(r);
   J1939Rx p;  // PDU1, from source 0x30 only
   p.pgn = 0xEF00;
@@ -397,13 +396,13 @@ struct Rig {
   J1939Image image;
   FakeSocket socket;
   J1939Engine engine{cfg, image, socket};
-  fake_runtime::Image img;
-  plugin_runtime_args_t rt;
+  fake_host::Image img;
+  fake_host::Runtime rt;
   clock_type::time_point t0 = clock_type::now();
 
   explicit Rig(Config c = engine_config()) : cfg(std::move(c)) {
     image.build(cfg.j1939);
-    fake_runtime::attach(img, rt);
+    fake_host::attach(img, rt);
   }
   void claim() {
     engine.bus_up(t0);
@@ -461,13 +460,13 @@ TEST(j1939_engine_receives) {
   r.message(0xFF00, 0x10, 255, {0x10, 0x27, 0xF6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 510);
   r.engine.tick(r.at(511));
   r.image.copy_to_plc(r.rt);
-  CHECK(r.img.int_in[0] == 0x2710 && r.img.lint_in[1] == 0xFFFFFFFFFFFFFFF6ULL);
+  CHECK(r.img.int_in[0] == 0x2710 && r.img.lint_in[24] == 0xFFFFFFFFFFFFFFF6ULL);
   CHECK(r.img.bool_in[10][0] == 1 && r.img.bool_in[10][1] == 1);
   // Not available: valid drops and the value keeps its last one.
   r.message(0xFF00, 0x10, 255, {0xFF, 0xFF, 0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 520);
   r.engine.tick(r.at(521));
   r.image.copy_to_plc(r.rt);
-  CHECK(r.img.bool_in[10][0] == 0 && r.img.int_in[0] == 0x2710 && r.img.lint_in[1] == 5);
+  CHECK(r.img.bool_in[10][0] == 0 && r.img.int_in[0] == 0x2710 && r.img.lint_in[24] == 5);
   // Supervision: nothing for 300 ms.
   r.engine.tick(r.at(819));
   r.image.copy_to_plc(r.rt);
@@ -692,31 +691,6 @@ TEST(j1939_program_request_answer_destination) {
   CHECK(m.poll(h, J1939PlcMsgs::Kind::Request, &out, e, r.at(531)) == 1 && out.data[0] == 2 && out.length == 1);
   m.close();
   m.set_attached(0, false);
-}
-
-// A J1939-only project: its scan watchdog trips after 1 s without a
-// finished scan and the periodic PGN stops until the scan runs again.
-TEST(j1939_scan_watchdog_stops_periodic_sends) {
-  Rig r;
-  r.claim();
-  ScanWatchdog w(r.cfg.j1939.scan_watchdog_ms, "j1939.scan_watchdog_ms", "");
-  CHECK(own_scan_watchdog_ms(r.cfg) == 1000);
-  r.img.int_out[0] = 0x0102;
-  r.image.copy_from_plc(r.rt);
-  w.scan_done();
-  w.check(r.at(500));
-  r.engine.tick(r.at(510));
-  size_t n = r.socket.of(0xFF01).size();
-  CHECK(n == 1);
-  w.check(r.at(1500));  // the scan hangs
-  CHECK(w.hung());
-  for (int ms = 1510; ms < 2000; ms += 50) r.engine.tick(r.at(ms));
-  CHECK(r.socket.of(0xFF01).size() == n);
-  w.scan_done();
-  w.check(r.at(2000));
-  r.engine.tick(r.at(2010));
-  CHECK(r.socket.of(0xFF01).size() == n + 1);
-  w.release();
 }
 
 // Requests for the same PGN from the same requester are answered at most
@@ -1230,8 +1204,8 @@ TEST(j1939_dm_receive_into_the_plc) {
   r.image.copy_to_plc(r.rt);
   CHECK(r.img.bool_in[40][0] == 1 && r.img.byte_in[41] == 0x40 && r.img.byte_in[42] == 0xFF &&
         r.img.byte_in[43] == 5);
-  CHECK(r.img.dint_in[56] == 17301604u && r.img.dint_in[57] == 83886190u && r.img.dint_in[58] == 2114977982u &&
-        r.img.dint_in[59] == 35647488u && r.img.dint_in[60] == 0);
+  CHECK(r.img.dint_in[56] == 17301604u && r.img.dint_in[60] == 83886190u && r.img.dint_in[64] == 2114977982u &&
+        r.img.dint_in[68] == 35647488u && r.img.dint_in[72] == 0);
   // Another ECU's DM1 is stored, not mapped.
   r.message(kPgnDm1, 3, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 520);
   r.engine.tick(r.at(521));
@@ -1241,7 +1215,7 @@ TEST(j1939_dm_receive_into_the_plc) {
   r.message(kPgnDm1, 0, 255, hex_bytes("00 FF 00 00 00 00 FF FF"), 1500);
   r.engine.tick(r.at(1501));
   r.image.copy_to_plc(r.rt);
-  CHECK(r.img.byte_in[43] == 0 && r.img.byte_in[41] == 0 && r.img.dint_in[56] == 0 && r.img.dint_in[59] == 0);
+  CHECK(r.img.byte_in[43] == 0 && r.img.byte_in[41] == 0 && r.img.dint_in[56] == 0 && r.img.dint_in[68] == 0);
   // ECU silent: the status bit drops 3 s later, the values hold.
   r.message(kPgnDm1, 0, 255, hex_bytes("04 FF 00 F0 E3 02 FF FF"), 2000);
   r.engine.tick(r.at(4999));

@@ -1,9 +1,9 @@
 {
  "config": {
   "file": "canopen_config.json",
-  "schema_version": 1,
-  "sha256": "adc5a764ebe5b4174330f144b85a2366f309abfc080938ffb40cd6a99dac6985",
-  "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n  \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n  \"nodes\": [\n    {\n      \"node_id\": 5,\n      \"name\": \"rtd\",\n      \"eds\": \"rtd8.eds\",\n      \"heartbeat_ms\": 100,\n      \"heartbeat_timeout_ms\": 300,\n      \"status_location\": \"%IX10.0\",\n      \"tx_pdos\": [\n        {\n          \"number\": 1,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x7130\", \"subindex\": 1, \"type\": \"INTEGER16\", \"iec_location\": \"%IW100\" },\n            { \"index\": \"0x7130\", \"subindex\": 2, \"type\": \"INTEGER16\", \"iec_location\": \"%IW101\" },\n            { \"index\": \"0x7130\", \"subindex\": 3, \"type\": \"INTEGER16\", \"iec_location\": \"%IW102\" },\n            { \"index\": \"0x7130\", \"subindex\": 4, \"type\": \"INTEGER16\", \"iec_location\": \"%IW103\" }\n          ]\n        },\n        {\n          \"number\": 2,\n          \"transmission\": 1,\n          \"entries\": [\n            { \"index\": \"0x6150\", \"subindex\": 1, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB100\" },\n            { \"index\": \"0x6150\", \"subindex\": 2, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB101\" },\n            { \"index\": \"0x6150\", \"subindex\": 3, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB102\" },\n            { \"index\": \"0x6150\", \"subindex\": 4, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB103\" }\n          ]\n        }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x6110\", \"subindex\": 1, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 2, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 3, \"type\": \"UNSIGNED16\", \"value\": 30 },\n        { \"index\": \"0x6110\", \"subindex\": 4, \"type\": \"UNSIGNED16\", \"value\": 30 }\n      ]\n    }\n  ]\n}\n"
+  "schema_version": 2,
+  "sha256": "b20fb7e6bf074ba3ed6d6412d57b05c6af8d1da759b6a2ce90ba96f00f6b98ee",
+  "text": "{\n  \"schema_version\": 2,\n  \"bridge\": { \"listen\": \"127.0.0.1:1502\", \"writers\": [ \"127.0.0.1\" ] },\n  \"networks\": [\n    {\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 5,\n          \"name\": \"rtd\",\n          \"eds\": \"rtd8.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [\n            {\n              \"number\": 1,\n              \"transmission\": 1,\n              \"entries\": [\n                { \"index\": \"0x7130\", \"subindex\": 1, \"type\": \"INTEGER16\", \"iec_location\": \"%IW100\" },\n                { \"index\": \"0x7130\", \"subindex\": 2, \"type\": \"INTEGER16\", \"iec_location\": \"%IW102\" },\n                { \"index\": \"0x7130\", \"subindex\": 3, \"type\": \"INTEGER16\", \"iec_location\": \"%IW104\" },\n                { \"index\": \"0x7130\", \"subindex\": 4, \"type\": \"INTEGER16\", \"iec_location\": \"%IW106\" }\n              ]\n            },\n            {\n              \"number\": 2,\n              \"transmission\": 1,\n              \"entries\": [\n                { \"index\": \"0x6150\", \"subindex\": 1, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB110\" },\n                { \"index\": \"0x6150\", \"subindex\": 2, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB111\" },\n                { \"index\": \"0x6150\", \"subindex\": 3, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB112\" },\n                { \"index\": \"0x6150\", \"subindex\": 4, \"type\": \"UNSIGNED8\", \"iec_location\": \"%IB113\" }\n              ]\n            }\n          ],\n          \"sdo\": [\n            { \"index\": \"0x6110\", \"subindex\": 1, \"type\": \"UNSIGNED16\", \"value\": 30 },\n            { \"index\": \"0x6110\", \"subindex\": 2, \"type\": \"UNSIGNED16\", \"value\": 30 },\n            { \"index\": \"0x6110\", \"subindex\": 3, \"type\": \"UNSIGNED16\", \"value\": 30 },\n            { \"index\": \"0x6110\", \"subindex\": 4, \"type\": \"UNSIGNED16\", \"value\": 30 }\n          ]\n        }\n      ]\n    }\n  ]\n}\n"
  },
  "doc_schema_version": 2,
  "gateway": null,
@@ -13,11 +13,11 @@
    "key": [
     "I",
     "B",
-    100
+    110
    ],
-   "location": "%IB100",
-   "network": "",
-   "path": "nodes[0].tx_pdos[1].entries[0].iec_location",
+   "location": "%IB110",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[1].entries[0].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 2 object 0x6150:1"
   },
@@ -25,11 +25,11 @@
    "key": [
     "I",
     "B",
-    101
+    111
    ],
-   "location": "%IB101",
-   "network": "",
-   "path": "nodes[0].tx_pdos[1].entries[1].iec_location",
+   "location": "%IB111",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[1].entries[1].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 2 object 0x6150:2"
   },
@@ -37,11 +37,11 @@
    "key": [
     "I",
     "B",
-    102
+    112
    ],
-   "location": "%IB102",
-   "network": "",
-   "path": "nodes[0].tx_pdos[1].entries[2].iec_location",
+   "location": "%IB112",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[1].entries[2].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 2 object 0x6150:3"
   },
@@ -49,11 +49,11 @@
    "key": [
     "I",
     "B",
-    103
+    113
    ],
-   "location": "%IB103",
-   "network": "",
-   "path": "nodes[0].tx_pdos[1].entries[3].iec_location",
+   "location": "%IB113",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[1].entries[3].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 2 object 0x6150:4"
   },
@@ -64,22 +64,10 @@
     100
    ],
    "location": "%IW100",
-   "network": "",
-   "path": "nodes[0].tx_pdos[0].entries[0].iec_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[0].entries[0].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 1 object 0x7130:1"
-  },
-  {
-   "key": [
-    "I",
-    "W",
-    101
-   ],
-   "location": "%IW101",
-   "network": "",
-   "path": "nodes[0].tx_pdos[0].entries[1].iec_location",
-   "variables": [],
-   "who": "node 5 (rtd) TPDO 1 object 0x7130:2"
   },
   {
    "key": [
@@ -88,8 +76,20 @@
     102
    ],
    "location": "%IW102",
-   "network": "",
-   "path": "nodes[0].tx_pdos[0].entries[2].iec_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[0].entries[1].iec_location",
+   "variables": [],
+   "who": "node 5 (rtd) TPDO 1 object 0x7130:2"
+  },
+  {
+   "key": [
+    "I",
+    "W",
+    104
+   ],
+   "location": "%IW104",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[0].entries[2].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 1 object 0x7130:3"
   },
@@ -97,11 +97,11 @@
    "key": [
     "I",
     "W",
-    103
+    106
    ],
-   "location": "%IW103",
-   "network": "",
-   "path": "nodes[0].tx_pdos[0].entries[3].iec_location",
+   "location": "%IW106",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[0].entries[3].iec_location",
    "variables": [],
    "who": "node 5 (rtd) TPDO 1 object 0x7130:4"
   },
@@ -112,20 +112,201 @@
     80
    ],
    "location": "%IX10.0",
-   "network": "",
-   "path": "nodes[0].status_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].status_location",
    "variables": [],
    "who": "node 5 (rtd) status_location"
   }
  ],
+ "modbus": {
+  "channels": [
+   {
+    "count": 52,
+    "direction": "input",
+    "function": 4,
+    "start": 5
+   }
+  ],
+  "input_bytes": 114,
+  "listen": "127.0.0.1:1502",
+  "max_clients": 16,
+  "on_client_loss": "stop",
+  "output_bytes": 0,
+  "readers": [],
+  "registers": [
+   {
+    "address": 50,
+    "byte": 100,
+    "count": 1,
+    "direction": "input",
+    "location": "%IW100",
+    "name": "rtd.0x7130:1",
+    "network": "",
+    "object": "0x7130:1",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "INTEGER16",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 51,
+    "byte": 102,
+    "count": 1,
+    "direction": "input",
+    "location": "%IW102",
+    "name": "rtd.0x7130:2",
+    "network": "",
+    "object": "0x7130:2",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "INTEGER16",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 52,
+    "byte": 104,
+    "count": 1,
+    "direction": "input",
+    "location": "%IW104",
+    "name": "rtd.0x7130:3",
+    "network": "",
+    "object": "0x7130:3",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "INTEGER16",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 53,
+    "byte": 106,
+    "count": 1,
+    "direction": "input",
+    "location": "%IW106",
+    "name": "rtd.0x7130:4",
+    "network": "",
+    "object": "0x7130:4",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "INTEGER16",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 55,
+    "byte": 110,
+    "byte_in_register": "high",
+    "count": 1,
+    "direction": "input",
+    "location": "%IB110",
+    "name": "rtd.0x6150:1",
+    "network": "",
+    "object": "0x6150:1",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "UNSIGNED8",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 55,
+    "byte": 111,
+    "byte_in_register": "low",
+    "count": 1,
+    "direction": "input",
+    "location": "%IB111",
+    "name": "rtd.0x6150:2",
+    "network": "",
+    "object": "0x6150:2",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "UNSIGNED8",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 56,
+    "byte": 112,
+    "byte_in_register": "high",
+    "count": 1,
+    "direction": "input",
+    "location": "%IB112",
+    "name": "rtd.0x6150:3",
+    "network": "",
+    "object": "0x6150:3",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "UNSIGNED8",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 56,
+    "byte": 113,
+    "byte_in_register": "low",
+    "count": 1,
+    "direction": "input",
+    "location": "%IB113",
+    "name": "rtd.0x6150:4",
+    "network": "",
+    "object": "0x6150:4",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "input register",
+    "type": "UNSIGNED8",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 80,
+    "byte": 10,
+    "count": 1,
+    "direction": "input",
+    "location": "%IX10.0",
+    "name": "rtd.status",
+    "network": "",
+    "object": "",
+    "offset": "",
+    "scale": "",
+    "source": "rtd",
+    "table": "discrete input",
+    "type": "BOOL",
+    "unit": "",
+    "word_order": ""
+   }
+  ],
+  "sdo_bridge_write": false,
+  "unit_id": 1,
+  "watchdog_ms": 1000,
+  "word_order": "high_first",
+  "writers": [
+   "127.0.0.1"
+  ]
+ },
  "networks": [
   {
-   "anchor": "net-network",
+   "anchor": "net-vcan0",
    "bitrate": 125000,
    "bus_load": {
     "cyclic": 2.8,
     "notes": [],
-    "plc_cycle_ms": null,
     "sync_ms": 100.0,
     "unbounded": [],
     "worst": 2.8
@@ -197,7 +378,7 @@
      "dlc": 8,
      "duplicate": false,
      "kind": "tpdo",
-     "link": "pdo-5-tpdo1",
+     "link": "pdo-vcan0-5-tpdo1",
      "load_cyclic": 1.08,
      "load_worst": 1.08,
      "name": "rtd_TPDO1",
@@ -216,7 +397,7 @@
      "dlc": 4,
      "duplicate": false,
      "kind": "tpdo",
-     "link": "pdo-5-tpdo2",
+     "link": "pdo-vcan0-5-tpdo2",
      "load_cyclic": 0.76,
      "load_worst": 0.76,
      "name": "rtd_TPDO2",
@@ -304,10 +485,10 @@
    "interface": "vcan0",
    "locations": [],
    "master_node_id": 1,
-   "name": "",
+   "name": "vcan0",
    "nodes": [
     {
-     "anchor": "node-5",
+     "anchor": "node-vcan0-5",
      "boot": {
       "after": [
        "NMT start (unless the master or the node is held)"
@@ -1048,7 +1229,7 @@
      ],
      "pdos": [
       {
-       "anchor": "pdo-5-tpdo1",
+       "anchor": "pdo-vcan0-5-tpdo1",
        "bits": 64,
        "cob_id": 389,
        "dlc": 8,
@@ -1072,7 +1253,7 @@
          "dummy": false,
          "index": 28976,
          "length": 16,
-         "location": "%IW101",
+         "location": "%IW102",
          "name": "AI Input PV / AI1_Input_PV",
          "note": "",
          "subindex": 2,
@@ -1086,7 +1267,7 @@
          "dummy": false,
          "index": 28976,
          "length": 16,
-         "location": "%IW102",
+         "location": "%IW104",
          "name": "AI Input PV / AI2_Input_PV",
          "note": "",
          "subindex": 3,
@@ -1100,7 +1281,7 @@
          "dummy": false,
          "index": 28976,
          "length": 16,
-         "location": "%IW103",
+         "location": "%IW106",
          "name": "AI Input PV / AI3_Input_PV",
          "note": "",
          "subindex": 4,
@@ -1122,7 +1303,7 @@
        "trigger": "SYNC, 100 ms"
       },
       {
-       "anchor": "pdo-5-tpdo2",
+       "anchor": "pdo-vcan0-5-tpdo2",
        "bits": 32,
        "cob_id": 645,
        "dlc": 4,
@@ -1132,7 +1313,7 @@
          "dummy": false,
          "index": 24912,
          "length": 8,
-         "location": "%IB100",
+         "location": "%IB110",
          "name": "AI Status / AI0_Status",
          "note": "",
          "subindex": 1,
@@ -1146,7 +1327,7 @@
          "dummy": false,
          "index": 24912,
          "length": 8,
-         "location": "%IB101",
+         "location": "%IB111",
          "name": "AI Status / AI1_Status",
          "note": "",
          "subindex": 2,
@@ -1160,7 +1341,7 @@
          "dummy": false,
          "index": 24912,
          "length": 8,
-         "location": "%IB102",
+         "location": "%IB112",
          "name": "AI Status / AI2_Status",
          "note": "",
          "subindex": 3,
@@ -1174,7 +1355,7 @@
          "dummy": false,
          "index": 24912,
          "length": 8,
-         "location": "%IB103",
+         "location": "%IB113",
          "name": "AI Status / AI3_Status",
          "note": "",
          "subindex": 4,
@@ -1315,7 +1496,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.116.0"
+  "version": "0.117.0"
  },
  "warnings": []
 }

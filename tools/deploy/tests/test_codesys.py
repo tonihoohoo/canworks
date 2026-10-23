@@ -22,8 +22,8 @@ GOLDEN = os.path.join(os.path.dirname(__file__), "data", "codesys")
 EXAMPLES = os.path.join(REPO, "examples")
 BRIDGE = os.path.join(EXAMPLES, "modbus-bridge", "canworks.json")
 PLANT = os.path.join(EXAMPLES, "virtual-plant", "canworks", "canworks.json")
-# Three CiA 402 drives and an I/O module on network "motion" (sim1), with
-# the virtual-plant EDS files.
+# Three drives and an I/O module on network "motion" (sim1), with the
+# drive test EDS and the virtual-plant I/O EDS.
 MOTION = os.path.join(os.path.dirname(__file__), "data", "codesys-motion", "canworks.json")
 
 
@@ -398,9 +398,9 @@ class Script(unittest.TestCase):
         self.assertEqual([(fake_codesys.param(b, 2).value, fake_codesys.param(b, 0).value) for b in buses],
                          [("0", "250"), ("1", "500"), ("2", "250")])
         self.assertEqual([[c.get_name() for c in b.get_children()[0].get_children()] for b in buses],
-                         [["rtd", "dio", "new_io"], ["drive"], ["cell"]])
-        drive = buses[1].get_children()[0].find("drive")[0]
-        self.assertEqual(fake_codesys.channels_of(drive)[0x11A00010], "motion_drive_Statusword")
+                         [["rtd", "dio", "new_io"], ["conveyor"], ["cell"]])
+        conveyor = buses[1].get_children()[0].find("conveyor")[0]
+        self.assertEqual(fake_codesys.channels_of(conveyor)[0x11A00010], "motion_conveyor_speed_actual")
         self.assertEqual([e[1] for e in w.log if e[0] == "import"],
                          ["node_5.dcf", "node_6.dcf", "node_7.dcf", "node_4.dcf", "node_20.dcf"])
 

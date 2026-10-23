@@ -2,7 +2,7 @@
 
 `canworks-bridge` runs the CAN networks of a config without an OpenPLC runtime and serves their values as Modbus TCP registers. Any PLC with Modbus client channels, an HMI, a SCADA system or a script then reads CANopen, J1939 and raw CAN values as input registers and writes outputs as holding registers.
 
-The bridge is the same engine as the OpenPLC plugin: it boots and supervises CANopen nodes, claims a J1939 address, sends and receives raw messages, runs simulated devices and serves the diagnostics channel and trace exactly as the plugin does. Only the process image goes to Modbus clients instead of a PLC program. It runs on Linux with SocketCAN, as a systemd service or in a container.
+The bridge is canworks' engine: it boots and supervises CANopen nodes, claims a J1939 address, sends and receives raw messages, runs simulated devices and serves the diagnostics channel and trace. Its process image goes to Modbus clients: an OpenPLC Runtime on the same device ([OpenPLC through Modbus](#openplc-through-modbus)), another PLC, an HMI or a script. It runs on Linux with SocketCAN, as a systemd service or in a container.
 
 - [Install](#install)
 - [A bridge config](#a-bridge-config)
@@ -19,7 +19,7 @@ The bridge is the same engine as the OpenPLC plugin: it boots and supervises CAN
 
 ### From the configurator
 
-In a bridge project, the configurator's **Devices** workspace (or **Install on device…** on the **Modbus bridge** page) installs the newest bridge on a Linux device over SSH and starts this project's saved config as the instance named after the project folder, with the steps and the log on the page ([devices.md](devices.md)). **Start this project's bridge** there puts a changed config on a device that has the bridge.
+The configurator's **Devices** workspace (or **Install on device…** on the **Modbus bridge** page) installs the newest bridge on a Linux device over SSH and starts this project's saved config as the instance named after the project folder, with the steps and the log on the page ([devices.md](devices.md)). **Start this project's bridge** there puts a changed config on a device that has the bridge.
 
 ### With one line
 
@@ -53,7 +53,7 @@ $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/
 
 `-Port`, `-Identity` and `-Options --without-j1939` go after the file name too.
 
-The bridge's version is in `/opt/canworks-bridge/VERSION` (the bridge's prefix; `--uninstall` removes it). Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a small Linux device; the [container image](#container-image) is the quick route where Docker runs.
+The bridge's version is in `/opt/canworks/VERSION` (the bridge's prefix; `--uninstall` removes it). Over SSH, `--config` names a folder on the PC: it is copied to a temporary folder on the device first and removed after the install. Without an SSH key that is three connections, so the device's password may be asked three times. `--version 0.84.0` (`-Version`) installs a given release (0.84.0 or newer, the first with the one-line form); the other options below pass through, for example `--uninstall --purge`. To pin the script itself, put `download/deploy-v<version>` in place of `latest/download` (releases from 0.92.0 on carry the scripts; for older ones use `https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.84.0/scripts/install-bridge.sh`); to read it first, download it and run it with `sudo bash install-bridge.sh`. The device builds Lely and the bridge, which takes several minutes on a small Linux device; the [container image](#container-image) is the quick route where Docker runs.
 
 ### From a checkout
 
@@ -63,9 +63,9 @@ On the Linux device, from a checkout of this repository (this installs the check
 sudo scripts/install-bridge.sh
 ```
 
-This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. Both routes take the same options: `--without-canopen` builds J1939 only, `--without-j1939` CANopen only, as for the plugin ([install-stock.md](install-stock.md)). The build needs the OpenPLC runtime's plugin headers (not the runtime itself): the script downloads the runtime release the project pins (`docker/local-runtime/runtime-version`) and stops unless the archive's sha256 matches `docker/local-runtime/runtime-sha256`, or `--runtime-dir DIR` uses a checkout you have. Another release or commit takes `--runtime-ref REF --runtime-sha256 HASH`. `--uninstall` stops every bridge and removes the unit and the binary, and the remote link when it was installed for a bridge (a link the runtime's install set up stays); the configs stay unless you add `--purge`. `--with-link NAME` skips the link when the device's remote link already serves another config (the PLC's). Next to the canworks plugin it leaves the plugin's `VERSION` file and the can-j1939 boot entry, which the plugin uses too. An update restarts every `canworks-bridge@` instance that was running; stopped ones stay stopped.
+This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. With CANopen it also installs the [CANopen simulator](simulator.md) `canworks-canopen-sim` into `/opt/canworks/bin`. Both routes take the same options: `--without-canopen` builds J1939 only (no Lely or dcfgen), `--without-j1939` CANopen only; with J1939 the script loads the kernel module `can-j1939` and lists it in `/etc/modules-load.d/canworks-j1939.conf`. The build needs this source, Lely CANopen and the system's libraries only. `--uninstall` stops every bridge and removes the unit and the binaries, and the remote link when it was installed for a bridge; the configs and the OpenPLC Runtime stay, and `--purge` also removes the configs. An update restarts every `canworks-bridge@` instance that was running; stopped ones stay stopped.
 
-On a device whose OpenPLC runtime runs in Docker (upstream's managed install), `/opt/canworks` belongs to the runtime's container, which made its Python environment. Without `--prefix` the script then installs the bridge into `/opt/canworks-bridge` and says so (also when an older install left a `canworks-bridge` in `/opt/canworks/bin`), and later updates and `--uninstall` find it there; an explicit `--prefix /opt/canworks` is refused. The paths below then start with `/opt/canworks-bridge`.
+`--with-openplc` first installs upstream's OpenPLC Runtime (managed Docker, `https://runtime.getedge.me`) at the version canworks is pinned to, when the device has none, and waits until it answers; a failed runtime install stops before the bridge. Nothing of canworks goes into the runtime or its container. `--pinned-runtime` puts a managed Docker runtime that was moved to another version back on the pinned one; its container is recreated, so the PLC stops and comes back without a program.
 
 Each service instance runs one config:
 
@@ -77,11 +77,9 @@ sudo systemctl enable --now canworks-bridge@line1
 journalctl -u canworks-bridge@line1
 ```
 
-Several instances run side by side, each with its own CAN interfaces and Modbus port, for example `canworks-bridge@press` on `can0` and port 502 and `canworks-bridge@feeder` on `can1` and port 1502. One CAN interface belongs to one process: a second bridge, or the OpenPLC plugin, that names an interface already in use logs `CAN interface can0 is owned by another canworks process (process ID 812); not touching it` and leaves that network off. The lock is an abstract Unix socket per interface, so it also holds between a bridge on the host and the plugin in the runtime's Docker container, which runs on the host network.
+Several instances run side by side, each with its own CAN interfaces and Modbus port, for example `canworks-bridge@press` on `can0` and port 502 and `canworks-bridge@feeder` on `can1` and port 1502. One CAN interface belongs to one process: a second bridge that names an interface already in use logs `CAN interface can0 is owned by another canworks process (process ID 812); not touching it` and leaves that network off. The lock is an abstract Unix socket per interface, so it also holds between a bridge on the host and one in a container on the host network.
 
 `--with-link NAME` advertises the bridge `NAME` on the local network and installs the [remote link](remote-access.md) for its diagnostics channel, so the PC tools reach it from other networks; the link reads `/etc/canworks-bridge/NAME/canworks.json` and forwards the diagnostics port only (Modbus TCP is not carried).
-
-To hand an interface from a Docker runtime to a bridge, stop the runtime's bootloader before the runtime, or the bootloader starts the runtime again within seconds: `docker stop openplc-bootloader openplc-runtime`, and `docker start openplc-runtime openplc-bootloader` to give it back.
 
 ### Container image
 
@@ -96,7 +94,7 @@ docker run -d --restart unless-stopped --network host --cap-add NET_ADMIN \
 
 ## A bridge config
 
-A bridge config is a version 2 config ([config.md](config.md)) with a top-level `bridge` object. Everything else is the same as for the plugin: networks, nodes, J1939, raw messages, simulation and diagnostics. [`examples/modbus-bridge`](../examples/modbus-bridge/canworks.json) is a complete example with two simulated CANopen nodes; it runs without CAN hardware:
+A bridge config is a version 2 config ([config.md](config.md)) with a top-level `bridge` object. Everything else is a normal config: networks, nodes, J1939, raw messages, simulation and diagnostics. [`examples/modbus-bridge`](../examples/modbus-bridge/canworks.json) is a complete example with two simulated CANopen nodes; it runs without CAN hardware:
 
 ```sh
 canworks-bridge --config examples/modbus-bridge/canworks.json
@@ -139,11 +137,11 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `sdo_bridge_write` | false | Allow SDO writes through the SDO registers. |
 | `openplc` | none | OpenPLC's own Modbus master is the client ([OpenPLC through Modbus](#openplc-through-modbus)). |
 
-`"sync_source": "plc_cycle"` is refused in a bridge config, since there is no PLC cycle: use `sync_period_us`. The OpenPLC plugin refuses a config with a `bridge` object, and the bridge refuses one without.
+The bridge refuses a config without a `bridge` object, naming the configurator's **Switch to OpenPLC through Modbus** for a config made for the removed canworks plugin, and a CODESYS config.
 
 ### Byte addresses
 
-In a bridge config every location is a byte address: `%IB8` is input byte 8, `%IW8` input bytes 8 and 9, `%ID8` bytes 8 to 11, `%IL8` bytes 8 to 15 and `%IX8.3` bit 3 of byte 8; the same for `%Q`. This differs from the plugin, where each size is its own table and `%IW8` and `%ID8` are different variables. So in a bridge config:
+In a bridge config every location is a byte address: `%IB8` is input byte 8, `%IW8` input bytes 8 and 9, `%ID8` bytes 8 to 11, `%IL8` bytes 8 to 15 and `%IX8.3` bit 3 of byte 8; the same for `%Q`. So in a bridge config:
 
 - word, double and long word locations start at an even byte: `%IW3` is refused with `%IW3 must start at an even byte: word locations are whole Modbus registers`;
 - two locations may not share a byte: `%ID4` and `%IW6` are refused with `... (%ID4) and ... (%IW6) overlap in input bytes 6 and 7`;
@@ -265,7 +263,7 @@ The user's own POUs are never touched. A file canworks owns that was changed in 
 
 ## Deploying and checking a config
 
-The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check-only --bridge HOST` checks it, the configurator's Check does too, and its **Project target** switch turns a project into a bridge project ([configurator.md](configurator.md#project-target)). In a bridge project the configurator hides what the bridge does without: SYNC from the PLC cycle, the scan watchdogs (the bridge's own output watchdog is `bridge.watchdog_ms`) and the OpenPLC Editor project actions. A scan watchdog the config still has is a warning with **Remove**.
+The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check` checks it, the configurator's Check does too, and its **Project target** switch turns a project into a bridge project ([configurator.md](configurator.md#project-target)). In a bridge project the configurator hides the OpenPLC Editor project actions; the bridge's output watchdog is `bridge.watchdog_ms`.
 
 To replace the config of a running bridge from the PC, its running config needs the diagnostics channel with changes and uploads allowed:
 
@@ -279,7 +277,7 @@ Then:
 canworks-deploy --bridge 192.168.10.5 --config canworks.json --token-file token.txt
 ```
 
-The tool checks the config, sends it with its EDS files and simulation file over the encrypted channel, and the bridge checks it again, keeps the previous files, restarts on the new ones and reports `ok: canworks-bridge runs the new config`. When the new config does not start (its Modbus port is taken, an interface is missing), the bridge goes back to the previous files and the tool says so. A config the bridge refuses changes nothing. The OpenPLC plugin never takes a config this way.
+The tool checks the config, sends it with its EDS files and simulation file over the encrypted channel, and the bridge checks it again, keeps the previous files, restarts on the new ones and reports `ok: canworks-bridge runs the new config`. When the new config does not start (its Modbus port is taken, an interface is missing), the bridge goes back to the previous files and the tool says so. A config the bridge refuses changes nothing.
 
 `canworks-diag --runtime HOST status` shows a bridge line with the output state, the watchdog, the connected clients and the last upload; the configurator's Online view works against a bridge as against a runtime.
 
@@ -307,7 +305,7 @@ request(s, struct.pack(">BHHB2H", 16, 1, 2, 4, 1000, 2000))    # holding registe
 
 ## CiA 309-3 gateway
 
-With a top-level `cia309` object the bridge also serves the CiA 309-3 ASCII gateway ([cia309-gateway.md](cia309-gateway.md)), exactly as the plugin does: a plain port on its loopback address (default `127.0.0.1:7533`) and sessions through its diagnostics channel (`canworks-diag --runtime HOST gateway`). A CiA 309-3 client reads and, with `cia309.allow_changes`, writes the same nodes the Modbus clients see. Its requests neither feed the output watchdog nor end outputs off: with only a gateway client connected the watchdog runs out as with no client, and the gateway client keeps being served. NMT commands from the gateway follow the gateway's guards and the same hold rules as those of the control block. The bridge's status part lists the gateway sessions (`cia309_sessions`: address, plain or tunnelled, commands served).
+With a top-level `cia309` object the bridge also serves the CiA 309-3 ASCII gateway ([cia309-gateway.md](cia309-gateway.md)), as described there: a plain port on its loopback address (default `127.0.0.1:7533`) and sessions through its diagnostics channel (`canworks-diag --runtime HOST gateway`). A CiA 309-3 client reads and, with `cia309.allow_changes`, writes the same nodes the Modbus clients see. Its requests neither feed the output watchdog nor end outputs off: with only a gateway client connected the watchdog runs out as with no client, and the gateway client keeps being served. NMT commands from the gateway follow the gateway's guards and the same hold rules as those of the control block. The bridge's status part lists the gateway sessions (`cia309_sessions`: address, plain or tunnelled, commands served).
 
 ## Security
 
@@ -315,8 +313,8 @@ Modbus TCP has no authentication or encryption. Put the bridge on a machine netw
 
 ## Limits
 
-- Linux with SocketCAN only (the same adapters as the plugin).
+- Linux with SocketCAN only.
 - At most 8192 input and 8192 output bytes; a location past them is refused.
 - At most 16 connections (`max_clients`, up to 64), 4 per address, and 8 KB of unread replies per connection.
 - No Modbus RTU (serial); no Modbus TLS.
-- One bridge per CAN interface, and not together with the OpenPLC plugin on that interface.
+- One bridge per CAN interface.

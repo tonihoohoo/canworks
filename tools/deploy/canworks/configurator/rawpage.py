@@ -34,7 +34,8 @@ def raw_uses(cfg):
 
 def _used(cfg, project_uses):
     used = layout.taken(cfg, project_uses) if isinstance(cfg, dict) else set()
-    used.update((l.area, l.size, l.element) for _, l in raw_uses(cfg))
+    for _, loc in raw_uses(cfg):
+        layout.mark(used, loc)
     return used
 
 
@@ -63,7 +64,7 @@ def _entry(cfg, network, kind, index):
 
 
 def plugin_sets_switches(entry, kind):
-    """True for a send message whose switches the plugin sets (`pages` "all"
+    """True for a send message whose switches the bridge sets (`pages` "all"
     or "rotate"): they have no PLC location."""
     return kind == "tx" and isinstance(entry, dict) and entry.get("pages") in ("all", "rotate")
 

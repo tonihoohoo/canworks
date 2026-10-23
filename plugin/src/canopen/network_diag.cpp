@@ -171,8 +171,7 @@ void Network::DiagStatus(const DiagRequest& r) {
   cJSON_AddNumberToObject(b, "bus_off_count", image_.bus_off_count());
   const MasterConfig& mc = cfg_.master;
   cJSON* sy = cJSON_AddObjectToObject(res, "sync");
-  cJSON_AddStringToObject(sy, "source", mc.sync_plc_cycle ? "plc_cycle" : mc.sync_period_us ? "timer" : "none");
-  if (mc.sync_plc_cycle) cJSON_AddNumberToObject(sy, "cycles", mc.sync_cycles);
+  cJSON_AddStringToObject(sy, "source", mc.sync_period_us ? "timer" : "none");
   if (mc.sync_period_us) cJSON_AddNumberToObject(sy, "period_us", mc.sync_period_us);
   const SyncStats& ss = sync_stats_;
   cJSON_AddNumberToObject(sy, "count", static_cast<double>(ss.count));
@@ -202,8 +201,6 @@ void Network::DiagStatus(const DiagRequest& r) {
     const bool conflict = sim_conflicts_.count(id) > 0;
     cJSON_AddBoolToObject(o, "simulated", n.cfg->simulate && !conflict);
     cJSON_AddBoolToObject(o, "sim_conflict", conflict);
-    if (n.cfg->interpolation_write_us)
-      cJSON_AddNumberToObject(o, "interpolation_period_us", n.cfg->interpolation_write_us);
     uint8_t letter = image_.node_boot_error(id);
     if (letter) {
       char es[2] = {static_cast<char>(letter), 0};

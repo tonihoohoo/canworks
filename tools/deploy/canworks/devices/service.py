@@ -174,7 +174,7 @@ class Devices:
         if action not in jobs.ACTIONS:
             raise SshError("unknown action %r" % (action,))
         if action.startswith("uninstall") or action == "remove_all":
-            version = version or ((probe.get("plugin") or {}).get("version")) or ((probe.get("bridge") or {}).get("version"))
+            version = version or (probe.get("bridge") or {}).get("version")
             if not plan_mod.version_tuple(version):
                 raise SshError("the newest release could not be found, and the uninstall runs that release's scripts")
         else:
@@ -191,7 +191,7 @@ class Devices:
         link = options.get("link") is not False
         if action in ("install_bridge", "install_openplc_bridge") and probe.get("link") is not None \
                 and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
-            link = False  # the device's link serves the PLC: not repointed at a bridge
+            link = False  # the device's link serves another config: not repointed at a bridge
         discovery = options.get("discovery") is not False
         link_config = runtime_port = None
         if action.startswith("link_") or action.startswith("discovery_"):
@@ -203,14 +203,13 @@ class Devices:
                 serves = plan_mod.link_serves(probe, serves["choose"][0])  # the advertisement names no instance
             if action in ("link_on", "discovery_on") and not serves.get("config"):
                 raise SshError("which bridge config should the link serve?" if serves.get("choose")
-                               else "the device has no config for the link to serve: install canworks or the bridge first")
+                               else "the device has no config for the link to serve: install the bridge first")
             link_config, runtime_port = serves.get("config"), serves.get("runtime_port")
         lines = jobs.commands(action, version, self.paths, link=link,
                               discovery=discovery, purge=options.get("purge") is True,
                               link_config=link_config, runtime_port=runtime_port,
                               instance=instance if action in jobs.BRIDGE_ACTIONS else None,
-                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"),
-                              pinned_runtime=(probe.get("runtime") or {}).get("kind") == "docker-managed")
+                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)
         self.store.update(did, job={"id": job_id, "action": action, "version": version})
         self.running[did] = job_id

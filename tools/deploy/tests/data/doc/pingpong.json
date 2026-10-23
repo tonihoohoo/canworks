@@ -1,9 +1,9 @@
 {
  "config": {
   "file": "canopen_config.json",
-  "schema_version": 1,
-  "sha256": "978c4f06c3e49fa5deff7a1b0639ea918175104f2393dc8f91e71cc3d485d1a3",
-  "text": "{\n  \"schema_version\": 1,\n  \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n  \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n  \"nodes\": [\n    {\n      \"node_id\": 2,\n      \"name\": \"pingpong\",\n      \"eds\": \"cpp-slave.eds\",\n      \"heartbeat_ms\": 100,\n      \"heartbeat_timeout_ms\": 300,\n      \"status_location\": \"%IX10.0\",\n      \"tx_pdos\": [\n        { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] }\n      ],\n      \"rx_pdos\": [\n        { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] }\n      ],\n      \"sdo\": [\n        { \"index\": \"0x1017\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"value\": 100 }\n      ]\n    }\n  ]\n}\n"
+  "schema_version": 2,
+  "sha256": "f746ef6ff29821e284fdde4ad2f84b12f43b96118bb8d061f1744c86334de6bb",
+  "text": "{\n  \"schema_version\": 2,\n  \"bridge\": { \"listen\": \"127.0.0.1:1502\", \"writers\": [ \"127.0.0.1\" ] },\n  \"networks\": [\n    {\n      \"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 },\n      \"master\": { \"node_id\": 1, \"sync_period_us\": 100000 },\n      \"nodes\": [\n        {\n          \"node_id\": 2,\n          \"name\": \"pingpong\",\n          \"eds\": \"cpp-slave.eds\",\n          \"heartbeat_ms\": 100,\n          \"heartbeat_timeout_ms\": 300,\n          \"status_location\": \"%IX10.0\",\n          \"tx_pdos\": [ { \"entries\": [ { \"index\": \"0x4001\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%ID100\" } ] } ],\n          \"rx_pdos\": [ { \"entries\": [ { \"index\": \"0x4000\", \"subindex\": 0, \"type\": \"UNSIGNED32\", \"iec_location\": \"%QD100\" } ] } ],\n          \"sdo\": [ { \"index\": \"0x1017\", \"subindex\": 0, \"type\": \"UNSIGNED16\", \"value\": 100 } ]\n        }\n      ]\n    }\n  ]\n}\n"
  },
  "doc_schema_version": 2,
  "gateway": null,
@@ -16,8 +16,8 @@
     100
    ],
    "location": "%ID100",
-   "network": "",
-   "path": "nodes[0].tx_pdos[0].entries[0].iec_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].tx_pdos[0].entries[0].iec_location",
    "variables": [],
    "who": "node 2 (pingpong) TPDO 1 object 0x4001:0"
   },
@@ -28,8 +28,8 @@
     80
    ],
    "location": "%IX10.0",
-   "network": "",
-   "path": "nodes[0].status_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].status_location",
    "variables": [],
    "who": "node 2 (pingpong) status_location"
   },
@@ -40,20 +40,101 @@
     100
    ],
    "location": "%QD100",
-   "network": "",
-   "path": "nodes[0].rx_pdos[0].entries[0].iec_location",
+   "network": "vcan0",
+   "path": "networks[0].nodes[0].rx_pdos[0].entries[0].iec_location",
    "variables": [],
    "who": "node 2 (pingpong) RPDO 1 object 0x4000:0"
   }
  ],
+ "modbus": {
+  "channels": [
+   {
+    "count": 47,
+    "direction": "input",
+    "function": 4,
+    "start": 5
+   },
+   {
+    "count": 2,
+    "direction": "output",
+    "function": 16,
+    "start": 50
+   }
+  ],
+  "input_bytes": 104,
+  "listen": "127.0.0.1:1502",
+  "max_clients": 16,
+  "on_client_loss": "stop",
+  "output_bytes": 104,
+  "readers": [],
+  "registers": [
+   {
+    "address": 50,
+    "byte": 100,
+    "count": 2,
+    "direction": "input",
+    "location": "%ID100",
+    "name": "pingpong.0x4001:0",
+    "network": "",
+    "object": "0x4001:0",
+    "offset": "",
+    "scale": "",
+    "source": "pingpong",
+    "table": "input register",
+    "type": "UNSIGNED32",
+    "unit": "",
+    "word_order": "high_first"
+   },
+   {
+    "address": 80,
+    "byte": 10,
+    "count": 1,
+    "direction": "input",
+    "location": "%IX10.0",
+    "name": "pingpong.status",
+    "network": "",
+    "object": "",
+    "offset": "",
+    "scale": "",
+    "source": "pingpong",
+    "table": "discrete input",
+    "type": "BOOL",
+    "unit": "",
+    "word_order": ""
+   },
+   {
+    "address": 50,
+    "byte": 100,
+    "count": 2,
+    "direction": "output",
+    "location": "%QD100",
+    "name": "pingpong.0x4000:0",
+    "network": "",
+    "object": "0x4000:0",
+    "offset": "",
+    "scale": "",
+    "source": "pingpong",
+    "table": "holding register",
+    "type": "UNSIGNED32",
+    "unit": "",
+    "word_order": "high_first"
+   }
+  ],
+  "sdo_bridge_write": false,
+  "unit_id": 1,
+  "watchdog_ms": 1000,
+  "word_order": "high_first",
+  "writers": [
+   "127.0.0.1"
+  ]
+ },
  "networks": [
   {
-   "anchor": "net-network",
+   "anchor": "net-vcan0",
    "bitrate": 125000,
    "bus_load": {
     "cyclic": 2.48,
     "notes": [],
-    "plc_cycle_ms": null,
     "sync_ms": 100.0,
     "unbounded": [],
     "worst": 2.48
@@ -125,7 +206,7 @@
      "dlc": 4,
      "duplicate": false,
      "kind": "tpdo",
-     "link": "pdo-2-tpdo1",
+     "link": "pdo-vcan0-2-tpdo1",
      "load_cyclic": 0.76,
      "load_worst": 0.76,
      "name": "pingpong_TPDO1",
@@ -144,7 +225,7 @@
      "dlc": 4,
      "duplicate": false,
      "kind": "rpdo",
-     "link": "pdo-2-rpdo1",
+     "link": "pdo-vcan0-2-rpdo1",
      "load_cyclic": 0.76,
      "load_worst": 0.76,
      "name": "pingpong_RPDO1",
@@ -232,10 +313,10 @@
    "interface": "vcan0",
    "locations": [],
    "master_node_id": 1,
-   "name": "",
+   "name": "vcan0",
    "nodes": [
     {
-     "anchor": "node-2",
+     "anchor": "node-vcan0-2",
      "boot": {
       "after": [
        "NMT start (unless the master or the node is held)"
@@ -600,7 +681,7 @@
      ],
      "pdos": [
       {
-       "anchor": "pdo-2-tpdo1",
+       "anchor": "pdo-vcan0-2-tpdo1",
        "bits": 32,
        "cob_id": 386,
        "dlc": 4,
@@ -632,7 +713,7 @@
        "trigger": "SYNC, 100 ms"
       },
       {
-       "anchor": "pdo-2-rpdo1",
+       "anchor": "pdo-vcan0-2-rpdo1",
        "bits": 32,
        "cob_id": 514,
        "dlc": 4,
@@ -762,7 +843,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.116.0"
+  "version": "0.117.0"
  },
  "warnings": []
 }

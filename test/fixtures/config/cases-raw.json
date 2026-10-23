@@ -226,7 +226,7 @@
         { "name": "Line", "start_bit": 0, "length": 8, "iec_location": "%QB402", "multiplexer": true },
         { "name": "A", "start_bit": 8, "length": 8, "iec_location": "%QB400", "mux": { "values": [ 1 ] } }
       ] } ] },
-      "errors": [ "signals[0].iec_location: the plugin sets switch Line when pages is \"all\"; leave it out" ], "warnings": [] },
+      "errors": [ "signals[0].iec_location: canworks sets switch Line when pages is \"all\"; leave it out" ], "warnings": [] },
     { "name": "mux: switch without location in program mode",
       "raw": { "tx": [ { "name": "Display", "id": 769, "period_ms": 100, "signals": [
         { "name": "Line", "start_bit": 0, "length": 8, "multiplexer": true },

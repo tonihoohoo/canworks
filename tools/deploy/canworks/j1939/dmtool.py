@@ -102,7 +102,7 @@ class DmTool:
 
     def listen(self, seconds):
         """Listens `seconds` and returns every DM1 source seen, as the
-        plugin's status "dm" "sources"."""
+        bridge's status "dm" "sources"."""
         end = self.clock() + seconds
         while self.clock() < end:
             time.sleep(min(0.05, max(0.0, end - self.clock())))

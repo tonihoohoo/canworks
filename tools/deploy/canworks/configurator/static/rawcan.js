@@ -213,19 +213,19 @@ function muxPageCell(sigs, j, sp, label) {
 function muxPagesChoice(path, m, onChange) {
   return choice("Pages", path, [
     { value: undefined, label: "The program picks the page", help: "Default (program): the page the program's switch outputs select is sent." },
-    { value: "all", label: "Every page each time", help: "All: every page goes out back to back at each send. The plugin sets the switches; they have no PLC address." },
-    { value: "rotate", label: "The next page each time", help: "Rotate: one page per send, in page order. The plugin sets the switches; they have no PLC address." },
+    { value: "all", label: "Every page each time", help: "All: every page goes out back to back at each send. The bridge sets the switches; they have no location." },
+    { value: "rotate", label: "The next page each time", help: "Rotate: one page per send, in page order. The bridge sets the switches; they have no location." },
   ], { current: m.pages === "program" ? undefined : m.pages, onChange });
 }
 
-// pages all/rotate: the plugin sets the switches, so their addresses go.
+// pages all/rotate: the bridge sets the switches, so their addresses go.
 function muxSetPages(base, v) {
   setPath(base + ".pages", v);
   if (v === "all" || v === "rotate") {
     const sigs = getPath(base + ".signals") || [];
     let n = 0;
     sigs.forEach((s, j) => { if (s.multiplexer === true && s.iec_location) { setPath(`${base}.signals[${j}].iec_location`, undefined); n++; } });
-    if (n) banner(`Cleared the PLC address of ${n} switch${n === 1 ? "" : "es"}: the plugin sets the switches in this mode.`);
+    if (n) banner(`Cleared the PLC address of ${n} switch${n === 1 ? "" : "es"}: the bridge sets the switches in this mode.`);
   }
   changed(true);
 }
@@ -256,8 +256,7 @@ function rawRemove(kind, i) {
   if (S.rawOpen && S.rawOpen.kind === kind) S.rawOpen = null;
   // The DBC file names where the messages came from: none left, no file.
   if (!getPath("raw.rx") && !getPath("raw.tx")) setPath("raw.dbc", undefined);
-  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol") &&
-      getPath("raw.scan_watchdog_ms") === undefined) {
+  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol")) {
     setPath("raw", undefined);
   }
   changed(true);
@@ -276,8 +275,6 @@ function renderCanMessages(view) {
       el("div", { class: "grid" },
         none ? checkbox("Listen only", "adapter.listen_only", false,
           "The PLC only watches the bus: it never acknowledges or sends a frame. Sent messages are not allowed then.") : null,
-        none ? field("Scan watchdog (ms)", "raw.scan_watchdog_ms", "intstr", { placeholder: "1000",
-          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (sent messages and the program's frames; received messages go on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }) : null,
         none ? null : checkbox("Program may send protocol identifiers", "raw.program_override_protocol", false,
           "On: CAN_SEND and CAN_SEND_CYCLIC may use identifiers the protocol owns (ERROR_ID 4 otherwise)."))),
     rawDbc());
@@ -374,7 +371,7 @@ function rawEditor(kind, i) {
       cell("Unit", sp + ".unit", "text"),
       el("td", null, muxSwitchBox(sp, s, `${who} is a switch`)),
       el("td", null, muxPageCell(sigs, j, sp, `Page of ${who}`)),
-      cell("PLC address", sp + ".iec_location", "text", { placeholder: setByPlugin ? "none: the plugin sets it" : kind === "rx" ? "%I…" : "%Q…" }),
+      cell("PLC address", sp + ".iec_location", "text", { placeholder: setByPlugin ? "none: the bridge sets it" : kind === "rx" ? "%I…" : "%Q…" }),
       kind === "rx" ? cell("Valid bit", sp + ".valid_location", "text", { placeholder: "%IX…" }) : null,
       el("td", null, el("button", { type: "button", class: "danger", "aria-label": "Remove signal " + (s.name || j),
         onclick: () => { const l = sigs.slice(); l.splice(j, 1); setPath(base + ".signals", l.length ? l : undefined); changed(true); } }, "Remove")));

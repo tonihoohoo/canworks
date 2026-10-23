@@ -1,17 +1,15 @@
 """J1939 networks in the PC tools beyond the shared fixtures
 (test_contract.SharedFixtures.test_cases_j1939): the network list, the
 gateway's words, located variable declarations, the location clash checks,
-free locations and the version writers pick."""
+and free locations."""
 
 import copy
 import json
 import os
 import re
-import shutil
-import tempfile
 import unittest
 
-from canworks import clash, contract
+from canworks import contract
 from canworks.configurator import declare, layout, server
 
 from .helpers import REPO
@@ -47,7 +45,7 @@ class Networks(unittest.TestCase):
         self.assertEqual(str(j["rx"][0]["signals"][0]["location"]), "%IW210")
         self.assertEqual(j["ecu"]["name"]["ecu_instance"], 0)
         self.assertEqual(contract.j1939_name_value(base()["networks"][1]["j1939"]["ecu"]["name"]),
-                         0x80008200000004D2)  # as the plugin's J1939Name::value()
+                         0x80008200000004D2)  # as the bridge's J1939Name::value()
 
     def test_big_endian_bits(self):
         # Start bit 7, 16 bits: bytes 0 and 1, most significant byte first.
@@ -84,14 +82,6 @@ class Networks(unittest.TestCase):
         self.assertEqual(r.errors, [])
         self.assertEqual(contract.parse_j1939(patched(base(), [
             ["set", "networks/1/j1939/tx/0/signals/1/start_bit", 100]])["networks"][1])["tx"][0]["length"], 13)
-
-    def test_j1939_object_in_a_version_1_file(self):
-        cfg = load_cases()["base"]
-        cfg = dict(cfg, j1939={"ecu": {"name": {}, "address": 1}})
-        r = contract.check_config(cfg, EDS_CONFIG)
-        self.assertIn("field 'j1939' needs schema_version 2", "\n".join(r.errors))
-        self.assertFalse(any("unknown field 'j1939'" in w for w in r.warnings))
-
 
 class Gateway(unittest.TestCase):
     def config(self):
@@ -170,7 +160,7 @@ class Clash(unittest.TestCase):
         cfg = patched(base(), [["set", "networks/1/j1939/rx/0/signals/0/iec_location", "%ID100"],
                                ["set", "networks/1/j1939/rx/0/signals/0/length", 32]])
         r = check(cfg)
-        item = next(i for i in r.items if "both map to %ID100" in i["message"])
+        item = next(i for i in r.items if "overlap in input bytes 100" in i["message"])
         self.assertEqual(item["paths"], ["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location",
                                          "networks[1].j1939.rx[0].signals[0].iec_location"])
 
@@ -185,39 +175,12 @@ class Clash(unittest.TestCase):
         self.assertIn("networks[1] (machine) PGN 65280 status_location and networks[1] (machine) PGN 65280 signal "
                       "Pressure valid_location both map to %IX202.0", "\n".join(check(cfg).errors))
 
-    def test_other_plugin_writes_the_ecu_address(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp)
-        os.mkdir(os.path.join(tmp, "conf"))
-        with open(os.path.join(tmp, "conf", "canworks.json"), "w", encoding="utf-8") as f:
-            json.dump(base(), f)
-        with open(os.path.join(tmp, "conf", "modbus_master.json"), "w", encoding="utf-8") as f:
-            json.dump({"devices": [{"iec_location": "%IB201", "len": 1},
-                                   {"iec_location": "%IX202.1", "len": 1}]}, f)
-        uses, problems = clash.bundle_uses(tmp)
-        self.assertEqual(problems, [])
-        errors, _ = clash.check(uses)
-        text = "\n".join(errors)
-        self.assertIn("networks[1].j1939.ecu.address_location", text)
-        self.assertIn("networks[1].j1939.rx[0].signals[0].valid_location", text)
-
     def test_free_locations_skip_j1939(self):
         used = layout.taken(base(), [])
-        for key in (("I", "B", 200), ("I", "B", 201), ("I", "X", 202 * 8), ("I", "W", 210), ("Q", "X", 202 * 8)):
+        for key in (("I", "B", 200), ("I", "B", 201), ("I", "X", 202 * 8), ("I", "b", 202), ("I", "B", 210),
+                    ("I", "B", 211), ("Q", "X", 202 * 8)):
             self.assertIn(key, used)
-        self.assertEqual(layout.suggest("I", "B", used, 200), "%IB202")
-
-
-class Writers(unittest.TestCase):
-    def test_only_a_j1939_network_stays_version_2(self):
-        # Spec scenario "Only a J1939 network".
-        cfg = patched(base(), [["delete", "networks/0"]])
-        cfg["networks"][0]["name"] = "vcan1"  # even named after its interface
-        out = server.lowest_version(cfg)
-        self.assertEqual(out["schema_version"], 2)
-        self.assertEqual(out["networks"][0]["protocol"], "j1939")
-        self.assertTrue(contract.has_j1939(out))
-        self.assertFalse(contract.has_j1939(load_cases()["base"]))
+        self.assertEqual(layout.suggest("I", "B", used, 200), "%IB203")
 
 
 if __name__ == "__main__":

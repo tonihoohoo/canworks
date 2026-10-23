@@ -1,12 +1,12 @@
-name: Browser run against the real plugin
+name: Browser run against the real bridge
 
-# The configurator in Chromium against the real plugin (canopen-ci "Browser
-# run against the real plugin"): canopen_host runs examples/virtual-plant on
-# the plugin's simulated bus (CANWORKS_FORCE_SIMULATE=1, no CAN interface)
-# and test/browser/run.py drives the online view, the simulation, a power
-# cycle, a TPDO timeout and a trace. Weekly, by hand ("Run workflow"), and on
-# pull requests that touch the configurator's online or trace code or the
-# plugin's diagnostics or simulated bus. A workflow of its own so that it
+# The configurator in Chromium against the real bridge (canopen-ci "Browser
+# run against the real bridge"): canworks-bridge runs examples/virtual-plant
+# on the simulated bus (CANWORKS_FORCE_SIMULATE=1, no CAN interface) and
+# test/browser/run.py drives the online view, the simulation, a power cycle,
+# a TPDO timeout and a trace. Weekly, by hand ("Run workflow"), and on pull
+# requests that touch the configurator's online or trace code or the
+# engine's diagnostics or simulated bus. A workflow of its own so that it
 # leaves the CI workflow's time alone; CI's ci-ok check does not wait for it.
 on:
   pull_request:
@@ -40,10 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: ./.github/actions/build-plugin
+      - uses: ./.github/actions/build-engine
         with:
           kernel-modules: "false"
-          targets: canworks_plugin canopen_host
+          targets: canworks-bridge
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -92,7 +92,7 @@ jobs:
           retention-days: 7
 
   frames-tsan:
-    # The PLC frame blocks from four threads under ThreadSanitizer
+    # The frame service from four threads under ThreadSanitizer
     # (canopen-ci "Concurrency check of the frame blocks"). The plain stress
     # test runs in the CI workflow; this build only adds the race detector.
     runs-on: ubuntu-24.04
@@ -100,20 +100,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: The pinned upstream runtime release
-        id: runtime
-        run: echo "ref=$(cat docker/local-runtime/runtime-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Check out the upstream OpenPLC runtime (plugin headers)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Autonomy-Logic/openplc-runtime
-          ref: ${{ steps.runtime.outputs.ref }}
-          path: upstream-runtime
-
       - name: Build can_frames_stress with ThreadSanitizer
         run: |
-          cmake -B build-tsan -DOPENPLC_ROOT="$PWD/upstream-runtime" -DCANWORKS_WITH_CANOPEN=OFF -DCANWORKS_TSAN=ON
+          cmake -B build-tsan -DCANWORKS_WITH_CANOPEN=OFF -DCANWORKS_TSAN=ON
           cmake --build build-tsan --target can_frames_stress -j
 
       - name: Run it three times

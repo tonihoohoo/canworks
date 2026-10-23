@@ -30,7 +30,7 @@ TRACE_MAX = 4000
 CHANGES = ("sdo_write", "nmt", "lss_find", "lss_inquire", "lss_set_id", "lss_set_bitrate", "send_frame",
            "pdo_test_start", "pdo_test_set", "sync_start")
 NOT_LOCAL = "not available on a local adapter"
-# Raw frames, with the plugin's limits.
+# Raw frames, with the bridge's limits.
 SEND_RATE = 50  # single frames per second per handle
 PERIOD_MS = (10, 60000)
 MAX_JOBS = 8  # cyclic jobs per adapter
@@ -320,7 +320,7 @@ def _running(c, node):
 
 
 def _check_force(c, f, what, node=None):
-    """The plugin's rule, stricter on an adapter: changes to a node, and a
+    """The bridge's rule, stricter on an adapter: changes to a node, and a
     scan, need force (--force, or force: true) while another master is active
     on the bus or any node was heard OPERATIONAL. The adapter has listened
     only a short time, so a slow heartbeat (or node guarding) can hide the
@@ -732,7 +732,7 @@ def cob_id_use(c, can_id, ext):
 
 
 def _force_reason(c, can_id, ext):
-    """Why a frame needs force, or '' (the plugin's guard, design D9)."""
+    """Why a frame needs force, or '' (the bridge's guard, design D9)."""
     use = cob_id_use(c, can_id, ext)
     if use:
         return "0x%s is %s%s" % ("%08X" % can_id if ext else "%03X" % can_id, use,
@@ -760,7 +760,7 @@ def _take_token(c):
 
 
 def _frame(f):
-    """The fields of send_frame, checked as the plugin checks them."""
+    """The fields of send_frame, checked as the bridge checks them."""
     for key in ("ext", "rtr", "force"):
         if key in f and not isinstance(f[key], bool):
             raise DiagError("refused", "field '%s' must be true or false" % key)

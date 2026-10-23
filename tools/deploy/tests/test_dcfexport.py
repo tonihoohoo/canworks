@@ -1,5 +1,5 @@
 """DCF export (canworks.dcfexport): the download list, the DCF
-text, its validation, and parity with the plugin's own download list
+text, its validation, and parity with the bridge's own download list
 (canopen_check --dump-writes)."""
 
 import contextlib
@@ -17,7 +17,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
-from canworks import cia306, cli, dcfexport, edslint
+from canworks import cia306, cli, contract, dcfexport, edslint
 
 from .test_contract import FIXTURES, REPO, load_cases, patched
 
@@ -32,8 +32,8 @@ def base_config():
 
 def compact_config():
     cfg = base_config()
-    cfg["nodes"][0]["eds"] = "compact.eds"
-    cfg["nodes"][0]["sdo"] = [
+    cfg["networks"][0]["nodes"][0]["eds"] = "compact.eds"
+    cfg["networks"][0]["nodes"][0]["sdo"] = [
         {"index": "0x2100", "subindex": 2, "type": "UNSIGNED16", "value": 0x22},
         {"index": "0x2100", "subindex": 3, "type": "UNSIGNED16", "value": "0x33"},
     ]
@@ -83,15 +83,15 @@ class Downloads(unittest.TestCase):
         path = os.path.join(REPO, "config", "pingpong", "canopen_config.json")
         with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
-        d = dcfexport.plugin_downloads(cfg, path)[2]
+        d = dcfexport.plugin_downloads(contract.network_config(cfg), path)[2]
         lines = ["write 2 0x%04X %d %s" % (i, s, b.hex()) for i, s, b in d.writes]
         with open(os.path.join(REPO, "test", "dump", "pingpong.expected"), encoding="utf-8") as f:
             self.assertEqual(lines, f.read().split("\n")[:-1])
 
     def test_config_stamp_and_save_last(self):
         cfg = base_config()
-        cfg["nodes"][0].update(eds="config-check.eds", config_check=True, store_configuration=1)
-        d = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2]
+        cfg["networks"][0]["nodes"][0].update(eds="config-check.eds", config_check=True, store_configuration=1)
+        d = dcfexport.plugin_downloads(contract.network_config(cfg), FIXTURE_CONFIG)[2]
         self.assertEqual([(i, s) for i, s, _ in d.writes[-3:]], [(0x1020, 1), (0x1020, 2), (0x1010, 1)])
         self.assertEqual(d.writes[-1][2], b"save")
         self.assertNotIn((0x1010, 1), d.final_values())
@@ -103,25 +103,25 @@ class Downloads(unittest.TestCase):
 
     def test_rpdo_deadline_and_time_cob_id(self):
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "node-options.eds"
-        cfg["nodes"][0]["rx_pdos"][0]["event_timer_ms"] = 250
-        cfg["nodes"][0]["time_cob_id"] = "0x40000100"
-        values = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].final_values()
+        cfg["networks"][0]["nodes"][0]["eds"] = "node-options.eds"
+        cfg["networks"][0]["nodes"][0]["rx_pdos"][0]["event_timer_ms"] = 250
+        cfg["networks"][0]["nodes"][0]["time_cob_id"] = "0x40000100"
+        values = dcfexport.plugin_downloads(contract.network_config(cfg), FIXTURE_CONFIG)[2].final_values()
         self.assertEqual(values[(0x1400, 5)], (250).to_bytes(2, "little"))
         self.assertEqual(values[(0x1012, 0)], (0x40000100).to_bytes(4, "little"))
         # The EDS value already: nothing to write.
-        cfg["nodes"][0]["time_cob_id"] = "0x80000100"
-        values = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].final_values()
+        cfg["networks"][0]["nodes"][0]["time_cob_id"] = "0x80000100"
+        values = dcfexport.plugin_downloads(contract.network_config(cfg), FIXTURE_CONFIG)[2].final_values()
         self.assertNotIn((0x1012, 0), values)
 
     def test_explicit_pdo_values_equal_to_the_eds_default(self):
         # dcfgen leaves these out (the EDS default); the node's real value
         # may differ, so they are written, right after the PDO is switched off.
         cfg = base_config()
-        node = cfg["nodes"][0]
+        node = cfg["networks"][0]["nodes"][0]
         node["tx_pdos"][0].update(transmission=1, inhibit_time_us=0, event_timer_ms=0)
         node["rx_pdos"][0]["transmission"] = 1
-        w = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].writes
+        w = dcfexport.plugin_downloads(contract.network_config(cfg), FIXTURE_CONFIG)[2].writes
         keys = [(i, s) for i, s, _ in w]
         for key, data in (((0x1800, 2), b"\x01"), ((0x1800, 3), b"\x00\x00"), ((0x1800, 5), b"\x00\x00"),
                           ((0x1400, 2), b"\x01")):
@@ -133,7 +133,7 @@ class Downloads(unittest.TestCase):
             self.assertTrue(off and off[0] < i < on[-1], (key, off, i, on))
         # A value other than the default is dcfgen's own write, once.
         node["tx_pdos"][0]["transmission"] = 254
-        w = dcfexport.plugin_downloads(cfg, FIXTURE_CONFIG)[2].writes
+        w = dcfexport.plugin_downloads(contract.network_config(cfg), FIXTURE_CONFIG)[2].writes
         self.assertEqual([d for i, s, d in w if (i, s) == (0x1800, 2)], [b"\xfe"])
 
 
@@ -168,7 +168,7 @@ class Writer(unittest.TestCase):
 
     def test_values_commissioning_and_file_info(self):
         cfg = base_config()
-        cfg["nodes"][0]["serial_number"] = "0x1234"
+        cfg["networks"][0]["nodes"][0]["serial_number"] = "0x1234"
         text = export(cfg)["node_2.dcf"]
         self.assertEqual(section(text, "1017")["ParameterValue"], "0x64")
         self.assertEqual(section(text, "1800sub1")["ParameterValue"], "0x182")
@@ -197,7 +197,7 @@ class Writer(unittest.TestCase):
         with open(os.path.join(tmp, "crlf.eds"), "wb") as f:
             f.write(data)
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "crlf.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "crlf.eds"
         text = export(cfg, os.path.join(tmp, "canworks.json"))["node_2.dcf"]
         self.assertEqual(text.count("\n"), text.count("\r\n"))
 
@@ -241,7 +241,7 @@ class Validation(unittest.TestCase):
         """Exports with the node's download replaced by `writes`, as only a
         test can (the config checks refuse these values)."""
         cfg = cfg or base_config()
-        cfg["nodes"][0]["eds"] = eds
+        cfg["networks"][0]["nodes"][0]["eds"] = eds
         real = dcfexport.plugin_downloads
 
         def forged(*a, **kw):
@@ -265,7 +265,7 @@ class Validation(unittest.TestCase):
 
     def test_read_only_equal_to_eds_is_fine(self):
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "compact.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "compact.eds"
         real = dcfexport.plugin_downloads
 
         def forged(*a, **kw):
@@ -283,8 +283,8 @@ class Validation(unittest.TestCase):
         with open(os.path.join(tmp, "slow.eds"), "w", encoding="utf-8") as f:
             f.write(eds)
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "slow.eds"
-        cfg["adapter"]["bitrate"] = 1000000
+        cfg["networks"][0]["nodes"][0]["eds"] = "slow.eds"
+        cfg["networks"][0]["adapter"]["bitrate"] = 1000000
         with self.assertRaises(dcfexport.ExportFailed) as cm:
             export(cfg, os.path.join(tmp, "canworks.json"))
         text = "\n".join(m for m, _ in cm.exception.problems)
@@ -295,11 +295,11 @@ class Validation(unittest.TestCase):
         # The config schema already allows only CiA 306 rates; the DCF check
         # is the second line.
         cfg = base_config()
-        cfg["adapter"]["bitrate"] = 100000
+        cfg["networks"][0]["adapter"]["bitrate"] = 100000
         with self.assertRaises(dcfexport.ExportFailed) as cm:
             export(cfg)
         self.assertIn("adapter.bitrate", str(cm.exception))
-        node = dcfexport._load_nodes(base_config(), FIXTURE_CONFIG, None)[0]
+        node = dcfexport._load_nodes(contract.network_config(base_config()), FIXTURE_CONFIG, None)[0]
         d = dcfexport.Download(2)
         text = export(base_config())["node_2.dcf"].replace("Baudrate=125", "Baudrate=100")
         problems = dcfexport.validate(node, d, text, base_config())
@@ -318,16 +318,16 @@ class Validation(unittest.TestCase):
         with open(os.path.join(tmp, "vendor.eds"), "w", encoding="utf-8") as f:
             f.write(eds.replace(old, old + " ; Gr\u00fc\u00dfe " + "x" * 260))
         cfg = base_config()
-        cfg["nodes"][0]["eds"] = "vendor.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "vendor.eds"
         self.assertIn("node_2.dcf", export(cfg, os.path.join(tmp, "canworks.json")))
-        cfg["nodes"][0]["name"] = "venttiili \u00e4"
+        cfg["networks"][0]["nodes"][0]["name"] = "venttiili \u00e4"
         with self.assertRaises(dcfexport.ExportFailed) as cm:
             export(cfg, os.path.join(tmp, "canworks.json"))
         self.assertIn("[DeviceComissioning] NodeName", str(cm.exception.problems))
 
     def test_node_name_not_ascii(self):
         cfg = base_config()
-        cfg["nodes"][0]["name"] = "venttiili \u00e4"
+        cfg["networks"][0]["nodes"][0]["name"] = "venttiili \u00e4"
         try:
             export(cfg)
         except dcfexport.ExportFailed as e:
@@ -339,19 +339,19 @@ class Validation(unittest.TestCase):
 
     def test_config_errors_stop_the_export(self):
         cfg = base_config()
-        cfg["nodes"][0]["node_id"] = 1  # the master's
+        cfg["networks"][0]["nodes"][0]["node_id"] = 1  # the master's
         with self.assertRaises(dcfexport.ExportFailed) as cm:
             export(cfg)
         self.assertIn("is the master's node ID", str(cm.exception))
 
     def test_one_node(self):
         cfg = base_config()
-        second = copy.deepcopy(cfg["nodes"][0])
+        second = copy.deepcopy(cfg["networks"][0]["nodes"][0])
         second.update(node_id=3, name="second", status_location="%IX10.1")
         for p in second["tx_pdos"] + second["rx_pdos"]:
             for e in p["entries"]:
                 e["iec_location"] = e["iec_location"].replace("100", "104")
-        cfg["nodes"].append(second)
+        cfg["networks"][0]["nodes"].append(second)
         self.assertEqual(sorted(export(cfg)), ["node_2.dcf", "node_3.dcf"])
         self.assertEqual(list(export(cfg, node_id=3)), ["node_3.dcf"])
         with self.assertRaises(dcfexport.ExportFailed):
@@ -409,9 +409,9 @@ class Cli(unittest.TestCase):
         self.assertIn("no DCF was written", err)
         self.assertFalse(os.path.exists(out_dir))
 
-    def test_refuses_upload_options(self):
+    def test_refuses_check_only(self):
         tmp, path = self.config_in(base_config())
-        code, _, err = self.run_cli("--config", path, "--export-dcf", tmp, "--runtime", "plc.local")
+        code, _, err = self.run_cli("--config", path, "--export-dcf", tmp, "--check-only")
         self.assertEqual(code, 1)
         self.assertIn("--export-dcf only writes DCF files", err)
 
@@ -435,7 +435,7 @@ class Links(unittest.TestCase):
         self.path = os.path.join(EDS_DIR, "canworks.json")
 
     def test_consumer_download(self):
-        w = dcfexport.plugin_downloads(self.cfg, self.path)[20].writes
+        w = dcfexport.plugin_downloads(contract.network_config(self.cfg), self.path)[20].writes
         start = w.index((0x1401, 1, (0x8000018A).to_bytes(4, "little")))
         self.assertEqual(w[start:start + 9], [
             (0x1401, 1, (0x8000018A).to_bytes(4, "little")), (0x1401, 2, b"\xff"), (0x1401, 5, (200).to_bytes(2, "little")),
@@ -451,16 +451,16 @@ class Links(unittest.TestCase):
         self.assertEqual(int(section(text, "1016sub1")["ParameterValue"], 0), 0x000A012C)
 
     def test_watch_next_to_the_master(self):
-        cfg = patched(self.cfg, [["set", "master/heartbeat_ms", 100], ["set", "nodes/1/heartbeat_consumer", True]])
-        w = dcfexport.plugin_downloads(cfg, self.path)[20].writes
+        cfg = patched(self.cfg, [["set", "networks/0/master/heartbeat_ms", 100], ["set", "networks/0/nodes/1/heartbeat_consumer", True]])
+        w = dcfexport.plugin_downloads(contract.network_config(cfg), self.path)[20].writes
         hb = [x for x in w if x[0] == 0x1016]
         self.assertEqual(hb, [(0x1016, 1, (0x0001012C).to_bytes(4, "little")),
                               (0x1016, 2, (0x000A012C).to_bytes(4, "little"))])
 
     def test_no_link_writes_without_links(self):
-        cfg = patched(self.cfg, [["delete", "links"], ["delete", "nodes/1/heartbeat_watch"],
-                                 ["set", "nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
-        w = dcfexport.plugin_downloads(cfg, self.path)[20].writes
+        cfg = patched(self.cfg, [["delete", "networks/0/links"], ["delete", "networks/0/nodes/1/heartbeat_watch"],
+                                 ["set", "networks/0/nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
+        w = dcfexport.plugin_downloads(contract.network_config(cfg), self.path)[20].writes
         self.assertFalse([x for x in w if x[0] in (0x1016, 0x1601)])
 
 
@@ -507,7 +507,7 @@ class Parity(unittest.TestCase):
 
     def _compare(self, cfg, path, out=None):
         writes, steps = self._dump(path, out)
-        downloads = dcfexport.plugin_downloads(cfg, path)
+        downloads = dcfexport.plugin_downloads(contract.network_config(cfg), path)
         files = export(cfg, path)
         for node_id, d in downloads.items():
             self.assertEqual(d.writes, writes.get(node_id, []), "node %d download" % node_id)
@@ -548,7 +548,7 @@ class Parity(unittest.TestCase):
 
     def test_link_fixture_cases(self):
         # PDO links and heartbeat watch (cases-links.json): the consumer RPDO
-        # and 0x1016 writes as the plugin adds them.
+        # and 0x1016 writes as the bridge adds them.
         doc = load_cases("cases-links.json")
         cases = []
         for case in doc["cases"]:
@@ -566,7 +566,7 @@ class Parity(unittest.TestCase):
         # An empty DefaultValue is 0 on both sides, so the heartbeat watch
         # takes 0x1016 sub 1 as a free entry (canopen-config-contract).
         doc = load_cases("cases-links.json")
-        cfg = patched(doc["base"], [["set", "nodes/1/heartbeat_watch/0/timeout_ms", 250]])
+        cfg = patched(doc["base"], [["set", "networks/0/nodes/1/heartbeat_watch/0/timeout_ms", 250]])
         path = self._in_copy(cfg)
         eds = os.path.join(os.path.dirname(path), "link-io.eds")
         with open(eds, encoding="utf-8") as f:
@@ -578,7 +578,7 @@ class Parity(unittest.TestCase):
         with open(eds, "w", encoding="utf-8") as f:
             f.write(text[:start] + "DefaultValue=" + text[end:])
         self._compare(cfg, path)
-        self.assertIn((0x1016, 1), {(i, s) for i, s, _ in dcfexport.plugin_downloads(cfg, path)[20].writes})
+        self.assertIn((0x1016, 1), {(i, s) for i, s, _ in dcfexport.plugin_downloads(contract.network_config(cfg), path)[20].writes})
 
     def test_compact_fixture(self):
         cfg = compact_config()

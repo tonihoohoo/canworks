@@ -4,7 +4,8 @@ message, DBC messages to import, and the "Copy as ST call" text."""
 
 import re
 
-from ..iec import element_str
+from ..configurator import layout
+from ..iec import parse_location
 from .contract import hex_id, size_for_bits, tx_dlc
 
 DEFAULT_START = 300
@@ -15,17 +16,16 @@ _TX_EXTRA = ()
 
 
 def _free(area, size, used, start):
-    element = start * 8 if size == "X" else start
-    while (area, size, element) in used:
-        element += 1
-    used.add((area, size, element))
-    return element_str(area, size, element)
+    location = layout.suggest(area, size, used, start)
+    layout.mark(used, parse_location(location))
+    return location
 
 
 def suggest_locations(entry, kind, used, start=DEFAULT_START):
     """Fills every signal without an `iec_location` (and, for `rx`, the
-    status bit) with the lowest free location at or above `start`. `used` is a
-    set of (area, size, element) keys and grows with what was given out.
+    status bit) with the lowest free location at or above byte `start`. `used`
+    is the bridge's byte image as configurator.layout.taken() gives it and
+    grows with what was given out.
     Returns the paths (relative to the entry) that were filled."""
     area = "I" if kind == "rx" else "Q"
     filled = []
@@ -36,7 +36,7 @@ def suggest_locations(entry, kind, used, start=DEFAULT_START):
     plugin_sets = kind == "tx" and entry.get("pages") in ("all", "rotate")
     for j, s in enumerate(entry.get("signals") or []):
         if plugin_sets and s.get("multiplexer") is True:
-            continue  # the plugin sets the switches of these pages modes
+            continue  # the bridge sets the switches of these pages modes
         if not s.get("iec_location"):
             s["iec_location"] = _free(area, size_for_bits(s.get("length", 1)), used, start)
             filled.append("signals[%d].iec_location" % j)

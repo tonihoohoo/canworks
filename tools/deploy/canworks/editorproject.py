@@ -6,12 +6,15 @@ This module then changes only what `create` cannot set:
 
     devices/configuration.json   deviceBoard -> OpenPLC Runtime v4 (and the
                                  runtime address, when one is known)
-    pous/programs/main.st        a VAR block declaring every CANopen location,
-                                 and for each CiA 402 axis node the axis, its
-                                 drive bridge and the bridge call
+    pous/programs/main.st        an empty program main
     canworks/                     the config and its files (project.write())
-    project.json                 with blocks or a cyclic CiA 402 axis: the canworks library
-                                 enabled (plclibrary.enable_in_project())
+    devices/remote/, canworks_in, for an OpenPLC through Modbus config: the
+    canworks_out, project.json   editor's remote device, the generated
+                                 programs and the `canworks` variable list
+                                 (write_editor_files(), openplcmodbus)
+    project.json                 with blocks or generated programs: the
+                                 canworks library enabled
+                                 (plclibrary.enable_in_project())
 
 The project is created in place (the editor records its path), so a failure
 after `create` removes the folder it made.
@@ -23,15 +26,15 @@ import re
 import shutil
 import subprocess
 
-from . import axis, bundle, contract, plclibrary
+from . import bundle, contract, openplcmodbus, plclibrary, targets
 from . import project as project_mod
-from .configurator import declare
+from .configurator import declare, scan
 from .eds import Eds, EdsError
 from .userdirs import replace_file
 
 TARGET = "OpenPLC Runtime v4"
 DEFAULT_INTERVAL = "T#20ms"
-BODY = "(* CANopen I/O declared from canworks/canworks.json *)"
+BODY = "(* canworks values: the canworks variable list, such as canworks.ok *)"
 
 _UNITS = {"d": 86400000.0, "h": 3600000.0, "m": 60000.0, "s": 1000.0, "ms": 1.0, "us": 0.001, "ns": 0.000001}
 _PART = re.compile(r"(\d+(?:\.\d+)?)(ms|us|ns|d|h|m|s)_?", re.IGNORECASE)
@@ -143,40 +146,42 @@ def declarations(cfg, config_path):
     return declare.program_order(declare.declarations(cfg, object_name, {}, slave_object))
 
 
-def with_axes(cfg, decls, interval=DEFAULT_INTERVAL):
-    """(declarations, body lines before BODY): `decls` with each CiA 402
-    axis and its bridge after the last declaration of its node, and the
-    bridge calls (a cyclic axis's cycle time from the task `interval`)."""
-    axes, body = axis.glue(cfg, decls, interval_seconds(interval))
-    out = list(decls)
-    for a in axes:
-        last = max([k for k, d in enumerate(out) if d.get("node") == a["node"]] or
-                   [k for k, d in enumerate(out) if d.get("node") is not None and d["node"] < a["node"]] or [-1])
-        out.insert(last + 1, a)
-    return out, body
-
-
 def uses_library(cfg):
-    """Whether the program needs the canworks library without
-    --blocks: a cyclic CiA 402 axis (its CO402_Cyclic* blocks)."""
-    return any(axis.is_cyclic(n) for n in contract.all_nodes(cfg))
+    """Whether the project needs the canworks library without --blocks: an
+    OpenPLC through Modbus config, whose canworks_in and canworks_out use its
+    word helpers."""
+    return cfg is not None and targets.target(cfg) == targets.OPENPLC_MODBUS
 
 
-def main_st(decls, body=()):
-    """pous/programs/main.st in the form the editor writes a Structured Text program."""
-    lines = "\n".join(list(body) + ["", BODY]) if body else BODY
-    return "PROGRAM main\n%s\n\n%s\n\nEND_PROGRAM" % (declare.editor_block(decls), lines)
+def main_st():
+    """pous/programs/main.st in the form the editor writes a Structured Text
+    program: empty, for the user's own code."""
+    return "PROGRAM main\n  VAR\n  END_VAR\n\n%s\n\nEND_PROGRAM" % BODY
 
 
-def program(cfg, config_path, interval=DEFAULT_INTERVAL):
-    """The whole main.st for a config (the text `create` writes)."""
-    decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
-    return main_st(decls, body)
+def write_editor_files(cfg, config_path, project_dir, force=False):
+    """For an OpenPLC through Modbus config: the editor's remote device,
+    canworks_in, canworks_out and the `canworks` list in the project
+    (openplcmodbus.sync_project), with the I/O placed clear of the
+    project's other located variables. Returns sync_project's result, or
+    None for another target. NewProjectError when a generated file was
+    changed by hand and `force` is not set."""
+    if targets.target(cfg) != targets.OPENPLC_MODBUS:
+        return None
+    uses, _ = scan.scan(project_dir)
+    try:
+        return openplcmodbus.sync_project(project_dir, cfg, declarations(cfg, config_path), uses, force=force)
+    except openplcmodbus.ChangedFiles as e:
+        raise NewProjectError("changed outside canworks since it wrote them: %s (--force replaces them)"
+                              % ", ".join(e.files))
+    except openplcmodbus.OpenplcError as e:
+        raise NewProjectError(str(e))
 
 
 def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_address=None, progress=None,
            blocks=False, sim_path=None):
-    """Creates the project. Returns (project folder, located declarations). The config
+    """Creates the project. Returns (project folder, write_editor_files'
+    result or None). The config
     (and the simulation file sim_path, when given) must already have passed
     the deploy tool's checks. With cfg None the project gets no canworks/
     folder and an empty main (the start page's New config with a project)."""
@@ -193,13 +198,10 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
             raise NewProjectError(in_the_way)
     elif not os.path.isdir(parent):
         raise NewProjectError("%s is not a folder" % parent)
-    if cfg is None:
-        decls, body = [], []
-    else:
+    if cfg is not None:
         result = contract.check_config(cfg, config_path)
         if not result.ok:
             raise NewProjectError("\n".join(result.errors))
-        decls, body = with_axes(cfg, declarations(cfg, config_path), interval)
     cli = cli_program()
     start = cli_command(cli)
     if not start:
@@ -224,20 +226,22 @@ def create(cfg, config_path, project_dir, interval=DEFAULT_INTERVAL, runtime_add
         _undo(project_dir, before)
         raise NewProjectError("openplc-cli create failed (exit %d)%s" % (
             run.returncode, ":\n" + run.stdout.strip() if run.stdout.strip() else ""))
+    synced = None
     try:
-        _patch(project_dir, decls, body, runtime_address)
+        _patch(project_dir, runtime_address)
         if cfg is not None:
             project_mod.write(cfg, config_path, project_dir, sim_path=sim_path)
-        if blocks or (cfg is not None and uses_library(cfg)):
+            synced = write_editor_files(cfg, config_path, project_dir, force=True)
+        if blocks or uses_library(cfg):
             plclibrary.enable_in_project(project_dir)
     except (OSError, ValueError, project_mod.ProjectError, NewProjectError, plclibrary.LibraryError) as e:
         _undo(project_dir, before)
         raise NewProjectError("%s (%s)" % (e, "the new project folder was removed" if before is None else
                                            "what was added to the folder was removed"))
-    return project_dir, [d for d in decls if d.get("location")]
+    return project_dir, synced
 
 
-def _patch(project_dir, decls, body, runtime_address):
+def _patch(project_dir, runtime_address):
     conf = os.path.join(project_dir, "devices", "configuration.json")
     with open(conf, encoding="utf-8") as f:
         device = json.load(f)
@@ -249,7 +253,7 @@ def _patch(project_dir, decls, body, runtime_address):
     _write(conf, json.dumps(device, indent=2))
     programs = os.path.join(project_dir, "pous", "programs")
     os.makedirs(programs, exist_ok=True)
-    _write(os.path.join(programs, "main.st"), main_st(decls, body))
+    _write(os.path.join(programs, "main.st"), main_st())
 
 
 def _write(path, text):

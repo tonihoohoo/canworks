@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#ifndef CANWORKS_PLUGIN_VERSION
-#define CANWORKS_PLUGIN_VERSION "unknown"
+#ifndef CANWORKS_VERSION
+#define CANWORKS_VERSION "unknown"
 #endif
 
 namespace sim_tool {

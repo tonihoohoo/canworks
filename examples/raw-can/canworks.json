@@ -1,6 +1,7 @@
 {
   "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
   "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
   "networks": [
     {
       "name": "cab",
@@ -10,37 +11,86 @@
         "dbc": "cab.dbc",
         "rx": [
           {
-            "name": "Joystick", "id": 385, "dlc": 5, "timeout_ms": 100, "status_location": "%IX300.0",
+            "name": "Joystick",
+            "id": 385,
+            "dlc": 5,
+            "timeout_ms": 100,
+            "status_location": "%IX308.0",
             "signals": [
               { "name": "X", "start_bit": 0, "length": 16, "signed": true, "iec_location": "%IW300" },
-              { "name": "Y", "start_bit": 16, "length": 16, "signed": true, "iec_location": "%IW301" },
-              { "name": "Button1", "start_bit": 32, "length": 1, "iec_location": "%IX300.1" },
-              { "name": "Button2", "start_bit": 33, "length": 1, "iec_location": "%IX300.2" }
+              { "name": "Y", "start_bit": 16, "length": 16, "signed": true, "iec_location": "%IW302" },
+              { "name": "Button1", "start_bit": 32, "length": 1, "iec_location": "%IX308.1" },
+              { "name": "Button2", "start_bit": 33, "length": 1, "iec_location": "%IX308.2" }
             ]
           },
           {
-            "name": "Pedal", "id": 419368992, "extended": true, "dlc": 2, "timeout_ms": 250, "status_location": "%IX300.3",
+            "name": "Pedal",
+            "id": 419368992,
+            "extended": true,
+            "dlc": 2,
+            "timeout_ms": 250,
+            "status_location": "%IX308.3",
             "signals": [
-              { "name": "Position", "start_bit": 7, "length": 16, "byte_order": "big", "scale": 0.1, "unit": "%", "iec_location": "%IW302" }
+              {
+                "name": "Position",
+                "start_bit": 7,
+                "length": 16,
+                "byte_order": "big",
+                "scale": 0.1,
+                "unit": "%",
+                "iec_location": "%IW304"
+              }
             ]
           },
           {
-            "name": "Sensor", "id": 912, "dlc": 4, "timeout_ms": 300, "status_location": "%IX300.4",
+            "name": "Sensor",
+            "id": 912,
+            "dlc": 4,
+            "timeout_ms": 300,
+            "status_location": "%IX308.4",
             "signals": [
-              { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB300" },
-              { "name": "Temp", "start_bit": 8, "length": 8, "offset": -40, "unit": "degC", "mux": { "values": [1] }, "iec_location": "%IB301", "valid_location": "%IX300.5" },
-              { "name": "Press", "start_bit": 8, "length": 16, "scale": 0.1, "unit": "kPa", "mux": { "values": [2] }, "iec_location": "%IW303", "valid_location": "%IX300.6" },
-              { "name": "Counter", "start_bit": 24, "length": 8, "iec_location": "%IB302" }
+              { "name": "Page", "start_bit": 0, "length": 8, "multiplexer": true, "iec_location": "%IB309" },
+              {
+                "name": "Temp",
+                "start_bit": 8,
+                "length": 8,
+                "offset": -40,
+                "unit": "degC",
+                "mux": { "values": [ 1 ] },
+                "iec_location": "%IB310",
+                "valid_location": "%IX308.5"
+              },
+              {
+                "name": "Press",
+                "start_bit": 8,
+                "length": 16,
+                "scale": 0.1,
+                "unit": "kPa",
+                "mux": { "values": [ 2 ] },
+                "iec_location": "%IW306",
+                "valid_location": "%IX308.6"
+              },
+              { "name": "Counter", "start_bit": 24, "length": 8, "iec_location": "%IB311" }
             ]
           }
         ],
         "tx": [
           {
-            "name": "Display", "id": 769, "dlc": 3, "period_ms": 100,
+            "name": "Display",
+            "id": 769,
+            "dlc": 3,
+            "period_ms": 100,
             "signals": [
-              { "name": "Speed", "start_bit": 0, "length": 16, "scale": 0.1, "unit": "km/h", "iec_location": "%QW300" },
-              { "name": "Warning", "start_bit": 16, "length": 1, "iec_location": "%QX300.0" },
-              { "name": "Light", "start_bit": 17, "length": 1, "iec_location": "%QX300.1" }
+              {
+                "name": "Speed",
+                "start_bit": 0,
+                "length": 16,
+                "scale": 0.1,
+                "unit": "km/h",
+                "iec_location": "%QW300"
+              },
+              { "name": "Warning", "start_bit": 16, "length": 1, "iec_location": "%QX302.0" },
+              { "name": "Light", "start_bit": 17, "length": 1, "iec_location": "%QX302.1" }
             ]
           }
         ]

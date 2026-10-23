@@ -1,5 +1,5 @@
 """The J1939 diagnostic message codec (canworks.j1939.dm) against the byte
-fixtures the plugin's codec is tested with (test/fixtures/j1939-dm)."""
+fixtures the bridge's codec is tested with (test/fixtures/j1939-dm)."""
 
 import json
 import os

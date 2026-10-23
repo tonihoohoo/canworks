@@ -28,16 +28,7 @@ namespace canopen_plugin {
 
 constexpr std::chrono::milliseconds Bus::kLoopSlice;
 constexpr int Bus::kShutdownSlices;
-constexpr int Bus::kSyncPriority;
 constexpr std::chrono::milliseconds Bus::kStopDrain;
-
-void leave_realtime() {
-  int policy = SCHED_OTHER;
-  sched_param sp{};
-  if (pthread_getschedparam(pthread_self(), &policy, &sp) != 0 || policy == SCHED_OTHER) return;
-  sp.sched_priority = 0;
-  pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp);
-}
 
 std::shared_ptr<lely::io::VirtualCanController> shared_virtual_bus(const std::string& interface) {
   if (interface.empty()) return std::make_shared<lely::io::VirtualCanController>(lely::io::clock_monotonic);
@@ -130,25 +121,7 @@ void Bus::thread_main() {
   adapter_->release();
 }
 
-void Bus::enter_realtime() {
-  if (!cfg_.master.sync_plc_cycle || std::getenv("CANWORKS_BUS_NO_FIFO")) return;
-  // PLC-cycle SYNC: the SYNC should follow the frame closely, so the bus
-  // thread runs at the level of the runtime's highest task priority (below
-  // its dispatcher) while a session runs; a session's shutdown leaves it
-  // (leave_realtime). Without the right to do so it runs as before.
-  // CANWORKS_BUS_NO_FIFO skips this, to measure what it gains.
-  sched_param sp{};
-  sp.sched_priority = kSyncPriority;
-  int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
-  if (rc && !fifo_warned_) {
-    fifo_warned_ = true;
-    log_warn("cannot run the CANopen bus thread at SCHED_FIFO %d (%s); PLC-cycle SYNC may jitter more", kSyncPriority,
-             strerror(rc));
-  }
-}
-
 void Bus::run_session() {
-  enter_realtime();
   // Requests the session's Network took and did not answer get "no bus"
   // when it ends, however it ends.
   struct Detach {
@@ -192,12 +165,7 @@ void Bus::run_session() {
     bool shut_down = false;
     int ticks = 0;
     auto end_session = [&]() {
-      if (!shut_down) {
-        // What follows can wait (the loop draining, the adapter): not at
-        // SCHED_FIFO, where it would hold the CPU from the runtime.
-        leave_realtime();
-        ctx.shutdown();
-      }
+      if (!shut_down) ctx.shutdown();
       shut_down = true;
     };
     // Frames the master and the diagnostics channel (below) put on the
@@ -367,7 +335,6 @@ void Bus::run_session() {
       }
     }
     net.Start();
-    SyncWake sync_wake(poll, image_.sync_fd(), net);
     FdWake gw_wake(poll, gw_ ? gw_->fd(cfg_.network_index) : -1, [&net] { net.ServiceGateway(); });
     if (hub_) hub_->attach();
     // The loop runs in slices so that a stop or a lost interface ends the

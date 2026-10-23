@@ -59,13 +59,6 @@ A network's CODESYS network number SHALL come from the user's override for that 
 - **WHEN** the user gives `field=2` for a network with `codesys.net_id` 0
 - **THEN** the plan gives `field` network number 2
 
-### Requirement: Settings that do not carry over
-Every set config value that the relevance table of `canopen-config-contract` marks as not used by CODESYS SHALL be in the plan's `not_carried` list with where it is set and the table's reason, the same text the check's warning gives.
-
-#### Scenario: Plugin-only status location
-- **WHEN** node `rtd` has `emcy_code_location` `%IW20`
-- **THEN** `not_carried` lists `emcy_code_location` for `field/rtd` with the reason the check gives for it
-
 ### Requirement: Run in the CODESYS IDE on the open project
 Run from CODESYS's script menu, the script SHALL work on the project open in the IDE, read the plan next to itself, apply it, write `import_report.txt` next to itself, show the report in CODESYS's message view, and SHALL NOT save the project. With no project open it SHALL stop with a message and change nothing.
 
@@ -230,3 +223,10 @@ The plan SHALL list each channel's bit channels with bit number and variable nam
 #### Scenario: Output bits only
 - **WHEN** node `dio`'s RPDO entry 0x6200:1 has bits 1 and 6 named `lamp` and `horn`
 - **THEN** the script sets `dio_lamp` and `dio_horn` on the channel's bits 1 and 6, leaves the channel's own variable unset, and the report says the output goes through its bits
+
+### Requirement: Settings that do not carry over to CODESYS
+Every set config value that the relevance table of `canopen-config-contract` marks as not used by CODESYS SHALL be in the plan's `not_carried` list with where it is set and the table's reason, the same text the check's warning gives.
+
+#### Scenario: Bridge-only status location
+- **WHEN** node `rtd` has `emcy_code_location` `%IW20`
+- **THEN** `not_carried` lists `emcy_code_location` for `field/rtd` with the reason the check gives for it

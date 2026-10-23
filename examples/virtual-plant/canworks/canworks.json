@@ -14,8 +14,8 @@
         "heartbeat_ms": 100,
         "sync_period_us": 20000,
         "time_period_ms": 1000,
-        "state_location": "%IB10",
-        "bus_state_location": "%IB11"
+        "state_location": "%IB60",
+        "bus_state_location": "%IB61"
       },
       "nodes": [
         {
@@ -25,39 +25,39 @@
           "mandatory": true,
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
-          "status_location": "%IX12.0",
-          "state_location": "%IB13",
-          "emcy_code_location": "%IW14",
+          "status_location": "%IX62.0",
+          "state_location": "%IB63",
+          "emcy_code_location": "%IW64",
           "tx_pdos": [
             {
               "number": 1,
               "transmission": 1,
               "timeout_ms": 200,
-              "timeout_location": "%IX12.1",
+              "timeout_location": "%IX62.1",
               "entries": [
                 {
                   "index": "0x7130",
                   "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%IW100"
+                  "iec_location": "%IW12"
                 },
                 {
                   "index": "0x7130",
                   "subindex": 2,
                   "type": "INTEGER16",
-                  "iec_location": "%IW101"
+                  "iec_location": "%IW14"
                 },
                 {
                   "index": "0x7130",
                   "subindex": 3,
                   "type": "INTEGER16",
-                  "iec_location": "%IW102"
+                  "iec_location": "%IW16"
                 },
                 {
                   "index": "0x7130",
                   "subindex": 4,
                   "type": "INTEGER16",
-                  "iec_location": "%IW103"
+                  "iec_location": "%IW18"
                 }
               ]
             }
@@ -85,10 +85,9 @@
           "heartbeat_timeout_ms": 300,
           "config_check": true,
           "store_configuration": 1,
-          "status_location": "%IX12.2",
-          "state_location": "%IB15",
-          "emcy_code_location": "%IW16",
-          "nmt_command_location": "%QB10",
+          "status_location": "%IX62.2",
+          "state_location": "%IB66",
+          "emcy_code_location": "%IW68",
           "time_cob_id": "0x80000100",
           "tx_pdos": [
             {
@@ -99,25 +98,25 @@
                   "index": "0x6000",
                   "subindex": 1,
                   "type": "UNSIGNED8",
-                  "iec_location": "%IB110"
+                  "iec_location": "%IB20"
                 },
                 {
                   "index": "0x6000",
                   "subindex": 2,
                   "type": "UNSIGNED8",
-                  "iec_location": "%IB111"
+                  "iec_location": "%IB21"
                 },
                 {
                   "index": "0x6401",
                   "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%IW110"
+                  "iec_location": "%IW22"
                 },
                 {
                   "index": "0x6401",
                   "subindex": 2,
                   "type": "INTEGER16",
-                  "iec_location": "%IW111"
+                  "iec_location": "%IW24"
                 }
               ]
             }
@@ -131,13 +130,13 @@
                   "index": "0x6200",
                   "subindex": 1,
                   "type": "UNSIGNED8",
-                  "iec_location": "%QB110"
+                  "iec_location": "%QB6"
                 },
                 {
                   "index": "0x6200",
                   "subindex": 2,
                   "type": "UNSIGNED8",
-                  "iec_location": "%QB111"
+                  "iec_location": "%QB7"
                 },
                 {
                   "index": "0x6411",
@@ -148,7 +147,7 @@
                   "index": "0x6411",
                   "subindex": 2,
                   "type": "INTEGER16",
-                  "iec_location": "%QW110"
+                  "iec_location": "%QW8"
                 }
               ]
             }
@@ -168,9 +167,9 @@
               "subindex": 0,
               "type": "UNSIGNED32",
               "direction": "read",
-              "iec_location": "%ID110",
+              "iec_location": "%ID26",
               "period_ms": 1000,
-              "status_location": "%IB112"
+              "status_location": "%IB70"
             },
             {
               "name": "filter_time",
@@ -178,9 +177,9 @@
               "subindex": 0,
               "type": "UNSIGNED16",
               "direction": "write",
-              "iec_location": "%QW111",
-              "trigger_location": "%QX112.0",
-              "status_location": "%IB113"
+              "iec_location": "%QW10",
+              "trigger_location": "%QX30.0",
+              "status_location": "%IB71"
             }
           ]
         },
@@ -195,7 +194,7 @@
           },
           "heartbeat_ms": 100,
           "heartbeat_timeout_ms": 300,
-          "status_location": "%IX12.3",
+          "status_location": "%IX62.3",
           "tx_pdos": [
             {
               "number": 1,
@@ -205,7 +204,7 @@
                   "index": "0x6000",
                   "subindex": 1,
                   "type": "UNSIGNED8",
-                  "iec_location": "%IB120"
+                  "iec_location": "%IB30"
                 }
               ]
             }
@@ -219,7 +218,7 @@
                   "index": "0x6200",
                   "subindex": 1,
                   "type": "UNSIGNED8",
-                  "iec_location": "%QB120"
+                  "iec_location": "%QB12"
                 }
               ]
             }
@@ -238,63 +237,30 @@
       "master": {
         "node_id": 1,
         "heartbeat_ms": 100,
-        "sync_source": "plc_cycle",
-        "state_location": "%IB20"
+        "sync_period_us": 10000,
+        "state_location": "%IB72"
       },
       "nodes": [
         {
           "node_id": 4,
-          "name": "drive",
-          "eds": "servo402.eds",
+          "name": "conveyor",
+          "eds": "conveyor.eds",
           "mandatory": true,
           "heartbeat_ms": 50,
           "heartbeat_timeout_ms": 200,
-          "status_location": "%IX21.0",
-          "state_location": "%IB22",
-          "emcy_code_location": "%IW23",
-          "axis": {
-            "cyclic": true
-          },
+          "status_location": "%IX62.4",
+          "state_location": "%IB73",
+          "emcy_code_location": "%IW74",
           "rx_pdos": [
             {
               "number": 1,
               "transmission": 1,
               "entries": [
                 {
-                  "index": "0x6040",
-                  "subindex": 0,
-                  "type": "UNSIGNED16",
-                  "iec_location": "%QW200"
-                },
-                {
-                  "index": "0x6060",
-                  "subindex": 0,
-                  "type": "INTEGER8",
-                  "iec_location": "%QB200"
-                },
-                {
-                  "index": "0x607A",
-                  "subindex": 0,
-                  "type": "INTEGER32",
-                  "iec_location": "%QD200"
-                }
-              ]
-            },
-            {
-              "number": 2,
-              "transmission": 1,
-              "entries": [
-                {
-                  "index": "0x60FF",
-                  "subindex": 0,
-                  "type": "INTEGER32",
-                  "iec_location": "%QD201"
-                },
-                {
-                  "index": "0x6071",
-                  "subindex": 0,
+                  "index": "0x2000",
+                  "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%QW201"
+                  "iec_location": "%QW14"
                 }
               ]
             }
@@ -305,56 +271,18 @@
               "transmission": 1,
               "entries": [
                 {
-                  "index": "0x6041",
-                  "subindex": 0,
-                  "type": "UNSIGNED16",
-                  "iec_location": "%IW200"
-                },
-                {
-                  "index": "0x6061",
-                  "subindex": 0,
-                  "type": "INTEGER8",
-                  "iec_location": "%IB200"
-                },
-                {
-                  "index": "0x6064",
-                  "subindex": 0,
-                  "type": "INTEGER32",
-                  "iec_location": "%ID200"
-                }
-              ]
-            },
-            {
-              "number": 2,
-              "transmission": 1,
-              "entries": [
-                {
-                  "index": "0x606C",
-                  "subindex": 0,
-                  "type": "INTEGER32",
-                  "iec_location": "%ID201"
-                },
-                {
-                  "index": "0x6077",
-                  "subindex": 0,
+                  "index": "0x2100",
+                  "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%IW201"
+                  "iec_location": "%IW32"
+                },
+                {
+                  "index": "0x2101",
+                  "subindex": 1,
+                  "type": "INTEGER32",
+                  "iec_location": "%ID34"
                 }
               ]
-            }
-          ],
-          "sdo": [
-            {
-              "index": "0x6065",
-              "subindex": 0,
-              "type": "UNSIGNED32",
-              "value": 20000
-            },
-            {
-              "index": "0x6098",
-              "subindex": 0,
-              "type": "INTEGER8",
-              "value": 35
             }
           ]
         }
@@ -376,39 +304,39 @@
           {
             "index": "0x2000",
             "subindex": 1,
-            "iec_location": "%IX300.0",
+            "iec_location": "%IX38.0",
             "name": "line_run"
           },
           {
             "index": "0x2001",
             "subindex": 1,
-            "iec_location": "%IW300",
+            "iec_location": "%IW40",
             "name": "temp_limit"
           },
           {
             "index": "0x2100",
             "subindex": 1,
-            "iec_location": "%QX300.0",
+            "iec_location": "%QX16.0",
             "name": "alarm"
           },
           {
             "index": "0x2101",
             "subindex": 1,
-            "iec_location": "%QD300",
-            "name": "axis_position"
+            "iec_location": "%QD18",
+            "name": "belt_position"
           },
           {
             "index": "0x2102",
             "subindex": 1,
-            "iec_location": "%QD301",
+            "iec_location": "%QD22",
             "name": "cycle_count"
           }
         ],
         "inputs_on_loss": "zero",
-        "state_location": "%IB301",
-        "comm_ok_location": "%IX300.1",
-        "emcy_code_location": "%QW301",
-        "error_register_location": "%QB300"
+        "state_location": "%IB76",
+        "comm_ok_location": "%IX62.5",
+        "emcy_code_location": "%QW32",
+        "error_register_location": "%QB34"
       }
     },
     {
@@ -423,7 +351,7 @@
         "node_id": 1,
         "heartbeat_ms": 100,
         "sync_period_us": 50000,
-        "state_location": "%IB41"
+        "state_location": "%IB77"
       },
       "nodes": [
         {
@@ -433,9 +361,9 @@
           "simulate": false,
           "heartbeat_ms": 200,
           "heartbeat_timeout_ms": 600,
-          "status_location": "%IX40.0",
-          "state_location": "%IB42",
-          "emcy_code_location": "%IW41",
+          "status_location": "%IX62.6",
+          "state_location": "%IB78",
+          "emcy_code_location": "%IW80",
           "tx_pdos": [
             {
               "number": 1,
@@ -445,13 +373,13 @@
                   "index": "0x2100",
                   "subindex": 1,
                   "type": "BOOLEAN",
-                  "iec_location": "%IX40.1"
+                  "iec_location": "%IX38.1"
                 },
                 {
                   "index": "0x2101",
                   "subindex": 1,
                   "type": "INTEGER32",
-                  "iec_location": "%ID40"
+                  "iec_location": "%ID42"
                 }
               ]
             },
@@ -463,13 +391,13 @@
                   "index": "0x2102",
                   "subindex": 1,
                   "type": "UNSIGNED32",
-                  "iec_location": "%ID41"
+                  "iec_location": "%ID46"
                 },
                 {
                   "index": "0x2103",
                   "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%IW40"
+                  "iec_location": "%IW50"
                 }
               ]
             },
@@ -481,7 +409,7 @@
                   "index": "0x5E10",
                   "subindex": 1,
                   "type": "UNSIGNED32",
-                  "iec_location": "%ID42"
+                  "iec_location": "%ID52"
                 }
               ]
             },
@@ -494,7 +422,7 @@
                   "index": "0x5E11",
                   "subindex": 1,
                   "type": "UNSIGNED32",
-                  "iec_location": "%ID43"
+                  "iec_location": "%ID56"
                 }
               ]
             }
@@ -508,19 +436,19 @@
                   "index": "0x2000",
                   "subindex": 1,
                   "type": "BOOLEAN",
-                  "iec_location": "%QX40.0"
+                  "iec_location": "%QX16.1"
                 },
                 {
                   "index": "0x2001",
                   "subindex": 1,
                   "type": "INTEGER16",
-                  "iec_location": "%QW40"
+                  "iec_location": "%QW26"
                 },
                 {
                   "index": "0x2001",
                   "subindex": 2,
                   "type": "INTEGER16",
-                  "iec_location": "%QW41"
+                  "iec_location": "%QW28"
                 }
               ]
             }
@@ -569,5 +497,28 @@
   "diagnostics": {
     "token_verifier": "SCRAM-SHA-256$4096:Z4iNfQgxCBGo0GRDJzR6nA==$m4ESudFrAm10vSWAx9HrCzLVgktnJFJzzKPReckzHxc=:0Rdahm7h9Ttv2J97dQfIzDJD0Lhg5f/EVKtPFG0rTz0=",
     "allow_changes": true
+  },
+  "bridge": {
+    "openplc": {},
+    "control_location": "%QB36",
+    "sdo_bridge_location": {
+      "request": "%QB42",
+      "response": "%IB130"
+    },
+    "sdo_bridge_write": true,
+    "live_lists": [
+      {
+        "network": "io",
+        "location": "%IB82"
+      },
+      {
+        "network": "motion",
+        "location": "%IB98"
+      },
+      {
+        "network": "host",
+        "location": "%IB114"
+      }
+    ]
   }
 }

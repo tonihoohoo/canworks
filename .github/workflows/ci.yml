@@ -102,7 +102,7 @@ jobs:
       - name: The tour's labels are on the configurator page (docs/tour.md; Python only, no dependencies)
         run: python3 tools/deploy/tests/test_tour_labels.py
 
-  plugin:
+  engine:
     # Build, and the C++ unit and simulation tests.
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -115,7 +115,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Cache STruC++ (the editor's ST compiler, for the CiA 402 tests)
+      - name: Cache STruC++ (the editor's ST compiler, for the ST helper and PLC link tests)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/canworks/strucpp
@@ -125,29 +125,32 @@ jobs:
         id: strucpp
         run: echo "cli=$(scripts/fetch-strucpp.sh)" >> "$GITHUB_OUTPUT"
 
-      - uses: ./.github/actions/build-plugin
+      - uses: ./.github/actions/build-engine
         with:
           kernel-modules: "false"
-          strucpp: ${{ steps.strucpp.outputs.cli }}
 
       - name: Unit and virtual-bus tests (one ctest test per simulation case, run in parallel)
         # Eight at a time on the four cores: the cases mostly wait on bus and timer
         # time (the CPU stays about a quarter busy at -j4), so -j8 halves the step.
-        env:
-          CANWORKS_REQUIRE_STRUCPP: "1"
         run: ctest --test-dir build --output-on-failure -j8
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 
-      - name: CiA 402 ST tests (the generated axis glue and the demo program against a drive model)
-        run: |
-          python -m pip install -q jsonschema
-          test/cia402/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
-
       - name: OpenPLC Modbus ST tests (the PLC link blocks and canworks_in/canworks_out against a bridge model, ~15 s)
         run: test/plc_modbus/run.sh --strucpp "${{ steps.strucpp.outputs.cli }}"
+
+      - name: The pinned upstream runtime release
+        id: runtime
+        run: echo "ref=$(cat docker/local-runtime/runtime-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the upstream OpenPLC runtime (its Modbus master plugin)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Autonomy-Logic/openplc-runtime
+          ref: ${{ steps.runtime.outputs.ref }}
+          path: upstream-runtime
 
       - name: OpenPLC through Modbus (the pinned runtime's own Modbus master against the bridge, ~10 s)
         run: |
@@ -155,14 +158,14 @@ jobs:
           test/openplc_modbus/run.py --bridge build/bin/canworks-bridge --runtime upstream-runtime
 
   vcan:
-    # The plugin on vcan, split over three runners (each has its own vcan0) so
+    # The engine on vcan, split over three runners (each has its own vcan0) so
     # each runs about the same test time. Test step times (pull request #69, 2026-10-10):
-    #   group 1: link setup 2 s, ping-pong 16, two networks 21, PLC-cycle SYNC 7,
-    #            LSS 12, bus state 9, RTD module 19, device commissioning 33 = ~120 s
+    #   group 1: link setup 2 s, ping-pong 16, two networks 21,
+    #            LSS 12, bus state 9, RTD module 19, device commissioning 33 = ~113 s
     #   group 2: raw frames 21, standalone device simulator 42,
     #            J1939 ECU against the simulator 15, parameters 9, fixed PDOs 9 = ~97 s
     #   group 3: bus trace 31, slcan 31, master and its own slave 28,
-    #            PLC SDO blocks 5, PC-direct commissioning 30 = ~125 s
+    #            PC-direct commissioning 30 = ~120 s
     # A new vcan test goes into the group with the least time; update the table.
     # The CANopen steps run when needs.changes.outputs.canopen is true, the J1939
     # step when .j1939 is; a group with nothing to run skips its build.
@@ -178,14 +181,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: ./.github/actions/build-plugin
+      - uses: ./.github/actions/build-engine
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         with:
-          # what the vcan steps start: the plugin, the CANopen simulator and the helper programs
-          # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the plugin job)
+          # what the vcan steps start: the bridge, the CANopen simulator and the helper programs
+          # (not unit_tests, sim_tests, sim_unit_tests or slave_tests, which run in the engine job)
           targets: >-
-            canworks_plugin canworks-canopen-sim canopen_check canopen_host pingpong_slave lss_slave
-            sensor_slave link_check sdo_program plc_sdo_lookup_check j1939_long_ids
+            canworks-bridge canworks-canopen-sim canopen_check canopen_host pingpong_slave lss_slave
+            sensor_slave link_check j1939_long_ids
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
@@ -196,7 +199,7 @@ jobs:
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         run: python -m pip install -q jsonschema cantools python-can pyserial ${{ matrix.group == 2 && 'can-j1939' || '' }}
 
-      - name: Create vcan0 (down; the plugin's link setup brings it up)
+      - name: Create vcan0 (down; the engine's link setup brings it up)
         if: (needs.changes.outputs.canopen == 'true' || (matrix.group == 2 && needs.changes.outputs.j1939 == 'true'))
         id: vcan
         continue-on-error: true
@@ -232,10 +235,6 @@ jobs:
           sudo ip link set vcan1 up
           test/networks/run.sh
           sudo ip link del vcan1
-
-      - name: PLC-cycle SYNC on vcan0
-        if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
-        run: test/pingpong/run.sh --seconds 6 --plc-cycle
 
       - name: LSS node ID assignment on vcan0 (slave without a node ID)
         if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
@@ -275,7 +274,7 @@ jobs:
         if: steps.vcan.outcome == 'success' && matrix.group == 1 && needs.changes.outputs.canopen == 'true'
         run: test/commissioning/run.sh
 
-      - name: The plugin's master and its own slave (vcan0 and vcan1 joined by cangw)
+      - name: The engine's master and its own slave (vcan0 and vcan1 joined by cangw)
         if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: |
           python3 .github/scripts/apt_install.py can-utils
@@ -284,20 +283,11 @@ jobs:
           sudo ip link set vcan1 up
           sudo --preserve-env=PATH test/slave/run.sh
 
-      - name: PLC program SDO blocks on vcan0 (a PLC stop cancels a transfer in flight)
-        if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
-        env:
-          CANWORKS_EDSLINT: python3
-          PYTHONPATH: tools/deploy
-        run: |
-          test/plc_sdo/lookup_check.sh build/test/plc_sdo_lookup_check build/plugins/libcanworks_plugin.so \
-            build/test/sdo_program.so config/pingpong "$RUNNER_TEMP/plc_sdo_stop" --stop-check
-
-      - name: Standalone device simulator next to the plugin on vcan0 (and real-bus checks on vcan1)
+      - name: Standalone device simulator next to the engine on vcan0 (and real-bus checks on vcan1)
         if: steps.vcan.outcome == 'success' && matrix.group == 2 && needs.changes.outputs.canopen == 'true'
         run: test/simulator/run.sh
 
-      - name: PC-direct commissioning through a CAN adapter on vcan0 (no runtime; then parity with the plugin)
+      - name: PC-direct commissioning through a CAN adapter on vcan0 (no bridge; then parity with the engine)
         if: steps.vcan.outcome == 'success' && matrix.group == 3 && needs.changes.outputs.canopen == 'true'
         run: test/localbus/run.sh
 
@@ -358,7 +348,7 @@ jobs:
             echo "here=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: ./.github/actions/build-plugin
+      - uses: ./.github/actions/build-engine
         if: steps.parity.outputs.here == 'true'
         with:
           kernel-modules: "false"
@@ -386,7 +376,7 @@ jobs:
         timeout-minutes: 8
         run: python3 .github/scripts/apt_install.py --debs ~/.cache/canworks/apt-tshark tshark
 
-      - name: Deploy tool and configurator tests (shared fixtures, bundle, clash check, stub runtime, server, DCF export and config parity, DBC export)
+      - name: Deploy tool and configurator tests (shared fixtures, bridge files, stub runtime, server, DCF export and config parity, DBC export)
         env:
           # build/canopen_check: --dump-writes against the DCF export, test/fixtures/config/bad against the checks
           CANWORKS_REQUIRE_PARITY: ${{ steps.parity.outputs.here == 'true' && '1' || '' }}
@@ -403,20 +393,11 @@ jobs:
         if: matrix.shard == 1
         run: python -m unittest discover -v -s test/ci
 
-      - name: Editor hook tests (snapshot reading, shared fixtures, child process)
-        if: matrix.shard == 2
-        run: PYTHONPATH=tools/editor-hook:tools/deploy python -m unittest discover -v -s tools/editor-hook/tests -t tools/editor-hook
-
-      - name: Install-script Docker mode and runtime spec edits (stub docker)
-        if: matrix.shard == 2
-        # last: runs as root (it may leave root-owned files)
-        run: sudo python3 -m unittest discover -v -s test/docker
-
   configurator-page:
     # The configurator's pages in Chromium (every test_*_page.py and the layout
     # test), split over three runners by test class, classes over 30 s cut into
     # parts, and on each runner over one worker process (and browser) per CPU.
-    # Needs no plugin build. Skipped when nothing the pages use changed
+    # Needs no engine build. Skipped when nothing the pages use changed
     # (needs.changes.outputs.ui).
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.ui == 'true'
@@ -487,7 +468,7 @@ jobs:
     # nothing the configurator uses changed), red otherwise.
     # Job names inside it can change without touching the ruleset.
     if: always()
-    needs: [changes, banned-words, spec-check, plugin, vcan, tools, configurator-page]
+    needs: [changes, banned-words, spec-check, engine, vcan, tools, configurator-page]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -1,0 +1,20 @@
+{
+  "comment": "The upstream files canworks' OpenPLC through Modbus target follows, with their sha256 at the tested release (runtime: docker/local-runtime/runtime-version; editor: the version canworks supports). .github/workflows/runtime-watch.yml compares upstream's newest release with this; update it after checking a new release.",
+  "repos": {
+    "runtime": {
+      "url": "https://github.com/Autonomy-Logic/openplc-runtime",
+      "tested_file": "docker/local-runtime/runtime-version",
+      "files": {
+        "core/src/drivers/plugins/python/shared/plugin_config_decode/modbus_master_config_model.py": "068769bacfbff8e67e1d713853f7cc6381bba47c1471a59ca26fc213b2adfb8b"
+      }
+    },
+    "editor": {
+      "url": "https://github.com/Autonomy-Logic/openplc-editor",
+      "tested": "v4.3.2",
+      "files": {
+        "src/backend/shared/utils/modbus/generate-modbus-master-config.ts": "dc8525f3210adcc7e09939cf043a2d103a78a4eec61f888f75830ea22a6d1f73",
+        "src/middleware/shared/ports/types.ts": "ef5d6c940164081b2e60f4a733e45f455dd8e996b95637815de79db5f2e279bb"
+      }
+    }
+  }
+}

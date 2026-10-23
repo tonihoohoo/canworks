@@ -6,11 +6,11 @@ PDO links: one node's TPDO received directly by other nodes' RPDOs (CiA 301 prod
 ## Requirements
 
 ### Requirement: Links in the network config
-A CANopen master network MAY have a `links` list (at the top level of a version 1 file, in the network object of a version 2 file). Each link SHALL give `from`, a producer `node` and the `tpdo` number of one of that node's `tx_pdos`, and `to`, one or more consumers, each with a `node` and an `rpdo` number. A link MAY give a `name` (default `link <n>`, its 1-based place in the list) and `on_plc_stop` (`"follow"`, the default, or `"keep"`). A consumer MAY give `transmission`, `event_timer_ms`, and either `entries` (index, subindex and type of the consumer's own objects, in frame order, without `iec_location`) or `"mapping": "device"`. Without `links` the plugin SHALL generate the same master DCF and node downloads as before.
+A CANopen master network MAY have a `links` list (at the top level of a version 1 file, in the network object of a version 2 file). Each link SHALL give `from`, a producer `node` and the `tpdo` number of one of that node's `tx_pdos`, and `to`, one or more consumers, each with a `node` and an `rpdo` number. A link MAY give a `name` (default `link <n>`, its 1-based place in the list) and `on_plc_stop` (`"follow"`, the default, or `"keep"`). A consumer MAY give `transmission`, `event_timer_ms`, and either `entries` (index, subindex and type of the consumer's own objects, in frame order, without `iec_location`) or `"mapping": "device"`. Without `links` the bridge SHALL generate the same master DCF and node downloads as before.
 
 #### Scenario: One producer, two consumers
 - **WHEN** a link has `from` node 10 TPDO 1 and `to` node 20 RPDO 2 and node 21 RPDO 1
-- **THEN** the config loads and the plugin logs the link with its COB-ID, producer and consumers
+- **THEN** the config loads and the bridge logs the link with its COB-ID, producer and consumers
 
 #### Scenario: Unchanged config
 - **WHEN** a config has no `links`
@@ -25,7 +25,7 @@ A CANopen master network MAY have a `links` list (at the top level of a version 
 - **THEN** the configuration is rejected naming the network and saying links need a CANopen master network
 
 ### Requirement: Consumer RPDO is configured by the master at boot
-For each consumer the plugin SHALL write, in that node's normal configuration download and before its startup SDOs, the RPDO's COB-ID with the invalid bit set, then the configured `transmission` and `event_timer_ms` (sub-indices 2 and 5) when given, then the mapping (sub-index 0 to 0, each entry, sub-index 0 to the count) unless the consumer uses the device mapping, then the COB-ID equal to the producer TPDO's resolved COB-ID. Read-only sub-indices SHALL be left out as for every PDO. The master SHALL NOT get a TPDO on the link's COB-ID, and the consumer RPDO SHALL NOT be switched off as an unused PDO. A consumer RPDO number SHALL NOT also appear in that node's `rx_pdos`.
+For each consumer the bridge SHALL write, in that node's normal configuration download and before its startup SDOs, the RPDO's COB-ID with the invalid bit set, then the configured `transmission` and `event_timer_ms` (sub-indices 2 and 5) when given, then the mapping (sub-index 0 to 0, each entry, sub-index 0 to the count) unless the consumer uses the device mapping, then the COB-ID equal to the producer TPDO's resolved COB-ID. Read-only sub-indices SHALL be left out as for every PDO. The master SHALL NOT get a TPDO on the link's COB-ID, and the consumer RPDO SHALL NOT be switched off as an unused PDO. A consumer RPDO number SHALL NOT also appear in that node's `rx_pdos`.
 
 #### Scenario: Consumer download
 - **WHEN** node 10 TPDO 1 uses 0x18A and links to node 20 RPDO 2 with two 16-bit entries and `"transmission": 255`
@@ -51,7 +51,7 @@ The master SHALL keep receiving a linked producer TPDO as for any `tx_pdos` entr
 - **THEN** the configuration is rejected naming the node, the PDO and the entry
 
 ### Requirement: Link layout checked against both EDS files
-The plugin SHALL compare the producer layout (the TPDO's config `entries` in order, or the EDS default mapping of a device-mapped TPDO, including objects the PLC does not use and dummy entries) with each consumer layout (its `entries`, or the EDS default mapping for `"mapping": "device"` or a read-only consumer mapping). Both SHALL have the same number of positions with the same bit length at each position. A consumer entry MAY be a dummy entry (index 0x0001-0x0007) where the consumer EDS allows that dummy, to skip a position. A position whose data types differ at the same size SHALL give a warning naming both objects. Each consumer object SHALL exist, be PDO-mappable, have AccessType wo, rw or rww, and have the configured DataType in the consumer EDS. Every mismatch SHALL reject the configuration naming the link, the consumer, the position and both objects.
+The bridge SHALL compare the producer layout (the TPDO's config `entries` in order, or the EDS default mapping of a device-mapped TPDO, including objects the PLC does not use and dummy entries) with each consumer layout (its `entries`, or the EDS default mapping for `"mapping": "device"` or a read-only consumer mapping). Both SHALL have the same number of positions with the same bit length at each position. A consumer entry MAY be a dummy entry (index 0x0001-0x0007) where the consumer EDS allows that dummy, to skip a position. A position whose data types differ at the same size SHALL give a warning naming both objects. Each consumer object SHALL exist, be PDO-mappable, have AccessType wo, rw or rww, and have the configured DataType in the consumer EDS. Every mismatch SHALL reject the configuration naming the link, the consumer, the position and both objects.
 
 #### Scenario: Matching layout
 - **WHEN** the producer maps two INTEGER16 objects and the consumer maps 0x6411:1 INTEGER16 and dummy 0x0003
@@ -93,7 +93,7 @@ A link's COB-ID SHALL be the producer TPDO's resolved COB-ID (explicit, `"auto"`
 - **THEN** the configuration is rejected naming both links and saying to list all consumers in one link
 
 ### Requirement: Synchronous links need SYNC
-An effective synchronous transmission type (0-240, from the consumer's `transmission` or its EDS) on a consumer RPDO SHALL need a master that produces SYNC, as for any PDO, and the configuration SHALL be rejected without one. A synchronous consumer SHALL apply received data at the next SYNC; an event-driven consumer (254 or 255) SHALL apply it on reception. The plugin SHALL log at load each link with synchronous ends and its expected latency in SYNC periods.
+An effective synchronous transmission type (0-240, from the consumer's `transmission` or its EDS) on a consumer RPDO SHALL need a master that produces SYNC, as for any PDO, and the configuration SHALL be rejected without one. A synchronous consumer SHALL apply received data at the next SYNC; an event-driven consumer (254 or 255) SHALL apply it on reception. The bridge SHALL log at load each link with synchronous ends and its expected latency in SYNC periods.
 
 #### Scenario: Synchronous consumer without SYNC
 - **WHEN** the master produces no SYNC and a consumer has `"transmission": 1`
@@ -104,7 +104,7 @@ An effective synchronous transmission type (0-240, from the consumer's `transmis
 - **THEN** data sampled at SYNC k is applied by the consumer at SYNC k+1
 
 ### Requirement: Link nodes lost or rebooted
-A lost producer or consumer SHALL be handled by the existing node supervision and recovery, with no other action by the master. When a link's producer is lost the plugin SHALL log once which consumer RPDOs no longer get data; consumers keep their last values unless their own deadline (`event_timer_ms`) or heartbeat watch makes them react. A producer or consumer that boots again SHALL get its whole configuration, including its link writes, and the link SHALL carry data again once both are OPERATIONAL.
+A lost producer or consumer SHALL be handled by the existing node supervision and recovery, with no other action by the master. When a link's producer is lost the bridge SHALL log once which consumer RPDOs no longer get data; consumers keep their last values unless their own deadline (`event_timer_ms`) or heartbeat watch makes them react. A producer or consumer that boots again SHALL get its whole configuration, including its link writes, and the link SHALL carry data again once both are OPERATIONAL.
 
 #### Scenario: Producer lost
 - **WHEN** node 10 feeds a link to node 20 and loses its heartbeat
@@ -115,7 +115,7 @@ A lost producer or consumer SHALL be handled by the existing node supervision an
 - **THEN** the master boots node 20 with its link RPDO and node 20 receives node 10's TPDO again once OPERATIONAL
 
 ### Requirement: Links on PLC stop
-With a link's `on_plc_stop` `"follow"` its nodes SHALL get the master's `on_plc_stop` command like every node. With `"keep"` the master SHALL send no NMT command on PLC stop to that link's producer and consumers, and SHALL send the master's command to every other node. The plugin SHALL warn at load when a `"keep"` link has an effective synchronous type on its producer or a consumer (it stops with SYNC) or a node with `heartbeat_consumer` (it sees the master's heartbeat stop).
+With a link's `on_plc_stop` `"follow"` its nodes SHALL get the master's `on_plc_stop` command like every node. With `"keep"` the master SHALL send no NMT command on PLC stop to that link's producer and consumers, and SHALL send the master's command to every other node. The bridge SHALL warn at load when a `"keep"` link has an effective synchronous type on its producer or a consumer (it stops with SYNC) or a node with `heartbeat_consumer` (it sees the master's heartbeat stop).
 
 #### Scenario: Link keeps running
 - **WHEN** a link has `"on_plc_stop": "keep"`, event-driven types on both ends, the master's `on_plc_stop` is `"preop"`, and the PLC is stopped

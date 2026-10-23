@@ -40,14 +40,14 @@
 #include <lely/can/msg.h>
 #include "eds_check.h"
 #include "eds_lint.h"
-#include "fake_runtime.hpp"
+#include "bridge_config.hpp"
+#include "fake_host.hpp"
 #include "iec_location.h"
 #include "canopen_runtime.h"
 #include "plc_api.h"
 #include "plc_emcy.h"
 #include "log.h"
 #include "process_image.h"
-#include "runtime_version.h"
 #include "sha256.h"
 #include "trace_capture.h"
 
@@ -82,6 +82,12 @@ std::string read(const std::string& path) {
   std::stringstream ss;
   ss << in.rdbuf();
   return ss.str();
+}
+
+void write(const std::string& path, const std::string& data);
+// A config file in the short form (bridge_config.hpp).
+void write_config(const std::string& path, const std::string& data) {
+  write(path, test_config::as_bridge_config(data));
 }
 
 void write(const std::string& path, const std::string& data) {
@@ -134,8 +140,19 @@ std::string replace(std::string s, const std::string& from, const std::string& t
   return s.replace(pos, from.size(), to);
 }
 
+// The short one-network form of the inline configs (bridge_config.hpp).
+bool parse_short(const std::string& json, const std::string& path, const ImageLimits& limits, Config& out,
+                 std::vector<std::string>& errors, const std::string& eds_fallback_dir = default_eds_fallback_dir()) {
+  return parse_config(test_config::as_bridge_config(json), path, limits, out, errors, eds_fallback_dir);
+}
+bool parse_short_set(const std::string& json, const std::string& path, const ImageLimits& limits, ConfigSet& out,
+                     std::vector<std::string>& errors,
+                     const std::string& eds_fallback_dir = default_eds_fallback_dir()) {
+  return parse_config_set(test_config::as_bridge_config(json), path, limits, out, errors, eds_fallback_dir);
+}
+
 bool parse(const std::string& json, Config& cfg, std::vector<std::string>& errors) {
-  return parse_config(json, std::string(PINGPONG_DIR) + "/canopen_config.json", ImageLimits(), cfg, errors);
+  return parse_short(json, std::string(PINGPONG_DIR) + "/canopen_config.json", ImageLimits(), cfg, errors);
 }
 
 void silent(LogLevel, const char*) {}
@@ -206,7 +223,7 @@ TEST(config_valid_loads) {
   std::vector<std::string> errors;
   CHECK_MSG(parse(kValid, cfg, errors), join(errors));
   CHECK(cfg.warnings.empty());
-  CHECK(cfg.schema_version == 1);
+  CHECK(cfg.schema_version == 2);
   CHECK(cfg.adapter.type == "socketcan" && cfg.adapter.interface == "vcan0");
   CHECK(cfg.adapter.bitrate == 125000 && cfg.adapter.configure_link && !cfg.adapter.has_restart_ms);
   CHECK(cfg.master.node_id == 1);
@@ -335,7 +352,8 @@ TEST(config_overlap) {
                             R"({ "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" },
                                { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" })");
   CHECK(!parse(dup, cfg, errors));
-  CHECK_MSG(has_error(errors, "object 0x4001:0 and node 2 (pingpong) TPDO 1 object 0x4000:0 both map to %ID100"),
+  CHECK_MSG(has_error(errors, "object 0x4001:0 (%ID100) and networks[0] (vcan0) node 2 (pingpong) TPDO 1 object 0x4000:0 "
+                              "(%ID100) overlap in input bytes 100 and 101 and 102 and 103"),
             join(errors));
 }
 
@@ -352,20 +370,9 @@ TEST(config_status_overlaps_entry) {
 TEST(config_location_outside_image) {
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(!parse(replace(kValid, "%ID100", "%ID1024"), cfg, errors));
-  CHECK_MSG(has_error(errors, "iec_location %ID1024 lies outside the runtime I/O image"), join(errors));
+  CHECK(!parse(replace(kValid, "%ID100", "%ID8192"), cfg, errors));
+  CHECK_MSG(has_error(errors, "iec_location %ID8192 lies outside the runtime I/O image"), join(errors));
   CHECK_MSG(has_error(errors, "nodes[0]: tx_pdos[0]: entries[0]"), join(errors));
-}
-
-// The pre-contract top-level interface goes through the same name check
-// (canopen-master-bringup "Interface names are checked").
-TEST(config_old_style_interface_name_checked) {
-  std::string s = replace(kValid, R"("adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },)",
-                          R"("interface": "vcan0 --up", "bitrate": 125000,)");
-  Config cfg;
-  std::vector<std::string> errors;
-  CHECK(!parse(s, cfg, errors));
-  CHECK_MSG(has_error(errors, "interface \"vcan0 --up\" must be 1-15 characters"), join(errors));
 }
 
 TEST(config_pdo_too_long) {
@@ -412,7 +419,7 @@ TEST(config_state_overlaps_entry) {
   Config cfg;
   std::vector<std::string> errors;
   CHECK(!parse(s, cfg, errors));
-  CHECK_MSG(has_error(errors, "state_location and"), join(errors));
+  CHECK_MSG(has_error(errors, "state_location (%IB20) and"), join(errors));
 }
 
 TEST(config_emcy_fields) {
@@ -420,10 +427,10 @@ TEST(config_emcy_fields) {
   std::vector<std::string> errors;
   CHECK_MSG(parse(replace(kValid, "\"status_location\": \"%IX10.0\",",
                           "\"status_location\": \"%IX10.0\", \"emcy_code_location\": \"%IW30\", "
-                          "\"error_register_location\": \"%IB31\","),
+                          "\"error_register_location\": \"%IB32\","),
                   cfg, errors), join(errors));
   CHECK(cfg.nodes[0].has_emcy_code_location && cfg.nodes[0].emcy_code_location.str() == "%IW30");
-  CHECK(cfg.nodes[0].has_error_register_location && cfg.nodes[0].error_register_location.str() == "%IB31");
+  CHECK(cfg.nodes[0].has_error_register_location && cfg.nodes[0].error_register_location.str() == "%IB32");
   CHECK(cfg.warnings.empty());
 }
 
@@ -454,30 +461,31 @@ TEST(config_emcy_fields_overlap) {
   Config cfg;
   std::vector<std::string> errors;
   CHECK(!parse(s, cfg, errors));
-  CHECK_MSG(has_error(errors, "emcy_code_location and"), join(errors));
+  CHECK_MSG(has_error(errors, "emcy_code_location (%IW30) and"), join(errors));
   // The error register byte and the state byte.
   s = replace(kValid, "\"status_location\": \"%IX10.0\",",
               "\"state_location\": \"%IB20\", \"error_register_location\": \"%IB20\",");
   errors.clear();
   CHECK(!parse(s, cfg, errors));
-  CHECK_MSG(has_error(errors, "state_location and") && has_error(errors, "error_register_location"), join(errors));
+  CHECK_MSG(has_error(errors, "state_location (%IB20) and") && has_error(errors, "error_register_location (%IB20)"),
+            join(errors));
 }
 
 // ---------------------------------------------------------------------------
 // Bus diagnostic fields (canopen-bus-diagnostics)
 
-const char* kBusFields = R"("node_id": 1, "sync_period_us": 10000, "bus_state_location": "%IB100",
-    "tx_error_count_location": "%IB101", "rx_error_count_location": "%IB102", "bus_off_count_location": "%IW100")";
+const char* kBusFields = R"("node_id": 1, "sync_period_us": 10000, "bus_state_location": "%IB120",
+    "tx_error_count_location": "%IB121", "rx_error_count_location": "%IB122", "bus_off_count_location": "%IW124")";
 
 TEST(config_bus_fields) {
   Config cfg;
   std::vector<std::string> errors;
   CHECK_MSG(parse(replace(kValid, R"("node_id": 1, "sync_period_us": 10000)", kBusFields), cfg, errors), join(errors));
   const MasterConfig& m = cfg.master;
-  CHECK(m.has_bus_state_location && m.bus_state_location.str() == "%IB100");
-  CHECK(m.has_tx_error_count_location && m.tx_error_count_location.str() == "%IB101");
-  CHECK(m.has_rx_error_count_location && m.rx_error_count_location.str() == "%IB102");
-  CHECK(m.has_bus_off_count_location && m.bus_off_count_location.str() == "%IW100");
+  CHECK(m.has_bus_state_location && m.bus_state_location.str() == "%IB120");
+  CHECK(m.has_tx_error_count_location && m.tx_error_count_location.str() == "%IB121");
+  CHECK(m.has_rx_error_count_location && m.rx_error_count_location.str() == "%IB122");
+  CHECK(m.has_bus_off_count_location && m.bus_off_count_location.str() == "%IW124");
   CHECK_MSG(cfg.warnings.empty(), join(cfg.warnings));
 }
 
@@ -496,13 +504,13 @@ TEST(config_bus_fields_wrong_size) {
     const char* to;
     const char* msg;
   } cases[] = {
-      {"\"bus_state_location\": \"%IB100\"", "\"bus_state_location\": \"%IW100\"",
+      {"\"bus_state_location\": \"%IB120\"", "\"bus_state_location\": \"%IW120\"",
        "master: bus_state_location must be an input byte"},
-      {"\"tx_error_count_location\": \"%IB101\"", "\"tx_error_count_location\": \"%QB101\"",
+      {"\"tx_error_count_location\": \"%IB121\"", "\"tx_error_count_location\": \"%QB121\"",
        "master: tx_error_count_location must be an input byte"},
-      {"\"rx_error_count_location\": \"%IB102\"", "\"rx_error_count_location\": \"%IX102.0\"",
+      {"\"rx_error_count_location\": \"%IB122\"", "\"rx_error_count_location\": \"%IX122.0\"",
        "master: rx_error_count_location must be an input byte"},
-      {"\"bus_off_count_location\": \"%IW100\"", "\"bus_off_count_location\": \"%IB103\"",
+      {"\"bus_off_count_location\": \"%IW124\"", "\"bus_off_count_location\": \"%IB123\"",
        "master: bus_off_count_location must be an input word"},
   };
   for (const auto& c : cases) {
@@ -521,7 +529,8 @@ TEST(config_bus_state_overlaps_node_state) {
   Config cfg;
   std::vector<std::string> errors;
   CHECK(!parse(s, cfg, errors));
-  CHECK_MSG(has_error(errors, "master bus_state_location and node 2 (pingpong) state_location both map to %IB20"),
+  CHECK_MSG(has_error(errors, "master bus_state_location (%IB20) and networks[0] (vcan0) node 2 (pingpong) "
+                              "state_location (%IB20) overlap in input byte 20"),
             join(errors));
 }
 
@@ -610,11 +619,14 @@ bool has_warning(const Config& cfg, const std::string& needle) {
   return false;
 }
 
+// Without schema_version a config is version 1, which was the OpenPLC
+// plugin's.
 TEST(contract_version_omitted) {
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse(replace(kValid, "\"schema_version\": 1,", ""), cfg, errors), join(errors));
-  CHECK(cfg.schema_version == 1);
+  std::string s = replace(test_config::as_bridge_config(kValid), "\"schema_version\":\t2,", "");
+  CHECK(!canopen_plugin::parse_config(s, std::string(PINGPONG_DIR) + "/canworks.json", ImageLimits(), cfg, errors));
+  CHECK_MSG(has_error(errors, "this config is for the removed OpenPLC plugin"), join(errors));
 }
 
 TEST(contract_version_from_the_future) {
@@ -631,28 +643,9 @@ TEST(contract_unknown_field_warns) {
   std::string s = replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"colour\": \"blue\",");
   s = replace(s, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"sync_jitter_us\": 5");
   CHECK_MSG(parse(s, cfg, errors), join(errors));
-  CHECK_MSG(has_warning(cfg, "nodes[0]: unknown field 'colour' (nodes[0].colour) ignored"), join(cfg.warnings));
-  CHECK_MSG(has_warning(cfg, "master: unknown field 'sync_jitter_us' (master.sync_jitter_us) ignored"),
+  CHECK_MSG(has_warning(cfg, "nodes[0]: unknown field 'colour' (networks[0].nodes[0].colour) ignored"), join(cfg.warnings));
+  CHECK_MSG(has_warning(cfg, "master: unknown field 'sync_jitter_us' (networks[0].master.sync_jitter_us) ignored"),
             join(cfg.warnings));
-}
-
-TEST(contract_old_style_keys) {
-  Config cfg;
-  std::vector<std::string> errors;
-  std::string s = replace(kValid, "\"adapter\": { \"type\": \"socketcan\", \"interface\": \"vcan0\", \"bitrate\": 125000 }",
-                          "\"interface\": \"vcan0\", \"bitrate\": 125000");
-  CHECK_MSG(parse(s, cfg, errors), join(errors));
-  CHECK(cfg.adapter.type == "socketcan" && cfg.adapter.interface == "vcan0" && cfg.adapter.bitrate == 125000);
-  CHECK(!cfg.adapter.configure_link);  // as before the contract: the link is left alone
-  CHECK_MSG(has_warning(cfg, "top-level 'interface' and 'bitrate' are deprecated"), join(cfg.warnings));
-}
-
-TEST(contract_both_styles_rejected) {
-  Config cfg;
-  std::vector<std::string> errors;
-  CHECK(!parse(replace(kValid, "\"schema_version\": 1,", "\"schema_version\": 1, \"interface\": \"vcan0\","), cfg,
-               errors));
-  CHECK_MSG(has_error(errors, "give either 'adapter' or the deprecated top-level 'interface', not both"), join(errors));
 }
 
 TEST(adapter_unknown_type) {
@@ -796,7 +789,7 @@ TEST(eds_master_writes_read_only) {
 TEST(eds_resolved_next_to_config) {
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(kValid, std::string(PINGPONG_DIR) + "/canopen_config.json", ImageLimits(), cfg, errors,
+  CHECK(parse_short(kValid, std::string(PINGPONG_DIR) + "/canopen_config.json", ImageLimits(), cfg, errors,
                      "/nonexistent/conf"));
   CHECK(cfg.nodes[0].eds_path == std::string(PINGPONG_DIR) + "/cpp-slave.eds");
   CHECK(cfg.nodes[0].eds_candidates.size() == 2);
@@ -812,7 +805,7 @@ TEST(eds_resolved_in_generated_conf) {
   write(conf + "/canworks/eds/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
+  CHECK(parse_short(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
                      ImageLimits(), cfg, errors, conf));
   CHECK_MSG(cfg.nodes[0].eds_path == conf + "/canworks/eds/cpp-slave.eds", cfg.nodes[0].eds_path);
   CHECK_MSG(check_eds_files(cfg, errors), join(errors));
@@ -822,7 +815,7 @@ TEST(eds_resolved_nowhere) {
   std::string lib = tmpdir();
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
+  CHECK(parse_short(replace(kValid, "\"cpp-slave.eds\"", "\"canworks/eds/cpp-slave.eds\""), lib + "/canworks.json",
                      ImageLimits(), cfg, errors, "/nonexistent/conf"));
   CHECK(!check_eds_files(cfg, errors));
   CHECK_MSG(has_error(errors, "node 2: EDS file " + lib + "/canworks/eds/cpp-slave.eds not found (also looked for "
@@ -880,13 +873,7 @@ int run_fixture_file(const std::string& file) {
   CHECK_MSG(doc != nullptr, file);
   if (!doc) return 0;
   const cJSON* base = cJSON_GetObjectItemCaseSensitive(doc, "base");
-  // "host": "bridge": the cases load as canworks-bridge loads them.
-  const cJSON* host = cJSON_GetObjectItemCaseSensitive(doc, "host");
-  ImageLimits limits;
-  if (cJSON_IsString(host) && std::string(host->valuestring) == "bridge") {
-    limits.bridge_host = true;
-    limits.buffer_size = 8192;
-  }
+  ImageLimits limits;  // as canworks-bridge loads them
   const cJSON* c;
   int count = 0;
   set_log_sink(silent);
@@ -927,7 +914,7 @@ int run_fixture_file(const std::string& file) {
     }
     cJSON_Delete(cfg_json_copy);
     if (has_j1939) {
-      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this plugin"), name + join(errors));
+      CHECK_MSG(!ok && has_error(errors, "J1939 is not built into this canworks"), name + join(errors));
       ++count;
       continue;
     }
@@ -935,7 +922,7 @@ int run_fixture_file(const std::string& file) {
     CHECK_MSG(ok == want, name + join(errors));
     if (want) {
       std::string schema = cJSON_GetObjectItemCaseSensitive(c, "schema")->valuestring;
-      CHECK_MSG(schema == "valid", name + ": the plugin accepts it, so the schema must too");
+      CHECK_MSG(schema == "valid", name + ": the bridge accepts it, so the schema must too");
     }
     for (const char* key : {"messages", "plugin_messages"})
       for (const auto& m : strings(c, key)) CHECK_MSG(has_error(errors, m), name + ": " + m + join(errors));
@@ -957,37 +944,36 @@ TEST(shared_fixtures_j1939) { CHECK(run_fixture_file("cases-j1939.json") > 30); 
 
 TEST(shared_fixtures_bridge) { CHECK(run_fixture_file("cases-bridge.json") > 30); }
 
-// The OpenPLC plugin refuses a bridge config, and canworks-bridge a plain one.
-TEST(bridge_config_hosts) {
+// A config without a 'bridge' object, and every version 1 config, was for
+// the removed OpenPLC plugin: refused with a pointer to the configurator's
+// switch (canopen-config-contract "Config target").
+TEST(plugin_configs_refused) {
   std::string fixtures = FIXTURES_DIR;
   cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases-bridge.json").c_str());
-  char* text = cJSON_Print(cJSON_GetObjectItemCaseSensitive(doc, "base"));
+  const char* msg = "this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to "
+                    "OpenPLC through Modbus";
   set_log_sink(silent);
-  ConfigSet set;
-  std::vector<std::string> errors;
-  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
-  CHECK_MSG(has_error(errors, "this is a Modbus bridge config (it has a 'bridge' object): run it with canworks-bridge, "
-                              "not the OpenPLC plugin"), join(errors));
-  std::free(text);
   cJSON* plain = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(doc, "base"), true);
   cJSON_DeleteItemFromObjectCaseSensitive(plain, "bridge");
-  text = cJSON_Print(plain);
-  ImageLimits bridge;
-  bridge.bridge_host = true;
-  bridge.buffer_size = 8192;
-  ConfigSet set2;
-  errors.clear();
-  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", bridge, set2, errors, "/nonexistent"));
-  CHECK_MSG(has_error(errors, "not a bridge config: canworks-bridge serves a version 2 config with a top-level 'bridge' "
-                              "object"), join(errors));
+  char* text = cJSON_Print(plain);
+  ConfigSet set;
+  std::vector<std::string> errors;
+  CHECK(!canopen_plugin::parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, msg), join(errors));
   std::free(text);
   cJSON_Delete(plain);
+  const char* v1 = R"({"schema_version": 1, "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]},
+    "adapter": {"type": "socketcan", "interface": "vcan0"}, "master": {"node_id": 1}, "nodes": []})";
+  ConfigSet set2;
+  errors.clear();
+  CHECK(!canopen_plugin::parse_config_set(v1, fixtures + "/eds/canworks.json", ImageLimits(), set2, errors, "/nonexistent"));
+  CHECK_MSG(has_error(errors, msg), join(errors));
   cJSON_Delete(doc);
   set_log_sink(nullptr);
 }
 
-// The OpenPLC plugin and canworks-bridge refuse a CODESYS config
-// (canopen-config-contract "CODESYS configs are for CODESYS").
+// canworks-bridge refuses a CODESYS config (canopen-config-contract
+// "CODESYS configs are for CODESYS").
 TEST(codesys_config_refused) {
   std::string fixtures = FIXTURES_DIR;
   cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases-bridge.json").c_str());
@@ -997,17 +983,10 @@ TEST(codesys_config_refused) {
   char* text = cJSON_Print(cfg);
   set_log_sink(silent);
   const char* msg = "this is a CODESYS config (it has a 'codesys' object): build it into a CODESYS project with "
-                    "canworks-deploy --codesys-import, not the OpenPLC plugin or canworks-bridge";
+                    "canworks-deploy --codesys-import, not canworks-bridge";
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
-  CHECK_MSG(has_error(errors, msg), join(errors));
-  ImageLimits bridge;
-  bridge.bridge_host = true;
-  bridge.buffer_size = 8192;
-  ConfigSet set2;
-  errors.clear();
-  CHECK(!parse_config_set(text, fixtures + "/eds/canworks.json", bridge, set2, errors, "/nonexistent"));
+  CHECK(!canopen_plugin::parse_config_set(text, fixtures + "/eds/canworks.json", ImageLimits(), set, errors, "/nonexistent"));
   CHECK_MSG(has_error(errors, msg), join(errors));
   std::free(text);
   cJSON_Delete(cfg);
@@ -1253,7 +1232,7 @@ TEST(slcan_name_taken) {
   SlcanFixture f;
   f.link->links["can0"] = LinkInfo{true, "can", 500000};  // made by an slcand service
   CHECK(f.prepare() == AdapterState::Failed);
-  CHECK_MSG(f.adapter->problem().find("CAN interface can0 already exists and was not created by the plugin; stop "
+  CHECK_MSG(f.adapter->problem().find("CAN interface can0 already exists and was not created by canworks; stop "
                                       "the program that created it (such as an slcand service)") == 0,
             f.adapter->problem());
   CHECK(f.serial->calls.empty() && f.link->calls.empty());  // neither the device nor can0 touched
@@ -1427,27 +1406,6 @@ TEST(netlink_get_does_not_block) {
   CHECK_MSG(r < 0 && r != -EAGAIN, std::to_string(r));
 }
 
-// The bus thread leaves SCHED_FIFO when its session shuts down, so the
-// shutdown's waiting cannot hold a CPU from the runtime.
-namespace canopen_plugin {
-void leave_realtime();  // bus.h, whose Lely headers clash with <linux/can/netlink.h>
-}
-
-TEST(bus_thread_leaves_realtime) {
-  int policy = -1;
-  bool fifo = false;
-  std::thread t([&] {
-    sched_param sp{};
-    sp.sched_priority = 10;
-    fifo = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0;
-    canopen_plugin::leave_realtime();
-    pthread_getschedparam(pthread_self(), &policy, &sp);
-  });
-  t.join();
-  if (!fifo) std::printf("    (no right to SCHED_FIFO here: only the SCHED_OTHER case runs)\n");
-  CHECK(policy == SCHED_OTHER);
-}
-
 namespace {
 
 struct MonitorFixture {
@@ -1456,22 +1414,22 @@ struct MonitorFixture {
   ProcessImage img;
   std::unique_ptr<BusMonitor> mon;
   BusMonitor::clock::time_point t = BusMonitor::clock::time_point() + std::chrono::hours(1);
-  fake_runtime::Image* fake = new fake_runtime::Image;
-  plugin_runtime_args_t rt;
+  fake_host::Image* fake = new fake_host::Image;
+  fake_host::Runtime rt;
 
   MonitorFixture(const std::string& iface = "can0", bool counters = true) {
     std::vector<std::string> errors;
     std::string s = replace(kValid, R"("node_id": 1, "sync_period_us": 10000)", kBusFields);
     s = replace(s, "\"vcan0\"", "\"" + iface + "\"");
     if (!counters) {
-      s = replace(s, R"("tx_error_count_location": "%IB101", )", "");
-      s = replace(s, R"("rx_error_count_location": "%IB102", )", "");
+      s = replace(s, R"("tx_error_count_location": "%IB121", )", "");
+      s = replace(s, R"("rx_error_count_location": "%IB122", )", "");
     }
     if (!parse(s, cfg, errors)) std::printf("  fixture: %s\n", join(errors).c_str());
     img.build(cfg);
     mon.reset(new BusMonitor(cfg, img, std::unique_ptr<LinkOps>(link)));
     mon->reset();
-    fake_runtime::attach(*fake, rt);
+    fake_host::attach(*fake, rt);
     g_log.clear();
     set_log_sink(capture);
     LinkInfo li;
@@ -1497,10 +1455,10 @@ struct MonitorFixture {
     img.copy_to_plc(rt);
     return changed;
   }
-  unsigned state() const { return fake->byte_in[100]; }
-  unsigned tx() const { return fake->byte_in[101]; }
-  unsigned rx() const { return fake->byte_in[102]; }
-  unsigned bus_offs() const { return fake->int_in[100]; }
+  unsigned state() const { return fake->byte_in[120]; }
+  unsigned tx() const { return fake->byte_in[121]; }
+  unsigned rx() const { return fake->byte_in[122]; }
+  unsigned bus_offs() const { return fake->int_in[124]; }
 };
 
 }  // namespace
@@ -1674,14 +1632,14 @@ TEST(dcfgen_generates_and_caches) {
   write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   CHECK(!gen.reused);
-  CHECK(gen.work_dir == dir + "/.canworks");
+  CHECK(gen.work_dir == dir + "/.canworks/vcan0");
   struct stat st;
-  CHECK(stat((dir + "/.canworks/master.dcf").c_str(), &st) == 0);
-  CHECK(stat((dir + "/.canworks/node_2.bin").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/vcan0/master.dcf").c_str(), &st) == 0);
+  CHECK(stat((dir + "/.canworks/vcan0/node_2.bin").c_str(), &st) == 0);
   CHECK(gen.slave_sdos.count(2) == 1);
   // Heartbeat producer 500 ms is written to 0x1017 of the slave.
   bool hb = false, tpdo_map = false, rpdo_map = false;
@@ -1718,13 +1676,13 @@ TEST(dcfgen_generates_and_caches) {
   cfg.nodes[0].heartbeat_ms = 200;
   // dcfgen writes master.bin only for a config with master-side checks
   // (such as serial_number); one from an earlier config must not survive.
-  write(dir + "/.canworks/master.bin", "stale");
+  write(dir + "/.canworks/vcan0/master.bin", "stale");
   GeneratedConfig changed;
   errors.clear();
   CHECK(!generate_device_config(cfg, "/bin/false", changed, errors));
   CHECK_MSG(has_error(errors, "dcfgen failed"), join(errors));
-  CHECK(stat((dir + "/.canworks/master.dcf").c_str(), &st) != 0);  // stale output removed
-  CHECK(stat((dir + "/.canworks/master.bin").c_str(), &st) != 0);
+  CHECK(stat((dir + "/.canworks/vcan0/master.dcf").c_str(), &st) != 0);  // stale output removed
+  CHECK(stat((dir + "/.canworks/vcan0/master.bin").c_str(), &st) != 0);
 }
 
 // The EDS lint (canworks.edslint): a prepared copy only when a
@@ -1738,7 +1696,7 @@ TEST(eds_lint_prepared_copy_and_verdict) {
     std::vector<std::string> errors;
     std::string json = replace(replace(kValid, "\"cpp-slave.eds\"", "\"" + eds + "\""),
                                "\"sync_period_us\": 10000", "\"sync_period_us\": 10000" + master_extra);
-    CHECK_MSG(parse_config(json, fixtures + "/eds/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+    CHECK_MSG(parse_short(json, fixtures + "/eds/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
     return cfg;
   };
   std::vector<std::string> errors;
@@ -1773,7 +1731,7 @@ TEST(eds_lint_prepared_copy_and_verdict) {
   Config missing = config("cpp-slave.eds", "");
   CHECK(!run_eds_lint(missing, "/nonexistent/python", work, errors));
   CHECK_MSG(has_error(errors, "cannot run the EDS lint (/nonexistent/python -I -m canworks.edslint)") &&
-                has_error(errors, "rerun scripts/install-stock.sh"),
+                has_error(errors, "rerun scripts/install-bridge.sh"),
             join(errors));
   errors.clear();
   CHECK(!run_eds_lint(missing, "/bin/false", work, errors));
@@ -1793,7 +1751,7 @@ TEST(lely_octet_string_rule) {
   Config cfg;
   std::vector<std::string> errors;
   std::string json = replace(kValid, "\"cpp-slave.eds\"", "\"lint/octet-string.eds\"");
-  CHECK(parse_config(json, fixtures + "/eds/canopen_config.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(json, fixtures + "/eds/canopen_config.json", ImageLimits(), cfg, errors));
   CHECK_MSG(run_eds_lint(cfg, default_edslint_python(), work, errors), join(errors));
   dev = co_dev_create_from_dcf_file(cfg.nodes[0].eds_path.c_str());
   CHECK(dev != nullptr);
@@ -1814,7 +1772,7 @@ TEST(dcfgen_accepts_nodeid_suffix_eds) {
   write(dir + "/cpp-slave.eds", eds);
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
   CHECK_MSG(run_eds_lint(cfg, default_edslint_python(), dir + "/.canworks", errors), join(errors));
   CHECK_MSG(cfg.notes.size() == 1 && cfg.notes[0].find("\"<number>+$NODEID\" rewritten") != std::string::npos,
             join(cfg.notes));
@@ -1855,7 +1813,7 @@ TEST(dcfgen_device_pdo_mapping) {
 })";
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(json, fixtures + "/eds/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
+  CHECK_MSG(parse_short(json, fixtures + "/eds/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
                 check_eds_files(cfg, errors),
             join(errors));
   const NodeConfig& n = cfg.nodes[0];
@@ -1873,7 +1831,7 @@ TEST(dcfgen_device_pdo_mapping) {
   // dcfgen's output: nothing left to download but no PDO or COB-ID write.
   std::string dir = tmpdir();
   write(dir + "/fixed-io.eds", read(fixtures + "/eds/fixed-io.eds"));
-  write(dir + "/canworks.json", json);
+  write_config(dir + "/canworks.json", json);
   Config cfg2;
   GeneratedConfig gen;
   errors.clear();
@@ -1897,7 +1855,7 @@ TEST(dcfgen_explicit_pdo_values_equal_to_eds_default) {
   std::string json = replace(kValid, "\"tx_pdos\": [ { \"entries\"",
                              "\"tx_pdos\": [ { \"transmission\": 1, \"inhibit_time_us\": 0, \"event_timer_ms\": 0, \"entries\"");
   json = replace(json, "\"rx_pdos\": [ { \"entries\"", "\"rx_pdos\": [ { \"transmission\": 1, \"entries\"");
-  write(dir + "/canworks.json", json);
+  write_config(dir + "/canworks.json", json);
   Config cfg;
   GeneratedConfig gen;
   std::vector<std::string> errors;
@@ -1950,14 +1908,14 @@ TEST(eds_fixed_entries_writable_count) {
 })";
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(json, dir + "/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
+  CHECK_MSG(parse_short(json, dir + "/canworks.json", ImageLimits(), cfg, errors, "/nonexistent") &&
                 check_eds_files(cfg, errors),
             join(errors));
   CHECK(cfg.nodes[0].tx_pdos[0].device_mapping);
   json = replace(json, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { \"mapping\": \"config\", \"entries\"");
   Config forced;
   errors.clear();
-  CHECK(parse_config(json, dir + "/canworks.json", ImageLimits(), forced, errors, "/nonexistent"));
+  CHECK(parse_short(json, dir + "/canworks.json", ImageLimits(), forced, errors, "/nonexistent"));
   CHECK(!check_eds_files(forced, errors));
   CHECK_MSG(has_error(errors, "fixes the mapping (0x1A00 subindex 1 is ro)"), join(errors));
   set_log_sink(nullptr);
@@ -2008,7 +1966,7 @@ TEST(dcfgen_unset_transmission_not_written) {
   auto writes_1400_2 = [&](const std::string& json) {
     Config cfg;
     std::vector<std::string> errors;
-    CHECK(parse_config(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+    CHECK(parse_short(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
     GeneratedConfig gen;
     CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
     for (const auto& w : gen.slave_sdos[2])
@@ -2054,7 +2012,7 @@ TEST(dcfgen_config_check) {
     write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/config-check.eds"));
     Config cfg;
     std::vector<std::string> errors;
-    CHECK_MSG(parse_config(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+    CHECK_MSG(parse_short(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
     CHECK_MSG(check_eds_files(cfg, errors), join(errors));
     CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   };
@@ -2131,7 +2089,7 @@ TEST(dcfgen_rpdo_event_timer_sdo) {
   auto sdos = [&](const std::string& json) {
     Config cfg;
     std::vector<std::string> errors;
-    CHECK_MSG(parse_config(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+    CHECK_MSG(parse_short(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
     GeneratedConfig gen;
     CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
     return gen.slave_sdos[2];
@@ -2201,7 +2159,7 @@ TEST(config_input_pdo_timeout_auto) {
   std::string eds = read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds");
   auto check = [&](const std::string& tpdo, const std::string& with_eds, std::vector<std::string>& errors) {
     write(dir + "/cpp-slave.eds", with_eds);
-    write(dir + "/canworks.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
+    write_config(dir + "/canworks.json", replace(kValid, "\"tx_pdos\": [ { \"entries\"", "\"tx_pdos\": [ { " + tpdo + "\"entries\""));
     Config cfg;
     errors.clear();
     bool ok = load_config(dir + "/canworks.json", ImageLimits(), cfg, errors) && check_eds_files(cfg, errors);
@@ -2229,7 +2187,7 @@ TEST(dcfgen_rpdo_deadline_in_master_dcf) {
   std::string dir = tmpdir();
   write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/cpp-slave.eds"));
   auto master = [&](const std::string& json) {
-    write(dir + "/canworks.json", json);
+    write_config(dir + "/canworks.json", json);
     Config cfg;
     GeneratedConfig gen;
     std::vector<std::string> errors;
@@ -2448,13 +2406,14 @@ TEST(dcfgen_options_rejected) {
        "nodes[0]: 'heartbeat_consumer' needs a master heartbeat"},
       // Program download was removed: its fields are unknown and reject the file.
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"software_version\": 2,",
-       "node 2 (pingpong): unknown field 'software_version' (nodes[0].software_version)"},
+       "node 2 (pingpong): unknown field 'software_version' (networks[0].nodes[0].software_version)"},
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"software_file\": \"fw/node2.bin\",",
-       "node 2 (pingpong): unknown field 'software_file' (nodes[0].software_file)"},
+       "node 2 (pingpong): unknown field 'software_file' (networks[0].nodes[0].software_file)"},
       {"\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"state_location\": \"%IB20\", \"boot_error_location\": \"%IB20\",",
-       "node 2 (pingpong) state_location and node 2 (pingpong) boot_error_location both map to %IB20"},
+       "node 2 (pingpong) state_location (%IB20) and networks[0] (vcan0) node 2 (pingpong) boot_error_location (%IB20) "
+       "overlap in input byte 20"},
       {"\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"state_location\": \"%IB20\", \"bus_state_location\": \"%IB20\"",
-       "master bus_state_location and master state_location both map to %IB20"},
+       "master bus_state_location (%IB20) and networks[0] (vcan0) master state_location (%IB20) overlap in input byte 20"},
   };
   for (const auto& c : cases) {
     Config cfg;
@@ -2512,7 +2471,7 @@ TEST(dcfgen_options_full_run) {
   auto run = [&](const std::string& json, GeneratedConfig& gen) {
     Config cfg;
     std::vector<std::string> errors;
-    CHECK_MSG(parse_config(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+    CHECK_MSG(parse_short(json, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
     CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   };
   auto writes = [](const GeneratedConfig& gen, uint16_t index) {
@@ -2553,7 +2512,7 @@ TEST(dcfgen_options_full_run) {
   CHECK_MSG(dcf.find("DefaultValue=0x00000041", dcf.find("[1F80]")) < dcf.find("[1F81]"), dcf.substr(dcf.find("[1F80]"), 400));
   CHECK_MSG(dcf.find("2=0x0000008D", dcf.find("[1F81Value]")) != std::string::npos, dcf.substr(dcf.find("[1F81Value]"), 100));
   CHECK(dcf.find("2=0x01", dcf.find("[1F8AValue]")) != std::string::npos);
-  // The expected serial number goes to the master's own startup (master.bin).
+  // The expected serial number goes to the master's own startup (networks[0].master.bin).
   std::string bin = read(set.work_dir + "/master.bin");
   CHECK(bin.find(std::string("\x88\x1F\x02\x04\x00\x00\x00\x78\x56\x00\x00", 11)) != std::string::npos);
 }
@@ -2565,7 +2524,7 @@ TEST(dcfgen_master_dcf_has_no_upload_file) {
   write(dir + "/cpp-slave.eds", read(std::string(FIXTURES_DIR) + "/eds/node-options.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
+  CHECK_MSG(parse_short(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
   std::string dcf = read(gen.master_dcf);
@@ -2604,7 +2563,7 @@ TEST(dcfgen_missing_program) {
   write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
   GeneratedConfig gen;
   CHECK(!generate_device_config(cfg, "/nonexistent/dcfgen", gen, errors));
   CHECK_MSG(has_error(errors, "cannot run dcfgen"), join(errors));
@@ -2621,7 +2580,7 @@ TEST(helper_programs_time_limit) {
   chmod(hang.c_str(), 0755);
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(kValid, dir + "/canopen_config.json", ImageLimits(), cfg, errors));
   set_helper_time_limit(std::chrono::milliseconds(300));
   auto t0 = std::chrono::steady_clock::now();
   GeneratedConfig gen;
@@ -2647,7 +2606,7 @@ TEST(dcfgen_startup_sdo_after_pdo_parameters) {
   write(dir + "/cpp-slave.eds", read(std::string(PINGPONG_DIR) + "/cpp-slave.eds"));
   Config cfg;
   std::vector<std::string> errors;
-  CHECK(parse_config(replace(with_sdo(kSdoNode), "\"value\": 100", "\"value\": 250"), dir + "/canopen_config.json",
+  CHECK(parse_short(replace(with_sdo(kSdoNode), "\"value\": 100", "\"value\": 250"), dir + "/canopen_config.json",
                      ImageLimits(), cfg, errors));
   GeneratedConfig gen;
   CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
@@ -2697,20 +2656,20 @@ const char* kAllSizes = R"({
   "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 250000 },
   "master": { "node_id": 1, "sync_period_us": 10000 },
   "nodes": [ {
-    "node_id": 5, "eds": "x.eds", "status_location": "%IX0.7", "state_location": "%IB9",
-    "emcy_code_location": "%IW9", "error_register_location": "%IB10",
+    "node_id": 5, "eds": "x.eds", "status_location": "%IX0.7", "state_location": "%IB12",
+    "emcy_code_location": "%IW14", "error_register_location": "%IB13",
     "tx_pdos": [
       { "entries": [ { "index": "0x6000", "type": "BOOLEAN", "iec_location": "%IX1.2" },
                      { "index": "0x6001", "type": "UNSIGNED8", "iec_location": "%IB3" },
                      { "index": "0x6002", "type": "INTEGER16", "iec_location": "%IW4" },
-                     { "index": "0x6003", "type": "UNSIGNED32", "iec_location": "%ID5" } ] },
-      { "entries": [ { "index": "0x6004", "type": "UNSIGNED64", "iec_location": "%IL6" } ] } ],
+                     { "index": "0x6003", "type": "UNSIGNED32", "iec_location": "%ID8" } ] },
+      { "entries": [ { "index": "0x6004", "type": "UNSIGNED64", "iec_location": "%IL16" } ] } ],
     "rx_pdos": [
       { "entries": [ { "index": "0x7000", "type": "BOOLEAN", "iec_location": "%QX1.2" },
                      { "index": "0x7001", "type": "INTEGER8", "iec_location": "%QB3" },
                      { "index": "0x7002", "type": "UNSIGNED16", "iec_location": "%QW4" },
-                     { "index": "0x7003", "type": "REAL32", "iec_location": "%QD5" } ] },
-      { "entries": [ { "index": "0x7004", "type": "INTEGER64", "iec_location": "%QL6" } ] } ]
+                     { "index": "0x7003", "type": "REAL32", "iec_location": "%QD8" } ] },
+      { "entries": [ { "index": "0x7004", "type": "INTEGER64", "iec_location": "%QL16" } ] } ]
   } ]
 })";
 
@@ -2719,14 +2678,14 @@ const char* kAllSizes = R"({
 TEST(binding_every_size_both_directions) {
   Config cfg;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config(kAllSizes, "/tmp/c.json", ImageLimits(), cfg, errors), join(errors));
+  CHECK_MSG(parse_short(kAllSizes, "/tmp/c.json", ImageLimits(), cfg, errors), join(errors));
   ProcessImage img;
   img.build(cfg);
   CHECK(img.inputs().size() == 5 && img.outputs().size() == 5);
 
-  static fake_runtime::Image fake;
-  plugin_runtime_args_t rt;
-  fake_runtime::attach(fake, rt);
+  static fake_host::Image fake;
+  fake_host::Runtime rt;
+  fake_host::attach(fake, rt);
 
   // Inputs: bus side sets values, cycle_start copies them to %I*.
   img.set_input(0, 1);
@@ -2744,20 +2703,20 @@ TEST(binding_every_size_both_directions) {
   CHECK(fake.bool_in[1][2] == 1);
   CHECK(fake.byte_in[3] == 0xAB);
   CHECK(fake.int_in[4] == 0xFFFE);
-  CHECK(fake.dint_in[5] == 0xDEADBEEF);
-  CHECK(fake.lint_in[6] == 0x0123456789ABCDEFULL);
+  CHECK(fake.dint_in[8] == 0xDEADBEEF);
+  CHECK(fake.lint_in[16] == 0x0123456789ABCDEFULL);
   CHECK(fake.bool_in[0][7] == 1);  // status bit
-  CHECK(fake.byte_in[9] == 5);      // state byte: OPERATIONAL
-  CHECK(fake.int_in[9] == 0x4210);  // EMCY code
-  CHECK(fake.byte_in[10] == 0x09);  // error register
+  CHECK(fake.byte_in[12] == 5);      // state byte: OPERATIONAL
+  CHECK(fake.int_in[14] == 0x4210);  // EMCY code
+  CHECK(fake.byte_in[13] == 0x09);  // error register
   CHECK(fake.journal_writes == 18);
 
   // Outputs: cycle_end reads %Q* into a snapshot the bus side picks up.
   fake.bool_out[1][2] = 1;
   fake.byte_out[3] = 0x80;
   fake.int_out[4] = 0x1234;
-  fake.dint_out[5] = 0x3F800000;  // 1.0f
-  fake.lint_out[6] = 0xFFFFFFFFFFFFFFFFULL;
+  fake.dint_out[8] = 0x3F800000;  // 1.0f
+  fake.lint_out[16] = 0xFFFFFFFFFFFFFFFFULL;
   img.copy_from_plc(rt);
   CHECK(fake.locks == 1 && fake.unlocks == 1);
   const uint64_t* out = img.latest_outputs();
@@ -2770,64 +2729,9 @@ TEST(binding_every_size_both_directions) {
   img.commit_inputs();
   img.copy_to_plc(rt);
   CHECK(fake.bool_in[0][7] == 0);
-  CHECK(fake.byte_in[9] == 0);
-  CHECK(fake.int_in[9] == 0x4210);  // the last EMCY is kept while the node is down
-  CHECK(fake.dint_in[5] == 0xDEADBEEF);
-}
-
-TEST(binding_null_output_reads_zero) {
-  Config cfg;
-  std::vector<std::string> errors;
-  CHECK(parse_config(kAllSizes, "/tmp/c.json", ImageLimits(), cfg, errors));
-  ProcessImage img;
-  img.build(cfg);
-  static fake_runtime::Image fake;
-  plugin_runtime_args_t rt;
-  fake_runtime::attach(fake, rt);
-  fake.int_out[4] = 99;
-  fake.p_int_out[4] = nullptr;  // the program does not declare %QW4
-  img.copy_from_plc(rt);
-  CHECK(img.latest_outputs()[2] == 0);
-}
-
-// canopen-pdo-io "Bit channels exchanged with the scan".
-TEST(binding_bit_channels) {
-  std::string s = replace(kValid, R"("type": "UNSIGNED32", "iec_location": "%ID100" })",
-                          R"("type": "UNSIGNED32", "iec_location": "%ID100",
-                             "bits": [ { "bit": 3, "iec_location": "%IX20.3" }, { "bit": 31, "iec_location": "%IX21.0" } ] })");
-  s = replace(s, R"("type": "UNSIGNED32", "iec_location": "%QD100" })",
-              R"("type": "UNSIGNED32",
-                 "bits": [ { "bit": 0, "iec_location": "%QX22.0" }, { "bit": 2, "iec_location": "%QX22.2" } ] })");
-  Config cfg;
-  std::vector<std::string> errors;
-  CHECK_MSG(parse_config(s, "/tmp/c.json", ImageLimits(), cfg, errors), join(errors));
-  ProcessImage img;
-  img.build(cfg);
-  CHECK(img.inputs().size() == 1 && img.outputs().size() == 1);
-  static fake_runtime::Image fake;
-  plugin_runtime_args_t rt;
-  fake_runtime::attach(fake, rt);
-
-  // Input: the whole value and each mapped bit.
-  img.set_input(0, 0x80000008);
-  img.commit_inputs();
-  img.copy_to_plc(rt);
-  CHECK(fake.dint_in[100] == 0x80000008);
-  CHECK(fake.bool_in[20][3] == 1 && fake.bool_in[21][0] == 1);
-  img.set_input(0, 0x00000001);
-  img.commit_inputs();
-  img.copy_to_plc(rt);
-  CHECK(fake.bool_in[20][3] == 0 && fake.bool_in[21][0] == 0);
-
-  // Output: built from the bits; unlisted bits are 0, an undeclared bit reads 0.
-  fake.dint_out[100] = 0xFFFFFFFF;  // not the entry's location: ignored
-  fake.bool_out[22][2] = 1;
-  img.copy_from_plc(rt);
-  CHECK(img.latest_outputs()[0] == 0x4);
-  fake.bool_out[22][0] = 1;
-  fake.p_bool_out[22][2] = nullptr;
-  img.copy_from_plc(rt);
-  CHECK(img.latest_outputs()[0] == 0x1);
+  CHECK(fake.byte_in[12] == 0);
+  CHECK(fake.int_in[14] == 0x4210);  // the last EMCY is kept while the node is down
+  CHECK(fake.dint_in[8] == 0xDEADBEEF);
 }
 
 // ---------------------------------------------------------------------------
@@ -2837,7 +2741,7 @@ TEST(binding_bit_channels) {
 const char* kSdoVars = R"("sdo_variables": [
         { "name": "vendor", "index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "direction": "read",
           "iec_location": "%ID200", "period_ms": 500, "trigger_location": "%QX20.0",
-          "status_location": "%IB200", "abort_code_location": "%ID201", "timeout_ms": 250 },
+          "status_location": "%IB204", "abort_code_location": "%ID208", "timeout_ms": 250 },
         { "index": "0x4000", "type": "UNSIGNED32", "direction": "write", "iec_location": "%QD200" }
       ],
       "nmt_command_location": "%QB30",
@@ -2856,8 +2760,8 @@ TEST(config_sdo_variables) {
   CHECK(r.is_read() && r.index == 0x1018 && r.subindex == 1 && r.type == CoType::UNSIGNED32);
   CHECK(r.location.str() == "%ID200" && r.period_ms == 500 && r.timeout_ms == 250);
   CHECK(r.has_trigger && r.trigger_location.str() == "%QX20.0");
-  CHECK(r.has_status && r.status_location.str() == "%IB200");
-  CHECK(r.has_abort_code && r.abort_code_location.str() == "%ID201");
+  CHECK(r.has_status && r.status_location.str() == "%IB204");
+  CHECK(r.has_abort_code && r.abort_code_location.str() == "%ID208");
   CHECK(r.label() == "SDO variable 0x1018:1 (vendor)");
   const SdoVariable& w = n.sdo_variables[1];
   CHECK(!w.is_read() && w.timeout_ms == 1000 && !w.has_trigger && !w.has_status && w.period_ms == 0);
@@ -2891,7 +2795,7 @@ TEST(config_sdo_variable_rejections) {
       {R"({ "index": "0x4001", "type": "UNSIGNED32", "direction": "read", "iec_location": "%ID200", "abort_code_location": "%IW20" })",
        "abort_code_location must be an input double word (%ID...)"},
       {R"({ "index": "0x4001", "type": "UNSIGNED32", "direction": "read", "iec_location": "%ID100" })",
-       "SDO variable 0x4001:0 and"},
+       "SDO variable 0x4001:0 (%ID100) and"},
       {R"({ "index": "0x4001", "type": "UNSIGNED32", "direction": "read" })", "missing required field 'iec_location'"},
   };
   for (const auto& c : cases) {
@@ -2900,7 +2804,7 @@ TEST(config_sdo_variable_rejections) {
     std::string field = std::string("\"sdo_variables\": [") + c.entry + "], \"status_location\": \"%IX10.0\",";
     CHECK_MSG(!parse(replace(kValid, "\"status_location\": \"%IX10.0\",", field), cfg, errors), c.message);
     CHECK_MSG(has_error(errors, c.message), std::string(c.message) + join(errors));
-    CHECK_MSG(has_error(errors, "nodes[0]: sdo_variables[0]") || has_error(errors, "both map to"), join(errors));
+    CHECK_MSG(has_error(errors, "nodes[0]: sdo_variables[0]") || has_error(errors, "overlap in"), join(errors));
   }
 }
 
@@ -2921,7 +2825,8 @@ TEST(config_nmt_command_location) {
                        R"("nmt_command_location": "%QB30", "sdo_variables": [ { "index": "0x1017", "type": "UNSIGNED8",
                           "direction": "write", "iec_location": "%QB30" } ],)"),
                cfg, errors));
-  CHECK_MSG(has_error(errors, "nmt_command_location and node 2 (pingpong) SDO variable 0x1017:0 both map to %QB30"),
+  CHECK_MSG(has_error(errors, "nmt_command_location (%QB30) and networks[0] (vcan0) node 2 (pingpong) SDO variable "
+                              "0x1017:0 (%QB30) overlap in output byte 30"),
             join(errors));
 }
 
@@ -2932,11 +2837,11 @@ TEST(config_sdo_variable_plugin_owned_write_warns) {
                           R"("sdo_variables": [
                                { "index": "0x1017", "type": "UNSIGNED16", "direction": "write", "iec_location": "%QW200" },
                                { "index": "0x1017", "type": "UNSIGNED16", "direction": "read", "iec_location": "%IW200" },
-                               { "index": "0x2000", "type": "UNSIGNED16", "direction": "write", "iec_location": "%QW201" } ],)"),
+                               { "index": "0x2000", "type": "UNSIGNED16", "direction": "write", "iec_location": "%QW202" } ],)"),
                   cfg, errors),
             join(errors));
   CHECK_MSG(cfg.warnings.size() == 1, join(cfg.warnings));
-  CHECK_MSG(has_warning(cfg, "node 2 (pingpong): SDO variable 0x1017:0 writes an object the plugin configures "
+  CHECK_MSG(has_warning(cfg, "node 2 (pingpong): SDO variable 0x1017:0 writes an object canworks configures "
                              "itself; the program can override the node's heartbeat setting"),
             join(cfg.warnings));
 }
@@ -2948,7 +2853,7 @@ TEST(eds_sdo_variables_checked) {
                       R"("sdo_variables": [
                            { "index": "0x1018", "subindex": 1, "type": "UNSIGNED32", "direction": "write", "iec_location": "%QD200" },
                            { "index": "0x1018", "subindex": 1, "type": "UNSIGNED16", "direction": "read", "iec_location": "%IW200" },
-                           { "index": "0x2100", "type": "UNSIGNED8", "direction": "read", "iec_location": "%IB200" } ],)"),
+                           { "index": "0x2100", "type": "UNSIGNED8", "direction": "read", "iec_location": "%IB202" } ],)"),
               cfg, errors));
   CHECK(!check_eds_files(cfg, errors));
   CHECK_MSG(has_error(errors, "node 2, index 0x1018, subindex 1: SDO variable to write needs a writable object "
@@ -2968,9 +2873,9 @@ TEST(binding_sdo_variables_and_nmt) {
   ProcessImage img;
   img.build(cfg);
   CHECK(img.sdo_vars().size() == 2 && img.has_nmt_command(2));
-  static fake_runtime::Image fake;
-  plugin_runtime_args_t rt;
-  fake_runtime::attach(fake, rt);
+  static fake_host::Image fake;
+  fake_host::Runtime rt;
+  fake_host::attach(fake, rt);
 
   // Nothing published yet: the scan count reads 0.
   CHECK(img.scan_count(img.latest_outputs()) == 0);
@@ -2981,7 +2886,7 @@ TEST(binding_sdo_variables_and_nmt) {
   img.set_sdo_abort(0, 0x05040000);
   img.commit_inputs();
   img.copy_to_plc(rt);
-  CHECK(fake.dint_in[200] == 0x360 && fake.byte_in[200] == 3 && fake.dint_in[201] == 0x05040000);
+  CHECK(fake.dint_in[200] == 0x360 && fake.byte_in[204] == 3 && fake.dint_in[208] == 0x05040000);
 
   // Outputs: the write entry's value; a one-scan trigger pulse counts once.
   fake.dint_out[200] = 1234;
@@ -3047,31 +2952,32 @@ TEST(config_diagnostics_defaults_and_fields) {
   Config cfg3;
   CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000", "\"sync_period_us\": 10000, \"diagnostics\": true"), cfg3,
                errors));
-  CHECK(has_error(errors, "master: field 'diagnostics' must be an object"));
+  CHECK(has_error(errors, "field 'diagnostics' must be an object"));
   // The former token_sha256: set the token again.
   Config cfg4;
   errors.clear();
   CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
                        "\"sync_period_us\": 10000, \"diagnostics\": { \"token_sha256\": \"" + sha256_hex("secret") + "\" }"),
                cfg4, errors));
-  CHECK(has_error(errors, "master.diagnostics.token_sha256: the diagnostics channel is encrypted now"));
+  CHECK(has_error(errors, "diagnostics.token_sha256: the diagnostics channel is encrypted now"));
   Config cfg5;
   errors.clear();
   CHECK(!parse(replace(kValid, "\"sync_period_us\": 10000",
                        "\"sync_period_us\": 10000, \"diagnostics\": { \"token_verifier\": \"secret\" }"),
                cfg5, errors));
-  CHECK(has_error(errors, "master.diagnostics: field 'token_verifier' must look like SCRAM-SHA-256$"));
+  CHECK(has_error(errors, "diagnostics: field 'token_verifier' must look like SCRAM-SHA-256$"));
 }
 
 TEST(config_file_fingerprint) {
   std::string dir = tmpdir();
   std::string path = dir + "/canworks.json";
-  std::ofstream(path) << kValid;
+  const std::string text = test_config::as_bridge_config(kValid);
+  std::ofstream(path) << text;
   std::ofstream(dir + "/cpp-slave.eds") << read(std::string(PINGPONG_DIR) + "/cpp-slave.eds");
   Config cfg;
   std::vector<std::string> errors;
   CHECK(load_config(path, ImageLimits(), cfg, errors));
-  CHECK(cfg.file_sha256 == sha256_hex(kValid));
+  CHECK(cfg.file_sha256 == sha256_hex(text));
 }
 
 namespace {
@@ -3384,11 +3290,11 @@ TEST(config_force_simulate) {
   forced.force_simulate = true;
   const std::string path = std::string(PINGPONG_DIR) + "/canopen_config.json";
   // A real-adapter config runs simulated, every node with it; the file's adapter is kept.
-  CHECK(parse_config(kValid, path, forced, cfg, errors));
+  CHECK(parse_short(kValid, path, forced, cfg, errors));
   CHECK(cfg.adapter.simulate && cfg.adapter.simulation_forced && cfg.nodes[0].simulate);
   CHECK(cfg.adapter.interface == "vcan0");
   // A node switched off stays absent, as on any simulated network.
-  CHECK(parse_config(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": false,"), path,
+  CHECK(parse_short(replace(kValid, "\"name\": \"pingpong\",", "\"name\": \"pingpong\", \"simulate\": false,"), path,
                      forced, cfg, errors));
   CHECK(cfg.adapter.simulate && !cfg.nodes[0].simulate);
   // Without the flag nothing changes.
@@ -3401,7 +3307,7 @@ TEST(config_force_simulate) {
       "slave": { "node_id": 10, "eds": "openplc-slave.eds" } },
     { "name": "field", "adapter": { "type": "socketcan", "interface": "can1", "bitrate": 500000 },
       "master": { "node_id": 1 }, "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds" } ] } ] })";
-  CHECK_MSG(parse_config_set(two, std::string(PINGPONG_DIR) + "/c.json", forced, set, errors), join(errors));
+  CHECK_MSG(parse_short_set(two, std::string(PINGPONG_DIR) + "/c.json", forced, set, errors), join(errors));
   for (const auto& n : set.networks) CHECK(n.adapter.simulate && n.adapter.simulation_forced);
 }
 
@@ -3826,27 +3732,6 @@ TEST(diag_server_dm_clear_needs_allow_changes) {
     server.stop();
   }
   set_log_sink(nullptr);
-}
-
-// ---------------------------------------------------------------------------
-// Runtime version guard (managed Docker install)
-
-TEST(runtime_version_guard) {
-  std::string dir = tmpdir();
-  std::string stamp = dir + "/runtime-version";
-  // Native install: no RUNTIME_VERSION, no check, even without a stamp.
-  CHECK(runtime_version_problem(stamp, nullptr).empty());
-  // Docker without a stamp.
-  std::string e = runtime_version_problem(stamp, "v4.2.4");
-  CHECK(e.find("no build stamp") != std::string::npos);
-  { std::ofstream(stamp) << "v4.2.4\nghcr.io/autonomy-logic/openplc-runtime:v4.2.4\n"; }
-  CHECK(runtime_version_problem(stamp, "v4.2.4").empty());
-  CHECK(runtime_version_problem(stamp, " v4.2.4\n").empty());
-  e = runtime_version_problem(stamp, "v4.2.5");
-  CHECK(e.find("built for runtime v4.2.4 but the runtime is v4.2.5") != std::string::npos);
-  CHECK(e.find("install-stock.sh") != std::string::npos);
-  unlink(stamp.c_str());
-  rmdir(dir.c_str());
 }
 
 // SDO blocks reach only the CANopen master networks: a NETWORK that is a
@@ -4301,8 +4186,8 @@ std::string two_networks_json(const std::string& diagnostics = "") {
     { "adapter": { "type": "socketcan", "interface": "vcan1", "bitrate": 500000 },
       "master": { "node_id": 3, "sync_period_us": 10000 },
       "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 500,
-        "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID101" } ] } ],
-        "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD101" } ] } ] } ] }
+        "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID104" } ] } ],
+        "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD104" } ] } ] } ] }
   ] })";
 }
 
@@ -4314,7 +4199,7 @@ TEST(config_v2_networks) {
   std::string json = two_networks_json("{ \"token_verifier\": \"" + h + "\", \"port\": 9000 }");
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config_set(json, path, ImageLimits(), set, errors), join(errors));
+  CHECK_MSG(parse_short_set(json, path, ImageLimits(), set, errors), join(errors));
   CHECK(set.schema_version == 2 && set.networks.size() == 2 && set.several());
   if (set.networks.size() != 2) return;
   const Config& io = set.networks[0];
@@ -4328,20 +4213,13 @@ TEST(config_v2_networks) {
   // The one diagnostics object reaches every network's master.
   for (const auto& cfg : set.networks)
     CHECK(cfg.master.has_diagnostics && cfg.master.diag_token_verifier == h && cfg.master.diag_port == 9000);
-  CHECK(io.file_sha256 == sha256_hex(json) && set.file_sha256 == io.file_sha256);
+  CHECK(io.file_sha256 == sha256_hex(test_config::as_bridge_config(json)) && set.file_sha256 == io.file_sha256);
 
   // The one-network form refuses a file with two.
   Config one;
   errors.clear();
-  CHECK(!parse_config(json, path, ImageLimits(), one, errors));
+  CHECK(!parse_short(json, path, ImageLimits(), one, errors));
   CHECK_MSG(has_error(errors, "holds 2 networks; this tool takes a file with one"), join(errors));
-
-  // A version 1 file: one unnamed network, no log prefix, .canworks as before.
-  errors.clear();
-  ConfigSet v1;
-  CHECK(parse_config_set(kValid, path, ImageLimits(), v1, errors));
-  CHECK(v1.networks.size() == 1 && v1.networks[0].network.empty() && v1.networks[0].log_prefix.empty());
-  CHECK(v1.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canworks");
 }
 
 TEST(dcfgen_work_dir_per_network) {
@@ -4352,7 +4230,7 @@ TEST(dcfgen_work_dir_per_network) {
   auto generate = [&](const std::string& json, bool& io_reused, bool& drives_reused) {
     ConfigSet set;
     std::vector<std::string> errors;
-    CHECK_MSG(parse_config_set(json, dir + "/canopen_config.json", ImageLimits(), set, errors), join(errors));
+    CHECK_MSG(parse_short_set(json, dir + "/canopen_config.json", ImageLimits(), set, errors), join(errors));
     if (set.networks.size() != 2) return;
     GeneratedConfig io, drives;
     CHECK_MSG(generate_device_config(set.networks[0], default_dcfgen(), io, errors), join(errors));
@@ -4385,11 +4263,11 @@ TEST(config_v2_single_network_has_no_prefix) {
       "nodes": [ { "node_id": 2, "eds": "cpp-slave.eds" } ] } ] })";
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
+  CHECK_MSG(parse_short_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
   CHECK(set.networks.size() == 1 && set.networks[0].network == "plant" && set.networks[0].log_prefix.empty());
   CHECK(set.networks[0].work_dir == std::string(PINGPONG_DIR) + "/.canworks/plant");
   Config cfg;
-  CHECK(parse_config(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), cfg, errors));
+  CHECK(parse_short(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), cfg, errors));
 }
 
 TEST(log_prefix_per_thread) {
@@ -4414,7 +4292,7 @@ TEST(diag_server_two_networks) {
   set_log_sink(diag_capture);
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK(parse_config_set(two_networks_json("{ \"token_verifier\": \"" + test_verifier() +
+  CHECK(parse_short_set(two_networks_json("{ \"token_verifier\": \"" + test_verifier() +
                                            "\", \"port\": 1024, \"bind\": \"127.0.0.1\" }"),
                          std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors));
   if (set.networks.size() != 2) return;
@@ -4478,7 +4356,7 @@ TEST(diag_server_slave_network) {
       "master": { "node_id": 1 }, "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds" } ] } ] })";
   ConfigSet set;
   std::vector<std::string> errors;
-  CHECK_MSG(parse_config_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
+  CHECK_MSG(parse_short_set(json, std::string(PINGPONG_DIR) + "/c.json", ImageLimits(), set, errors), join(errors));
   if (set.networks.size() != 2) return;
   for (auto& cfg : set.networks) cfg.master.diag_port = 0;
   DiagHub line(set.networks[0], "test"), field(set.networks[1], "test");
@@ -4501,111 +4379,6 @@ TEST(diag_server_slave_network) {
   st = c.ask(R"({"op":"sdo_read","network":"line","node":1,"index":4096,"subindex":0})");
   CHECK_MSG(st.find("no bus") != std::string::npos, st);
   server.stop();
-  set_log_sink(nullptr);
-}
-
-// ---------------------------------------------------------------------------
-// Cyclic synchronous CiA 402 axes (canopen-cia402-axis)
-
-namespace {
-
-std::string cyclic_dir() {
-  std::string dir = tmpdir();
-  write(dir + "/servo402.eds", read(std::string(CIA402_DIR) + "/servo402.eds"));
-  return dir;
-}
-
-std::string cyclic_json() { return read(std::string(CIA402_DIR) + "/canopen_config_cyclic.json"); }
-
-}  // namespace
-
-TEST(cyclic_interpolation_code) {
-  uint8_t v = 0;
-  int8_t e = 0;
-  CHECK(interpolation_code(10000, v, e) && v == 10 && e == -3);
-  CHECK(interpolation_code(2500, v, e) && v == 25 && e == -4);
-  CHECK(interpolation_code(1000, v, e) && v == 1 && e == -3);
-  CHECK(interpolation_code(125, v, e) && v == 125 && e == -6);
-  CHECK(interpolation_code(255000, v, e) && v == 255 && e == -3);
-  CHECK(!interpolation_code(333, v, e));
-  CHECK(!interpolation_code(0, v, e));
-}
-
-TEST(cyclic_config_loads) {
-  std::string dir = cyclic_dir();
-  Config cfg;
-  std::vector<std::string> errors;
-  CHECK_MSG(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors), join(errors));
-  CHECK(cfg.nodes.size() == 1 && cfg.nodes[0].axis_cyclic && cfg.nodes[0].interpolation_period_us == 0);
-}
-
-TEST(cyclic_config_refused) {
-  std::string dir = cyclic_dir();
-  struct Case {
-    std::string from, to, needle;
-  } cases[] = {
-      {"\"sync_source\": \"plc_cycle\"", "\"sync_period_us\": 10000", "needs SYNC from the PLC cycle"},
-      {"\"sync_source\": \"plc_cycle\"", "\"sync_source\": \"plc_cycle\", \"sync_cycles\": 2",
-       "one SYNC every PLC cycle"},
-      {"\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 333", "interpolation_period_us"},
-      {"\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 50", "interpolation_period_us"},
-  };
-  for (const auto& c : cases) {
-    Config cfg;
-    std::vector<std::string> errors;
-    CHECK(!parse_config(replace(cyclic_json(), c.from, c.to), dir + "/canopen_config.json", ImageLimits(), cfg,
-                        errors));
-    CHECK_MSG(has_error(errors, c.needle), join(errors));
-  }
-}
-
-TEST(cyclic_writes_interpolation_period) {
-  set_log_sink(silent);
-  std::string dir = cyclic_dir();
-  auto find = [](const std::vector<SdoWrite>& ws, uint8_t sub) -> const SdoWrite* {
-    for (const auto& w : ws)
-      if (w.index == 0x60C2 && w.subindex == sub) return &w;
-    return nullptr;
-  };
-  {
-    // From the base tick: 10 ms = 10 x 10^-3 s.
-    Config cfg;
-    std::vector<std::string> errors;
-    CHECK(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors));
-    resolve_interpolation_periods(cfg, 10000);
-    CHECK(cfg.nodes[0].interpolation_write_us == 10000);
-    GeneratedConfig gen;
-    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
-    const SdoWrite* s1 = find(gen.slave_sdos[4], 1);
-    const SdoWrite* s2 = find(gen.slave_sdos[4], 2);
-    CHECK(s1 && s1->data.size() == 1 && s1->data[0] == 10);
-    CHECK(s2 && s2->data.size() == 1 && s2->data[0] == 0xFD);
-  }
-  {
-    // interpolation_period_us wins over the base tick: 2.5 ms = 25 x 10^-4 s.
-    Config cfg;
-    std::vector<std::string> errors;
-    CHECK(parse_config(replace(cyclic_json(), "\"cyclic\": true", "\"cyclic\": true, \"interpolation_period_us\": 2500"),
-                       dir + "/canopen_config.json", ImageLimits(), cfg, errors));
-    resolve_interpolation_periods(cfg, 10000);
-    CHECK(cfg.nodes[0].interpolation_write_us == 2500);
-    GeneratedConfig gen;
-    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
-    const SdoWrite* s1 = find(gen.slave_sdos[4], 1);
-    const SdoWrite* s2 = find(gen.slave_sdos[4], 2);
-    CHECK(s1 && s1->data[0] == 25 && s2 && s2->data[0] == 0xFC);
-  }
-  {
-    // An unrepresentable base tick (333 us): not written.
-    Config cfg;
-    std::vector<std::string> errors;
-    CHECK(parse_config(cyclic_json(), dir + "/canopen_config.json", ImageLimits(), cfg, errors));
-    resolve_interpolation_periods(cfg, 333);
-    CHECK(cfg.nodes[0].interpolation_write_us == 0);
-    GeneratedConfig gen;
-    CHECK_MSG(generate_device_config(cfg, default_dcfgen(), gen, errors), join(errors));
-    CHECK(!find(gen.slave_sdos[4], 1));
-  }
   set_log_sink(nullptr);
 }
 
@@ -4868,7 +4641,7 @@ TEST(diag_send_frame_single_and_guards) {
   CHECK(diag_log_count("diagnostics: frame 0x60A [8] 40 18 10 01 00 00 00 00 sent by 127.0.0.1") == 1);
   // An identifier the network uses needs force.
   a = c.ask(R"({"op":"send_frame","can_id":"0x202","data":"01 00 00 00"})");
-  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
+  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network vcan0; force needed"), a);
   CHECK(f.count() == 1);
   // Single frames are logged at most once a second per client.
   std::this_thread::sleep_for(std::chrono::milliseconds(1050));
@@ -4929,7 +4702,7 @@ TEST(diag_replay) {
   CHECK(diag_log_count("diagnostics: replay of 127.0.0.1 ended: done, 3 frames sent") == 1);
   // Guards: protocol identifiers need force, the rate limit, time order.
   a = c.ask(R"({"op":"replay","frames":[{"t_us":0,"id":514,"data":"01"}]})");
-  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network can0; force needed"), a);
+  CHECK_MSG(has(a, "0x202 is RPDO1 of node 2 (pingpong) on network vcan0; force needed"), a);
   // 1000 frames in half a second pass, the 1001st within that second does not.
   auto batch = [](int from, int n, bool more) {
     std::string t = std::string(R"({"op":"replay",)") + (more ? R"("more":true,)" : "") + R"("frames":[)";
@@ -5294,19 +5067,19 @@ TEST(diag_guard_map_effective_ids) {
   co_dev_t* dev = co_dev_create_from_dcf_file((dir + "/slave.eds").c_str());
   CHECK(dev != nullptr);
   if (!dev) return;
-  auto ids = dictionary_id_uses(reinterpret_cast<const __co_dev*>(dev), "the plugin's own slave");
+  auto ids = dictionary_id_uses(reinterpret_cast<const __co_dev*>(dev), "canworks' own slave");
   co_dev_destroy(dev);
-  CHECK(ids[id_use_key(0x18FF000A, true)] == "TPDO1 of the plugin's own slave");
-  CHECK(ids[id_use_key(0x30A, false)] == "RPDO1 of the plugin's own slave");
+  CHECK(ids[id_use_key(0x18FF000A, true)] == "TPDO1 of canworks' own slave");
+  CHECK(ids[id_use_key(0x30A, false)] == "RPDO1 of canworks' own slave");
   CHECK(!ids.count(id_use_key(0x18FF000A, false)));
   // The server refuses such an identifier without force, naming it.
   TxFixture f;
   CHECK(wait_port(*f.server));
-  f.hub->set_used_ids({{id_use_key(0x18FF000A, true), "TPDO1 of the plugin's own slave"}});
+  f.hub->set_used_ids({{id_use_key(0x18FF000A, true), "TPDO1 of canworks' own slave"}});
   DiagClient c(f.server->port());
   c.ask(R"({"op":"hello","token":"secret"})");
   std::string a = c.ask(R"({"op":"send_frame","can_id":"0x18FF000A","ext":true,"data":"01"})");
-  CHECK_MSG(has(a, "0x18FF000A is TPDO1 of the plugin's own slave") && has(a, "force needed"), a);
+  CHECK_MSG(has(a, "0x18FF000A is TPDO1 of canworks' own slave") && has(a, "force needed"), a);
   CHECK(f.count() == 0);
   f.hub->detach();
   CHECK(f.hub->used_id(0x18FF000A, true).empty());

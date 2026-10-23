@@ -55,7 +55,6 @@ function nodeTabOfPath(rest) {
   if (/^(tx_pdos|rx_pdos)/.test(rest)) return "pdos";
   if (/^(sdo|sdo_variables)(\[|$|\.)/.test(rest)) return "sdos";
   if (SUPERVISION_KEYS.test(rest)) return "supervision";
-  if (/^axis/.test(rest)) return "cia402";
   if (rest === "" || /^(node_id|name|eds|simulate)$/.test(rest)) return "general";
   return "advanced";
 }

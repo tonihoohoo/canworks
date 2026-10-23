@@ -1,10 +1,13 @@
 name: OpenPLC runtime watch
 
-# Upstream's newest OpenPLC runtime release against the one CI tests canworks
-# with (docker/local-runtime/runtime-version; canopen-ci, Runtime release
-# watch). When upstream is newer, one open issue labelled runtime-update says
-# so; a later run updates it instead of opening another. Nothing is bumped
-# here: a bump needs the archive's sha256 and a full CI run.
+# Upstream's newest OpenPLC runtime and editor releases against the ones
+# canworks is tested with, and the files its OpenPLC through Modbus target
+# follows at them: the runtime's Modbus master config model, the editor's
+# remote device format and its generator of the runtime's config (recorded
+# in .github/ci/upstream-watch.json; canopen-ci, Runtime release watch). When
+# upstream is newer, one open issue labelled runtime-update says so; a later
+# run updates it instead of opening another. Nothing is bumped here: a bump
+# needs a check of the changed files and a full CI run.
 on:
   schedule:
     - cron: "17 6 3 * *"  # monthly
@@ -26,24 +29,19 @@ jobs:
       - name: Compare and open or update the issue
         env:
           GH_TOKEN: ${{ github.token }}
-          UPSTREAM: https://github.com/Autonomy-Logic/openplc-runtime
         run: |
-          tested=$(cat docker/local-runtime/runtime-version)
-          newest=$(git ls-remote --tags --refs "$UPSTREAM" 'v*' | sed 's|.*refs/tags/||' |
-            grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
-          [ -n "$newest" ] || { echo "::error::no release tags found at $UPSTREAM"; exit 1; }
-          echo "tested $tested, upstream's newest $newest"
-          if [ "$(printf '%s\n%s\n' "$tested" "$newest" | sort -V | tail -n 1)" = "$tested" ]; then
-            echo "CI tests the newest runtime; nothing to do"
+          found=$(python3 .github/scripts/upstream_watch.py)
+          if [ -z "$found" ]; then
+            echo "CI tests the newest runtime and editor; nothing to do"
             exit 0
           fi
-          title="OpenPLC runtime $newest is out (tested: $tested)"
-          body="Upstream released OpenPLC runtime $newest ($UPSTREAM/releases/tag/$newest). CI tests canworks with $tested (docker/local-runtime/runtime-version).
+          title="A newer OpenPLC runtime or editor is out"
+          body="$found
 
-          canworks stays pinned to $tested until the pin moves on purpose: set docker/local-runtime/runtime-version and runtime-sha256 (the sha256 of $UPSTREAM/archive/$newest.tar.gz), TESTED_RUNTIME in tools/deploy/canworks/devices/plan.py, check docker/local-runtime/bootloader-version against upstream's bootloader/VERSION, and let the full CI run. Installs and the configurator's Devices page keep devices on the pin.
+          canworks stays pinned until the pin moves on purpose: for the runtime set docker/local-runtime/runtime-version and TESTED_RUNTIME in tools/deploy/canworks/devices/plan.py and check docker/local-runtime/bootloader-version against upstream's bootloader/VERSION; for the editor check its remote device and Modbus master config against tools/deploy/canworks/openplcmodbus.py and test/openplc_modbus/run.py; then update .github/ci/upstream-watch.json and let the full CI run. Installs and the configurator's Devices page keep devices on the pin.
 
           Opened by .github/workflows/runtime-watch.yml."
-          gh label create runtime-update --color c5def5 --description "A newer OpenPLC runtime than CI tests" --force
+          gh label create runtime-update --color c5def5 --description "A newer OpenPLC runtime or editor than CI tests" --force
           number=$(gh issue list --label runtime-update --state open --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then
             gh issue edit "$number" --title "$title" --body "$body"

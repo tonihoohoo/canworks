@@ -6,103 +6,103 @@ Brings a CANopen network up from the OpenPLC runtime: loads the JSON network con
 ## Requirements
 
 ### Requirement: JSON network configuration
-The plugin SHALL read its network configuration from the JSON file given as its config path in `plugins.conf`. Any configuration error SHALL leave the plugin inactive, and SHALL NOT stop the PLC or put the runtime into ERROR. The file SHALL describe the CAN interface, the master's node ID, the bus bit rate, and a list of slave nodes, and MAY give the SYNC period (`master.sync_period_us`). The list MAY be empty only when `master.diagnostics` is given (a scan-only configuration): the master then starts, produces its heartbeat and SYNC as configured and serves the diagnostics channel, with no slave to boot; an empty list without `master.diagnostics` SHALL reject the configuration. Each node entry SHALL give a node ID (1-127), an EDS file path, and its PDO entries; a node MAY have no PDO entries, and is then booted, supervised and sent its startup SDOs with all its PDOs switched off.
+The bridge SHALL read its network configuration from the JSON file given as its config path (`--config`). Any configuration error SHALL leave the bridge's networks inactive and open no CAN interface. The file SHALL describe the CAN interface, the master's node ID, the bus bit rate, and a list of slave nodes, and MAY give the SYNC period (`master.sync_period_us`). The list MAY be empty only when `master.diagnostics` is given (a scan-only configuration): the master then starts, produces its heartbeat and SYNC as configured and serves the diagnostics channel, with no slave to boot; an empty list without `master.diagnostics` SHALL reject the configuration. Each node entry SHALL give a node ID (1-127), an EDS file path, and its PDO entries; a node MAY have no PDO entries, and is then booted, supervised and sent its startup SDOs with all its PDOs switched off.
 
 #### Scenario: Valid configuration loads
-- **WHEN** the runtime starts the plugin with a config that names `vcan0`, master node ID 1, and one slave (node ID 2) with a readable EDS file
-- **THEN** the plugin loads the configuration and logs the interface, the master node ID, and the number of configured slaves
+- **WHEN** the bridge starts with a config that names `vcan0`, master node ID 1, and one slave (node ID 2) with a readable EDS file
+- **THEN** the bridge loads the configuration and logs the interface, the master node ID, and the number of configured slaves
 
 #### Scenario: Missing configuration
 - **WHEN** the config file does not exist
-- **THEN** the plugin logs a warning naming the expected path, stays inactive, opens no CAN interface, and the PLC starts and runs normally
+- **THEN** the bridge logs a warning naming the expected path, stays inactive and opens no CAN interface
 
 #### Scenario: Malformed configuration
 - **WHEN** the config file is not valid JSON or lacks a required field
-- **THEN** the plugin logs an error naming the file and the missing or invalid field, stays inactive, opens no CAN interface, and the PLC starts and runs normally
+- **THEN** the bridge logs an error naming the file and the missing or invalid field, stays inactive and opens no CAN interface
 
 #### Scenario: Duplicate or out-of-range node IDs
 - **WHEN** two slave entries share a node ID, a node ID is outside 1-127, or a slave uses the master's node ID
-- **THEN** the plugin rejects the configuration, names the offending node IDs in the error log, and stays inactive
+- **THEN** the bridge rejects the configuration, names the offending node IDs in the error log, and stays inactive
 
 #### Scenario: Node without PDOs
 - **WHEN** a slave entry has neither `tx_pdos` nor `rx_pdos`
-- **THEN** the plugin accepts the configuration, boots the node, writes its startup SDOs and disables every PDO its EDS defines
+- **THEN** the bridge accepts the configuration, boots the node, writes its startup SDOs and disables every PDO its EDS defines
 
 #### Scenario: Scan-only configuration
 - **WHEN** the config has `master.diagnostics` and `"nodes": []`
-- **THEN** the plugin loads it, opens the CAN interface, starts the master and the diagnostics channel, and logs 0 slaves
+- **THEN** the bridge loads it, opens the CAN interface, starts the master and the diagnostics channel, and logs 0 slaves
 
 #### Scenario: Empty node list without diagnostics
 - **WHEN** the config has `"nodes": []` and no `master.diagnostics`
-- **THEN** the plugin rejects the configuration, saying the node list is empty
+- **THEN** the bridge rejects the configuration, saying the node list is empty
 
 #### Scenario: No SYNC period
 - **WHEN** the `master` object gives no `sync_period_us`, or gives 0, and every configured PDO is event-driven
-- **THEN** the plugin loads the configuration and logs that the master produces no SYNC
+- **THEN** the bridge loads the configuration and logs that the master produces no SYNC
 
 ### Requirement: General EDS support
-The plugin SHALL accept any CiA 306-conformant EDS file for a slave, and SHALL also accept vendor EDS files whose only defects are in objects the configuration does not use (see "EDS lint scope"). On the device, at load, it SHALL derive the master and per-slave device configurations from the JSON and the EDS files, with no step run by the user beforehand.
+The bridge SHALL accept any CiA 306-conformant EDS file for a slave, and SHALL also accept vendor EDS files whose only defects are in objects the configuration does not use (see "EDS lint scope"). On the device, at load, it SHALL derive the master and per-slave device configurations from the JSON and the EDS files, with no step run by the user beforehand.
 
 #### Scenario: Device configuration generated at load
-- **WHEN** the plugin starts with a valid JSON config and valid EDS files
+- **WHEN** the bridge starts with a valid JSON config and valid EDS files
 - **THEN** it generates the device configurations on the device before bringing the network up, and logs where it wrote them
 
 #### Scenario: Invalid EDS file
 - **WHEN** a referenced EDS file is missing or cannot be parsed even after the corrections in "Prepared EDS copy"
-- **THEN** the plugin logs an error naming the node ID and the EDS file, and stays inactive
+- **THEN** the bridge logs an error naming the node ID and the EDS file, and stays inactive
 
 #### Scenario: PDO entry not in the EDS
 - **WHEN** a PDO entry in the JSON refers to an object index or subindex that the node's EDS does not define as PDO-mappable
-- **THEN** the plugin rejects the configuration and names the node ID, index, and subindex
+- **THEN** the bridge rejects the configuration and names the node ID, index, and subindex
 
 ### Requirement: CAN interface bring-up
-The plugin SHALL open the configured SocketCAN interface when the PLC starts. It SHALL close the interface when the PLC stops or the plugin is unloaded.
+The bridge SHALL open the configured SocketCAN interface when the PLC starts. It SHALL close the interface when the PLC stops or the bridge is unloaded.
 
 #### Scenario: Interface available
 - **WHEN** the PLC starts and the configured interface exists and is up
-- **THEN** the plugin opens it and begins network bring-up
+- **THEN** the bridge opens it and begins network bring-up
 
 #### Scenario: Interface missing or down
 - **WHEN** the PLC starts and the configured interface does not exist or is down
-- **THEN** the plugin logs an error naming the interface, the PLC keeps scanning, every node reports not operational, and the plugin retries opening the interface in the background
+- **THEN** the bridge logs an error naming the interface, the PLC keeps scanning, every node reports not operational, and the bridge retries opening the interface in the background
 
 ### Requirement: Slave configuration and start-up
 For each configured slave, the master SHALL reset the node, download its PDO communication and mapping parameters over SDO so that they match the JSON, and then switch the node to OPERATIONAL. After this, the master SHALL transmit SYNC at the configured period.
 
 #### Scenario: Slave boots and becomes operational
 - **WHEN** a configured slave answers the master's boot-up sequence and accepts every SDO download
-- **THEN** its PDO mapping matches the configuration, it is switched to OPERATIONAL, and the plugin logs that the node is operational
+- **THEN** its PDO mapping matches the configuration, it is switched to OPERATIONAL, and the bridge logs that the node is operational
 
 #### Scenario: SDO download rejected
 - **WHEN** a slave aborts an SDO download during configuration
-- **THEN** the plugin logs the node ID, the object index and subindex, and the SDO abort code, leaves that node not operational, and continues bringing up the other nodes
+- **THEN** the bridge logs the node ID, the object index and subindex, and the SDO abort code, leaves that node not operational, and continues bringing up the other nodes
 
 ### Requirement: CAN adapter configuration from JSON
-The config SHALL describe the CAN adapter in an `adapter` object with a `type` field. The supported types are `socketcan` (defined here) and `slcan` (defined in `canopen-slcan-adapter`). The type `socketcan` has `interface` (required), `bitrate` (required, a CiA 301 rate from 10000 to 1000000), `configure_link` (optional, default true), and `restart_ms` (optional bus-off auto-restart delay). An unknown `type` SHALL leave the plugin inactive with an error naming the type and the supported types. When `configure_link` is true and the PLC starts, the plugin SHALL make the interface run at the configured bit rate and bring it up. When `configure_link` is false, the plugin SHALL leave the link as it finds it. A virtual interface (`vcan`) SHALL only be brought up, since it has no bit rate.
+The config SHALL describe the CAN adapter in an `adapter` object with a `type` field. The supported types are `socketcan` (defined here) and `slcan` (defined in `canopen-slcan-adapter`). The type `socketcan` has `interface` (required), `bitrate` (required, a CiA 301 rate from 10000 to 1000000), `configure_link` (optional, default true), and `restart_ms` (optional bus-off auto-restart delay). An unknown `type` SHALL leave the bridge inactive with an error naming the type and the supported types. When `configure_link` is true and the PLC starts, the bridge SHALL make the interface run at the configured bit rate and bring it up. When `configure_link` is false, the bridge SHALL leave the link as it finds it. A virtual interface (`vcan`) SHALL only be brought up, since it has no bit rate.
 
 #### Scenario: Link down with no bit rate set
 - **WHEN** the PLC starts with `{"type": "socketcan", "interface": "can0", "bitrate": 500000}` and `can0` is down
-- **THEN** the plugin sets `can0` to 500 kbit/s, brings it up, logs the interface and bit rate, and starts network bring-up
+- **THEN** the bridge sets `can0` to 500 kbit/s, brings it up, logs the interface and bit rate, and starts network bring-up
 
 #### Scenario: Link already up at the configured rate
 - **WHEN** `can0` is up at 500 kbit/s and the config asks for 500000
-- **THEN** the plugin uses the link without taking it down
+- **THEN** the bridge uses the link without taking it down
 
 #### Scenario: Link up at a different rate
 - **WHEN** `can0` is up at 250 kbit/s and the config asks for 500000
-- **THEN** the plugin logs a warning naming both rates, takes the link down, sets 500 kbit/s, and brings it up again
+- **THEN** the bridge logs a warning naming both rates, takes the link down, sets 500 kbit/s, and brings it up again
 
 #### Scenario: Link left to the system
 - **WHEN** `configure_link` is false and `can0` is up at 250 kbit/s while the config says 500000
-- **THEN** the plugin does not change the link and logs a warning that the link rate differs from the config
+- **THEN** the bridge does not change the link and logs a warning that the link rate differs from the config
 
 #### Scenario: Not permitted to configure the link
-- **WHEN** the plugin cannot change the link because it lacks `CAP_NET_ADMIN`
-- **THEN** it logs an error naming the interface and the missing permission, the PLC keeps scanning, every node reports not operational, and the plugin retries in the background as for a missing interface
+- **WHEN** the bridge cannot change the link because it lacks `CAP_NET_ADMIN`
+- **THEN** it logs an error naming the interface and the missing permission, the PLC keeps scanning, every node reports not operational, and the bridge retries in the background as for a missing interface
 
 #### Scenario: Unknown adapter type
 - **WHEN** the config has `adapter.type` set to `pcan`
-- **THEN** the plugin logs an error naming `pcan` and the supported types `socketcan` and `slcan`, and stays inactive
+- **THEN** the bridge logs an error naming `pcan` and the supported types `socketcan` and `slcan`, and stays inactive
 
 ### Requirement: Startup SDOs
 Each node entry MAY have an `sdo` list of object writes, each giving `index`, `subindex`, `type`, and `value`. During node configuration the master SHALL write them in list order, after the PDO communication and mapping parameters and before switching the node to OPERATIONAL. An abort SHALL be handled as for any configuration SDO: logged with node ID, index, subindex, and abort code, leaving that node not operational while other nodes continue.
@@ -117,10 +117,10 @@ Each node entry MAY have an `sdo` list of object writes, each giving `index`, `s
 
 #### Scenario: Slave rejects a startup SDO
 - **WHEN** the slave aborts a startup SDO write
-- **THEN** the plugin logs the node ID, index, subindex, and abort code, and the node stays not operational
+- **THEN** the bridge logs the node ID, index, subindex, and abort code, and the node stays not operational
 
 ### Requirement: Master options from JSON
-The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `serial_number`, `sync_window_us`, `sync_counter_overflow`, `time_cob_id`, `emcy_inhibit_time_us`, `heartbeat_consumer`, `heartbeat_multiplier`, `error_behavior`, `nmt_inhibit_time_us`, `start`, `start_nodes`, `start_all_nodes`, `reset_all_nodes`, `stop_all_nodes` and `boot_time_ms`. The plugin SHALL pass each given value to dcfgen under its dcfgen name, converting microseconds to 100 µs units where the object uses them, and SHALL use dcfgen's defaults for the rest, except `heartbeat_consumer` and `start_nodes`, which SHALL default to `true`. A `_us` value for a 100 µs object that is not a multiple of 100 SHALL be rejected. When `start` is `false`, the master SHALL boot and configure the nodes but stay PRE-OPERATIONAL, exchanging no PDOs, until the PLC program starts it with `CO_NETWORK_START` (`canopen-plc-nmt`), and the plugin SHALL log at load that the network stays PRE-OPERATIONAL until the program starts it.
+The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `serial_number`, `sync_window_us`, `sync_counter_overflow`, `time_cob_id`, `emcy_inhibit_time_us`, `heartbeat_consumer`, `heartbeat_multiplier`, `error_behavior`, `nmt_inhibit_time_us`, `start`, `start_nodes`, `start_all_nodes`, `reset_all_nodes`, `stop_all_nodes` and `boot_time_ms`. The bridge SHALL pass each given value to dcfgen under its dcfgen name, converting microseconds to 100 µs units where the object uses them, and SHALL use dcfgen's defaults for the rest, except `heartbeat_consumer` and `start_nodes`, which SHALL default to `true`. A `_us` value for a 100 µs object that is not a multiple of 100 SHALL be rejected. When `start` is `false`, the master SHALL boot and configure the nodes but stay PRE-OPERATIONAL, exchanging no PDOs, and the bridge SHALL log at load that the master stays PRE-OPERATIONAL and that the bridge has no command that starts it.
 
 #### Scenario: Existing configuration unchanged
 - **WHEN** a configuration gives none of these fields
@@ -132,14 +132,14 @@ The `master` object MAY give `vendor_id`, `product_code`, `revision_number`, `se
 
 #### Scenario: Inhibit time not a multiple of 100 µs
 - **WHEN** the master has `"nmt_inhibit_time_us": 150`
-- **THEN** the plugin rejects the configuration and names the field
+- **THEN** the bridge rejects the configuration and names the field
 
 #### Scenario: Start left to the program
-- **WHEN** the master has `"start": false` and the program never runs `CO_NETWORK_START`
-- **THEN** the load log says the network stays PRE-OPERATIONAL until the PLC program starts it with `CO_NETWORK_START`, the master's state byte reads 127, and no PDO is exchanged, also after all nodes have booted
+- **WHEN** the master has `"start": false`
+- **THEN** the load log says the master stays PRE-OPERATIONAL and the bridge has no command that starts it, the master's state byte reads 127, and no PDO is exchanged, also after all nodes have booted
 
 ### Requirement: Node options from JSON
-Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_number`, `serial_number`, `heartbeat_consumer`, `retry_factor`, `time_cob_id`, `error_behavior`, and `restore_configuration`. Any other field, including the former `software_file` and `software_version`, SHALL be rejected as unknown, naming the field. The plugin SHALL pass each given value to dcfgen under its dcfgen name. A field that configures an object on the node and is left out SHALL write nothing to the node, so the node keeps the value from its EDS; this includes the node's heartbeat consumer entries (0x1016). Fields that configure only the master SHALL keep today's values when left out (`boot` true, `mandatory` false, `reset_communication` true, `retry_factor` equal to `life_time_factor`), and the expected revision number SHALL come from the EDS. A `revision_number` of 0 SHALL turn off the revision check for that node. dcfgen warnings SHALL be logged as warnings naming the node. `heartbeat_consumer` on a node SHALL be rejected when the master sends no heartbeat. When `boot` is `false`, the master SHALL NOT boot, configure or retry that node.
+Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_number`, `serial_number`, `heartbeat_consumer`, `retry_factor`, `time_cob_id`, `error_behavior`, and `restore_configuration`. Any other field, including the former `software_file` and `software_version`, SHALL be rejected as unknown, naming the field. The bridge SHALL pass each given value to dcfgen under its dcfgen name. A field that configures an object on the node and is left out SHALL write nothing to the node, so the node keeps the value from its EDS; this includes the node's heartbeat consumer entries (0x1016). Fields that configure only the master SHALL keep today's values when left out (`boot` true, `mandatory` false, `reset_communication` true, `retry_factor` equal to `life_time_factor`), and the expected revision number SHALL come from the EDS. A `revision_number` of 0 SHALL turn off the revision check for that node. dcfgen warnings SHALL be logged as warnings naming the node. `heartbeat_consumer` on a node SHALL be rejected when the master sends no heartbeat. When `boot` is `false`, the master SHALL NOT boot, configure or retry that node.
 
 #### Scenario: Left-out node settings keep the EDS values
 - **WHEN** node 2's EDS has a 0x1016 entry watching the master, a 0x1029 default and a 0x1012 default, and node 2's entry sets none of `heartbeat_consumer`, `error_behavior` or `time_cob_id`
@@ -159,7 +159,7 @@ Each slave entry MAY give `mandatory`, `boot`, `reset_communication`, `revision_
 
 #### Scenario: Firmware fields rejected
 - **WHEN** node 4's entry has `"software_file": "fw/node4.bin"`
-- **THEN** the plugin and the deploy tool reject the configuration, naming node 4 and the unknown field `software_file`
+- **THEN** the bridge and the deploy tool reject the configuration, naming node 4 and the unknown field `software_file`
 
 ### Requirement: Boot SDO timeout
 The `master` object MAY give `sdo_timeout_ms`, an integer from 10 to 60000; a value outside that range SHALL be rejected with the field named. The master SHALL wait this long for each SDO answer while it boots and configures a node: reading the node's identity, downloading PDO communication and mapping parameters and startup SDOs and restoring default parameters. When the field is left out the timeout SHALL be 1000 ms. The timeout SHALL NOT change the timeouts of SDO variables or of manual SDO requests from the diagnostics channel, and SHALL NOT change the generated master configuration. When a configuration SDO times out, the error log line SHALL give the timeout in milliseconds.
@@ -174,14 +174,14 @@ The `master` object MAY give `sdo_timeout_ms`, an integer from 10 to 60000; a va
 
 #### Scenario: Out of range
 - **WHEN** the master has `"sdo_timeout_ms": 5`
-- **THEN** the plugin and the deploy tool reject the configuration and name `sdo_timeout_ms`
+- **THEN** the bridge and the deploy tool reject the configuration and name `sdo_timeout_ms`
 
 #### Scenario: SDO variables keep their own timeout
 - **WHEN** `"sdo_timeout_ms": 5000` is given and an SDO variable has no `timeout_ms`
 - **THEN** that SDO variable still times out after 1000 ms
 
 ### Requirement: Skip configuration when unchanged
-A slave entry MAY give `config_check` (default `false`). When it is `true`, the plugin SHALL compute a configuration date from 1 to 65535 and a configuration time from 1 to 86 399 999 for the node, so both are valid values for CiA 301's days since 1984-01-01 and milliseconds after midnight, from the configuration it downloads to that node, such that any change to what is downloaded changes at least one of them, and the same configuration gives the same values at every start. At boot, the master SHALL read the node's 0x1020 sub 1 and sub 2; when both equal the computed values, it SHALL NOT restore defaults or download any configuration to the node, SHALL start the node as for a configured node, and the plugin SHALL log that the node's configuration is unchanged. Otherwise the master SHALL configure the node as without `config_check` and, after the last configuration write succeeded, write the computed date to 0x1020 sub 1 and the time to 0x1020 sub 2. A node whose configuration is unchanged and that is already OPERATIONAL when the master boots it SHALL count as configured and running, and SHALL NOT be reset for it. `config_check` SHALL be rejected, naming the node and object, when the node's EDS does not define 0x1020 sub 1 and sub 2 as writable.
+A slave entry MAY give `config_check` (default `false`). When it is `true`, the bridge SHALL compute a configuration date from 1 to 65535 and a configuration time from 1 to 86 399 999 for the node, so both are valid values for CiA 301's days since 1984-01-01 and milliseconds after midnight, from the configuration it downloads to that node, such that any change to what is downloaded changes at least one of them, and the same configuration gives the same values at every start. At boot, the master SHALL read the node's 0x1020 sub 1 and sub 2; when both equal the computed values, it SHALL NOT restore defaults or download any configuration to the node, SHALL start the node as for a configured node, and the bridge SHALL log that the node's configuration is unchanged. Otherwise the master SHALL configure the node as without `config_check` and, after the last configuration write succeeded, write the computed date to 0x1020 sub 1 and the time to 0x1020 sub 2. A node whose configuration is unchanged and that is already OPERATIONAL when the master boots it SHALL count as configured and running, and SHALL NOT be reset for it. `config_check` SHALL be rejected, naming the node and object, when the node's EDS does not define 0x1020 sub 1 and sub 2 as writable.
 
 #### Scenario: First boot with a configuration check
 - **WHEN** node 2 has `"config_check": true` and reports 0 in 0x1020 sub 1 and sub 2
@@ -201,7 +201,7 @@ A slave entry MAY give `config_check` (default `false`). When it is `true`, the 
 
 #### Scenario: EDS without a configuration date
 - **WHEN** node 5 has `"config_check": true` and its EDS has no object 0x1020
-- **THEN** the plugin and the deploy tool reject the configuration, naming node 5 and object 0x1020
+- **THEN** the bridge and the deploy tool reject the configuration, naming node 5 and object 0x1020
 
 #### Scenario: Values in the CiA 301 ranges
 - **WHEN** a node with `"config_check": true` is configured from any configuration
@@ -220,20 +220,20 @@ Saving is never automatic. A slave entry MAY give `store_configuration`, a sub-i
 
 #### Scenario: Store without a configuration check
 - **WHEN** node 2 has `"store_configuration": 1` and no `config_check`
-- **THEN** the plugin and the deploy tool reject the configuration, saying `store_configuration` needs `config_check`
+- **THEN** the bridge and the deploy tool reject the configuration, saying `store_configuration` needs `config_check`
 
 #### Scenario: Sub-index not in the EDS
 - **WHEN** node 2 has `"store_configuration": 3` and its EDS defines 0x1010 sub 1 only
-- **THEN** the plugin and the deploy tool reject the configuration, naming node 2 and 0x1010 sub 3
+- **THEN** the bridge and the deploy tool reject the configuration, naming node 2 and 0x1010 sub 3
 
 ### Requirement: Prepared EDS copy
-The plugin SHALL read each node's EDS, for its own EDS checks and for dcfgen, through a copy with these lossless corrections, and SHALL leave the original file unchanged:
+The bridge SHALL read each node's EDS, for its own EDS checks and for dcfgen, through a copy with these lossless corrections, and SHALL leave the original file unchanged:
 - a file that is not valid UTF-8 is converted from CP1252 (bytes CP1252 leaves undefined are read as Latin-1);
 - a value written `<number>+$NODEID` is rewritten `$NODEID+<number>`;
 - a REAL32 or REAL64 DefaultValue, ParameterValue, LowLimit or HighLimit written as a decimal number is rewritten as the hexadecimal bit pattern of the same value;
 - an OCTET_STRING or DOMAIN DefaultValue or ParameterValue that does not start with a hexadecimal digit, which Lely's EDS parser cannot read, is cleared.
 
-The plugin SHALL log one line per node that names the EDS, the kind of each correction and how often it was made. A cleared value SHALL also be logged with its object and its original value. When no correction applies, the plugin SHALL use the original file.
+The bridge SHALL log one line per node that names the EDS, the kind of each correction and how often it was made. A cleared value SHALL also be logged with its object and its original value. When no correction applies, the bridge SHALL use the original file.
 
 #### Scenario: CP1252 vendor EDS
 - **WHEN** a node's EDS contains the byte 0x94 in a `[Comments]` line and is otherwise valid
@@ -245,10 +245,10 @@ The plugin SHALL log one line per node that names the EDS, the kind of each corr
 
 #### Scenario: OCTET_STRING value Lely cannot read
 - **WHEN** an EDS gives `DefaultValue=----` for the OCTET_STRING object 0x2051
-- **THEN** the plugin accepts the EDS and logs that the value of 0x2051 was cleared and was `----`
+- **THEN** the bridge accepts the EDS and logs that the value of 0x2051 was cleared and was `----`
 
 ### Requirement: EDS lint scope
-Before generating the device configurations, the plugin SHALL run dcfgen's EDS lint on each prepared EDS and sort the findings. A finding SHALL be **blocking** when it names an object in the communication area 0x1000-0x1FFF, which dcfgen reads and writes, and is not limit-only. A finding is **limit-only** when it is about a LowLimit or HighLimit, or about a DefaultValue or ParameterValue that lies outside the object's own limits but inside the range of its data type. Every other finding is **non-blocking**, including findings in objects from 0x2000 up and findings that name no object. Objects mapped into PDOs keep the data type, access type and mappability checks the plugin already runs. dcfgen SHALL be run with lint errors not fatal, so the plugin's rule decides.
+Before generating the device configurations, the bridge SHALL run dcfgen's EDS lint on each prepared EDS and sort the findings. A finding SHALL be **blocking** when it names an object in the communication area 0x1000-0x1FFF, which dcfgen reads and writes, and is not limit-only. A finding is **limit-only** when it is about a LowLimit or HighLimit, or about a DefaultValue or ParameterValue that lies outside the object's own limits but inside the range of its data type. Every other finding is **non-blocking**, including findings in objects from 0x2000 up and findings that name no object. Objects mapped into PDOs keep the data type, access type and mappability checks the bridge already runs. dcfgen SHALL be run with lint errors not fatal, so the bridge's rule decides.
 
 The master field `eds_lint` SHALL choose what fails:
 - `"communication"` (default): a blocking finding stops the load. Non-blocking findings are logged as one warning per EDS, with their count and the first three.
@@ -259,37 +259,26 @@ A load stopped by the lint SHALL log an error naming the node, the EDS, each fin
 
 #### Scenario: Signed hex values in profile objects
 - **WHEN** a drive EDS with `LowLimit=0xFFFF` on INTEGER16 0x60C0 is used and `eds_lint` is unset
-- **THEN** the plugin loads, and logs one warning that names the EDS and the findings in 0x60C0 and 0x60C2
+- **THEN** the bridge loads, and logs one warning that names the EDS and the findings in 0x60C0 and 0x60C2
 
 #### Scenario: Limit typo in a communication object
 - **WHEN** an EDS gives 0x1800 sub 1 `DefaultValue=$NODEID+0x180` with `HighLimit=0x18F`, the node ID is 23, and `eds_lint` is unset
-- **THEN** the plugin loads and the warning names the finding in 0x1800 sub 1
+- **THEN** the bridge loads and the warning names the finding in 0x1800 sub 1
 
 #### Scenario: Broken communication object
 - **WHEN** an EDS gives 0x1A00 sub 0 the data type UNSIGNED16 and `eds_lint` is unset
-- **THEN** the plugin stays inactive and logs the node, the EDS, the finding in 0x1A00 sub 0 and that `eds_lint: "off"` would accept it
+- **THEN** the bridge stays inactive and logs the node, the EDS, the finding in 0x1A00 sub 0 and that `eds_lint: "off"` would accept it
 
 #### Scenario: Old strict_eds true
 - **WHEN** the config has `"strict_eds": true` and an EDS has a finding in object 0x6061
-- **THEN** the plugin stays inactive, as before this change
+- **THEN** the bridge stays inactive, as before this change
 
 #### Scenario: Both fields
 - **WHEN** the master has `"strict_eds": false` and `"eds_lint": "communication"`
 - **THEN** the configuration is rejected and the error names both fields
 
-### Requirement: No configuration file
-When the PLC starts and `plugins.conf` gives the plugin no config path, or no file exists at that path, the plugin SHALL log a warning (naming the path when one is given), open no CAN interface, and let the PLC run normally without CANopen I/O.
-
-#### Scenario: No config file at the configured path
-- **WHEN** the PLC starts and the plugin's config path from `plugins.conf` names a file that does not exist
-- **THEN** the plugin logs a warning naming that path, opens no CAN interface, and the PLC scans normally
-
-#### Scenario: No config path given
-- **WHEN** the PLC starts and the plugin's `plugins.conf` entry has an empty config path
-- **THEN** the plugin logs a warning that no configuration file was given, opens no CAN interface, and the PLC scans normally
-
 ### Requirement: Assign node IDs by LSS at start
-A slave entry MAY give an `lss` object with `assign` (boolean, default `false`) and `store` (boolean, default `false`). A node with `"assign": true` SHALL also give `serial_number`; its LSS address is the vendor ID and product code of its EDS `[DeviceInfo]`, its `serial_number`, and its `revision_number` when that is given and not 0. At every master start, before the master sends its first NMT command and before any node boots, the master SHALL, for each node with `lss.assign` in ascending node ID order, look for a device with that LSS address by switching it into LSS configuration state, with the node's `revision_number` or, when that is left out or 0, first with the EDS revision; when no device answers to the EDS revision, by searching the revision range 0 to 0xFFFFFFFF with the other three values fixed. When the device is found, the master SHALL read its node ID; when it differs from the node's `node_id`, the master SHALL set the node ID, and SHALL then switch all devices back to the LSS waiting state. The plugin SHALL log one line per node: assigned (with the previous ID, or "none" for 0xFF), already right, not found, or refused, with the reason. A device that is not found or refuses SHALL NOT stop the start of the other nodes; that node then boots and fails as a node that does not answer, with the usual retries and status. The master's start SHALL reset the communication of the assigned nodes, so a set node ID becomes active before their boot. Nodes without `lss.assign` SHALL see no LSS traffic other than the switch to waiting state, and a configuration without any `lss.assign` node SHALL send no LSS frame at all.
+A slave entry MAY give an `lss` object with `assign` (boolean, default `false`) and `store` (boolean, default `false`). A node with `"assign": true` SHALL also give `serial_number`; its LSS address is the vendor ID and product code of its EDS `[DeviceInfo]`, its `serial_number`, and its `revision_number` when that is given and not 0. At every master start, before the master sends its first NMT command and before any node boots, the master SHALL, for each node with `lss.assign` in ascending node ID order, look for a device with that LSS address by switching it into LSS configuration state, with the node's `revision_number` or, when that is left out or 0, first with the EDS revision; when no device answers to the EDS revision, by searching the revision range 0 to 0xFFFFFFFF with the other three values fixed. When the device is found, the master SHALL read its node ID; when it differs from the node's `node_id`, the master SHALL set the node ID, and SHALL then switch all devices back to the LSS waiting state. The bridge SHALL log one line per node: assigned (with the previous ID, or "none" for 0xFF), already right, not found, or refused, with the reason. A device that is not found or refuses SHALL NOT stop the start of the other nodes; that node then boots and fails as a node that does not answer, with the usual retries and status. The master's start SHALL reset the communication of the assigned nodes, so a set node ID becomes active before their boot. Nodes without `lss.assign` SHALL see no LSS traffic other than the switch to waiting state, and a configuration without any `lss.assign` node SHALL send no LSS frame at all.
 
 #### Scenario: Device without a node ID
 - **WHEN** node 12 has `"lss": {"assign": true}` and `serial_number` 0x00001234, and a device with that vendor ID, product code and serial number is on the bus with node ID 0xFF
@@ -313,7 +302,7 @@ A slave entry MAY give an `lss` object with `assign` (boolean, default `false`) 
 
 #### Scenario: Missing serial number
 - **WHEN** node 12 has `"lss": {"assign": true}` and no `serial_number`
-- **THEN** the plugin and the deploy tool reject the configuration, saying node 12's LSS assignment needs `serial_number`
+- **THEN** the bridge and the deploy tool reject the configuration, saying node 12's LSS assignment needs `serial_number`
 
 ### Requirement: LSS store is opt-in
 The master SHALL NOT send LSS "store configuration" to a device unless its node has `"lss": {"assign": true, "store": true}`. With `store`, the master SHALL store only right after it set a new node ID for that device, never when the device already had the right ID; a store the device refuses SHALL be logged as a warning with the reason and SHALL NOT stop the node's boot. `store` without `assign` SHALL be rejected.
@@ -332,7 +321,7 @@ The master SHALL NOT send LSS "store configuration" to a device unless its node 
 
 #### Scenario: Store without assign
 - **WHEN** node 12 has `"lss": {"store": true}`
-- **THEN** the plugin and the deploy tool reject the configuration, saying `lss.store` needs `lss.assign`
+- **THEN** the bridge and the deploy tool reject the configuration, saying `lss.store` needs `lss.assign`
 
 ### Requirement: LSS assignment before a boot retry
 When a node with `lss.assign` is due for a boot retry and has not answered since its last boot attempt, the master SHALL first run the LSS assignment for that node alone (as at start, including `store`) and, when it set a new node ID on a device that had no node ID (0xFF), SHALL switch that device to the LSS waiting state so it starts with the new ID; the retry SHALL then proceed as usual. The master SHALL NOT reset the communication of any other node for this. When the found device already had a different, valid node ID, the master SHALL set and (with `store`) store the new ID, log that the device keeps its old ID until it is reset or power-cycled, and SHALL NOT send an NMT command to the old ID.
@@ -346,11 +335,11 @@ When a node with `lss.assign` is due for a boot retry and has not answered since
 - **THEN** the master sets node ID 12, the log says the device keeps node ID 5 until it is reset or power-cycled, and no NMT command goes to node 5
 
 ### Requirement: LSS configuration checks
-`lss.assign` SHALL be rejected for a node with `reset_communication: false`, since the new node ID only becomes active on a communication reset. Two nodes with `lss.assign` and the same vendor ID, product code and serial number (and the same revision, or either revision left out or 0) SHALL be rejected, naming both nodes. A node whose EDS does not say `LSS_Supported=1` in `[DeviceInfo]` (left out or 0) does not support LSS. An `lss` object on such a node, whatever it holds, SHALL be rejected by the plugin and the deploy tool, real or simulated (`simulate`), with one message: "node N (name): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS".
+`lss.assign` SHALL be rejected for a node with `reset_communication: false`, since the new node ID only becomes active on a communication reset. Two nodes with `lss.assign` and the same vendor ID, product code and serial number (and the same revision, or either revision left out or 0) SHALL be rejected, naming both nodes. A node whose EDS does not say `LSS_Supported=1` in `[DeviceInfo]` (left out or 0) does not support LSS. An `lss` object on such a node, whatever it holds, SHALL be rejected by the bridge and the deploy tool, real or simulated (`simulate`), with one message: "node N (name): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS".
 
 #### Scenario: Reset communication off
 - **WHEN** node 12 has `lss.assign` and `"reset_communication": false`
-- **THEN** the plugin and the deploy tool reject the configuration, naming node 12 and both settings
+- **THEN** the bridge and the deploy tool reject the configuration, naming node 12 and both settings
 
 #### Scenario: Same device twice
 - **WHEN** nodes 12 and 13 both have `lss.assign` with the same vendor ID, product code and serial number
@@ -358,7 +347,7 @@ When a node with `lss.assign` is due for a boot retry and has not answered since
 
 #### Scenario: EDS says no LSS
 - **WHEN** node 12 (valve) has `"lss": {"assign": true}` and its EDS does not say `LSS_Supported=1`
-- **THEN** the plugin and the deploy tool reject the configuration with "node 12 (valve): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS"
+- **THEN** the bridge and the deploy tool reject the configuration with "node 12 (valve): 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS"
 
 #### Scenario: Empty lss object on an EDS without LSS
 - **WHEN** node 12 has `"lss": {}` and its EDS has `LSS_Supported=0`
@@ -381,7 +370,7 @@ The `master` object MAY give `time_period_ms` (100 to 3600000). When given, the 
 
 #### Scenario: Out of range
 - **WHEN** `master.time_period_ms` is 10
-- **THEN** the plugin rejects the configuration and names `master.time_period_ms`
+- **THEN** the bridge rejects the configuration and names `master.time_period_ms`
 
 #### Scenario: Bus comes back
 - **WHEN** the CAN interface goes down and comes back while `time_period_ms` is 60000
@@ -392,17 +381,17 @@ The `master` object MAY give `time_period_ms` (100 to 3600000). When given, the 
 - **THEN** no TIME message is sent during those 5 seconds, and one is sent as soon as the master leaves STOPPED
 
 ### Requirement: TIME producer logging
-When `time_period_ms` is given, the plugin SHALL log at start the COB-ID and period it produces TIME with. It SHALL log a warning once when no configured node's `time_cob_id` has the consumer bit (bit 31) set, saying that no configured node is set to consume TIME.
+When `time_period_ms` is given, the bridge SHALL log at start the COB-ID and period it produces TIME with. It SHALL log a warning once when no configured node's `time_cob_id` has the consumer bit (bit 31) set, saying that no configured node is set to consume TIME.
 
 #### Scenario: No consumer configured
 - **WHEN** `time_period_ms` is 1000 and no node sets `time_cob_id` with bit 31
-- **THEN** the plugin logs the TIME COB-ID and period, and one warning that no configured node consumes TIME
+- **THEN** the bridge logs the TIME COB-ID and period, and one warning that no configured node consumes TIME
 
 ### Requirement: Master without SYNC
-The master produces SYNC when the configuration gives a SYNC period greater than 0 or `"sync_source": "plc_cycle"`. When it does neither, the master SHALL NOT produce SYNC: its 0x1006 (communication cycle period) SHALL be 0, which switches the SYNC producer off (CiA 301). A configuration that gives a SYNC period greater than 0 SHALL produce SYNC exactly as before. Without SYNC, the plugin SHALL reject `sync_window_us` and `sync_counter_overflow` in the `master` object, naming the field and saying it needs `sync_period_us` or `"sync_source": "plc_cycle"`.
+The master produces SYNC when the configuration gives a SYNC period greater than 0. When it does not, the master SHALL NOT produce SYNC: its 0x1006 (communication cycle period) SHALL be 0, which switches the SYNC producer off (CiA 301). A configuration that gives a SYNC period greater than 0 SHALL produce SYNC exactly as before. Without SYNC, the bridge SHALL reject `sync_window_us` and `sync_counter_overflow` in the `master` object, naming the field and saying it needs `sync_period_us`.
 
 #### Scenario: No SYNC on the bus
-- **WHEN** the config has no `sync_period_us`, no `sync_source`, and the network runs for 10 seconds with event-driven PDOs only
+- **WHEN** the config has no `sync_period_us` and the network runs for 10 seconds with event-driven PDOs only
 - **THEN** no frame with COB-ID 0x080 is sent by the master, and the master's 0x1006 reads 0
 
 #### Scenario: SYNC period given
@@ -410,78 +399,25 @@ The master produces SYNC when the configuration gives a SYNC period greater than
 - **THEN** the master sends SYNC every 100 ms as before
 
 #### Scenario: SYNC window without SYNC
-- **WHEN** the config has no `sync_period_us`, no `sync_source`, and `"sync_window_us": 5000`
-- **THEN** the plugin rejects the configuration, naming `sync_window_us` and saying it needs `sync_period_us` or `"sync_source": "plc_cycle"`
+- **WHEN** the config has no `sync_period_us` and `"sync_window_us": 5000`
+- **THEN** the bridge rejects the configuration, naming `sync_window_us` and saying it needs `sync_period_us`
 
 #### Scenario: SYNC window with PLC-cycle SYNC
-- **WHEN** the config has `"sync_source": "plc_cycle"` and `"sync_window_us": 5000`
-- **THEN** the configuration loads and the master's 0x1007 is 5000
-
-### Requirement: SYNC from the PLC cycle
-With `"master.sync_source": "plc_cycle"` the master SHALL send one SYNC from `cycle_start()` on every `sync_cycles`-th PLC frame (default 1), after the inputs were copied to the PLC, with the outputs the previous frame published at `cycle_end()`. Lely's SYNC timer SHALL NOT run (master 0x1006 = 0); the frame SHALL use the 0x1005 COB-ID and the `sync_counter_overflow` counter. While the master is in NMT STOPPED it SHALL send no SYNC and SHALL NOT count the frames as skipped; it SHALL resume with the next due frame when the master leaves STOPPED. The counter SHALL start again at 1 when the master resets communication. Without `sync_source`, or with `"timer"`, SYNC SHALL work as before.
-
-#### Scenario: One SYNC per PLC frame
-- **WHEN** the config has `"sync_source": "plc_cycle"`, the PLC program has one task with a 10 ms interval, and the PLC runs for 10 seconds
-- **THEN** the master sends 1000 ± 1 SYNC frames on COB-ID 0x080, the interval between consecutive SYNCs is 10 ms, and the master's 0x1006 reads 0
-
-#### Scenario: Every second frame
-- **WHEN** the config has `"sync_source": "plc_cycle"` and `"sync_cycles": 2` with a 5 ms task
-- **THEN** the master sends a SYNC every 10 ms
-
-#### Scenario: PLC stopped
-- **WHEN** the PLC is stopped while `"sync_source"` is `"plc_cycle"`
-- **THEN** the master sends no further SYNC
-
-#### Scenario: Counter with PLC-cycle SYNC
-- **WHEN** the config has `"sync_source": "plc_cycle"` and `"sync_counter_overflow": 10`
-- **THEN** the SYNC frames carry a counter running from 1 to 10
-
-#### Scenario: Existing configuration unchanged
-- **WHEN** a configuration gives no `sync_source`
-- **THEN** the generated master configuration and the SYNC timing are the same as before this change
-
-#### Scenario: Master stopped
-- **WHEN** `"sync_source"` is `"plc_cycle"`, the PLC runs, and the master is put into NMT STOPPED for 5 seconds
-- **THEN** the master sends no SYNC during those 5 seconds, the skipped count does not rise, and SYNC resumes when the master returns to PRE-OPERATIONAL or OPERATIONAL
-
-#### Scenario: Counter after reset communication
-- **WHEN** `"sync_counter_overflow"` is 10, the last SYNC carried counter 6, and the master resets communication
-- **THEN** the next SYNC carries counter 1
-
-### Requirement: PLC-cycle SYNC never holds the scan
-`cycle_start()` SHALL NOT block, allocate, log or wait for the bus thread when it requests a SYNC. When the bus thread has not sent the previous SYNC by the time the next one is due, it SHALL send one SYNC for both and count one skipped frame.
-
-#### Scenario: Busy bus thread
-- **WHEN** the bus thread is held busy for 25 ms while SYNC is requested every 10 ms
-- **THEN** the PLC frames keep their timing, the master sends one SYNC when the bus thread is free, and two skipped frames are counted
-
-### Requirement: PLC-cycle SYNC settings
-`sync_source` SHALL accept only `"timer"` and `"plc_cycle"`, and `sync_cycles` only 1-1000. The plugin SHALL reject `sync_cycles` without `"plc_cycle"`, and `"plc_cycle"` together with a `sync_period_us` greater than 0, naming the field. At start it SHALL log the SYNC source, `sync_cycles` and the runtime's base tick, and SHALL warn when the base tick times `sync_cycles` is below 1 ms.
-
-#### Scenario: Period and PLC cycle both given
-- **WHEN** the config has `"sync_source": "plc_cycle"` and `"sync_period_us": 10000`
-- **THEN** the plugin rejects the configuration, naming `sync_period_us` and saying the SYNC period comes from the PLC cycle
-
-#### Scenario: Cycles without PLC-cycle SYNC
-- **WHEN** the config has `"sync_cycles": 2` and no `sync_source`
-- **THEN** the plugin rejects the configuration, naming `sync_cycles` and saying it needs `"sync_source": "plc_cycle"`
-
-#### Scenario: Very short cycle
-- **WHEN** `"sync_source"` is `"plc_cycle"` and the runtime's base tick is 500 µs with `sync_cycles` 1
-- **THEN** the configuration loads and the log warns that a SYNC period below 1 ms may not carry all PDOs
+- **WHEN** a config has `"sync_source": "plc_cycle"` and `"sync_window_us": 5000`
+- **THEN** the bridge rejects it, saying SYNC from the PLC cycle is not available and naming `sync_period_us`
 
 ### Requirement: SYNC statistics
-For either SYNC source the plugin SHALL keep the number of SYNCs sent, the last, shortest and longest interval between two sent SYNCs in microseconds, the number of skipped frames (0 with the timer), and the number of late PDOs. A late PDO SHALL be a node TPDO with a cyclic synchronous type (1-240) that was due at one SYNC and had not arrived when the next SYNC was sent.
+With a SYNC period the bridge SHALL keep the number of SYNCs sent, the last, shortest and longest interval between two sent SYNCs in microseconds, the number of skipped frames (always 0: the timer skips none), and the number of late PDOs. A late PDO SHALL be a node TPDO with a cyclic synchronous type (1-240) that was due at one SYNC and had not arrived when the next SYNC was sent.
 
 #### Scenario: Steady cycle
-- **WHEN** `"sync_source"` is `"plc_cycle"` with a 10 ms task and every synchronous PDO arrives in time
+- **WHEN** `sync_period_us` is 10000 and every synchronous PDO arrives in time
 - **THEN** the late PDO and skipped counts stay 0 and the shortest and longest intervals are close to 10000 µs
 
 ### Requirement: SYNC warnings
-The plugin SHALL log skipped frames and late PDOs as warnings, naming the node and PDO for a late PDO, at most once per 10 seconds for each PDO and once per 10 seconds for skips.
+The bridge SHALL log skipped frames and late PDOs as warnings, naming the node and PDO for a late PDO, at most once per 10 seconds for each PDO and once per 10 seconds for skips.
 
 #### Scenario: PDO too slow for the cycle
-- **WHEN** `"sync_source"` is `"plc_cycle"` with a 1 ms task and node 5's TPDO 1 (type 1) needs longer than 1 ms to arrive on the bus
+- **WHEN** `sync_period_us` is 1000 and node 5's TPDO 1 (type 1) needs longer than 1 ms to arrive on the bus
 - **THEN** the late PDO count rises and the log names node 5 TPDO 1, no more than once per 10 seconds
 
 ### Requirement: Helper programs run with limits
@@ -499,11 +435,11 @@ An interface name SHALL have 1 to 15 characters from letters, digits, `_`, `.`, 
 - **THEN** the config is refused naming the interface and the 15-character limit
 
 ### Requirement: EDS files load the same on the PC and the runtime
-The PC tools' EDS check SHALL refuse every EDS the plugin's EDS load refuses and accept the forms it accepts: a bare `$NODEID` default (any case) SHALL be read as `$NODEID+0`, an empty `DefaultValue` SHALL be read as 0, an integer default on a REAL object SHALL be read as that number, and a `SupportedObjects` count above 0xFFFF SHALL be refused before any object is read.
+The PC tools' EDS check SHALL refuse every EDS the bridge's EDS load refuses and accept the forms it accepts: a bare `$NODEID` default (any case) SHALL be read as `$NODEID+0`, an empty `DefaultValue` SHALL be read as 0, an integer default on a REAL object SHALL be read as that number, and a `SupportedObjects` count above 0xFFFF SHALL be refused before any object is read.
 
 #### Scenario: Bare $NODEID
 - **WHEN** an object's `DefaultValue` is `$NODEID`
-- **THEN** both the configurator and the plugin accept the EDS and read node ID plus 0
+- **THEN** both the configurator and the bridge accept the EDS and read node ID plus 0
 
 #### Scenario: Unsupported data type
 - **WHEN** an object has `DataType=0x0040`
@@ -511,4 +447,4 @@ The PC tools' EDS check SHALL refuse every EDS the plugin's EDS load refuses and
 
 #### Scenario: Empty default in 0x1016
 - **WHEN** a heartbeat consumer sub-index has an empty `DefaultValue`
-- **THEN** the plugin, the DCF export and the docs use the same sub-index for the heartbeat watch
+- **THEN** the bridge, the DCF export and the docs use the same sub-index for the heartbeat watch

@@ -32,7 +32,7 @@ Each `routes` entry SHALL connect one slave object on the upper network with one
 - **THEN** the file is rejected with an error saying the upper master cannot write that object
 
 ### Requirement: Routes run without the PLC program
-Routed values SHALL be copied between the networks by the plugin within 2 ms of arrival, independent of the PLC scan. A routed field entry or slave object MAY also have a PLC location; the PLC then sees the same value, and an output location on a route's target SHALL be rejected so that only one writer exists.
+Routed values SHALL be copied between the networks by the bridge within 2 ms of arrival, independent of the PLC scan. A routed field entry or slave object MAY also have a PLC location; the PLC then sees the same value, and an output location on a route's target SHALL be rejected so that only one writer exists.
 
 #### Scenario: PLC also reads a routed value
 - **WHEN** field entry 0x6000:1 of node 5 is routed up and also bound to `%IW100`
@@ -86,7 +86,7 @@ The slave EDS generator SHALL take the gateway configuration and add one object 
 - **THEN** the EDS has three `ro` and two `rww` objects with the routes' types, mapped in its default TPDOs and RPDOs
 
 ### Requirement: Upper master stand-in on a simulated bus
-A master network of the gateway's config whose simulated interface is that of the upper slave network SHALL be treated as a stand-in for the upper master, not as a field network: it SHALL have no place in the field node status, no route SHALL name it as its field network, and EMCYs from its nodes SHALL NOT be forwarded to the upper network. The plugin and the deploy tool's check SHALL apply the same rule, and a route to the stand-in SHALL be rejected with an error saying it stands in for the upper master. The stand-in SHALL configure, start and supervise the gateway's slave node as any master does.
+A master network of the gateway's config whose simulated interface is that of the upper slave network SHALL be treated as a stand-in for the upper master, not as a field network: it SHALL have no place in the field node status, no route SHALL name it as its field network, and EMCYs from its nodes SHALL NOT be forwarded to the upper network. The bridge and the deploy tool's check SHALL apply the same rule, and a route to the stand-in SHALL be rejected with an error saying it stands in for the upper master. The stand-in SHALL configure, start and supervise the gateway's slave node as any master does.
 
 #### Scenario: Stand-in drives the gateway
 - **WHEN** a config has field network `io` on `sim0`, upper slave network `cell` on `sim2` (node 20) and master network `host` on `sim2` with node 20 not simulated

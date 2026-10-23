@@ -77,9 +77,10 @@ def two_network_config(folder):
         pp = json.load(f)
     drive = {"node_id": 2, "name": "drive", "eds": "servo-drive.eds", "tx_pdos": [{"entries": [
         {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW200"},
-        {"index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID201"}]}]}
-    cfg = {"schema_version": 2, "networks": [
-        {"name": "io", "adapter": pp["adapter"], "master": pp["master"], "nodes": pp["nodes"]},
+        {"index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID202"}]}]}
+    io = pp["networks"][0]
+    cfg = {"schema_version": 2, "bridge": pp["bridge"], "networks": [
+        {"name": "io", "adapter": io["adapter"], "master": io["master"], "nodes": io["nodes"]},
         {"name": "drives", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 500000},
          "master": {"node_id": 1}, "nodes": [drive]}]}
     path = os.path.join(folder, "canworks.json")
@@ -412,14 +413,14 @@ class Decoding(unittest.TestCase):
 
     def test_bad_config_falls_back(self):
         cfg = copy.deepcopy(load_cases()["base"])
-        cfg["nodes"][0]["eds"] = "missing.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "missing.eds"
         dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
         self.assertTrue(dec.warnings)
         self.assertEqual(dec.decode(Frame(0, 0x702, b"\x05")).text, "node 2 (pingpong) OPERATIONAL")
 
     def test_bit_channels_under_the_entry(self):
         cfg = copy.deepcopy(load_cases()["base"])
-        cfg["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [
             {"bit": 3, "name": "jog_x_plus", "iec_location": "%IX20.3"}]
         dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
         d = dec.decode(Frame(0, 0x182, bytes([0x08, 0, 0, 0])))
@@ -430,7 +431,7 @@ class Decoding(unittest.TestCase):
     def test_configured_emcy_cob_id(self):
         # emcy_cob_id (add-emcy-history): the moved COB-ID decodes as the node's EMCY.
         cfg = copy.deepcopy(load_cases()["base"])
-        cfg["nodes"][0]["emcy_cob_id"] = "0xC2"
+        cfg["networks"][0]["nodes"][0]["emcy_cob_id"] = "0xC2"
         dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"))
         d = dec.decode(Frame(0, 0xC2, bytes([0x10, 0x42, 0x09, 0, 0, 0, 0, 0])))
         self.assertEqual((d.kind, d.node), ("emcy", 2))
@@ -439,7 +440,7 @@ class Decoding(unittest.TestCase):
 
     def test_bad_config_note_names_the_problem(self):
         cfg = copy.deepcopy(load_cases()["base"])
-        cfg["nodes"][0]["eds"] = "missing.eds"
+        cfg["networks"][0]["nodes"][0]["eds"] = "missing.eds"
         path = os.path.join(FIXTURES, "eds", "canworks.json")
         dec = Decoder.from_config(cfg, path)
         self.assertEqual(dec.warnings, ["decoding without the config's PDOs: node 2: the EDS file missing.eds "
@@ -466,12 +467,12 @@ class Decoding(unittest.TestCase):
         d = dec.decode(Frame(T0, 0x194, bytes([1, 7, 0, 0, 0])))
         self.assertEqual((d.kind, d.node, d.name), ("pdo", 20, "cell_TPDO1"))
         self.assertEqual(dict(d.signals)["cell_TPDO1.BOOLEAN_to_master_alarm"], 1)
-        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX300.0")
+        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX16.0")
 
     def test_plc_variable_names(self):
         from canworks import dbcexport
         cfg = copy.deepcopy(load_cases()["base"])
-        cfg["nodes"][0]["tx_pdos"] = [{"entries": [
+        cfg["networks"][0]["nodes"][0]["tx_pdos"] = [{"entries": [
             {"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID10"}]}]
         dec = Decoder.from_config(cfg, os.path.join(FIXTURES, "eds", "canworks.json"),
                                   names={"%ID10": ["valve_status"]})

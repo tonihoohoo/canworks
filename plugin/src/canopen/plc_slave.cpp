@@ -84,7 +84,7 @@ void SlaveImage::commit_inputs() {
   in_.publish();
 }
 
-void SlaveImage::copy_to_plc(const plugin_runtime_args_t& rt) {
+void SlaveImage::copy_to_plc(ImageHost& rt) {
   const uint64_t* snap = in_.latest();
   const SlaveConfig& s = *cfg_;
   for (size_t k = 0; k < in_objs_.size(); ++k) image_write_input(rt, s.objects[in_objs_[k]].location, snap[k]);
@@ -93,15 +93,15 @@ void SlaveImage::copy_to_plc(const plugin_runtime_args_t& rt) {
   if (s.has_sync_count_location) image_write_input(rt, s.sync_count_location, snap[status_slot_ + 2]);
 }
 
-void SlaveImage::copy_from_plc(const plugin_runtime_args_t& rt) {
+void SlaveImage::copy_from_plc(ImageHost& rt) {
   uint64_t* back = out_.back();
   const SlaveConfig& s = *cfg_;
-  rt.image_lock();
+  rt.lock();
   for (size_t k = 0; k < out_objs_.size(); ++k) back[k] = image_read_output(rt, s.objects[out_objs_[k]].location);
   size_t n = out_objs_.size();
   back[n] = s.has_emcy_code_location ? image_read_output(rt, s.emcy_code_location) : 0;
   back[n + 1] = s.has_error_register_location ? image_read_output(rt, s.error_register_location) : 0;
-  rt.image_unlock();
+  rt.unlock();
   back[n + 2] = ++scans_;
   out_.publish();
 }
@@ -596,9 +596,9 @@ void PlcSlave::ServiceDiag() {
   if (!diag_ || stopped_) return;
   std::vector<DiagRequest> reqs;
   diag_->take(reqs);
-  diag_->set_operational(nmt_state() == 5 ? "the plugin's own slave" : "");
+  diag_->set_operational(nmt_state() == 5 ? "canworks' own slave" : "");
   // The guard of hand-sent frames: the PDO COB-IDs as the dictionary has them now.
-  if (diag_->ids_due()) diag_->set_used_ids(dictionary_id_uses(dev(), "the plugin's own slave"));
+  if (diag_->ids_due()) diag_->set_used_ids(dictionary_id_uses(dev(), "canworks' own slave"));
   for (auto& r : reqs) {
     if (r.op == "status")
       DiagStatus(r);

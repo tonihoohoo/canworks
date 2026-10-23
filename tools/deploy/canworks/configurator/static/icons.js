@@ -20,7 +20,7 @@
   const ALIAS = {
     ok: "operational", "5": "operational", OPERATIONAL: "operational",
     "127": "preop", PRE_OPERATIONAL: "preop", "PRE-OPERATIONAL": "preop", "pre-operational": "preop",
-    // The plugin reports 0 for "no contact" (not heard within the heartbeat time).
+    // The bridge reports 0 for "no contact" (not heard within the heartbeat time).
     "0": "error", "no contact": "error", BOOTUP: "busy", INITIALISING: "busy", connecting: "busy", running: "busy",
     "4": "stopped", STOPPED: "stopped",
     warn: "warning", missing: "error", "bus-off": "error", ended: "error",
