@@ -77,9 +77,10 @@ def two_network_config(folder):
         pp = json.load(f)
     drive = {"node_id": 2, "name": "drive", "eds": "servo-drive.eds", "tx_pdos": [{"entries": [
         {"index": "0x6041", "subindex": 0, "type": "UNSIGNED16", "iec_location": "%IW200"},
-        {"index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID201"}]}]}
-    cfg = {"schema_version": 2, "networks": [
-        {"name": "io", "adapter": pp["adapter"], "master": pp["master"], "nodes": pp["nodes"]},
+        {"index": "0x6064", "subindex": 0, "type": "INTEGER32", "iec_location": "%ID202"}]}]}
+    io = pp["networks"][0]
+    cfg = {"schema_version": 2, "bridge": pp["bridge"], "networks": [
+        {"name": "io", "adapter": io["adapter"], "master": io["master"], "nodes": io["nodes"]},
         {"name": "drives", "adapter": {"type": "socketcan", "interface": "vcan1", "bitrate": 500000},
          "master": {"node_id": 1}, "nodes": [drive]}]}
     path = os.path.join(folder, "canworks.json")
@@ -466,7 +467,7 @@ class Decoding(unittest.TestCase):
         d = dec.decode(Frame(T0, 0x194, bytes([1, 7, 0, 0, 0])))
         self.assertEqual((d.kind, d.node, d.name), ("pdo", 20, "cell_TPDO1"))
         self.assertEqual(dict(d.signals)["cell_TPDO1.BOOLEAN_to_master_alarm"], 1)
-        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX300.0")
+        self.assertEqual(dec.pdos[0x194].info[0]["location"], "%QX16.0")
 
     def test_plc_variable_names(self):
         from canworks import dbcexport

@@ -216,11 +216,11 @@ class Service(Device):
 
     def test_probe_job_and_no_password_kept(self):
         with self.assertRaises(ssh.NeedPassword):
-            self.devices.probe(self.did, "openplc", "proj", None, "0.98.0")
-        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+            self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0")
+        out = self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         self.assertTrue(out["offer_key_login"])
         self.assertEqual(out["latest"], "0.98.0")
-        self.assertEqual(out["plan"]["main"]["action"], "install_openplc")
+        self.assertEqual(out["plan"]["main"]["action"], "install_openplc_bridge")
         self.assertEqual(self.store.get(self.did)["latest"], "0.98.0")
         # The connection is kept: the next calls need no password.
         self.store.update(self.did, probe=dict(out["probe"], sudo="password"))
@@ -230,33 +230,32 @@ class Service(Device):
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
 
-    # freeze-openplc-runtime: plugin jobs on managed Docker keep the runtime on the pin.
-    def test_plugin_job_pins_the_runtime(self):
-        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+    # The runtime install with the bridge is the pinned version; a bridge install leaves the runtime alone.
+    def test_runtime_install_pins_the_runtime(self):
+        out = self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         seen = []
         real = jobs.start
         jobs.start = lambda conn, mode, pw, action, lines, paths, job_id=None: seen.append(lines) or "20261022T000000Z-abcd"
         self.addCleanup(setattr, jobs, "start", real)
-        for kind, pinned in (("docker-managed", True), ("native", False)):
-            self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd",
-                                                   runtime={"kind": kind, "version": "v4.3.2"}))
-            self.devices.start(self.did, "install_bridge", {}, None)
-            self.assertEqual("--pinned-runtime" in seen[-1][0], pinned, kind)
+        self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd"))
+        for action, pinned in (("install_openplc_bridge", True), ("install_bridge", False), ("switch_runtime", True)):
+            self.devices.start(self.did, action, {}, None)
+            self.assertEqual("--pinned-runtime" in seen[-1][0], pinned, action)
 
     def test_probe_on_a_dropped_kept_connection(self):
-        self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         conn, _ = self.devices.connection(self.did)
         ssh.add_key_login(conn, ssh.own_public_key(self.store))
         # The device drops the connection, the PC has not noticed yet.
         conn.client.get_transport().is_active = lambda: True
         self.device.drop_connections()
         time.sleep(0.2)
-        out = self.devices.probe(self.did, "openplc", "proj", None, "0.98.0")
+        out = self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0")
         self.assertEqual(out["probe"]["probe"], 1)
         self.assertEqual(self.device.logins[-1], ("pi", "key"))
 
     def test_typical_time_and_failure(self):
-        self.devices.probe(self.did, "openplc", "proj", None, "0.98.0", password=SSH_PW)
+        self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         conn, _ = self.devices.connection(self.did)
         self.device.sudo_nopasswd = True
         job = jobs.start(conn, "nopasswd", None, "install_bridge", ["echo ok"], self.devices.paths)

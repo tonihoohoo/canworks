@@ -300,7 +300,7 @@ release_install() {
     [ "$UNINSTALL" -eq 1 ] || [ -n "$CONSTRAINTS" ] ||
         fetch_release_constraints "$VERSION" "$SRC/tools/deploy/constraints.txt"
     # The source has no git history: the bridge reports the release's version.
-    CANWORKS_STEP_BASE=1 CANWORKS_PLUGIN_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
+    CANWORKS_STEP_BASE=1 CANWORKS_VERSION=$VERSION bash "$SRC/scripts/install-bridge.sh" "${args[@]+"${args[@]}"}"
 }
 
 # Runs the release's install on another device over SSH.
@@ -491,7 +491,7 @@ mv -f "$BIN.new" "$BIN"
 say "Installed $BIN"
 # The installed version, for the configurator's device probe: the release's,
 # else git describe, else what git archive wrote into scripts/SOURCE_VERSION.
-v=${CANWORKS_PLUGIN_VERSION:-}
+v=${CANWORKS_VERSION:-}
 [ -n "$v" ] || v=$(git -C "$REPO" describe --always --tags --dirty 2>/dev/null || true)
 if [ -z "$v" ] && [ -r "$REPO/scripts/SOURCE_VERSION" ]; then
     s=$(head -n 1 "$REPO/scripts/SOURCE_VERSION")

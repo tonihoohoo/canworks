@@ -409,9 +409,9 @@ class Cli(unittest.TestCase):
         self.assertIn("no DCF was written", err)
         self.assertFalse(os.path.exists(out_dir))
 
-    def test_refuses_upload_options(self):
+    def test_refuses_check_only(self):
         tmp, path = self.config_in(base_config())
-        code, _, err = self.run_cli("--config", path, "--export-dcf", tmp, "--runtime", "plc.local")
+        code, _, err = self.run_cli("--config", path, "--export-dcf", tmp, "--check-only")
         self.assertEqual(code, 1)
         self.assertIn("--export-dcf only writes DCF files", err)
 

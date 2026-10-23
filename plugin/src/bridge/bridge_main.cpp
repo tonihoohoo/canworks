@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     } else if (!std::strcmp(a, "--wait")) {
       wait = true;
     } else if (!std::strcmp(a, "--version")) {
-      std::printf("canworks-bridge %s\n", CANWORKS_PLUGIN_VERSION);
+      std::printf("canworks-bridge %s\n", CANWORKS_VERSION);
       return 0;
     } else if (!std::strcmp(a, "--help") || !std::strcmp(a, "-h")) {
       usage(stdout);
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
   }
 
   canworks_bridge::BridgeHost host;
-  if (!host.start(config, CANWORKS_PLUGIN_VERSION)) return 1;
+  if (!host.start(config, CANWORKS_VERSION)) return 1;
   while (!g_stop) {
     usleep(50000);
     if (host.upload_pending()) {

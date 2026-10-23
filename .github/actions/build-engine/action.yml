@@ -1,13 +1,11 @@
-name: Build the plugin
+name: Build the engine
 description: >
-  Upstream runtime checkout at the pinned release (plugin headers, stock
-  install test; docker/local-runtime/runtime-version), build
-  dependencies, Lely CANopen from the cache (or built), the deploy tool in the
-  plugin venv (the plugin's EDS lint) and the cmake build in ./build (every
-  target, or the ones named in `targets`) through ccache. The compiler cache is
-  restored from the newest run with the same targets; `main` runs save one per
-  commit and a pull request saves one for itself on its first run (a pull
-  request's cache is only visible to that pull request).
+  Build dependencies, Lely CANopen from the cache (or built), the deploy tool
+  in the canworks venv (the engine's EDS lint) and the cmake build in ./build
+  (every target, or the ones named in `targets`) through ccache. The compiler
+  cache is restored from the newest run with the same targets; `main` runs
+  save one per commit and a pull request saves one for itself on its first run
+  (a pull request's cache is only visible to that pull request).
 
 inputs:
   kernel-modules:
@@ -15,20 +13,10 @@ inputs:
       Install linux-modules-extra (the vcan module). Only the jobs that create
       vcan interfaces need it; it is the slowest package to install.
     default: "true"
-  strucpp:
-    description: >
-      Path of the STruC++ command (scripts/fetch-strucpp.sh). Set: the build
-      also compiles the CiA 402 demo program into sim_tests.
-    default: ""
-  runtime-ref:
-    description: >
-      The upstream runtime ref to check out. Empty: the pinned release
-      (docker/local-runtime/runtime-version), whose archive sha256 is checked.
-    default: ""
   targets:
     description: >
-      CMake targets to build, space separated. Empty: every target (the plugin,
-      the simulator and every test binary).
+      CMake targets to build, space separated. Empty: every target (the
+      bridge, the simulator and every test binary).
     default: ""
 
 runs:
@@ -36,37 +24,12 @@ runs:
   steps:
     - uses: ./.github/actions/locked-versions
 
-    - name: The pinned upstream runtime release
-      id: runtime
-      shell: bash
-      env:
-        RUNTIME_REF: ${{ inputs.runtime-ref }}
-      run: echo "ref=${RUNTIME_REF:-$(cat docker/local-runtime/runtime-version)}" >> "$GITHUB_OUTPUT"
-
-    - name: Check out the upstream OpenPLC runtime (plugin headers, stock install test)
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      with:
-        repository: Autonomy-Logic/openplc-runtime
-        ref: ${{ steps.runtime.outputs.ref }}
-        path: upstream-runtime
-
-    - name: The pinned release's archive sha256 (scripts/install-bridge.sh checks it) matches the checkout
-      if: inputs.runtime-ref == ''
-      shell: bash
-      env:
-        REF: ${{ steps.runtime.outputs.ref }}
-      run: |
-        # GitHub's archive of a tag is git archive with the tag's name less a leading v as the folder, gzip -n.
-        got=$(git -C upstream-runtime archive --format=tar --prefix="openplc-runtime-${REF#v}/" HEAD | gzip -cn | sha256sum | cut -d' ' -f1)
-        want=$(cat docker/local-runtime/runtime-sha256)
-        [ "$got" = "$want" ] || { echo "the $REF archive has sha256 $got, docker/local-runtime/runtime-sha256 says $want" >&2; exit 1; }
-
     - name: Package cache key (runner image, kernel, package set)
       id: apt-key
       shell: bash
       env:
         KERNEL_MODULES: ${{ inputs.kernel-modules }}
-      run: echo "key=apt-build-${ImageOS:-os}-${ImageVersion:-image}-$(uname -r)-modules-${KERNEL_MODULES}-${{ hashFiles('.github/actions/build-plugin/action.yml') }}" >> "$GITHUB_OUTPUT"
+      run: echo "key=apt-build-${ImageOS:-os}-${ImageVersion:-image}-$(uname -r)-modules-${KERNEL_MODULES}-${{ hashFiles('.github/actions/build-engine/action.yml') }}" >> "$GITHUB_OUTPUT"
 
     - name: Cache the build dependency packages
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -106,7 +69,7 @@ runs:
       shell: bash
       run: scripts/build-lely.sh --prefix /opt/canworks
 
-    - name: Lely's CiA 309-3 text layer is in liblely-co (the plugin's CiA 309-3 gateway)
+    - name: Lely's CiA 309-3 text layer is in liblely-co (the CiA 309-3 gateway)
       shell: bash
       run: |
         for sym in co_gw_txt_create co_gw_txt_send co_gw_txt_recv co_gw_txt_set_send_func co_gw_txt_set_recv_func; do
@@ -117,7 +80,7 @@ runs:
       shell: bash
       run: scripts/check-lely-dcf.sh --prefix /opt/canworks
 
-    - name: Install the deploy tool into the plugin venv (the plugin's EDS lint)
+    - name: Install the deploy tool into the canworks venv (the engine's EDS lint)
       shell: bash
       run: /opt/canworks/venv/bin/python -m pip install -q ./tools/deploy
 
@@ -125,11 +88,10 @@ runs:
       id: ccache-key
       shell: bash
       env:
-        STRUCPP: ${{ inputs.strucpp }}
         TARGETS: ${{ inputs.targets }}
         PR: ${{ github.event.pull_request.number }}
       run: |
-        set_id=$(printf '%s|%s' "${TARGETS:-all}" "${STRUCPP:+strucpp}" | sha1sum | cut -c1-8)
+        set_id=$(printf '%s' "${TARGETS:-all}" | sha1sum | cut -c1-8)
         prefix="ccache-${ImageOS:-os}-${ImageVersion:-image}-gcc$(gcc -dumpfullversion)-${set_id}-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         if [ -n "$PR" ]; then echo "key=${prefix}pr${PR}" >> "$GITHUB_OUTPUT"; else echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"; fi
@@ -145,7 +107,6 @@ runs:
     - name: Build
       shell: bash
       env:
-        STRUCPP: ${{ inputs.strucpp }}
         TARGETS: ${{ inputs.targets }}
         CCACHE_BASEDIR: ${{ github.workspace }}
         CCACHE_NOHASHDIR: "true"
@@ -154,8 +115,7 @@ runs:
       run: |
         export CCACHE_DIR="$HOME/.cache/canworks/ccache"
         ccache -z >/dev/null
-        cmake -B build -DOPENPLC_ROOT="$PWD/upstream-runtime" ${STRUCPP:+-DSTRUCPP="$STRUCPP"} \
-          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        cmake -B build -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         cmake --build build -j"$(nproc)" ${TARGETS:+--target $TARGETS}
         ccache -s
 

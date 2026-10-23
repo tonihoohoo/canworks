@@ -335,9 +335,9 @@ class NetworkDocs(unittest.TestCase):
             cfg = json.load(f)
         plain = docexport.build(cfg, path)
         self.assertNotIn("cia309", plain)
-        cfg["networks"][0]["master"]["cia309"] = {"allow_changes": True}
+        cfg["cia309"] = {"allow_changes": True}
         model = docexport.build(cfg, path)
-        self.assertEqual(model["cia309"]["nets"], [{"number": 1, "name": ""}])
+        self.assertEqual(model["cia309"]["nets"], [{"number": 1, "name": "vcan0"}])
         self.assertEqual(model["networks"][0]["cia309_number"], 1)
         tpdo = [p for p in model["networks"][0]["nodes"][0]["pdos"] if p["kind"] == "TPDO"][0]
         self.assertEqual(tpdo["gateway_rpdo"], 5)  # node 2's TPDO 1

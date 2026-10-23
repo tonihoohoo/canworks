@@ -8,7 +8,7 @@ import sys
 import unittest
 from unittest import mock
 
-from canworks import cli, editorproject
+from canworks import editorproject
 
 from .helpers import REPO, fake_editor_cli, pingpong_config, tmpdir
 
@@ -52,8 +52,8 @@ class Create(unittest.TestCase):
 
     def test_rtd(self):
         lines = []
-        path, decls = editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target, progress=lines.append,
-                                           runtime_address="plc.local")
+        path, synced = editorproject.create(load(RTD_CONFIG), RTD_CONFIG, self.target, progress=lines.append,
+                                            runtime_address="plc.local")
         self.assertEqual(path, self.target)
         self.assertEqual(self.args(), ["create", "rtd-monitor", "--path=" + os.path.dirname(self.target),
                                        "--language=st", "--time=T#20ms", "--no-json"])
@@ -62,16 +62,11 @@ class Create(unittest.TestCase):
         self.assertEqual(device, {"deviceBoard": "OpenPLC Runtime v4", "communicationPort": "",
                                   "selectedPlatformOptions": {}, "runtimeIpAddress": "plc.local"})
         self.assertEqual(load(os.path.join(self.target, "project.json"))["meta"]["name"], "rtd-monitor")
-        main = read(os.path.join(self.target, "pous", "programs", "main.st"))
-        self.assertTrue(main.startswith("PROGRAM main\n  VAR\n    rtd_ok "), main)
-        self.assertIn("    rtd_ok           : BOOL AT %IX10.0; (* node rtd (5): operational *)\n", main)
-        self.assertIn("    rtd_AI0_Input_PV : INT AT %IW100; (* node rtd (5) TPDO1 0x7130:1 AI0_Input_PV *)\n", main)
-        self.assertIn(" : USINT AT %IB103;", main)
-        self.assertTrue(main.endswith("  END_VAR\n\n%s\n\nEND_PROGRAM" % editorproject.BODY), main)
-        self.assertEqual(len(decls), 9)
-        self.assertEqual(main.count(" AT %"), 9)
+        # A bridge config of its own: an empty main and no editor remote device.
+        self.assertEqual(read(os.path.join(self.target, "pous", "programs", "main.st")), editorproject.main_st())
+        self.assertIsNone(synced)
         canopen = load(os.path.join(self.target, "canworks", "canworks.json"))
-        self.assertEqual(canopen["nodes"][0]["eds"], "rtd8.eds")
+        self.assertEqual(canopen["networks"][0]["nodes"][0]["eds"], "rtd8.eds")
         self.assertTrue(os.path.isfile(os.path.join(self.target, "canworks", "rtd8.eds")))
         for d in ("pous/functions", "pous/function-blocks", "datatypes"):
             self.assertTrue(os.path.isdir(os.path.join(self.target, d)))
@@ -250,14 +245,6 @@ class FindCli(unittest.TestCase):
             self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "C:\\R and D\\pump"]))
         with mock.patch.object(editorproject, "WINDOWS", False):
             self.assertIsNone(editorproject.unsafe_for_cmd(["openplc-cli", "compile", "/home/r&d"]))  # not Windows
-
-    def test_cmd_special_characters_refused_by_deploy_on_windows(self):
-        fake_editor_cli(self.bin)
-        with mock.patch.object(editorproject, "WINDOWS", True), mock.patch.object(subprocess, "call") as call:
-            with self.assertRaisesRegex(cli.Failure, "contains '&'"):
-                cli.build_project(os.path.join(self.dir, "R&D"), "openplc-v4", lambda m: None)
-        call.assert_not_called()
-
 
 @unittest.skipUnless(os.environ.get("CANWORKS_EDITOR_CLI"),
                      "set CANWORKS_EDITOR_CLI to a real openplc-cli to create and compile with the editor")

@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
   using namespace sim_tool;
   std::vector<std::string> words(argv + 1, argv + argc);
   if (!words.empty() && (words[0] == "--version" || words[0] == "-V")) {
-    std::printf("canworks-canopen-sim %s\n", CANWORKS_PLUGIN_VERSION);
+    std::printf("canworks-canopen-sim %s\n", CANWORKS_VERSION);
     return kExitOk;
   }
   if (!words.empty() && (words[0] == "--help" || words[0] == "-h" || words[0] == "help")) {

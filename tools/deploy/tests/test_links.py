@@ -32,9 +32,7 @@ class Checks(unittest.TestCase):
             self.assertEqual(r.errors, [])
 
     def test_v2_network_links(self):
-        cfg = {"schema_version": 2, "networks": [dict(name="io", **{k: v for k, v in base().items()
-                                                                    if k != "schema_version"})]}
-        self.assertEqual(contract.check_config(cfg, PATH).errors, [])
+        cfg = base()
         cfg["networks"][0]["links"][0]["to"][0]["entries"].pop()
         errors = "\n".join(contract.check_config(cfg, PATH).errors)
         self.assertIn("networks[0]: link stick_to_valves: node 20 (valves) RPDO 2 maps 16 bits", errors)
@@ -83,7 +81,7 @@ class Docs(unittest.TestCase):
 
     def test_bus_load_unchanged(self):
         without = patched(base(), [["delete", "networks/0/links"], ["delete", "networks/0/nodes/1/heartbeat_watch"],
-                                   ["set", "networks/0/nodes/0/tx_pdos/0/entries/1/iec_location", "%IW101"]])
+                                   ["set", "networks/0/nodes/0/tx_pdos/0/entries/1/iec_location", "%IW104"]])
         a = docexport.build(base(), PATH)["networks"][0]["bus_load"]
         b = docexport.build(without, PATH)["networks"][0]["bus_load"]
         self.assertEqual((a["cyclic"], a["worst"]), (b["cyclic"], b["worst"]))

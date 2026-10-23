@@ -167,18 +167,18 @@ target_compile_definitions(canopen_core PUBLIC CANWORKS_WITH_CANOPEN=$<BOOL:${CA
 target_link_directories(canopen_core PUBLIC ${LELY_LIBRARY_DIRS})
 target_link_libraries(canopen_core PUBLIC canworks_bridge_proto ${LELY_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto pthread)
 
-# The version the diagnostics channel reports: $CANWORKS_PLUGIN_VERSION
+# The version the diagnostics channel reports: $CANWORKS_VERSION
 # when set and not empty (images and release installs, built without .git),
 # else git.
-if(NOT "$ENV{CANWORKS_PLUGIN_VERSION}" STREQUAL "")
-  set(CANWORKS_PLUGIN_VERSION "$ENV{CANWORKS_PLUGIN_VERSION}")
+if(NOT "$ENV{CANWORKS_VERSION}" STREQUAL "")
+  set(CANWORKS_VERSION "$ENV{CANWORKS_VERSION}")
 else()
 execute_process(COMMAND git describe --always --tags --dirty
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                OUTPUT_VARIABLE CANWORKS_PLUGIN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                OUTPUT_VARIABLE CANWORKS_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 endif()
-if(NOT CANWORKS_PLUGIN_VERSION)
-  set(CANWORKS_PLUGIN_VERSION "unknown")
+if(NOT CANWORKS_VERSION)
+  set(CANWORKS_VERSION "unknown")
 endif()
 
 if(CANWORKS_WITH_CANOPEN)
@@ -191,7 +191,7 @@ add_executable(canworks-canopen-sim
     ${PROJECT_SOURCE_DIR}/tools/sim/sim_commands.cpp
     ${PROJECT_SOURCE_DIR}/tools/sim/control.cpp
 )
-target_compile_definitions(canworks-canopen-sim PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
+target_compile_definitions(canworks-canopen-sim PRIVATE CANWORKS_VERSION="${CANWORKS_VERSION}")
 target_compile_options(canworks-canopen-sim PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(canworks-canopen-sim PRIVATE canopen_core)
 set_target_properties(canworks-canopen-sim PROPERTIES
@@ -207,7 +207,7 @@ add_executable(canworks-bridge
     src/bridge/bridge_host.cpp
     src/bridge/bridge_main.cpp
 )
-target_compile_definitions(canworks-bridge PRIVATE CANWORKS_PLUGIN_VERSION="${CANWORKS_PLUGIN_VERSION}")
+target_compile_definitions(canworks-bridge PRIVATE CANWORKS_VERSION="${CANWORKS_VERSION}")
 target_compile_options(canworks-bridge PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(canworks-bridge PRIVATE canopen_core canworks_bridge_proto)
 set_target_properties(canworks-bridge PROPERTIES

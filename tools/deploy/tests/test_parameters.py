@@ -220,9 +220,7 @@ class CompareTest(Base):
 
     def test_against_config(self):
         with FakeDevice() as fp:
-            with open(RTD_CONFIG, encoding="utf-8") as f:
-                cfg = json.load(f)
-            writes, owned = P.config_writes(cfg, RTD_CONFIG, NODE)
+            writes, owned = P.node_context(NODE, RTD_CONFIG).config_refs()
             self.assertEqual(writes[(0x6110, 1)], (30).to_bytes(2, "little"))
             client = self.connect(fp)
             keys = P.compare_keys(fp.eds, writes, only_reference=True)

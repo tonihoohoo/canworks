@@ -210,7 +210,7 @@ class CommandLine(unittest.TestCase):
                 cli.run(cli.parser().parse_args(["--config", src, "--export-nodered", os.path.join(tmp, "f.json")]))
             with self.assertRaisesRegex(cli.Failure, "only writes the Node-RED flow"):
                 cli.run(cli.parser().parse_args(["--config", EXAMPLE, "--export-nodered", os.path.join(tmp, "f.json"),
-                                        "--runtime", "pi.local"]))
+                                        "--check-only"]))
             with self.assertRaisesRegex(cli.Failure, "--nodered-host"):
                 cli.run(cli.parser().parse_args(["--config", EXAMPLE, "--export-modbus-map", os.path.join(tmp, "m.csv"),
                                         "--nodered-host", "x"]))
