@@ -667,7 +667,7 @@ class Updater(unittest.TestCase):
 
     def test_short_reason(self):
         self.assertEqual(updater.short_reason(["error: no `x.whl`", "cause: gone"]), "error: no x.whl cause: gone")
-        long = ["Failed to read metadata: `C:/Users/someone/AppData/Local/Temp/canworks-update-abc/%s.whl`" % ("x" * 280),
+        long = ["Failed to read metadata: `/tmp/canworks-update-abc/%s.whl`" % ("x" * 280),
                 "cause: unable to locate the end of central directory record"]
         why = updater.short_reason(long)
         self.assertTrue(why.startswith("…"), why)
