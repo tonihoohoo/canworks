@@ -33,7 +33,7 @@ installs it into the editor as its Library Manager does; restart the editor if i
 canworks-deploy library --out .      # writes canworks.stlib
 ```
 
-Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with **Enable the canworks function blocks** in the configurator's New editor project dialog has it enabled already, and the library is installed into the editor if it is missing or older.
+Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with **Install the canworks library in the project** in the configurator's New editor project dialog has it enabled already, and the library is installed into the editor if it is missing or older.
 
 ## When the bridge is lost
 
@@ -80,7 +80,7 @@ The bridge has one SDO request block and one control block, so instances take tu
 
 ## The mailboxes
 
-The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)), which adding an OpenPLC connection turns on: one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
+The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). They are off until a program needs them ([below](#with-or-without-the-mailboxes)); the configurator's defaults when they are turned on are one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
 
 | Block | Needs | Round trips |
 |---|---|---|
@@ -102,6 +102,43 @@ A round trip is about two polls of the bridge: the request goes out with the nex
 **The link stops.** When the PLC stops (the PLC link header says so), its map differs, or the bridge's watchdog fires, the bridge cancels every running operation, stops every cyclic job and closes every receiver: the blocks show `ERROR_ID` 8, and those with `ENABLE` start again by themselves once the link is back. A receiver whose block is no longer called while its records wait is closed after 1 s, so it does not hold up the others.
 
 **The bridge restarts.** A new bridge does not know which request it ran last, so it takes the first request words it gets after its start only as the baseline: a request in them is not run and ends with `ERROR_ID` 8. A restart therefore never repeats a send or an SDO write; a block whose request was written just as the bridge started gets 8 and the program starts it again.
+
+### With or without the mailboxes
+
+Every client polls the mailboxes' registers on every cycle, whether or not a block is called, so they are off by default. They come on when a program needs them:
+
+- **OpenPLC**: Check and Save read the editor project's POUs. A declared mailbox block whose part is off is an error in Problems, with **Turn on what the program uses**, which turns on only the parts the declared blocks need. Mailboxes that nothing declares get a warning with **Turn off the mailboxes**.
+- **Another client** (truST, another PLC, Node-RED): turn them on in the **Function blocks** section of the Modbus bridge page ([configurator.md](configurator.md#modbus-bridge)), with only the parts its program uses. Copy as ST call names a missing part.
+- `canworks-deploy diag` shows how many mailbox operations and receivers the bridge has had since it started, and says when nothing has used them.
+
+**What works without them:** the config's values (PDOs, CAN messages, J1939 PGNs, DM1 codes and lamps), `CO_NMT`, `CO_NODE_LIVE`, the status block, and `CO_SDO_READ` and `CO_SDO_WRITE` for objects of up to 4 bytes on any node.
+
+**What can't be done without them:** SDOs over 4 bytes from the program, every EMCY (without them only the latest code per node), sending or receiving a CAN id that is not in the config, J1939 requests of any PGN, DM2 reads, DM3/DM11 clears and finding an ECU by NAME, and bus load and error counters.
+
+**What they cost** (the example `examples/openplc-modbus`, one network, OpenPLC polling every 10 ms):
+
+| Mailboxes | Input / holding registers | Modbus requests per poll |
+|---|---|---|
+| Off | 33 / 16 | 5 |
+| 1 request mailbox only | 105 / 88 | 5 |
+| 1 request mailbox and the receive mailbox | 225 / 91 | 6 |
+| Defaults (1 request, receive, 4 cyclic jobs, network info) | 260 / 95 | 7 |
+| 4 request mailboxes, 16 cyclic jobs | 524 / 323 | 13 |
+
+`canworks_in` and `canworks_out` also copy every mailbox word on every scan.
+
+**Without mailboxes, use the config instead:**
+
+| Block | Instead |
+|---|---|
+| `CAN_RECEIVE`, `J1939_RECEIVE` | a received CAN message or J1939 PGN on `%I` locations ([raw-can.md](raw-can.md#config-messages), [j1939.md](j1939.md)) |
+| `CAN_SEND`, `J1939_SEND`, `J1939_REQUEST` | a sent CAN message on change or on a trigger bit; the J1939 network's sent PGNs and requests |
+| `CAN_SEND_CYCLIC` | a periodic sent CAN message |
+| `CO_RECV_EMCY` | the node's `emcy_code_location` (its latest EMCY) |
+| `CAN_BUS_INFO`, `J1939_ECU_INFO` | the network's `bus_state_location` and the J1939 address location |
+| `CO_SDO_READ_BYTES` and the other long SDO blocks | SDO variables in the config for numbers of up to 64 bits ([config.md](config.md#sdo-variables)), or `CO_SDO_READ` / `CO_SDO_WRITE` up to 4 bytes; strings and domains need the mailboxes |
+
+Rule of thumb: put everything known when configuring into the config, and use the mailbox blocks only for what the program decides at run time.
 
 ### Error IDs of every mailbox block
 

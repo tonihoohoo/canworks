@@ -138,6 +138,7 @@
               "format": { "description": "trust and plc: plcopen or st (st for plc only); hmi: csv, json or st.", "enum": [ "plcopen", "st", "csv", "json" ] },
               "library": { "description": "trust and plc with plcopen: include the canworks ST library (default true).", "type": "boolean" },
               "bridge_host": { "description": "trust, plc and nodered: the bridge's address as the client reaches it.", "type": "string" },
+              "blocks": { "description": "trust, plc and nodered: which canworks mailbox blocks the client's program uses; the configurator turns on the parts of bridge.mailboxes they need. none (default), sdo_send (one request mailbox), receive (also the receive mailbox) or all (also 4 cyclic jobs and network info); trust only none or sdo_send. At most one connection, and none next to an openplc connection.", "enum": [ "none", "sdo_send", "receive", "all" ] },
               "period_ms": { "description": "nodered: poll period of the flow (default 100).", "type": "integer", "minimum": 10, "maximum": 60000 }
             },
             "required": [ "kind", "name" ],

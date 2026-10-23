@@ -32,7 +32,18 @@ The library SHALL be presented as one general function block library for CANopen
 - **THEN** the output says that the project enables the canworks function block library, without naming only the SDO or CAN blocks
 
 ### Requirement: Library documentation
-`docs/plc-library.md` SHALL be the library's page: the blocks over the bridge with their pins, error IDs and how they share the bridge's SDO slot and control block, the mailbox blocks with their pins and error IDs and how they share the request mailboxes, the helper functions with their bit numbering, the word helpers, installing and enabling the library, and the PLCopen `EXECUTE` handshake. `docs/raw-can.md` and `docs/j1939.md` SHALL link to it for the helpers instead of repeating them. README SHALL link to it as the place for the program's blocks. No doc SHALL describe a block that calls a runtime plugin.
+`docs/plc-library.md` SHALL be the library's page. It SHALL cover:
+- the blocks over the bridge with their pins, error IDs and how they share the bridge's SDO slot and control block;
+- the mailbox blocks with their pins and error IDs and how they share the request mailboxes;
+- a section **With or without the mailboxes**:
+  - what works without them: values, `CO_NMT`, `CO_NODE_LIVE`, `CO_SDO_READ`/`CO_SDO_WRITE` up to 4 bytes;
+  - what each part costs, in registers and Modbus requests per poll, for the example config;
+  - what can't be done without them: SDOs over 4 bytes, every EMCY, CAN ids not in the config, J1939 requests and DM2/DM3/DM11 from the program, bus load and error counters;
+  - the config-only alternative to each mailbox block;
+  - that the mailboxes are off by default and how they come on (the program's blocks for OpenPLC, a connection's canworks blocks choice, the Function blocks switch);
+- the helper functions with their bit numbering, the word helpers, installing and enabling the library, and the PLCopen `EXECUTE` handshake.
+
+`docs/raw-can.md` and `docs/j1939.md` SHALL link to it for the helpers instead of repeating them. `docs/modbus-bridge.md` and `docs/configurator.md` SHALL link to the With or without the mailboxes section. README SHALL link to the page as the place for the program's blocks, and SHALL say in one sentence that the values and the blocks over the bridge work as they are, while the other blocks need the mailboxes, which the configurator turns on when a program uses them. No doc SHALL describe a block that calls a runtime plugin.
 
 #### Scenario: Reader looks for J1939 blocks
 - **WHEN** a user opens `docs/plc-library.md`
@@ -41,6 +52,10 @@ The library SHALL be presented as one general function block library for CANopen
 #### Scenario: Reader looks for the SDO block
 - **WHEN** a user opens `docs/plc-library.md`
 - **THEN** it describes `CO_SDO_READ` with its pins, its 1-4 byte limit and error IDs 20 and 21, and points to `CO_SDO_READ_BYTES` and `CO_SDO_READ_STRING` for longer transfers
+
+#### Scenario: Reader wants no mailboxes
+- **WHEN** a user wants to know whether a program that receives one known CAN frame needs the mailboxes
+- **THEN** the With or without the mailboxes section says to use an `rx` message in the config instead of `CAN_RECEIVE`, which needs no mailbox and no extra Modbus requests
 
 ### Requirement: Blocks over the bridge
 `CO_SDO_READ` (EXECUTE, NETWORK, NODE, INDEX, SUBINDEX, TIMEOUT → BUSY, DONE, ERROR, ERROR_ID, ABORT_CODE, DATA : UDINT), `CO_SDO_WRITE` (EXECUTE, NETWORK, NODE, INDEX, SUBINDEX, DATA : UDINT, SIZE, TIMEOUT → BUSY, DONE, ERROR, ERROR_ID, ABORT_CODE), `CO_NMT` (EXECUTE, NETWORK, NODE, COMMAND, TIMEOUT → BUSY, DONE, ERROR, ERROR_ID) and `CO_NODE_LIVE` (NETWORK, NODE → LIVE) SHALL be ST blocks with an in-out `LINK : ARRAY[0..1279] OF WORD` (the generated `canworks.link`). They SHALL work through the bridge's SDO bridge registers, control block and live lists with its counter handshake, with the PLCopen EXECUTE/BUSY/DONE/ERROR behaviour of today's blocks. Instances SHALL share the one SDO slot and the one control block: a block whose request finds the slot owned by another instance SHALL stay BUSY until the slot is free, and requests SHALL be served in the order they started. A write's SIZE SHALL be 1-4; a read returns the object's value in DATA, zero-extended. ERROR_ID SHALL keep today's codes, add 20 (bridge not reachable: `canworks.ok` false at start or during the request), 21 (SDO writes not allowed: abort 0x08000020 from the bridge) and 22 (the config has no SDO registers or control block for the request). ERROR_ID 8 (cancelled) SHALL also be reported when the bridge restarted and did not run the request (control result 6 or abort 0x08000021); the program may start it again. The blocks SHALL use no runtime-specific interface, so they build for any IEC 61131-3 runtime that has the generated link variable.

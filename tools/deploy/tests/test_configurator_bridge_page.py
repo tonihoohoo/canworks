@@ -231,6 +231,23 @@ class BridgePage(OnlineBase):
         pg.wait_for_function("() => !('plc_link' in S.model.top.bridge)")
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
+        # canworks blocks (mailboxes-on-demand): truST offers None and SDO and
+        # send, which turns on one request mailbox, placed, in one undo step.
+        self.open_settings(0)
+        sel = 'select[data-path="bridge.connections[0].blocks"]'
+        self.assertEqual(pg.eval_on_selector_all(sel + " option", "os => os.map(o => o.textContent)"),
+                         ["None", "SDO and send"])
+        pg.select_option(sel, "sdo_send")
+        pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
+        mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
+        self.assertEqual((mb["requests"], mb["receive"], mb["cyclic_jobs"], mb["network_info"]), (1, False, 0, False))
+        self.assertEqual(pg.inner_text('[data-conn-blocks="0"]'), "canworks blocks: SDO and send (1 request mailbox)")
+        pg.wait_for_selector('[data-bridge-mailbox-who]:has-text("Cell PLC: canworks blocks SDO and send")')
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => !S.model.top.bridge.mailboxes && !S.model.top.bridge.connections[0].blocks")
+        pg.keyboard.press("Control+Shift+z")
+        pg.wait_for_function("() => !!S.model.top.bridge.mailboxes && S.model.top.bridge.connections[0].blocks === 'sdo_send'")
         # No bridge address: the listen address is a wildcard, so the row's PLC
         # needs one; Problems says so.
         self.checked()
@@ -316,6 +333,10 @@ class BridgePage(OnlineBase):
         self.to_bridge()
         tree_view(pg, "bridge")
         pg.wait_for_selector('[data-bridge-mailboxes="0"]')
+        # Off: what works without them, who needs which part and what turning them on would add.
+        self.assertIn("Without mailboxes: the config's values, CO_NMT", pg.inner_text("[data-bridge-without]"))
+        self.assertIn("a received CAN message or J1939 PGN", pg.inner_text("[data-bridge-mailbox-needs]"))
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("would take +227 input / +79 holding registers")')
         pg.check('input[data-path="bridge.mailboxes"]')
         pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes"),
@@ -324,14 +345,14 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         cost = pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("input")')
         # 72 response + 120 receive + 18 info + 17 cyclic table; 72 request + 3 ack + 4 keepalives.
-        self.assertEqual(cost.inner_text(), "The blocks take 227 input and 79 holding registers. Receiving: 9 CAN frames "
+        self.assertEqual(cost.inner_text(), "The mailboxes take +227 input / +79 holding registers. Receiving: 9 CAN frames "
                                             "per batch, one batch per two of your client's polls.")
         needs = pg.inner_text('[data-bridge-mailbox-needs]')
         self.assertIn("CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY", needs)
         self.assertEqual(pg.locator("[data-bridge-mailbox-update]").count(), 0)  # OpenPLC only
         pg.fill('input[data-path="bridge.mailboxes.requests"]', "2")
         pg.uncheck('input[data-path="bridge.mailboxes.receive"]')
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("179 input")')
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("+179 input")')
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes.input_location"), "%IB24")
         pg.wait_for_selector('#bridge-map tr[data-bridge-row="bridge.mailbox.1.response"]')
         pg.click("#btn-save")
@@ -405,7 +426,7 @@ class BridgePage(OnlineBase):
         b = pg.evaluate("() => S.model.top.bridge")
         self.assertEqual((b["plc_link"], b["listen"], b["writers"], b["word_order"], b["watchdog_ms"]),
                          (True, "127.0.0.1:1502", ["127.0.0.1"], "low_first", 50))
-        self.assertIn("mailboxes", b)
+        self.assertNotIn("mailboxes", b)  # mailboxes-on-demand
         # Adding it and its repack are one step: undo takes it back, redo adds it.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")

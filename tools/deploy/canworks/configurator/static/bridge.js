@@ -227,15 +227,71 @@ function bridgeSdo(b) {
 }
 
 // The function blocks' mailboxes (modbus-bridge-mailboxes; docs/plc-library.md):
-// a switch, the counts, the two areas with Suggest, what they cost and which
-// blocks need which part. For OpenPLC a count change moves both areas to a
-// free place at once; another client keeps its places until Suggest.
+// a switch, the counts, the two areas with Suggest, and, on or off, what
+// works without them, which blocks need which part with their config-only
+// alternative, what they cost and who needs them (mailboxes-on-demand).
+// For OpenPLC a count change moves both areas to a free place at once;
+// another client keeps its places until Suggest.
 const BRIDGE_MAILBOX_NEEDS = [
-  ["Request mailboxes", "the SDO blocks (CO_SDO_READ_BYTES, CO_SDO_READ_STRING, ...), CAN_SEND, CAN_SEND_CYCLIC, J1939_SEND, J1939_REQUEST, J1939_FIND_ECU, J1939_DM_READ and J1939_DM_CLEAR"],
-  ["Receive mailbox", "CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY"],
-  ["Cyclic jobs", "CAN_SEND_CYCLIC, one job per running block"],
-  ["Network info", "CAN_BUS_INFO and J1939_ECU_INFO"],
+  ["Request mailboxes", "the SDO blocks of any size (CO_SDO_READ_BYTES, CO_SDO_READ_STRING, ...), CAN_SEND, CAN_SEND_CYCLIC, J1939_SEND, J1939_REQUEST, J1939_FIND_ECU, J1939_DM_READ and J1939_DM_CLEAR",
+    "SDO variables (numbers up to 64 bits) or CO_SDO_READ / CO_SDO_WRITE up to 4 bytes; a sent CAN message (on change or a trigger bit) for CAN_SEND; the J1939 network's sent PGNs and requests"],
+  ["Receive mailbox", "CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY",
+    "a received CAN message or J1939 PGN on %I locations; the node's EMCY code location for its latest EMCY"],
+  ["Cyclic jobs", "CAN_SEND_CYCLIC, one job per running block", "a periodic sent CAN message"],
+  ["Network info", "CAN_BUS_INFO and J1939_ECU_INFO", "the network's bus state location and the J1939 address location"],
 ];
+const BRIDGE_WITHOUT_MAILBOXES = "Without mailboxes: the config's values, CO_NMT, CO_NODE_LIVE, and CO_SDO_READ and CO_SDO_WRITE up to 4 bytes.";
+
+// A connection's canworks blocks choice (mailboxes-on-demand): the parts
+// it needs, as mailboxuse.CHOICE_PARTS. truST only None or SDO and send.
+const CONNECTION_BLOCKS = [
+  { value: undefined, label: "None", parts: [], help: "The program uses the values and the blocks over the bridge only (CO_NMT, CO_NODE_LIVE, CO_SDO_READ and CO_SDO_WRITE up to 4 bytes)." },
+  { value: "sdo_send", label: "SDO and send", parts: ["request"], help: "Also long SDOs, CAN_SEND and the J1939 requests: 1 request mailbox." },
+  { value: "receive", label: "SDO, send and receive", parts: ["request", "receive"], help: "Also CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY: the receive mailbox too." },
+  { value: "all", label: "All", parts: ["request", "receive", "cyclic", "info"], help: "Also CAN_SEND_CYCLIC (4 cyclic jobs) and CAN_BUS_INFO / J1939_ECU_INFO (network info)." },
+];
+const BLOCK_PART_WORDS = { request: "1 request mailbox", receive: "the receive mailbox", cyclic: "4 cyclic jobs", info: "network info" };
+
+function connectionBlocksText(v) {
+  const c = CONNECTION_BLOCKS.find((x) => x.value === v) || CONNECTION_BLOCKS[0];
+  const w = c.parts.map((p) => BLOCK_PART_WORDS[p]);
+  return w.length ? `${c.label} (${w.length > 1 ? w.slice(0, -1).join(", ") + " and " + w[w.length - 1] : w[0]})` : c.label;
+}
+
+// The mailboxes with `parts` added, keeping what is on (mailboxuse.mailboxes_for).
+function mailboxesWith(current, parts) {
+  if (!current) {
+    return { requests: parts.includes("request") ? 1 : 0, receive: parts.includes("receive"),
+      cyclic_jobs: parts.includes("cyclic") ? 4 : 0, network_info: parts.includes("info") };
+  }
+  const mb = Object.assign({}, current);
+  if (parts.includes("request") && (mb.requests === undefined ? 1 : mb.requests) < 1) mb.requests = 1;
+  if (parts.includes("receive") && mb.receive === false) mb.receive = true;
+  if (parts.includes("cyclic") && (mb.cyclic_jobs === undefined ? 4 : mb.cyclic_jobs) < 4) mb.cyclic_jobs = 4;
+  if (parts.includes("info") && mb.network_info === false) mb.network_info = true;
+  return mb;
+}
+
+// The choice in a connection's Settings: the parts go into bridge.mailboxes
+// in the same undo step, placed; a downloaded file is then out of date.
+function connectionBlocksField(c, path) {
+  const list = c.kind === "trust" ? CONNECTION_BLOCKS.slice(0, 2) : CONNECTION_BLOCKS;
+  return choice("canworks blocks", path + ".blocks", list, { onChange: async (v) => {
+    const b = S.model.top.bridge;
+    if (v === undefined) delete c.blocks;
+    else c.blocks = v;
+    if (c.map_hash) c.stale = true;
+    const parts = (CONNECTION_BLOCKS.find((x) => x.value === v) || CONNECTION_BLOCKS[0]).parts;
+    if (parts.length) {
+      const had = b.mailboxes;
+      b.mailboxes = mailboxesWith(had, parts);
+      if (!had || !had.input_location || !had.output_location || JSON.stringify(had) !== JSON.stringify(b.mailboxes)) {
+        await bridgeMailboxPlace(b);
+      }
+    }
+    changed(true);
+  } });
+}
 
 async function bridgeMailboxPlace(b) {
   try {
@@ -269,41 +325,63 @@ function bridgeMailboxes(b, openplc) {
     return f;
   };
   return el("fieldset", { dataset: { bridgeMailboxes: mb ? "1" : "0" } }, el("legend", null, "Function blocks"),
-    el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Mailboxes for the canworks function blocks"),
-      hint("The PLC library's blocks for long SDO objects, raw CAN frames, J1939 and EMCY talk to the bridge through these registers. " +
-        (openplc ? "New OpenPLC configs start with them on." : "Default: off.")),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Mailboxes for the canworks mailbox blocks"),
+      hint("Long SDO objects, any CAN frame, J1939 messages and trouble codes, every EMCY and bus info from the program. " +
+        "Off by default: every client polls them on every cycle, whether or not a block is called." +
+        (openplc ? " Problems offers them when the program declares a mailbox block." : " A connection's canworks blocks choice turns on what its program uses.")),
       el("span", { class: "field-msg", dataset: { for: "bridge.mailboxes" } })),
-    mb ? [
-      el("div", { class: "grid" },
-        count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
-          hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks, and no receiver can be opened." })),
-        box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers per receive block."),
-        count(field("Receive blocks", "bridge.mailboxes.receive_blocks", "int", { placeholder: "1",
-          hint: "1 or 2: a batch of received records fills them all. One block carries 9 CAN frames per batch, two carry 21 for one more Modbus request per poll." })),
-        count(field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
-          hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." })),
-        box("Network info", "network_info", "Bus state and error counters of each network (up to 8): 18 input registers per network."),
-        bridgeLocation("Input area", "bridge.mailboxes.input_location", "mailbox_input", undefined, "%IB…", "Where the responses, the receive mailbox, network info and the cyclic job table start."),
-        bridgeLocation("Output area", "bridge.mailboxes.output_location", "mailbox_output", undefined, "%QB…", "Where the requests, the receive acknowledgement and the keepalives start.")),
-      el("p", { class: "muted", id: "bridge-mailbox-cost", dataset: { bridgeMailboxCost: "1" } }, bridgeMailboxCost()),
-      el("table", { class: "od", dataset: { bridgeMailboxNeeds: "1" } }, el("tbody", null,
-        BRIDGE_MAILBOX_NEEDS.map(([part, who]) => el("tr", null, el("th", null, part), el("td", null, who))))),
-      openplc ? notice("info", "A change here changes the map hash: the editor project needs Update declarations (Save does it in a project opened here) and a new Build before the blocks work.",
-        { live: false, dataset: { bridgeMailboxUpdate: "1" } }) : null,
-    ] : null);
+    mb ? el("div", { class: "grid" },
+      count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
+        hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks, and no receiver can be opened." })),
+      box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers per receive block."),
+      count(field("Receive blocks", "bridge.mailboxes.receive_blocks", "int", { placeholder: "1",
+        hint: "1 or 2: a batch of received records fills them all. One block carries 9 CAN frames per batch, two carry 21 for one more Modbus request per poll." })),
+      count(field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
+        hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." })),
+      box("Network info", "network_info", "Bus state and error counters of each network (up to 8): 18 input registers per network."),
+      bridgeLocation("Input area", "bridge.mailboxes.input_location", "mailbox_input", undefined, "%IB…", "Where the responses, the receive mailbox, network info and the cyclic job table start."),
+      bridgeLocation("Output area", "bridge.mailboxes.output_location", "mailbox_output", undefined, "%QB…", "Where the requests, the receive acknowledgement and the keepalives start.")) : null,
+    el("p", { class: "muted", id: "bridge-mailbox-cost", dataset: { bridgeMailboxCost: "1" } }, bridgeMailboxCost()),
+    el("p", { class: "muted", id: "bridge-mailbox-who", dataset: { bridgeMailboxWho: "1" } }, bridgeMailboxWho()),
+    el("p", { dataset: { bridgeWithout: "1" } }, BRIDGE_WITHOUT_MAILBOXES),
+    el("table", { class: "od", dataset: { bridgeMailboxNeeds: "1" } },
+      el("thead", null, el("tr", null, thCells(["Part", "Needed by", "Without mailboxes"]))),
+      el("tbody", null, BRIDGE_MAILBOX_NEEDS.map(([part, who, alt]) => el("tr", null, el("th", null, part), el("td", null, who), el("td", null, alt))))),
+    mb && openplc ? notice("info", "A change here changes the map hash: the editor project needs Update declarations (Save does it in a project opened here) and a new Build before the blocks work.",
+      { live: false, dataset: { bridgeMailboxUpdate: "1" } }) : null);
 }
 
-// The cost line of the Function blocks section, from the last register map.
+// The cost line of the Function blocks section, from the last register map:
+// a difference against the map without mailboxes, on or off.
 function bridgeMailboxCost() {
   const r = S.bridgeMap;
-  if (!r || !r.mailboxes) return "";
-  const m = r.mailboxes;
-  const regs = `The blocks take ${m.input_registers} input and ${m.output_registers} holding registers.`;
-  if (!hasOpenplc())
-    return regs + (m.can_per_batch ? ` Receiving: ${m.can_per_batch} CAN frames per batch, one batch per two of your client's polls.` : "");
-  return regs + ` The whole map needs ${r.requests} Modbus request${r.requests === 1 ? "" : "s"} per poll` +
-    (r.requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with.` : ` (budget ${r.request_budget}).`) +
-    (m.can_per_second ? ` Receiving: about ${m.can_per_second} CAN frames/s at this poll (${m.can_per_batch} per batch, one batch every two polls).` : "");
+  const c = r && r.mailbox_cost;
+  if (!c) return "";
+  const regs = `+${c.input_registers} input / +${c.output_registers} holding registers`;
+  const req = c.requests_with !== undefined && c.requests_without !== undefined
+    ? `, ${c.requests_with} instead of ${c.requests_without} Modbus requests per poll` +
+      (c.requests_with > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with` : ` (budget ${r.request_budget})`)
+    : "";
+  const mb = c.on && r.mailboxes;
+  const rx = !mb || !mb.can_per_batch ? ""
+    : mb.can_per_second ? ` Receiving: about ${mb.can_per_second} CAN frames/s at this poll (${mb.can_per_batch} per batch, one batch every two polls).`
+    : ` Receiving: ${mb.can_per_batch} CAN frames per batch, one batch per two of your client's polls.`;
+  return (c.on ? "The mailboxes take " : "Turned on with the default parts, the mailboxes would take ") + regs + req + "." + rx;
+}
+
+// Who needs the mailboxes: the editor project's mailbox blocks and the
+// connections' canworks blocks choices.
+function bridgeMailboxWho() {
+  const r = S.bridgeMap;
+  if (!r) return "";
+  const out = [];
+  if (Array.isArray(r.program_blocks)) {
+    out.push(r.program_blocks.length
+      ? "The OpenPLC program declares " + r.program_blocks.map((x) => `${x.block} (${x.pous.join(", ")})`).join(", ") + "."
+      : "The OpenPLC program declares no mailbox block.");
+  }
+  for (const c of r.connection_blocks || []) out.push(`${c.name}: canworks blocks ${c.text}.`);
+  return out.join(" ");
 }
 
 // -- register map ---------------------------------------------------------------
@@ -335,6 +413,8 @@ function bridgeFillMap() {
   bridgeConnectionStates();
   const cost = $("#bridge-mailbox-cost");
   if (cost) cost.textContent = bridgeMailboxCost();
+  const who = $("#bridge-mailbox-who");
+  if (who) who.textContent = bridgeMailboxWho();
   // A refresh while the filter is being typed in keeps it focused.
   const old = host.querySelector('[data-bridge="filter"]');
   const typing = old && document.activeElement === old ? old.selectionStart : null;
@@ -544,7 +624,8 @@ function connectionRow(c, i) {
     "aria-label": `Remove ${c.name || kind}`, onclick: () => removeConnection(i) }, "Remove"));
   const row = el("tr", { dataset: { connection: c.name || String(i), connKind: kind || "" } },
     el("td", null, name, el("span", { class: "field-msg", dataset: { for: path + ".name" } })),
-    el("td", null, CONNECTION_TITLE[kind] || String(kind)),
+    el("td", null, CONNECTION_TITLE[kind] || String(kind),
+      c.blocks && c.blocks !== "none" ? el("div", { class: "muted", dataset: { connBlocks: String(i) } }, "canworks blocks: " + connectionBlocksText(c.blocks)) : null),
     el("td", null, address, el("span", { class: "field-msg", dataset: { for: path + ".address" } })),
     el("td", null, writes, el("span", { class: "field-msg", dataset: { for: path + ".writes" } })),
     el("td", null, state),
@@ -613,6 +694,9 @@ function connectionSettings(c, i) {
       field("Period (ms)", path + ".period_ms", "int", { placeholder: "10", hint: "How often the flow reads and writes the registers, 10 to 60000 ms." }),
       field("Bridge address", path + ".bridge_host", "text", { placeholder: "127.0.0.1", hint: "The bridge's address as Node-RED sees it. Empty: 127.0.0.1." }));
   }
+  // With the PLC link the flow is read-only: its block nodes cannot use the mailboxes.
+  if (kind === "trust" || kind === "plc" || (kind === "nodered" && (getPath("bridge.plc_link") !== true || c.blocks)))
+    fields.push(connectionBlocksField(c, path));
   if (!fields.length && !notes.length) return rowNotes;
   const open = S.connOpen === i;
   const box = el("details", { class: "advanced", open: open || null, dataset: { connSettingsOf: String(i) } }, el("summary", null, "Settings"),

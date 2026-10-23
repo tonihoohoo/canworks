@@ -66,10 +66,14 @@ FAILS = []
 
 def openplc_config(cfg):
     """`cfg` on the Modbus bridge with an OpenPLC connection, as the
-    configurator's Use with canworks-bridge and Add connection make it."""
+    configurator's Use with canworks-bridge and Add connection make it, and
+    the default mailboxes, which the example's main uses (mailboxes-on-demand:
+    the configurator offers them once the program declares the blocks)."""
     s = srv.Session()
     cfg = s.switch_target(cfg, "bridge", openplc=False)["config"]
-    return s.add_connection(cfg, {"kind": "openplc"})["config"]
+    cfg = s.add_connection(cfg, {"kind": "openplc"})["config"]
+    cfg["bridge"]["mailboxes"] = {"input_location": "%IB0", "output_location": "%QB0"}
+    return modbusmap.pack(cfg)
 
 def check(ok, text):
     print("    %s %s" % ("ok  " if ok else "FAIL", text), flush=True)

@@ -556,4 +556,25 @@ TEST(receiver_limit) {
   EXPECT(r.error(0) == 9);
 }
 
+TEST(use_counts_for_the_status) {
+  Rig r;
+  EXPECT(r.mb->operations() == 0 && r.mb->receivers_opened() == 0);
+  r.call(0, kOpRxOpen, 0, {kRxCan << 8, 32, 0, 0x600, 0, 0x780});
+  EXPECT(r.wait(0));
+  for (int i = 0; i < 3; ++i) {
+    r.call(0, kOpCanSend, 0, {0, 0x510, 2, 100}, {1, 2});
+    EXPECT(r.wait(0));
+  }
+  // The same request rewritten and operation none count nothing.
+  for (int i = 0; i < 5; ++i) r.step();
+  r.call(0, kOpNone, 0, {});
+  r.step();
+  EXPECT(r.mb->operations() == 4 && r.mb->receivers_opened() == 1);
+  // After a restart the last request, ended with ERROR_ID 8, counts.
+  r.call(0, kOpCanSend, 0, {0, 0x511, 2, 100}, {3, 4});
+  r.mb.reset(new Mailboxes(r.layout, r.backend));
+  r.step();
+  EXPECT(r.mb->operations() == 1 && r.mb->receivers_opened() == 0);
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

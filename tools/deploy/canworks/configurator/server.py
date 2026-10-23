@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, mainmove, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, connections, mailboxlayout, nodered, openplcmodbus, targets
+from .. import bundle, connections, mailboxlayout, mailboxuse, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -1426,6 +1426,7 @@ class Session:
         tgt = targets.target(cfg)
         if bridgecheck.is_openplc(cfg) and self.mode == "project":
             items += self.openplc_items(cfg)
+            items += self.mailbox_items(cfg)
         if tgt == targets.BRIDGE:
             items += connections.problems(cfg)
         items += bus_off_problems(cfg)
@@ -1942,7 +1943,49 @@ class Session:
                 if modbusmap.is_openplc(cfg):
                     poll = bridgecheck.openplc_settings(cfg)["poll_ms"]
                     out["mailboxes"]["can_per_second"] = round(can * 1000 / poll / 2)
+        out["mailbox_cost"] = self.mailbox_cost(cfg)
+        if modbusmap.is_openplc(cfg) and self.mode == "project" and self.folder:
+            # Who needs them: the editor project's mailbox blocks.
+            found = mailboxuse.scan_project(self.folder)
+            out["program_blocks"] = [{"block": b, "pous": sorted(found[b]), "parts": list(mailboxuse.BLOCK_PARTS[b])}
+                                     for b in sorted(found)]
+        # and the connections whose canworks blocks choice asks for them
+        out["connection_blocks"] = [{"index": i, "name": c.get("name") or connections.TITLES[c["kind"]],
+                                     "blocks": c["blocks"], "text": connections.blocks_text(c["blocks"])}
+                                    for i, c in enumerate(cfg["bridge"].get("connections") or [])
+                                    if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered")
+                                    and c.get("blocks") in ("sdo_send", "receive", "all")]
         return out
+
+    def mailbox_cost(self, cfg):
+        """The mailboxes' cost as a difference (canopen-configurator
+        "Function blocks section"): their registers and, for OpenPLC, the
+        Modbus requests per poll with and without them. Without mailboxes:
+        what the default parts would add, placed as Suggest places them."""
+        mb = cfg["bridge"].get("mailboxes")
+        on = isinstance(mb, dict)
+        ins, outs = mailboxlayout.area_bytes(mb if on else {}, len(cfg.get("networks") or []))
+        cost = {"on": on, "input_registers": ins // 2, "output_registers": (outs + 1) // 2}
+        if not modbusmap.is_openplc(cfg):
+            return cost
+        bare = copy.deepcopy(cfg)
+        bare["bridge"].pop("mailboxes", None)
+        if on:
+            with_mb = cfg
+        else:
+            with_mb = copy.deepcopy(cfg)
+            with_mb["bridge"]["mailboxes"] = {}
+            try:
+                with_mb["bridge"]["mailboxes"]["input_location"] = self.bridge_suggest(with_mb, "mailbox_input")["location"]
+                with_mb["bridge"]["mailboxes"]["output_location"] = self.bridge_suggest(with_mb, "mailbox_output")["location"]
+            except (ApiError, KeyError, TypeError):
+                return cost
+        try:
+            cost["requests_with"] = openplcmodbus.request_count(openplcmodbus.layout(with_mb, [], 0)[0])
+            cost["requests_without"] = openplcmodbus.request_count(openplcmodbus.layout(bare, [], 0)[0])
+        except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
+            pass
+        return cost
 
     def bridge_pack(self, cfg):
         """The draft with every location packed for Modbus (modbusmap.pack)."""
@@ -2159,6 +2202,43 @@ class Session:
                 "The editor files were made by an older canworks (%s): Save writes them again"
                 % ", ".join(info["outdated"]))})
         return items
+
+    def mailbox_items(self, cfg):
+        """The mailbox blocks the editor project declares against the
+        config's mailboxes (canopen-configurator "Mailbox blocks the OpenPLC
+        program declares", "Mailboxes nobody needs"): an error per block
+        whose part is off, with the mailboxes that add what the program
+        uses, or a warning when nothing uses the config's mailboxes."""
+        found = mailboxuse.scan_project(self.folder) if self.folder else {}
+        mb = (cfg.get("bridge") or {}).get("mailboxes")
+        need = mailboxuse.parts_needed(found)
+        items = []
+        add = mailboxuse.mailboxes_for(need, mb)
+        for block in sorted(found):
+            gone = mailboxuse.missing(mb, mailboxuse.parts_needed({block: found[block]}))
+            if gone:
+                items.append({"level": "error", "paths": ["bridge.mailboxes"], "mailbox_fix": add,
+                              "message": "%s: Turn on what the program uses on the Modbus bridge page"
+                              % mailboxuse.describe(block, found[block], gone)})
+        if isinstance(mb, dict) and not need:
+            saved = self.mailbox_requests(cfg)
+            items.append({"level": "warning", "paths": ["bridge.mailboxes"], "mailbox_fix": "off",
+                          "message": "The program declares no mailbox block, but the mailboxes take %s: "
+                          "Turn off the mailboxes" % (saved or "registers on every poll")})
+        return items
+
+    @staticmethod
+    def mailbox_requests(cfg):
+        """'2 of the 7 Modbus requests per poll' for an OpenPLC config's
+        mailboxes, or None when the map cannot be laid out."""
+        try:
+            with_mb = openplcmodbus.request_count(openplcmodbus.layout(cfg, [], 0)[0])
+            bare = copy.deepcopy(cfg)
+            bare["bridge"].pop("mailboxes", None)
+            without = openplcmodbus.request_count(openplcmodbus.layout(bare, [], 0)[0])
+        except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
+            return None
+        return "%d of the %d Modbus requests per poll" % (with_mb - without, with_mb)
 
     def sync_openplc(self, cfg, force=False):
         """Writes the editor's remote device, canworks_in, canworks_out and

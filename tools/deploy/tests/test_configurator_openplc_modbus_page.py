@@ -63,17 +63,23 @@ class OpenplcModbusPage(OnlineBase):
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
-        # The switch turned the function blocks' mailboxes on, placed after the data;
-        # a count change moves them, and the page says the editor needs Update declarations.
+        # The switch leaves the mailboxes off (mailboxes-on-demand) and says what they
+        # would cost; turned on they are placed after the data, a count change moves
+        # them, and the page says the editor needs Update declarations.
+        pg.wait_for_selector('[data-bridge-mailboxes="0"]')
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("7 instead of 5 Modbus requests per poll")')
+        self.assertIn("(budget 40)", pg.inner_text("[data-bridge-mailbox-cost]"))
+        self.assertIn("declares no mailbox block", pg.inner_text("[data-bridge-mailbox-who]"))
+        pg.check('input[data-path="bridge.mailboxes"]')
         pg.wait_for_selector('[data-bridge-mailboxes="1"]')
         self.assertIn("Update declarations", pg.inner_text("[data-bridge-mailbox-update]"))
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("per poll")')
-        self.assertIn("(budget 40)", pg.inner_text("[data-bridge-mailbox-cost]"))
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("The mailboxes take")')
+        self.checked()
+        self.assertIn("The program declares no mailbox block, but the mailboxes take 2 of the 7",
+                      pg.inner_text("#problem-list"))
         pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "16")
         pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("275 input")')
-        self.checked()
-        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("+275 input")')
         pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "")
         pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
         self.checked()
@@ -82,11 +88,14 @@ class OpenplcModbusPage(OnlineBase):
         pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "2")
         pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
         pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 525 CAN frames/s at this poll (21 per batch")')
-        self.checked()
-        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "")
         pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
+        # Nothing declares a mailbox block: Problems turns them off in one step.
         self.checked()
+        pg.click('#problem-list [data-problem-fix="mailboxes-off"]')
+        pg.wait_for_selector('[data-bridge-mailboxes="0"]')
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
         # Save writes the editor files; the Project page shows the facts.
         pg.click("#btn-save")
@@ -177,6 +186,35 @@ class OpenplcModbusPage(OnlineBase):
         pg.wait_for_function("() => document.querySelector('#btn-save').disabled")
         with open(changed, encoding="utf-8") as f:
             self.assertIn("canworks.ok :=", f.read())
+
+    def test_program_turns_the_mailboxes_on(self):
+        """mailboxes-on-demand: main declares CAN_RECEIVE, Problems says what
+        it needs and Turn on what the program uses adds only that, placed,
+        in one undo step."""
+        pg = self.page
+        cfg = load(self.config_path)
+        cfg.pop("bridge", None)
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        with open(os.path.join(self.project, mainmove.MAIN), "w", encoding="utf-8") as f:
+            f.write("PROGRAM main\n  VAR\n    rx : CAN_RECEIVE;\n  END_VAR\nEND_PROGRAM\n")
+        self.open()
+        tree_view(pg, "project")
+        pg.click("[data-switch-modbus]")
+        pg.wait_for_selector("#banner:has-text('targets Modbus bridge now')")
+        pg.wait_for_function("() => hasOpenplc()")
+        self.assertNotIn("mailboxes", pg.evaluate("() => S.model.top.bridge"))
+        self.checked()
+        self.assertIn("main declares CAN_RECEIVE, which needs the request and receive mailboxes",
+                      pg.inner_text("#problem-list"))
+        pg.click('#problem-list [data-problem-fix="mailboxes-on"]')
+        pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
+        mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
+        self.assertEqual((mb["requests"], mb["receive"], mb["cyclic_jobs"], mb["network_info"]), (1, True, 0, False))
+        self.checked()
+        self.assertNotIn("CAN_RECEIVE", pg.inner_text("#problem-list"))
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => !S.model.top.bridge.mailboxes")
 
 
 if __name__ == "__main__":
