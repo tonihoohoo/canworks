@@ -218,6 +218,49 @@ Each block is optional and lives where its location says.
 
 A request starts when its counter changes and goes through the same queue and timeout as the PLC's SDO function blocks. A write needs `"sdo_bridge_write": true`; without it the request ends aborted with 0x08000020 and nothing is sent. Every request is logged.
 
+## Function block mailboxes
+
+`bridge.mailboxes` gives the [function blocks](plc-library.md#the-mailboxes) (long SDO transfers, CAN frames, J1939 messages and trouble codes, EMCY) their registers. Any Modbus client can use them; the library's blocks do it for a PLC program.
+
+```json
+"mailboxes": { "requests": 1, "receive": true, "cyclic_jobs": 4, "network_info": true,
+               "input_location": "%IB66", "output_location": "%QB32" }
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `requests` | 1 | Request mailboxes, 0 to 4: operations that run at the same time. |
+| `receive` | true | The receive mailbox for CAN, J1939 and EMCY receivers. |
+| `cyclic_jobs` | 4 | Cyclic frame jobs, 0 to 16. |
+| `network_info` | true | A network info block for each of the first 8 networks. |
+| `input_location`, `output_location` | required | Where the input and output areas start, at an even byte. Pack for Modbus and the configurator's Suggest set them. |
+
+The input area holds, in this order: one response block per request mailbox (72 registers each), the receive mailbox (120 registers), the network info blocks (18 registers each) and the cyclic job table (a tick and 4 registers per job). The output area holds one request block per request mailbox (72 registers each), the receive acknowledgement (3 registers) and one keepalive register per cyclic job. The default mailboxes with one network take 227 input and 79 holding registers. Each block is a located value of the map hash, and neither OpenPLC's register groups nor the suggested client channels ever cut one over two requests. The bridge logs the ranges at start.
+
+**Request mailboxes.** A request block holds a counter (word 0), the operation and network index (word 1: operation in the high byte), six arguments (words 2-7) and 128 data bytes (words 8-71, byte 2k in the high byte of word 8 + k). An operation starts once each time the counter changes to a value other than the response's echo; the response echoes the counter with state busy, then done or error with an ERROR_ID (word 1: state in the high byte), the results in words 2-7 and the first 128 bytes of the answer. Rewriting the same request starts nothing. Operations:
+
+| Op | Name | What it does |
+| --- | --- | --- |
+| 1 | STAGE | Puts the request's data bytes into the mailbox's 1785-byte staging buffer at an offset, for a long SDO write or J1939 send. |
+| 2 | FETCH | Gives 128 bytes of the last answer from an offset. |
+| 3, 4 | SDO_READ, SDO_WRITE | An SDO transfer of up to 1785 bytes on a CANopen master network's node, through the same queue as the SDO registers; writes need `sdo_bridge_write`. |
+| 5 | CAN_SEND | One frame, done when the adapter confirms it, with the network's protocol identifier guard. |
+| 6, 7 | CYCLIC_SET, CYCLIC_STOP | Starts or changes, and stops, a frame the bridge sends from its own timer every 1 ms to 60 s. |
+| 8, 9, 10 | RX_OPEN, RX_CLOSE, RX_FETCH | Opens and closes a CAN, J1939 or EMCY receiver; RX_FETCH gives a received J1939 message longer than 8 bytes. |
+| 11, 12 | J1939_SEND, J1939_REQUEST | A J1939 message from the network's address (the transport protocol above 8 bytes), or a request and its answer. |
+| 13, 14 | DM_READ, DM_CLEAR | An ECU's trouble codes (its latest DM1 without bus traffic, or DM2 by request) and DM3/DM11. |
+| 15 | FIND_ECU | The address of an ECU by NAME and mask. |
+
+The ERROR_IDs are those of the matching block family ([plc-library.md](plc-library.md#sdo-blocks), [raw-can.md](raw-can.md#error-ids), [j1939.md](j1939.md#error-ids)). Each mailbox runs one operation at a time; different mailboxes run in parallel.
+
+**Receive mailbox.** For each open receiver the bridge keeps a queue (CAN up to 256 frames, J1939 up to 32 messages, EMCY its place in the network's history of 64) and shows the records in batches: word 0 the batch sequence, words 1-2 the receivers present in it, word 3 the record words used, word 4 a millisecond tick, words 5-20 each receiver number's generation, then the records (CAN 14 words, J1939 16, EMCY 12), each with its receiver, kind and flags, the records still queued, the dropped count and the UTC receive time. The next batch comes once the acknowledgement names the current sequence with no receiver still pending. A batch that is not acknowledged within 1 s (5 s while a long J1939 message is being fetched) closes the receivers still pending and moves on, logged once, so a reader that stopped does not hold up the others. At most 32 receivers are open at once.
+
+**Network info** (18 registers per network, every 100 ms): CAN state and bus load, error counters, bus-offs, frames received and sent, error frames, and for a J1939 network its claim state, address, NAME and ECU count.
+
+**Cyclic jobs.** The table shows each job's state, ERROR_ID, generation and frame count. A job whose keepalive register has not changed for 1 s is stopped, so a client that went away does not leave a frame running.
+
+**When the link stops.** When the PLC link header says stopped or another map, or the watchdog fires, the bridge cancels every running operation, stops every cyclic job, closes every receiver and empties the receive mailbox; a network restart does the same for that network. One log line says how many it ended.
+
 ## OpenPLC through Modbus
 
 A bridge config with an `openplc` object is an OpenPLC config: the bridge runs the networks next to an unmodified OpenPLC Runtime v4 on the same device, and the runtime's own Modbus master reads and writes the registers. Nothing of canworks runs inside the runtime, so an OpenPLC update changes nothing for canworks as long as the Modbus master and the editor's remote device format stay.
@@ -255,7 +298,7 @@ Pack for Modbus places the values after them (input byte 12, output byte 6); a l
 
 - `devices/remote/canworks.json`: the remote device, on 127.0.0.1 and the port, with one read group (FC 4) or write group (FC 16) per run of contiguous registers (at most 125 or 123 registers each), the header write group first; every register gets its `%IW`/`%QW` word from `iec_base` on and an alias;
 - `pous/programs/canworks_in.st` and `canworks_out.st`, run first and last in the project's task: they convert between the words and the typed members of the variable list, put the header with the generated hash last, and set `canworks.ok` while the bridge's hash matches and its status counter moves;
-- the `canworks` variable list in `project.json`: one typed member per located value (`canworks.dio_door_open`), `ok` and `link`, which the [function blocks](plc-library.md) take.
+- the `canworks` variable list in `project.json`: one typed member per located value (`canworks.dio_door_open`), `ok` and `link` (`ARRAY[0..1279] OF WORD`), which the [function blocks](plc-library.md) take; with `mailboxes`, `canworks_in` also copies the mailbox words into `link` and calls `CW_LINK_SERVICE`, and `canworks_out` copies the requests back.
 
 The user's own POUs are never touched. A file canworks owns that was changed in the editor is written again only after a question naming it, and an OpenPLC Editor with the project open must reopen it before Build. The Project page shows the remote device, the poll with the number of Modbus requests per poll (a warning above 40), the map hash and the first editor location.
 
@@ -283,7 +326,7 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 ## Clients
 
-**A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations.
+**A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations. For a config with the PLC link (`openplc`), the `.st` export is instead the whole PLC link for that PLC: the `canworks` list with the channel variables, the channels to create, and `canworks_in`/`canworks_out`, so the [function blocks](plc-library.md#on-another-modbus-plc) work there as on OpenPLC.
 
 **Node-RED:** `canworks-deploy --export-nodered flow.json` (or **Export Node-RED flow** on the configurator's bridge page) writes a flow for `node-red-contrib-modbus` that reads and writes every value by name, keeps the watchdog fed and wraps the control and SDO registers ([node-red.md](node-red.md)).
 
@@ -318,3 +361,4 @@ Modbus TCP has no authentication or encryption. Put the bridge on a machine netw
 - At most 16 connections (`max_clients`, up to 64), 4 per address, and 8 KB of unread replies per connection.
 - No Modbus RTU (serial); no Modbus TLS.
 - One bridge per CAN interface.
+- Function block mailboxes: at most 4 request mailboxes, 32 receivers, 16 cyclic jobs and network info for 8 networks.

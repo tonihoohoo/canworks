@@ -73,6 +73,7 @@ An existing folder becomes the project when it has none of the editor's files (`
 ```sh
 canworks-deploy library --install              # into OpenPLC Editor on this PC
 canworks-deploy library --out DIR              # writes DIR/canworks.stlib
+canworks-deploy library --format st --out DIR  # its ST sources, for another Modbus PLC
 canworks-deploy library --project <project>    # enables it in an editor project
 canworks-deploy library --list                 # its blocks and functions
 ```
@@ -172,7 +173,7 @@ writes one self-contained HTML document of the configured networks for people: t
 
 ## Modbus clients
 
-`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)).
+`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config); for a config with `bridge.openplc` the `.st` file is the PLC link for another Modbus PLC, [plc-library.md](plc-library.md#on-another-modbus-plc)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)).
 
 ## The local runtime
 

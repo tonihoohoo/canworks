@@ -96,7 +96,7 @@ import tempfile
 import time
 
 from . import (__version__, bundle, contract, dbcexport, dcfexport, diag, docexport, editorproject,
-               localruntime, modbusmap, nodered, notes, project, plclibrary, simfile, slaveeds, targets)
+               localruntime, modbusmap, nodered, notes, openplcmodbus, project, plclibrary, simfile, slaveeds, targets)
 from .userdirs import replace_file
 
 
@@ -144,7 +144,9 @@ def parser():
     src.add_argument("--export-modbus-map", metavar="FILE",
                      help="write the Modbus register map of a bridge config (one with a \"bridge\" object) as CSV, "
                           "JSON or an ST variable list, chosen by the extension (.csv, .json, .st), instead of "
-                          "deploying; nothing is built or uploaded")
+                          "deploying; nothing is built or uploaded. For a config with bridge.openplc the .st "
+                          "file is the PLC link for another Modbus PLC: the canworks list, its client "
+                          "channels, canworks_in and canworks_out")
     src.add_argument("--export-nodered", metavar="FILE",
                      help="write a Node-RED flow (for node-red-contrib-modbus) that reads and writes a bridge config's "
                           "values by name through the bridge, instead of deploying; nothing is built or uploaded "
@@ -240,8 +242,18 @@ def _export_modbus_map(config, path, out):
     except ValueError as e:
         raise Failure("%s: not valid JSON (%s)" % (config, e))
     try:
+        if path.lower().endswith(".st") and modbusmap.is_openplc(cfg):
+            # A PLC link config: the list, the channels and canworks_in/out
+            # for another Modbus PLC.
+            text = openplcmodbus.other_plc_st(cfg, editorproject.declarations(cfg, config))
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            rows = modbusmap.register_map(cfg)
+            out("wrote %s: the canworks list, client channels, canworks_in and canworks_out, map hash 0x%08x"
+                % (path, modbusmap.map_hash(cfg)))
+            return 0
         rows = modbusmap.export(cfg, path)
-    except modbusmap.MapError as e:
+    except (modbusmap.MapError, openplcmodbus.OpenplcError) as e:
         raise Failure("%s: %s" % (config, e))
     except OSError as e:
         raise Failure("cannot write %s: %s" % (path, e))
@@ -643,8 +655,11 @@ def library_parser():
                     "(SDO read and write, NMT, node live state) and CAN and J1939 helper functions. "
                     "See docs/plc-library.md." % plclibrary.NAME)
     p.add_argument("--out", metavar="DIR",
-                   help="write %s into DIR, for the editor's Library Manager (install from file)"
-                        % plclibrary.FILE_NAME)
+                   help="write %s into DIR, for the editor's Library Manager (install from file); with "
+                        "--format st the ST sources instead" % plclibrary.FILE_NAME)
+    p.add_argument("--format", choices=("stlib", "st"), default="stlib",
+                   help="with --out: stlib (default) the editor's library file, st one .st file per block and "
+                        "function, for another IEC 61131-3 PLC tool (CODESYS and others) over the Modbus bridge")
     p.add_argument("--install", action="store_true",
                    help="install the library into OpenPLC Editor on this computer, as its Library Manager does "
                         "(restart the editor afterwards)")
@@ -657,11 +672,17 @@ def run_library(args, out=print, err=None):
     err = err or (lambda m: print(m, file=sys.stderr))
     if not (args.out or args.install or args.project or args.list):
         raise Failure("give --out DIR, --install, --project DIR or --list")
+    if args.format == "st" and not args.out:
+        raise Failure("--format st writes the ST sources with --out DIR")
     try:
         if args.list:
             for name in plclibrary.block_names() + plclibrary.function_names():
                 out(name)
-        if args.out:
+        if args.out and args.format == "st":
+            paths = plclibrary.write_st(args.out)
+            out("wrote %d ST sources of %s %s into %s" % (len(paths), plclibrary.NAME, __version__,
+                                                       os.path.dirname(paths[0])))
+        elif args.out:
             out("wrote %s (%s %s)" % (plclibrary.write(args.out), plclibrary.NAME, __version__))
         if args.install:
             out("installed %s %s into the editor (%s); restart OpenPLC Editor if it is open"

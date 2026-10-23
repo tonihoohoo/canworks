@@ -281,13 +281,27 @@ class OpenplcModbus(Base):
         self.assertEqual(text[:3], ["I 0 4 -", "I 4 8 -", "I 12 2 -"])
         self.assertIn("Q 6 1 -", text)
 
+    def test_place_skips_the_bridge_blocks(self):
+        # The mailbox areas reach past byte 100: a new entry lands after them.
+        self.open()
+        cfg = self.switched()
+        ends = {}
+        for it in modbusmap.collect(cfg):
+            if it.kind == "bridge":
+                ends[it.loc.area] = max(ends.get(it.loc.area, 0), it.loc.index + it.nbytes)
+        self.assertGreater(ends["I"], 100)
+        for direction, area in (("input", "I"), ("output", "Q")):
+            loc = self.ok("/api/place", {"config": cfg, "node": 0, "direction": direction,
+                                         "type": "UNSIGNED16"})["location"]
+            self.assertGreaterEqual(int(loc[3:]), max(100, ends[area]), loc)
+
     def test_save_writes_the_editor_files(self):
         project = self.project()
         self.open(project, "project")
         cfg = self.switched()
         r = self.ok("/api/save", {"config": cfg})
         self.assertEqual(r["errors"], 0, r["check"]["items"])
-        self.assertEqual(r["editor"]["requests"], 5)
+        self.assertEqual(r["editor"]["requests"], 7)  # 5 data groups + the mailboxes' input and output
         remote = os.path.join(project, "devices", "remote", "canworks.json")
         self.assertIn(remote, r["written"])
         with open(remote, encoding="utf-8") as f:
@@ -295,7 +309,7 @@ class OpenplcModbus(Base):
         self.assertEqual(dev["modbusTcpConfig"]["port"], 1502)
         self.assertTrue(os.path.isfile(os.path.join(project, "pous", "programs", "canworks_out.st")))
         info = r["state"]["openplc"]
-        self.assertEqual((info["remote_device"], info["poll_ms"], info["requests"]), ("canworks", 10, 5))
+        self.assertEqual((info["remote_device"], info["poll_ms"], info["requests"]), ("canworks", 10, 7))
         self.assertEqual(info["map_hash"], "0x%08x" % modbusmap.map_hash(load(os.path.join(project, "canworks",
                                                                                             "canworks.json"))))
         # someone edits canworks_in.st: the next save asks first
@@ -315,4 +329,4 @@ class OpenplcModbus(Base):
         self.open()
         r = self.ok("/api/save", {"config": self.switched()})
         self.assertNotIn("editor", r)
-        self.assertEqual(r["state"]["openplc"]["requests"], 5)
+        self.assertEqual(r["state"]["openplc"]["requests"], 7)

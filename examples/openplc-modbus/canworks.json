@@ -152,6 +152,10 @@
       "request": "%QB18",
       "response": "%IB52"
     },
-    "sdo_bridge_write": true
+    "sdo_bridge_write": true,
+    "mailboxes": {
+      "input_location": "%IB66",
+      "output_location": "%QB32"
+    }
   }
 }

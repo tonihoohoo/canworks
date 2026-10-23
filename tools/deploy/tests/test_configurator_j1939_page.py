@@ -54,7 +54,7 @@ class J1939Page(OnlineBase):
         pg.click('#modal button[data-value="add"]')
         pg.wait_for_selector("#banner:has-text('Added 2 received and 1 sent PGNs from machine.dbc')")
         # Free locations after the ones the config already uses.
-        self.assertEqual(pg.input_value('input[data-path="j1939.rx[1].signals[0].iec_location"]'), "%ID106")
+        self.assertEqual(pg.input_value('input[data-path="j1939.rx[1].signals[0].iec_location"]'), "%ID486")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # A problem shows at its field and goes away again.

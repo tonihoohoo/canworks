@@ -306,7 +306,8 @@ class NetworksPage(unittest.TestCase):
             pg.wait_for_function("() => window.__copied.length === 2")
             text = pg.evaluate("() => window.__copied[1]")
             self.assertIn("nmt_drives_n2_preop : CO_NMT;", text)
-            self.assertIn("NETWORK := 1 (* drives *), NODE := 2, COMMAND := 128 (* ENTER PRE-OPERATIONAL *)", text)
+            self.assertIn("NETWORK := 1 (* drives *), NODE := 2, COMMAND := 128 (* ENTER PRE-OPERATIONAL *), "
+                          "LINK := canworks.link", text)
             # Picking io shows io and selects its tree entry.
             pg.select_option('select[data-online="network"]', "io")
             pg.wait_for_selector('td[data-online="bus"]:has-text("vcan0")')

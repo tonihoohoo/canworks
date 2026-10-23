@@ -3,11 +3,14 @@
 # fetched by scripts/fetch-strucpp.sh) and the packaged canworks library
 # (library/build.sh):
 #   - the blocks over the bridge (library/modbus) against a model of the
-#     bridge's control block and SDO registers (bridge_model.st);
+#     bridge's control block and SDO registers (bridge_model.st), and those
+#     over its mailboxes against a model of them (mailbox_model.st);
 #   - the generated canworks_in and canworks_out for canworks.json here
 #     (make_programs.py): conversions both ways, canworks.ok, the header;
 #   - the whole generated project (list, programs, configuration with the
-#     three instances in one task) compiles.
+#     three instances in one task) compiles, and so does the PLC link file
+#     --export-modbus-map OUT.st writes for another Modbus PLC, and the
+#     OpenPLC example's program (examples/openplc-modbus/main.st).
 #
 #   test/plc_modbus/run.sh [--strucpp PATH]
 set -euo pipefail
@@ -47,8 +50,11 @@ check() {
     fi
 }
 check blocks "$HERE/bridge_model.st" "${LIBRARY[@]}" -o "$WORK/blocks.cpp" --test "$HERE/test_blocks.st"
+check mailboxes "$HERE/mailbox_model.st" "${LIBRARY[@]}" -o "$WORK/mailboxes.cpp" --test "$HERE/test_mailbox_blocks.st"
 check programs "$WORK/programs.st" "${LIBRARY[@]}" -o "$WORK/programs.cpp" --test "$HERE/test_programs.st"
 check project "$WORK/project.st" "${LIBRARY[@]}" -o "$WORK/project.cpp"
+check other "$WORK/other.st" "${LIBRARY[@]}" -o "$WORK/other.cpp"
+check example "$WORK/example.st" "${LIBRARY[@]}" -o "$WORK/example.cpp"
 # The C++ of the whole project compiles (types in an order g++ takes).
 RUNTIME="$(cd "$(dirname "$(readlink -f "$STRUCPP")")/../.." && pwd)/src/runtime/include"
 if g++ -std=c++17 -fsyntax-only -I"$RUNTIME" "$WORK/project.cpp" 2>"$WORK/gxx.log"; then

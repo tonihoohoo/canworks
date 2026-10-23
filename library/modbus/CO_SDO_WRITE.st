@@ -4,14 +4,14 @@
  * CANopen master network NETWORK, through the bridge's SDO registers; the
  * config needs "sdo_bridge_write": true.
  * A rising edge of EXECUTE starts it; BUSY until the bridge has an answer,
- * then DONE or ERROR with ERROR_ID (docs/plc-sdo.md): 1 the node aborted
+ * then DONE or ERROR with ERROR_ID (docs/plc-library.md): 1 the node aborted
  * (ABORT_CODE), 2 no answer within TIMEOUT (T#0s: 5 s), 6 invalid input,
  * 20 the bridge is not reachable, 21 SDO writes are not allowed by the
  * config (ABORT_CODE 16#08000020), 22 the config has no SDO registers.
  * Instances share the SDO registers: one waits while another uses them.
  *)
 (*
- * LINK is the generated `canworks.link` (ARRAY[0..88] OF WORD): the
+ * LINK is the generated `canworks.link` (ARRAY[0..1279] OF WORD): the
  * bridge's blocks as canworks_in and canworks_out copy them from and to the
  * Modbus registers every scan, one word per register (high byte = the
  * bridge's even byte). Words: 0-3 status block, 4-6 control block, 7-13 SDO
@@ -39,7 +39,7 @@ VAR_OUTPUT
   ABORT_CODE : UDINT;
 END_VAR
 VAR_IN_OUT
-  LINK : ARRAY[0..88] OF WORD;
+  LINK : ARRAY[0..1279] OF WORD;
 END_VAR
 VAR
   me : WORD;

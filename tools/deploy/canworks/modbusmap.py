@@ -16,6 +16,7 @@ import io
 import json
 import zlib
 
+from . import mailboxlayout
 from .iec import Location, parse_location
 
 # Bytes per location size letter.
@@ -177,7 +178,7 @@ def _walk(value, ctx, out):
             _walk(sub, ctx, out)
 
 
-def _bridge_items(bridge):
+def _bridge_items(bridge, networks=0):
     out = []
     openplc = isinstance(bridge.get("openplc"), dict)
     if openplc:
@@ -203,6 +204,29 @@ def _bridge_items(bridge):
             if key in sdo:
                 out.append(_block_item(sdo, key, sdo[key], area, SDO_BRIDGE_BYTES,
                                        "bridge.sdo_bridge.%s" % key))
+    out.extend(_mailbox_items(bridge.get("mailboxes"), networks))
+    return out
+
+
+def _mailbox_items(mb, networks):
+    """One item per mailbox block (modbus-bridge-mailboxes), at its offset
+    from bridge.mailboxes.input_location / output_location. Packing moves
+    each area as a whole: extra "mailbox_area" names it, "mailbox_offset"
+    is the block's place in it."""
+    if not isinstance(mb, dict):
+        return []
+    out = []
+    for area, offset, nbytes, name, _ in mailboxlayout.blocks(mb, networks):
+        key = "input_location" if area == "I" else "output_location"
+        text = mb.get(key)
+        if text is None:
+            continue
+        base = parse_location(text)
+        if base is None or base.size != "B" or base.area != area:
+            raise MapError("bridge.mailboxes.%s: %r must be a byte location in %%%s" % (key, text, area))
+        item = _block_item(mb, key, _fmt(area, "B", base.index + offset), area, nbytes, name)
+        item.extra.update({"mailbox_area": area, "mailbox_offset": offset})
+        out.append(item)
     return out
 
 
@@ -241,7 +265,7 @@ def collect(cfg):
         _walk(net, {"network": net.get("name")}, items)
     rest = {k: v for k, v in cfg.items() if k not in ("networks", "bridge", "diagnostics")}
     _walk(rest, {}, items)
-    items.extend(_bridge_items(cfg["bridge"]))
+    items.extend(_bridge_items(cfg["bridge"], len(cfg.get("networks") or [])))
     return items
 
 
@@ -538,6 +562,8 @@ def pack(cfg):
         bit_next = 8
         for kind in ("data", "status", "bridge"):
             for it in (x for x in items if x.loc.area == area and x.kind == kind):
+                if "mailbox_area" in it.extra:
+                    continue
                 if it.loc.size == "X":
                     if bit_next > 7:
                         bit_byte, bit_next = pos, 0
@@ -551,4 +577,9 @@ def pack(cfg):
                 pos += it.nbytes
             # The next class starts on its own byte.
             bit_next = 8
+        # The mailbox area last, as one block on a register.
+        mb = out["bridge"].get("mailboxes")
+        if isinstance(mb, dict):
+            pos += pos % 2
+            mb["input_location" if area == "I" else "output_location"] = _fmt(area, "B", pos)
     return out

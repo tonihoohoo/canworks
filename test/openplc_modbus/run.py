@@ -19,12 +19,15 @@ that image (the header canworks_out writes, the values) and checks:
 2. outputs go out: an output byte reaches the simulated node and comes back
    as its input (the node's simulation copies 0x6200:1 to 0x6000:1), and an
    SDO read through the PLC link's SDO registers reads it from the node;
-3. the PLC stops as the runtime stops it (%Q zeroed for one more round,
+3. the function blocks' mailboxes: an SDO read through a request mailbox
+   and a CAN receiver's frames in the receive mailbox, written and read as
+   the library's blocks do;
+4. the PLC stops as the runtime stops it (%Q zeroed for one more round,
    then the plugin's threads stop): with on_client_loss "hold" the node
    keeps the last real output, not the zeros;
-4. a PLC built for another map (wrong hash in the header): the bridge takes
+5. a PLC built for another map (wrong hash in the header): the bridge takes
    no output from it;
-5. the example with a J1939 network too (examples/j1939's, on a CAN
+6. the example with a J1939 network too (examples/j1939's, on a CAN
    interface this test does not open): the bridge accepts the config, and
    the remote device and the runtime's model of its modbus_master.json
    cover the J1939 signals.
@@ -163,7 +166,7 @@ def set_byte(words, nbyte, value, current):
 
 
 def with_j1939(work):
-    """Step 5: the example with examples/j1939's network as an OpenPLC through
+    """Step 6: the example with examples/j1939's network as an OpenPLC through
     Modbus config, checked by the bridge, the remote device and the model."""
     with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
         cfg = json.load(f)
@@ -280,7 +283,39 @@ def main():
         value = plc.get(sdo_i // 2 + 4) << 16 | plc.get(sdo_i // 2 + 5)
         check(value == 0x5A, "it reads the output from the node (%#x)" % value)
 
-        print("3. the PLC stops", flush=True)
+        print("3. the function blocks' mailboxes", flush=True)
+        # What CO_SDO_READ_BYTES and CAN_RECEIVE write and read (bridge-plc-blocks).
+        mb = cfg["bridge"]["mailboxes"]
+        rsp, req = int(mb["input_location"][3:]) // 2, int(mb["output_location"][3:]) // 2
+        rx, ack = rsp + 72, req + 72  # one request mailbox, then the receive mailbox
+        # SDO_READ (op 3) on network 0: node 6 sub 1, index 0x6200, kind 3 (bytes), timeout 1000 ms.
+        plc.put({req: 1, req + 1: 0x0300, req + 2: 0x0601, req + 3: 0x6200, req + 4: 0x0300, req + 5: 1000,
+                 req + 6: 0, req + 7: 0})
+        check(wait(lambda: plc.get(rsp) == 1 and plc.get(rsp + 1) >> 8 >= 2),
+              "an SDO read through the request mailbox ends (state %d, ERROR_ID %d)"
+              % (plc.get(rsp + 1) >> 8, plc.get(rsp + 1) & 0xFF))
+        size = plc.get(rsp + 2) << 16 | plc.get(rsp + 3)
+        check((plc.get(rsp + 1), size, plc.get(rsp + 8) >> 8) == (0x0200, 1, 0x5A),
+              "it reads the output byte from the node (size %d, first byte %#x)" % (size, plc.get(rsp + 8) >> 8))
+        # RX_OPEN (op 8): a CAN receiver for the rtd node's TPDO 1 (0x185, mask 0x7FF).
+        plc.put({req: 2, req + 1: 0x0800, req + 2: 0x0100, req + 3: 0, req + 4: 0, req + 5: 0x185, req + 6: 0,
+                 req + 7: 0x7FF})
+        check(wait(lambda: plc.get(rsp) == 2 and plc.get(rsp + 1) == 0x0200), "a CAN receiver opens (state %d, "
+              "ERROR_ID %d)" % (plc.get(rsp + 1) >> 8, plc.get(rsp + 1) & 0xFF))
+        slot = plc.get(rsp + 2)
+
+        def present():
+            return (plc.get(rx + 1) << 16 | plc.get(rx + 2)) >> slot & 1
+
+        check(wait(present, 5.0), "a batch in the receive mailbox carries the receiver's records")
+        first = rx + 21
+        check((plc.get(first) >> 8, plc.get(first) >> 4 & 0xF, plc.get(first + 7) << 16 | plc.get(first + 8))
+              == (slot, 1, 0x185), "its first record is a CAN frame 0x185 (header %#06x)" % plc.get(first))
+        seq = plc.get(rx)
+        plc.put({ack: seq, ack + 1: 0, ack + 2: 0})
+        check(wait(lambda: plc.get(rx) != seq, 5.0), "after the acknowledgement the next batch comes")
+
+        print("4. the PLC stops", flush=True)
         stop_plc(master)
         time.sleep(0.5)
         check(plc.byte(in_row["byte"]) == 0x5A, "with on_client_loss hold the node keeps the last output, not the "
@@ -290,7 +325,7 @@ def main():
             held = "outputs held at their last values by the PLC link header (the PLC stopped)" in f.read()
         check(held, "the bridge took the stop from the header's running word")
 
-        print("4. a PLC built for another map", flush=True)
+        print("5. a PLC built for another map", flush=True)
         plc.put({0: 1, 1: (hash_ >> 16) ^ 1, 2: hash_ & 0xFFFF})
         plc.put(set_byte({}, out_row["byte"], 0x33, lambda reg: 0))
         master = start_plc()
@@ -301,7 +336,7 @@ def main():
         check(wait(lambda: plc.byte(in_row["byte"]) == 0x33), "with the right hash its outputs go out again")
         stop_plc(master)
 
-        print("5. with a J1939 network", flush=True)
+        print("6. with a J1939 network", flush=True)
         cfg5, path5 = with_j1939(work)
         r = subprocess.run([args.bridge, "--config", path5, "--check-only"], capture_output=True, text=True)
         check(r.returncode == 0, "the bridge accepts the config" + ("" if r.returncode == 0 else ": " + r.stdout + r.stderr))

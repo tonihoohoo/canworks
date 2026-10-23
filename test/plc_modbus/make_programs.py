@@ -10,6 +10,11 @@ here, through the deploy tool's openplcmodbus module:
     programs.st  canworks_in and canworks_out as function blocks without
                  locations, the list as their output and input, for the
                  conversion tests
+    other.st     the PLC link file --export-modbus-map OUT.st writes for
+                 another Modbus PLC, its global variable list as a STRUCT
+                 the way project.st has it, with main and a configuration
+    example.st   examples/openplc-modbus: its list and programs with its
+                 main.st, as project.st
 
 The raw signals have no REAL type, so four of them are declared REAL and
 LREAL here to test those conversions.
@@ -33,9 +38,16 @@ MAIN = """PROGRAM main
   VAR
     rd : CO_SDO_READ;
     live : CO_NODE_LIVE;
+    name : CO_SDO_READ_STRING;
+    send : CAN_SEND;
+    rx : CAN_RECEIVE;
+    frame : ARRAY[0..7] OF BYTE;
   END_VAR
   rd(EXECUTE := canworks.ok, NODE := 5, INDEX := 16#1018, SUBINDEX := 1, LINK := canworks.link);
   live(NETWORK := 0, NODE := 5, LINK := canworks.link);
+  name(EXECUTE := canworks.ok, NODE := 5, INDEX := 16#1008, LINK := canworks.link);
+  send(EXECUTE := canworks.ok, ID := 16#181, DLC := 8, DATA := frame, LINK := canworks.link);
+  rx(ENABLE := canworks.ok, ID := 16#181, RX_DATA := frame, LINK := canworks.link);
   canworks.cab_Out_word := canworks.cab_In_word;
 END_PROGRAM
 """
@@ -87,6 +99,43 @@ def main():
         f.write(struct(lst))
         f.write(as_block(in_st, "canworks_in", "VAR_OUTPUT"))
         f.write(as_block(out_st, "canworks_out", "VAR_INPUT"))
+
+    # Another PLC: its list's VAR_GLOBAL block becomes the STRUCT.
+    text = openplcmodbus.other_plc_st(cfg, decls)
+    head, rest = text.split("VAR_GLOBAL\n", 1)
+    members, rest = rest.split("END_VAR\n", 1)
+    programs = rest[rest.index("PROGRAM "):].split("\n\nPROGRAM ")
+    with open(os.path.join(out, "other.st"), "w", encoding="utf-8") as f:
+        f.write("TYPE canworks_TYPE :\nSTRUCT\n%sEND_STRUCT;\nEND_TYPE\n" % members)
+        for st in (programs[0], MAIN, "PROGRAM " + programs[1]):
+            f.write(with_external(st.strip()))
+        f.write("CONFIGURATION config\n  VAR_GLOBAL\n    canworks : canworks_TYPE;\n  END_VAR\n"
+                "  RESOURCE res ON PLC\n    TASK main_task(INTERVAL := T#20ms,PRIORITY := 1);\n"
+                "    PROGRAM in_instance WITH main_task : canworks_in;\n"
+                "    PROGRAM main_instance WITH main_task : main;\n"
+                "    PROGRAM out_instance WITH main_task : canworks_out;\n"
+                "  END_RESOURCE\nEND_CONFIGURATION\n")
+
+    # The OpenPLC example's program against its own list.
+    ex = os.path.join(HERE, "..", "..", "examples", "openplc-modbus")
+    ex_path = os.path.join(ex, "canworks.json")
+    with open(ex_path, encoding="utf-8") as f:
+        ex_cfg = json.load(f)
+    ex_decls = editorproject.declarations(ex_cfg, ex_path)
+    ex_in, ex_out = openplcmodbus.programs(ex_cfg, ex_decls)
+    with open(os.path.join(ex, "main.st"), encoding="utf-8") as f:
+        ex_main = f.read()
+    ex_main = ex_main[ex_main.index("PROGRAM main"):]
+    with open(os.path.join(out, "example.st"), "w", encoding="utf-8") as f:
+        f.write(struct(openplcmodbus.global_list(ex_decls)))
+        for st in (ex_in, ex_main, ex_out):
+            f.write(with_external(st.strip()))
+        f.write("CONFIGURATION config\n  VAR_GLOBAL\n    canworks : canworks_TYPE;\n  END_VAR\n"
+                "  RESOURCE res ON PLC\n    TASK main_task(INTERVAL := T#20ms,PRIORITY := 1);\n"
+                "    PROGRAM in_instance WITH main_task : canworks_in;\n"
+                "    PROGRAM main_instance WITH main_task : main;\n"
+                "    PROGRAM out_instance WITH main_task : canworks_out;\n"
+                "  END_RESOURCE\nEND_CONFIGURATION\n")
 
 
 if __name__ == "__main__":

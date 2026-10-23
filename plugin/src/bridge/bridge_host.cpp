@@ -238,6 +238,24 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   if (cfg_.openplc) supervisor_->link_off(OutputState::kPlcStopped);
   control_ = ControlBlock();
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
+  mailboxes_.reset();
+  mailbox_backend_.reset();
+  if (cfg_.has_mailboxes) {
+    MailboxLayout ml;
+    ml.requests = cfg_.mb_requests;
+    ml.receive = cfg_.mb_receive;
+    ml.info_networks = cfg_.mb_info_networks;
+    ml.cyclic_jobs = cfg_.mb_cyclic_jobs;
+    ml.in_base = cfg_.mb_input.index;
+    ml.out_base = cfg_.mb_output.index;
+    mailbox_backend_.reset(new EngineMailboxBackend(static_cast<unsigned>(s.networks.size())));
+    mailboxes_.reset(new Mailboxes(ml, *mailbox_backend_));
+    log_info("bridge mailboxes: %u request mailbox(es) at input byte %u and output byte %u, receive mailbox %s, "
+             "network info for %u network(s), %u cyclic job(s); %u input and %u output bytes",
+             ml.requests, ml.in_base, ml.out_base, ml.receive ? "on" : "off", ml.info_networks, ml.cyclic_jobs,
+             ml.input_bytes(), ml.output_bytes());
+  }
+  first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
   canopen_plugin::set_outputs_enabled(!cfg_.openplc);
@@ -264,6 +282,8 @@ void BridgeHost::stop() {
   if (!running_) return;
   stop_ = true;
   if (thread_.joinable()) thread_.join();
+  mailboxes_.reset();
+  mailbox_backend_.reset();
   server_.stop();
   engine_->stop();
   canopen_plugin::set_outputs_enabled(true);
@@ -310,7 +330,17 @@ void BridgeHost::link_off(OutputState why, Clock::time_point now) {
   if (was == OutputState::kRunning) enter_off(why, now);
 }
 
+void BridgeHost::end_program_resources(const char* why) {
+  if (!mailboxes_) return;
+  unsigned n = mailboxes_->end_all(why);
+  if (n) log_info("bridge mailboxes: %u operation(s), receiver(s) and cyclic job(s) of the program ended (%s)", n, why);
+}
+
 void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
+  if (why != OutputState::kIdle)
+    end_program_resources(why == OutputState::kPlcStopped ? "the PLC stopped"
+                          : why == OutputState::kMismatch ? "the program was built for another map"
+                                                          : "the watchdog");
   const char* reason = why == OutputState::kIdle         ? "the control block's idle command"
                        : why == OutputState::kPlcStopped ? "the PLC link header (the PLC stopped)"
                        : why == OutputState::kMismatch   ? "the PLC link header (another map hash)"
@@ -439,6 +469,18 @@ void BridgeHost::loop() {
       service_control(out_copy_.data(), now);
       if (sdo_) sdo_->service(out_copy_.data() + cfg_.sdo_request.index, g_sdo_backend);
       write_blocks(now);
+      if (mailboxes_) {
+        // Requests count only while the outputs run: a stopped or
+        // mismatched program's words are not taken.
+        bool live = ctl_seen != first_out_version_ && supervisor_->running();
+        mailboxes_->service(live ? out_copy_.data() : nullptr, g_image->in.data(), now);
+        if (uint32_t stalled = mailboxes_->take_stalled())
+          log_warn("bridge receive mailbox: receivers 0x%08x closed: their records were not taken within 1 s (a "
+                   "block that is no longer called, or a program that does not read them)",
+                   stalled);
+        if (unsigned f = mailboxes_->take_forgotten())
+          log_warn("bridge cyclic jobs: %u job(s) stopped: their block stopped calling (no keepalive for 1 s)", f);
+      }
       image_.publish_inputs(g_image->in.data(), g_image->in.size());
       push_outputs();  // the first snapshot, and the zero action's
     }

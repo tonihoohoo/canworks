@@ -101,6 +101,19 @@
           "required": [ "request", "response" ]
         },
         "sdo_bridge_write": { "description": "Allow SDO writes through the SDO bridge registers (default false).", "type": "boolean" },
+        "mailboxes": {
+          "description": "Mailboxes for the PLC function blocks (docs/plc-library.md#bridge-blocks): request mailboxes for long SDO, CAN and J1939 operations, a receive mailbox for frames, J1939 messages and EMCY, network info and cyclic CAN jobs. Each area is one block of bytes from input_location and output_location; Pack for Modbus sets both.",
+          "type": "object",
+          "properties": {
+            "requests": { "description": "Request mailboxes, 0-4 (default 1). Blocks share them in turn.", "type": "integer", "minimum": 0, "maximum": 4 },
+            "receive": { "description": "The receive mailbox (default true).", "type": "boolean" },
+            "cyclic_jobs": { "description": "Cyclic CAN frames the bridge sends, 0-16 (default 4).", "type": "integer", "minimum": 0, "maximum": 16 },
+            "network_info": { "description": "A network info block for each of the first 8 networks (default true).", "type": "boolean" },
+            "input_location": { "description": "Where the input area starts, an even input byte.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
+            "output_location": { "description": "Where the output area starts, an even output byte.", "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" }
+          },
+          "required": ["input_location", "output_location"]
+        },
         "openplc": {
           "description": "OpenPLC Runtime is the client, through its own Modbus master (docs/modbus-bridge.md#openplc): the configurator writes the editor's remote device. Implies listen 127.0.0.1:1502, writers [\"127.0.0.1\"], word_order low_first, watchdog 5 x poll_ms (at least 50 ms) and the status block at %IB4. Input bytes 0-3 hold the map hash, output bytes 0-5 the PLC link header.",
           "type": "object",

@@ -179,11 +179,11 @@ class AssistTests(unittest.TestCase):
         self.assertEqual(sorted(s["iec_location"] for s in raw["tx"][0]["signals"]), ["%QW302", "%QX300.0"])
         self.assertEqual(contract.check_raw(raw, "networks[0].raw")[0], [])
         st = assist.st_call(raw["rx"][0], "rx", 1)
-        self.assertIn("rx_Joystick(ENABLE := TRUE, NETWORK := 1, ID := 16#123, RX_DATA := Joystick_data);", st)
+        self.assertIn("rx_Joystick(ENABLE := TRUE, NETWORK := 1, ID := 16#123, RX_DATA := Joystick_data, LINK := canworks.link);", st)
         self.assertIn("Joystick_X := CAN_GET_BITS(DATA := Joystick_data, START_BIT := 0, BIT_LENGTH := 12, "
                       "MOTOROLA := FALSE, SIGNED := TRUE);", st)
         st = assist.st_call(raw["tx"][0], "tx")
-        self.assertIn("tx_Lamps(EXECUTE := Lamps_go, ID := 16#501, DLC := 3, DATA := Lamps_data);", st)
+        self.assertIn("tx_Lamps(EXECUTE := Lamps_go, ID := 16#501, DLC := 3, DATA := Lamps_data, LINK := canworks.link);", st)
 
 
 

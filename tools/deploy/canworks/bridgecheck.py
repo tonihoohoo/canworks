@@ -9,6 +9,7 @@ different bit numbers. Word and larger locations start at an even byte.
 
 import ipaddress
 
+from . import mailboxlayout
 from .iec import parse_location
 
 # Bytes per location size letter.
@@ -30,7 +31,7 @@ OPENPLC_POLL_MS = 10
 IMAGE_BYTES = 8192
 
 KEYS = ("listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms", "on_client_loss",
-        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc")
+        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc", "mailboxes")
 OPENPLC_KEYS = ("poll_ms", "remote_device", "iec_base")
 
 # Every address may write: the explicit form `writers` needs for that.
@@ -281,10 +282,53 @@ def check_bridge(cfg, nets, err, warn):
         err(w, "field 'sdo_bridge_write' must be true or false", [w + ".sdo_bridge_write"])
     elif b.get("sdo_bridge_write") is True and "sdo_bridge_location" not in b:
         warn(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'", [w + ".sdo_bridge_write"])
+    uses.extend(_mailboxes(b, w, len(nets), err))
     if openplc:
         uses.append((parse_location("%IB0"), "bridge map hash (openplc)", w + ".openplc", OPENPLC_HASH_BYTES))
         uses.append((parse_location("%QB0"), "the PLC link header (openplc, output bytes 0-5)", w + ".openplc",
                      OPENPLC_HEADER_BYTES))
+    return uses
+
+
+def _mailboxes(b, w, networks, err):
+    """bridge.mailboxes: its blocks as uses, in the order of the bridge's
+    own list (parse_mailboxes and bridge_uses in config.cpp)."""
+    if "mailboxes" not in b:
+        return []
+    o = b["mailboxes"]
+    mw = w + ".mailboxes"
+    if not isinstance(o, dict):
+        err(w, "field 'mailboxes' must be an object", [mw])
+        return []
+    counts = {}
+    for key, maximum in (("requests", mailboxlayout.MAX_REQUESTS), ("cyclic_jobs", mailboxlayout.MAX_CYCLIC_JOBS)):
+        v = _get_uint(o, key, mw, maximum, err)
+        if v is not None:
+            counts[key] = v
+    for key in ("receive", "network_info"):
+        if key not in o:
+            continue
+        if isinstance(o[key], bool):
+            counts[key] = o[key]
+        else:
+            err(mw, "field '%s' must be true or false" % key, [mw + "." + key])
+    for key in ("input_location", "output_location"):
+        if key not in o:
+            err(mw, "missing required field '%s' (where the mailbox area starts; Pack for Modbus in the configurator "
+                    "sets it)" % key, [mw + "." + key])
+    ins, outs = mailboxlayout.area_bytes(counts, networks)
+    base = {"I": _block(o, "input_location", mw, "I", ins, err),
+            "Q": _block(o, "output_location", mw, "Q", max(1, outs), err)}
+    for area, key in (("I", "input_location"), ("Q", "output_location")):
+        if base[area] and base[area].index % 2:
+            err(mw, "%s: a mailbox area starts at an even byte (a register)" % base[area], [mw + "." + key])
+    if not (base["I"] and base["Q"]):
+        return []
+    uses = []
+    for area, offset, nbytes, _, who in mailboxlayout.blocks(counts, networks):
+        key = "input_location" if area == "I" else "output_location"
+        loc = parse_location("%%%sB%d" % (area, base[area].index + offset))
+        uses.append((loc, who, mw + "." + key, nbytes))
     return uses
 
 

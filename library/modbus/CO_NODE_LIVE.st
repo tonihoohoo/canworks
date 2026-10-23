@@ -4,7 +4,7 @@
  * live list for the network or while the bridge is not reachable.
  *)
 (*
- * LINK is the generated `canworks.link` (ARRAY[0..88] OF WORD): the
+ * LINK is the generated `canworks.link` (ARRAY[0..1279] OF WORD): the
  * bridge's blocks as canworks_in and canworks_out copy them from and to the
  * Modbus registers every scan, one word per register (high byte = the
  * bridge's even byte). Words: 0-3 status block, 4-6 control block, 7-13 SDO
@@ -22,7 +22,7 @@ VAR_OUTPUT
   LIVE : BOOL;
 END_VAR
 VAR_IN_OUT
-  LINK : ARRAY[0..88] OF WORD;
+  LINK : ARRAY[0..1279] OF WORD;
 END_VAR
 VAR
   byte_no : INT;

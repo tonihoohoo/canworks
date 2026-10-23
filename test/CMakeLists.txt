@@ -185,10 +185,17 @@ target_include_directories(bridge_tests PRIVATE common)
 target_link_libraries(bridge_tests PRIVATE canworks_bridge_proto)
 add_test(NAME bridge_tests COMMAND bridge_tests)
 set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)
+# The bridge's mailboxes on a scripted backend (modbus-bridge-mailboxes).
+add_executable(mailbox_tests bridge/mailbox_tests.cpp)
+target_include_directories(mailbox_tests PRIVATE common)
+target_link_libraries(mailbox_tests PRIVATE canworks_bridge_proto)
+add_test(NAME mailbox_tests COMMAND mailbox_tests)
+set_tests_properties(mailbox_tests PROPERTIES TIMEOUT 60)
 
 # canworks-bridge end to end: the example on its simulated bus with a Modbus
 # TCP client (modbus-bridge).
-add_executable(bridge_host_tests bridge/bridge_host_tests.cpp ${PROJECT_SOURCE_DIR}/plugin/src/bridge/bridge_host.cpp)
+add_executable(bridge_host_tests bridge/bridge_host_tests.cpp ${PROJECT_SOURCE_DIR}/plugin/src/bridge/bridge_host.cpp
+               ${PROJECT_SOURCE_DIR}/plugin/src/bridge/mailbox_engine.cpp)
 target_include_directories(bridge_host_tests PRIVATE common)
 target_compile_definitions(bridge_host_tests PRIVATE EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/modbus-bridge"
                            OPENPLC_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/openplc-modbus"

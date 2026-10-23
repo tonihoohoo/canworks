@@ -163,6 +163,10 @@
     "sdo_bridge_location": {
       "request": "%QB34",
       "response": "%IB42"
+    },
+    "mailboxes": {
+      "input_location": "%IB56",
+      "output_location": "%QB48"
     }
   }
 }

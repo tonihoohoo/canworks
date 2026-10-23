@@ -202,7 +202,7 @@ class CopyAsStCall(unittest.TestCase):
         self.assertIn("  rx_machine_Pressures : J1939_RECEIVE;\n", st)
         self.assertIn("  machine_Pressures_data : ARRAY[0..1784] OF BYTE;\n", st)
         call = ("rx_machine_Pressures(ENABLE := TRUE, NETWORK := 0 (* machine *), PGN := 65280, SOURCE := 0, "
-                "FILTER_SOURCE := TRUE, RX_DATA := machine_Pressures_data);")
+                "FILTER_SOURCE := TRUE, RX_DATA := machine_Pressures_data, LINK := canworks.link);")
         self.assertEqual(st.count(call), 2)
         self.assertIn("WHILE rx_machine_Pressures.NEW DO\n", st)
         self.assertIn("  machine_Pressures_Pressure := J1939_GET_BITS(DATA := machine_Pressures_data, START_BIT := 0, "
@@ -210,7 +210,7 @@ class CopyAsStCall(unittest.TestCase):
         self.assertIn("  machine_Pressures_Temp := J1939_GET_BITS(DATA := machine_Pressures_data, START_BIT := 16, "
                       "BIT_LENGTH := 8, SIGNED := TRUE); (* raw degC *)\n", st)
         self.assertIn("rq_machine_Pressures(EXECUTE := machine_Pressures_ask, NETWORK := 0 (* machine *), PGN := 65280, "
-                      "DESTINATION := 0, DATA := machine_Pressures_answer);", st)
+                      "DESTINATION := 0, DATA := machine_Pressures_answer, LINK := canworks.link);", st)
 
     def test_any_source_requests_globally(self):
         del self.cfg["networks"][0]["j1939"]["rx"][0]["source"]
@@ -225,7 +225,7 @@ class CopyAsStCall(unittest.TestCase):
         self.assertIn("machine_Command_packed := J1939_SET_BITS(DATA := machine_Command_data, START_BIT := 0, "
                       "BIT_LENGTH := 8, VALUE := machine_Command_Mode);", st)
         self.assertIn("tx_machine_Command(EXECUTE := machine_Command_go, NETWORK := 0 (* machine *), PGN := 61184, "
-                      "DESTINATION := 0, PRIORITY := 6, LENGTH := 8, DATA := machine_Command_data);", st)
+                      "DESTINATION := 0, PRIORITY := 6, LENGTH := 8, DATA := machine_Command_data, LINK := canworks.link);", st)
         # A PDU2 PGN goes to every ECU; the length holds every signal, at least 8.
         sig = {"name": "Far", "start_bit": 100, "length": 16}
         self.cfg["networks"][0]["j1939"]["tx"][0]["signals"].append(sig)

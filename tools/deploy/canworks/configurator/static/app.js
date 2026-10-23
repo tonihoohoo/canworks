@@ -3901,14 +3901,17 @@ const SDO_TYPES = ["BOOLEAN", "INTEGER8", "INTEGER16", "INTEGER24", "INTEGER32",
   "UNICODE_STRING", "DOMAIN"];
 // "Copy as ST call": a CO_SDO_* block instance and its call (spec
 // canopen-configurator, Copy as ST call; the blocks are the canworks
-// library, docs/plc-sdo.md).
+// library, docs/plc-library.md).
 const ST_INT_TYPES = { BOOLEAN: "BOOL", INTEGER8: "SINT", INTEGER16: "INT", INTEGER24: "DINT", INTEGER32: "DINT",
   INTEGER40: "LINT", INTEGER48: "LINT", INTEGER56: "LINT", INTEGER64: "LINT", UNSIGNED8: "USINT", UNSIGNED16: "UINT",
   UNSIGNED24: "UDINT", UNSIGNED32: "UDINT", UNSIGNED40: "ULINT", UNSIGNED48: "ULINT", UNSIGNED56: "ULINT",
   UNSIGNED64: "ULINT" };
+// Integers of up to 4 bytes go through CO_SDO_READ/WRITE (DATA : UDINT); wider ones as bytes.
+const ST_INT_BYTES = { BOOLEAN: 1, INTEGER8: 1, UNSIGNED8: 1, INTEGER16: 2, UNSIGNED16: 2, INTEGER24: 3, UNSIGNED24: 3,
+  INTEGER32: 4, UNSIGNED32: 4 };
 function stBlock(type, write) {
   const kind = type === "REAL32" || type === "REAL64" ? "_REAL" : type === "VISIBLE_STRING" ? "_STRING"
-    : type === "OCTET_STRING" || type === "DOMAIN" ? "_BYTES" : "";
+    : type === "OCTET_STRING" || type === "DOMAIN" || (ST_INT_TYPES[type] && !ST_INT_BYTES[type]) ? "_BYTES" : "";
   return (write ? "CO_SDO_WRITE" : "CO_SDO_READ") + kind;
 }
 // With several networks: the online network's number (its place in the
@@ -3931,16 +3934,19 @@ function stCall(node, index, subindex, type, write, net = stNetwork()) {
   lines.push(`END_VAR`, ``);
   lines.push(`(* EXECUTE: a rising edge starts the transfer; FALSE clears DONE and ERROR. *)`);
   const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []), `NODE := ${node}`, `INDEX := 16#${ix}`, `SUBINDEX := ${subindex}`];
-  if (block === "CO_SDO_WRITE") args.push(`DATA := ${iec ? `${iec}_TO_LWORD(value)` : "value"}`, `SIZE := 0`);
+  if (block === "CO_SDO_WRITE") {
+    args.push(`DATA := ${iec ? `${iec}_TO_UDINT(value)` : "value"}`, ST_INT_BYTES[type] ? `SIZE := ${ST_INT_BYTES[type]}` : `SIZE := 4 (* the object's size, 1 to 4 bytes *)`);
+  }
   if (block === "CO_SDO_WRITE_REAL") args.push(`VALUE := value`, `SIZE := 0`);
   if (block === "CO_SDO_WRITE_STRING") args.push(`VALUE := text`);
   if (block === "CO_SDO_WRITE_BYTES") args.push(`BUFFER := ${inst}_buf`, `SIZE := 0 (* bytes to send *)`);
   if (block === "CO_SDO_READ_BYTES") args.push(`BUFFER := ${inst}_buf`);
+  args.push(`LINK := canworks.link`);
   lines.splice(2, 0, `  ${inst}_go : BOOL;`);
   lines.push(`${inst}(${args.join(", ")});`);
   lines.push(`IF ${inst}.DONE THEN`);
   if (!write) {
-    const result = block === "CO_SDO_READ" ? (iec ? `LWORD_TO_${iec}(${inst}.DATA)` : `${inst}.DATA (* SIZE bytes *)`)
+    const result = block === "CO_SDO_READ" ? (iec ? `UDINT_TO_${iec}(${inst}.DATA)` : `${inst}.DATA (* up to 4 bytes *)`)
       : block === "CO_SDO_READ_BYTES" ? `${inst}_buf (* ${inst}.SIZE bytes *)` : `${inst}.VALUE`;
     lines.push(`  (* value := ${result}; *)`);
   } else lines.push(`  (* written *)`);
@@ -3980,7 +3986,7 @@ function stNmtCall(node, command, net = stNetwork()) {
   const [code, name] = NMT_CODES[command];
   const inst = `nmt_${net ? net.name + "_" : ""}n${node}_${command.replace("-", "_")}`;
   const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []),
-    `NODE := ${node}`, `COMMAND := ${code} (* ${name} *)`];
+    `NODE := ${node}`, `COMMAND := ${code} (* ${name} *)`, `LINK := canworks.link`];
   return [`VAR`, `  ${inst} : CO_NMT;`, `  ${inst}_go : BOOL;`, `END_VAR`, ``,
     `(* EXECUTE: a rising edge sends the command; FALSE clears DONE and ERROR. *)`,
     `${inst}(${args.join(", ")});`,

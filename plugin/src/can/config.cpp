@@ -3273,6 +3273,65 @@ class Parser {
       uses.push_back({b.sdo_request, "bridge sdo_bridge_location.request", kBridgeSdoBytes});
       uses.push_back({b.sdo_response, "bridge sdo_bridge_location.response", kBridgeSdoBytes});
     }
+    if (b.has_mailboxes) {
+      // One use per block, in area order (modbus-bridge-map "Mailbox blocks
+      // in the map"); the PC tools list the same.
+      auto at = [](const IecLocation& base, unsigned offset) {
+        IecLocation l = base;
+        l.index = base.index + offset;
+        return l;
+      };
+      unsigned in = 0, out = 0;
+      for (unsigned m = 0; m < b.mb_requests; ++m) {
+        uses.push_back({at(b.mb_input, in), "bridge mailbox " + std::to_string(m) + " response", kMailboxBytes});
+        uses.push_back({at(b.mb_output, out), "bridge mailbox " + std::to_string(m) + " request", kMailboxBytes});
+        in += kMailboxBytes;
+        out += kMailboxBytes;
+      }
+      if (b.mb_receive) {
+        uses.push_back({at(b.mb_input, in), "bridge receive mailbox", kReceiveBytes});
+        uses.push_back({at(b.mb_output, out), "bridge receive acknowledgement", kReceiveAckBytes});
+        in += kReceiveBytes;
+        out += kReceiveAckBytes;
+      }
+      for (unsigned n = 0; n < b.mb_info_networks; ++n) {
+        uses.push_back({at(b.mb_input, in), "bridge network info " + std::to_string(n), kNetInfoBytes});
+        in += kNetInfoBytes;
+      }
+      if (b.mb_cyclic_jobs) {
+        uses.push_back({at(b.mb_input, in), "bridge cyclic job table", 2 + b.mb_cyclic_jobs * kCyclicJobBytes});
+        uses.push_back({at(b.mb_output, out), "bridge cyclic job keepalives", 2 * b.mb_cyclic_jobs});
+      }
+    }
+  }
+
+  // bridge.mailboxes (modbus-bridge-mailboxes spec).
+  void parse_mailboxes(const cJSON* b, const std::string& w, const ConfigSet& set, BridgeConfig& c) {
+    const cJSON* o = cJSON_GetObjectItemCaseSensitive(b, "mailboxes");
+    if (!o) return;
+    const std::string mw = w + ".mailboxes";
+    if (!cJSON_IsObject(o)) {
+      error(w, "field 'mailboxes' must be an object");
+      return;
+    }
+    check_known(o, mw, {"requests", "receive", "cyclic_jobs", "network_info", "input_location", "output_location"});
+    uint64_t v;
+    if (get_uint(o, "requests", mw, false, kMaxMailboxes, v)) c.mb_requests = (unsigned)v;
+    get_bool(o, "receive", mw, c.mb_receive);
+    if (get_uint(o, "cyclic_jobs", mw, false, kMaxCyclicJobs, v)) c.mb_cyclic_jobs = (unsigned)v;
+    get_bool(o, "network_info", mw, c.mb_network_info);
+    c.mb_info_networks =
+        c.mb_network_info ? (unsigned)std::min<size_t>(set.networks.size(), kMaxInfoNetworks) : 0;
+    for (const char* key : {"input_location", "output_location"})
+      if (!cJSON_GetObjectItemCaseSensitive(o, key))
+        error(mw, std::string("missing required field '") + key +
+                      "' (where the mailbox area starts; Pack for Modbus in the configurator sets it)");
+    bool in_ok = block_location(o, "input_location", mw, IecArea::Input, mailbox_input_bytes(c), c.mb_input);
+    bool out_ok = block_location(o, "output_location", mw, IecArea::Output, std::max(1u, mailbox_output_bytes(c)),
+                                 c.mb_output);
+    for (const IecLocation* l : {&c.mb_input, &c.mb_output})
+      if (l->index % 2) error(mw, l->str() + ": a mailbox area starts at an even byte (a register)");
+    c.has_mailboxes = in_ok && out_ok;
   }
 
   // ---- the Modbus bridge (modbus-bridge spec) ----
@@ -3359,7 +3418,7 @@ class Parser {
     check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
                        "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
-                       "sdo_bridge_location", "sdo_bridge_write", "openplc"});
+                       "sdo_bridge_location", "sdo_bridge_write", "openplc", "mailboxes"});
     parse_openplc(b, w, c);
     if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "listen")) c.listen = "127.0.0.1:1502";
     if (get_string(b, "listen", w, !c.openplc, c.listen)) {
@@ -3498,6 +3557,7 @@ class Parser {
     }
     get_bool(b, "sdo_bridge_write", w, c.sdo_bridge_write);
     if (c.sdo_bridge_write && !sdo) warning(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'");
+    parse_mailboxes(b, w, set, c);
   }
 
   // Every IEC location of one network; `p` goes in front of each name.
@@ -3641,6 +3701,15 @@ std::vector<ImageUse> image_uses(const ConfigSet& set) {
     out.push_back({u.loc, u.nbytes ? u.nbytes : location_bytes(u.loc), i >= data, u.who});
   }
   return out;
+}
+
+unsigned mailbox_input_bytes(const BridgeConfig& b) {
+  return b.mb_requests * kMailboxBytes + (b.mb_receive ? kReceiveBytes : 0) + b.mb_info_networks * kNetInfoBytes +
+         (b.mb_cyclic_jobs ? 2 + b.mb_cyclic_jobs * kCyclicJobBytes : 0);
+}
+
+unsigned mailbox_output_bytes(const BridgeConfig& b) {
+  return b.mb_requests * kMailboxBytes + (b.mb_receive ? kReceiveAckBytes : 0) + 2 * b.mb_cyclic_jobs;
 }
 
 uint32_t crc32_ieee(const std::string& data) {
