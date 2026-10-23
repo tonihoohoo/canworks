@@ -187,11 +187,6 @@ class OpenplcModbusPage(OnlineBase):
         with open(changed, encoding="utf-8") as f:
             self.assertIn("canworks.ok :=", f.read())
 
-
-if __name__ == "__main__":
-    import unittest
-    unittest.main()
-
     def test_program_turns_the_mailboxes_on(self):
         """mailboxes-on-demand: main declares CAN_RECEIVE, Problems says what
         it needs and Turn on what the program uses adds only that, placed,
@@ -219,3 +214,8 @@ if __name__ == "__main__":
         self.assertNotIn("CAN_RECEIVE", pg.inner_text("#problem-list"))
         pg.keyboard.press("Control+z")
         pg.wait_for_function("() => !S.model.top.bridge.mailboxes")
+
+
+if __name__ == "__main__":
+    import unittest
+    unittest.main()
