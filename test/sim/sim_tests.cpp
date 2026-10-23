@@ -3512,8 +3512,18 @@ TEST(sim_simulated_power_cycles) {
     r = sim_diag("sim_clear", R"({"op":"sim_clear","node":2,"fault":"power"})");
     CHECK(ok(r));
     cJSON_Delete(r);
-    uint32_t before = sim->in();
-    CHECK_MSG(sim->RunUntil([before] { return sim->status() && sim->in() > before + 3; }, seconds(5)),
+    // Back means up and the counter running again. The device restarts its
+    // objects at power on, so the counter starts over from a small value: wait
+    // for steps, not for it to pass the value before the cycle (that took
+    // longer each cycle and ran past the watchdog on a busy runner).
+    uint32_t last = sim->in();
+    int steps = 0;
+    CHECK_MSG(sim->RunUntil([&] {
+                uint32_t v = sim->in();
+                if (v == last + 1) ++steps;
+                last = v;
+                return sim->status() && steps > 3;
+              }, seconds(5)),
               "cycle " + std::to_string(i + 1) + ": node 2 is not back");
     auto t0 = steady_clock::now();
     cJSON* a = sim->Ask(diag_req("status"), milliseconds(1000));
@@ -4728,11 +4738,17 @@ int main(int argc, char** argv) {
 namespace {
 
 std::string two_networks_json() {
+  // A value comes back 5 SYNCs after it goes out. On the virtual buses the
+  // round trips keep their phase to the 10 ms scans, so with equal periods
+  // (or 20 ms against 15 ms) both can stay in different scans for good. At
+  // 20 ms and 21 ms the round trips (100 and 105 ms) drift 5 ms against each
+  // other per trip and soon land in one scan.
   auto net = [](const char* name, const char* iface, int n) {
     std::string s = std::to_string(n);
+    std::string sync = n ? "21000" : "20000";
     std::string loc = std::to_string(100 + 4 * n);
     return std::string(R"({ "name": ")") + name + R"(", "adapter": { "type": "socketcan", "interface": ")" + iface +
-           R"(", "bitrate": 125000 }, "master": { "node_id": 1, "sync_period_us": 20000 },
+           R"(", "bitrate": 125000 }, "master": { "node_id": 1, "sync_period_us": )" + sync + R"( },
       "nodes": [ { "node_id": 2, "name": "pingpong", "eds": "cpp-slave.eds", "heartbeat_ms": 50, "heartbeat_timeout_ms": 200,
         "status_location": "%IX10.)" + s + R"(",
         "tx_pdos": [ { "entries": [ { "index": "0x4001", "type": "UNSIGNED32", "iec_location": "%ID)" + loc + R"(" } ] } ],
