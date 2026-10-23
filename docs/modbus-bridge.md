@@ -2,14 +2,15 @@
 
 `canworks-bridge` runs the CAN networks of a config without an OpenPLC runtime and serves their values as Modbus TCP registers. Any PLC with Modbus client channels, an HMI, a SCADA system or a script then reads CANopen, J1939 and raw CAN values as input registers and writes outputs as holding registers.
 
-The bridge is canworks' engine: it boots and supervises CANopen nodes, claims a J1939 address, sends and receives raw messages, runs simulated devices and serves the diagnostics channel and trace. Its process image goes to Modbus clients: an OpenPLC Runtime on the same device ([OpenPLC through Modbus](#openplc-through-modbus)), another PLC, an HMI or a script. It runs on Linux with SocketCAN, as a systemd service or in a container.
+The bridge is canworks' engine: it boots and supervises CANopen nodes, claims a J1939 address, sends and receives raw messages, runs simulated devices and serves the diagnostics channel and trace. Its process image goes to Modbus clients, the config's [connections](#connections): an OpenPLC Runtime on the same device ([OpenPLC](#openplc)), truST or another PLC, a Node-RED flow, an HMI, SCADA system or script. It runs on Linux with SocketCAN, as a systemd service or in a container.
 
 - [Install](#install)
 - [A bridge config](#a-bridge-config)
 - [The register rule](#the-register-rule)
 - [Outputs, the watchdog and client loss](#outputs-the-watchdog-and-client-loss)
 - [Status, control, live lists and SDO registers](#status-control-live-lists-and-sdo-registers)
-- [OpenPLC through Modbus](#openplc-through-modbus)
+- [Connections](#connections)
+- [OpenPLC](#openplc)
 - [Deploying and checking a config](#deploying-and-checking-a-config)
 - [Clients](#clients)
 - [Security](#security)
@@ -135,10 +136,10 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `live_lists` | none | 16-byte live lists of CANopen master networks (`%IB...`). |
 | `sdo_bridge_location` | none | The SDO registers: a 14-byte `request` block (`%QB...`) and a 14-byte `response` block (`%IB...`). |
 | `sdo_bridge_write` | false | Allow SDO writes through the SDO registers. |
-| `openplc` | none | OpenPLC's own Modbus master is the client ([OpenPLC through Modbus](#openplc-through-modbus)). |
-| `plc_link` | false (true with `openplc`) | The PLC link for any client: the map hash at input registers 0-1 and the header at holding registers 0-2, as for [OpenPLC](#openplc-through-modbus); needed by the [PLCopen XML export](plcopen.md). `false` with `openplc` is refused. |
+| `connections` | none | The programs and tools that use the registers ([Connections](#connections)). The bridge does not read them; the PC tools check them. |
+| `plc_link` | false | The PLC link for any client: the map hash at input registers 0-1 and the header at holding registers 0-2 ([OpenPLC](#openplc)); needed by an OpenPLC connection and the [PLCopen XML export](plcopen.md). `false` with an OpenPLC connection is refused. |
 
-The bridge refuses a config without a `bridge` object, naming the configurator's **Switch to OpenPLC through Modbus** for a config made for the removed canworks plugin, and a CODESYS config.
+The bridge refuses a config without a `bridge` object, naming the configurator's **Use with canworks-bridge** for a config made for the removed canworks plugin, and a CODESYS config. The removed `openplc` field is refused with one message: OpenPLC is a connection.
 
 ### Byte addresses
 
@@ -221,7 +222,7 @@ A request starts when its counter changes and goes through the same queue and ti
 
 #### After a bridge restart
 
-OpenPLC's Modbus master writes the whole output image every poll, so after a bridge restart the PLC's last control block and SDO request are still there. For a config with `bridge.openplc` the bridge takes the first control block and SDO request it gets after a start as the last ones handled and does not run them: the status block echoes that counter with result 6, and the SDO response shows it aborted with 0x08000021. The canworks blocks report both as ERROR_ID 8; start the block again. Other clients usually write a block only when they send a command, so their first command runs; a client that rewrites its outputs cyclically can write counter 0 back after its command ended.
+A PLC writes its whole output image every poll, so after a bridge restart the PLC's last control block and SDO request are still there. With the PLC link (`plc_link`, which an OpenPLC connection turns on) the bridge takes the first control block and SDO request it gets after a start as the last ones handled and does not run them: the status block echoes that counter with result 6, and the SDO response shows it aborted with 0x08000021. The canworks blocks report both as ERROR_ID 8; start the block again. Clients without the PLC link usually write a block only when they send a command, so their first command runs; such a client that rewrites its outputs cyclically can write counter 0 back after its command ended.
 
 ## Function block mailboxes
 
@@ -266,26 +267,57 @@ The ERROR_IDs are those of the matching block family ([plc-library.md](plc-libra
 
 **When the link stops.** When the PLC link header says stopped or another map, or the watchdog fires, the bridge cancels every running operation, stops every cyclic job, closes every receiver and empties the receive mailbox; a network restart does the same for that network. One log line says how many it ended.
 
-## OpenPLC through Modbus
+## Connections
 
-A bridge config with an `openplc` object is an OpenPLC config: the bridge runs the networks next to an unmodified OpenPLC Runtime v4 on the same device, and the runtime's own Modbus master reads and writes the registers. Nothing of canworks runs inside the runtime, so an OpenPLC update changes nothing for canworks as long as the Modbus master and the editor's remote device format stay.
+`bridge.connections` lists the programs and tools that use the registers, so they travel with the project. The bridge does not read the list; the PC tools check it, and the configurator's **Modbus bridge** page shows it first, with **Add connection** and each connection's files.
+
+```json
+"connections": [
+  { "kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1", "writes": true },
+  { "kind": "hmi", "name": "Line HMI", "address": "192.168.10.20", "writes": false, "format": "csv",
+    "map_hash": "0x1a2b3c4d" }
+]
+```
+
+Every connection has `kind`, a unique `name` (1-64 characters), `address` (the client's IP address), `writes` and, once downloaded, `map_hash`. The kinds and their own fields:
+
+| Kind | Fields | What it gets |
+| --- | --- | --- |
+| `openplc` | `poll_ms` (5-1000, default 10), `remote_device` (default `canworks`), `iec_base` | The editor files, kept in sync by Save in an editor project ([OpenPLC](#openplc)). At most one; its address is `127.0.0.1`. |
+| `trust` | `format` (`plcopen`), `library`, `bridge_host` | The PLCopen XML folder for truST, as a zip ([plcopen.md](plcopen.md)). |
+| `plc` | `format` (`plcopen` or `st`), `library`, `bridge_host` | The PLCopen XML folder, or the PLC link as ST ([plc-library.md](plc-library.md#on-another-modbus-plc)). |
+| `nodered` | `period_ms` (10-60000), `bridge_host` | The Node-RED flow ([node-red.md](node-red.md)). |
+| `hmi` | `format` (`csv`, `json` or `st`) | The register map or the ST variable list. |
+
+A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, the row says **Out of date** and Problems warns until the next download.
+
+The writers follow the connections: while there are connections, `writers` is the sorted addresses of those with `writes` true, and the check warns when they differ. A connection on the network while `listen` is a loopback address is an error naming it. With the PLC link, only the PLC writes outputs and mailboxes: a Node-RED or HMI connection that writes gets a warning.
+
+## OpenPLC
+
+A bridge config with an OpenPLC connection runs the networks next to an unmodified OpenPLC Runtime v4 on the same device, and the runtime's own Modbus master reads and writes the registers. Nothing of canworks runs inside the runtime, so an OpenPLC update changes nothing for canworks as long as the Modbus master and the editor's remote device format stay.
 
 ```json
 "bridge": {
-  "openplc": { "poll_ms": 10 },
+  "connections": [ { "kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1", "writes": true, "poll_ms": 10 } ],
+  "plc_link": true,
+  "listen": "127.0.0.1:1502",
+  "writers": [ "127.0.0.1" ],
+  "word_order": "low_first",
+  "watchdog_ms": 50,
   "control_location": "%QB34",
   "sdo_bridge_location": { "request": "%QB40", "response": "%IB60" },
   "sdo_bridge_write": true
 }
 ```
 
-| `openplc` field | Default | Meaning |
+| Connection field | Default | Meaning |
 | --- | --- | --- |
 | `poll_ms` | 10 | How often OpenPLC reads and writes every register group, 5 to 1000 ms. |
 | `remote_device` | `canworks` | The remote device's name in the editor project (`devices/remote/<name>.json`). |
 | `iec_base` | the first free from 100 | The first `%IW` and `%QW` word the groups get in the editor project. |
 
-With `openplc` the bridge listens on `127.0.0.1:1502` and lets only `127.0.0.1` write unless `listen` and `writers` say otherwise, the watchdog defaults to 5 × `poll_ms` (at least 50 ms), 32- and 64-bit values are low word first (`word_order` `high_first` is refused), and the first bytes are fixed:
+Adding the connection in the configurator turns on the PLC link and low word first, sets `listen` to `127.0.0.1:1502` (unless another connection is on the network), the watchdog to 5 × `poll_ms` (at least 50 ms) when unset, turns on the control block, the SDO registers and the mailboxes, adds a live list per CANopen master network and repacks. With an OpenPLC connection `plc_link` false and `word_order` `high_first` are refused. The PLC link fixes the first bytes:
 
 | Bytes | Registers | Meaning |
 | --- | --- | --- |
@@ -299,19 +331,19 @@ Pack for Modbus places the values after them (input byte 12, output byte 6); a l
 
 **The PLC link header.** The header write sets the link state: running 1 with the bridge's hash is ok; running 0 is stopped (status byte 0 = 5); any other hash is a mismatch (status byte 0 = 4, logged once with both hashes). Output writes are answered normally but applied only while the state is ok. Stopped and mismatch put the outputs off with the `on_client_loss` action at once, before that write's values apply: when OpenPLC stops, it writes one last round of zeros, and with `"hold"` the nodes keep the values from before it. The watchdog still covers a lost connection.
 
-**What the configurator writes.** Saving an OpenPLC project with no errors writes, next to `canworks/canworks.json`:
+**What the configurator writes.** Saving a config with an OpenPLC connection in an editor project, with no errors, writes, next to `canworks/canworks.json`:
 
 - `devices/remote/canworks.json`: the remote device, on 127.0.0.1 and the port, with one read group (FC 4) or write group (FC 16) per run of contiguous registers (at most 125 or 123 registers each), the header write group first; every register gets its `%IW`/`%QW` word from `iec_base` on and an alias;
 - `pous/programs/canworks_in.st` and `canworks_out.st`, run first and last in the project's task: they convert between the words and the typed members of the variable list, put the header with the generated hash last, and set `canworks.ok` while the bridge's hash matches and its status counter moves;
 - the `canworks` variable list in `project.json`: one typed member per located value (`canworks.dio_door_open`), `ok` and `link` (`ARRAY[0..1279] OF WORD`), which the [function blocks](plc-library.md) take; with `mailboxes`, `canworks_in` also copies the mailbox words into `link` and calls `CW_LINK_SERVICE`, and `canworks_out` copies the requests back.
 
-The user's own POUs are never touched. A file canworks owns that was changed in the editor is written again only after a question naming it, and an OpenPLC Editor with the project open must reopen it before Build. The Project page shows the remote device, the poll with the number of Modbus requests per poll (a warning above 40), the map hash and the first editor location.
+The user's own POUs are never touched. A file canworks owns that was changed in the editor is written again only after a question naming it, and an OpenPLC Editor with the project open must reopen it before Build. The connection's **Settings** show the remote device, the poll with the number of Modbus requests per poll (a warning above 40), the map hash and the first editor location.
 
 **Timing.** OpenPLC's Modbus master reads every group, then writes every group, once per poll, on one connection. A value arrives up to one poll after the bridge has it, and an output up to one poll after the scan wrote it. Each group is one request, read under one lock in the bridge, so the values of one PDO always come together; two groups may come from different moments.
 
 ## Deploying and checking a config
 
-The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check` checks it, the configurator's Check does too, and its **Project target** switch turns a project into a bridge project ([configurator.md](configurator.md#project-target)). In a bridge project the configurator hides the OpenPLC Editor project actions; the bridge's output watchdog is `bridge.watchdog_ms`.
+The PC tools check a bridge config like any other: `canworks-deploy --config canworks.json --check` checks it, the configurator's Check does too, and its **Project target** switch turns a CODESYS project into a bridge project ([configurator.md](configurator.md#project-target)). Without an OpenPLC connection the configurator hides the OpenPLC Editor project actions; the bridge's output watchdog is `bridge.watchdog_ms`.
 
 To replace the config of a running bridge from the PC, its running config needs the diagnostics channel with changes and uploads allowed:
 
@@ -333,7 +365,7 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 **A PLC with Modbus TCP client channels:** create one read channel per suggested range (function 4, the start and count from the map) and one write channel (function 16), at a cycle well below `watchdog_ms`. Map the registers to variables with the types from the map: 16-bit values as INT or WORD, 32-bit values as two registers in the bridge's word order. The ST variable list (`--export-modbus-map map.st`) is a starting point for the declarations. For a config with the PLC link (`plc_link`, or `openplc`), the `.st` export is instead the whole PLC link for that PLC: the `canworks` list with the channel variables, the channels to create, and `canworks_in`/`canworks_out`, so the [function blocks](plc-library.md#on-another-modbus-plc) work there as on OpenPLC. A PLC that imports PLCopen XML (CODESYS-based tools, truST) gets all of it in one file with `--export-plcopen` ([plcopen.md](plcopen.md)).
 
-**Node-RED:** `canworks-deploy --export-nodered flow.json` (or **Export → Node-RED flow** in the configurator) writes a flow for `node-red-contrib-modbus` that reads and writes every value by name, keeps the watchdog fed and wraps the control and SDO registers ([node-red.md](node-red.md)).
+**Node-RED:** `canworks-deploy --export-nodered flow.json` (or the **Download** of a Node-RED connection in the configurator) writes a flow for `node-red-contrib-modbus` that reads and writes every value by name, keeps the watchdog fed and wraps the control and SDO registers ([node-red.md](node-red.md)).
 
 **Python** with the standard library only:
 

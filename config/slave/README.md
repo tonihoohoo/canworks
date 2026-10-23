@@ -1,6 +1,6 @@
 # canworks as a CANopen slave
 
-canworks-bridge as node 10 on a network another master runs (`"role": "slave"`, [docs/slave.md](../../docs/slave.md)). The master writes a speed setpoint, a mode and a run bit, which a Modbus client (OpenPLC through Modbus, another PLC or a script) reads; the client answers with the actual speed, a status word and a temperature, and sends an EMCY while the temperature is too high.
+canworks-bridge as node 10 on a network another master runs (`"role": "slave"`, [docs/slave.md](../../docs/slave.md)). The master writes a speed setpoint, a mode and a run bit, which a Modbus client (OpenPLC, another PLC or a script) reads; the client answers with the actual speed, a status word and a temperature, and sends an EMCY while the temperature is too high.
 
 | File | What it is |
 |---|---|

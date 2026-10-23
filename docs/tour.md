@@ -44,7 +44,7 @@ The configurator runs in the background and stops when its tab is closed (**Quit
 - `cell` → **Bus**: the slave network's page (Bus and slave device) with the objects the program reads and writes ([slave.md](slave.md)).
 - **Gateway**, the tree entry after the networks: its two routes, the field status, EMCY forwarding, the SDO bridge and **When the upper master is lost**: **Zero** ([gateway.md](gateway.md)).
 - `host` → node `cell` (node 20) is the cell itself, not simulated: canworks' own slave answers.
-- **Project target** at the top of each Bus page says who runs the config: **OpenPLC** here, through the bridge. Pick **CODESYS** and the dialog lists what CODESYS does not use (the slave and J1939 networks, the status locations, the simulated devices); press Cancel to keep the project as it is ([configurator.md](configurator.md#project-target)).
+- **Project target** on the **Project** page says what runs the networks: **Modbus bridge** here, and the **Modbus bridge** page lists OpenPLC under **Connections**, the program that reads and writes the values. Pick **CODESYS** and the switch removes what CODESYS does not use (the slave and J1939 networks, the status locations, the simulated devices, the connections); **Undo** in the message brings the project back ([configurator.md](configurator.md#project-target)).
 
 ![The cell's gateway page with its two routes](images/tour-gateway.png)
 
@@ -54,7 +54,7 @@ The configurator runs in the background and stops when its tab is closed (**Quit
 
 ## 3. Exports
 
-From the configurator's **Export** menu in the header (**Network files**: **All DCFs**, **DBC**, **Documentation**; **For the program**: the register map files and **ST for another PLC**) and `cell` → **Bus** → **Export EDS**, or from a terminal in the project folder:
+From the configurator's **Export** menu in the header (**All DCFs**, **DBC**, **Documentation**), a connection's **Download** on the **Modbus bridge** page (an HMI's register map, a Node-RED flow, another PLC's files) and `cell` → **Bus** → **Export EDS**, or from a terminal in the project folder:
 
 ```sh
 canworks-deploy --export-html plant.html --config canworks/canworks.json      # network documentation

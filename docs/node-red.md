@@ -10,12 +10,12 @@
 
 ## What you need
 
-- A running `canworks-bridge` with a config ([modbus-bridge.md](modbus-bridge.md#install)). Node-RED is usually on the same device, so set the bridge's `writers` to include `127.0.0.1` (or Node-RED's address when it runs elsewhere); the export says so when the config does not allow it.
+- A running `canworks-bridge` with a config ([modbus-bridge.md](modbus-bridge.md#install)). Node-RED is usually on the same device. In the configurator, add it as a **Node-RED** connection on the Modbus bridge page with its address (`127.0.0.1` on the bridge's device) and **Writes** on, and the bridge's writers follow; the export says so when the config's `writers` do not allow it.
 - Node-RED 4 with the Modbus palette `node-red-contrib-modbus` (Menu > Manage palette > Install, or `npm install node-red-contrib-modbus` in the Node-RED folder). Tested with 5.45 and 5.60. In Docker use a versioned image such as `nodered/node-red:4.1`; there is no `4` tag.
 
 ## Export and import the flow
 
-In the configurator, pick **Export → Node-RED flow**: it downloads `<folder>_node-red.json`. From the command line:
+In the configurator, a Node-RED connection's **Download** on the Modbus bridge page gives `<config>-<connection>.json`, with the connection's bridge address and period. From the command line:
 
 ```sh
 canworks-deploy --config canworks.json --export-nodered line1_node-red.json

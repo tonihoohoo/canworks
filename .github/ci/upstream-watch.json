@@ -1,5 +1,5 @@
 {
-  "comment": "The upstream files canworks' OpenPLC through Modbus target follows, with their sha256 at the tested release (runtime: docker/local-runtime/runtime-version; editor: the version canworks supports). .github/workflows/runtime-watch.yml compares upstream's newest release with this; update it after checking a new release.",
+  "comment": "The upstream files canworks' OpenPLC connection follows, with their sha256 at the tested release (runtime: docker/local-runtime/runtime-version; editor: the version canworks supports). .github/workflows/runtime-watch.yml compares upstream's newest release with this; update it after checking a new release.",
   "repos": {
     "runtime": {
       "url": "https://github.com/Autonomy-Logic/openplc-runtime",

@@ -2,7 +2,7 @@
 
 `canworks-deploy` checks a canworks config and puts it on [canworks-bridge](modbus-bridge.md), which runs the CAN networks on a Linux device and serves their values over Modbus TCP. It also copies a config into an OpenPLC Editor project, makes a new editor project around it, and exports it as DCF, DBC, HTML, Modbus map, Node-RED flow or CODESYS files. A config with [J1939 networks](j1939.md) works the same way.
 
-For an OpenPLC config ([OpenPLC through Modbus](modbus-bridge.md#openplc-through-modbus)) the program and the config travel separately: the editor's own **Build and upload** carries the program with the remote device and the `canworks_in` and `canworks_out` programs the configurator or `--into-project` wrote, and the config goes to the bridge with this tool or the configurator's **Devices** page. Nothing of canworks runs inside the OpenPLC Runtime.
+For an OpenPLC config ([OpenPLC](modbus-bridge.md#openplc)) the program and the config travel separately: the editor's own **Build and upload** carries the program with the remote device and the `canworks_in` and `canworks_out` programs the configurator or `--into-project` wrote, and the config goes to the bridge with this tool or the configurator's **Devices** page. Nothing of canworks runs inside the OpenPLC Runtime.
 
 ## Install (on the engineering PC)
 
@@ -52,7 +52,7 @@ The config can live in its OpenPLC Editor project, next to the program that uses
 canworks-deploy --config config/rtd-sensor/canopen_config.json --into-project ~/Documents/workspace/rtd-monitor
 ```
 
-It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` and each network's `dbc` relative to `canworks/`), the EDS files with their device notes (`<eds>.notes.json`) and the DBC files into the project. EDS and DBC files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`, and is then kept as `canworks.bak-<time>` next to it (delete it once you no longer need it). For an OpenPLC config it also writes the editor's remote device, `canworks_in`, `canworks_out` and the `canworks` variable list, as the configurator does ([What the configurator writes](modbus-bridge.md#openplc-through-modbus)); a file canworks owns that was changed in the editor is replaced only with `--force`. Nothing is uploaded: the config still goes to the bridge with `--bridge`.
+It runs the same checks as a deploy, then writes `canworks/canworks.json` (each node's `eds` and each network's `dbc` relative to `canworks/`), the EDS files with their device notes (`<eds>.notes.json`) and the DBC files into the project. EDS and DBC files are written as UTF-8 and one in CP1252/Latin-1 is converted, because the editor sends project files as UTF-8 text. An existing `canworks/` folder is replaced only with `--force`, and is then kept as `canworks.bak-<time>` next to it (delete it once you no longer need it). For an OpenPLC config it also writes the editor's remote device, `canworks_in`, `canworks_out` and the `canworks` variable list, as the configurator does ([What the configurator writes](modbus-bridge.md#openplc)); a file canworks owns that was changed in the editor is replaced only with `--force`. Nothing is uploaded: the config still goes to the bridge with `--bridge`.
 
 ## A new editor project from the config
 
@@ -174,7 +174,7 @@ writes one self-contained HTML document of the configured networks for people: t
 
 ## Modbus clients
 
-`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config); for a config with the PLC link (`bridge.plc_link` or `bridge.openplc`) the `.st` file is the PLC link for another Modbus PLC, [plc-library.md](plc-library.md#on-another-modbus-plc)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)). `--export-plcopen DIR --for codesys|trust|generic` (with `--bridge-host HOST`, `--no-library`, `--with-main`, `--codesys-plc NAME`, `--codesys-ethernet NAME`) writes PLCopen XML with the PLC link and the library for CODESYS-based tools, truST or another PLC, and the files that connect it to the bridge ([plcopen.md](plcopen.md)).
+`--export-modbus-map FILE.csv|.json|.st` writes a bridge config's register map for the Modbus client ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config); for a config with the PLC link (`bridge.plc_link`) the `.st` file is the PLC link for another Modbus PLC, [plc-library.md](plc-library.md#on-another-modbus-plc)), and `--export-nodered FILE.json` (with `--nodered-host HOST[:PORT]` and `--nodered-poll-ms N`) writes a Node-RED flow for it ([node-red.md](node-red.md)). `--export-plcopen DIR --for trust|generic` (with `--bridge-host HOST`, `--no-library`, `--with-main`) writes PLCopen XML with the PLC link and the library for truST or another PLC, and the files that connect it to the bridge ([plcopen.md](plcopen.md)); `--for codesys` is refused, since CODESYS runs the CANopen master itself as the CODESYS target. In the configurator these files are the Downloads of the bridge's [connections](configurator.md#connections).
 
 ## The local runtime
 

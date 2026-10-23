@@ -158,7 +158,7 @@ jobs:
           ref: ${{ steps.runtime.outputs.ref }}
           path: upstream-runtime
 
-      - name: OpenPLC through Modbus (the pinned runtime's own Modbus master against the bridge, ~10 s)
+      - name: The OpenPLC connection (the pinned runtime's own Modbus master against the bridge, ~10 s)
         run: |
           python -m pip install -q "$(grep '^pymodbus' upstream-runtime/core/src/drivers/plugins/python/modbus_master/requirements.txt)"
           test/openplc_modbus/run.py --bridge build/bin/canworks-bridge --runtime upstream-runtime

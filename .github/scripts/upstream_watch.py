@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Upstream's newest OpenPLC runtime and editor releases against the
 recorded state (.github/ci/upstream-watch.json): the release canworks is
-tested with, and the sha256 of the files its OpenPLC through Modbus target
+tested with, and the sha256 of the files its OpenPLC connection
 follows (the runtime's Modbus master config model, the editor's remote
 device format and its generator of the runtime's config).
 

@@ -1,6 +1,6 @@
 """Moving an OpenPLC project's `main` from the located variables the removed
 canworks plugin had it declare (`rtd_ok : BOOL AT %IX10.0;`) to the
-`canworks` variable list of OpenPLC through Modbus (`canworks.rtd_ok`)
+`canworks` variable list of the OpenPLC connection (`canworks.rtd_ok`)
 (canopen-configurator "Old located variables in an OpenPLC project's main").
 
 Only declarations whose names are members of the `canworks` list move; the

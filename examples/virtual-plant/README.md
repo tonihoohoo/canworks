@@ -1,6 +1,6 @@
 # Virtual plant: every feature without hardware
 
-An OpenPLC Editor project that runs on the [local runtime](../../docs/local-runtime.md) with no CAN adapter and no devices: the program runs in the OpenPLC Runtime and reaches the networks through canworks-bridge over Modbus ([OpenPLC through Modbus](../../docs/modbus-bridge.md#openplc-through-modbus)). Every network is simulated (`adapter.simulate`), and every device is made up. [docs/tour.md](../../docs/tour.md) walks through it.
+An OpenPLC Editor project that runs on the [local runtime](../../docs/local-runtime.md) with no CAN adapter and no devices: the program runs in the OpenPLC Runtime and reaches the networks through canworks-bridge over Modbus ([OpenPLC](../../docs/modbus-bridge.md#openplc)). Every network is simulated (`adapter.simulate`), and every device is made up. [docs/tour.md](../../docs/tour.md) walks through it.
 
 ## The networks
 

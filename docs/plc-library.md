@@ -1,6 +1,6 @@
 # The `canworks` function block library
 
-`canworks` is one OpenPLC Editor library with the function blocks and functions a PLC program uses to work with the networks canworks-bridge runs for it ([OpenPLC through Modbus](modbus-bridge.md#openplc-through-modbus)): SDO transfers of any size, NMT, EMCY, CAN frames, J1939 messages and trouble codes. The blocks talk to the bridge through the registers the generated `canworks_in` and `canworks_out` programs copy every scan, so they need nothing inside the runtime and never make the scan wait, and they work on [another Modbus PLC](#on-another-modbus-plc) too. The library's version is the PC tools' version.
+`canworks` is one OpenPLC Editor library with the function blocks and functions a PLC program uses to work with the networks canworks-bridge runs for it ([OpenPLC](modbus-bridge.md#openplc)): SDO transfers of any size, NMT, EMCY, CAN frames, J1939 messages and trouble codes. The blocks talk to the bridge through the registers the generated `canworks_in` and `canworks_out` programs copy every scan, so they need nothing inside the runtime and never make the scan wait, and they work on [another Modbus PLC](#on-another-modbus-plc) too. The library's version is the PC tools' version.
 
 ## What it holds
 
@@ -68,7 +68,7 @@ The bridge has one SDO request block and one control block, so instances take tu
 
 ## The mailboxes
 
-The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)), which a new OpenPLC config has on: one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
+The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)), which adding an OpenPLC connection turns on: one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
 
 | Block | Needs | Round trips |
 |---|---|---|
@@ -168,7 +168,7 @@ The J1939 message and trouble code blocks are described with examples in [j1939.
 The blocks are plain IEC 61131-3 ST that uses only standard functions and `TON`, with strict typing (typed literals such as `WORD#0`, no reserved words as names), so they build unchanged on STruC++, CODESYS and truST, and work on any PLC that reads the bridge as a Modbus TCP client and can hold the 1280-word `LINK` array. For a PLC that imports PLCopen XML, `--export-plcopen` writes all of the steps below as one file ([plcopen.md](plcopen.md)); `canworks-deploy library --format plcopen --out lib` writes the library alone as `lib/canworks-library.xml`. By hand:
 
 1. Write the library's sources: `canworks-deploy library --format st --out lib` (one `.st` file per block and function, each with the library version in its first line), and add them to the PLC project.
-2. Write the PLC link for the config: `canworks-deploy --config canworks.json --export-modbus-map link.st`, or **Export → ST for another PLC** in the configurator. The config needs the PLC link (`bridge.plc_link`, or `bridge.openplc`; it gives the map hash and the header the bridge checks). The file holds the `canworks` global variable list (`ok`, `link`, the typed values and the channel variables `in_w` and `out_w`), the client channels to create, and the programs `canworks_in` and `canworks_out`.
+2. Write the PLC link for the config: `canworks-deploy --config canworks.json --export-modbus-map link.st`, or the **Download** of an **Other PLC** connection with format ST on the configurator's Modbus bridge page. The config needs the PLC link (`bridge.plc_link`; it gives the map hash and the header the bridge checks). The file holds the `canworks` global variable list (`ok`, `link`, the typed values and the channel variables `in_w` and `out_w`), the client channels to create, and the programs `canworks_in` and `canworks_out`.
 3. Save the list as a global variable list named `canworks`, create the client channels (function 4 into `canworks.in_w`, function 16 from `canworks.out_w`) at a cycle well below the bridge's watchdog, and call `canworks_in` first and `canworks_out` last in every scan of the task that uses the values and the blocks.
 4. Call the blocks with `LINK := canworks.link`, as on OpenPLC.
 

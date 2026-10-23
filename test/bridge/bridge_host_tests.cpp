@@ -721,6 +721,24 @@ TEST(plc_link_without_openplc) {
   EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 77; }));
 }
 
+// The restart baseline follows the PLC link, not the OpenPLC connection:
+// any PLC that rewrites its whole output image gets it (modbus-connections).
+TEST(plc_link_restart_does_not_replay) {
+  Host h(plc_link_only, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  EXPECT(header(c, 1, served_hash(c)));
+  EXPECT(write(c, kOControlReg, {7, (4 << 8) | 0, 5 << 8}));
+  EXPECT(wait_for([&] {
+    auto s = regs(c, kReadInputRegisters, kOStatusReg, 4);
+    return s.size() == 4 && s[2] == 7 && (s[3] >> 8) == 6;
+  }));
+  usleep(300000);
+  EXPECT(ooperational(c));  // the last NMT STOP was not replayed
+}
+
 TEST(plc_link_refusals) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy(
