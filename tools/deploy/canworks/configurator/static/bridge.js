@@ -520,6 +520,12 @@ function connectionRow(c, i) {
       st.key === "out_of_date" ? "Download again" : "Download");
     dl.onclick = () => busy(dl, "Downloading…", () => connectionDownload(i));
     actions.push(dl);
+    if (kind === "nodered") {
+      const pkg = el("button", { type: "button", class: "small", dataset: { connPackage: String(i) },
+        title: "The canworks nodes for Node-RED (values, SDO, NMT, CAN and J1939 blocks), the same .tgz as canworks-deploy --export-nodered-package. Install it once: Manage palette > Install > upload" }, "Package");
+      pkg.onclick = () => busy(pkg, "Downloading…", noderedPackageDownload);
+      actions.push(pkg);
+    }
   }
   actions.push(el("button", { type: "button", class: "small danger", dataset: { connRemove: String(i) },
     "aria-label": `Remove ${c.name || kind}`, onclick: () => removeConnection(i) }, "Remove"));
@@ -697,6 +703,20 @@ async function removeConnection(i) {
   changed(true);
 }
 
+// Package on a Node-RED row: the node package the flow needs, the same .tgz
+// as `canworks-deploy --export-nodered-package` writes.
+async function noderedPackageDownload() {
+  let r;
+  try {
+    r = await api("POST", "/api/nodered_package", {});
+  } catch (e) {
+    banner(e.message, true);
+    return;
+  }
+  downloadBase64(r.data, r.name, r.content_type);
+  banner(`Downloaded ${r.name}. Install it once in Node-RED: Manage palette > Install > upload.`, "done");
+}
+
 // Download: the connection's file, the same as the command line writes;
 // the map hash goes into the connection, so the row can say when it is out
 // of date.
@@ -717,6 +737,6 @@ async function connectionDownload(i) {
     changed(true, `bridge.connections[${i}].map_hash`);
   }
   const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
-  const how = c.kind === "nodered" ? " Import it in Node-RED." : r.name.endsWith(".zip") ? " Unzip it and follow README.txt." : "";
+  const how = c.kind === "nodered" ? ` Import it in Node-RED; it needs the package ${r.package} (Package on this row).` : r.name.endsWith(".zip") ? " Unzip it and follow README.txt." : "";
   banner(`Downloaded ${r.name}.${how} Save keeps its map hash, so the row says when the map changes.${notes}`, notes ? "warning" : "done");
 }

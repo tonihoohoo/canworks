@@ -33,7 +33,9 @@ packages = ["canworks", "canworks.bustrace", "canworks.localbus", "canworks.conf
             "canworks.j1939", "canworks.raw", "canworks.link", "canworks.codesys", "canworks.devices"]
 
 [tool.setuptools.package-data]
-canworks = ["schema/*.json", "library/*.stlib", "builtin_notes/*.json"]
+canworks = ["schema/*.json", "library/*.stlib", "builtin_notes/*.json", "nodered_package/package.json",
+            "nodered_package/LICENSE", "nodered_package/README.md", "nodered_package/lib/*.js",
+            "nodered_package/nodes/*"]
 "canworks.configurator" = ["static/*", "static/uplot/*", "icons/*"]
 "canworks.devices" = ["device-probe.sh"]
 "canworks.codesys" = ["script/*.py"]

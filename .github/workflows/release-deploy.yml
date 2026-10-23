@@ -160,6 +160,12 @@ jobs:
           PYTHONPATH=wheel python3 -m canworks library --out dist
           ls dist
 
+      - name: The Node-RED package (node-red-canworks-<version>.tgz, from the wheel)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          PYTHONPATH=wheel python3 -m canworks --export-nodered-package dist
+          test -f "dist/node-red-canworks-${{ steps.version.outputs.version }}.tgz"
+
       - name: Create the release
         if: steps.gate.outputs.go == 'true'
         env:
@@ -175,6 +181,7 @@ jobs:
           cp scripts/install-pc.sh scripts/install-pc.ps1 \
              scripts/install-bridge.sh scripts/install-bridge.ps1 tools/deploy/canworks/devices/device-probe.sh dist/
           gh release create "$TAG" dist/*.whl dist/canworks.stlib dist/canworks-$VERSION-constraints.txt \
+            dist/node-red-canworks-$VERSION.tgz \
             dist/install-pc.sh dist/install-pc.ps1 \
             dist/install-bridge.sh dist/install-bridge.ps1 dist/device-probe.sh \
             --target "$SHA" \

@@ -242,6 +242,14 @@ class Connections(Base):
         self.assertEqual(r["name"], "pump-station-Flows.json")
         nodes, _, _ = nodered.flow(cfg, "pump-station-Flows", host="192.168.10.5", poll_ms=200)
         self.assertEqual(base64.b64decode(r["data"]).decode(), nodered.to_json(nodes))
+        self.assertEqual(r["package"], nodered.package_name())
+
+    def test_nodered_package(self):
+        # Package on a Node-RED row: the .tgz canworks-deploy --export-nodered-package writes.
+        self.open()
+        r = self.ok("/api/nodered_package", {})
+        self.assertEqual((r["name"], r["content_type"]), (nodered.package_name(), "application/gzip"))
+        self.assertEqual(base64.b64decode(r["data"]), nodered.package_tgz())
 
     def test_plcopen_download(self):
         self.open()
