@@ -148,7 +148,7 @@ Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md]
 - **SocketCAN** interfaces on Linux.
 - **An adapter on another machine:** `canworks-diag adapter-serve` on a Linux machine at the bus serves its adapter, with a token and encryption, to the configurator and `canworks-diag --adapter remote:HOST` on your PC ([docs/pc-adapter.md](docs/pc-adapter.md#an-adapter-on-another-machine)).
 
-The configurator says when a newer release is out and updates itself with one click (**Update now**, or **Update when I quit**); `canworks-config --update` does the same from a terminal, and Settings turns the daily check off ([docs/install-pc.md](docs/install-pc.md#from-the-configurator)).
+The configurator says when a newer release is out and updates itself with one click (**Update now**, or **Update when I quit**), putting the old version back if the install fails; `canworks-config --update` does the same from a terminal, and Settings turns the daily check off ([docs/install-pc.md](docs/install-pc.md#from-the-configurator)).
 
 Finding runtimes and adapter servers on the local network listens on no port, so Windows Defender Firewall does not ask for it; pairing for the remote link may ask once per Python, and Cancel is fine ([docs/install-pc.md](docs/install-pc.md#windows-asks-to-allow-python)).
 

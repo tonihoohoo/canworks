@@ -5,9 +5,14 @@ session, through `canworks-config --update --yes`.
 
 A local web server plays the release page: releases/latest redirects to a
 made-up newer release (99.0.0, built from this checkout with only the
-version changed), and releases/download serves both wheels. On Windows a
-process held open in the tools' environment first makes the update stop
-cleanly with the old install still working.
+version changed), and releases/download serves its wheel, but not the
+version under test's (an old release is often deleted: nothing may need
+it). On Windows a process held open in the tools' environment first makes
+the update stop cleanly with the old install still working. Then an update
+whose wheel uv refuses puts the old environment back, before the real
+update. On macOS and Linux a configurator still running the version under
+test after 99.0.0 was installed beside it restarts into 99.0.0 without
+installing anything.
 
     python test/pc-tools/update_e2e.py VERSION DIST_WHEEL [PYTHON]
 
@@ -91,6 +96,7 @@ def build_new_wheel(work):
 
 class Release(http.server.BaseHTTPRequestHandler):
     wheels = {}
+    corrupt = False  # serve a wheel uv refuses, for the step whose install fails
     # The made-up release's locked dependency versions (the exported uv.lock,
     # CANWORKS_E2E_CONSTRAINTS); the version under test has none, so the
     # updater's rollback path meets a release without them.
@@ -115,6 +121,8 @@ class Release(http.server.BaseHTTPRequestHandler):
         if m and m.group(2) in files:
             with open(files[m.group(2)], "rb") as f:
                 data = f.read()
+            if self.corrupt and m.group(2).endswith(".whl"):
+                data = b"not a wheel"
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(data)))
@@ -143,6 +151,11 @@ def installed():
     except OSError:
         return None  # uv is replacing it
     return out[-1] if out else None
+
+
+def tool_dir():
+    return subprocess.run(["uv", "tool", "dir"], check=True, stdout=subprocess.PIPE,
+                          universal_newlines=True).stdout.strip()
 
 
 def instance(cfg):
@@ -221,9 +234,8 @@ def main(version, dist_wheel):
     work = tempfile.mkdtemp(prefix="canworks-update-e2e-")
     cfg = os.path.join(work, "cfg")
     DUMP["cfg"] = cfg
-    Release.wheels = {os.path.basename(dist_wheel): dist_wheel}
     new_wheel = build_new_wheel(work)
-    Release.wheels[os.path.basename(new_wheel)] = new_wheel
+    Release.wheels = {os.path.basename(new_wheel): new_wheel}  # not the version under test's: a rollback must not need it
     if os.environ.get("CANWORKS_E2E_CONSTRAINTS"):
         Release.constraints = {"canworks-%s-constraints.txt" % NEW: os.environ["CANWORKS_E2E_CONSTRAINTS"]}
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Release)
@@ -255,6 +267,24 @@ def main(version, dist_wheel):
         holder.kill()
         holder.wait()
         time.sleep(1)
+
+    # A wheel uv refuses: the environment moved aside comes back, the old configurator starts again.
+    Release.corrupt = True
+    inst, view = update_and_wait(env, cfg, inst["pid"])
+    Release.corrupt = False
+    result = view.get("result") or {}
+    say("with a wheel uv refuses: %s" % result)
+    if result.get("state") != "failed" or "Still on %s" % version not in result.get("message", ""):
+        fail("expected the failed update to keep %s, got %r" % (version, result))
+    if installed() != version or view.get("version") != version:
+        fail("the old install should be back: installed %s, running %s" % (installed(), view.get("version")))
+    leftover = os.path.join(tool_dir(), ".canworks-update-backup")
+    if os.path.exists(leftover):
+        fail("the backup was left behind: %s" % leftover)
+    with open(os.path.join(cfg, "update.log"), encoding="utf-8") as f:
+        text = f.read()
+    if "put the backup back" not in text:
+        fail("the failed update did not put the moved environment back (update.log)")
 
     inst, view = update_and_wait(env, cfg, inst["pid"])
     result = view.get("result") or {}
@@ -315,6 +345,33 @@ def main(version, dist_wheel):
         fail("expected %s to be installed, got %r, installed %s" % (NEW, result, installed()))
     if instance(cfg) is not None:
         fail("canworks-config --update without a configurator started one")
+    if not WIN:
+        # Reinstalled as 99.0.0 while a configurator of the version under test
+        # runs (Windows keeps a running install's files): it restarts into
+        # 99.0.0 and installs nothing.
+        reinstall()
+        p, port, cookie = start_configurator(env)
+        inst = wait_for("instance.json", lambda: instance(cfg), 30)
+        uv("tool", "install", "--force", "--compile-bytecode", "--python", python, "--overrides", overrides, new_wheel)
+        token = cookie.split("=", 1)[1]
+        status, _, data = request(port, "GET", "/api/update", headers={"X-CANopen-Token": token})
+        view = json.loads(data.decode())
+        if not view.get("restart") or view.get("installed") != NEW:
+            fail("the configurator should offer a restart into %s: %r" % (NEW, view))
+        status, _, data = request(port, "POST", "/api/update/start", {"version": NEW, "when": "now"},
+                                  {"X-CANopen-Token": token})
+        if status != 200:
+            fail("restart refused: %d %r" % (status, data[:200]))
+        old_pid = inst["pid"]
+        inst = wait_for("the restarted configurator", lambda: (lambda i: i if i and i["pid"] != old_pid else None)(instance(cfg)), 150)
+        status, _, data = request(inst["port"], "GET", "/api/update", headers={"X-CANopen-Token": token})
+        view = json.loads(data.decode())
+        say("restart into the installed version: %s" % view.get("result"))
+        if view.get("version") != NEW or (view.get("result") or {}).get("state") != "already":
+            fail("expected the configurator %s with result already, got %r" % (NEW, view))
+        request(inst["port"], "POST", "/api/quit", {}, {"X-CANopen-Token": token})
+        wait_for("the configurator to stop", lambda: instance(cfg) is None, 30)
+        p.wait(timeout=30)
     reinstall()
     httpd.shutdown()
     shutil.rmtree(work, ignore_errors=True)

@@ -20,12 +20,12 @@ UV_TOOL = {"kind": "uv-tool", "why": None, "uv": "uv", "python": "3.14", "base":
 
 @unittest.skipIf(sync_playwright is None and not REQUIRED, "Playwright for Python is not installed")
 class UpdatePage(OnlineBase):
-    def updates(self, info=UV_TOOL, latest="99.0.0"):
+    def updates(self, info=UV_TOOL, latest="99.0.0", installed=None):
         p = mock.patch.dict(os.environ)
         p.start()
         self.addCleanup(p.stop)
         os.environ.pop(update.OFF_ENV, None)  # tests/__init__.py turns the check off
-        u = update.Updates(fetch=lambda: latest, info=lambda: dict(info))
+        u = update.Updates(fetch=lambda: latest, info=lambda: dict(info), installed=lambda: installed)
         u.check()
         self.server.updates = u
         return u
@@ -97,6 +97,35 @@ class UpdatePage(OnlineBase):
         start.assert_not_called()
         self.page.click('#modal button[data-value="quit"]')
         self.page.wait_for_selector("text=Updates to 99.0.0 when you quit")
+
+    def test_restart_into_the_installed_version(self):
+        """Reinstalled as 99.1.0 while this configurator runs, and the kept
+        answer is the older 99.0.0: the chip offers a restart, not 99.0.0."""
+        self.updates(latest="99.0.0", installed="99.1.0")
+        self.start()
+        self.assertEqual(self.chip(), "Restart for 99.1.0")
+        text, buttons = self.dialog()
+        self.assertIn("canworks 99.1.0 is installed", text)
+        self.assertEqual(buttons, ["cancel", "now"])
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            self.page.click('#modal button[data-value="now"]')
+            self.page.wait_for_selector("#stopped[data-updating]")
+        self.assertIn("Restarting canworks configurator in 99.1.0", self.page.inner_text("#stopped"))
+        self.assertEqual(start.call_args[0][0]["to"], "99.1.0")
+
+    def test_update_goes_to_the_newest_release_now(self):
+        u = self.updates()
+        self.start()
+        self.chip()
+        u.fetch = lambda: "99.2.0"  # 99.0.0 was replaced since the page was loaded
+        self.dialog()
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            self.page.click('#modal button[data-value="now"]')
+            self.page.wait_for_selector("#stopped[data-updating]")
+        stopped = self.page.inner_text("#stopped")
+        self.assertIn("Updating canworks configurator to 99.2.0", stopped)
+        self.assertIn("99.2.0 is the newest release now", stopped)
+        self.assertEqual(start.call_args[0][0]["to"], "99.2.0")
 
     def test_cannot_update_itself(self):
         self.updates(info={"kind": "other", "why": "these tools were not installed with the one-line installer (uv tool)"})
