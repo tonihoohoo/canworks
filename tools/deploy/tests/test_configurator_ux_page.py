@@ -447,7 +447,7 @@ class Probes(Layout):
         pg.focus("#menu-export > summary")
         pg.keyboard.press("Enter")
         pg.wait_for_selector("#menu-export[open]")
-        for _ in range(8):
+        for _ in range(20):
             pg.keyboard.press("Tab")
             if pg.evaluate("() => !document.querySelector('#menu-export').contains(document.activeElement)"):
                 break
