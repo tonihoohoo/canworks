@@ -164,6 +164,8 @@ function sizeBar(label, data, get, set, reset, range, cls) {
     show();
   });
   bar.addEventListener("dblclick", () => { reset(); show(); });
+  // A separator needs its value from the start; the frame after layout corrects it.
+  show();
   requestAnimationFrame(show);
   return bar;
 }

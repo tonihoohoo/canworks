@@ -149,8 +149,9 @@ class BridgePage(OnlineBase):
         pg.evaluate("() => { S.model.top.bridge.live_lists[0].location = '%IB40'; changed(true); }")
         tree_view(pg, "bridge")
         pg.wait_for_selector('[data-connection="Line HMI"] [data-conn-state="out_of_date"]')
-        self.checked()
-        self.assertIn("Line HMI: its downloaded file was made for another map", pg.inner_text("#problem-list"))
+        # The check after the change lists the warning.
+        pg.wait_for_function("() => document.querySelector('#problem-list').textContent"
+                             ".includes('Line HMI: its downloaded file was made for another map')")
         self.assertEqual(pg.inner_text('[data-conn-download="0"]'), "Download again")
         with pg.expect_download():
             pg.click('#problem-list [data-problem-fix="download"]')
@@ -214,7 +215,8 @@ class BridgePage(OnlineBase):
         self.assertIn("PLC link", pg.inner_text('[data-conn-plc-link="0"]'))
         pg.click('[data-conn-plc-link="0"] [data-plc-link-on]')
         pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
-        self.assertEqual(pg.locator("[data-conn-plc-link]").count(), 0)
+        # The row renders again once the repack is back.
+        pg.wait_for_selector("[data-conn-plc-link]", state="detached")
         # Turning the link on and its repack were one step.
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("Control+z")

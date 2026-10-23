@@ -1110,7 +1110,8 @@ class NewProject(Running):
                                                     "interval": "T#10ms"})
         target = os.path.join(self.work, "rtd-monitor")
         self.assertEqual(data["project"], target)
-        self.assertIsNone(data["editor"])  # a Modbus bridge config: no editor files
+        # A new editor project adds the OpenPLC connection and writes the editor files.
+        self.assertIn(os.path.join(target, "pous", "programs", "canworks_in.st"), data["editor"]["written"])
         self.assertEqual(data["state"]["mode"], "project")
         self.assertEqual(data["state"]["folder"], target)
         self.assertEqual(sorted(os.listdir(self.folder)), before)
@@ -1119,6 +1120,7 @@ class NewProject(Running):
         args = json.loads(read(os.path.join(self.dir, "cli-args.json")))
         self.assertIn("--time=T#10ms", args)
         cfg = json.loads(read(os.path.join(target, "canworks", "canworks.json")))
+        self.assertEqual([c["kind"] for c in cfg["bridge"]["connections"]], ["openplc"])
         check = self.ok("POST", "/api/check", {"config": cfg})
         self.assertEqual(check["errors"], 0, check["items"])
 
