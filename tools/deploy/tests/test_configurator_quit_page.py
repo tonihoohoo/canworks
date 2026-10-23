@@ -99,6 +99,22 @@ class Quit(Base):
         self.stopped()
         self.assertEqual(self.saved_name(), "renamed")
 
+    def test_menu_item_without_focus(self):
+        """Safari focuses no clicked button: the click only blurs the ⋯
+        summary (focus to nowhere), and the menu stays open for the click."""
+        pg = self.page
+        pg.set_viewport_size({"width": 1200, "height": 800})
+        self.open()
+        pg.wait_for_selector("#menu-more:not([hidden])")
+        pg.click("#menu-more > summary")
+        pg.evaluate("""() => document.addEventListener("mousedown", (e) => {
+          if (e.target.closest("button")) { e.preventDefault(); document.activeElement.blur(); }
+        }, true)""")
+        pg.click("#btn-quit")
+        pg.wait_for_selector("#modal[open]")
+        self.assertEqual(pg.inner_text("#modal-text"), "Quit canworks-config?")
+        pg.click('#modal button[data-value="cancel"]')
+
     def test_fits(self):
         pg = self.page
         widths = (1000, 1280, 1440)

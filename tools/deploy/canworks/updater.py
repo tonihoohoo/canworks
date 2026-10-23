@@ -325,6 +325,16 @@ def _lines(stream, run):
             yield text
 
 
+def short_reason(lines, limit=300):
+    """uv's last lines as one sentence for the message: at most `limit`
+    characters, cut between words, without uv's backtick quotes."""
+    text = " ".join(" ".join(lines).replace("`", "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[-limit:]
+    return "…" + (cut.split(" ", 1)[1] if " " in cut else cut)
+
+
 def start_detached(cmd):
     kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "close_fds": True}
     if WINDOWS:
@@ -409,7 +419,7 @@ def update(run):
             run.finish("ok", "Updated to %s." % new, new)
             restart(run)
             return 0
-        why = " ".join(" ".join(tail).split())[-300:] if tail else "uv exited with %d" % code
+        why = short_reason(tail) if tail else "uv exited with %d" % code
         if backup:
             run.say("the install failed: putting %s back" % old)
             restore(run, d["env"], backup)
