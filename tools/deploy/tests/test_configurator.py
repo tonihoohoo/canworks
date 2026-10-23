@@ -10,6 +10,7 @@ import unittest
 from canworks import contract
 from canworks.configurator import declare, layout, scan
 from canworks.eds import Eds
+from canworks.iec import parse_location
 
 from .helpers import PINGPONG, REPO, pingpong_config, tmpdir
 
@@ -159,23 +160,28 @@ class ProjectScan(unittest.TestCase):
 
 
 class Layout(unittest.TestCase):
-    def test_next_free_word_skips_project_and_config(self):
+    def test_next_free_word_skips_the_config(self):
         uses, _ = scan.scan(FIXTURE)
         cfg = {"nodes": [{"tx_pdos": [{"entries": [{"type": "INTEGER16", "iec_location": "%IW100"}]}]}]}
         used = layout.taken(cfg, uses)
-        self.assertEqual(layout.suggest("I", "W", used), "%IW101")
-        self.assertEqual(layout.suggest("I", "W", used, start=200), "%IW202")
-        self.assertEqual(layout.suggest("I", "W", used, start=120), "%IW121")
+        self.assertEqual(layout.suggest("I", "W", used), "%IW102")
+        self.assertEqual(layout.suggest("I", "W", used, start=200), "%IW200")
+        # Words start at an even byte.
+        self.assertEqual(layout.suggest("I", "W", used, start=121), "%IW122")
 
-    def test_tables_are_independent(self):
+    def test_one_byte_image(self):
         uses, _ = scan.scan(FIXTURE)
         used = layout.taken({"nodes": []}, uses)
-        # %ID100 (EtherCAT) does not take %IW100.
-        self.assertEqual(layout.suggest("I", "W", used), "%IW100")
-        self.assertEqual(layout.suggest("I", "D", used), "%ID101")
-        self.assertEqual(layout.suggest("I", "X", used, start=10), "%IX10.0")
-        used.add(("I", "X", 80))
-        self.assertEqual(layout.suggest("I", "X", used, start=10), "%IX10.2")
+        # The project's own located variables (%ID100 EtherCAT) are the PLC's, not the bridge's.
+        self.assertEqual(layout.suggest("I", "D", used), "%ID100")
+        layout.mark(used, parse_location("%IW100"))
+        self.assertEqual(layout.suggest("I", "B", used), "%IB102")
+        self.assertEqual(layout.suggest("I", "D", used), "%ID102")
+        # Bits share a byte with bits only.
+        self.assertEqual(layout.suggest("I", "X", used, start=100), "%IX102.0")
+        layout.mark(used, parse_location("%IX102.0"))
+        self.assertEqual(layout.suggest("I", "X", used, start=100), "%IX102.1")
+        self.assertEqual(layout.suggest("I", "B", used), "%IB103")
 
     def test_pack(self):
         entry = {"type": "UNSIGNED8"}

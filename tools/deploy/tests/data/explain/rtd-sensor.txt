@@ -1546,7 +1546,7 @@ On the wire at 125 kbit/s
 185  [8]  EA 00 FF FF 10 00 20 00
 
 TPDO1 of node 5 (rtd)
-  Node 5 (rtd) sends TPDO1: %IW100 = 234, %IW101 = -1, %IW102 = 16, %IW103 = 32.
+  Node 5 (rtd) sends TPDO1: %IW100 = 234, %IW102 = -1, %IW104 = 16, %IW106 = 32.
 
 What it is
   A PDO (process data object) carries live values with no header at all: what each bit means comes
@@ -1585,15 +1585,15 @@ Data bits (each row one byte, bit 7 first; letters mark the fields below)
   B AI Input PV / AI1_Input_PV (bits 16-31): -1 (0xFFFF)
       bytes 2-3 = FF FF, low byte first, so read backwards: 0xFFFF
       Mapped object 7130h:02 AI Input PV / AI1_Input_PV (INTEGER16), bits 16-31 of the PDO. In the
-      PLC program: %IW101.
+      PLC program: %IW102.
   C AI Input PV / AI2_Input_PV (bits 32-47): 16 (0x0010)
       bytes 4-5 = 10 00, low byte first, so read backwards: 0x0010
       Mapped object 7130h:03 AI Input PV / AI2_Input_PV (INTEGER16), bits 32-47 of the PDO. In the
-      PLC program: %IW102.
+      PLC program: %IW104.
   D AI Input PV / AI3_Input_PV (bits 48-63): 32 (0x0020)
       bytes 6-7 = 20 00, low byte first, so read backwards: 0x0020
       Mapped object 7130h:04 AI Input PV / AI3_Input_PV (INTEGER16), bits 48-63 of the PDO. In the
-      PLC program: %IW103.
+      PLC program: %IW106.
 
 On the wire at 125 kbit/s
   117 bits + 3 intermission, 9 stuff bits, CRC 0x023B, 936.0 us on the bus, 55 % data
@@ -1608,7 +1608,7 @@ On the wire at 125 kbit/s
 285  [4]  25 00 00 00
 
 TPDO2 of node 5 (rtd)
-  Node 5 (rtd) sends TPDO2: %IB100 = 37, %IB101 = 0, %IB102 = 0, %IB103 = 0.
+  Node 5 (rtd) sends TPDO2: %IB110 = 37, %IB111 = 0, %IB112 = 0, %IB113 = 0.
 
 What it is
   A PDO (process data object) carries live values with no header at all: what each bit means comes
@@ -1634,16 +1634,16 @@ Data bits (each row one byte, bit 7 first; letters mark the fields below)
 
   A AI Status / AI0_Status (bits 0-7): 37 (0x25)
       Mapped object 6150h:01 AI Status / AI0_Status (UNSIGNED8), bits 0-7 of the PDO. In the PLC
-      program: %IB100.
+      program: %IB110.
   B AI Status / AI1_Status (bits 8-15): 0 (0x00)
       Mapped object 6150h:02 AI Status / AI1_Status (UNSIGNED8), bits 8-15 of the PDO. In the PLC
-      program: %IB101.
+      program: %IB111.
   C AI Status / AI2_Status (bits 16-23): 0 (0x00)
       Mapped object 6150h:03 AI Status / AI2_Status (UNSIGNED8), bits 16-23 of the PDO. In the PLC
-      program: %IB102.
+      program: %IB112.
   D AI Status / AI3_Status (bits 24-31): 0 (0x00)
       Mapped object 6150h:04 AI Status / AI3_Status (UNSIGNED8), bits 24-31 of the PDO. In the PLC
-      program: %IB103.
+      program: %IB113.
 
 On the wire at 125 kbit/s
   81 bits + 3 intermission, 5 stuff bits, CRC 0x14B2, 648.0 us on the bus, 40 % data

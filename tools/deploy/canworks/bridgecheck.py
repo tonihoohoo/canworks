@@ -285,12 +285,6 @@ def check_bridge(cfg, nets, err, warn):
         uses.append((parse_location("%IB0"), "bridge map hash (openplc)", w + ".openplc", OPENPLC_HASH_BYTES))
         uses.append((parse_location("%QB0"), "the PLC link header (openplc, output bytes 0-5)", w + ".openplc",
                      OPENPLC_HEADER_BYTES))
-    for n in nets:
-        m = n.get("master") if n["role"] == "master" else None
-        if isinstance(m, dict) and m.get("sync_source") == "plc_cycle":
-            err("networks[%d]: master" % n["index"],
-                "\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
-                "\"sync_period_us\" (timer SYNC)", ["networks[%d].master.sync_source" % n["index"]])
     return uses
 
 

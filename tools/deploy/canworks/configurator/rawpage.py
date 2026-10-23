@@ -34,7 +34,8 @@ def raw_uses(cfg):
 
 def _used(cfg, project_uses):
     used = layout.taken(cfg, project_uses) if isinstance(cfg, dict) else set()
-    used.update((l.area, l.size, l.element) for _, l in raw_uses(cfg))
+    for _, loc in raw_uses(cfg):
+        layout.mark(used, loc)
     return used
 
 

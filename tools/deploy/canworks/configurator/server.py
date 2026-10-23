@@ -1671,10 +1671,7 @@ class Session:
                 count = 0
             if not 1 <= count <= 32:
                 raise ApiError(400, "the codes of a watched ECU need their number, 1 to 32, as type")
-            element = start
-            while any(("I", "D", element + k) in used for k in range(count)):
-                element += 1
-            return {"location": element_str("I", "D", element)}
+            return {"location": layout.suggest("I", "D", used, start, count)}
         if direction in ("bit_in", "bit_out"):
             # One bit channel: the lowest free bit.
             return {"location": layout.suggest("I" if direction == "bit_in" else "Q", "X", used, start)}
@@ -1688,7 +1685,7 @@ class Session:
                 raise ApiError(400, "an entry's bits need their number, 1 to 64, as type")
             area = "I" if direction == "bits_in" else "Q"
             element = start * 8
-            while any((area, "X", element + k) in used for k in range(count)):
+            while not layout.is_free(used, area, "X", element, count):
                 element += 8
             return {"locations": [element_str(area, "X", element + k) for k in range(count)]}
         if direction in ("j1939_rx", "j1939_tx"):
@@ -1806,8 +1803,7 @@ class Session:
             if loc is None:
                 area, size = layout.area_size("input" if o["direction"] == "from_master" else "output", o["type"])
                 loc = layout.suggest(area, size, used, start)
-                parsed = parse_location(loc)
-                used.add((parsed.area, parsed.size, parsed.element))
+                layout.mark(used, parse_location(loc))
             bindings.append({"index": "0x%04X" % o["index"], "subindex": o["subindex"], "name": o["name"],
                              "iec_location": loc})
         objects = [dict(o, index="0x%04X" % o["index"]) for o in info["objects"]]

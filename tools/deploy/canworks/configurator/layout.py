@@ -1,7 +1,7 @@
 """Address suggestion, PDO packing, and the checks of CANopen locations
 against the rest of an editor project."""
 
-from .. import contract
+from .. import contract, modbusmap
 from ..iec import CO_TYPES, parse_location, element_str, _FITS
 
 DEFAULT_START = 100
@@ -123,17 +123,61 @@ def _network_uses(master, nodes, at):
     return out
 
 
+def mark(used, loc, nbytes=None):
+    """Takes the bytes of `loc` in the bridge's byte image: ("I"/"Q", "B",
+    byte) for each byte a value holds (`nbytes`, else its size's), or
+    ("I"/"Q", "X", bit) and ("I"/"Q", "b", byte) for a bit, which shares its
+    byte with other bits only."""
+    if loc.size == "X":
+        used.add((loc.area, "X", loc.element))
+        used.add((loc.area, "b", loc.index))
+    else:
+        for b in range(loc.index, loc.index + (nbytes or modbusmap.SIZE_BYTES[loc.size])):
+            used.add((loc.area, "B", b))
+
+
 def taken(cfg, project_uses):
-    keys = {(l.area, l.size, l.element) for _, l in canopen_uses(cfg)}
-    keys.update(u.key() for u in project_uses)
-    return keys
+    """The places of the bridge's byte image the config holds (see mark),
+    the bridge blocks and the OpenPLC link's reserved bytes included. The
+    editor project's own located variables are the PLC's, not the bridge's:
+    `project_uses` take nothing."""
+    used = set()
+    if modbusmap.is_bridge_config(cfg):
+        for it in modbusmap.collect(cfg):
+            mark(used, it.loc, it.nbytes)
+        if modbusmap.is_openplc(cfg):
+            for area, first in modbusmap.OPENPLC_FIRST_FREE.items():
+                for b in range(first):
+                    used.add((area, "B", b))
+    else:
+        for _, loc in canopen_uses(cfg):
+            mark(used, loc)
+    return used
 
 
-def suggest(area, size, used, start=DEFAULT_START):
-    """The lowest free location of the table at or above byte/word `start`."""
-    element = start * 8 if size == "X" else start
-    while (area, size, element) in used:
-        element += 1
+def is_free(used, area, size, element, count=1):
+    """Whether `count` consecutive values of `size` from table element
+    `element` fit in the free bytes (bits: free bits of bytes no value holds)."""
+    if size == "X":
+        return not any((area, "X", element + k) in used or (area, "B", (element + k) // 8) in used
+                       for k in range(count))
+    return not any((area, "B", b) in used or (area, "b", b) in used
+                   for b in range(element, element + count * modbusmap.SIZE_BYTES[size]))
+
+
+def suggest(area, size, used, start=DEFAULT_START, count=1):
+    """The lowest free location at or above byte `start` for `count`
+    consecutive values of `size`; word and larger values start at an even
+    byte (whole Modbus registers)."""
+    if size == "X":
+        element = start * 8
+        while not is_free(used, area, "X", element, count):
+            element += 1
+        return element_str(area, "X", element)
+    step = 2 if modbusmap.SIZE_BYTES[size] >= 2 else 1
+    element = start + start % step
+    while not is_free(used, area, size, element, count):
+        element += step
     return element_str(area, size, element)
 
 

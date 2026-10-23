@@ -16,8 +16,8 @@ from .test_configurator_server import RTD, Running, read, rtd_node
 
 def sim_config(**adapter):
     adapter = dict({"type": "socketcan", "interface": "can0", "bitrate": 125000}, **adapter)
-    return {"schema_version": 1, "adapter": adapter,
-            "master": {"node_id": 1}, "nodes": [rtd_node()]}
+    return {"schema_version": 2, "networks": [{"adapter": adapter, "master": {"node_id": 1}, "nodes": [rtd_node()]}],
+            "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}}
 
 
 class Sim(Running):
@@ -41,9 +41,10 @@ class File(Sim):
         out = self.ok("POST", "/api/save", {"config": cfg})
         self.assertEqual(out["check"]["errors"], 0, out["check"]["items"])
         saved = json.loads(read(os.path.join(self.canopen, "canworks.json"), "r"))
-        self.assertEqual(list(saved["adapter"]), ["type", "simulate", "interface", "bitrate"])
-        self.assertIs(saved["nodes"][0]["simulate"], False)
-        self.assertEqual(list(saved["nodes"][0])[:4], ["node_id", "name", "eds", "simulate"])
+        net = saved["networks"][0]
+        self.assertEqual(list(net["adapter"]), ["type", "simulate", "interface", "bitrate"])
+        self.assertIs(net["nodes"][0]["simulate"], False)
+        self.assertEqual(list(net["nodes"][0])[:4], ["node_id", "name", "eds", "simulate"])
 
     def test_state_reads_the_simulation_file(self):
         st = self.ok("GET", "/api/state")["simulation"]

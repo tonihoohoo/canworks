@@ -21,8 +21,9 @@ def config(tx=None, rx=None):
         raw["tx"] = tx
     if rx is not None:
         raw["rx"] = rx
-    return {"schema_version": 2, "networks": [{"name": "cab", "protocol": "none",
-                                               "adapter": {"type": "socketcan", "interface": "can0"}, "raw": raw}]}
+    return {"schema_version": 2, "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]},
+            "networks": [{"name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can0"},
+                          "raw": raw}]}
 
 
 def lamps(pages=None):

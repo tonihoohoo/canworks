@@ -889,8 +889,9 @@ class CheckAndSave(Running):
         self.assertEqual(data, {"location": "%QB100"})
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "sdo_read",
                                               "type": "INTEGER32"})
-        self.assertEqual(data, {"location": "%ID101"})  # the config already uses %ID100
-        for direction, want in (("sdo_trigger", "%QX100.0"), ("sdo_status", "%IB100"), ("sdo_abort", "%ID101")):
+        # The project's own %ID100 is the PLC's, not the bridge's.
+        self.assertEqual(data, {"location": "%ID100"})
+        for direction, want in (("sdo_trigger", "%QX100.0"), ("sdo_status", "%IB100"), ("sdo_abort", "%ID100")):
             self.assertEqual(self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": direction}),
                              {"location": want})
         del self.cfg["networks"][0]["nodes"][0]["sdo_variables"]
@@ -902,9 +903,9 @@ class CheckAndSave(Running):
         self.assertEqual(data, {"location": "%IB101"})
         data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bus_off_count_location"})
         self.assertEqual(data["location"][:3], "%IW")
-        # EMCY inputs: a word, and the byte after the bus state byte.
+        # EMCY inputs: a word at the next even byte, and the byte after the bus state byte.
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "emcy"})
-        self.assertEqual(data["location"], "%IW100")
+        self.assertEqual(data["location"], "%IW102")
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "errreg"})
         self.assertEqual(data["location"], "%IB101")
 
@@ -1007,12 +1008,12 @@ class Networks(Running):
         cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0].update(type="UNSIGNED16", iec_location="%IW100")
         got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "input",
                                              "type": "UNSIGNED16"})
-        self.assertEqual(got["location"], "%IW101")
+        self.assertEqual(got["location"], "%IW102")
         got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "state"})
-        self.assertEqual(got["location"], "%IB100")
-        cfg["networks"][0]["nodes"][0]["state_location"] = "%IB100"
+        self.assertEqual(got["location"], "%IB102")
+        cfg["networks"][0]["nodes"][0]["state_location"] = "%IB102"
         got = self.ok("POST", "/api/place", {"config": cfg, "network": 1, "node": 0, "direction": "state"})
-        self.assertEqual(got["location"], "%IB101")
+        self.assertEqual(got["location"], "%IB103")
         self.assertEqual(self.request("POST", "/api/place", {"config": cfg, "network": 2, "node": 0,
                                                              "direction": "state"})[0], 400)
 

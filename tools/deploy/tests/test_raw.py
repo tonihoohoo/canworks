@@ -410,7 +410,7 @@ class TraceDecoding(unittest.TestCase):
         path = pingpong_config(tmpdir(self))
         with open(path) as f:
             cfg = json.load(f)
-        cfg["raw"] = {"rx": [{"name": "free", "id": 0x3F0, "dlc": 1}, {"name": "on_pdo", "id": 0x182, "dlc": 1}]}
+        cfg["networks"][0]["raw"] = {"rx": [{"name": "free", "id": 0x3F0, "dlc": 1}, {"name": "on_pdo", "id": 0x182, "dlc": 1}]}
         d = Decoder.from_config(cfg, path)
         self.assertEqual(d.decode(Frame(0, 0x3F0, b"\x01")).kind, "raw")
         # The protocol keeps the identifiers it uses.

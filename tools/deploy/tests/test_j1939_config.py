@@ -177,9 +177,10 @@ class Clash(unittest.TestCase):
 
     def test_free_locations_skip_j1939(self):
         used = layout.taken(base(), [])
-        for key in (("I", "B", 200), ("I", "B", 201), ("I", "X", 202 * 8), ("I", "W", 210), ("Q", "X", 202 * 8)):
+        for key in (("I", "B", 200), ("I", "B", 201), ("I", "X", 202 * 8), ("I", "b", 202), ("I", "B", 210),
+                    ("I", "B", 211), ("Q", "X", 202 * 8)):
             self.assertIn(key, used)
-        self.assertEqual(layout.suggest("I", "B", used, 200), "%IB202")
+        self.assertEqual(layout.suggest("I", "B", used, 200), "%IB203")
 
 
 if __name__ == "__main__":

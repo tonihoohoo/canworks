@@ -126,12 +126,12 @@ class ConfigEntries(unittest.TestCase):
         self.assertEqual(entry["timeout_ms"], 300)
         self.assertNotIn("source", entry)
         locations = [s["iec_location"] for s in entry["signals"]]
-        # %IW210, %IB204..206 are the example's own; the suggestions skip them.
-        self.assertEqual(locations, ["%IW200", "%IB202", "%IB203", "%IB207"])
+        # The example holds bytes 200, 201, 204..206 and 210..217 and bits of 202 and 207; the suggestions skip them.
+        self.assertEqual(locations, ["%IW208", "%IB203", "%IB218", "%IB219"])
         self.assertEqual(entry["signals"][0], {"name": "Pressure", "start_bit": 0, "length": 16, "scale": 0.1,
-                                               "unit": "bar", "iec_location": "%IW200"})
+                                               "unit": "bar", "iec_location": "%IW208"})
         self.assertTrue(entry["signals"][1]["signed"])
-        self.assertIn(("I", "B", 207), used)
+        self.assertIn(("I", "B", 219), used)
 
     def test_send_a_message(self):
         imported = dbc.load(MACHINE_DBC)
@@ -140,7 +140,7 @@ class ConfigEntries(unittest.TestCase):
         self.assertEqual((tx["priority"], tx["period_ms"]), (6, 100))
         self.assertNotIn("destination", tx)
         self.assertNotIn("length", tx)
-        self.assertEqual([s["iec_location"] for s in tx["signals"]], ["%QW100", "%QB100"])
+        self.assertEqual([s["iec_location"] for s in tx["signals"]], ["%QW100", "%QB102"])
         command = dbc.config_entry(imported.find(61184)[0], "tx", used)
         self.assertEqual((command["destination"], command["period_ms"]), (0, 0))
         info = dbc.config_entry(imported.find(65282)[0], "tx", used)
@@ -149,7 +149,7 @@ class ConfigEntries(unittest.TestCase):
     def test_one_bit_and_wide_signals(self):
         imported = dbc.load(PUMP_DBC)
         status = dbc.config_entry(imported.messages[0], "rx", set())
-        self.assertEqual([s["iec_location"] for s in status["signals"]], ["%IW100", "%IX100.0", "%IB100", "%IW101"])
+        self.assertEqual([s["iec_location"] for s in status["signals"]], ["%IW100", "%IX102.0", "%IB103", "%IW104"])
         self.assertEqual(status["signals"][0]["offset"], -100)
         self.assertTrue(status["signals"][3]["signed"])
         counters = dbc.config_entry(imported.messages[2], "rx", set())
@@ -159,7 +159,7 @@ class ConfigEntries(unittest.TestCase):
 
     def test_network_from_the_dbc_passes_the_checks(self):
         # Every message of both DBCs as rx or tx of one network: the checks accept it.
-        cfg = {"schema_version": 2, "networks": [{
+        cfg = {"schema_version": 2, "bridge": {"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"]}, "networks": [{
             "name": "machine", "protocol": "j1939", "adapter": {"type": "socketcan", "interface": "vcan1",
                                                               "bitrate": 250000},
             "j1939": {"ecu": {"name": {"identity_number": 7}, "address": 128}, "dbc": "machine.dbc",
