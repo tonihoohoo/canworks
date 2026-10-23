@@ -522,11 +522,19 @@ cat > "$UNIT" <<EOF
 Description=canworks Modbus TCP bridge (%i)
 After=network-online.target
 Wants=network-online.target
+# Restarts never give up: a run of failed starts (a taken port, a full disk)
+# must not leave the bridge down for good.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=$BIN --config $CONF_DIR/%i/canworks.json
-Restart=on-failure
-RestartSec=2
+# Ready once its Modbus port is bound; its supervisor feeds the watchdog only
+# while its threads make progress, and aborts a stalled bridge itself first.
+Type=notify
+NotifyAccess=main
+WatchdogSec=20s
+Restart=always
+RestartSec=1
 # Port 502 and the CAN link setup (bit rate) need these; the service runs as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
 # A fault in the bridge cannot use up the device's memory or processes.

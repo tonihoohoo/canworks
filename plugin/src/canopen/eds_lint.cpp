@@ -14,6 +14,7 @@
 
 #include "cJSON.h"
 #include "dcf_gen.h"
+#include "disk.h"
 
 extern char** environ;
 
@@ -176,6 +177,14 @@ bool run_eds_lint(Config& cfg, const std::string& python, const std::string& wor
     if (!doc || !cJSON_IsObject(doc)) {
       if (why.empty()) why = rc == 0 ? "no result" : "exit status " + std::to_string(rc);
       std::string tail = last_lines(err, 2);
+      // A full or read-only config folder, not a missing deploy tool.
+      std::string disk = disk_problem(work_dir);
+      if (!disk.empty()) {
+        errors.push_back(disk + ": the bridge writes its generated files there; free some space and start it again "
+                         "(the EDS lint could not write its results: " + why + ")");
+        cJSON_Delete(doc);
+        return false;
+      }
       errors.push_back("cannot run the EDS lint (" + python + " -I -m canworks.edslint): " + why +
                        (tail.empty() ? "" : ": " + tail) +
                        ((access(python.c_str(), X_OK) != 0 && errno == EACCES) ||

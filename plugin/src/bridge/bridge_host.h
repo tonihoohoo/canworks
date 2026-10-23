@@ -67,11 +67,17 @@ class BridgeHost {
                     uint32_t* map_hash = nullptr);
 
   // A config uploaded over the diagnostics channel (put_config) was checked
-  // and staged: the main thread calls apply_upload(), which restarts on it,
-  // or on the previous files when it does not start.
+  // and staged: the main thread calls apply_upload(), which puts its files
+  // in place atomically and restarts on it, or on the previous files when
+  // they cannot be put in place or it does not start. False when nothing
+  // runs afterwards (the previous files did not start either).
   bool upload_pending() const;
-  void apply_upload();
+  bool apply_upload();
   bool running() const { return running_; }
+  // How the previous run of this config ended (modbus-bridge "Unclean stop
+  // reported"): "clean", "unclean" or "unknown" (first start), decided at
+  // the first start of the process.
+  const std::string& last_stop() const { return last_stop_; }
 
   const canopen_plugin::ConfigSet& set() const { return engine_->set(); }
   ByteImage& image() { return image_; }
@@ -136,6 +142,13 @@ class BridgeHost {
   uint32_t map_hash_ = 0;
   bool mismatch_logged_ = false;
   uint32_t mismatch_seen_ = 0;
+
+  // The run marker (.canworks/running): written after a start, removed by
+  // stop(); found at the first start, the previous run did not stop.
+  std::string marker_path() const;
+  void write_marker();
+  std::string last_stop_;
+  bool unclean_start_ = false;
 
   std::string config_path_, version_;
   mutable std::mutex upload_mu_;

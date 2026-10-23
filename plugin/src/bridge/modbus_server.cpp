@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "modbus.h"
+#include "progress.h"
 
 namespace canworks_bridge {
 
@@ -25,6 +26,10 @@ using Clock = std::chrono::steady_clock;
 constexpr size_t kMbapSize = 7;
 constexpr size_t kMaxPdu = 253;
 constexpr size_t kMaxFrame = kMbapSize + kMaxPdu;
+// TCP keepalive of every connection (modbus-bridge "Clients and access").
+constexpr int kKeepIdleS = 5;
+constexpr int kKeepIntervalS = 2;
+constexpr int kKeepProbes = 3;
 
 struct Client {
   int fd;
@@ -109,10 +114,12 @@ void ModbusServer::run() {
   auto say = [this](const std::string& s) {
     if (log) log(s);
   };
+  canopen_plugin::ThreadProgress progress("Modbus server thread");
   std::vector<Client> clients;
   std::vector<pollfd> fds;
   std::vector<uint8_t> resp;
   while (!stop_) {
+    progress.beat();
     fds.clear();
     fds.push_back({wake_fd_, POLLIN, 0});
     fds.push_back({listen_fd_, POLLIN, 0});
@@ -224,14 +231,28 @@ void ModbusServer::run() {
           ::close(fd);
           continue;
         }
+        bool writer = cfg_.writers.matches(pa);
         int same = 0;
         for (const Client& c : clients) same += c.peer == who;
         if (same >= cfg_.max_clients_per_address) {
-          say("modbus: refused " + who + ": max_clients_per_address reached");
-          ::close(fd);
-          continue;
+          // A writer takes the slot of its own address's longest-idle
+          // connection: a PLC that reconnects after a power loss next to
+          // connections nobody closed is not locked out.
+          auto idle = clients.end();
+          if (writer) {
+            for (auto it = clients.begin(); it != clients.end(); ++it)
+              if (it->peer == who && (idle == clients.end() || it->last < idle->last)) idle = it;
+          }
+          if (idle == clients.end()) {
+            say("modbus: refused " + who + ": max_clients_per_address reached");
+            ::close(fd);
+            continue;
+          }
+          say("modbus: closing " + idle->peer + " (idle connection): to make room for writer " + who +
+              " (max_clients_per_address)");
+          ::close(idle->fd);
+          clients.erase(idle);
         }
-        bool writer = cfg_.writers.matches(pa);
         if (static_cast<int>(clients.size()) >= cfg_.max_clients) {
           // A writer takes the slot of the oldest client that may not write.
           auto oldest = clients.end();
@@ -254,6 +275,11 @@ void ModbusServer::run() {
         }
         int one = 1;
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+        // A peer that lost power or its network is closed within about 11 s.
+        ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &kKeepIdleS, sizeof(kKeepIdleS));
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &kKeepIntervalS, sizeof(kKeepIntervalS));
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &kKeepProbes, sizeof(kKeepProbes));
         clients.push_back(Client{fd, writer, who, now, now, now, false, {}, 0, {}, 0});
       }
     }

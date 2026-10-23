@@ -1367,6 +1367,10 @@ def bridge_status_line(b):
     up = b.get("last_upload")
     if isinstance(up, dict):
         line += "; last config upload: %s" % up.get("result")
+    if b.get("last_stop") == "unclean":
+        line += "; last stop unclean (crash, kill or power loss)"
+    elif b.get("last_stop") == "clean":
+        line += "; last stop clean"
     return line
 
 

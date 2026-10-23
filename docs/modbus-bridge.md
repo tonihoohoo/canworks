@@ -12,6 +12,7 @@ The bridge is canworks' engine: it boots and supervises CANopen nodes, claims a 
 - [Connections](#connections)
 - [OpenPLC](#openplc)
 - [Deploying and checking a config](#deploying-and-checking-a-config)
+- [When the bridge fails](#when-the-bridge-fails)
 - [Clients](#clients)
 - [Security](#security)
 - [Limits](#limits)
@@ -126,7 +127,7 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `unit_id` | 1 | The unit identifier the bridge answers; 0 and 255 are always answered, others get exception 0x0B. |
 | `word_order` | `high_first` | Order of the registers of a 32- or 64-bit value. |
 | `max_clients` | 16 | Connections at once (1-64); more are closed at once with a log line. When every slot is taken and a writer connects, the oldest connection from a client that may not write is closed to make room. |
-| `max_clients_per_address` | 4 | Connections at once from one address (1-64); more are closed at once with a log line. |
+| `max_clients_per_address` | 4 | Connections at once from one address (1-64); more are closed at once with a log line, except a writer's: it takes the slot of its own address's longest-idle connection. |
 | `writers` | required | Addresses or prefixes allowed to write. A write from another client gets exception 0x01 and changes nothing, and does not feed the watchdog. `[]` makes the bridge read-only; `["0.0.0.0/0", "::/0"]` lets every address write. |
 | `readers` | every client | Addresses or prefixes allowed to connect at all. An entry of `readers` or `writers` that is not an address or prefix stops the bridge from starting. |
 | `watchdog_ms` | 1000 | Outputs off when no write came from a writer for this long; 0 turns the watchdog off. Up to 60000. |
@@ -165,7 +166,7 @@ Values are stored most significant byte first. A 32-bit value at `%ID4` is input
 
 An entry's [bit channels](config.md#bit-channels) name bits of the entry's own location: they have no location of their own in a bridge config, and the register map lists each as the discrete input or coil that holds it, named `<node>.<name>` (`dio.jog_x_plus`) or `<entry>.bit<n>`. With `0x6041` at `%IW10` (bytes 10 and 11), statusword bit 3 is discrete input 91 (byte 11, the low byte) and bit 9 is discrete input 81. Writing a coil of an output entry changes only that bit.
 
-The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write) and 8 (loopback). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection that sent no complete request for 60 s is closed, and so is one that holds an incomplete request for 5 s. Each connection may have at most 8 KB of replies it has not read: while it is over that, the bridge reads no more requests from it, and after 10 s over it the connection is closed (`closing ADDRESS: replies not read`). Requests a client sends ahead wait in its own connection: the bridge reads more only once less than one request is waiting.
+The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write) and 8 (loopback). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection that sent no complete request for 60 s is closed, and so is one that holds an incomplete request for 5 s. Every connection uses TCP keepalive (5 s idle, 2 s interval, 3 probes), so one whose peer lost power or its network is closed within about 11 s. Each connection may have at most 8 KB of replies it has not read: while it is over that, the bridge reads no more requests from it, and after 10 s over it the connection is closed (`closing ADDRESS: replies not read`). Requests a client sends ahead wait in its own connection: the bridge reads more only once less than one request is waiting.
 
 Every read is answered from one snapshot of the inputs, and every write is applied as one snapshot of the outputs, so a value over several registers never mixes two bus updates when the client reads or writes it in one request.
 
@@ -198,7 +199,7 @@ Each block is optional and lives where its location says.
 | 2-3 | a counter that grows every 100 ms (the bridge is alive) |
 | 4-5 | the last control counter handled |
 | 6 | the result of that command: 0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused (the network's bus is down, or 16 of its NMT commands still wait), 6 not run because the bridge restarted (OpenPLC configs, [below](#after-a-bridge-restart)) |
-| 7 | 0 |
+| 7 | flags: bit 0 set for the whole run when the previous run of this config did not stop cleanly ([below](#when-the-bridge-fails)); the other bits 0 |
 
 **Control block** (6 output bytes): counter (word), command, network index, node, reserved. A command runs once each time the counter changes, so a client that writes the block every cycle sends it once. Commands: 1 run (ends outputs off from idle), 2 idle (outputs off with the `on_client_loss` action, until run), 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for that node of that CANopen master network (node 0: all its nodes). The network index counts the config's networks from 0. An NMT command while the network's CAN interface is down is refused with result 5 and is not sent when the bus comes back; write it again then. At most 16 NMT commands wait per network; a further one is refused the same way.
 
@@ -364,9 +365,24 @@ Then:
 canworks-deploy --bridge 192.168.10.5 --config canworks.json --token-file token.txt
 ```
 
-The tool checks the config, sends it with its EDS files and simulation file over the encrypted channel, and the bridge checks it again, keeps the previous files, restarts on the new ones and reports `ok: canworks-bridge runs the new config`. When the new config does not start (its Modbus port is taken, an interface is missing), the bridge goes back to the previous files and the tool says so. A config the bridge refuses changes nothing.
+The tool checks the config, sends it with its EDS files and simulation file over the encrypted channel, and the bridge checks it again, keeps the previous files, restarts on the new ones and reports `ok: canworks-bridge runs the new config`. When the new config does not start (its Modbus port is taken, an interface is missing), the bridge goes back to the previous files and the tool says so. A config the bridge refuses changes nothing. Each file is replaced atomically (written next to the old one, written to disk, renamed over it), so a power loss during an upload leaves every file either old or new; a file that cannot be written puts back the ones already replaced. An upload that would not fit on the device's disk is refused before anything stops.
 
-`canworks-diag --runtime HOST status` shows a bridge line with the output state, the watchdog, the connected clients and the last upload; the configurator's Online view works against a bridge as against a runtime.
+`canworks-diag --runtime HOST status` shows a bridge line with the output state, the watchdog, the connected clients, the last upload and how the previous run ended; the configurator's Online view works against a bridge as against a runtime.
+
+## When the bridge fails
+
+| What happens | What the bridge does | What the PLC sees | What the nodes see |
+|---|---|---|---|
+| Clean stop (`systemctl stop`, an update) | sends every node `master.on_plc_stop` (pre-operational by default), then closes the network | no answers; `canworks.ok` FALSE after the stale time | the NMT command, then no SYNC or heartbeat |
+| Crash, kill, out of memory | nothing: the process is gone. systemd starts it again 1 s later | as above; after the restart the status counter starts from 0 and byte 7 bit 0 is set | SYNC and the master heartbeat stop; RPDO values stay unless the node watches the master's heartbeat (`heartbeat_consumer`) or has an RPDO deadline (`event_timer_ms`) |
+| Hang (a thread makes no progress for 10 s) | logs which thread and aborts; systemd or the container restarts it. systemd's watchdog (20 s) is the backstop | connections are accepted but not answered; `canworks.ok` FALSE | as for a crash |
+| Power loss | as for a crash; the next start logs that the previous run did not stop cleanly | as for a crash | as for a crash |
+| Full or read-only disk | with its generated files cached it starts as usual; otherwise it refuses to start with `no space left in … (N KiB free)` and systemd retries once a second | no answers | nothing from the bridge |
+| Config upload that cannot be put in place, or does not start | puts the previous files back and runs them; when they do not start either, it exits and systemd retries | a short gap | the restart's boot |
+
+The systemd unit is `Type=notify`: `systemctl start` returns once the Modbus port answers. It restarts the bridge after every exit it did not ask for (`Restart=always`, `RestartSec=1`) and never gives up (`StartLimitIntervalSec=0`), so a port held by another program or a full disk delays the bridge instead of leaving the unit failed. The bridge feeds systemd's watchdog (`WatchdogSec=20s`) only while its loop, its Modbus server and every network's bus thread make progress.
+
+After a start that follows an unclean stop the log has `the previous run of this config did not stop cleanly`, the status block's byte 7 has bit 0 set until the bridge stops, and `canworks-diag status` says `last stop unclean`. The bridge keeps a small marker file (`.canworks/running` next to the config) for this; it is written once per start.
 
 ## Clients
 
@@ -403,6 +419,7 @@ Modbus TCP has no authentication or encryption. Put the bridge on a machine netw
 - Linux with SocketCAN only.
 - At most 8192 input and 8192 output bytes; a location past them is refused.
 - At most 16 connections (`max_clients`, up to 64), 4 per address, and 8 KB of unread replies per connection.
+- A thread that makes no progress for 10 s aborts the bridge (it restarts).
 - No Modbus RTU (serial); no Modbus TLS.
 - One bridge per CAN interface.
 - Function block mailboxes: at most 4 request mailboxes, 2 receive blocks, 32 receivers, 16 cyclic jobs and network info for 8 networks. A program receives about 450 CAN frames/s with one receive block or 1050 with two at a 10 ms poll ([throughput](#receive-throughput)), and sends about 50 frames/s per request mailbox with `CAN_SEND`.

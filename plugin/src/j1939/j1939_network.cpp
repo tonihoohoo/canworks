@@ -15,6 +15,7 @@
 #include "j1939_signal.h"
 #include "log.h"
 #include "outputs_gate.h"
+#include "progress.h"
 
 namespace canopen_plugin {
 
@@ -1443,6 +1444,7 @@ bool J1939Network::wait_for(std::chrono::milliseconds d) {
   // In slices, so the diagnostics channel is answered while the bus is away.
   auto end = std::chrono::steady_clock::now() + d;
   while (!stop_) {
+    progress_beat();
     serve_diag(std::chrono::steady_clock::now());
     engine_.serve_plc(index_, std::chrono::steady_clock::now());  // without a bus: error 7
     engine_.serve_plc_msgs(std::chrono::steady_clock::now());
@@ -1553,6 +1555,7 @@ static uint8_t bus_code(int rc, const LinkInfo& info) {
 
 void J1939Network::thread_main() {
   ScopedLogPrefix prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
+  ThreadProgress progress(network_thread_name("J1939 thread", cfg_.network, index_));
   if (hub_) hub_->attach();
   J1939PlcJobs::instance().set_attached(index_, true);
   J1939PlcMsgs::instance().set_attached(index_, true);
@@ -1600,6 +1603,7 @@ void J1939Network::run_session() {
   while (!stop_) {
     pollfd p = {socket_->fd(), POLLIN, 0};
     int pr = poll(&p, 1, 1);
+    progress_beat();
     now = clock::now();
     if (pr < 0 && errno != EINTR) {
       offline(std::string("poll: ") + strerror(errno));
