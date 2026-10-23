@@ -16,7 +16,7 @@ import io
 import json
 import zlib
 
-from . import mailboxlayout
+from . import bridgecheck, mailboxlayout
 from .iec import Location, parse_location
 
 # Bytes per location size letter.
@@ -38,7 +38,7 @@ BRIDGE_BLOCKS = {
 LIVE_LIST_BYTES = 16
 SDO_BRIDGE_BYTES = 14
 
-# bridge.openplc or bridge.plc_link: the map hash at input bytes 0-3, the status block at input
+# bridge.plc_link: the map hash at input bytes 0-3, the status block at input
 # byte 4, the PLC link header (running, hash high, hash low) at output bytes
 # 0-5. Fixed places, packing starts after them.
 OPENPLC_HASH_BYTES = 4
@@ -65,20 +65,18 @@ def is_bridge_config(cfg):
 
 
 def is_openplc(cfg):
-    """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
-    return is_bridge_config(cfg) and isinstance(cfg["bridge"].get("openplc"), dict)
+    """A bridge config with an OpenPLC connection (modbus-connections)."""
+    return is_bridge_config(cfg) and bridgecheck.is_openplc(cfg)
 
 
 def has_plc_link(cfg):
     """The PLC link header and map hash in the image: `bridge.plc_link` true
-    or `bridge.openplc` (modbus-bridge spec)."""
-    return is_bridge_config(cfg) and (is_openplc(cfg) or cfg["bridge"].get("plc_link") is True)
+    (modbus-bridge spec)."""
+    return is_bridge_config(cfg) and cfg["bridge"].get("plc_link") is True
 
 
 def word_order_of(cfg):
-    """The bridge's word order; an openplc config is always low word first."""
-    if is_openplc(cfg):
-        return "low_first"
+    """The bridge's word order."""
     return cfg["bridge"].get("word_order", "high_first")
 
 
@@ -186,7 +184,7 @@ def _walk(value, ctx, out):
 
 def _bridge_items(bridge, networks=0):
     out = []
-    link = isinstance(bridge.get("openplc"), dict) or bridge.get("plc_link") is True
+    link = bridge.get("plc_link") is True
     if link:
         out.append(_block_item({}, "location", "%IB0", "I", OPENPLC_HASH_BYTES, "bridge.map_hash", fixed=True))
         out.append(_block_item({}, "location", "%QB0", "Q", OPENPLC_HEADER_BYTES, "bridge.plc_link", fixed=True))

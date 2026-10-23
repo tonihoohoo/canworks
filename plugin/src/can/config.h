@@ -625,17 +625,10 @@ struct BridgeConfig {
   IecLocation sdo_request;   // %QBn, 14 bytes
   IecLocation sdo_response;  // %IBn, 14 bytes
   bool sdo_bridge_write = false;
-  // "openplc": OpenPLC's Modbus master is the client (PLC link header at
-  // output bytes 0-5, map hash at input bytes 0-3, status at input byte 4).
-  bool openplc = false;
-  // "plc_link" (or "openplc"): the PLC link header at output bytes 0-5, the
+  // "plc_link": the PLC link header at output bytes 0-5, the
   // map hash at input bytes 0-3 and the status block at input byte 4, for
   // any Modbus client that runs canworks_in/canworks_out.
   bool plc_link = false;
-  unsigned poll_ms = 10;
-  std::string remote_device = "canworks";
-  bool has_iec_base = false;
-  unsigned iec_base = 0;
   // "mailboxes" (modbus-bridge-mailboxes): request mailboxes, the receive
   // mailbox, network info and cyclic jobs, in one input and one output area.
   bool has_mailboxes = false;

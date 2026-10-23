@@ -8,7 +8,7 @@ This module then changes only what `create` cannot set:
                                  runtime address, when one is known)
     pous/programs/main.st        an empty program main
     canworks/                     the config and its files (project.write())
-    devices/remote/, canworks_in, for an OpenPLC through Modbus config: the
+    devices/remote/, canworks_in, with an OpenPLC connection: the
     canworks_out, project.json   editor's remote device, the generated
                                  programs and the `canworks` variable list
                                  (write_editor_files(), openplcmodbus)
@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess
 
-from . import bundle, contract, openplcmodbus, plclibrary, targets
+from . import bridgecheck, bundle, contract, openplcmodbus, plclibrary
 from . import project as project_mod
 from .configurator import declare, scan
 from .eds import Eds, EdsError
@@ -148,9 +148,9 @@ def declarations(cfg, config_path):
 
 def uses_library(cfg):
     """Whether the project needs the canworks library without --blocks: an
-    OpenPLC through Modbus config, whose canworks_in and canworks_out use its
+    config with an OpenPLC connection, whose canworks_in and canworks_out use its
     word helpers."""
-    return cfg is not None and targets.target(cfg) == targets.OPENPLC_MODBUS
+    return cfg is not None and bridgecheck.is_openplc(cfg)
 
 
 def main_st():
@@ -160,13 +160,13 @@ def main_st():
 
 
 def write_editor_files(cfg, config_path, project_dir, force=False):
-    """For an OpenPLC through Modbus config: the editor's remote device,
+    """For a config with an OpenPLC connection: the editor's remote device,
     canworks_in, canworks_out and the `canworks` list in the project
     (openplcmodbus.sync_project), with the I/O placed clear of the
     project's other located variables. Returns sync_project's result, or
     None for another target. NewProjectError when a generated file was
     changed by hand and `force` is not set."""
-    if targets.target(cfg) != targets.OPENPLC_MODBUS:
+    if not bridgecheck.is_openplc(cfg):
         return None
     uses, _ = scan.scan(project_dir)
     try:

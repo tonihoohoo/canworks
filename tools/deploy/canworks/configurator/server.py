@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, mainmove, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, mailboxlayout, nodered, openplcmodbus, plcopen, plcopen_targets, targets
+from .. import bundle, connections, mailboxlayout, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -348,22 +348,14 @@ def version2(cfg):
     return dict({"$schema": out.pop("$schema")} if "$schema" in out else {}, schema_version=2, networks=[net], **out)
 
 
-def openplc_bridge(cfg):
-    """The `bridge` object of a new OpenPLC through Modbus config: the
-    control block, the SDO registers (writes allowed: only the runtime on
-    127.0.0.1 may write), a live list per named CANopen master network and
-    the mailboxes with their default counts (one request mailbox, the
-    receive mailbox, 4 cyclic jobs, network info), so every canworks block
-    works. A network without a name goes by its interface's, as everywhere
-    in the config. Packing places them."""
-    out = {"openplc": {}, "control_location": "%QB0",
-           "sdo_bridge_location": {"request": "%QB0", "response": "%IB0"}, "sdo_bridge_write": True,
-           "mailboxes": {"input_location": "%IB0", "output_location": "%QB0"}}
-    lists = [{"network": n["name"], "location": "%IB0"} for n in contract.networks(cfg)
-             if n["name"] and n["role"] == "master" and n["protocol"] == "canopen"]
-    if lists:
-        out["live_lists"] = lists
-    return out
+def device_target(cfg):
+    """The project's kind for the Devices page (devices.plan): "codesys",
+    "openplc_modbus" for a bridge config with an OpenPLC connection (the
+    runtime goes on the device too), else "bridge"; None for a plugin config."""
+    tgt = targets.target(cfg)
+    if tgt == targets.BRIDGE and bridgecheck.is_openplc(cfg):
+        return "openplc_modbus"
+    return None if tgt == targets.PLUGIN else tgt
 
 
 def _at(cfg, path):
@@ -744,9 +736,10 @@ class Session:
 
     def new_config(self, path, editor_project=False, target=None):
         """New config… on the start page: a config folder, or with
-        `editor_project` a new OpenPLC Editor project, opened as a project.
-        Either way the target's empty config is written on Create, so a
-        reload shows the new config with its target."""
+        `editor_project` a new OpenPLC Editor project with a Modbus bridge
+        config and its OpenPLC connection, opened as a project. Either way
+        the target's empty config is written on Create, so a reload shows the
+        new config with its target."""
         if target is not None and target not in targets.TARGETS:
             raise ApiError(400, "target must be one of: " + ", ".join(targets.TARGETS))
         if not editor_project:
@@ -762,8 +755,8 @@ class Session:
         except editorproject.NewProjectError as e:
             raise ApiError(422, str(e))
         self.open(path, "project")
-        self._write_new(target)
-        if target == targets.OPENPLC_MODBUS:
+        self._write_new(target, openplc=target in (None, targets.BRIDGE))
+        if bridgecheck.is_openplc(self.read_config()[0]):
             cfg = self.read_config()[0]
             try:
                 self.sync_openplc(cfg, force=True)
@@ -772,15 +765,18 @@ class Session:
             self.rescan()
 
     def default_config(self):
-        """The empty config of the default target, OpenPLC through Modbus."""
-        return self.switch_target(empty_config(), targets.OPENPLC_MODBUS)["config"]
+        """The empty config of the default target, the Modbus bridge."""
+        return self.switch_target(empty_config(), targets.BRIDGE, openplc=False)["config"]
 
-    def _write_new(self, target):
-        """Writes the empty config of `target` (default OpenPLC through
-        Modbus) into the folder just opened, unless it has one."""
+    def _write_new(self, target, openplc=False):
+        """Writes the empty config of `target` (default the Modbus bridge),
+        with an OpenPLC connection when `openplc`, into the folder just
+        opened, unless it has one."""
         if os.path.isfile(self.config_path):
             return
-        cfg = self.switch_target(empty_config(), target or targets.OPENPLC_MODBUS)["config"]
+        cfg = self.switch_target(empty_config(), target or targets.BRIDGE, openplc=False)["config"]
+        if openplc:
+            cfg = self.add_connection(cfg, {"kind": "openplc"})["config"]
         try:
             self._save(cfg, None)
         except OSError as e:
@@ -1396,10 +1392,10 @@ class Session:
             pass  # notes are documentation: they never stop a check
         # The bridge's byte addresses are not the editor project's: no project addresses to clash with.
         tgt = targets.target(cfg)
-        if tgt == targets.OPENPLC_MODBUS and self.mode == "project":
+        if bridgecheck.is_openplc(cfg) and self.mode == "project":
             items += self.openplc_items(cfg)
         if tgt == targets.BRIDGE:
-            items += plcopen_targets.problems(cfg)
+            items += connections.problems(cfg)
         if self.mode == "project":
             items += layout.macro_problems(self.uses)
         decls = []
@@ -1469,14 +1465,16 @@ class Session:
                 "files": sorted(files), "data": base64.b64encode(data).decode("ascii")}
 
     # -- project target (canopen-configurator "Switching the target") --------
-    def switch_target(self, cfg, target):
+    def switch_target(self, cfg, target, openplc=None):
         """The draft switched to `target`: the target's marker added and the
         old one removed; to CODESYS every PDO entry without a name gets its
         generated name; from CODESYS every entry gets a location, packed for
-        the new target; for the bridge targets every location is repacked.
+        the new target; for the bridge every location is repacked.
         What the new target does not use is removed and counted in
         `removed`, from a removed plugin config also what only the plugin
-        had (strip_plugin_fields)."""
+        had (strip_plugin_fields). A plugin config inside an editor project
+        gets an OpenPLC connection (Use with canworks-bridge); `openplc`
+        False leaves it out (a new config)."""
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         if target not in targets.TARGETS:
@@ -1499,10 +1497,15 @@ class Session:
                 if isinstance(adapter, dict):
                     adapter.setdefault("type", "socketcan")
                     adapter.setdefault("interface", "can%d" % k)
+        if openplc is None:
+            openplc = old == targets.PLUGIN and self.mode == "project"
+        openplc = openplc and target == targets.BRIDGE
         if target == targets.BRIDGE:
             out["bridge"] = {"listen": "0.0.0.0:502", "writers": []}
-        elif target == targets.OPENPLC_MODBUS:
-            out["bridge"] = openplc_bridge(out)
+            if openplc:
+                out["bridge"] = {"connections": [connections.new("openplc", out)]}
+                connections.sync_writers(out)
+                connections.openplc_settings(out, out["bridge"]["connections"][0])
         elif target == targets.CODESYS:
             out["codesys"] = {}
         located = 0
@@ -1515,7 +1518,7 @@ class Session:
                 out = modbusmap.pack(out)
             except modbusmap.MapError as e:
                 raise ApiError(400, str(e))
-        old = self.old_main(out) if target == targets.OPENPLC_MODBUS else None
+        old = self.old_main(out) if openplc else None
         return {"config": out, "removed": len(gone) + plugin_only, "located": located, "target": target,
                 "old_main": old["count"] if old else 0}
 
@@ -1883,7 +1886,8 @@ class Session:
         channels = modbusmap.suggest_channels(rows)
         out = {"rows": rows, "input_bytes": inputs, "output_bytes": outputs,
                "channels": [{"function": f, "start": st, "count": c, "direction": d} for f, st, c, d in channels],
-               "requests": len(channels), "request_budget": openplcmodbus.REQUEST_BUDGET}
+               "requests": len(channels), "request_budget": openplcmodbus.REQUEST_BUDGET,
+               "map_hash": connections.map_hash_text(cfg)}
         if modbusmap.is_openplc(cfg):
             try:
                 out["requests"] = openplcmodbus.request_count(openplcmodbus.layout(cfg, [], 0)[0])
@@ -1965,80 +1969,43 @@ class Session:
             raise ApiError(400, "no free %d-byte range left in the %s image" % (nbytes, "input" if area == "I" else "output"))
         return {"location": "%%%sB%d" % (area, pos)}
 
-    MAP_TYPES = {"csv": "text/csv", "json": "application/json", "st": "text/plain"}
-
-    def export_modbus_map(self, cfg, fmt):
-        """The register map file `canworks-deploy --export-modbus-map
-        map.<fmt>` writes for the draft (saved or not): `<folder>_modbus.<fmt>`,
-        base64 in `data`. When the locations break the byte rules: the
-        /api/check shape, and no file."""
+    # -- connections (modbus-connections) -----------------------------------
+    def add_connection(self, cfg, conn):
+        """Add connection: the draft with `conn` (a new one of its kind, its
+        fields over the defaults) added, the bridge set for an OpenPLC
+        connection and repacked, the writers following the connections."""
         self._bridge_config(cfg)
-        if fmt != "nodered" and fmt not in self.MAP_TYPES:
-            raise ApiError(400, "format must be csv, json, st or nodered")
-        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
-        if fmt == "nodered":
-            # The flow `canworks-deploy --export-nodered <folder>_node-red.json` writes.
-            try:
-                nodes, notes, sp = nodered.flow(cfg, folder)
-            except nodered.FlowError as e:
-                return self._map_problems(cfg, [str(e)])
-            return {"items": [], "errors": 0, "name": "%s_node-red.json" % folder,
-                    "content_type": "application/json", "rows": len(sp["inputs"]) + len(sp["outputs"]),
-                    "notes": notes, "data": base64.b64encode(nodered.to_json(nodes).encode("utf-8")).decode("ascii")}
+        if not isinstance(conn, dict) or conn.get("kind") not in connections.KINDS:
+            raise ApiError(400, "connection.kind must be one of: " + ", ".join(connections.KINDS))
+        new = connections.new(conn["kind"], cfg, conn.get("name"), conn.get("address"))
+        new.update({k: v for k, v in conn.items() if k not in ("kind", "name") and v is not None})
         try:
-            rows = modbusmap.register_map(cfg)
-        except modbusmap.MapError as e:
+            out = connections.add(cfg, new)
+        except (ValueError, modbusmap.MapError) as e:
+            raise ApiError(400, str(e))
+        return {"config": out, "index": len(out["bridge"]["connections"]) - 1,
+                "old_main": (self.old_main(out) or {}).get("count", 0) if new["kind"] == "openplc" else 0}
+
+    def connection_download(self, cfg, index):
+        """A connection's Download for the draft: {name, content_type,
+        data (base64), map_hash, notes}, the same file as the command line
+        writes; on a problem the /api/check shape, and no file."""
+        self._bridge_config(cfg)
+        items = cfg["bridge"].get("connections")
+        try:
+            conn = items[int(index)]
+        except (IndexError, TypeError, ValueError):
+            raise ApiError(400, "no connection %r" % index)
+        if not isinstance(conn, dict) or conn.get("kind") not in connections.KINDS or conn["kind"] == "openplc":
+            raise ApiError(400, "connection %r has no download" % index)
+        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
+        try:
+            name, mime, data, notes = connections.download(
+                cfg, conn, editorproject.declarations(cfg, self.config_path), folder)
+        except connections.DownloadError as e:
             return self._map_problems(cfg, e.problems)
-        if fmt == "st" and modbusmap.has_plc_link(cfg):
-            # The PLC link for another Modbus PLC, as the command line writes it.
-            try:
-                text = openplcmodbus.other_plc_st(cfg, editorproject.declarations(cfg, self.config_path))
-            except openplcmodbus.OpenplcError as e:
-                return self._map_problems(cfg, [str(e)])
-        else:
-            text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
-                else modbusmap.to_st(cfg, rows)
-        return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
-                "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
-                "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}
-
-    def export_plcopen(self, cfg, target, host=None, library=True, with_main=False, plc=None, ethernet=None,
-                       plc_address=None):
-        """The folder `canworks-deploy --export-plcopen DIR --for <target>`
-        writes for the draft (plcopen-export), as `<folder>-<target>.zip`,
-        base64 in `data`, with `notes` for the dialog (a PLC address that
-        `writers` does not let write). On a problem: the /api/check shape,
-        and no file."""
-        self._bridge_config(cfg)
-        if target not in plcopen_targets.TARGETS:
-            raise ApiError(400, "target must be one of: " + ", ".join(plcopen_targets.TARGETS))
-        for name, v in (("host", host), ("plc", plc), ("ethernet", ethernet), ("plc_address", plc_address)):
-            if v is not None and not isinstance(v, str):
-                raise ApiError(400, "%s must be a string" % name)
-        folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
-        try:
-            files = plcopen_targets.files(
-                cfg, editorproject.declarations(cfg, self.config_path), target, host=(host or "").strip() or None,
-                library=library is not False, with_main=with_main is True and target != "codesys",
-                config_name=os.path.basename(self.config_path), codesys_plc=(plc or "").strip() or None,
-                codesys_ethernet=(ethernet or "").strip() or None)
-        except (plcopen_targets.ExportError, plcopen.PlcopenError, modbusmap.MapError,
-                openplcmodbus.OpenplcError) as e:
-            return self._map_problems(cfg, getattr(e, "problems", None) or [str(e)])
-        notes = []
-        if plc_address and plc_address.strip():
-            covered = plcopen_targets.writer_covers(cfg, plc_address)
-            if covered is None:
-                notes.append("%s is not an IP address" % plc_address.strip())
-            elif not covered:
-                notes.append("the bridge takes writes only from the addresses in writers, and %s is not one of them: "
-                             "add it on the bridge page, or the PLC's outputs are refused" % plc_address.strip())
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for n in sorted(files):
-                z.writestr(n, files[n].encode("utf-8"))
-        return {"items": [], "errors": 0, "name": "%s-%s.zip" % (folder, target), "content_type": "application/zip",
-                "files": sorted(files), "notes": notes, "data": base64.b64encode(buf.getvalue()).decode("ascii")}
+        return {"items": [], "errors": 0, "name": name, "content_type": mime, "notes": notes,
+                "map_hash": connections.map_hash_text(cfg), "data": connections.encode(data)}
 
     def _map_problems(self, cfg, problems):
         """A stopped register map or Node-RED export in the /api/check shape:
@@ -2055,13 +2022,13 @@ class Session:
                       "paths": ["bridge.watchdog_ms"] if '"watchdog_ms"' in m else []} for m in problems]
         return {"items": items, "errors": len(items)}
 
-    # -- OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on save") --
+    # -- the OpenPLC connection (canopen-configurator "OpenPLC remote device on save") --
     def openplc_info(self, cfg):
-        """The Project page's facts of an OpenPLC through Modbus config: the
+        """The facts of a config's OpenPLC connection: the
         remote device's name, poll and port, the map hash, the requests per
         poll and its warning, the %IW/%QW base; None when the map cannot be
         made (the check says why)."""
-        if targets.target(cfg) != targets.OPENPLC_MODBUS:
+        if not bridgecheck.is_openplc(cfg):
             return None
         try:
             s = openplcmodbus.settings(cfg)
@@ -2111,7 +2078,7 @@ class Session:
     def move_main(self, cfg):
         """Use canworks.* in main: rewrites the project's main.st
         (mainmove.move_project) for the saved OpenPLC config."""
-        if targets.target(cfg) != targets.OPENPLC_MODBUS or self.mode != "project":
+        if not bridgecheck.is_openplc(cfg) or self.mode != "project":
             raise ApiError(422, "main is moved only in an OpenPLC project")
         try:
             return mainmove.move_project(self.folder, self.main_members(cfg))
@@ -2124,7 +2091,9 @@ class Session:
             return []
         items = []
         if info["warning"]:
-            items.append({"level": "warning", "message": info["warning"], "paths": ["bridge.openplc.poll_ms"]})
+            i = next(k for k, c in enumerate(cfg["bridge"]["connections"])
+                     if isinstance(c, dict) and c.get("kind") == "openplc")
+            items.append({"level": "warning", "message": info["warning"], "paths": ["bridge.connections[%d].poll_ms" % i]})
         old = info["old_main"]
         if old:
             items.append({"level": "warning", "paths": ["project"], "message": (
@@ -2185,7 +2154,7 @@ class Session:
         checked = self.check(cfg, notes=notes)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
-        openplc = self.mode == "project" and targets.target(cfg) == targets.OPENPLC_MODBUS
+        openplc = self.mode == "project" and bridgecheck.is_openplc(cfg)
         if openplc and not checked["errors"] and not editor_overwrite:
             self.openplc_check(cfg)
         try:
@@ -3079,14 +3048,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/bridge/suggest"):
                     self._need_open(s)
                     out = s.bridge_suggest(body.get("config"), body.get("block"), body.get("index"))
-                elif route == ("POST", "/api/export_plcopen"):
+                elif route == ("POST", "/api/connections/add"):
                     self._need_open(s)
-                    out = s.export_plcopen(body.get("config"), body.get("target"), body.get("host"),
-                                           body.get("library"), body.get("with_main"), body.get("plc"),
-                                           body.get("ethernet"), body.get("plc_address"))
-                elif route == ("POST", "/api/bridge/export"):
+                    out = s.add_connection(body.get("config"), body.get("connection"))
+                elif route == ("POST", "/api/connections/download"):
                     self._need_open(s)
-                    out = s.export_modbus_map(body.get("config"), body.get("format"))
+                    out = s.connection_download(body.get("config"), body.get("index"))
                 elif route == ("POST", "/api/export_notes"):
                     self._need_open(s)
                     out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"), body.get("own") is True)
@@ -3192,7 +3159,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cfg = s.read_config()[0]
             else:
                 project = folder = config_path = cfg = None
-        target = targets.target(cfg) if project else None
+        target = device_target(cfg) if project else None
         instance = djobs.instance_name(os.path.basename(os.path.normpath(project))) if project else None
         saved = config_path if config_path and os.path.isfile(config_path) else None
         did = body.get("device")
@@ -3252,7 +3219,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 job = body.get("job")
                 offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
                 out = dev.follow(did, job, offset)
-                if out.get("done") and out.get("exit") == 0 and project and target in targets.BRIDGES:
+                if out.get("done") and out.get("exit") == 0 and project and target in ("bridge", "openplc_modbus"):
                     # The device becomes the project's runtime host when it had none.
                     settings = online.Settings(config_dir())
                     if not settings.project(project).get("host"):

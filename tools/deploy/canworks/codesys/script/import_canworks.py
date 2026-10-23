@@ -270,8 +270,7 @@ def active_device(proj):
 
 def choose_plc(proj, plan, report, plan_name=PLAN_NAME):
     """The device that gets the bus: named in the plan, else the active
-    application's device, else the only top-level device. Shared with
-    import_canworks_modbus.py, which names its own plan file."""
+    application's device, else the only top-level device."""
     tops = [c for c in _children(proj) if _is_device(c)]
     active = active_device(proj)
     if plan.get("plc"):

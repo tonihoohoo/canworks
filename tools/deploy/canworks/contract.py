@@ -986,8 +986,8 @@ def plugin_owned_object(index):
 SYNC_NEEDED = " needs 'sync_period_us' (without it the master produces no SYNC)"
 # A config with neither 'bridge' nor 'codesys' (canopen-config-contract
 # "Config target"; config.cpp kNotBridgeConfig).
-NOT_BRIDGE_MESSAGE = ("this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to "
-                      "OpenPLC through Modbus")
+NOT_BRIDGE_MESSAGE = ("this config is for the removed OpenPLC plugin; open it in the configurator and use Use with "
+                      "canworks-bridge")
 PLC_CYCLE_MESSAGE = ("\"sync_source\": \"plc_cycle\" needs a PLC cycle, which the Modbus bridge does not have: use "
                      "\"sync_period_us\" (timer SYNC)")
 

@@ -51,10 +51,12 @@ def pingpong_config(dir_, **changes):
 
 
 def openplc_config():
-    """A new config of OpenPLC through Modbus, as New config... writes it: one
-    network without nodes."""
+    """A new Modbus bridge config with an OpenPLC connection, as Add
+    connection writes it: one network without nodes."""
     from canworks.configurator import server as srv
-    return srv.Session().switch_target(srv.empty_config(), "openplc_modbus")["config"]
+    s = srv.Session()
+    cfg = s.default_config()
+    return s.add_connection(cfg, {"kind": "openplc"})["config"]
 
 
 def zip_contents(path):

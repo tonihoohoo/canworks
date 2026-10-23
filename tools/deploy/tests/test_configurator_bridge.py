@@ -1,8 +1,9 @@
 """The configurator's Modbus bridge requests, over HTTP (spec
 canopen-configurator, "Modbus bridge target", "Bridge settings panel",
-"Register map preview and export"): the register map, Pack for Modbus,
-Suggest for the bridge blocks, the map exports against canworks-deploy's,
-the per-type repack and the checks of a bridge config."""
+"Register map preview and export"; modbus-connections): the register map,
+Pack for Modbus, Suggest for the bridge blocks, the connections' Add and
+Download against canworks-deploy's exports, the OpenPLC connection, the
+per-type repack and the checks of a bridge config."""
 
 import base64
 import contextlib
@@ -17,7 +18,7 @@ import threading
 import unittest
 import zipfile
 
-from canworks import cli, editorproject, mainmove, modbusmap, openplcmodbus, plclibrary, plcopen_targets
+from canworks import cli, connections, editorproject, mainmove, modbusmap, nodered, openplcmodbus, plclibrary, plcopen_targets
 from canworks.configurator import server as srv
 
 from .helpers import REPO, tmpdir
@@ -109,8 +110,10 @@ class RegisterMap(Base):
     def test_needs_a_bridge_config(self):
         self.open()
         del self.cfg["bridge"]
-        for path in ("/api/bridge/map", "/api/bridge/pack", "/api/bridge/suggest", "/api/bridge/export"):
-            status, data = self.request(path, {"config": self.cfg, "block": "status_location", "format": "csv"})
+        for path in ("/api/bridge/map", "/api/bridge/pack", "/api/bridge/suggest", "/api/connections/add",
+                     "/api/connections/download"):
+            status, data = self.request(path, {"config": self.cfg, "block": "status_location", "index": 0,
+                                               "connection": {"kind": "hmi"}})
             self.assertEqual(status, 400, path)
             self.assertIn("not a bridge config", data["error"])
 
@@ -173,108 +176,141 @@ class Suggest(Base):
             self.assertEqual(status, 400, body)
 
 
-class Export(Base):
-    def cli_file(self, ext):
-        """What canworks-deploy --export-modbus-map writes for self.cfg."""
+class Connections(Base):
+    """Add connection and each connection's Download (modbus-connections)."""
+
+    def add(self, cfg, **conn):
+        return self.ok("/api/connections/add", {"config": cfg, "connection": conn})["config"]
+
+    def download(self, cfg, index):
+        return self.ok("/api/connections/download", {"config": cfg, "index": index})
+
+    def cli_file(self, cfg, *argv):
+        """What canworks-deploy writes for cfg with argv (OUT stands for the file)."""
         tmp = tempfile.mkdtemp(dir=self.dir)
+        for name in os.listdir(self.folder):
+            if name.endswith(".eds"):
+                shutil.copy(os.path.join(self.folder, name), tmp)
         src = os.path.join(tmp, "canworks.json")
         with open(src, "w", encoding="utf-8") as f:
-            json.dump(self.cfg, f)
-        path = os.path.join(tmp, "map." + ext)
+            json.dump(cfg, f)
+        out = os.path.join(tmp, "out")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(cli.main(["--config", src, "--export-modbus-map", path]), 0)
-        with open(path, "rb") as f:
+            argv = [out + a[3:] if a.startswith("OUT") else a for a in argv]
+            self.assertEqual(cli.main(["--config", src] + argv), 0)
+            out = next(a for a in argv if a.startswith(out))
+        with open(out, "rb") as f:
             return f.read()
+
+    def test_add_an_hmi(self):
+        self.open()
+        cfg = self.add(self.cfg, kind="hmi", name="Line HMI", address="192.168.10.20")
+        [c] = cfg["bridge"]["connections"]
+        self.assertEqual(c, {"kind": "hmi", "name": "Line HMI", "address": "192.168.10.20", "writes": False,
+                             "format": "csv"})
+        # Writers follow the connections: none of them writes.
+        self.assertEqual(cfg["bridge"]["writers"], [])
+        self.assertEqual(self.errors(cfg), [])
+        # Names stay unique.
+        again = self.add(cfg, kind="hmi", name="Line HMI", address="192.168.10.21")
+        self.assertEqual(again["bridge"]["connections"][1]["name"], "Line HMI 2")
+
+    def test_writers_follow_the_connections(self):
+        self.open()
+        cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20", writes=True)
+        cfg = self.add(cfg, kind="nodered", name="Flows", address="192.168.10.30", writes=True)
+        self.assertEqual(cfg["bridge"]["writers"], ["192.168.10.20", "192.168.10.30"])
+        cfg["bridge"]["writers"] = ["10.0.0.1"]
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        self.assertIn(["bridge.writers"], [i["paths"] for i in items if "use the connections' addresses" in i["message"]])
 
     def test_same_files_as_the_deploy_tool(self):
         self.open()
-        # An unsaved change goes into the export.
+        # An unsaved change goes into the download.
         self.cfg["bridge"]["word_order"] = "low_first"
-        for ext, ctype in (("csv", "text/csv"), ("json", "application/json"), ("st", "text/plain")):
-            r = self.ok("/api/bridge/export", {"config": self.cfg, "format": ext})
-            self.assertEqual((r["errors"], r["name"], r["content_type"]), (0, "pump-station_modbus." + ext, ctype))
-            self.assertEqual(base64.b64decode(r["data"]), self.cli_file(ext), ext)
-            self.assertEqual(r["rows"], len(modbusmap.register_map(self.cfg)))
-        st = base64.b64decode(r["data"]).decode()
-        self.assertIn("word order low_first", st)
+        cfg = self.cfg
+        for fmt, ctype in (("csv", "text/csv"), ("json", "application/json"), ("st", "text/plain")):
+            cfg = self.add(cfg, kind="hmi", name="hmi " + fmt, address="192.168.10.20", format=fmt)
+            r = self.download(cfg, len(cfg["bridge"]["connections"]) - 1)
+            self.assertEqual((r["errors"], r["name"], r["content_type"]), (0, "pump-station-hmi-%s.%s" % (fmt, fmt), ctype))
+            self.assertEqual(base64.b64decode(r["data"]), self.cli_file(cfg, "--export-modbus-map", "OUT." + fmt), fmt)
+            self.assertEqual(r["map_hash"], "0x%08x" % modbusmap.map_hash(cfg))
+        self.assertIn("word order low_first", base64.b64decode(r["data"]).decode())
+        cfg = self.add(cfg, kind="nodered", name="Flows", address="192.168.10.30", bridge_host="192.168.10.5",
+                       period_ms=200)
+        r = self.download(cfg, len(cfg["bridge"]["connections"]) - 1)
+        self.assertEqual(r["name"], "pump-station-Flows.json")
+        nodes, _, _ = nodered.flow(cfg, "pump-station-Flows", host="192.168.10.5", poll_ms=200)
+        self.assertEqual(base64.b64decode(r["data"]).decode(), nodered.to_json(nodes))
+
+    def test_plcopen_download(self):
+        self.open()
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["plc_link"] = True
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        cfg = self.add(cfg, kind="plc", name="Line PLC", address="192.168.10.40", bridge_host="192.168.10.5")
+        r = self.download(cfg, 0)
+        self.assertEqual((r["errors"], r["name"], r["content_type"]), (0, "pump-station-Line-PLC.zip", "application/zip"))
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(r["data"]))) as z:
+            got = {n: z.read(n).decode() for n in z.namelist()}
+        path = os.path.join(self.folder, "canworks.json")
+        want = plcopen_targets.files(cfg, editorproject.declarations(cfg, path), "generic", host="192.168.10.5")
+        # The XML's creation time differs between the two runs.
+        strip = lambda s: re.sub(r'creationDateTime="[^"]*"', "", s)
+        self.assertEqual({n: strip(v) for n, v in got.items()}, {n: strip(v) for n, v in want.items()})
 
     def test_problem_downloads_nothing(self):
         self.open()
-        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW1"
-        r = self.ok("/api/bridge/export", {"config": self.cfg, "format": "st"})
+        cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20", format="st")
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW1"
+        r = self.download(cfg, 0)
         # The odd start, and the overlap with the next entry it causes.
         self.assertEqual(r["errors"], 2)
         self.assertNotIn("data", r)
         self.assertIn("must start at an even byte", r["items"][0]["message"])
         # The config check's item, so the Problems row opens the field.
         self.assertEqual(r["items"][0]["paths"], ["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"])
-
-    def test_problems_one_item_each(self):
-        self.open()
-        entries = self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]
-        entries[0]["iec_location"] = "%IW1"
-        r = self.ok("/api/bridge/export", {"config": self.cfg, "format": "nodered"})
-        self.assertGreaterEqual(r["errors"], 1)
-        self.assertEqual(r["errors"], len(r["items"]))
-        self.assertTrue(all("; " not in it["message"] for it in r["items"]), r["items"])
-
-    def test_unknown_format(self):
-        self.open()
-        status, data = self.request("/api/bridge/export", {"config": self.cfg, "format": "xlsx"})
+        # A PLCopen download without the PLC link says how to turn it on.
+        cfg = self.add(self.cfg, kind="trust", name="truST", address="127.0.0.1")
+        r = self.download(cfg, 0)
+        self.assertIn("turn it on", r["items"][0]["message"])
+        status, _ = self.request("/api/connections/download", {"config": cfg, "index": 5})
         self.assertEqual(status, 400)
-        self.assertIn("csv, json, st or nodered", data["error"])
 
+    def test_out_of_date(self):
+        self.open()
+        cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20")
+        warn = lambda c: [i for i in self.ok("/api/check", {"config": c})["items"] if "Download again" in i["message"]]
+        self.assertEqual(warn(cfg), [])  # not downloaded yet
+        cfg["bridge"]["connections"][0]["map_hash"] = self.download(cfg, 0)["map_hash"]
+        self.assertEqual(warn(cfg), [])
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
+        [item] = warn(cfg)
+        self.assertEqual(item["paths"], ["bridge.connections[0]"])
+        self.assertIn("Panel", item["message"])
 
-class Plcopen(Base):
-    """Export → For another PLC (PLCopen XML)… (plcopen-export)."""
+    def test_connections_reach_the_bridge(self):
+        self.open()
+        self.cfg["bridge"]["listen"] = "127.0.0.1:1502"
+        cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20")
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        [err] = [i for i in items if "listen on all addresses" in i["message"]]
+        self.assertEqual((err["level"], err["paths"]), ("error", ["bridge.listen", "bridge.connections[0].address"]))
+        # A truST connection without the bridge's address
+        cfg = self.add(self.cfg, kind="trust", name="truST", address="192.168.10.7")
+        cfg["bridge"]["listen"] = "0.0.0.0:502"
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        self.assertIn(["bridge.connections[0].bridge_host"],
+                      [i["paths"] for i in items if "needs the bridge's address" in i["message"]])
 
-    def linked(self):
+    def test_only_the_plc_writes_with_a_plc_link(self):
+        self.open()
         cfg = copy.deepcopy(self.cfg)
         cfg["bridge"]["plc_link"] = True
-        return self.ok("/api/bridge/pack", {"config": cfg})["config"]
-
-    def test_same_files_as_the_deploy_tool(self):
-        self.open()
-        cfg = self.linked()
-        r = self.ok("/api/export_plcopen", {"config": cfg, "target": "codesys", "host": "192.168.10.5",
-                                            "plc_address": "192.168.99.1"})
-        self.assertEqual((r["errors"], r["name"], r["content_type"]), (0, "pump-station-codesys.zip", "application/zip"))
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(r["data"]))) as z:
-            got = {n: z.read(n).decode() for n in z.namelist()}
-        path = os.path.join(self.folder, "canworks.json")
-        want = plcopen_targets.files(cfg, editorproject.declarations(cfg, path), "codesys", host="192.168.10.5",
-                                     config_name="canworks.json")
-        # The XML's creation time differs between the two runs.
-        strip = lambda s: re.sub(r'creationDateTime="[^"]*"', "", s)
-        self.assertEqual({n: strip(v) for n, v in got.items()}, {n: strip(v) for n, v in want.items()})
-        self.assertEqual(len(r["notes"]), 1)
-        self.assertIn("192.168.99.1 is not one of them", r["notes"][0])
-
-    def test_refusals(self):
-        self.open()
-        r = self.ok("/api/export_plcopen", {"config": self.cfg, "target": "generic"})
-        self.assertEqual(r["errors"], 1)
-        self.assertIn("turn it on", r["items"][0]["message"])
-        status, data = self.request("/api/export_plcopen", {"config": self.cfg, "target": "twincat"})
-        self.assertEqual(status, 400)
-        r = self.ok("/api/export_plcopen", {"config": self.linked(), "target": "codesys"})
-        self.assertIn("bridge's address as the PLC sees it", r["items"][0]["message"])
-        cfg = self.linked()
-        cfg["bridge"]["watchdog_ms"] = 100
-        r = self.ok("/api/export_plcopen", {"config": cfg, "target": "trust"})
-        self.assertIn((["bridge.watchdog_ms"], True),
-                      [(i["paths"], '"watchdog_ms": 500 or more' in i["message"]) for i in r["items"]])
-        self.assertNotIn("data", r)
-
-    def test_loopback_listen_warning(self):
-        self.open()
-        cfg = self.linked()
-        cfg["bridge"]["listen"] = "127.0.0.1:502"
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        cfg = self.add(cfg, kind="nodered", name="Flows", address="192.168.10.30", writes=True)
         items = self.ok("/api/check", {"config": cfg})["items"]
-        self.assertIn(["bridge.listen"], [i["paths"] for i in items if "own device can reach" in i["message"]])
-        del cfg["bridge"]["plc_link"]
-        items = self.ok("/api/check", {"config": cfg})["items"]
-        self.assertFalse([i for i in items if "own device can reach" in i["message"]])
+        self.assertTrue(any("only the PLC writes outputs and mailboxes" in i["message"] for i in items), items)
 
 
 class Target(Base):
@@ -309,31 +345,54 @@ class Target(Base):
         self.assertTrue(any("removed OpenPLC plugin" in m for m in self.errors(plain)))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OpenplcModbus(Base):
-    """OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on
-    save", "Project target"): the switch, Save writing the editor's files,
-    the changed-file confirm and the Project page's facts."""
+    """The OpenPLC connection (modbus-connections; canopen-configurator
+    "OpenPLC remote device on save"): Use with canworks-bridge in an editor
+    project, Add connection, Save writing the editor's files, the
+    changed-file confirm and the facts."""
 
     def switched(self):
-        return self.ok("/api/switch_target", {"config": plugin_config(), "target": "openplc_modbus"})["config"]
+        """The plugin example as Use with canworks-bridge leaves it in an
+        editor project, or with Add connection → OpenPLC standalone."""
+        cfg = self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["config"]
+        if not cfg["bridge"].get("connections"):
+            cfg = self.ok("/api/connections/add", {"config": cfg, "connection": {"kind": "openplc"}})["config"]
+        return cfg
 
     def test_switch_from_the_plugin(self):
-        self.open()
+        self.open(self.project(), "project")
         cfg = self.switched()
         b = cfg["bridge"]
-        self.assertEqual(b["openplc"], {})
+        self.assertEqual(b["connections"], [{"kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1",
+                                             "writes": True}])
+        self.assertEqual((b["plc_link"], b["word_order"], b["listen"], b["writers"], b["watchdog_ms"]),
+                         (True, "low_first", "127.0.0.1:1502", ["127.0.0.1"], 50))
         self.assertTrue(b["sdo_bridge_write"])
         self.assertEqual([l["network"] for l in b["live_lists"]], ["field"])
-        self.assertNotIn("listen", b)
         self.assertEqual(self.errors(cfg), [])
         # packed after the PLC link header and the status block
         text = modbusmap.map_hash_text(cfg).splitlines()
         self.assertEqual(text[:3], ["I 0 4 -", "I 4 8 -", "I 12 2 -"])
         self.assertIn("Q 6 1 -", text)
+        # Standalone, Use with canworks-bridge adds no connection.
+        self.open()
+        out = self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["config"]
+        self.assertNotIn("connections", out["bridge"])
+
+    def test_add_to_a_new_bridge_config(self):
+        self.open()
+        new = self.ok("/api/switch_target", {"config": srv.empty_config(), "target": "bridge"})["config"]
+        out = self.ok("/api/connections/add", {"config": new, "connection": {"kind": "openplc"}})["config"]
+        b = out["bridge"]
+        self.assertEqual((b["plc_link"], b["listen"], b["writers"], b["watchdog_ms"]),
+                         (True, "127.0.0.1:1502", ["127.0.0.1"], 50))
+        self.assertIn("mailboxes", b)
+        status, data = self.request("/api/connections/add", {"config": out, "connection": {"kind": "openplc"}})
+        self.assertEqual(status, 400)
+        self.assertIn("already has an OpenPLC connection", data["error"])
+        # High word first is refused with the connection.
+        b["word_order"] = "high_first"
+        self.assertTrue(any("lowest word first" in m for m in self.errors(out)))
 
     def test_place_skips_the_bridge_blocks(self):
         # The mailbox areas reach past byte 100: a new entry lands after them.
@@ -369,12 +428,12 @@ class OpenplcModbus(Base):
         # someone edits canworks_in.st: the next save asks first
         with open(os.path.join(project, "pous", "programs", "canworks_in.st"), "a", encoding="utf-8") as f:
             f.write("(* mine *)\n")
-        cfg["bridge"]["openplc"]["poll_ms"] = 20
+        cfg["bridge"]["connections"][0]["poll_ms"] = 20
         status, data = self.request("/api/save", {"config": cfg})
         self.assertEqual(status, 409)
         self.assertEqual(data["editor_changed"], ["pous/programs/canworks_in.st"])
         # nothing was written
-        self.assertEqual(load(os.path.join(project, "canworks", "canworks.json"))["bridge"]["openplc"], {})
+        self.assertEqual(load(os.path.join(project, "canworks", "canworks.json"))["bridge"]["connections"][0].get("poll_ms"), None)
         self.ok("/api/save", {"config": cfg, "editor_overwrite": True})
         with open(remote, encoding="utf-8") as f:
             self.assertEqual({g["cycleTime"] for g in json.load(f)["modbusTcpConfig"]["ioGroups"]}, {20})
@@ -391,10 +450,11 @@ class OpenplcModbus(Base):
 
     def test_unnamed_network_gets_a_live_list(self):
         self.open()
-        cfg = plugin_config()
+        cfg = self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["config"]
         del cfg["networks"][0]["name"]
         cfg["networks"][0]["adapter"]["interface"] = "can1"
-        out = self.ok("/api/switch_target", {"config": cfg, "target": "openplc_modbus"})["config"]
+        cfg["bridge"].pop("live_lists", None)
+        out = self.ok("/api/connections/add", {"config": cfg, "connection": {"kind": "openplc"}})["config"]
         self.assertEqual([l["network"] for l in out["bridge"]["live_lists"]], ["can1"])
         self.assertNotIn("name", out["networks"][0])
         self.assertEqual(self.errors(out), [])
@@ -411,7 +471,10 @@ class OpenplcModbus(Base):
             f.write("PROGRAM main\n  VAR\n    %s : INT AT %%IW100;\n    start_button : BOOL AT %%IX0.0;\n  END_VAR\n\n"
                     "(* %s from the plugin *)\nIF start_button THEN x := %s; END_IF;\n\nEND_PROGRAM\n" % (name, name, name))
         # The switch's answer, Problems and the Project page say so.
-        self.assertEqual(self.ok("/api/switch_target", {"config": plugin_config(), "target": "openplc_modbus"})["old_main"], 1)
+        self.assertEqual(self.ok("/api/switch_target", {"config": plugin_config(), "target": "bridge"})["old_main"], 1)
+        plain = copy.deepcopy(cfg)
+        del plain["bridge"]["connections"]
+        self.assertEqual(self.ok("/api/connections/add", {"config": plain, "connection": {"kind": "openplc"}})["old_main"], 1)
         r = self.ok("/api/check", {"config": cfg})
         self.assertTrue(any("main declares 1 canworks value at the removed plugin's locations (%IW100)" in i["message"]
                             for i in r["items"]), r["items"])
@@ -452,7 +515,7 @@ class OpenplcModbus(Base):
         warn = lambda cfg: [i for i in self.ok("/api/check", {"config": cfg})["items"] if "older canworks" in i["message"]]
         self.assertEqual([i["paths"] for i in warn(saved)], [["project"]])
         edited = copy.deepcopy(saved)
-        edited["bridge"]["openplc"]["poll_ms"] = 20
+        edited["bridge"]["connections"][0]["poll_ms"] = 20
         self.assertEqual(warn(edited), [])  # a changed draft is saved anyway
         # Save without a change writes it again; canworks.json stays as it is
         config = os.path.join(project, "canworks", "canworks.json")
@@ -468,3 +531,7 @@ class OpenplcModbus(Base):
         r = self.ok("/api/save", {"config": self.switched()})
         self.assertNotIn("editor", r)
         self.assertEqual(r["state"]["openplc"]["requests"], 7)
+
+
+if __name__ == "__main__":
+    unittest.main()

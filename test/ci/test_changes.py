@@ -122,7 +122,6 @@ class Plcopen(unittest.TestCase):
 
     def test_export_library_and_pin(self):
         for p in ("tools/deploy/canworks/plcopen.py", "tools/deploy/canworks/plcopen_targets.py",
-                  "tools/deploy/canworks/codesys/script/import_canworks_modbus.py",
                   "library/modbus/CAN_RECEIVE.st", "tools/deploy/canworks/library/canworks.stlib",
                   "test/plcopen/fetch-trust.sh", "tools/deploy/tests/test_plcopen.py", ".github/workflows/ci.yml"):
             self.assertTrue(ci.is_plcopen([p], self.rules), p)

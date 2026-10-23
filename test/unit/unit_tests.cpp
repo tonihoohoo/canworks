@@ -950,8 +950,8 @@ TEST(shared_fixtures_bridge) { CHECK(run_fixture_file("cases-bridge.json") > 30)
 TEST(plugin_configs_refused) {
   std::string fixtures = FIXTURES_DIR;
   cJSON* doc = cJSON_Parse(read(fixtures + "/config/cases-bridge.json").c_str());
-  const char* msg = "this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to "
-                    "OpenPLC through Modbus";
+  const char* msg = "this config is for the removed OpenPLC plugin; open it in the configurator and use Use with "
+                    "canworks-bridge";
   set_log_sink(silent);
   cJSON* plain = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(doc, "base"), true);
   cJSON_DeleteItemFromObjectCaseSensitive(plain, "bridge");

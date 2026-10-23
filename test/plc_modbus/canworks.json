@@ -158,7 +158,21 @@
     }
   ],
   "bridge": {
-    "openplc": {},
+    "connections": [
+      {
+        "kind": "openplc",
+        "name": "OpenPLC",
+        "address": "127.0.0.1",
+        "writes": true
+      }
+    ],
+    "plc_link": true,
+    "listen": "127.0.0.1:1502",
+    "writers": [
+      "127.0.0.1"
+    ],
+    "word_order": "low_first",
+    "watchdog_ms": 50,
     "control_location": "%QB28",
     "sdo_bridge_location": {
       "request": "%QB34",
