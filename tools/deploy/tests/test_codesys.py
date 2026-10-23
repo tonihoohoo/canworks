@@ -496,7 +496,7 @@ class Script(unittest.TestCase):
         bus = proj.find("PLC")[0].find("CANbus")[0]
         self.assertEqual((bus.ident.version, bus.get_children()[0].ident.version), ("4.10.0.0", "4.5.0.0"))
 
-    def test_rerun_replaces_managed_nodes_and_keeps_others(self):
+    def test_rerun_updates_managed_nodes_and_keeps_others(self):
         folder, _ = export(self, BRIDGE)
         w = fake_codesys.World()
         proj = self.project(w)
@@ -510,8 +510,124 @@ class Script(unittest.TestCase):
         self.assertEqual(len(bus), 1)
         self.assertEqual(len(bus[0].get_children()), 1)
         self.assertEqual(sorted(c.get_name() for c in mgr.get_children()), ["by_hand", "dio", "rtd"])
-        self.assertIn("replaced network field node 5 (rtd)", report)
+        self.assertIn("current  network field node 5 (rtd): up to date", report)
+        self.assertNotIn("replaced", report)
         self.assertIn("by_hand (node 20) is not in the canworks config", report)
+
+    def rebuild(self, w, proj, cfg, **kw):
+        """Builds `cfg` (the bridge example changed) into the project again;
+        returns (report, the log entries of this run)."""
+        folder = os.path.join(tmpdir(self), "codesys")
+        files, _ = cplan.export_files(cfg, BRIDGE, **kw)
+        crun.write_folder(files, folder)
+        start = len(w.log)
+        report = w.run(folder, primary=proj)
+        return report, w.log[start:]
+
+    def field(self, proj):
+        return proj.find("PLC")[0].find("CANbus")[0].get_children()[0]
+
+    def test_event_timer_changed_in_place(self):
+        w = fake_codesys.World()
+        proj = self.project(w)
+        self.rebuild(w, proj, load(BRIDGE))
+        rtd = self.field(proj).find("rtd")[0]
+        # A fixed address set by hand in CODESYS on another rtd channel.
+        ch = fake_codesys.param(rtd, 0x11A00021)
+        ch.io_mapping.automatic_iec_address, ch.io_mapping.manual_iec_address = False, "%IW100"
+        cfg = load(BRIDGE)
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["event_timer_ms"] = 200
+        report, log = self.rebuild(w, proj, cfg)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual([e for e in log if e[0] in ("set", "add", "remove", "import")],
+                         [("set", "rtd", "pdo", "EventTimer", "200")])
+        self.assertIn("updated  network field node 5 (rtd): 1 setting changed in place", report)
+        self.assertIn("current  network field node 6 (dio): up to date", report)
+        self.assertIs(self.field(proj).find("rtd")[0], rtd)
+        self.assertEqual((ch.io_mapping.automatic_iec_address, ch.io_mapping.manual_iec_address), (False, "%IW100"))
+
+    def test_mapping_changed_replaces_the_node(self):
+        w = fake_codesys.World()
+        proj = self.project(w)
+        self.rebuild(w, proj, load(BRIDGE))
+        cfg = load(BRIDGE)
+        del cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"][3]
+        report, log = self.rebuild(w, proj, cfg)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertIn("replaced network field node 6 (dio): PDO mapping changed (TPDO1); removed dio, added again "
+                      "from the DCF", report)
+        self.assertEqual([e[0] for e in log if e[0] in ("remove", "import", "add")], ["remove", "import", "add"])
+        dio = self.field(proj).find("dio")[0]
+        self.assertEqual(sorted(k for k in fake_codesys.channels_of(dio) if k >> 12 == 0x11A00),
+                         [0x11A00010, 0x11A00020, 0x11A00030])
+
+    def test_startup_sdo_value_in_place_row_added_replaces(self):
+        w = fake_codesys.World()
+        proj = self.project(w)
+        cfg = load(BRIDGE)
+        dio = cfg["networks"][0]["nodes"][1]
+        # 0x2000's EDS default is 10: CODESYS keeps no row for that value.
+        dio["sdo"] = [{"index": "0x2000", "subindex": 0, "type": "UNSIGNED16", "value": 15}]
+        self.rebuild(w, proj, cfg)
+        dio["sdo"][0]["value"] = 20
+        dio["sdo"][0]["codesys"] = {"abort_on_error": True}
+        report, log = self.rebuild(w, proj, cfg)
+        self.assertIn("updated  network field node 6 (dio): 2 settings changed in place", report)
+        self.assertEqual([e for e in log if e[0] == "set"],
+                         [("set", "dio", "sdo", "Value", "16#14"), ("set", "dio", "sdo", "AbortIfError", "TRUE")])
+        dio["sdo"].append({"index": "0x6423", "subindex": 0, "type": "BOOLEAN", "value": True})
+        report, _ = self.rebuild(w, proj, cfg)
+        self.assertIn("replaced network field node 6 (dio): startup SDO list changed", report)
+
+    def test_carried_codesys_settings(self):
+        cfg = load(BRIDGE)
+        dio = cfg["networks"][0]["nodes"][1]
+        dio["codesys"] = {"device": "DIO_1", "checks": ["vendor", "revision"]}
+        dio["tx_pdos"][0]["codesys"] = {"by_manager": False}
+        dio["tx_pdos"][0]["entries"][0]["codesys"] = {"address": "%IB40", "variable": "di_byte_0"}
+        w = fake_codesys.World()
+        proj = self.project(w)
+        report, _ = self.rebuild(w, proj, cfg)
+        dev = self.field(proj).find("DIO_1")[0]
+        self.assertEqual(fake_codesys.param(dev, 0x01800002).value, "FALSE")
+        ch = fake_codesys.param(dev, 0x11A00011)
+        self.assertEqual((ch.io_mapping.variable, ch.io_mapping.automatic_iec_address,
+                          ch.io_mapping.manual_iec_address), ("di_byte_0", False, "%IB40"))
+        # No internal parameter API here: the report says which ticks to set.
+        self.assertIn("network field node 6 (DIO_1): identity checks: tick on revision number in CODESYS by hand",
+                      report)
+        report, log = self.rebuild(w, proj, cfg)
+        self.assertIn("current  network field node 6 (DIO_1): up to date", report)
+
+    def test_default_cob_ids_follow_the_node_id(self):
+        w = fake_codesys.World()
+        proj = self.project(w)
+        cfg = load(BRIDGE)
+        cfg["networks"][0]["nodes"][0]["node_id"] = 7
+        self.rebuild(w, proj, cfg)
+        rtd = self.field(proj).find("rtd")[0]
+        self.assertEqual(fake_codesys.param(rtd, 0x01800001).value, "'$NODEID+16#180'")
+        cob = {e.identifier: e.value for e in fake_codesys.param(rtd, 0x01800000)}["COBID"]
+        self.assertEqual(int(cob[3:], 16), 0x187)
+        # A node ID change in CODESYS moves it.
+        fake_codesys.param(rtd, 1).value = "9"
+        cob = {e.identifier: e.value for e in fake_codesys.param(rtd, 0x01800000)}["COBID"]
+        self.assertEqual(int(cob[3:], 16), 0x189)
+
+    def test_node_removed_in_canworks(self):
+        w = fake_codesys.World()
+        proj = self.project(w)
+        self.rebuild(w, proj, load(BRIDGE))
+        cfg = load(BRIDGE)
+        cfg["networks"][0]["codesys"] = {"managed": [5, 6]}
+        del cfg["networks"][0]["nodes"][1]
+        self.assertEqual(cplan.removals(cfg), {"field": [6]})
+        report, _ = self.rebuild(w, proj, cfg)
+        self.assertIn("kept     network field: dio (node 6) is not in the canworks config", report)
+        self.assertIn("node 6 built by canworks earlier and no longer in the config kept in the project", report)
+        report, _ = self.rebuild(w, proj, cfg, remove_nodes=True)
+        self.assertIn("removed  network field: dio (node 6) is no longer in the canworks config", report)
+        self.assertEqual([c.get_name() for c in self.field(proj).get_children()], ["rtd"])
 
     def test_missing_parameter_is_reported(self):
         folder, _ = export(self, MOTION)

@@ -52,6 +52,10 @@ ROWS = [
     ("/diagnostics", _RUNTIME, {CODESYS: "the diagnostics channel of canworks-bridge"}, ()),
     ("raw", _RUNTIME, {CODESYS: "raw CAN messages stay with canworks"}, ()),
     ("codesys", frozenset((CODESYS,)), {BRIDGE: "CODESYS settings of the network"}, ()),
+] + [(k, frozenset((CODESYS,)), {BRIDGE: "CODESYS settings of the " + what}, ()) for k, what in (
+    ("nodes.codesys", "node"), ("nodes.tx_pdos.codesys", "PDO"), ("nodes.rx_pdos.codesys", "PDO"),
+    ("nodes.tx_pdos.entries.codesys", "PDO entry"), ("nodes.rx_pdos.entries.codesys", "PDO entry"),
+    ("nodes.sdo.codesys", "startup SDO"))] + [
     ("adapter.type", _RUNTIME, {CODESYS: _ADAPTER}, ()),
     ("adapter.device", _RUNTIME, {CODESYS: _ADAPTER}, ()),
     ("adapter.serial_baudrate", _RUNTIME, {CODESYS: _ADAPTER}, ()),
@@ -133,7 +137,10 @@ _NODE_LABELS = {"status_location": "Status bit", "state_location": "State byte",
                 "nmt_command_location": "NMT command"}
 FIELD_LABELS = dict(
     [("/gateway", "Gateway"), ("/cia309", "CiA 309-3 gateway"), ("/diagnostics", "Online access"),
-     ("raw", "CAN messages"), ("codesys", "CODESYS settings"), ("adapter.type", "Type"),
+     ("raw", "CAN messages"), ("codesys", "CODESYS settings"), ("nodes.codesys", "CODESYS settings"),
+     ("nodes.tx_pdos.codesys", "CODESYS settings"), ("nodes.rx_pdos.codesys", "CODESYS settings"),
+     ("nodes.tx_pdos.entries.codesys", "CODESYS settings"), ("nodes.rx_pdos.entries.codesys", "CODESYS settings"),
+     ("nodes.sdo.codesys", "CODESYS settings"), ("adapter.type", "Type"),
      ("adapter.device", "Interface"), ("adapter.serial_baudrate", "Serial speed"),
      ("adapter.configure_link", "Sets up the link"), ("adapter.restart_ms", "Bus-off restart (ms)"),
      ("adapter.simulate", "Simulated network"), ("master.on_plc_stop", "When the bridge stops"),

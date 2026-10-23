@@ -1190,3 +1190,7 @@ fieldset.changes-device { border-color: var(--st-warn); }
 dialog.eds-dialog .grid { grid-template-columns: 1fr; }
 /* The OpenPLC facts at the top of the bridge page's OpenPLC box, above its fields (tidy-targets-and-exports). */
 [data-bridge-openplc] [data-openplc-facts] { margin-bottom: 10px; }
+.codesys-import fieldset { margin: 0 0 10px; }
+.codesys-import table { width: 100%; border-collapse: collapse; }
+.codesys-import th, .codesys-import td { text-align: left; padding: 3px 8px 3px 0; vertical-align: top; }
+.codesys-import details ul { margin: 6px 0; padding-left: 20px; max-height: 12em; overflow: auto; }

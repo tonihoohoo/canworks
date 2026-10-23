@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 2,
   "tool": "canworks-deploy",
   "config": "canworks.json",
   "project": null,
@@ -108,6 +108,20 @@
               "element": "FLAG_Optional"
             },
             {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
+            },
+            {
               "id": 16871424,
               "name": "Heartbeat-Producer Time",
               "value": "100",
@@ -143,6 +157,89 @@
               "sub": 4,
               "variable": "io_rtd_AI3_Input_PV"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 3,
+              "comm": 6146,
+              "cob_id": "$NODEID+16#80000380",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 4,
+              "comm": 6147,
+              "cob_id": "$NODEID+16#80000480",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                28976,
+                1,
+                16
+              ],
+              [
+                28976,
+                2,
+                16
+              ],
+              [
+                28976,
+                3,
+                16
+              ],
+              [
+                28976,
+                4,
+                16
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         },
         {
@@ -162,6 +259,20 @@
               "value": "TRUE",
               "what": "optional device",
               "element": "FLAG_Optional"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
             },
             {
               "id": 16871424,
@@ -227,6 +338,149 @@
               "sub": 2,
               "variable": "io_dio_Write_analogue_output_2"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 1,
+              "comm": 5120,
+              "cob_id": "$NODEID+16#200",
+              "enabled": true,
+              "transmission": 1
+            },
+            {
+              "dir": "rx",
+              "number": 2,
+              "comm": 5121,
+              "cob_id": "$NODEID+16#80000300",
+              "enabled": false,
+              "transmission": 255
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                24576,
+                1,
+                8
+              ],
+              [
+                24576,
+                2,
+                8
+              ],
+              [
+                25601,
+                1,
+                16
+              ],
+              [
+                25601,
+                2,
+                16
+              ]
+            ],
+            "1600": [
+              [
+                25088,
+                1,
+                8
+              ],
+              [
+                25088,
+                2,
+                8
+              ],
+              [
+                25617,
+                1,
+                16
+              ],
+              [
+                25617,
+                2,
+                16
+              ]
+            ]
+          },
+          "sdo": [
+            {
+              "index": 8192,
+              "sub": 0,
+              "value": 10,
+              "size": 16
+            }
+          ],
+          "state_params": [
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "1",
+              "what": "heartbeat consumer 1 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "300",
+              "what": "heartbeat consumer 1 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            },
+            {
+              "id": 16850944,
+              "name": "Time Stamp",
+              "value": "TRUE",
+              "what": "TIME consumer",
+              "element": "TimeConsumingEnable"
+            },
+            {
+              "id": 16850944,
+              "name": "Time Stamp",
+              "value": "FALSE",
+              "what": "TIME producer",
+              "element": "TimeProducingEnable"
+            },
+            {
+              "id": 16850944,
+              "name": "Time Stamp",
+              "value": "16#100",
+              "what": "TIME COB-ID",
+              "element": "TimeProducingCOBID"
+            }
           ]
         },
         {
@@ -246,6 +500,20 @@
               "value": "TRUE",
               "what": "optional device",
               "element": "FLAG_Optional"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
             },
             {
               "id": 16871424,
@@ -269,9 +537,96 @@
               "sub": 1,
               "variable": "io_new_io_Write_output_8_bit_1"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 1,
+              "comm": 5120,
+              "cob_id": "$NODEID+16#200",
+              "enabled": true,
+              "transmission": 1
+            },
+            {
+              "dir": "rx",
+              "number": 2,
+              "comm": 5121,
+              "cob_id": "$NODEID+16#80000300",
+              "enabled": false,
+              "transmission": 255
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                24576,
+                1,
+                8
+              ]
+            ],
+            "1600": [
+              [
+                25088,
+                1,
+                8
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "1",
+              "what": "heartbeat consumer 1 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "300",
+              "what": "heartbeat consumer 1 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         }
-      ]
+      ],
+      "remove": [],
+      "time_producer": true
     },
     {
       "name": "motion",
@@ -362,6 +717,20 @@
               "element": "FLAG_Optional"
             },
             {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
+            },
+            {
               "id": 16871424,
               "name": "Heartbeat-Producer Time",
               "value": "50",
@@ -390,9 +759,183 @@
               "sub": 1,
               "variable": "motion_conveyor_speed_setpoint"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 3,
+              "comm": 6146,
+              "cob_id": "$NODEID+16#80000380",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 4,
+              "comm": 6147,
+              "cob_id": "$NODEID+16#80000480",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 1,
+              "comm": 5120,
+              "cob_id": "$NODEID+16#200",
+              "enabled": true,
+              "transmission": 1,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 2,
+              "comm": 5121,
+              "cob_id": "$NODEID+16#80000300",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 3,
+              "comm": 5122,
+              "cob_id": "$NODEID+16#80000400",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 4,
+              "comm": 5123,
+              "cob_id": "$NODEID+16#80000500",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                8448,
+                1,
+                16
+              ],
+              [
+                8449,
+                1,
+                32
+              ]
+            ],
+            "1600": [
+              [
+                8192,
+                1,
+                16
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "1",
+              "what": "heartbeat consumer 1 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "300",
+              "what": "heartbeat consumer 1 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302816,
+              "name": "Heartbeat-Consuming2",
+              "value": "0",
+              "what": "heartbeat consumer 2 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302816,
+              "name": "Heartbeat-Consuming2",
+              "value": "0",
+              "what": "heartbeat consumer 2 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302832,
+              "name": "Heartbeat-Consuming3",
+              "value": "0",
+              "what": "heartbeat consumer 3 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302832,
+              "name": "Heartbeat-Consuming3",
+              "value": "0",
+              "what": "heartbeat consumer 3 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302848,
+              "name": "Heartbeat-Consuming4",
+              "value": "0",
+              "what": "heartbeat consumer 4 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302848,
+              "name": "Heartbeat-Consuming4",
+              "value": "0",
+              "what": "heartbeat consumer 4 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         }
-      ]
+      ],
+      "remove": [],
+      "time_producer": false
     },
     {
       "name": "host",
@@ -483,6 +1026,20 @@
               "element": "FLAG_Optional"
             },
             {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
+            },
+            {
               "id": 16871424,
               "name": "Heartbeat-Producer Time",
               "value": "200",
@@ -553,9 +1110,239 @@
               "sub": 2,
               "variable": "host_cell_analog_out"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#280",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 3,
+              "comm": 6146,
+              "cob_id": "$NODEID+16#380",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 4,
+              "comm": 6147,
+              "cob_id": "$NODEID+16#80000480",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 5,
+              "comm": 6148,
+              "cob_id": "16#57F",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 6,
+              "comm": 6149,
+              "cob_id": "16#80000000",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 0,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 1,
+              "comm": 5120,
+              "cob_id": "$NODEID+16#200",
+              "enabled": true,
+              "transmission": 1,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 2,
+              "comm": 5121,
+              "cob_id": "$NODEID+16#80000300",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 3,
+              "comm": 5122,
+              "cob_id": "$NODEID+16#80000400",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 4,
+              "comm": 5123,
+              "cob_id": "$NODEID+16#80000500",
+              "enabled": false,
+              "transmission": 255,
+              "event": 0
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                8448,
+                1,
+                1
+              ],
+              [
+                8449,
+                1,
+                32
+              ]
+            ],
+            "1A01": [
+              [
+                8450,
+                1,
+                32
+              ],
+              [
+                8451,
+                1,
+                16
+              ]
+            ],
+            "1A02": [
+              [
+                24080,
+                1,
+                32
+              ]
+            ],
+            "1A04": [
+              [
+                24081,
+                1,
+                32
+              ]
+            ],
+            "1600": [
+              [
+                8192,
+                1,
+                1
+              ],
+              [
+                8193,
+                1,
+                16
+              ],
+              [
+                8193,
+                2,
+                16
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "1",
+              "what": "heartbeat consumer 1 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "300",
+              "what": "heartbeat consumer 1 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302816,
+              "name": "Heartbeat-Consuming2",
+              "value": "0",
+              "what": "heartbeat consumer 2 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302816,
+              "name": "Heartbeat-Consuming2",
+              "value": "0",
+              "what": "heartbeat consumer 2 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302832,
+              "name": "Heartbeat-Consuming3",
+              "value": "0",
+              "what": "heartbeat consumer 3 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302832,
+              "name": "Heartbeat-Consuming3",
+              "value": "0",
+              "what": "heartbeat consumer 3 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 285302848,
+              "name": "Heartbeat-Consuming4",
+              "value": "0",
+              "what": "heartbeat consumer 4 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302848,
+              "name": "Heartbeat-Consuming4",
+              "value": "0",
+              "what": "heartbeat consumer 4 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         }
-      ]
+      ],
+      "remove": [],
+      "time_producer": false
     }
   ],
   "notes": [
@@ -800,19 +1587,9 @@
       "note": "the diagnostics channel of canworks-bridge"
     },
     {
-      "where": "io/master",
-      "setting": "time_period_ms",
-      "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the manager in CODESYS"
-    },
-    {
       "where": "config",
       "setting": "bridge",
       "note": "stays with canworks"
-    },
-    {
-      "where": "every node",
-      "setting": "identity check",
-      "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); set them on each device in CODESYS if wanted"
     }
   ]
 }

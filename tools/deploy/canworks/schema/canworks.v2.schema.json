@@ -61,7 +61,44 @@
       "type": "object",
       "properties": {
         "net_id": { "description": "The CODESYS network number of the network's CANbus. Default: the interface's trailing number, else 0.", "type": "integer", "minimum": 0, "maximum": 255 },
-        "interface": { "description": "The device's CAN interface object that gets the network's bus, such as CAN or CAN2. Default: found by name.", "type": "string", "minLength": 1 }
+        "interface": { "description": "The device's CAN interface object that gets the network's bus, such as CAN or CAN2. Default: found by name.", "type": "string", "minLength": 1 },
+        "managed": { "description": "The node IDs the CODESYS build manages on this network (written by Import from CODESYS and the build): a project node with one of these IDs that is no longer in the config is removed after the build asks.", "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 127 }, "uniqueItems": true }
+      }
+    },
+    "node_codesys": {
+      "description": "A node's CODESYS settings that canworks has no field for (CODESYS configs only).",
+      "type": "object",
+      "properties": {
+        "device": { "description": "The device's object name in CODESYS when it is not the node's name (made a valid identifier).", "type": "string", "minLength": 1 },
+        "checks": { "description": "The identity checks CODESYS makes at startup. Default: [\"vendor\"], as CODESYS sets a new device.", "type": "array", "items": { "enum": [ "vendor", "product", "revision" ] }, "uniqueItems": true }
+      }
+    },
+    "pdo_codesys": {
+      "description": "A PDO's CODESYS settings (CODESYS configs only).",
+      "type": "object",
+      "properties": {
+        "by_manager": { "description": "Process by CANopenManager. Default true.", "type": "boolean" }
+      }
+    },
+    "entry_codesys": {
+      "description": "A PDO entry's CODESYS settings (CODESYS configs only).",
+      "type": "object",
+      "properties": {
+        "address": { "description": "The channel's fixed IEC address in CODESYS, such as %IB40. Default: CODESYS assigns it.", "type": "string", "pattern": "^%[IiQq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$" },
+        "variable": { "description": "The channel's variable when it is not the name canworks gives (<network>_<node>_<entry name>).", "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+      }
+    },
+    "field_sdo": {
+      "allOf": [ { "$ref": "canworks.v1.schema.json#/$defs/sdo" } ],
+      "properties": {
+        "codesys": {
+          "description": "The startup SDO's CODESYS settings (CODESYS configs only).",
+          "type": "object",
+          "properties": {
+            "abort_on_error": { "description": "Stop configuring the node when this write fails. Default false.", "type": "boolean" },
+            "jump_to_line": { "description": "When this write fails, go on at this line of the SDO list.", "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        }
       }
     },
     "bridge": {
@@ -498,21 +535,22 @@
         "lss": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/lss" },
         "tx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_tx_pdo" } },
         "rx_pdos": { "type": "array", "items": { "$ref": "#/$defs/field_rx_pdo" } },
-        "sdo": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/sdo" },
+        "sdo": { "description": "Startup SDOs, written in list order after the PDO parameters and before NMT start.", "type": "array", "items": { "$ref": "#/$defs/field_sdo" } },
         "sdo_variables": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/sdo_variables" },
-        "simulate": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/simulate" }
+        "simulate": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/simulate" },
+        "codesys": { "$ref": "#/$defs/node_codesys" }
       },
       "required": [ "node_id", "eds" ]
     },
     "field_tx_pdo": {
       "allOf": [ { "$ref": "canworks.v1.schema.json#/$defs/pdo" } ],
-      "properties": { "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field_tx_entry" } } },
+      "properties": { "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field_tx_entry" } }, "codesys": { "$ref": "#/$defs/pdo_codesys" } },
       "required": [ "entries" ]
     },
     "field_rx_pdo": {
       "allOf": [ { "$ref": "canworks.v1.schema.json#/$defs/pdo" } ],
       "not": { "anyOf": [ { "required": [ "inhibit_time_us" ] }, { "required": [ "sync_start" ] }, { "required": [ "timeout_ms" ] }, { "required": [ "on_timeout" ] }, { "required": [ "timeout_location" ] } ] },
-      "properties": { "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field_rx_entry" } } },
+      "properties": { "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field_rx_entry" } }, "codesys": { "$ref": "#/$defs/pdo_codesys" } },
       "required": [ "entries" ]
     },
     "field_entry": {
@@ -522,7 +560,8 @@
         "subindex": { "$ref": "canworks.v1.schema.json#/$defs/subindex" },
         "type": { "$ref": "canworks.v1.schema.json#/$defs/co_type" },
         "name": { "$ref": "canworks.v1.schema.json#/$defs/entry_name" },
-        "bits": { "$ref": "canworks.v1.schema.json#/$defs/entry/properties/bits" }
+        "bits": { "$ref": "canworks.v1.schema.json#/$defs/entry/properties/bits" },
+        "codesys": { "$ref": "#/$defs/entry_codesys" }
       },
       "required": [ "index", "type" ]
     },

@@ -404,7 +404,11 @@ function renderCodesys(view) {
       el("p", { class: "muted" }, found
         ? "Build into CODESYS project runs CODESYS on this PC without its window, with the saved config, and shows CODESYS's report."
         : "CODESYS was not found on this PC. Download for CODESYS gives the files and a script to run in CODESYS on another PC (Tools > Scripting > Execute Script File)."),
-      el("div", { class: "toolbar" }, codesysBuildButton(), codesysDownloadButton())));
+      el("div", { class: "toolbar" }, codesysBuildButton(), codesysDownloadButton())),
+    el("fieldset", null, el("legend", null, "Import"),
+      el("p", { class: "muted" }, "Add the CANopen networks of a CODESYS project or a PLCopenXML export to this config, with their nodes, PDOs, startup SDOs and variable names."),
+      el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { codesysImport: "1" }, onclick: () => codesysImport() },
+        "Import from CODESYS…"))));
 }
 
 // The project file with Browse… (the folder dialog in file mode); a name
@@ -572,6 +576,12 @@ async function codesysBuild() {
   let r;
   try {
     r = await api("POST", "/api/codesys/build", {});
+    // Nodes an earlier build managed that the config no longer has: removed only when the user says so.
+    if (r.removals) {
+      const remove = await codesysAskRemove(r.removals);
+      if (remove === null) return;
+      r = await api("POST", "/api/codesys/build", { remove });
+    }
   } catch (e) {
     banner(e.message, true);
     return;
@@ -581,7 +591,21 @@ async function codesysBuild() {
   const text = r.ok ? `CODESYS built the bus into ${device || "the project"}.`
     : "The CODESYS build failed" + (device ? ` on ${device}` : "") + "." + (r.hint ? " " + r.hint : "");
   await modal(text, [["close", "Close", true]], el("pre", { class: "codesys-report", dataset: { codesysReport: "1" } }, report));
+  // The build noted the nodes it manages in the saved config: the page reads it again.
+  if (r.managed && !S.dirty) await reload(true);
   banner(text, !r.ok);
+}
+
+// "Remove N nodes" or "Keep them" (canopen-configurator "Build asks before
+// removing nodes"): true, false, or null on Cancel.
+async function codesysAskRemove(removals) {
+  const n = removals.reduce((k, x) => k + x.node_ids.length, 0);
+  const several = removals.length > 1 || (S.model && S.model.networks.length > 1);
+  const list = el("ul", { dataset: { codesysRemovals: "1" } }, ...removals.map((x) =>
+    el("li", null, (several ? x.network + ": " : "") + x.node_ids.map((i) => "node " + i).join(", "))));
+  const v = await modal(`The CODESYS project has ${n === 1 ? "a node" : n + " nodes"} that canworks built earlier and that ${n === 1 ? "is" : "are"} no longer in the config. Remove ${n === 1 ? "it" : "them"} from the project?`,
+    [["cancel", "Cancel"], ["keep", "Keep them"], ["remove", `Remove ${n} node${n === 1 ? "" : "s"}`, { danger: true }]], list);
+  return v === "remove" ? true : v === "keep" ? false : null;
 }
 
 // The device the CODESYS report's device line names, with its reason:

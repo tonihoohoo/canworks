@@ -76,6 +76,15 @@ A config with a top-level `codesys` object is built into a CODESYS project ([cod
 | `codesys.variables` | `false`: the I/O channels get no variable names. Default `true`. |
 | network `codesys.net_id` | The CANbus's network number, 0 to 255. Default: the number the interface name ends in, else 0. |
 | network `codesys.interface` | The CAN interface object of the device that gets this network's bus. |
+| network `codesys.managed` | The node IDs canworks built into the project. A build asks before removing one that is no longer in the config; the configurator sets it after each build. |
+| node `codesys.device` | The device's name in the CODESYS project tree, when it is not the node's `name`. |
+| node `codesys.checks` | The identity values CODESYS checks at boot: a list of `vendor`, `product`, `revision`. Default `["vendor"]`. |
+| PDO `codesys.by_manager` | `false`: the PDO is not processed by the CANopen Manager. Default `true`. |
+| entry `codesys.address` | A fixed I/O address for the entry's channel, such as `%IB40` or `%QW20`. Default: CODESYS assigns it. |
+| entry `codesys.variable` | The channel's variable when it is no valid entry `name`. |
+| startup SDO `codesys.abort_on_error`, `codesys.jump_to_line` | The SDO row's "abort if error" and the line to jump to on an error. |
+
+[Import from CODESYS](codesys.md#import-from-codesys) fills these from a CODESYS project, and a build writes them back. The checks warn about them in a Modbus bridge config, which does not use them.
 
 In a CODESYS config the PDO entries need no `iec_location` (CODESYS assigns the addresses) and the adapter needs only `bitrate`; `type` and `interface` are optional.
 

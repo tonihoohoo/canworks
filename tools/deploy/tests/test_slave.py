@@ -697,10 +697,11 @@ class Declarations(unittest.TestCase):
 
 class Schema(unittest.TestCase):
     def test_field_node_lists_every_node_property(self):
-        # schema v2's field_node copies the version 1 node's property list.
+        # schema v2's field_node copies the version 1 node's property list,
+        # plus the CODESYS settings only version 2 has.
         v1 = contract.schema(1)["$defs"]["node"]["properties"]
         v2 = contract.schema(2)["$defs"]["field_node"]["properties"]
-        self.assertEqual(list(v1), list(v2))
+        self.assertEqual(list(v1) + ["codesys"], list(v2))
         self.assertEqual(contract.schema(1)["$defs"]["node"]["required"],
                          contract.schema(2)["$defs"]["field_node"]["required"])
 

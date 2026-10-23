@@ -1,6 +1,6 @@
 # CANopen networks in CODESYS
 
-A canworks config can be built into a CODESYS project, so a CODESYS controller or display with a CAN interface runs the same bus with CODESYS's own CANopen Manager: the nodes, their PDOs, COB-IDs, transmission types and timers, heartbeat, startup SDOs and a variable name on every mapped I/O channel. canworks keeps doing what it does around the bus: the configurator, checks, bus trace and commissioning.
+A canworks config can be built into a CODESYS project, so a CODESYS controller or display with a CAN interface runs the same bus with CODESYS's own CANopen Manager: the nodes, their PDOs, COB-IDs, transmission types and timers, heartbeat, startup SDOs and a variable name on every mapped I/O channel. It works the other way too: [Import from CODESYS](#import-from-codesys) makes a canworks config from the CANopen networks of a CODESYS project, and a later build changes only what was edited, so a config moves back and forth between the two. canworks keeps doing what it does around the bus: the configurator, checks, bus trace and commissioning.
 
 CODESYS is not a Modbus client of canworks-bridge: when the CAN interface is on a Linux device, or for J1939 and raw CAN, which only the bridge runs, pick the Modbus bridge target with a PLC that is one of its [connections](modbus-bridge.md#connections) instead.
 
@@ -26,6 +26,41 @@ CODESYS is one of the two project targets, next to the Modbus bridge ([configura
 In the configurator, switch the **Project target** on the Project page to CODESYS. Every PDO entry gets its current generated name written in, so the channel names stay what they were, and the settings CODESYS does not use are removed, with the bridge's connections. Switching back to the Modbus bridge gives every entry a location again. The **CODESYS** page in the tree has the project file, the device that gets the bus, the PLC device for a new project (picked from the PLCs installed in CODESYS; **Browse…** picks or names the project file) and whether the channels are named; each network's Bus page has its network number and CAN interface object.
 
 **Build into CODESYS project…** in the header saves nothing by itself: it builds the saved config into the project with CODESYS on this PC, headless, and shows CODESYS's report. Close the project in the CODESYS window first; a build into a project that is open there fails, and the report says so. On a PC without CODESYS, **Download for CODESYS** gives the export folder below as a zip to run in CODESYS elsewhere.
+
+## Import from CODESYS
+
+**Import from CODESYS…** on the configurator's start page makes a new CODESYS config from a CODESYS project; on the CODESYS page of a CODESYS config it adds the project's networks to that config. It reads either file:
+
+- a CODESYS `.project`, on a PC with CODESYS: canworks runs CODESYS headless to export it (a minute or two) and does not change the project. Close the project in the CODESYS window first.
+- a PLCopenXML `.xml`, on any PC (a Mac too): in CODESYS, select the device with the CANopen Manager and use **Project > Export PLCopenXML**.
+
+A file with several devices that have a CANopen Manager (a display project with one device per variant) shows them with their CANbuses and node counts; the device of the project's active application is selected. The preview then lists each network (named after its variables' prefix, else its CANbus) and node with where its EDS comes from:
+
+| EDS state | Where from |
+|---|---|
+| EDS in this config | an EDS file in the open config's folder with the node's vendor ID, product code and revision |
+| EDS from the library | the configurator's EDS library; without an exact revision, the same product with a note naming both revisions |
+| EDS from CODESYS on this PC | the device description CODESYS installed for the device, when the import runs on that PC |
+| EDS missing | none of these: **Add EDS…** gives the EDS to every node of that CODESYS device type. Create config waits until each node has one |
+
+and what was not carried over, with where it was. **Create config…** asks for a name and location and writes the config with its EDS files; `codesys.project` names the imported project and `codesys.device` the device, so **Build into CODESYS project** goes straight back into it and reports every node up to date. **Add to this config** adds the networks to the draft (Save writes them); a network whose name or CODESYS network number the config uses already asks **Add it as a new network** or **Replace** the config's network. Nothing is written before either.
+
+The command line does the same into a new folder:
+
+```sh
+canworks-deploy --from-codesys "C:\Projects\line2.project" --out line2
+canworks-deploy --from-codesys line2.xml --out line2 --eds-dir eds/
+```
+
+`--codesys-plc NAME` picks the device when the file has several, `--eds-dir DIR` (repeatable) takes the EDS files from DIR instead of the configurator's EDS library, and `--force` replaces a config in the folder. The report lists each node with its EDS and every setting not carried; with a node without an EDS nothing is written.
+
+What an import gives:
+
+- **Networks:** the CANbus's network number as `codesys.net_id`, interface `canN` and bit rate; the manager's node ID, SYNC, heartbeat, TIME, start options, NMT inhibit time and SDO timeout.
+- **Nodes:** node ID, name (the CODESYS name made a valid identifier), optional, no initialization, reset before configuring, heartbeat producer and consumers, node guarding, TIME consumer, every enabled PDO with COB-ID, transmission type, inhibit time, event timer and mapping, and the startup SDOs added for objects from 0x2000. A PDO that is off is left out, which switches it off in canworks. Values equal to the EDS default are left out (unset means the EDS's value), and so is a COB-ID equal to the CiA default for the node.
+- **Entry names:** each channel's variable becomes the entry's `name`, left out when it equals the generated name; bit variables become the entry's [bits](config.md#bit-channels).
+- **CODESYS-only settings** travel in `codesys` objects ([config.md](config.md#codesys-target)) so a build writes them back: the device's CODESYS name and identity-check ticks, a PDO not processed by the manager, a fixed I/O address, a variable name that is no valid entry name, and a startup SDO's abort-on-error and jump-to-line.
+- **Not carried,** each with a report line: CODESYS as a CANopen slave (make a slave network in canworks), CANbuses without a CANopen Manager (J1939), other device types, manager and device settings canworks has no field for when they differ from their default (such as the slave heartbeat watch ratio), and SDO flags on rows CODESYS generates.
 
 ## How it works
 
@@ -95,13 +130,19 @@ Many controllers and displays bring their CAN ports as objects of their own, for
 | each mapped entry's `name`, else the editor's declaration name (`dio_Read_input_8_bit_1`) | variable names on the I/O channels; CODESYS assigns the `%I`/`%Q` addresses itself |
 | an entry's [bit channels](config.md#bit-channels) | variable names on the channel's bit sub-channels (bit n of the channel); an output entry with bits maps only its bits, as CODESYS refuses overlapping output mappings, and its channel is left without a variable. Where a channel has no bit sub-channels, the report lists each bit to map by hand |
 
-Every other setting is listed in the report under `not set` with the reason, the same words as the configurator's warnings in a CODESYS project, for example the bridge's status and diagnostic locations (use the CANopen Manager's diagnostics or the CiA 405 blocks in CODESYS), SDO variables, LSS settings, the configuration check, and the TPDO receive timeouts. SYNC tied to the PLC cycle is a bus cycle task setting in CODESYS. Identity checks at boot (vendor ID, product code, revision) are ticked on each device in CODESYS; the script cannot set them. Slave, J1939 and plain CAN networks, raw messages, the Modbus bridge and the gateway stay with canworks. A canworks slave works under a CODESYS master through its EDS ([slave.md](slave.md)).
+A node's `codesys` object gives back what only CODESYS has: its CODESYS name (`device`), the identity checks at boot (`checks`, default vendor ID only), a PDO's "processed by the CANopen Manager" (`by_manager`), an entry's fixed I/O address and variable (`address`, `variable`) and a startup SDO's abort-on-error and jump-to-line ([config.md](config.md#codesys-target)). The identity checks and the manager's TIME producer are set through an internal CODESYS interface; when a CODESYS version does not offer it, the report says which ticks to set by hand.
+
+Every other setting is listed in the report under `not set` with the reason, the same words as the configurator's warnings in a CODESYS project, for example the bridge's status and diagnostic locations (use the CANopen Manager's diagnostics or the CiA 405 blocks in CODESYS), SDO variables, LSS settings, the configuration check, and the TPDO receive timeouts. SYNC tied to the PLC cycle is a bus cycle task setting in CODESYS. Slave, J1939 and plain CAN networks, raw messages, the Modbus bridge and the gateway stay with canworks. A canworks slave works under a CODESYS master through its EDS ([slave.md](slave.md)).
 
 ## Running it again
 
-Running the script again on the same project replaces the devices it manages, the ones under that CANopen Manager with a node ID from the config, and keeps devices with other node IDs (the report lists them). Changes made by hand on a replaced device are gone, so change the canworks config and import again rather than editing the device in CODESYS.
+Running the script again on the same project updates each device under that CANopen Manager that has a node ID from the config in place: it compares the device with the plan and changes only what differs, through CODESYS's scripting API, and leaves everything else on the device as it is, including settings canworks does not manage. The report says `current` for a device that was up to date and `updated` with the number of settings changed. PDO COB-IDs are written as `$NODEID+16#…` when they equal the EDS's node-based default, so a node ID changed later in CODESYS moves them too.
 
-A DCF installs in the device repository under the product's vendor ID, product code and revision, so after an import the repository holds the last node's DCF of each product. The project's devices keep their own settings; only CODESYS's **Update Device** would bring the repository's version back.
+A device whose PDO mapping or startup SDO list changed in structure (an entry or row added, removed or of another length, a PDO switched on or off) cannot be changed in place: it is removed and added again from its DCF, and its carried CODESYS settings are written back. The report says `replaced` and why, for example `PDO mapping changed (TPDO1)`. Settings made by hand in CODESYS on a replaced device that canworks does not carry are gone; import the project first to keep them in the config.
+
+Devices with other node IDs stay (the report lists them as kept). A node canworks built earlier and that is no longer in the config is removed only when asked: the configurator's Build lists such nodes and asks **Remove N nodes** or **Keep them**, and `canworks-deploy --codesys-import` removes them only with `--codesys-remove-nodes`. Each network's `codesys.managed` lists the node IDs canworks manages; the configurator updates it after each build, so kept nodes are not asked about again.
+
+A DCF installs in the device repository under the product's vendor ID, product code and revision, so after a build the repository holds the last node's DCF of each product, and two nodes of one EDS share that entry. The project's devices keep their own settings; only CODESYS's **Update Device** would bring the repository's version back, and the import never takes per-node values from the repository's DCF. CODESYS maps every mapping sub-entry that has a value, whatever the count says, so the DCFs for CODESYS give the sub-entries beyond the count the value 0.
 
 ## canworks next to a CODESYS master
 
@@ -110,6 +151,6 @@ A DCF installs in the device repository under the product's vendor ID, product c
 
 ## Requirements and limits
 
-- CODESYS V3.5 with CANopen support on Windows for the import; tested with V3.5 SP22. Older service packs are expected to work but are not tested. Settings an older or vendor build lacks are reported and skipped; the nodes and their PDOs still come from the DCFs.
+- CODESYS V3.5 with CANopen support on Windows for the build and for importing a `.project`; tested with V3.5 SP22. Importing a PLCopenXML file needs no CODESYS. Older service packs are expected to work but are not tested. Settings an older or vendor build lacks are reported and skipped; the nodes and their PDOs still come from the DCFs.
 - The script runs CODESYS's IronPython 2.7, uses only CODESYS's scripting API and needs no add-ons.
 - The CODESYS runtime's CANopen licence is not part of this: the CODESYS Store lists which runtimes include the CANopen Manager.

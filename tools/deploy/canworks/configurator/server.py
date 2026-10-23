@@ -1596,13 +1596,20 @@ class Session:
             if isinstance(entry, dict) and not entry.get("name"):
                 entry["name"] = d["entry_name"]
 
-    def codesys_build(self, cfg_path, runner=None):
+    def codesys_build(self, cfg_path, runner=None, remove=None):
         """Builds the saved CODESYS config into its CODESYS project
         (canworks-deploy --codesys-import): {ok, report, output}. Runs
-        outside the server lock: CODESYS takes minutes."""
+        outside the server lock: CODESYS takes minutes. Nodes an earlier
+        build or import managed that the config no longer has are removed
+        from the project only with `remove` True; with `remove` None they
+        come back as {ok: False, removals: [{network, node_ids}]} for the
+        page to ask (canopen-configurator "Build asks before removing
+        nodes"). After a build each network's codesys.managed is its
+        node IDs (`managed` True when that changed the saved config)."""
         from .. import cli
-        from ..codesys import run as codesys_run
-        args = cli.parser().parse_args(["--config", cfg_path, "--codesys-import"])
+        from ..codesys import plan as codesys_plan, run as codesys_run
+        flags = ["--config", cfg_path, "--codesys-import"] + (["--codesys-remove-nodes"] if remove else [])
+        args = cli.parser().parse_args(flags)
         lines = []
         try:
             with open(cfg_path, encoding="utf-8") as f:
@@ -1610,8 +1617,13 @@ class Session:
             result = contract.check_config(cfg, cfg_path, eds_paths=bundle.eds_files(cfg, cfg_path))
             if not result.ok:
                 return {"ok": False, "output": "\n".join(result.errors), "report": ""}
+            gone = codesys_plan.removals(cfg)
+            if gone and remove is None:
+                return {"ok": False, "output": "", "report": "",
+                        "removals": [{"network": n, "node_ids": ids} for n, ids in sorted(gone.items())]}
             cli._codesys(args, cfg, None, lines.append, runner=runner)
-            return {"ok": True, "output": "\n".join(lines), "report": "\n".join(lines)}
+            return {"ok": True, "output": "\n".join(lines), "report": "\n".join(lines),
+                    "managed": self._set_managed(cfg_path)}
         except cli.MissingProject as e:
             return {"ok": False, "output": "\n".join(lines + [
                 "The project file %s does not exist. Pick a PLC device for a new project on the CODESYS page, "
@@ -1625,6 +1637,41 @@ class Session:
             return {"ok": False, "output": "\n".join(lines + [text]), "report": "\n".join(lines), "hint": hint}
         except (OSError, ValueError, codesys_run.CodesysError) as e:
             return {"ok": False, "output": "\n".join(lines + [str(e)]), "report": ""}
+
+    def _set_managed(self, cfg_path):
+        """Each CANopen master network's codesys.managed set to its node IDs
+        in the saved config, after a build; True when the file changed."""
+        with self.lock:
+            try:
+                with open(cfg_path, encoding="utf-8") as f:
+                    raw = json.load(f)
+            except (OSError, ValueError):
+                return False
+            if not isinstance(raw.get("networks"), list):
+                return False
+            changed = False
+            for net in contract.networks(raw):
+                if net["role"] != "master":
+                    continue
+                ids = sorted({n["node_id"] for n in net["nodes"] if isinstance(n, dict) and isinstance(n.get("node_id"), int)})
+                own = net["json"].get("codesys")
+                if not isinstance(own, dict):
+                    if not ids:
+                        continue
+                    own = net["json"]["codesys"] = {}
+                if own.get("managed") != ids:
+                    own["managed"] = ids
+                    changed = True
+            if not changed:
+                return False
+            tmp = cfg_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(raw, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            replace_file(tmp, cfg_path)
+            if os.path.abspath(cfg_path) == os.path.abspath(self.config_path or ""):
+                self.loaded = (os.path.getmtime(cfg_path), sha256(cfg_path))
+            return True
 
     # -- CODESYS export -----------------------------------------------------
     def export_codesys(self, cfg):
@@ -3043,16 +3090,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(200, self._trace((method, url.path), body))
                 except tracing.Refused as e:
                     raise ApiError(e.status, str(e), **e.extra)
+            if url.path.startswith("/api/codesys/import/") and method == "POST":
+                # Outside the lock: exporting a .project runs CODESYS for minutes.
+                return self._send(200, self._codesys_import(url.path.rsplit("/", 1)[1], self._body()))
             if url.path == "/api/codesys/build" and method == "POST":
                 # Outside the lock: CODESYS takes minutes, the page goes on.
-                self._body()
+                body = self._body()
                 with s.lock:
                     self._need_open(s)
                     if s.pending or s.pending_dbc or s.changed_on_disk() or not os.path.isfile(s.config_path):
                         raise ApiError(409, "save the config before building it into the CODESYS project",
                                        unsaved=True)
                     cfg_path = s.config_path
-                return self._send(200, s.codesys_build(cfg_path, runner=self.server.codesys_runner))
+                remove = body.get("remove") if isinstance(body.get("remove"), bool) else None
+                return self._send(200, s.codesys_build(cfg_path, runner=self.server.codesys_runner, remove=remove))
             if (method, url.path) == ("POST", "/api/heartbeat"):
                 body = self._body()
                 return self._send(200, self.server.heartbeat(body.get("page"), body.get("unsaved") is True))
@@ -3301,6 +3352,118 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _need_open(s):
         if not s.mode:
             raise ApiError(409, "no project or config folder is open")
+
+    # -- Import from CODESYS (codesys-import) ---------------------------------
+    def _codesys_import(self, step, body):
+        """/api/codesys/import/<step>: open (a .project path, an .xml path, or
+        an uploaded file as `name` and base64 `data`), device (the device
+        picked), eds (an EDS for a node's device type), create (a new config
+        folder at `path`) and add (the networks into the open draft
+        `config`, `answers` for name conflicts). open, device and eds give
+        the device list or the preview; nothing is written before create or
+        add."""
+        from . import codesysimport as ci
+        from ..codesys import run as codesys_run
+        s = self.server.session
+        imp = self.server.codesys_import
+        found = codesys_found()
+        runner = self.server.codesys_runner
+
+        def preview():
+            lib = online.Settings(config_dir()).eds_library
+            folders = ([("project", s.canopen_dir)] if s.mode and not s.commission and os.path.isdir(s.canopen_dir)
+                       else []) + ([("library", lib)] if lib else [])
+            roots = codesys_run.repository_roots() if found else ()
+            return ci.convert(imp, self.server.eds_index.matches, folders, roots)
+
+        def need():
+            if imp is None or (step != "device" and imp.result is None):
+                raise ApiError(409, "no import in progress: pick the CODESYS file again")
+        try:
+            if step == "open":
+                data = None
+                if body.get("data") is not None:
+                    try:
+                        data = base64.b64decode(body.get("data") or "", validate=True)
+                    except ValueError:
+                        raise ApiError(400, "data must be base64")
+                elif not isinstance(body.get("path"), str) or not body["path"].strip():
+                    raise ApiError(400, "give path, or name and data")
+                if imp is not None:
+                    imp.close()
+                imp = self.server.codesys_import = ci.Import()
+                out = ci.open_source(imp, path=body.get("path") if data is None else None, name=body.get("name"),
+                                     data=data, found=found, runner=runner)
+                return out or preview()
+            if step == "device":
+                need()
+                device = body.get("device")
+                if not isinstance(device, str) or not device:
+                    raise ApiError(400, "device must be a device name")
+                if imp.project:
+                    out = ci.open_source(imp, path=imp.project, device=device, found=found, runner=runner)
+                else:
+                    out = ci.open_source(imp, name=imp.source, data=imp.xml, device=device, found=found)
+                if out:
+                    raise ApiError(422, "%s has no device %s with a CANopen Manager" % (imp.source, device))
+                return preview()
+            need()
+            if step == "eds":
+                try:
+                    data = base64.b64decode(body.get("data") or "", validate=True)
+                except ValueError:
+                    raise ApiError(400, "data must be base64")
+                name = os.path.basename(str(body.get("name") or "")).strip()
+                if not name.lower().endswith((".eds", ".dcf")):
+                    raise ApiError(422, "%s is not an EDS file (.eds or .dcf)" % (name or "the file"))
+                check_eds(name, data, edslint.effective_mode(None))
+                path = os.path.join(imp.folder, "upload.eds")
+                with open(path, "wb") as f:
+                    f.write(utf8_eds(data)[0])
+                ci.add_eds(imp, body.get("device"), name, path)
+                return preview()
+            if step == "create":
+                if imp.result.missing:
+                    raise ApiError(422, "no EDS for %s: add one for each first" % ", ".join(
+                        "%s (node %s)" % (m["name"], m["node_id"]) for m in imp.result.missing))
+                with s.lock:
+                    self._leave_commission(s)
+                    s.open(body.get("path"), "standalone", new=True)
+                    ci.create(imp, os.path.dirname(s.config_path))
+                    s.open(body.get("path"), "standalone")
+                    out = s.state()
+                imp.close()
+                self.server.codesys_import = None
+                return out
+            if step == "add":
+                if imp.result.missing:
+                    raise ApiError(422, "no EDS for %s: add one for each first" % ", ".join(
+                        "%s (node %s)" % (m["name"], m["node_id"]) for m in imp.result.missing))
+                cfg = body.get("config")
+                if not isinstance(cfg, dict):
+                    raise ApiError(400, "config must be a JSON object")
+                answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+                with s.lock:
+                    self._need_open(s)
+                    if targets.target(cfg) != targets.CODESYS:
+                        raise ApiError(409, "Add to this config needs a CODESYS config; Create config makes a new one")
+                    cfg = version2(cfg)
+                    pending = [c for c in ci.conflicts(imp, cfg) if answers.get(c["name"]) not in ("rename", "replace")]
+                    if pending:
+                        raise ApiError(409, "network names or numbers in use", conflicts=pending)
+                    renamed = {}
+                    for name, src in sorted(imp.result.eds_files.items()):
+                        with open(src, "rb") as f:
+                            renamed[name] = s.import_eds(name, f.read(), "keep_both")["name"]
+                    out = ci.merge(imp, cfg, answers, renamed)
+                    names = sorted(set(renamed.values()))
+                    summaries = s.eds_info(names)
+                imp.close()
+                self.server.codesys_import = None
+                return {"config": out, "networks": [n["name"] for n in imp.result.cfg["networks"]], "eds": summaries}
+            raise ApiError(404, "no such API: POST /api/codesys/import/%s" % step)
+        except ci.Refused as e:
+            raise ApiError(e.status, str(e), **e.extra)
 
     # -- devices (device-install) -------------------------------------------
     def _devices(self, route, body):
@@ -4780,6 +4943,7 @@ class Server(http.server.ThreadingHTTPServer):
         self.devices = devices_service.Devices(config_dir())
         self.sim_connection = online.Connection()  # the Simulation view's CANopen simulator
         self.eds_index = online.EdsIndex()
+        self.codesys_import = None  # Import from CODESYS: the import between the dialog's steps
         self.spn_cache = {}  # Handler._spn_names
         self.traces = tracing.Traces()
         self.jobs = params.Jobs()

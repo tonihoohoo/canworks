@@ -59,6 +59,13 @@ variable names in a CODESYS project (in the IDE, or headless). With
 (docs/codesys.md). A CODESYS config (one with a "codesys" object) holds
 these settings itself; the options override them.
 
+  canworks-deploy --from-codesys <export.xml|project.project> --out <dir> [--codesys-plc NAME] [--eds-dir DIR]
+
+makes a new config in <dir> from the CANopen networks of a CODESYS project:
+a PLCopenXML export, or the .project itself on a Windows PC with CODESYS.
+Each node's EDS comes from --eds-dir (default: the configurator's EDS
+library) or CODESYS's device repository.
+
   canworks-deploy --config canworks.json --export-plcopen <dir> --for trust|generic [--bridge-host HOST]
 
 writes the program side of a bridge config with the PLC link ("plc_link":
@@ -173,6 +180,10 @@ def parser():
                      help="write the CODESYS export and run CODESYS headless on this .project file (default: the "
                           "config's codesys.project), which gets the CANbus, CANopen Manager, nodes and variable "
                           "names (Windows, CODESYS installed)")
+    src.add_argument("--from-codesys", metavar="FILE",
+                     help="import the CANopen networks of a CODESYS PLCopenXML export (.xml) or project (.project, "
+                          "Windows with CODESYS) into a new config in --out DIR; needs no --config "
+                          "(docs/codesys.md, Import from CODESYS)")
     src.add_argument("--export-plcopen", metavar="DIR",
                      help="write the program side of a bridge config with the PLC link for another PLC into DIR: "
                           "canworks.xml (PLCopen XML: the canworks list, canworks_in, canworks_out and the library) "
@@ -239,7 +250,16 @@ def parser():
                         "the configuration writes or maps) or all")
     p.add_argument("--doc-embed-eds", action="store_true",
                    help="with --export-html: embed each node's EDS file so it can be saved from the document")
-    p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canworks/ folder")
+    p.add_argument("--force", action="store_true",
+                   help="with --into-project: replace an existing canworks/ folder; with --from-codesys: replace the "
+                        "config in --out")
+    p.add_argument("--out", metavar="DIR", help="with --from-codesys: the folder of the new config")
+    p.add_argument("--eds-dir", metavar="DIR", action="append",
+                   help="with --from-codesys: a folder of EDS files to find the nodes' EDS in (default: the "
+                        "configurator's EDS library)")
+    p.add_argument("--codesys-remove-nodes", action="store_true",
+                   help="with --export-codesys or --codesys-import: remove the project nodes canworks built earlier "
+                        "(codesys.managed) that are no longer in the config")
     p.add_argument("--config", metavar="FILE",
                    help="the config (canworks.json, or the folder that holds it); EDS and DBC paths are relative to it")
     p.add_argument("--token", help="with --bridge: the diagnostics token (default: $%s, else a prompt)" % diag.TOKEN_ENV)
@@ -433,6 +453,73 @@ def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0, local=None):
                   % (wait_s, ": %s" % last if last else ""))
 
 
+def _from_codesys(args, out, runner=None):
+    """--from-codesys FILE --out DIR: a new config from a CODESYS export
+    (codesys-import spec)."""
+    from .codesys import run as codesys_run, xmlimport
+    from .configurator import online
+    from .userdirs import config_dir
+    source = args.from_codesys
+    if not getattr(args, "out", None):
+        raise Failure("--from-codesys needs --out DIR, the folder of the new config")
+    if args.config or args.check_only:
+        raise Failure("--from-codesys makes a new config; leave out --config and --check-only")
+    target = os.path.join(args.out, "canworks.json")
+    if os.path.exists(target) and not args.force:
+        raise Failure("%s exists already; give --force to replace it" % target)
+    project = None
+    xml = source
+    if source.lower().endswith(".project"):
+        exe = getattr(args, "codesys_exe", None) or codesys_run.find_codesys()
+        if not exe or (runner is None and not os.path.isfile(exe)):
+            raise Failure("CODESYS is not installed on this PC: export the project in CODESYS (Project > Export "
+                          "PLCopenXML, the device with the CANopen Manager) and import that .xml file")
+        try:
+            found, xml = codesys_run.export_project(source, device=getattr(args, "codesys_plc", None), exe=exe,
+                                                    profile=getattr(args, "codesys_profile", None), runner=runner)
+        except codesys_run.CodesysError as e:
+            raise Failure(str(e))
+        if xml is None:
+            raise Failure("%s has %d devices with a CANopen Manager; name one with --codesys-plc NAME:\n%s" % (
+                source, len(found), "\n".join("  %s: %s, %d node%s%s" % (
+                    d["name"], ", ".join(d["buses"]), d["nodes"], "" if d["nodes"] == 1 else "s",
+                    " (active application)" if d.get("active") else "") for d in found)))
+        project = os.path.abspath(source)
+    try:
+        choices = xmlimport.choices(xmlimport.read(xml))
+    except xmlimport.ImportError_ as e:
+        raise Failure("%s: %s" % (source, e))
+    if not choices:
+        raise Failure("%s holds no CANopen Manager" % source)
+    plc = getattr(args, "codesys_plc", None)
+    if plc and not project:
+        choices = [c for c in choices if c["name"] == plc]
+        if not choices:
+            raise Failure("%s has no device %s with a CANopen Manager" % (source, plc))
+    if len(choices) > 1:
+        raise Failure("%s has %d devices with a CANopen Manager; name one with --codesys-plc NAME:\n%s" % (
+            source, len(choices), "\n".join("  %s: %s, %d node%s" % (c["name"], ", ".join(b.name for b in c["buses"]),
+                                                                     c["nodes"], "" if c["nodes"] == 1 else "s")
+                                            for c in choices)))
+    folders = [("project", args.out)] + [("library", d) for d in (getattr(args, "eds_dir", None) or [])]
+    if not getattr(args, "eds_dir", None):
+        folders.append(("library", online.Settings(config_dir()).eds_library))
+    find = xmlimport.library_finder(xmlimport.folder_matcher(folders), codesys_run.repository_roots()
+                                    if sys.platform == "win32" else ())
+    try:
+        res = xmlimport.convert(choices[0], find, project=project)
+    except xmlimport.ImportError_ as e:
+        raise Failure(str(e))
+    for line in xmlimport.text(res).splitlines():
+        out(line)
+    try:
+        path = xmlimport.write(res, args.out)
+    except xmlimport.ImportError_ as e:
+        raise Failure("%s; nothing was written" % e)
+    out("wrote %s" % path)
+    return 0
+
+
 def _codesys(args, cfg, network, out, runner=None):
     """--export-codesys DIR and --codesys-import [PROJECT]. The project and
     the device for a new one come from the config's `codesys` object when
@@ -473,7 +560,8 @@ def _codesys(args, cfg, network, out, runner=None):
         files, _ = codesys_plan.export_files(
             cfg, args.config, overrides=overrides, interfaces=interfaces, plc=getattr(args, "codesys_plc", None),
             variables=False if getattr(args, "codesys_no_variables", False) else None, network=network,
-            project=os.path.abspath(project) if project and not create else None, create=create)
+            project=os.path.abspath(project) if project and not create else None, create=create,
+            remove_nodes=getattr(args, "codesys_remove_nodes", False))
     except codesys_plan.ExportFailed as e:
         raise Failure("\n".join(m for m, _ in e.problems) + "\nnothing was written")
     folder = getattr(args, "export_codesys", None) or getattr(args, "codesys_dir", None)
@@ -507,6 +595,10 @@ def run(args, out=print, err=None, confirm_source=None):
     if not getattr(args, "export_nodered", None) and (getattr(args, "nodered_host", None)
                                                      or getattr(args, "nodered_poll_ms", None) is not None):
         raise Failure("--nodered-host and --nodered-poll-ms go with --export-nodered")
+    if getattr(args, "from_codesys", None):
+        return _from_codesys(args, out)
+    if getattr(args, "out", None) or getattr(args, "eds_dir", None):
+        raise Failure("--out and --eds-dir go with --from-codesys")
     package_out = getattr(args, "export_nodered_package", None)
     if package_out:
         if args.check_only:

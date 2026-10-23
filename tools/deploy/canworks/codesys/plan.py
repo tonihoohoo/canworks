@@ -14,9 +14,9 @@ import re
 
 from .. import __version__, bundle, contract, dcfexport, targets
 from ..configurator import declare
-from ..eds import Eds, EdsError
+from ..eds import Eds, EdsError, mapping_info
 
-FORMAT = 1
+FORMAT = 2
 PLAN_NAME = "canworks-codesys.json"
 SCRIPT_NAME = "import_canworks.py"
 README_NAME = "README.txt"
@@ -47,6 +47,12 @@ DEV_SDO_TIMEOUT = (17, "SDO Timeout")
 DEV_RESET_SUB = (16846848, "SubIndex for reset node")
 # 0x1017 as a CODESYS communication-object parameter (index << 12).
 DEV_HEARTBEAT = (0x01017000, "Heartbeat-Producer Time")
+DEV_GUARDING = (0x0100C000, "Nodeguarding")
+DEV_TIME = (0x01012000, "Time Stamp")
+# Object entries: 0x10000000 | index << 12 | sub-index << 4.
+DEV_HB_CONSUMER = 0x11016000
+# The identity checks: the download flag of the expected 0x1018 values.
+CHECK_PARAMS = {"vendor": 0x11018010, "product": 0x11018020, "revision": 0x11018030}
 
 
 
@@ -136,12 +142,11 @@ def manager_params(master):
 
 def node_params(node, master):
     out = [_param(DEV_NODE_ID, str(_int(node["node_id"])), "node ID"),
-           _param(DEV_OPTIONS, _bool(node.get("mandatory") is not True), "optional device", "FLAG_Optional")]
-    if node.get("boot") is False:
-        out.append(_param(DEV_OPTIONS, "TRUE", "do not initialize", "FLAG_NotInitialize"))
+           _param(DEV_OPTIONS, _bool(node.get("mandatory") is not True), "optional device", "FLAG_Optional"),
+           _param(DEV_OPTIONS, _bool(node.get("boot") is False), "do not initialize", "FLAG_NotInitialize")]
     restore = _int(node.get("restore_configuration"))
+    out.append(_param(DEV_OPTIONS, _bool(restore), "restore before configuring (0x1011)", "FLAG_ResetNode"))
     if restore:
-        out.append(_param(DEV_OPTIONS, "TRUE", "restore before configuring (0x1011)", "FLAG_ResetNode"))
         out.append(_param(DEV_RESET_SUB, str(restore), "0x1011 sub-index"))
     hb = _int(node.get("heartbeat_ms"), 0)
     if hb:
@@ -152,6 +157,166 @@ def node_params(node, master):
     if sdo:
         out.append(_param(DEV_SDO_TIMEOUT, str(sdo * 1000), "SDO timeout (us)"))
     return out
+
+
+def _cob_text(value, sub, node_id):
+    """A COB-ID as CODESYS's generic COB-ID setting: $NODEID-based when it
+    equals the EDS's node-based default, so a node ID change in CODESYS
+    moves it (codesys-export "PDO COB-IDs follow the node ID")."""
+    default = (sub.default or "").strip() if sub is not None else ""
+    if "$NODEID" in default.upper():
+        from ..eds import SubObject
+        base = SubObject(sub.data_type, sub.access, sub.pdo_mapping, default=default).value(node_id)
+        if base is not None and (base & 0x7FF) == (value & 0x7FF) and value >= node_id:
+            return "$NODEID+16#%X" % (value - node_id)
+    return "16#%X" % value
+
+
+def node_state(dcf_text, node, node_id):
+    """What the CODESYS device of a node holds after a build, from the node's
+    DCF (the values canworks writes, else the EDS's): its PDOs (COB-ID as
+    the generic setting, on or off, transmission, inhibit time in 100 us,
+    event timer, processed by the manager), the mapping of each PDO that is
+    on, the startup SDO rows CODESYS makes from the DCF (objects from 0x2000
+    whose value is not the default), the identity checks, and parameters
+    that only the DCF sets on a new device (heartbeat consumers, guarding,
+    TIME), for the update in place."""
+    eds = Eds.read("node.dcf", text=dcf_text)
+    own = node.get("codesys") if isinstance(node.get("codesys"), dict) else {}
+    carried_pdo = {}
+    for key, d in (("tx_pdos", "tx"), ("rx_pdos", "rx")):
+        for i, p in enumerate(node.get(key) or []):
+            if isinstance(p, dict) and isinstance(p.get("codesys"), dict):
+                carried_pdo[(d, _int(p.get("number")) or i + 1)] = p["codesys"]
+    pdos, mappings = [], {}
+    for d, comm_base, map_base in (("tx", 0x1800, 0x1A00), ("rx", 0x1400, 0x1600)):
+        for n in range(512):
+            comm = comm_base + n
+            cob_sub = eds.find(comm, 1)
+            if cob_sub is None:
+                continue
+            cob = cob_sub.value(node_id)
+            if cob is None:
+                continue
+            pdo = {"dir": d, "number": n + 1, "comm": comm, "cob_id": _cob_text(cob, cob_sub, node_id),
+                   "enabled": not cob & 0x80000000}
+            for sub, key in ((2, "transmission"), (3, "inhibit"), (5, "event")):
+                o = eds.find(comm, sub)
+                if o is not None and o.value(node_id) is not None and not (key == "inhibit" and d == "rx"):
+                    pdo[key] = o.value(node_id)
+            by_manager = carried_pdo.get((d, n + 1), {}).get("by_manager")
+            if by_manager is not None:
+                pdo["by_manager"] = bool(by_manager)
+            pdos.append(pdo)
+            if pdo["enabled"]:
+                count_sub = eds.find(map_base + n, 0)
+                count = (count_sub.value(node_id) or 0) if count_sub is not None else 0
+                entries = []
+                for k in range(1, min(count, 64) + 1):
+                    o = eds.find(map_base + n, k)
+                    v = (o.value(node_id) or 0) if o is not None else 0
+                    entries.append([v >> 16, (v >> 8) & 0xFF, v & 0xFF])
+                mappings["%04X" % (map_base + n)] = entries
+    flags = {}
+    for i, s in enumerate(node.get("sdo") or []):
+        if isinstance(s, dict) and isinstance(s.get("codesys"), dict):
+            idx, sub = _int(s.get("index")), _int(s.get("subindex", 0), 0)
+            flags[(idx, sub)] = s["codesys"]
+    sdo = []
+    for index, sub, o in eds.items():
+        if index < 0x2000 or not (o.parameter or "").strip():
+            continue
+        value = o.value(node_id)
+        default = (o.default or "").strip()
+        if value is None or (default and o.value(node_id) == _resolve(default, node_id)):
+            continue
+        row = {"index": index, "sub": sub, "value": value, "size": _bits(o)}
+        f = flags.get((index, sub), {})
+        if f.get("abort_on_error"):
+            row["abort"] = True
+        if f.get("jump_to_line") is not None:
+            row["jump"] = _int(f["jump_to_line"], 0)
+        sdo.append(row)
+    params = []
+    for sub in range(1, 128):
+        o = eds.find(0x1016, sub)
+        if o is None:
+            break
+        v = o.value(node_id) or 0
+        pid = DEV_HB_CONSUMER | (sub << 4)
+        params.append(_param((pid, "Heartbeat-Consuming%d" % sub), str((v >> 16) & 0xFF),
+                             "heartbeat consumer %d node" % sub, "HeartbeatConsumingNodeID"))
+        params.append(_param((pid, "Heartbeat-Consuming%d" % sub), str(v & 0xFFFF),
+                             "heartbeat consumer %d time" % sub, "HeartbeatTime"))
+    guard, life = eds.find(0x100C, 0), eds.find(0x100D, 0)
+    if guard is not None and life is not None:
+        params.append(_param(DEV_GUARDING, str(guard.value(node_id) or 0), "guard time", "GuardTime"))
+        params.append(_param(DEV_GUARDING, str(life.value(node_id) or 0), "life time factor", "LifeTimeFactor"))
+    time = eds.find(0x1012, 0)
+    if time is not None and node.get("time_cob_id") is not None:
+        v = time.value(node_id) or 0
+        params.append(_param(DEV_TIME, _bool(v & 0x80000000), "TIME consumer", "TimeConsumingEnable"))
+        params.append(_param(DEV_TIME, _bool(v & 0x40000000), "TIME producer", "TimeProducingEnable"))
+        params.append(_param(DEV_TIME, "16#%X" % (v & 0x3FFFFFFF), "TIME COB-ID", "TimeProducingCOBID"))
+    out = {"pdos": pdos, "mapping": mappings, "sdo": sdo, "state_params": params}
+    if isinstance(own.get("checks"), list):
+        out["checks"] = [c for c in ("vendor", "product", "revision") if c in own["checks"]]
+    return out
+
+
+def _resolve(text, node_id):
+    from ..eds import SubObject
+    return SubObject(0, "rw", False, default=text).value(node_id)
+
+
+def _bits(o):
+    from ..eds import CO_TYPES
+    t = o.type_name
+    # CODESYS sizes an SDO row in whole bytes (a BOOLEAN is 8 bits).
+    return max(8, CO_TYPES[t][1]) if t in CO_TYPES else 32
+
+
+_MAP_SECTION = re.compile(r"^\[(1[6A][0-9A-F]{2})sub([0-9A-F]+)\]\s*$", re.I | re.M)
+
+
+def codesys_dcf(text):
+    """The DCF as CODESYS reads it: CODESYS maps every entry of a PDO
+    mapping that has a value, so the entries past the configured count that
+    keep a non-zero default get ParameterValue=0x00000000."""
+    eds = Eds.read("node.dcf", text=text)
+    lines = text.splitlines(True)
+    eol = "\r\n" if text.endswith("\r\n") or "\r\n" in text[:200] else "\n"
+    adds = {}
+    for index in sorted(eds.objects):
+        if not (0x1600 <= index <= 0x17FF or 0x1A00 <= index <= 0x1BFF):
+            continue
+        count_sub = eds.find(index, 0)
+        count = (count_sub.value(0) or 0) if count_sub is not None else 0
+        for sub, o in sorted(eds.objects[index].items()):
+            if sub > count and not (o.parameter or "").strip() and (o.value(0) or 0):
+                adds["%04Xsub%X" % (index, sub)] = True
+    if not adds:
+        return text
+    out, section = [], None
+    for line in lines:
+        m = re.match(r"^\[([^\]]+)\]", line)
+        if m:
+            if section in adds:
+                out.insert(len(out) - _trailing_blank(out), "ParameterValue=0x00000000" + eol)
+            section = m.group(1).upper().replace("SUB", "sub")
+        out.append(line)
+    if section in adds:
+        out.insert(len(out) - _trailing_blank(out), "ParameterValue=0x00000000" + eol)
+    return "".join(out)
+
+
+def _trailing_blank(lines):
+    n = 0
+    for line in reversed(lines):
+        if line.strip():
+            break
+        n += 1
+    return n
 
 
 def _eds_object_names(cfg, eds_paths):
@@ -212,11 +377,14 @@ def channels(cfg, eds_paths):
             index = _int(entry["index"])
             if index is None:
                 raise ValueError("no valid index")
+            carried = entry.get("codesys") if isinstance(entry.get("codesys"), dict) else {}
             channel = {
                 "dir": "in" if key == "tx_pdos" else "out",
                 "mapping": (0x1A00 if key == "tx_pdos" else 0x1600) + number - 1,
                 "index": index, "sub": _int(entry.get("subindex", 0), 0),
-                "variable": d["name"]}
+                "variable": carried.get("variable") or d["name"]}
+            if carried.get("address"):
+                channel["address"] = carried["address"]
             out.setdefault((net_i, node_i), []).append(channel)
             by_entry[d["path"][: -len(".iec_location")]] = channel
         except (KeyError, IndexError, TypeError, ValueError) as e:
@@ -259,11 +427,28 @@ def _unused_notes(cfg):
     return out
 
 
+def removals(cfg):
+    """{network name: [(node ID, name or None)]}: nodes an earlier build
+    managed (codesys.managed) that are no longer in the config, which a
+    build removes from the project only when asked to (canopen-configurator
+    "Build asks before removing nodes")."""
+    out = {}
+    for net in contract.networks(cfg):
+        own = net["json"].get("codesys") if isinstance(net["json"].get("codesys"), dict) else {}
+        managed = [i for i in (own.get("managed") or []) if isinstance(i, int)]
+        have = {_int(n.get("node_id")) for n in net["nodes"] if isinstance(n, dict)}
+        gone = sorted(set(managed) - have)
+        if gone and net["role"] == "master":
+            out[net["name"]] = gone
+    return out
+
+
 def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=None, project=None, create=None,
-          network=None, interfaces=None):
+          network=None, interfaces=None, remove_nodes=False):
     """(plan dict, {file name: DCF text}). Raises ExportFailed with every
     problem when the config or a DCF fails, or an override names no master
-    network. `network` exports only that network."""
+    network. `network` exports only that network. With `remove_nodes` the
+    plan removes the nodes removals() lists from the project."""
     overrides = dict(overrides or {})
     interfaces = dict(interfaces or {})
     eds_paths = eds_paths if eds_paths is not None else bundle.eds_files(cfg, config_path)
@@ -327,32 +512,41 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
             problems += e.problems
             continue
         for name, text in got.items():
-            files[folder + "/" + name.split("/")[-1]] = text
+            files[folder + "/" + name.split("/")[-1]] = codesys_dcf(text)
         number, note = network_number(net, overrides)
         if note:
             notes.append({"where": label, "setting": "adapter.interface", "note": note})
         master = net["master"]
         bitrate = _int((net.get("adapter") or {}).get("bitrate"), 0) // 1000
-        if master.get("time_period_ms") is not None:
-            notes.append({"where": label + "/master", "setting": "time_period_ms",
-                          "note": "TIME producer: the COB-ID and period are set; switch TIME producing on in the "
-                                  "manager in CODESYS"})
         plan_nodes = []
         for k, node in enumerate(net["nodes"]):
             node_id = _int(node["node_id"])
-            base = declare.identifier(node.get("name") or "node%s" % node_id)
+            own = node.get("codesys") if isinstance(node.get("codesys"), dict) else {}
+            base = own.get("device") or declare.identifier(node.get("name") or "node%s" % node_id)
             name, n = base, 2
             while name.lower() in device_names:
                 name = "%s_%d" % (base, n)
                 n += 1
             device_names.add(name.lower())
-            plan_nodes.append({"node_id": node_id, "name": name,
-                               "dcf": folder + "/" + dcfexport.dcf_name(node_id),
-                               "params": node_params(node, master),
-                               "channels": chans.get((net["index"] if net["path"] else 0, k), [])})
+            dcf = folder + "/" + dcfexport.dcf_name(node_id)
+            plan_node = {"node_id": node_id, "name": name, "dcf": dcf, "params": node_params(node, master),
+                         "channels": chans.get((net["index"] if net["path"] else 0, k), [])}
+            try:
+                plan_node.update(node_state(files[dcf], node, node_id))
+            except (KeyError, EdsError) as e:
+                problems.append(("%s: cannot read its DCF for the CODESYS build: %s" % (
+                    node.get("name") or "node %s" % node_id, e), [net["path"] + ".nodes[%d]" % k]))
+            plan_nodes.append(plan_node)
+        gone = removals(cfg).get(net["name"], [])
         plan_net = {"name": net["name"], "folder": folder, "net_id": number, "bitrate_kbit": bitrate,
                     "canbus": [_param(CANBUS_BAUDRATE, str(bitrate), "bit rate (kbit/s)")],
-                    "manager": manager_params(master), "nodes": plan_nodes}
+                    "manager": manager_params(master), "nodes": plan_nodes,
+                    "remove": gone if remove_nodes else [],
+                    "time_producer": master.get("time_period_ms") is not None}
+        if gone and not remove_nodes:
+            notes.append({"where": label, "setting": "nodes",
+                          "note": "node%s %s built by canworks earlier and no longer in the config kept in the "
+                                  "project" % ("s" if len(gone) > 1 else "", ", ".join(map(str, gone)))})
         if interfaces.get(net["name"]):
             plan_net["interface"] = interfaces[net["name"]]
         plan_nets.append(plan_net)
@@ -363,9 +557,6 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
                              % channels_failed, ["networks"])])
     if isinstance(cfg.get("bridge"), dict):
         notes.append({"where": "config", "setting": "bridge", "note": "stays with canworks"})
-    notes.append({"where": "every node", "setting": "identity check",
-                  "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); "
-                          "set them on each device in CODESYS if wanted"})
     plan = {"format": FORMAT, "tool": "canworks-deploy %s" % __version__,
             "config": os.path.basename(config_path), "project": project, "create": create, "plc": plc,
             "variables": bool(variables), "networks": plan_nets, "notes": notes}

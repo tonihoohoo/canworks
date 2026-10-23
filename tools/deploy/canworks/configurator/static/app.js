@@ -8390,6 +8390,7 @@ function wireTheme() {
 function wire() {
   $("#start-open").onclick = $("#start-first-open").onclick = () => startOpen();
   $("#start-new").onclick = $("#start-first-new").onclick = () => newConfig();
+  $("#start-codesys-import").onclick = () => codesysImport();
   $("#start-commission").onclick = $("#start-first-commission").onclick = commissionDevice;
   $("#start-devices").onclick = $("#start-first-devices").onclick = devicesOnlyStart;
   // busy() restores the caption it found ("Save"); the button's real state follows the save.
