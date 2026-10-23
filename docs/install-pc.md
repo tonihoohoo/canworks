@@ -81,11 +81,13 @@ Windows Defender Firewall may show "Windows Defender Firewall has blocked some f
 
 ### From the configurator
 
-Once a day the configurator asks GitHub which release is the newest (one request to `github.com/tonihoohoo/canworks/releases/latest`, which only redirects to the newest release; nothing else is sent). When a newer one exists, a chip **Update: 0.x.0** shows in the header. It opens a dialog with a link to what's new and four choices:
+When it starts, the configurator asks GitHub which release is the newest if it last asked more than an hour ago (one request to `github.com/tonihoohoo/canworks/releases/latest`, which only redirects to the newest release; nothing else is sent). When a newer one exists, a chip **Update: 0.x.0** shows in the header. It opens a dialog with a link to what's new and four choices:
 
-- **Update now** stops the configurator, installs the new version with uv (the same `uv tool install` as the one-line installer, with the new release's locked dependency versions) and starts it again. The open tab comes back by itself in about a minute, and a message says how it went. It is refused while there are unsaved changes, an online connection, a trace, a simulator or a job on the bus: finish or save first, or pick the next choice.
+- **Update now** asks GitHub again first, so it always installs the newest release, even when a newer one came out after the chip appeared (the page then names the version it installs). It stops the configurator, downloads the new version, installs it with uv (the same `uv tool install` as the one-line installer, with the new release's locked dependency versions) and starts it again. The open tab comes back by itself in about a minute, and a message says how it went. It is refused while there are unsaved changes, an online connection, a trace, a simulator or a job on the bus: finish or save first, or pick the next choice.
 - **Update when I quit** installs it after Quit or after the last tab closes. The configurator does not start again; the next start shows the result.
 - **Skip this version** hides the chip until a newer release comes out. **Not now** leaves it.
+
+If the tools were installed again while a configurator kept running (the one-line installer run from a terminal), the chip says **Restart for 0.x.0** instead: **Restart** brings the open tab back in the installed version and installs nothing.
 
 **Settings → Updates** has the **Check for updates** switch (on by default), **Check now** and the time of the last check. `CANWORKS_NO_UPDATE_CHECK=1` in the environment turns the check off as well.
 
@@ -96,7 +98,8 @@ What happens on each system:
 - The update needs the tools as the one-line installer put them (a uv tool). A copy installed another way (pip, a checkout) shows the newer version and the install command to copy instead of an Update button.
 - On Windows, another canworks program still running from the same install (`canworks-diag` in a terminal, a simulator) keeps its files in use. The update then changes nothing, the configurator starts again and says to close the other program first.
 - On Windows, tools installed from inside another app (its PowerShell runs in that app's private folder, `%LOCALAPPDATA%\Packages\...`) cannot update the real install: run the install command from your own PowerShell window instead.
-- If uv fails after it started replacing the tools, the old version is installed again from its release. If even that fails, a message window shows the install command.
+- A release that cannot be downloaded (deleted, or not complete yet) changes nothing.
+- Before uv runs, the tools' folder is moved aside to `.canworks-update-backup` in uv's tools folder (`uv tool dir`). If uv fails, that folder is put back, so the old version runs again without downloading anything; if the installed tools were already newer than the update, nothing is installed at all. Only if the tools no longer start after that does a message window show the install command. Should an update ever stop halfway (the PC turned off), the next update puts the backup back; by hand, rename `.canworks-update-backup` to `canworks` there.
 - The update keeps uv and the Python the tools run on; the one-line installer still updates those. The macOS app and Linux menu entry are refreshed; the Windows shortcuts point at paths an update keeps.
 - `update.log` in the settings folder (next to `configurator.log`) has every step and uv's output.
 

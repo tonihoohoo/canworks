@@ -3,8 +3,11 @@
 // the header when a newer release exists, its dialog (What's new, Update
 // now, Update when I quit, Skip this version; the install command to copy
 // where this copy cannot update itself), the Settings switch and Check now,
-// the page while the configurator updates, and the result after it. The
-// server checks at most once a day (update.py). Loaded after life.js.
+// the page while the configurator updates, and the result after it. When
+// the tools were reinstalled while this configurator runs, the chip offers
+// a restart into the installed version instead. The server checks at start
+// when its answer is over an hour old, and again before an update starts
+// (update.py). Loaded after life.js.
 
 const UPD = {
   view: null,
@@ -29,16 +32,20 @@ function updateShow(v) {
   UPD.view = v;
   const chip = $("#update-chip");
   const onQuit = v.on_quit && v.on_quit === v.latest;
-  chip.hidden = !(v.newer && (!v.dismissed || onQuit));
-  chip.textContent = onQuit ? `Updates to ${v.latest} when you quit` : `Update: ${v.latest}`;
-  chip.title = onQuit ? "The configurator installs the new version when you quit it or close its last tab"
-    : `canworks ${v.latest} is available (you have ${v.version})`;
+  const restartOnly = v.restart && !v.newer;
+  chip.hidden = !(restartOnly || (v.newer && (!v.dismissed || onQuit)));
+  chip.textContent = restartOnly ? `Restart for ${v.installed}`
+    : onQuit ? `Updates to ${v.latest} when you quit` : `Update: ${v.latest}`;
+  chip.title = restartOnly ? `canworks ${v.installed} is installed; this configurator still runs ${v.version}`
+    : onQuit ? "The configurator installs the new version when you quit it or close its last tab"
+    : `canworks ${v.latest} is available (you have ${updateHave(v)})`;
   const check = $("#update-check");
   check.checked = v.off !== "setting" && v.off !== "env";
   check.disabled = v.off === "env";
   let status = `Version ${v.version}. ` + (v.checking ? "Checking…" : `Last check: ${updateWhen(v.checked_at)}.`);
   if (v.error && !v.checking) status += ` The check failed: ${v.error}.`;
   else if (v.latest && !v.checking) status += v.newer ? ` ${v.latest} is available.` : " This is the newest version.";
+  if (v.restart) status += ` ${v.installed} is installed: restart the configurator to use it.`;
   if (v.off === "env") status += " Turned off by CANWORKS_NO_UPDATE_CHECK.";
   $("#update-status").textContent = status;
   updateResult(v);
@@ -50,8 +57,13 @@ function updateResult(v) {
   if (!r || !r.at || Date.now() / 1000 - r.at > 600) return;
   const key = `${v.boot}:${r.at}`;
   try { if (sessionStorage.getItem(UPD.shownKey) === key) return; sessionStorage.setItem(UPD.shownKey, key); } catch (e) { /* no storage */ }
-  if (r.state === "ok") banner(r.message || `Updated to ${r.version}.`, "done");
+  if (r.state === "ok" || r.state === "already") banner(r.message || `Updated to ${r.version}.`, "done");
   else banner(`${r.message} The details are in ${v.log}.`, r.state === "locked" ? "warning" : "error");
+}
+
+// The version this PC has: the installed one when it is newer than this configurator.
+function updateHave(v) {
+  return v.restart ? v.installed : v.version;
 }
 
 function updateLink(v) {
@@ -60,8 +72,9 @@ function updateLink(v) {
 
 async function updateDialog() {
   const v = UPD.view;
+  if (v && v.restart && !v.newer) return restartDialog(v);
   if (!v || !v.newer) return;
-  const intro = `canworks ${v.latest} is available. You have ${v.version}.`;
+  const intro = `canworks ${v.latest} is available. You have ${updateHave(v)}.`;
   if (v.kind !== "uv-tool") {
     const where = v.kind === "sandboxed"
       ? "Run this in your own PowerShell window (not one opened from inside another app):"
@@ -84,6 +97,14 @@ async function updateDialog() {
   else if (r === "now") await updateNow(v.latest);
 }
 
+async function restartDialog(v) {
+  const extra = el("p", { class: "muted" },
+    "Restart stops this configurator and starts the installed version; this tab comes back by itself. Nothing is downloaded or installed.");
+  const r = await modal(`canworks ${v.installed} is installed, and this configurator still runs ${v.version}. Restart to use ${v.installed}.`,
+    [["cancel", "Not now"], ["now", "Restart", true]], extra);
+  if (r === "now") await updateNow(v.installed);
+}
+
 async function updateDismiss(version) {
   try { updateShow(await api("POST", "/api/update/dismiss", { version })); } catch (e) { banner(e.message, true); }
 }
@@ -102,6 +123,7 @@ async function updateNow(version) {
     heartbeat();
     return updateLater("Not now: there are unsaved changes.", version);
   }
+  banner("Checking for the newest release…", "info");
   let r;
   try {
     r = await api("POST", "/api/update/start", { version, when: "now" });
@@ -110,7 +132,7 @@ async function updateNow(version) {
     else banner(e.message, true);
     return;
   }
-  updatingPage(version, r.boot);
+  updatingPage(r.version, r.boot, r.restart, r.version !== version);
 }
 
 async function updateLater(message, version) {
@@ -119,18 +141,22 @@ async function updateLater(message, version) {
   if (v === "quit") await updateOnQuit(version, true);
 }
 
-// The configurator stopped to update: the page says so and waits for a
-// configurator with another start id on this address, then reloads.
-function updatingPage(version, boot) {
+// The configurator stopped to update (or to restart into the installed
+// version): the page says so and waits for a configurator with another
+// start id on this address, then reloads. `moved`: the release offered
+// had been replaced by a newer one when Update was pressed.
+function updatingPage(version, boot, restart, moved) {
   LIFE.stopped = true;  // no heartbeats, no "gone" notice, no leave-page question
   clearTimeout(LIFE.timer);
   if (typeof JOBS !== "undefined") clearTimeout(JOBS.timer);
   for (const d of document.querySelectorAll("dialog[open]")) d.close();
   document.title = "canworks configurator (updating)";
   document.body.dataset.stopped = "1";
-  const text = el("p", null, "This tab comes back by itself when the new version runs, in about a minute.");
+  const text = el("p", null, restart ? "This tab comes back by itself in a few seconds."
+    : "This tab comes back by itself when the new version runs, in about a minute.");
+  const title = restart ? `Restarting canworks configurator in ${version}…` : `Updating canworks configurator to ${version}…`;
   document.body.append(el("main", { id: "stopped", class: "stopped", role: "status", dataset: { updating: "1" } },
-    el("h1", null, `Updating canworks configurator to ${version}…`), text));
+    el("h1", null, title), moved ? el("p", null, `${version} is the newest release now, so this update installs it.`) : null, text));
   const t0 = Date.now();
   const poll = async () => {
     try {

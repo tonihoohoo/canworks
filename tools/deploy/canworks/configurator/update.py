@@ -3,22 +3,29 @@ for a newer release, whether this install can update itself, the guard, and
 the hand-off to the updater (canworks/updater.py).
 
 The check reads the tag GitHub's releases/latest address redirects to, as
-the one-line installers do: no API and no token. It runs at most once per
-CHECK_EVERY_S unless the user asks, in a thread, and its result is kept in
-update.json in the settings folder with the version the user dismissed.
+the one-line installers do: no API and no token. It runs in a thread at
+start when the kept result is older than START_CHECK_S (else at most once
+per CHECK_EVERY_S), when the user asks, and again right before an update
+starts, so an update never goes to a release that has gone since. Its
+result is kept in update.json in the settings folder with the version the
+user dismissed. A newer release is one newer than both this configurator
+and the installed tools (they can be newer than the running configurator
+when the one-line installer ran meanwhile: the page then offers a restart).
 
 Only a uv tool install (uv's uv-receipt.toml in an environment under `uv
 tool dir`), with uv found and its base interpreter there, updates itself;
 outside that the page shows the one-line install command. The update: the
 configurator writes update-run.json (user-readable only) and starts the
 updater from a copy in a temporary folder on the base interpreter, detached,
-then stops. The updater waits for it to end, installs, writes the result
+then stops. The updater waits for it to end, downloads, installs (with the
+old environment kept aside to put back on a failure), writes the result
 into the run file and, for Update now, starts the configurator again with
 --resume: on the same port with the same session token, so the open tab
 reloads into the new version. Every start reads a finished run file, keeps
 the result for the page and removes the file.
 """
 
+import glob
 import json
 import os
 import re
@@ -42,6 +49,7 @@ STATE = "update.json"
 RUN = "update-run.json"
 LOG = "update.log"
 CHECK_EVERY_S = 24 * 3600
+START_CHECK_S = 3600  # a kept result older than this is checked again at start
 TIMEOUT_S = 10.0
 RESUME_S = 120.0  # a run file older than this restarts on a new port and token
 TAG = re.compile(r"^deploy-v(\d+\.\d+\.\d+)$")
@@ -60,6 +68,26 @@ def version_key(v):
 def is_newer(latest, running=__version__):
     a, b = version_key(latest), version_key(running)
     return bool(a and b and a > b)
+
+
+def installed_version(prefix=None):
+    """The canworks version installed in this environment now (its
+    dist-info, which a reinstall replaces while this process runs), or None."""
+    prefix = prefix or sys.prefix
+    for pattern in ("lib/python*/site-packages", "Lib/site-packages", "lib/site-packages"):
+        for site in glob.glob(os.path.join(prefix, pattern)):
+            found = [version_key(m.group(1)) for m in
+                     (re.match(r"^canworks-(\d+\.\d+\.\d+)\.dist-info$", n) for n in os.listdir(site)) if m]
+            found = [v for v in found if v]
+            if found:
+                return "%d.%d.%d" % max(found)
+    return None
+
+
+def newest(*versions):
+    """The highest of the versions that look like 1.2.3, or None."""
+    known = [v for v in versions if version_key(v)]
+    return max(known, key=version_key) if known else None
 
 
 def release_page(version):
@@ -224,9 +252,10 @@ class Updates:
     """The configurator's update state: the check, the user's choices, the
     last update's result and an update chosen for when it stops."""
 
-    def __init__(self, folder=None, fetch=latest_version, info=install_info, clock=time.time):
+    def __init__(self, folder=None, fetch=latest_version, info=install_info, clock=time.time,
+                 installed=installed_version):
         self.folder = folder or config_dir()
-        self.fetch, self.info_fn, self.clock = fetch, info, clock
+        self.fetch, self.info_fn, self.clock, self.installed_fn = fetch, info, clock, installed
         self.lock = threading.Lock()
         self.checking = False
         self.error = None
@@ -252,10 +281,15 @@ class Updates:
                 self._info = self.info_fn()
             return self._info
 
-    def due(self, now=None):
+    def due(self, now=None, every_s=CHECK_EVERY_S):
         checked = self.state().get("checked_at")
         now = self.clock() if now is None else now
-        return not isinstance(checked, (int, float)) or not 0 <= now - checked < CHECK_EVERY_S
+        return not isinstance(checked, (int, float)) or not 0 <= now - checked < every_s
+
+    def base(self):
+        """The version an update starts from: the installed one when it is
+        newer than this configurator."""
+        return newest(__version__, self.installed_fn()) or __version__
 
     def check(self):
         """One check now (in the caller's thread); the newest version, or None."""
@@ -283,8 +317,8 @@ class Updates:
         _write_json(self.state_path, st)
         return latest
 
-    def check_in_background(self, force=False, ui_on=True):
-        if not force and (check_off(ui_on) or not self.due()):
+    def check_in_background(self, force=False, ui_on=True, every_s=CHECK_EVERY_S):
+        if not force and (check_off(ui_on) or not self.due(every_s=every_s)):
             return False
         threading.Thread(target=self.check, daemon=True, name="update-check").start()
         return True
@@ -301,8 +335,10 @@ class Updates:
         st = self.state()
         latest = st.get("latest") if version_key(st.get("latest")) else None
         info = self.install()
-        newer = is_newer(latest)
-        return {"version": __version__, "latest": latest, "newer": newer,
+        installed = self.installed_fn()
+        restart = is_newer(installed)  # reinstalled while this configurator runs
+        newer = is_newer(latest, newest(__version__, installed))
+        return {"version": __version__, "installed": installed, "restart": restart, "latest": latest, "newer": newer,
                 "dismissed": newer and st.get("dismissed") == latest,
                 "checked_at": st.get("checked_at") if isinstance(st.get("checked_at"), (int, float)) else None,
                 "checking": self.checking, "error": self.error, "off": check_off(ui_on),
@@ -347,8 +383,7 @@ class Updates:
             shortcut_cmd = [exe("canworks-config"), "--create-shortcut"]
             shortcut_paths = [shortcut.macos_app(os.environ)] if sys.platform == "darwin" \
                 else [shortcut.linux_paths(os.environ)[0]]
-        return {"from": __version__, "to": target, "wheel": wheel_url(target), "old_wheel": wheel_url(__version__),
-                "constraints": constraints_url(target), "old_constraints": constraints_url(__version__),
+        return {"from": self.base(), "to": target, "wheel": wheel_url(target), "constraints": constraints_url(target),
                 "uv": info["uv"], "python": info["python"], "env": info["env"], "bin": info["bin"],
                 "pid": pid, "port": port, "token": token, "restart": bool(restart),
                 "restart_cmd": restart_cmd, "check_cmd": [exe("canworks-deploy"), "--version"],

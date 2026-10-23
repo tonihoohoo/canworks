@@ -4989,33 +4989,44 @@ class Server(http.server.ThreadingHTTPServer):
 
     # -- updates (pc-tools-self-update) -----------------------------------------
     def update_target(self, version):
-        """`version` when it is the newer release the check found, else ApiError."""
+        """The version Update goes to: the newest release, asked again now
+        (the offered `version` may have gone since), or the installed version
+        when the tools were reinstalled while this configurator runs (a
+        restart into it). ApiError when there is nothing to update to."""
+        if update_mod.version_key(version) is None:
+            raise ApiError(400, "version must look like 1.2.3")
         view = self.updates.view()
-        if isinstance(version, str) and update_mod.is_newer(version) and version != view["latest"]:
-            self.updates.check()  # canworks-config --update found it first, or the check is old
-            view = self.updates.view()
-        if not view["newer"] or version != view["latest"]:
-            raise ApiError(409, "%s is not the newer release this configurator knows of; check for updates again"
-                           % (version or "No version"))
         if view["kind"] != "uv-tool":
             raise ApiError(409, "This copy cannot update itself: %s." % view["why"], kind=view["kind"],
                            command=view["command"])
-        return version
+        installed = view["installed"]
+        if not (view["restart"] and version == installed):
+            latest = self.updates.check()
+            if latest is None and self.updates.error:
+                raise ApiError(409, "Could not reach GitHub to find the newest release (%s); nothing was changed."
+                               % self.updates.error)
+            latest = latest or self.updates.view()["latest"]
+            if update_mod.is_newer(latest, self.updates.base()):
+                return latest
+        if view["restart"]:
+            return installed
+        raise ApiError(409, "%s is the newest release, and it is installed already." % self.updates.base())
 
     def update_now(self, version):
         """Update now: refused with the reasons while work would be lost;
         else the updater starts and this configurator stops (the caller,
         after answering)."""
-        self.update_target(version)
         why = update_mod.guard(self)
         if why:
             raise ApiError(409, "Not now: %s." % "; ".join(why), reasons=why, on_quit=True)
+        target = self.update_target(version)
         try:
-            data = self.updates.run_file(version, os.getpid(), self.server_port, self.token, restart=True)
+            data = self.updates.run_file(target, os.getpid(), self.server_port, self.token, restart=True)
             self.updates.start_updater(data)
         except (OSError, ValueError) as e:
             raise ApiError(409, "The update could not start: %s" % (getattr(e, "strerror", None) or e))
-        return {"updating": True, "version": version, "boot": self.updates.boot}
+        return {"updating": True, "version": target, "asked": version,
+                "restart": target == self.updates.installed_fn(), "boot": self.updates.boot}
 
     def _update_on_stop(self, why):
         """Update when I quit: the stop runs the update, without a restart."""
@@ -5024,8 +5035,7 @@ class Server(http.server.ThreadingHTTPServer):
             return
         self.updates.on_quit = None
         try:
-            self.update_target(version)
-            data = self.updates.run_file(version, os.getpid(), None, None, restart=False)
+            data = self.updates.run_file(self.update_target(version), os.getpid(), None, None, restart=False)
             self.updates.start_updater(data)
         except (ApiError, OSError, ValueError) as e:
             print("canworks-config: the update chosen for quitting did not start: %s" % e, flush=True)
@@ -5167,7 +5177,7 @@ def run(args, mode, timing=None):
         except (AttributeError, ValueError, OSError):
             pass  # not on this system, or not the main thread
     server.start_watch()
-    updates.check_in_background(ui_on=load_ui()["update_check"] == "on")
+    updates.check_in_background(ui_on=load_ui()["update_check"] == "on", every_s=update_mod.START_CHECK_S)
     return serve(server)
 
 

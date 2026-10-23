@@ -10,19 +10,22 @@ Standard library only, for the same reason.
 Its one argument is the run file (update-run.json in the settings folder)
 the configurator wrote; see configurator/update.py for its fields. The steps:
 wait for the configurator to end; on Windows, check that no other process
-runs a program file of the tools; download the new and the old release's
-locked dependency versions; install the new wheel with uv, with the one-line
-installers' arguments; on a failure that changed the install, install the
-old version again; refresh the app shortcut (macOS and Linux); write the
-result into the run file; start the configurator again when asked to.
-Progress goes to update.log next to configurator.log, and to the terminal
-for canworks-config --update.
+runs a program file of the tools; read the installed version (when it is the
+target or newer already, install nothing and start the configurator again);
+download the new release's wheel and locked dependency versions; move the
+tools' environment aside as the backup; install the downloaded wheel with
+uv, with the one-line installers' arguments; on a failure put the backup
+back, so no older release is needed; refresh the app shortcut (macOS and
+Linux); write the result into the run file; start the configurator again
+when asked to. Progress goes to update.log next to configurator.log, and to
+the terminal for canworks-config --update.
 
 It never downloads or runs an install script, and starts no shell.
 """
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -40,6 +43,8 @@ SPEC = "canworks @ %s"
 # as --constraints; a release from before them has none (404).
 CONSTRAINTS = "--constraints"
 
+BACKUP = ".canworks-update-backup"  # the environment before the update, next to it in uv's tools folder
+RENAME_WAIT_S = 5.0  # Windows: a virus scanner may hold a file of the environment for a moment
 WAIT_PID_S = 30.0  # the configurator stops in about a second; then the update is given up
 LOCK_WAIT_S = 10.0  # Windows: how long other processes get to let go of the tools' files
 LOG_MAX = 1024 * 1024
@@ -201,6 +206,95 @@ def fetch_constraints(run, url, path):
         raise DownloadError("%s: %s" % (url, e))
 
 
+def version_key(v):
+    """(major, minor, patch) of "1.2.3", or None."""
+    parts = (v or "").split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def at_least(installed, target):
+    a, b = version_key(installed), version_key(target)
+    return bool(a and b and a >= b)
+
+
+def download(url, folder):
+    """The file at `url` into `folder` under its own name: the path. Raises
+    DownloadError, naming the HTTP status when there is one."""
+    path = os.path.join(folder, url.rstrip("/").rsplit("/", 1)[-1])
+    try:
+        with urllib.request.urlopen(url, timeout=120) as r, open(path, "wb") as f:
+            shutil.copyfileobj(r, f)
+        return path
+    except urllib.error.HTTPError as e:
+        raise DownloadError("HTTP %d" % e.code)
+    except (OSError, ValueError) as e:
+        raise DownloadError(str(getattr(e, "reason", None) or e))
+
+
+def _rename(src, dst, wait_s=RENAME_WAIT_S):
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            os.rename(src, dst)
+            return True
+        except OSError:
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.25)
+
+
+def _remove(path):
+    shutil.rmtree(path, ignore_errors=True)
+    if os.path.exists(path):  # Windows: a file let go a moment late
+        time.sleep(1.0)
+        shutil.rmtree(path, ignore_errors=True)
+    return not os.path.exists(path)
+
+
+def backup_path(env):
+    return os.path.join(os.path.dirname(os.path.abspath(env)), BACKUP)
+
+
+def leftover_backup(run, env):
+    """A backup an earlier update left (it stopped halfway): put back when
+    the environment is missing, else removed."""
+    backup = backup_path(env)
+    if not os.path.isdir(backup):
+        return
+    if os.path.isdir(env):
+        run.say("removing the backup an earlier update left: %s" % backup)
+        _remove(backup)
+    elif _rename(backup, env):
+        run.say("put back the environment an earlier update left as its backup")
+
+
+def move_aside(run, env):
+    """The environment moved to the backup folder: its path, or None when it
+    could not be moved (the install then runs in place, without a backup)."""
+    backup = backup_path(env)
+    if not os.path.isdir(env):
+        return None
+    if _rename(env, backup):
+        run.say("backup: %s" % backup)
+        return backup
+    run.say("could not move %s aside; installing in place, without a backup" % env)
+    return None
+
+
+def restore(run, env, backup):
+    """The backup back in place of what uv left: whether it worked."""
+    if os.path.exists(env) and not _remove(env):
+        run.say("could not remove what the failed install left in %s" % env)
+        return False
+    if _rename(backup, env):
+        run.say("put the backup back")
+        return True
+    run.say("could not put the backup back: %s is still there" % backup)
+    return False
+
+
 def uv_install(run, wheel, overrides, constraints=None):
     cmd = [run.data["uv"]] + UV_INSTALL + ["--python", run.data["python"], "--overrides", overrides]
     if constraints:
@@ -265,7 +359,8 @@ def message_window(text, title="canworks configurator"):
 
 
 def update(run):
-    """The steps; returns the exit code (0: the new version is installed)."""
+    """The steps; returns the exit code (0: the target version, or a newer
+    one, is installed)."""
     d = run.data
     old, new = d["from"], d["to"]
     run.say("updating canworks %s to %s" % (old, new))
@@ -281,41 +376,50 @@ def update(run):
         restart(run)
         return 1
 
+    leftover_backup(run, d["env"])
+    now = installed_version(run)
+    if now and at_least(now, new):
+        # Installed by other means since the configurator started (the one-line installer).
+        run.finish("already", "Already on %s." % now, now)
+        restart(run)
+        return 0
+    old = now or old
+
     work = tempfile.mkdtemp(prefix="canworks-update-")
     overrides = os.path.join(work, "overrides.txt")
     with open(overrides, "w", encoding="ascii") as f:
         f.write(OVERRIDE + "\n")
-    new_constraints = os.path.join(work, "constraints-new.txt")
-    old_constraints = os.path.join(work, "constraints-old.txt")
     try:
         try:
-            new_c = fetch_constraints(run, d.get("constraints"), new_constraints)
-            old_c = fetch_constraints(run, d.get("old_constraints"), old_constraints)
+            wheel = download(d["wheel"], work)
+            new_c = fetch_constraints(run, d.get("constraints"), os.path.join(work, "constraints.txt"))
         except DownloadError as e:
-            run.finish("failed", "The update to %s could not download its dependency versions (%s). "
-                       "Nothing was changed." % (new, e), old)
+            run.say("could not download the update: %s" % e)
+            run.finish("failed", "The update to %s could not be downloaded (%s). Nothing was changed. If the release "
+                       "is brand new, try again in a few minutes." % (new, e), old)
             restart(run)
             return 1
-        code, tail = uv_install(run, d["wheel"], overrides, new_c)
+        backup = move_aside(run, d["env"])
+        code, tail = uv_install(run, pathlib.Path(wheel).resolve().as_uri(), overrides, new_c)
         now = installed_version(run)
         if code == 0 and now == new:
+            if backup:
+                _remove(backup)
             refresh_shortcut(run)
             run.finish("ok", "Updated to %s." % new, new)
             restart(run)
             return 0
         why = " ".join(" ".join(tail).split())[-300:] if tail else "uv exited with %d" % code
-        if now == old:
+        if backup:
+            run.say("the install failed: putting %s back" % old)
+            restore(run, d["env"], backup)
+            now = installed_version(run)
+        if now:
             hint = " If it needs a newer uv or another Python, run the install command once." if code else ""
-            run.finish("failed", "The update to %s failed: %s. Still on %s.%s" % (new, why, old, hint), old)
+            run.finish("failed", "The update to %s failed: %s. Still on %s.%s" % (new, why, now, hint), now)
             restart(run)
             return 1
-        run.say("the install changed but is not %s (%s): installing %s again" % (new, now, old))
-        code2, _ = uv_install(run, d["old_wheel"], overrides, old_c)
-        if code2 == 0 and installed_version(run) == old:
-            run.finish("rolled-back", "The update to %s failed: %s. %s was installed again." % (new, why, old), old)
-            restart(run)
-            return 1
-        msg = ("The canworks PC tools update to %s failed and the old version could not be installed again. "
+        msg = ("The canworks PC tools update to %s failed and the tools no longer start. "
                "Run the install command once:\n\n%s" % (new, d.get("install_command") or "see docs/install-pc.md"))
         run.finish("broken", msg, None)
         message_window(msg)

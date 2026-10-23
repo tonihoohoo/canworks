@@ -8,6 +8,7 @@ import http.client
 import http.server
 import json
 import os
+import pathlib
 import sys
 import threading
 import time
@@ -106,6 +107,33 @@ class Check(ReleaseServer):
         with self.assertRaises(ValueError):
             u.dismiss("latest")
 
+    def test_start_checks_an_hour_old_result(self):
+        """At start a kept answer older than an hour is checked again: a
+        release can be gone a few hours after it came out."""
+        now = [1000000.0]
+        u = update.Updates(info=lambda: {"kind": "other", "why": "x"}, clock=lambda: now[0])
+        u.check()
+        now[0] += update.START_CHECK_S - 60
+        self.assertFalse(u.due(every_s=update.START_CHECK_S))
+        now[0] += 120
+        self.assertTrue(u.due(every_s=update.START_CHECK_S))
+        self.assertFalse(u.due())  # the daily check would wait
+
+    def test_installed_version(self):
+        prefix = os.path.join(self.dir, "env")
+        site = os.path.join(prefix, "Lib" if os.name == "nt" else "lib/python3.14", "site-packages")
+        self.assertIsNone(update.installed_version(prefix))
+        os.makedirs(os.path.join(site, "canworks-0.128.3.dist-info"))
+        os.makedirs(os.path.join(site, "canworks_extra-1.0.0.dist-info"))
+        self.assertEqual(update.installed_version(prefix), "0.128.3")
+        self.assertEqual(update.newest("0.122.0", "0.128.3", None), "0.128.3")
+
+    def test_reinstalled_newer_is_not_offered_older(self):
+        u = update.Updates(info=lambda: {"kind": "other", "why": "x"}, installed=lambda: "9.2.0")
+        u.check()  # 9.1.0
+        v = u.view()
+        self.assertEqual((v["newer"], v["restart"], v["installed"]), (False, True, "9.2.0"))
+
     def test_off(self):
         u = update.Updates(info=lambda: {"kind": "other", "why": "x"})
         self.assertFalse(u.check_in_background(ui_on=False))
@@ -190,14 +218,14 @@ UV_TOOL = {"kind": "uv-tool", "why": None, "uv": "uv", "python": "3.14", "base":
 class HandOff(unittest.TestCase):
     def setUp(self):
         self.dir = tmpdir(self)
-        self.u = update.Updates(folder=self.dir, fetch=lambda: "9.1.0", info=lambda: dict(UV_TOOL))
+        self.u = update.Updates(folder=self.dir, fetch=lambda: "9.1.0", info=lambda: dict(UV_TOOL), installed=lambda: None)
 
     def test_run_file(self):
         d = self.u.run_file("9.1.0", 123, 4567, "tok", restart=True)
         self.assertEqual((d["from"], d["to"], d["pid"], d["port"], d["token"], d["restart"]),
                          (srv.__version__, "9.1.0", 123, 4567, "tok", True))
         self.assertTrue(d["wheel"].endswith("/releases/download/deploy-v9.1.0/canworks-9.1.0-py3-none-any.whl"))
-        self.assertIn("deploy-v%s" % srv.__version__, d["old_wheel"])
+        self.assertNotIn("old_wheel", d)  # a failed update puts the old environment back from its local copy
         self.assertEqual(d["check_cmd"][1], "--version")
         self.assertIn("--from-shortcut", d["restart_cmd"])
         u = update.Updates(folder=self.dir, info=lambda: {"kind": "other", "why": "pip"})
@@ -259,7 +287,10 @@ class Routes(unittest.TestCase):
         self.addCleanup(p.stop)
         os.environ.pop(update.OFF_ENV, None)  # tests/__init__.py turns the check off; restored by the patch
         self.server = srv.Server()
-        self.server.updates = update.Updates(fetch=lambda: "9.1.0", info=lambda: dict(UV_TOOL))
+        self.latest = "9.1.0"
+        self.installed = None  # the dist-info of a reinstall while it runs; None: the running version
+        self.server.updates = update.Updates(fetch=lambda: self.latest, info=lambda: dict(UV_TOOL),
+                                             installed=lambda: self.installed)
         self.server.updates.check()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -293,15 +324,63 @@ class Routes(unittest.TestCase):
         self.assertTrue(body["on_quit"])
         start.assert_not_called()
 
-    def test_only_the_known_newer_version(self):
-        status, body = self.api("/api/update/start", {"version": "0.0.1", "when": "now"})
-        self.assertEqual(status, 409)
+    def test_cannot_update_itself(self):
         self.server.updates.info_fn = lambda: {"kind": "other", "why": "pip"}
         self.server.updates._info = None
         status, body = self.api("/api/update/start", {"version": "9.1.0", "when": "now"})
         self.assertEqual(status, 409)
         self.assertEqual(body["kind"], "other")
         self.assertIn("install-pc", body["command"])
+        self.assertEqual(self.api("/api/update/start", {"version": "x", "when": "now"})[0], 400)
+
+    def test_asks_again_before_updating(self):
+        """The offered 9.1.0 has gone since and 9.3.0 is the newest: Update
+        goes to 9.3.0 and says so."""
+        self.latest = "9.3.0"
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            status, body = self.api("/api/update/start", {"version": "9.1.0", "when": "now"})
+        self.assertEqual((status, body["version"], body["asked"], body["restart"]), (200, "9.3.0", "9.1.0", False))
+        self.assertEqual(start.call_args[0][0]["to"], "9.3.0")
+
+    def test_offline_at_update(self):
+        def offline():
+            raise OSError("no network")
+        self.server.updates.fetch = offline
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            status, body = self.api("/api/update/start", {"version": "9.1.0", "when": "now"})
+        self.assertEqual(status, 409)
+        self.assertIn("nothing was changed", body["error"])
+        start.assert_not_called()
+
+    def test_nothing_newer_any_more(self):
+        self.latest = srv.__version__
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            status, body = self.api("/api/update/start", {"version": "9.1.0", "when": "now"})
+        self.assertEqual(status, 409)
+        self.assertIn("installed already", body["error"])
+        start.assert_not_called()
+
+    def test_restart_into_the_installed_version(self):
+        """The tools were reinstalled as 9.2.0 while this configurator runs:
+        no offer of the older 9.1.0, a restart into 9.2.0 instead."""
+        self.installed = "9.2.0"
+        status, v = self.api("/api/update")
+        self.assertEqual((v["installed"], v["restart"], v["newer"]), ("9.2.0", True, False))
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            status, body = self.api("/api/update/start", {"version": "9.2.0", "when": "now"})
+        self.assertEqual((status, body["version"], body["restart"]), (200, "9.2.0", True))
+        data = start.call_args[0][0]
+        self.assertEqual((data["from"], data["to"], data["restart"]), ("9.2.0", "9.2.0", True))
+
+    def test_reinstalled_and_a_newer_release(self):
+        self.installed, self.latest = "9.2.0", "9.3.0"
+        self.server.updates.check()
+        v = self.api("/api/update")[1]
+        self.assertEqual((v["restart"], v["newer"], v["latest"]), (True, True, "9.3.0"))
+        with mock.patch.object(update.Updates, "start_updater") as start:
+            status, body = self.api("/api/update/start", {"version": "9.3.0", "when": "now"})
+        self.assertEqual((body["version"], body["restart"]), ("9.3.0", False))
+        self.assertEqual(start.call_args[0][0]["from"], "9.2.0")
 
     def test_update_now_stops(self):
         with mock.patch.object(update.Updates, "start_updater") as start:
@@ -337,37 +416,57 @@ class Routes(unittest.TestCase):
 
 class Updater(unittest.TestCase):
     """The updater's steps with a fake uv that installs by writing the
-    version a fake canworks-deploy prints."""
+    version a fake canworks-deploy prints into the tools' environment, and
+    a wheel to download from a file: address."""
 
     def setUp(self):
         self.dir = tmpdir(self)
-        self.version_file = os.path.join(self.dir, "installed")
-        with open(self.version_file, "w") as f:
-            f.write("0.1.0")
-        self.deploy = python_program(os.path.join(self.dir, "canworks-deploy"),
-                                     "print('canworks-deploy', open(%r).read())\n" % self.version_file)
-        self.uv_log = os.path.join(self.dir, "uv-args.json")
-        self.env_dir = os.path.join(self.dir, "env")
+        self.tools = os.path.join(self.dir, "tools")
+        self.env_dir = os.path.join(self.tools, "canworks")
         os.makedirs(self.env_dir)
+        self.version_file = os.path.join(self.env_dir, "installed")
+        self.install("0.1.0")
+        self.deploy = python_program(os.path.join(self.dir, "canworks-deploy"),
+                                     "import sys\ntry:\n    v = open(%r).read()\nexcept OSError:\n    sys.exit(1)\n"
+                                     "print('canworks-deploy', v)\n" % self.version_file)
+        self.uv_log = os.path.join(self.dir, "uv-args.json")
+        self.wheels = os.path.join(self.dir, "release")
+        os.makedirs(self.wheels)
+        with open(os.path.join(self.wheels, "canworks-9.1.0-py3-none-any.whl"), "w") as f:
+            f.write("wheel")
+
+    def install(self, version):
+        with open(self.version_file, "w") as f:
+            f.write(version)
+
+    def installed(self):
+        try:
+            with open(self.version_file) as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def wheel(self, version="9.1.0"):
+        return pathlib.Path(self.wheels, "canworks-%s-py3-none-any.whl" % version).as_uri()
 
     def fake_uv(self, behaviour):
-        """behaviour: wheel URL substring -> (exit code, version written or None)."""
-        src = ("import json, sys\n"
+        """behaviour: (exit code, version written into a new environment, or
+        None for none made)."""
+        code, version = behaviour
+        src = ("import json, os, sys\n"
                "args = sys.argv[1:]\n"
                "log = %r\n"
                "try:\n    seen = json.load(open(log))\nexcept OSError:\n    seen = []\n"
                "json.dump(seen + [args], open(log, 'w'))\n"
-               "spec = args[-1]\n"
-               "for key, (code, version) in %r.items():\n"
-               "    if key in spec:\n"
-               "        if version: open(%r, 'w').write(version)\n"
-               "        print('uv says: done' if code == 0 else 'error: no such wheel')\n"
-               "        sys.exit(code)\n"
-               "sys.exit(9)\n") % (self.uv_log, behaviour, self.version_file)
+               "if %r:\n"
+               "    os.makedirs(%r, exist_ok=True)\n"
+               "    open(%r, 'w').write(%r)\n"
+               "print('uv says: done' if %d == 0 else 'error: it went wrong')\n"
+               "sys.exit(%d)\n") % (self.uv_log, version, self.env_dir, self.version_file, version, code, code)
         return python_program(os.path.join(self.dir, "uv"), src)
 
     def run_file(self, uv, **extra):
-        data = {"from": "0.1.0", "to": "9.1.0", "wheel": "http://x/new.whl", "old_wheel": "http://x/old.whl",
+        data = {"from": "0.1.0", "to": "9.1.0", "wheel": self.wheel(),
                 "uv": uv, "python": "3.14", "env": self.env_dir, "bin": self.dir, "pid": None, "port": 1,
                 "token": "t", "restart": False, "restart_cmd": None, "check_cmd": [self.deploy, "--version"],
                 "shortcut_cmd": None, "shortcut_paths": [], "install_command": "curl ... | sh",
@@ -382,17 +481,27 @@ class Updater(unittest.TestCase):
         with open(path) as f:
             return json.load(f)["result"]
 
+    def uv_runs(self):
+        try:
+            with open(self.uv_log) as f:
+                return json.load(f)
+        except OSError:
+            return []
+
     def test_ok(self):
-        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}))
+        path = self.run_file(self.fake_uv((0, "9.1.0")))
         self.assertEqual(updater.main([path]), 0)
         r = self.result(path)
         self.assertEqual((r["state"], r["version"]), ("ok", "9.1.0"))
-        with open(self.uv_log) as f:
-            args = json.load(f)[0]
+        args = self.uv_runs()[0]
         self.assertEqual(args[:4], updater.UV_INSTALL)
         self.assertEqual(args[4:6], ["--python", "3.14"])
         self.assertEqual(args[6], "--overrides")
-        self.assertEqual(args[8], "canworks @ http://x/new.whl")
+        # The downloaded copy in the updater's own folder, not the release address.
+        self.assertTrue(args[8].startswith("canworks @ file:"), args[8])
+        self.assertTrue(args[8].endswith("/canworks-9.1.0-py3-none-any.whl"), args[8])
+        self.assertNotIn(self.wheels, args[8])
+        self.assertFalse(os.path.exists(updater.backup_path(self.env_dir)))  # removed after the update
         with open(os.path.join(self.dir, "update.log")) as f:
             self.assertIn("uv says: done", f.read())
 
@@ -421,10 +530,10 @@ class Updater(unittest.TestCase):
     def test_locked_versions(self):
         """The new release's constraints go to uv as --constraints, after the
         overrides, as in the installers."""
-        host = self.constraints_server({"/new.txt": b"cantools==45.1.0\n", "/old.txt": b"cantools==44.0.0\n"})
-        uv = self.fake_uv({"new.whl": (0, "9.1.0")})
+        host = self.constraints_server({"/new.txt": b"cantools==45.1.0\n"})
+        uv = self.fake_uv((0, "9.1.0"))
         seen = os.path.join(self.dir, "seen-constraints")
-        path = self.run_file(uv, constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        path = self.run_file(uv, constraints=host + "/new.txt")
         real_install = updater.uv_install
 
         def spy(run, wheel, overrides, constraints=None):
@@ -434,66 +543,137 @@ class Updater(unittest.TestCase):
 
         with mock.patch.object(updater, "uv_install", spy):
             self.assertEqual(updater.main([path]), 0)
-        with open(self.uv_log) as f:
-            args = json.load(f)[0]
+        args = self.uv_runs()[0]
         self.assertEqual(args[6], "--overrides")
         self.assertEqual(args[8], updater.CONSTRAINTS)
-        self.assertEqual(args[10], "canworks @ http://x/new.whl")
+        self.assertTrue(args[10].startswith("canworks @ file:"))
         with open(seen) as f:
             self.assertEqual(f.read(), "cantools==45.1.0\n")
 
     def test_release_without_locked_versions(self):
         host = self.constraints_server({})
-        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}),
-                             constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        path = self.run_file(self.fake_uv((0, "9.1.0")), constraints=host + "/new.txt")
         self.assertEqual(updater.main([path]), 0)
-        with open(self.uv_log) as f:
-            self.assertNotIn(updater.CONSTRAINTS, json.load(f)[0])
+        self.assertNotIn(updater.CONSTRAINTS, self.uv_runs()[0])
         with open(os.path.join(self.dir, "update.log")) as f:
             self.assertIn("does not lock its dependency versions", f.read())
 
     def test_locked_versions_unreachable(self):
         host = self.constraints_server({"/new.txt": None})
-        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}),
-                             constraints=host + "/new.txt", old_constraints=host + "/old.txt")
+        path = self.run_file(self.fake_uv((0, "9.1.0")), constraints=host + "/new.txt")
         self.assertEqual(updater.main([path]), 1)
         r = self.result(path)
         self.assertEqual((r["state"], r["version"]), ("failed", "0.1.0"))
         self.assertIn("Nothing was changed", r["message"])
-        self.assertFalse(os.path.exists(self.uv_log))  # uv never ran
+        self.assertEqual(self.uv_runs(), [])  # uv never ran
 
-    def test_failed_unchanged(self):
-        path = self.run_file(self.fake_uv({"new.whl": (1, None)}))
+    def test_wheel_gone(self):
+        """The release was deleted (or has no wheel yet): nothing changes."""
+        host = self.constraints_server({})
+        path = self.run_file(self.fake_uv((0, "9.1.0")), wheel=host + "/canworks-9.1.0-py3-none-any.whl")
         self.assertEqual(updater.main([path]), 1)
         r = self.result(path)
         self.assertEqual((r["state"], r["version"]), ("failed", "0.1.0"))
-        self.assertIn("no such wheel", r["message"])
-        with open(self.uv_log) as f:
-            self.assertEqual(len(json.load(f)), 1)  # no rollback: nothing changed
+        self.assertIn("could not be downloaded (HTTP 404)", r["message"])
+        self.assertIn("Nothing was changed", r["message"])
+        self.assertEqual(self.uv_runs(), [])
+        self.assertEqual(self.installed(), "0.1.0")
 
-    def test_rolled_back(self):
-        path = self.run_file(self.fake_uv({"new.whl": (1, "broken"), "old.whl": (0, "0.1.0")}))
+    def test_newer_installed_already(self):
+        """The one-line installer put 9.2.0 there while a 0.1.0 configurator
+        ran, and that configurator updates to 9.1.0: nothing is installed,
+        nothing goes back to 0.1.0, and the configurator starts again."""
+        self.install("9.2.0")
+        path = self.run_file(self.fake_uv((0, "9.1.0")), restart=True, restart_cmd=["cfg"])
+        with mock.patch.object(updater, "start_detached") as start:
+            self.assertEqual(updater.main([path]), 0)
+        r = self.result(path)
+        self.assertEqual((r["state"], r["version"], r["message"]), ("already", "9.2.0", "Already on 9.2.0."))
+        self.assertEqual(self.uv_runs(), [])
+        self.assertEqual(self.installed(), "9.2.0")
+        start.assert_called_once()
+
+    def test_failed_unchanged(self):
+        path = self.run_file(self.fake_uv((1, None)))
         self.assertEqual(updater.main([path]), 1)
-        self.assertEqual(self.result(path)["state"], "rolled-back")
-        with open(self.version_file) as f:
-            self.assertEqual(f.read(), "0.1.0")
+        r = self.result(path)
+        self.assertEqual((r["state"], r["version"]), ("failed", "0.1.0"))
+        self.assertIn("it went wrong", r["message"])
+        self.assertIn("Still on 0.1.0", r["message"])
+        self.assertEqual(len(self.uv_runs()), 1)
+        self.assertEqual(self.installed(), "0.1.0")
 
-    def test_broken_shows_the_command(self):
-        path = self.run_file(self.fake_uv({"new.whl": (1, "broken"), "old.whl": (1, None)}))
-        with mock.patch.object(updater, "message_window") as window:
+    def test_put_back_without_the_old_release(self):
+        """uv fails after it made a half environment: the old one comes back
+        from its local copy; no old release is downloaded."""
+        with open(os.path.join(self.env_dir, "old-file"), "w") as f:
+            f.write("kept")
+        path = self.run_file(self.fake_uv((1, "half")))
+        self.assertEqual(updater.main([path]), 1)
+        r = self.result(path)
+        self.assertEqual((r["state"], r["version"]), ("failed", "0.1.0"))
+        self.assertIn("Still on 0.1.0", r["message"])
+        self.assertEqual(self.installed(), "0.1.0")
+        self.assertTrue(os.path.isfile(os.path.join(self.env_dir, "old-file")))
+        self.assertFalse(os.path.exists(updater.backup_path(self.env_dir)))
+        self.assertEqual(len(self.uv_runs()), 1)  # no second install
+
+    def test_wrong_version_put_back(self):
+        """uv says it worked but the tools report another version."""
+        path = self.run_file(self.fake_uv((0, "9.0.9")))
+        self.assertEqual(updater.main([path]), 1)
+        self.assertEqual(self.result(path)["state"], "failed")
+        self.assertEqual(self.installed(), "0.1.0")
+
+    def test_without_a_backup(self):
+        """The environment cannot be moved aside: the install runs in place,
+        and a failure that leaves the tools working says so."""
+        path = self.run_file(self.fake_uv((1, None)))
+        with mock.patch.object(updater, "_rename", return_value=False):
+            self.assertEqual(updater.main([path]), 1)
+        self.assertEqual(self.result(path)["state"], "failed")
+        with open(os.path.join(self.dir, "update.log")) as f:
+            self.assertIn("without a backup", f.read())
+
+    def test_broken_only_when_the_tools_do_not_start(self):
+        path = self.run_file(self.fake_uv((1, None)))
+        os.remove(self.version_file)  # so that canworks-deploy fails once the update is past its first look
+        real = updater.installed_version
+        calls = []
+
+        def first_ok(run):
+            calls.append(1)
+            return "0.1.0" if len(calls) == 1 else real(run)
+        with mock.patch.object(updater, "installed_version", first_ok), \
+                mock.patch.object(updater, "message_window") as window:
             self.assertEqual(updater.main([path]), 2)
-        self.assertEqual(self.result(path)["state"], "broken")
+        r = self.result(path)
+        self.assertEqual(r["state"], "broken")
+        self.assertIn("no longer start", r["message"])
         self.assertIn("curl ... | sh", window.call_args[0][0])
 
+    def test_leftover_backup(self):
+        """An update that stopped halfway left the environment only as the
+        backup: the next update puts it back first."""
+        os.rename(self.env_dir, updater.backup_path(self.env_dir))
+        path = self.run_file(self.fake_uv((1, None)))
+        updater.main([path])
+        self.assertEqual(self.installed(), "0.1.0")
+        self.assertEqual(self.result(path)["state"], "failed")
+        os.makedirs(updater.backup_path(self.env_dir))  # and a stale one next to a whole environment goes
+        updater.main([self.run_file(self.fake_uv((0, "9.1.0")))])
+        self.assertFalse(os.path.exists(updater.backup_path(self.env_dir)))
+        self.assertEqual(self.installed(), "9.1.0")
+
     def test_waits_for_the_configurator(self):
-        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}), pid=os.getpid())
+        path = self.run_file(self.fake_uv((0, "9.1.0")), pid=os.getpid())
         with mock.patch.object(updater, "WAIT_PID_S", 0.2):
             self.assertEqual(updater.main([path]), 1)
         self.assertEqual(self.result(path)["state"], "failed")
-        self.assertFalse(os.path.exists(self.uv_log))  # nothing installed while it runs
+        self.assertEqual(self.uv_runs(), [])  # nothing installed while it runs
 
     def test_restart(self):
-        path = self.run_file(self.fake_uv({"new.whl": (0, "9.1.0")}), restart=True, restart_cmd=["cfg", "--from-shortcut"])
+        path = self.run_file(self.fake_uv((0, "9.1.0")), restart=True, restart_cmd=["cfg", "--from-shortcut"])
         with mock.patch.object(updater, "start_detached") as start:
             updater.main([path])
         self.assertEqual(start.call_args[0][0], ["cfg", "--from-shortcut", "--resume", path])
