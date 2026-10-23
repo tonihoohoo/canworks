@@ -1,6 +1,6 @@
 ## 0. Before applying
 
-- [ ] 0.1 Rebase on main after `openplc-modbus-followups` merged (it adds the "Use canworks.* in main" warning to the OpenPLC Project page); re-run `openspec validate tidy-targets-and-exports --strict`
+- [x] 0.1 Rebase on main after `openplc-modbus-followups` merged (it adds the "Use canworks.* in main" warning to the OpenPLC Project page); re-run `openspec validate tidy-targets-and-exports --strict`
 
 ## 1. Export menu
 
@@ -40,7 +40,7 @@
 ## 7. Docs and release
 
 - [x] 7.1 `docs/configurator.md`: the "where things are" rule and the Export ▾ groups; `docs/modbus-bridge.md`, `docs/codesys.md` and the Node-RED section: button locations; README if it names a moved button; tour lines
-- [ ] 7.2 Tools minor version bump and release notes
+- [x] 7.2 Tools minor version bump (0.120.0); "What's new" in the release notes comes from the PR title
 
 ## 8. Hand checks
 

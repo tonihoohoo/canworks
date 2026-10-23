@@ -1066,9 +1066,11 @@ The header SHALL show, left to right:
 - a settings menu with the theme choice;
 - Reload from disk;
 - Close;
-- a Project menu (Move into project…, New editor project…; standalone mode only);
-- an Export menu (All DCFs, This node's DCF, DBC with its SDO-frames choice, Documentation);
-- Save as the only primary button.
+- an Export menu (see "Export menu groups");
+- the target's primary button (see "Header target action");
+- Save.
+
+The header SHALL have no Project menu; the editor project's actions are on the Project page (see "Editor project on the Project page").
 
 The tool tabs SHALL be on a row under it. Menus SHALL open on click or Enter, close on Escape or a click elsewhere, and SHALL be navigable with the arrow keys. The header SHALL fit on one line at 1000 px. In Commission a device the header SHALL show only the title, the settings menu and Close.
 
@@ -1421,10 +1423,16 @@ A bridge project SHALL have a "Modbus bridge" page with:
 - **THEN** a free 16-byte input range is chosen and shown in the register map
 
 ### Requirement: Register map preview and export
-The bridge page SHALL show the register map as a table (Modbus table, address, size, type, name, source) with a filter, the suggested client channels, and buttons to export CSV, JSON and the ST variable list. "Pack for Modbus" SHALL be available on the page.
+The bridge page SHALL show:
+- the register map as a table (Modbus table, address, size, type, name, source) with a filter;
+- the suggested client channels;
+- "Pack for Modbus";
+- one line saying that Export ▾ → For the program has the register map files.
+
+The page SHALL have no export buttons; the CSV, JSON and ST variable exports are in Export ▾ (see "Export menu groups").
 
 #### Scenario: Export the ST list
-- **WHEN** the user clicks "Export ST variables"
+- **WHEN** the user picks ST variables in Export ▾ on a Modbus bridge config
 - **THEN** the browser downloads the same file `canworks-deploy --export-modbus-map map.st` writes for this config
 
 ### Requirement: Changes are never sent twice
@@ -3278,7 +3286,21 @@ While the runtime does not answer, the online status SHALL be reported without a
 - **THEN** the page shows the connection state and the console has no repeated errors
 
 ### Requirement: Project target
-A project SHALL have one target: "OpenPLC" (default; OpenPLC Runtime through its Modbus master and the bridge), "Modbus bridge" or "CODESYS", chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The target SHALL come from the config: a `bridge` object holding `openplc` makes it OpenPLC, any other `bridge` object Modbus bridge, a `codesys` object CODESYS. A config with neither (a config of the removed OpenPLC plugin) SHALL open read-only with one message saying the plugin is no longer supported, with **Switch to OpenPLC through Modbus**, which repacks the locations for the bridge, adds `"bridge": {"openplc": {}, "writers": ["127.0.0.1"]}` and removes what the bridge does not use (including `axis`, `sync_source`, `sync_cycles` and `scan_watchdog_ms`), as one undo step. Until the switch the page SHALL NOT save the config.
+A project SHALL have one target: "OpenPLC" (default; OpenPLC Runtime through its Modbus master and the bridge), "Modbus bridge" or "CODESYS".
+
+The target SHALL be chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The page, its messages and the check's warnings SHALL use these three names and no other name for a target, apart from the removed plugin's message and its button.
+
+The target SHALL come from the config:
+- a `bridge` object holding `openplc` makes it OpenPLC;
+- any other `bridge` object makes it Modbus bridge;
+- a `codesys` object makes it CODESYS.
+
+A config with neither (a config of the removed OpenPLC plugin) SHALL open read-only, with one message saying the plugin is no longer supported and **Switch to OpenPLC through Modbus**. As one undo step, the switch SHALL:
+- repack the locations for the bridge;
+- add `"bridge": {"openplc": {}, "writers": ["127.0.0.1"]}`;
+- remove what the bridge does not use, including `axis`, `sync_source`, `sync_cycles` and `scan_watchdog_ms`.
+
+Until the switch the page SHALL NOT save the config.
 
 #### Scenario: Target shown
 - **WHEN** the user opens a config with a `codesys` object
@@ -3287,6 +3309,10 @@ A project SHALL have one target: "OpenPLC" (default; OpenPLC Runtime through its
 #### Scenario: Plugin config opened
 - **WHEN** the user opens a config with no `bridge` and no `codesys` object, whose master has `"sync_source": "plc_cycle"` and whose node `drive` has `axis`
 - **THEN** the message offers Switch to OpenPLC through Modbus and Save is disabled; after the switch the config has `bridge.openplc`, no `sync_source` and no `axis`, timer SYNC is asked for in Problems, and one Undo restores the config as it was opened
+
+#### Scenario: One name
+- **WHEN** the user switches an OpenPLC config to Modbus bridge and back
+- **THEN** the banner, the header badge, the target field and the bridge page heading say "OpenPLC" and "Modbus bridge", never "OpenPLC through Modbus" or "OpenPLC Runtime"
 
 ### Requirement: Only what the target uses is shown
 The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the Linux device, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets. No target SHALL show a CiA 402 axis setting, a scan watchdog, SYNC from the PLC cycle or a Variable declarations page: they no longer exist.
@@ -3297,11 +3323,11 @@ The page SHALL hide every field, table column, choice option, fieldset, node tab
 
 #### Scenario: Bridge project
 - **WHEN** the project's target is Modbus bridge
-- **THEN** the Project menu has no editor project actions and the Bus page's role hint says the bridge is the network's master
+- **THEN** the Project page has no Editor project section and the Bus page's role hint says the bridge is the network's master
 
 #### Scenario: OpenPLC project
 - **WHEN** the project's target is OpenPLC
-- **THEN** no Modbus bridge or CODESYS page, field or action is shown
+- **THEN** no CODESYS page, field or action is shown, and the Modbus bridge page shows none of the listen, port, writers, readers, word order or client limit fields
 
 #### Scenario: Leftover value
 - **WHEN** a CODESYS project still has `on_plc_stop` set to `keep`
@@ -3368,7 +3394,17 @@ A CODESYS project SHALL have a "CODESYS" page in the tree with the project file,
 - **THEN** the PLC device field is hidden and the page says canworks adds the bus to the existing project
 
 ### Requirement: CODESYS actions
-A CODESYS project SHALL have **Build into CODESYS project…** and **Download for CODESYS** in the header. Build SHALL require a saved config and a project file, run the `--codesys-import` route of `canopen-deploy` with the config's settings, and show CODESYS's report, its first sentence naming the device the bus went to and why (from the report's device line); when CODESYS is not found on this PC it SHALL say so and point to Download. When the project file does not exist and no PLC device for a new project is set, Build SHALL NOT run CODESYS but ask whether to create a new project, with the PLC device dropdown; **Create and build** SHALL set the device, save and build, and Cancel SHALL change nothing. Build failures SHALL be worded in the page's terms (fields and buttons), not command-line options. Download SHALL offer the `codesys-export` folder as `<config folder name>_codesys.zip` and write no file in the project or config folder; on errors it SHALL download nothing and list them in Problems.
+A CODESYS project SHALL have **Build into CODESYS project…** in the header and on the CODESYS page, and **Download for CODESYS** in Export ▾ and on the CODESYS page.
+
+Build SHALL:
+- require a saved config and a project file;
+- run the `--codesys-import` route of `canopen-deploy` with the config's settings;
+- show CODESYS's report, its first sentence naming the device the bus went to and why (from the report's device line);
+- when CODESYS is not found on this PC, say so and point to Download.
+
+When the project file does not exist and no PLC device for a new project is set, Build SHALL NOT run CODESYS. It SHALL ask whether to create a new project, with the PLC device dropdown. **Create and build** SHALL set the device, save and build, and Cancel SHALL change nothing. Build failures SHALL be worded in the page's terms (fields and buttons), not command-line options.
+
+Download SHALL offer the `codesys-export` folder as `<config folder name>_codesys.zip` and write no file in the project or config folder. On errors it SHALL download nothing and list them in Problems.
 
 #### Scenario: Build
 - **WHEN** a saved CODESYS project names `C:\Projects\cell.project` and the user clicks Build into CODESYS project on a PC with CODESYS
@@ -3395,7 +3431,22 @@ A CODESYS project SHALL have **Build into CODESYS project…** and **Download fo
 - **THEN** the page says CODESYS was not found and offers Download for CODESYS
 
 ### Requirement: Target of a new config
-New config… SHALL be one dialog that asks first what will run the networks, with three choices and one sentence each: OpenPLC Runtime (the canworks bridge runs the networks next to the runtime and OpenPLC reads and writes them over Modbus, set up for you), Modbus bridge (no PLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and other Modbus TCP clients) and CODESYS (a CODESYS PLC runs the CANopen master). OpenPLC SHALL be preselected and SHALL write a config with `bridge.openplc`. The dialog SHALL then ask for a name (the folder, new or existing and empty) and its location, with Choose… opening the folder dialog. For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here", ticked by default when the editor's `openplc-cli` is found and disabled with the reason when it is not; ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project, and while the project is created the dialog SHALL show "Creating the editor project…" with Create disabled. Otherwise the folder SHALL become a config folder. In both cases Create SHALL write the target's empty config to disk (the project's `canworks/` folder, or the config folder) before the page opens it, so a reload shows the new config with its target.
+New config… SHALL be one dialog that asks first what will run the networks. It SHALL offer three choices with one sentence each:
+- **OpenPLC**: the canworks bridge runs the networks next to the OpenPLC Runtime, and OpenPLC reads and writes them over Modbus, set up for you;
+- **Modbus bridge**: no OpenPLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and another PLC;
+- **CODESYS**: a CODESYS PLC runs the CANopen master.
+
+OpenPLC SHALL be preselected and SHALL write a config with `bridge.openplc`.
+
+The dialog SHALL then ask for a name (the folder, new or existing and empty) and its location, with Choose… opening the folder dialog.
+
+For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here":
+- ticked by default when the editor's `openplc-cli` is found;
+- disabled with the reason when it is not.
+
+Ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project. While the project is created, the dialog SHALL show "Creating the editor project…" with Create disabled. Otherwise the folder SHALL become a config folder.
+
+In both cases Create SHALL write the target's empty config to disk (the project's `canworks/` folder, or the config folder) before the page opens it, so a reload shows the new config with its target.
 
 #### Scenario: New CODESYS config
 - **WHEN** the user creates a new config with target CODESYS
@@ -3419,13 +3470,6 @@ In a CODESYS project, Commission SHALL connect through a USB adapter only, since
 #### Scenario: Connect
 - **WHEN** the user opens Commission in a CODESYS project
 - **THEN** the connect dialog offers the USB adapter and no runtime
-
-### Requirement: Node-RED flow export on the bridge page
-The bridge page SHALL offer **Export Node-RED flow** next to the register map exports. It SHALL download the same file `canworks-deploy --export-nodered` writes for the draft with default host and period, and SHALL show the reason instead when the register map cannot be computed.
-
-#### Scenario: Export
-- **WHEN** the user presses Export Node-RED flow on a bridge project with a valid map
-- **THEN** the browser downloads `<config name>-node-red.json`, equal to the command-line export of the same config
 
 ### Requirement: Bit channels in the PDOs tab
 An integer entry in a PDO mapping table SHALL have **Bits…**, which unfolds a table of the entry's bits: bit number, the device note's bit name, a tick that maps the bit, the name (placeholder: the default name) and, on the OpenPLC target, the location with **Suggest**. **Bits…** SHALL show how many bits are mapped. **Map all bits** SHALL map every bit, placing them on consecutive free `%IX` (input) or `%QX` (output) bytes, bit n at bit n mod 8 of the (n div 8)-th byte; **Unmap all** SHALL remove them. Mapping the first bit of an RPDO entry that has a whole-value location SHALL ask before removing that location. A newly mapped bit SHALL take its name from the device note's bit name, turned into an identifier, when there is one; renaming or removing a note SHALL NOT change a mapped bit's name. Unticked bits of an RPDO entry SHALL read "sent as 0". Each change SHALL be one undo step, and problems SHALL name the node, the PDO, the object and the bit. In a CODESYS config the location column SHALL be hidden; in a Modbus bridge config it SHALL show the bit's coil or discrete input number, read-only.
@@ -3691,11 +3735,19 @@ When the window is 800 px high or less, the header and tab rows SHALL use compac
 - **THEN** the work area is at least 60 % of the window height
 
 ### Requirement: Header target action
-The header SHALL hold the target's hand-off actions as one primary split button: Build into CODESYS project… with Download for CODESYS for CODESYS, Install on device… for the Modbus bridge. At 1280 px and wider the header SHALL be one row for every target. Under 1500 px with a config open, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu; with no config open (start page, Devices without a config) they SHALL stay buttons in the header.
+The header SHALL hold the target's hand-off action as one primary button with no menu: **Build into CODESYS project…** for CODESYS, **Install on device…** for Modbus bridge and OpenPLC. Download for CODESYS SHALL be in Export ▾ (see "Export menu groups").
+
+At 1280 px and wider the header SHALL be one row for every target, also while the simulation chip is shown (see "Header menus stay inside the window").
+
+Under 1500 px with a config open, Reload from disk, Close, Settings and Quit SHALL be in one "⋯" menu. With no config open (start page, Devices without a config) they SHALL stay buttons in the header.
 
 #### Scenario: CODESYS at 1366 px
 - **WHEN** a CODESYS config is open at 1366 px wide
-- **THEN** the header is one row with one Build split button
+- **THEN** the header is one row with one Build button and no ▾ next to it
+
+#### Scenario: OpenPLC with simulated nodes at 1280 px
+- **WHEN** an OpenPLC config with simulated nodes is open at 1280 px wide
+- **THEN** the header is one row with Install on device…
 
 ### Requirement: Wide window sections
 From 1800 px wide, the sections of a network's Bus page and of a node's Supervision tab SHALL lay out in two columns.
@@ -4018,11 +4070,20 @@ Saving an OpenPLC project (target OpenPLC, inside an editor project) with no err
 - **THEN** the project lists the library as enabled and `canworks_in` builds without adding it by hand
 
 ### Requirement: OpenPLC project page
-The Project page of an OpenPLC project SHALL show, from the saved config, the remote device and its port, the poll period with the number of Modbus requests per poll, the warning above 40, the writer-loss time, the map hash, the first editor `%IW`/`%QW` and the editor files Save writes. The Modbus bridge page of such a project SHALL show the poll period (`poll_ms`, placeholder 10), the remote device name, the first editor location, the unit ID, the watchdog and the loss action, the status block as fixed `%IB4`, and no listen, port, writers, readers, word order or client limit fields; those follow `bridge.openplc`.
+The Project page of an OpenPLC project SHALL show the target and the Editor project section (see "Editor project on the Project page").
+
+The Modbus bridge page of such a project SHALL be headed "Modbus bridge", with one line saying OpenPLC's Modbus master reads and writes these registers on 127.0.0.1. Its OpenPLC box SHALL start with these facts from the saved config:
+- the remote device and its port;
+- the poll period with the number of Modbus requests per poll, and the warning above 40;
+- the writer-loss time;
+- the map hash;
+- the first editor `%IW`/`%QW`.
+
+The box SHALL also hold the poll period (`poll_ms`, placeholder 10), the remote device name, the first editor location, the unit ID, the watchdog and the loss action. The page SHALL show the status block as fixed `%IB4`, and no listen, port, writers, readers, word order or client limit fields; those follow `bridge.openplc`.
 
 #### Scenario: Requests per poll
 - **WHEN** an OpenPLC project has 30 nodes with two TPDOs and two RPDOs each, none contiguous
-- **THEN** the Project page shows the request count above 40 with the warning, and Problems lists it as a warning
+- **THEN** the Modbus bridge page's OpenPLC box shows the request count above 40 with the warning, and Problems lists it as a warning
 
 ### Requirement: Master settings on the Bus page
 The configurator SHALL edit the master's node ID, SYNC period, master heartbeat period, EDS lint setting and boot SDO timeout. The SYNC period field SHALL be optional: left empty it SHALL show "off" as its placeholder and SHALL save no `sync_period_us`, and its hint SHALL say that synchronous PDOs then need an event-driven transmission type. New configs SHALL still start with a SYNC period of 10 ms. The boot SDO timeout field SHALL show 1000 as its placeholder and SHALL save nothing when left empty. The EDS lint setting SHALL offer "communication objects" (`"communication"`, the default, saved as no field), "every object" (`"all"`) and "off" (`"off"`). A loaded config with `strict_eds` SHALL be shown as the matching setting and saved as `eds_lint`, with the page saying so.
@@ -4213,3 +4274,70 @@ The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then re
 #### Scenario: User's own I/O and comments kept
 - **WHEN** `main` also declares `start_button : BOOL AT %IX0.0;` and has the comment `(* rtd_ok is the sensor *)`
 - **THEN** after the move `start_button` is still declared at `%IX0.0` and the comment still reads `rtd_ok`
+
+### Requirement: Where things are
+The configurator SHALL place its parts by one rule. The Project page holds the target and actions on the whole project. The header's primary target button puts the config onto the target. Export ▾ holds every file written for download, apart from one item's export on its own page (slave EDS, device notes). A target page holds that target's settings. Copy as ST call stays on its item. `docs/configurator.md` SHALL state this rule.
+
+#### Scenario: Node-RED flow
+- **WHEN** a user of a Modbus bridge config looks for the Node-RED flow
+- **THEN** it is in Export ▾ under For the program, and the Modbus bridge page has no export buttons
+
+### Requirement: Export menu groups
+Export ▾ SHALL have two labelled groups. **Network files** SHALL hold All DCFs, This node's DCF, DBC and Documentation. **For the program** SHALL hold the target's own files, and a group with no item SHALL be hidden: Modbus bridge gets Register map (CSV), Register map (JSON), ST variables and Node-RED flow; OpenPLC gets the two register map files and ST for another PLC (the PLC link file); CODESYS gets Download for CODESYS.
+
+#### Scenario: OpenPLC config
+- **WHEN** the user opens Export ▾ on an OpenPLC config
+- **THEN** For the program lists Register map (CSV), Register map (JSON) and ST for another PLC, and no Node-RED flow
+
+#### Scenario: Node-RED flow from the menu
+- **WHEN** the user picks Node-RED flow in Export ▾ on a Modbus bridge config with a valid map
+- **THEN** the browser downloads `<config name>-node-red.json`, equal to the command-line export of the same config
+
+#### Scenario: CODESYS download from the menu
+- **WHEN** the user picks Download for CODESYS in Export ▾ on a CODESYS config
+- **THEN** the browser downloads `<config folder name>_codesys.zip` as Download on the CODESYS page does
+
+### Requirement: Same files from the menu
+Each For the program item SHALL download the same file as before: the `canworks-deploy --export-modbus-map` formats, `--export-nodered` with default host and period, and the `codesys-export` zip. When the register map or the export cannot be computed, it SHALL show the reason instead of a file.
+
+#### Scenario: Map cannot be computed
+- **WHEN** the register map of a Modbus bridge config has an error and the user picks Register map (CSV)
+- **THEN** nothing downloads and the reason is shown as "Exports report progress and keep Problems clean" says
+
+### Requirement: Editor project on the Project page
+The Project page of an OpenPLC config SHALL have an **Editor project** section under the target, and other targets SHALL NOT have it. In project mode it SHALL name the project, its folder and the files Save writes into it. In standalone mode it SHALL say there is no editor project, so PLC addresses are not checked, and offer **Move into project…** and **New editor project…** with their existing dialogs.
+
+#### Scenario: Standalone OpenPLC config
+- **WHEN** a standalone OpenPLC config's Project page is open
+- **THEN** the Editor project section offers Move into project… and New editor project…, and the header has no Project menu
+
+#### Scenario: Modbus bridge config
+- **WHEN** a Modbus bridge config's Project page is open
+- **THEN** it has no Editor project section
+
+### Requirement: Header menus stay inside the window
+A header menu's panel SHALL open fully inside the window. It SHALL be right-aligned under its button unless that would cross the window's left edge, and then left-aligned.
+
+When the header would not fit one row, the simulation chip SHALL show only its mark and "Simulated", with the full text in its tooltip and in Details.
+
+#### Scenario: Export with the simulation chip
+- **WHEN** an OpenPLC config with simulated nodes is open at 1440 px and the user opens Export ▾
+- **THEN** the header is one row and the whole Export panel is inside the window
+
+#### Scenario: Narrow window
+- **WHEN** the window is 1280 px wide with a simulated network and the user opens Export ▾
+- **THEN** the chip reads "Simulated", and the Export panel is inside the window
+
+### Requirement: Copy as ST call only where the blocks run
+Copy as ST call (object dictionary entry, NMT command, CAN message, J1939 PGN) SHALL be offered only on Modbus bridge and OpenPLC configs, not on a CODESYS config and not when commissioning a device without a config.
+
+#### Scenario: CODESYS config
+- **WHEN** the user opens a node's object dictionary in Commission on a CODESYS config
+- **THEN** no entry offers ST, and NMT offers no Copy as ST call
+
+### Requirement: Copy as ST call names the missing part
+When the config lacks the bridge part a copied block needs, the button SHALL stay enabled, and its tooltip and the copied text's first comment SHALL name the setting and its page: SDO bridge registers for `CO_SDO_READ`/`CO_SDO_WRITE`, the control block for `CO_NMT`, a request mailbox for the other SDO, send and request blocks, the receive mailbox for the receive blocks.
+
+#### Scenario: Receive mailbox off
+- **WHEN** a Modbus bridge config has the Function blocks section on without the receive mailbox, and the user copies the ST call of a received J1939 PGN
+- **THEN** the copied text starts with a comment saying it needs the Function blocks' receive mailbox on the Modbus bridge page
