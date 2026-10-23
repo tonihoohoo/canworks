@@ -368,6 +368,61 @@ class SyncProject(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             self.assertNotIn("edited", f.read())
 
+    def older_canworks_wrote(self, rel, text):
+        """`rel` as an older canworks wrote it: other text, stamped as its own."""
+        path = os.path.join(self.project, *rel.split("/"))
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        stamp = os.path.join(self.project, openplcmodbus.STAMP)
+        with open(stamp, encoding="utf-8") as f:
+            stamps = json.load(f)
+        stamps[rel] = openplcmodbus._sha(path)
+        with open(stamp, "w", encoding="utf-8") as f:
+            json.dump(stamps, f)
+
+    def test_outdated_files(self):
+        # Spec canopen-configurator "Out-of-date OpenPLC editor files".
+        outdated = lambda: openplcmodbus.outdated_files(self.project, self.cfg, self.decls)
+        self.assertEqual(outdated(), ["devices/remote/canworks.json", "pous/programs/canworks_in.st",
+                                      "pous/programs/canworks_out.st", "project.json"])  # never saved
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        self.assertEqual(outdated(), [])
+        # a newer canworks writes canworks_in differently
+        self.older_canworks_wrote("pous/programs/canworks_in.st", "PROGRAM canworks_in\nEND_PROGRAM\n")
+        self.assertEqual(outdated(), ["pous/programs/canworks_in.st"])
+        # edited in the editor: not outdated, Save asks (changed_files)
+        path = os.path.join(self.project, "pous", "programs", "canworks_out.st")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("(* mine *)\n")
+        self.assertEqual(outdated(), ["pous/programs/canworks_in.st"])
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls, force=True)
+        self.assertEqual(outdated(), [])
+        os.remove(path)
+        self.assertEqual(outdated(), ["pous/programs/canworks_out.st"])
+
+    def test_outdated_library_and_list(self):
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        pj = os.path.join(self.project, "project.json")
+        with open(pj, encoding="utf-8") as f:
+            doc = json.load(f)
+        lib = [l for l in doc["data"]["libraries"] if l["name"] == "canworks"][0]
+        lib["version"] = "0.1.0"
+        with open(pj, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), ["project.json"])
+        openplcmodbus.sync_project(self.project, self.cfg, self.decls)
+        libs = [l for l in self.data()["libraries"] if l["name"] == "canworks"]
+        self.assertEqual(libs, [{"name": "canworks", "version": openplcmodbus.plclibrary.__version__}])
+        self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), [])
+        # an older link size in the list
+        with open(pj, encoding="utf-8") as f:
+            doc = json.load(f)
+        link = [v for v in doc["data"]["globalVariableLists"][0]["variables"] if v["name"] == "link"][0]
+        link["type"]["value"] = "ARRAY[0..88] OF WORD"
+        with open(pj, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), ["project.json"])
+
     def test_free_base(self):
         from canworks.configurator import scan
         uses, _ = scan.scan(self.project)

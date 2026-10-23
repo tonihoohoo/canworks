@@ -4,7 +4,7 @@ The hardware rerun of `openplc-modbus-followups` needed new `canworks_in` code f
 
 ## What Changes
 
-- **Out-of-date editor files are detected.** For an OpenPLC project the configurator compares what Save would write for the saved config with the files on disk. A file counts as out of date when it is missing, or when canworks wrote it last (its stamp matches) and the new text differs. The `canworks` library also counts when the project enables an older version than the installed tools carry.
+- **Out-of-date editor files are detected.** For an OpenPLC project the configurator compares what Save would write for the saved config with the files on disk. A file counts as out of date when it is missing, or when canworks wrote it last (its stamp matches) and the new text differs. `project.json` counts when its `canworks` list has other members or types than Save writes, or when it enables an older `canworks` library version than the tools carry (Save then names the new version).
 - **Save is enabled for them.** With the draft equal to the file but the editor files out of date, the Save button reads "Save" and is enabled, with the title "The editor files are from an older canworks; Save writes them again". Saving writes only the editor files and the library entry; `canworks.json` is unchanged.
 - **The Project page says so.** The Project page lists the out-of-date files under the editor files, and Problems lists one warning ("The editor files were made by an older canworks: Save writes them again") that opens the Project page.
 - Files changed by someone else keep today's behaviour: Save asks before writing them, naming them.
