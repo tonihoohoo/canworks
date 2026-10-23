@@ -85,6 +85,8 @@ class RawIo {
   void update_bus(uint64_t now);
   void log_bus_state(const canworks_can_bus_info& info, uint64_t now);
   int next_timeout(uint64_t now);
+  // The bus_info hook says the interface is down or missing.
+  bool link_down();
 
   std::unique_ptr<RawLink> link_;
   uint32_t bitrate_;

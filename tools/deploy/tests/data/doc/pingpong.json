@@ -873,7 +873,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.128.2"
+  "version": "0.128.3"
  },
  "warnings": []
 }

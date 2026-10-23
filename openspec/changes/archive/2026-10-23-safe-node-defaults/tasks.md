@@ -34,8 +34,8 @@
 
 ## 5. Hardware (Linux device with node 23; needs the coordinator's OK on the Pi and Toni's typed go)
 
-- [ ] 5.1 Without `heartbeat_consumer`: `kill -9` the bridge; node 23 stays OPERATIONAL with its last outputs (records today's behaviour)
-- [ ] 5.2 With `heartbeat_consumer` true: `kill -9` the bridge; node 23 reacts per its 0x1029 within the heartbeat timeout; after the restart it is operational again
-- [ ] 5.3 With `config_check` true: restart the bridge with node 23 running; the log says configuration unchanged and node 23 is not reset
-- [ ] 5.4 Take the CAN interface down and up: status byte 7 bit 1 and `canworks.bus_ok` follow (slcan reports no bus-off, so bus-off itself stays with the vcan/C++ tests)
-- [ ] 5.5 Clean PLC start afterwards
+- [x] 5.1 Without `heartbeat_consumer`: `kill -9` the bridge; node 23 stays OPERATIONAL with its last outputs (records today's behaviour) (Pi 2026-10-23: load warns that node 23 keeps its last outputs; heartbeat 05 and RPDO 0x217 held through the 1.8 s gap)
+- [x] 5.2 With `heartbeat_consumer` true: `kill -9` the bridge; node 23 reacts per its 0x1029 within the heartbeat timeout; after the restart it is operational again (Pi 2026-10-23: not possible on node 23, it has no 0x1016/0x1029 (SDO abort 0x06020000); the bridge refuses the setting as specified. Stand-in: RPDO event_timer_ms 500 accepted and written, node 23 ignores it)
+- [x] 5.3 With `config_check` true: restart the bridge with node 23 running; the log says configuration unchanged and node 23 is not reset (Pi 2026-10-23: not possible on node 23, no 0x1020; refused as specified)
+- [ ] 5.4 Take the CAN interface down and up: status byte 7 bit 1 and `canworks.bus_ok` follow (slcan reports no bus-off, so bus-off itself stays with the vcan/C++ tests) (Pi 2026-10-23, can0 on gs_usb: FAILED, bit 1 never set: the raw CAN thread reopened its socket on the down interface ~3,800 times a second and never read the link state; fixed by the fix/bus-flag-interface-down PR, recheck open)
+- [x] 5.5 Clean PLC start afterwards (Pi 2026-10-23)

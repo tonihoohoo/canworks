@@ -303,6 +303,13 @@ void RawIo::log_bus_state(const canworks_can_bus_info& info, uint64_t now) {
   hooks_.log_bus(level, line);
 }
 
+bool RawIo::link_down() {
+  if (!hooks_.bus_info) return false;
+  canworks_can_bus_info info{};
+  hooks_.bus_info(info);
+  return info.state >= 4;
+}
+
 int RawIo::next_timeout(uint64_t now) {
   if ((port_ && port_->active()) || (engine_ && !engine_->config().tx.empty())) return kTickMs;
   uint64_t in_us = UINT64_MAX;
@@ -323,10 +330,19 @@ void RawIo::run() {
   canopen_plugin::ThreadProgress progress("raw CAN thread on " + link_->where());
   bool open = false;
   bool reported = false;
+  uint64_t opened_at = 0;
   while (!stop_) {
     progress.beat();
     if (!open) {
+      // A socket binds to an interface that is down, and then reports
+      // POLLERR at once: wait for the link instead of reopening in a loop.
+      bool down = false;
       int r = hooks_.prepare && !hooks_.prepare() ? -ENETDOWN : link_->open();
+      if (r == 0 && link_down()) {
+        link_->close();
+        r = -ENETDOWN;
+        down = true;
+      }
       if (r < 0) {
         if (!reported && hooks_.log)
           hooks_.log("raw CAN on " + link_->where() + " waits for the interface: " + std::strerror(-r));
@@ -341,7 +357,7 @@ void RawIo::run() {
           if (changed && hooks_.publish_inputs) hooks_.publish_inputs(engine_->input_values());
         }
         pollfd w{wake_fd_, POLLIN, 0};
-        poll(&w, 1, kRetryMs);
+        poll(&w, 1, down ? kIdleMs : kRetryMs);
         continue;
       }
       if (reported && hooks_.log) hooks_.log("raw CAN on " + link_->where() + " running");
@@ -352,6 +368,7 @@ void RawIo::run() {
       set_filters();
       if (port_) port_->set_running(true);
       if (devices_) devices_->start(monotonic_us() / 1000);
+      opened_at = monotonic_us();
     }
     uint64_t now = monotonic_us();
     pollfd p[2] = {{link_->fd(), POLLIN, 0}, {wake_fd_, POLLIN, 0}};
@@ -359,9 +376,15 @@ void RawIo::run() {
     if (stop_) break;
     now = monotonic_us();
     if (r > 0 && (p[0].revents & (POLLERR | POLLHUP | POLLNVAL))) {
-      // The interface went away (USB unplug): reopen.
+      // The interface went away (USB unplug) or down: reopen. An error
+      // right after opening waits a moment, so it never spins.
       link_->close();
       open = false;
+      if (port_) port_->set_running(false);
+      if (now - opened_at < kIdleMs * 1000u) {
+        pollfd w{wake_fd_, POLLIN, 0};
+        poll(&w, 1, kIdleMs);
+      }
       continue;
     }
     set_filters();
