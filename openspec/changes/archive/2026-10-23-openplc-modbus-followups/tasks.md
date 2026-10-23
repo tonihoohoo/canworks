@@ -24,5 +24,5 @@
 
 ## 4. Hardware (Linux device with the real node)
 
-- [ ] 4.1 Bench copy of a plugin project: switch, Save (library enabled), **Use canworks.\* in main**, Build and upload; values through `canworks.*`, `CO_NODE_LIVE` TRUE for the node
-- [ ] 4.2 Restart the bridge while the PLC runs with a finished `CO_NMT` start: no NMT frame on the bus after the restart
+- [ ] 4.1 Bench copy of a plugin project: switch, Save (library enabled), **Use canworks.\* in main**, Build and upload; values through `canworks.*`, `CO_NODE_LIVE` TRUE for the node (2026-10-23, main 9bb5dc9: all but `CO_NODE_LIVE` passed (31 declarations moved, library enabled, values read); `CO_NODE_LIVE` was FALSE because `canworks_in` skipped the live list of an unnamed network, fixed in tools 0.119.1; rerun open)
+- [x] 4.2 Restart the bridge while the PLC runs with a finished `CO_NMT` start: no NMT frame on the bus after the restart (2026-10-23, main 9bb5dc9: the log says counter 1 was already there and is not run, result 6; the only NMT frames are the bridge's own stop preop, boot reset and node start)
