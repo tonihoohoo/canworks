@@ -61,7 +61,7 @@
             "class": "global",
             "type": {
               "definition": "array",
-              "value": "ARRAY[0..88] OF WORD",
+              "value": "ARRAY[0..1279] OF WORD",
               "data": {
                 "baseType": {
                   "definition": "base-type",
@@ -69,13 +69,13 @@
                 },
                 "dimensions": [
                   {
-                    "dimension": "0..88"
+                    "dimension": "0..1279"
                   }
                 ]
               }
             },
             "location": "",
-            "documentation": "the bridge's control, SDO and live list words: the canworks blocks' LINK"
+            "documentation": "the bridge's control, SDO, live list and mailbox words: the canworks blocks' LINK"
           },
           {
             "name": "io_can_bus_state",

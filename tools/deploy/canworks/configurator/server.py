@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, nodered, openplcmodbus, targets
+from .. import bundle, mailboxlayout, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -351,10 +351,13 @@ def version2(cfg):
 def openplc_bridge(cfg):
     """The `bridge` object of a new OpenPLC through Modbus config: the
     control block, the SDO registers (writes allowed: only the runtime on
-    127.0.0.1 may write) and a live list per named CANopen master network,
-    so the canworks blocks work. Packing places them."""
+    127.0.0.1 may write), a live list per named CANopen master network and
+    the mailboxes with their default counts (one request mailbox, the
+    receive mailbox, 4 cyclic jobs, network info), so every canworks block
+    works. Packing places them."""
     out = {"openplc": {}, "control_location": "%QB0",
-           "sdo_bridge_location": {"request": "%QB0", "response": "%IB0"}, "sdo_bridge_write": True}
+           "sdo_bridge_location": {"request": "%QB0", "response": "%IB0"}, "sdo_bridge_write": True,
+           "mailboxes": {"input_location": "%IB0", "output_location": "%QB0"}}
     lists = [{"network": n["name"], "location": "%IB0"} for n in cfg.get("networks") or []
              if isinstance(n, dict) and isinstance(n.get("name"), str) and n.get("role", "master") == "master"
              and n.get("protocol", "canopen") == "canopen"]
@@ -1871,9 +1874,21 @@ class Session:
         except (AttributeError, KeyError, TypeError, ValueError):
             return {"rows": [], "channels": [], "problem": "the config cannot be read for the register map (see Problems)"}
         inputs, outputs = modbusmap.image_sizes(rows)
-        return {"rows": rows, "input_bytes": inputs, "output_bytes": outputs,
-                "channels": [{"function": f, "start": st, "count": c, "direction": d}
-                             for f, st, c, d in modbusmap.suggest_channels(rows)]}
+        channels = modbusmap.suggest_channels(rows)
+        out = {"rows": rows, "input_bytes": inputs, "output_bytes": outputs,
+               "channels": [{"function": f, "start": st, "count": c, "direction": d} for f, st, c, d in channels],
+               "requests": len(channels), "request_budget": openplcmodbus.REQUEST_BUDGET}
+        if modbusmap.is_openplc(cfg):
+            try:
+                out["requests"] = openplcmodbus.request_count(openplcmodbus.layout(cfg, [], 0)[0])
+            except (openplcmodbus.OpenplcError, modbusmap.MapError):
+                pass
+        mb = cfg["bridge"].get("mailboxes")
+        if isinstance(mb, dict):
+            # What the Function blocks section costs (modbus-bridge-mailboxes).
+            ins, outs = mailboxlayout.area_bytes(mb, len(cfg.get("networks") or []))
+            out["mailboxes"] = {"input_registers": ins // 2, "output_registers": (outs + 1) // 2}
+        return out
 
     def bridge_pack(self, cfg):
         """The draft with every location packed for Modbus (modbusmap.pack)."""
@@ -1888,7 +1903,8 @@ class Session:
                      "control_location": ("Q", bridgecheck.CONTROL_BYTES),
                      "live_list": ("I", bridgecheck.LIVE_LIST_BYTES),
                      "sdo_request": ("Q", bridgecheck.SDO_BYTES),
-                     "sdo_response": ("I", bridgecheck.SDO_BYTES)}
+                     "sdo_response": ("I", bridgecheck.SDO_BYTES),
+                     "mailbox_input": ("I", None), "mailbox_output": ("Q", None)}
 
     def bridge_suggest(self, cfg, block, index=None):
         """A free place for one bridge block: the first even byte after the
@@ -1913,6 +1929,10 @@ class Session:
         elif block.startswith("sdo_"):
             if isinstance(b.get("sdo_bridge_location"), dict):
                 b["sdo_bridge_location"].pop(block[4:], None)
+        elif block.startswith("mailbox_"):
+            if not isinstance(b.get("mailboxes"), dict):
+                raise ApiError(400, "the bridge has no mailboxes")
+            b["mailboxes"].pop(block[8:] + "_location", None)
         else:
             b.pop(block, None)
         try:
@@ -1920,6 +1940,10 @@ class Session:
         except modbusmap.MapError as e:
             raise ApiError(400, str(e))
         area, nbytes = self.BRIDGE_BLOCKS[block]
+        if nbytes is None:
+            # A mailbox area: its size follows the counts.
+            sizes = mailboxlayout.area_bytes(b["mailboxes"], len(cfg.get("networks") or []))
+            nbytes = sizes[0 if area == "I" else 1]
         mine = [it for it in items if it.loc.area == area]
         end = max((it.loc.index + it.nbytes for it in mine if it.kind != "bridge"), default=0)
         pos = end + end % 2
@@ -1959,8 +1983,15 @@ class Session:
             rows = modbusmap.register_map(cfg)
         except modbusmap.MapError as e:
             return self._map_problems(cfg, e.problems)
-        text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
-            else modbusmap.to_st(cfg, rows)
+        if fmt == "st" and modbusmap.is_openplc(cfg):
+            # The PLC link for another Modbus PLC, as the command line writes it.
+            try:
+                text = openplcmodbus.other_plc_st(cfg, editorproject.declarations(cfg, self.config_path))
+            except openplcmodbus.OpenplcError as e:
+                return self._map_problems(cfg, [str(e)])
+        else:
+            text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
+                else modbusmap.to_st(cfg, rows)
         return {"items": [], "errors": 0, "name": "%s_modbus.%s" % (folder, fmt),
                 "content_type": self.MAP_TYPES[fmt], "rows": len(rows),
                 "data": base64.b64encode(text.encode("utf-8")).decode("ascii")}

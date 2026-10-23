@@ -101,8 +101,8 @@ def st_call(entry, kind, network=0):
     if kind == "rx":
         mask = entry.get("mask")
         mask_pin = "MASK := %s, " % _st_hex(mask) if mask is not None else ""
-        call = "%s(ENABLE := TRUE, %sID := %s, %s%sRX_DATA := %s);" % (block, net, _st_hex(entry.get("id", 0)),
-                                                                     mask_pin, ext, data)
+        call = "%s(ENABLE := TRUE, %sID := %s, %s%sRX_DATA := %s, LINK := canworks.link);" % (
+            block, net, _st_hex(entry.get("id", 0)), mask_pin, ext, data)
         lines.append(call)
         lines.append("WHILE %s.NEW DO" % block)
         for j, s in enumerate(sigs):
@@ -115,7 +115,7 @@ def st_call(entry, kind, network=0):
             lines.append("%s_packed := CAN_SET_BITS(DATA := %s, %s, VALUE := %s_%s);" % (
                 name, data, bits(s), name, _ident(s.get("name") or "s%d" % j)))
         rtr = "RTR := TRUE, " if entry.get("rtr") else ""
-        lines.append("%s(EXECUTE := %s_go, %sID := %s, %s%sDLC := %d, DATA := %s);" % (
+        lines.append("%s(EXECUTE := %s_go, %sID := %s, %s%sDLC := %d, DATA := %s, LINK := canworks.link);" % (
             block, name, net, _st_hex(entry.get("id", 0)), ext, rtr, tx_dlc(entry), data))
         lines.append("IF %s.DONE OR %s.ERROR THEN %s_go := FALSE; END_IF;" % (block, block, name))
     return "\n".join(lines) + "\n"

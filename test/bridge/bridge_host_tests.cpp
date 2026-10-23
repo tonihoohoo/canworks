@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "bridge_host.h"
+#include "mailboxes.h"
 #include "cJSON.h"
 #include "check.hpp"
 #include "host_requests.h"
@@ -665,6 +666,78 @@ TEST(map_hash_vectors) {
   std::string expected = read_file(std::string(FIXTURES_DIR) + "/modbus/openplc-hash.txt");
   EXPECT(canopen_plugin::map_hash_text(set) == expected);
   if (canopen_plugin::map_hash_text(set) != expected) std::printf("%s", canopen_plugin::map_hash_text(set).c_str());
+}
+
+// Mailboxes (modbus-bridge-mailboxes) on the example's simulated bus: an SDO
+// read through a request mailbox, a frame sent, a receiver's batch and the
+// network info.
+namespace {
+constexpr uint16_t kMbReqReg = 13;     // %QB26
+constexpr uint16_t kMbRspReg = 32;     // %IB64
+constexpr uint16_t kRxReg = 104;       // %IB208
+constexpr uint16_t kInfoReg = 224;     // %IB448
+constexpr uint16_t kAckReg = 85;       // %QB170
+
+void add_mailboxes(cJSON* r) {
+  cJSON* m = cJSON_CreateObject();
+  cJSON_AddStringToObject(m, "input_location", "%IB64");
+  cJSON_AddStringToObject(m, "output_location", "%QB26");
+  cJSON_AddItemToObject(bridge_of(r), "mailboxes", m);
+  set_number(bridge_of(r), "watchdog_ms", 0);
+}
+
+// Writes request `counter` and waits for its end; the response's first 8 words.
+std::vector<uint16_t> mb_call(Client& c, uint16_t counter, uint8_t op, std::vector<uint16_t> args,
+                              const std::vector<uint16_t>& data = {}) {
+  std::vector<uint16_t> w(8 + data.size(), 0);
+  w[0] = counter;
+  w[1] = static_cast<uint16_t>(op << 8);
+  for (size_t i = 0; i < args.size(); ++i) w[2 + i] = args[i];
+  for (size_t i = 0; i < data.size(); ++i) w[8 + i] = data[i];
+  if (!write(c, kMbReqReg, w)) return {};
+  std::vector<uint16_t> r;
+  wait_for([&] {
+    r = regs(c, kReadInputRegisters, kMbRspReg, 12);
+    return r.size() == 12 && r[0] == counter && (r[1] >> 8) >= 2;
+  }, 5000);
+  return r;
+}
+}  // namespace
+
+TEST(mailboxes_on_the_simulated_bus) {
+  Host h(add_mailboxes);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  EXPECT(logged("bridge mailboxes: 1 request mailbox(es)"));
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  // The client's first words are only the baseline (a bridge restart must
+  // not run the last request again): an empty request block first.
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // SDO_READ 0x1018:1 of node 6, raw bytes (kind 3), 1 s.
+  std::vector<uint16_t> r = mb_call(c, 1, kOpSdoRead, {(6 << 8) | 1, 0x1018, 3 << 8, 1000});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[3] == 4);
+  // CAN_SEND 0x510 01 02 on network 0.
+  r = mb_call(c, 2, kOpCanSend, {0, 0x510, 2, 100}, {0x0102, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone);
+  // A receiver for every standard frame: the nodes' TPDOs arrive in batches.
+  r = mb_call(c, 3, kOpRxOpen, {kRxCan << 8, 32, 0, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone);
+  std::vector<uint16_t> rx;
+  EXPECT(wait_for([&] {
+    rx = regs(c, kReadInputRegisters, kRxReg, 30);
+    return rx.size() == 30 && rx[0] != 0 && rx[3] >= 14;
+  }, 3000));
+  if (rx.size() == 30) {
+    uint16_t seq = rx[0];
+    EXPECT((rx[21] >> 8) == r[2]);  // the record's receiver
+    EXPECT(write(c, kAckReg, {seq, 0, 0}));
+    EXPECT(wait_for([&] { return reg(c, kRxReg) != seq; }, 3000));
+  }
+  // Network info of network 0: error active, frames received.
+  std::vector<uint16_t> info = regs(c, kReadInputRegisters, kInfoReg, 18);
+  EXPECT(info.size() == 18 && (info[0] >> 8) == 0 && (uint32_t(info[5]) << 16 | info[6]) > 0);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

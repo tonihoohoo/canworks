@@ -16,9 +16,13 @@ from .test_deploy import deploy
 
 # The ST blocks over the Modbus bridge's PLC link (add-openplc-modbus-target);
 # the C++ plugin blocks are no longer packaged.
-BLOCKS = ["CO_NMT", "CO_NODE_LIVE", "CO_SDO_READ", "CO_SDO_WRITE", "J1939_DTC_SPLIT", "J1939_NAME_SPLIT"]
+BLOCKS = ["CAN_BUS_INFO", "CAN_RECEIVE", "CAN_SEND", "CAN_SEND_CYCLIC", "CO_NMT", "CO_NODE_LIVE",
+          "CO_RECV_EMCY", "CO_SDO_READ", "CO_SDO_READ_BYTES", "CO_SDO_READ_REAL", "CO_SDO_READ_STRING",
+          "CO_SDO_WRITE", "CO_SDO_WRITE_BYTES", "CO_SDO_WRITE_REAL", "CO_SDO_WRITE_STRING", "CW_LINK_SERVICE",
+          "CW_MB_CALL", "CW_REQUEST", "CW_RX", "CW_SDO_XFER", "J1939_DM_CLEAR", "J1939_DM_READ", "J1939_DTC_SPLIT",
+          "J1939_ECU_INFO", "J1939_FIND_ECU", "J1939_NAME_SPLIT", "J1939_RECEIVE", "J1939_REQUEST", "J1939_SEND"]
 FUNCTIONS = ["CAN_GET_BITS", "CAN_GET_UINT16", "CAN_GET_UINT32", "CAN_J1939_ID", "CAN_J1939_PGN", "CAN_J1939_SOURCE",
-             "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "CW_DWORD_TO_REAL", "CW_LREAL_TO_LWORD",
+             "CAN_SET_BITS", "CAN_SET_UINT16", "CAN_SET_UINT32", "CW_CHAR", "CW_CHAR_CODE", "CW_DWORD_TO_REAL", "CW_LREAL_TO_LWORD",
              "CW_LWORD_TO_LREAL", "CW_REAL_TO_DWORD", "J1939_DTC_MAKE", "J1939_GET_BITS", "J1939_NAME_MAKE",
              "J1939_SET_BITS"]
 
@@ -36,13 +40,12 @@ class Archive(unittest.TestCase):
         self.assertEqual(sorted(plclibrary.block_names()), BLOCKS)
         self.assertEqual(sorted(plclibrary.function_names()), FUNCTIONS)
         # Every block's source travels in the archive (the editor shows it and
-        # compiles it into the program), all ST: the PLC link blocks, the
-        # REAL helpers, the CAN_ byte and bit
-        # helpers and the J1939 value, bit and NAME helpers.
-        helpers = [f + ".st" for f in FUNCTIONS if not f.startswith("CW_")] + ["CW_REAL.st", "J1939_DTC_SPLIT.st", "J1939_NAME_SPLIT.st"]
-        self.assertEqual(sorted(s["fileName"] for s in data["sources"]),
-                         sorted(["CO_NMT.st", "CO_NODE_LIVE.st", "CO_SDO_READ.st",
-                                 "CO_SDO_WRITE.st"] + helpers))
+        # compiles it into the program), all ST, one file per block or
+        # function; CW_REAL.st holds the REAL helpers and CW_CHAR.st both
+        # character helpers.
+        expected = {n + ".st" for n in BLOCKS + FUNCTIONS if not n.startswith("CW_") or n in BLOCKS}
+        expected |= {"CW_REAL.st", "CW_CHAR.st"}
+        self.assertEqual(sorted(s["fileName"] for s in data["sources"]), sorted(expected))
 
     def test_function_parameters(self):
         # The editor asks a function call for every manifest parameter, so the
@@ -169,6 +172,24 @@ class Cli(unittest.TestCase):
     def test_library_list(self):
         code, out, _ = deploy("library", "--list", env=self.env)
         self.assertEqual((code, sorted(out.split())), (0, sorted(BLOCKS + FUNCTIONS)))
+
+    def test_library_st_sources(self):
+        # Another PLC: one .st file per source, a version header, no motion blocks.
+        d = os.path.join(self.dir, "st")
+        os.mkdir(d)
+        code, out, err = deploy("library", "--format", "st", "--out", d, env=self.env)
+        self.assertEqual(code, 0, err)
+        files = sorted(os.listdir(d))
+        self.assertIn("CO_SDO_READ_STRING.st", files)
+        self.assertIn("CW_LINK_SERVICE.st", files)
+        self.assertIn("CW_REAL.st", files)
+        self.assertFalse([f for f in files if f.startswith("CO402_")])
+        self.assertIn("wrote %d ST sources" % len(files), out)
+        with open(os.path.join(d, "CAN_SEND.st"), encoding="utf-8") as f:
+            self.assertTrue(f.readline().startswith("(* canworks library %s" % __version__))
+        code, _, err = deploy("library", "--format", "st", "--list", env=self.env)
+        self.assertEqual(code, 1)
+        self.assertIn("with --out DIR", err)
 
     def test_library_help(self):
         out = cli.library_parser().format_help()

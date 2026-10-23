@@ -3,14 +3,14 @@
  * 128 ENTER PRE-OPERATIONAL, 129 RESET NODE, 130 RESET COMMUNICATION) to
  * node NODE (0: every node) of CANopen master network NETWORK, through the
  * bridge's control block. A rising edge of EXECUTE starts it; BUSY until the
- * bridge has handled it, then DONE or ERROR with ERROR_ID (docs/plc-nmt.md):
+ * bridge has handled it, then DONE or ERROR with ERROR_ID (docs/plc-library.md):
  * 2 no answer within TIMEOUT (T#0s: 5 s), 5 refused (the bus is down or 16
  * commands wait), 6 invalid input, 20 the bridge is not reachable, 22 the
  * config has no control block. Instances share the control block: one waits
  * while another uses it.
  *)
 (*
- * LINK is the generated `canworks.link` (ARRAY[0..88] OF WORD): the
+ * LINK is the generated `canworks.link` (ARRAY[0..1279] OF WORD): the
  * bridge's blocks as canworks_in and canworks_out copy them from and to the
  * Modbus registers every scan, one word per register (high byte = the
  * bridge's even byte). Words: 0-3 status block, 4-6 control block, 7-13 SDO
@@ -34,7 +34,7 @@ VAR_OUTPUT
   ERROR_ID : UINT;
 END_VAR
 VAR_IN_OUT
-  LINK : ARRAY[0..88] OF WORD;
+  LINK : ARRAY[0..1279] OF WORD;
 END_VAR
 VAR
   me : WORD;

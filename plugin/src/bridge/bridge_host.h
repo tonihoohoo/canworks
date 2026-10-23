@@ -29,6 +29,8 @@
 #include "byte_image.h"
 #include "config.h"
 #include "engine.h"
+#include "mailbox_engine.h"
+#include "mailboxes.h"
 #include "modbus_server.h"
 
 typedef struct cJSON cJSON;
@@ -83,6 +85,8 @@ class BridgeHost {
   // With exchange_mu_ held: the newest output snapshot to the networks.
   void push_outputs();
   void enter_off(OutputState why, Clock::time_point now);
+  // The program's mailbox operations, receivers and cyclic jobs end.
+  void end_program_resources(const char* why);
   // Every data output location of the image to 0 (the blocks keep theirs).
   void clear_outputs();
   void leave_off(const char* why);
@@ -110,6 +114,9 @@ class BridgeHost {
   std::unique_ptr<OutputSupervisor> supervisor_;
   ControlBlock control_;
   std::unique_ptr<SdoBridgeRegisters> sdo_;
+  std::unique_ptr<EngineMailboxBackend> mailbox_backend_;
+  std::unique_ptr<Mailboxes> mailboxes_;
+  uint64_t first_out_version_ = 0;  // the output version before any client wrote
   Clock::time_point started_;
   Clock::time_point zero_until_{};  // "zero": the gate closes then
   bool zero_pending_ = false;

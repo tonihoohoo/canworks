@@ -288,19 +288,19 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].heartbeat_timeout_ms", "300")
         self.fill("nodes[0].status_location", "%IX10.0")
         pg.click('button[data-suggest="state"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB100'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB480'")
         for sub in range(1, 5):
             self.pick("0x7130:%d" % sub)
             pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[%d].iec_location"]' % (sub - 1))
-        # EMCY inputs: the next free word after the four temperatures (%IW102
-        # to %IW108, after the state byte), the
+        # EMCY inputs: the next free word after the four temperatures (%IW482
+        # to %IW488, after the state byte), the
         # next free byte after the state byte.
         node_tab(pg, "supervision")
         pg.click('button[data-suggest="emcy"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value !== ''")
-        self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW110")
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW490")
         pg.click('button[data-suggest="errreg"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].error_register_location\"]').value === '%IB101'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].error_register_location\"]').value === '%IB481'")
         # Defaults show where a value is left out: the CiA 301 COB-ID and the
         # EDS's own transmission type (255 for this module), in the PDO's
         # settings under its summary line.
@@ -335,11 +335,11 @@ class Page(unittest.TestCase):
         want = [e for e in load(os.path.join(RTD, "canopen_config.json"))["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"]
                 if e["index"] == "0x7130"]
         for k, e in enumerate(want):
-            e["iec_location"] = "%%IW%d" % (102 + 2 * k)  # after the state byte %IB100
+            e["iec_location"] = "%%IW%d" % (482 + 2 * k)  # after the state byte %IB480
         self.assertEqual(node["tx_pdos"][0]["entries"], want)
         self.assertEqual((node["node_id"], node["name"], node["eds"], node["status_location"], node["state_location"]),
-                         (5, "rtd", "rtd8.eds", "%IX10.0", "%IB100"))
-        self.assertEqual((node["emcy_code_location"], node["error_register_location"]), ("%IW110", "%IB101"))
+                         (5, "rtd", "rtd8.eds", "%IX10.0", "%IB480"))
+        self.assertEqual((node["emcy_code_location"], node["error_register_location"]), ("%IW490", "%IB481"))
         self.assertEqual(node["sdo"], [
             {"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": "0x1E"},
             {"index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "value": 100}])
@@ -427,8 +427,8 @@ class Page(unittest.TestCase):
         self.fill("master.sync_period_us", "10")
         self.add_node(os.path.join(RTD, "rtd8.eds"))
         tree_view(pg, "bus")
-        for key, want in (("bus_state_location", "%IB100"), ("tx_error_count_location", "%IB101"),
-                          ("rx_error_count_location", "%IB102"), ("bus_off_count_location", "%IW104")):
+        for key, want in (("bus_state_location", "%IB480"), ("tx_error_count_location", "%IB481"),
+                          ("rx_error_count_location", "%IB482"), ("bus_off_count_location", "%IW484")):
             pg.click('button[data-suggest="%s"]' % key)
             pg.wait_for_function("() => document.querySelector('input[data-path=\"master.%s\"]').value === '%s'"
                                  % (key, want))
@@ -436,7 +436,7 @@ class Page(unittest.TestCase):
         master = load(os.path.join(self.project, "canworks", "canworks.json"))["networks"][0]["master"]
         self.assertEqual((master["bus_state_location"], master["tx_error_count_location"],
                           master["rx_error_count_location"], master["bus_off_count_location"]),
-                         ("%IB100", "%IB101", "%IB102", "%IW104"))
+                         ("%IB480", "%IB481", "%IB482", "%IW484"))
 
     def test_eds_lint_import_report(self):
         pg = self.page
@@ -602,7 +602,7 @@ class Page(unittest.TestCase):
         self.add_node(os.path.join(PINGPONG, "cpp-slave.eds"))
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
         tree_view(pg, "bus")
         pg.select_option('select[data-path="adapter.type"]', "slcan")
         pg.wait_for_selector('input[data-path="adapter.device"]')
@@ -647,7 +647,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "2")
         node_tab(pg, "supervision")
         pg.click('button[data-suggest="boot_error"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].boot_error_location\"]').value === '%IB100'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].boot_error_location\"]').value === '%IB480'")
         # On the Advanced tab, open there; node-side fields show the EDS value.
         self.assertFalse(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
         node_tab(pg, "advanced")
@@ -663,12 +663,12 @@ class Page(unittest.TestCase):
         self.assertTrue(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
         node_tab(pg, "supervision")
         pg.click('button[data-suggest="state"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB101'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].state_location\"]').value === '%IB481'")
         node_tab(pg, "advanced")
         self.assertTrue(pg.is_visible('input[data-path="nodes[0].time_cob_id"]'))
         tree_view(pg, "bus")
         pg.click('button[data-suggest="state_location"]')
-        pg.wait_for_function("() => document.querySelector('input[data-path=\"master.state_location\"]').value === '%IB102'")
+        pg.wait_for_function("() => document.querySelector('input[data-path=\"master.state_location\"]').value === '%IB482'")
         pg.click('details[data-advanced="master"] > summary')
         pg.uncheck('input[data-path="master.start_nodes"]')
         self.fill("master.nmt_inhibit_time_us", "200")
@@ -680,10 +680,10 @@ class Page(unittest.TestCase):
         node, master = cfg["networks"][0]["nodes"][0], cfg["networks"][0]["master"]
         self.assertEqual((node["boot_error_location"], node["mandatory"], node["revision_number"],
                           node["error_behavior"], node["heartbeat_consumer"]),
-                         ("%IB100", True, "0x00010002", {"1": 0, "3": 2}, False))
+                         ("%IB480", True, "0x00010002", {"1": 0, "3": 2}, False))
         self.assertNotIn("time_cob_id", node)
         self.assertEqual((master["state_location"], master["start_nodes"], master["nmt_inhibit_time_us"],
-                          master["heartbeat_multiplier"], master["sdo_timeout_ms"]), ("%IB102", False, 200, 2.5, 3000))
+                          master["heartbeat_multiplier"], master["sdo_timeout_ms"]), ("%IB482", False, 200, 2.5, 3000))
         # Emptied again: nothing saved, the bridge's default applies.
         tree_view(pg, "bus")
         if not pg.is_visible('input[data-path="master.sdo_timeout_ms"]'):
@@ -1001,7 +1001,7 @@ class Page(unittest.TestCase):
         self.pick("0x4001:0")
         self.pick("0x4000:0")
         pg.wait_for_selector('input[data-path="nodes[0].rx_pdos[0].entries[0].iec_location"]')
-        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
         self.fill("nodes[0].rx_pdos[0].entries[0].iec_location", "%QD300")
         # pdo-comm.eds fixes TPDO 1's inhibit time (ro) and RPDO 1's
         # transmission type (ro, 255); RPDO 1 has a deadline (sub 5).
@@ -1043,7 +1043,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "2")
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
         self.pdo_settings("nodes[0].tx_pdos[0]")
         # Off by default. The EDS event timer is 0, so auto has nothing to use.
         self.assertEqual(pg.get_attribute('input[data-path="nodes[0].tx_pdos[0].timeout_ms"]', "placeholder"), "off")
@@ -1109,7 +1109,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "2")
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
         pg.select_option('select[data-path="nodes[0].tx_pdos[0].mapping"]', "device")
         pg.wait_for_selector('.pdo-map:has-text("0x4001:0")')
         self.save()
@@ -1125,7 +1125,7 @@ class Page(unittest.TestCase):
         self.fill("nodes[0].node_id", "2")
         self.pick("0x4001:0")
         pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
-        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID300")
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
         self.fill("nodes[0].tx_pdos[0].inhibit_time_us", "2.5")
         # cpp-slave.eds has no RPDO sub 5, so no deadline field.
         self.save()

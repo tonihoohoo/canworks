@@ -164,7 +164,8 @@ class ParamsPage(OnlineBase):
             text = copied()
             self.assertIn("rd_n%d_7130_1 : CO_SDO_READ;" % NODE, text)
             self.assertIn("NODE := %d, INDEX := 16#7130, SUBINDEX := 1" % NODE, text)
-            self.assertIn("LWORD_TO_INT(rd_n%d_7130_1.DATA)" % NODE, text)
+            self.assertIn("UDINT_TO_INT(rd_n%d_7130_1.DATA)" % NODE, text)
+            self.assertIn("LINK := canworks.link);", text)
             self.assertIn("Copied the CO_SDO_READ call", pg.inner_text("#banner"))
             # The device name (const VISIBLE_STRING) is only read, as a string.
             self.search("0x1008")
@@ -177,7 +178,7 @@ class ParamsPage(OnlineBase):
             pg.click('#modal button[data-value="write"]')
             pg.wait_for_function("() => window.__copied.length === 3")
             self.assertIn("wr_n%d_6112_3 : CO_SDO_WRITE;" % NODE, copied())
-            self.assertIn("DATA := USINT_TO_LWORD(value), SIZE := 0", copied())
+            self.assertIn("DATA := USINT_TO_UDINT(value), SIZE := 1, LINK := canworks.link", copied())
             # Any entry: no type gives CO_SDO_READ / CO_SDO_WRITE; REAL32 the REAL blocks.
             self.search("")
             pg.click('details[data-online="od-any"] > summary')

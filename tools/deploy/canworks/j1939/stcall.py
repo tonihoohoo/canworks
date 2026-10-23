@@ -83,7 +83,7 @@ def st_call(entry, kind, network=0, net_name=None):
             body.append("(* The config takes it from the ECU with NAME %s: J1939_FIND_ECU gives its address for "
                         "SOURCE. *)" % entry.get("source_name"))
         src = "SOURCE := %d, FILTER_SOURCE := TRUE, " % source if source is not None else ""
-        call = "%s(ENABLE := TRUE, %s, PGN := %d, %sRX_DATA := %s);" % (rx, net, pgn, src, data)
+        call = "%s(ENABLE := TRUE, %s, PGN := %d, %sRX_DATA := %s, LINK := canworks.link);" % (rx, net, pgn, src, data)
         body.append(call)
         body.append("WHILE %s.NEW DO" % rx)
         for j, s in enumerate(sigs):
@@ -96,7 +96,7 @@ def st_call(entry, kind, network=0, net_name=None):
         dest = source if source is not None else GLOBAL
         body.append("(* A rising edge of %s_ask requests PGN %d from %s; the answer also reaches %s. *)"
                     % (prefix, pgn, "address %d" % dest if dest != GLOBAL else "every ECU", rx))
-        body.append("%s(EXECUTE := %s_ask, %s, PGN := %d, DESTINATION := %d, DATA := %s);"
+        body.append("%s(EXECUTE := %s_ask, %s, PGN := %d, DESTINATION := %d, DATA := %s, LINK := canworks.link);"
                     % (rq, prefix, net, pgn, dest, answer))
         body.append("IF %s.DONE OR %s.ERROR THEN %s_ask := FALSE; END_IF;" % (rq, rq, prefix))
     else:
@@ -121,7 +121,8 @@ def st_call(entry, kind, network=0, net_name=None):
                 prefix, data, bits(s), sig_var(j, s), _scaling(s)))
         body += [_big_note(s, "SET") for s in big]
         body.append("(* A rising edge of %s_go sends it. *)" % prefix)
-        body.append("%s(EXECUTE := %s_go, %s, PGN := %d, DESTINATION := %d, PRIORITY := %d, LENGTH := %d, DATA := %s);"
+        body.append("%s(EXECUTE := %s_go, %s, PGN := %d, DESTINATION := %d, PRIORITY := %d, LENGTH := %d, DATA := %s, "
+                    "LINK := canworks.link);"
                     % (tx, prefix, net, pgn, dest, _int(entry.get("priority"), 6), length, data))
         body.append("IF %s.DONE OR %s.ERROR THEN %s_go := FALSE; END_IF;" % (tx, tx, prefix))
     var.append("END_VAR")

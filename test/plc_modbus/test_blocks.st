@@ -6,7 +6,7 @@
  *)
 TEST 'SDO read through the bridge registers'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     rd : CO_SDO_READ;
   END_VAR
@@ -31,7 +31,7 @@ END_TEST
 
 TEST 'two instances in one scan share the SDO registers'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     r1 : CO_SDO_READ;
     r2 : CO_SDO_READ;
@@ -59,7 +59,7 @@ END_TEST
 
 TEST 'SDO write sends the value and size'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     wr : CO_SDO_WRITE;
   END_VAR
@@ -75,7 +75,7 @@ END_TEST
 
 TEST 'bridge not reachable ends at once with 20'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     rd : CO_SDO_READ;
     nmt : CO_NMT;
   END_VAR
@@ -90,7 +90,7 @@ END_TEST
 
 TEST 'link lost while busy ends with 20 and frees the registers'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     rd : CO_SDO_READ;
   END_VAR
@@ -107,7 +107,7 @@ END_TEST
 
 TEST 'writes not allowed by the config end with 21'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     wr : CO_SDO_WRITE;
   END_VAR
@@ -124,7 +124,7 @@ END_TEST
 
 TEST 'node abort ends with 1 and the abort code'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     rd : CO_SDO_READ;
   END_VAR
@@ -139,7 +139,7 @@ END_TEST
 
 TEST 'no answer within TIMEOUT ends with 2'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     rd : CO_SDO_READ;
   END_VAR
@@ -164,7 +164,7 @@ END_TEST
 
 TEST 'invalid input and missing registers'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     rd : CO_SDO_READ;
     wr : CO_SDO_WRITE;
     nmt : CO_NMT;
@@ -184,7 +184,7 @@ END_TEST
 
 TEST 'NMT through the control block'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     nmt : CO_NMT;
   END_VAR
@@ -211,7 +211,7 @@ END_TEST
 
 TEST 'node live from the live list'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     live : CO_NODE_LIVE;
   END_VAR
   link[21] := 16#0201;

@@ -3,7 +3,9 @@ of canworks.modbusmap): the hash both sides compute, the editor's remote
 device file, the generated programs and the project changes. The ST of the
 programs is compiled and run by test/plc_modbus/run.sh."""
 
+import contextlib
 import copy
+import io
 import json
 import os
 import shutil
@@ -25,6 +27,13 @@ def load(path=EXAMPLE):
         return json.load(f)
 
 
+def plain():
+    """The example without its mailboxes: the PLC link of change 1 alone."""
+    cfg = load()
+    del cfg["bridge"]["mailboxes"]
+    return cfg
+
+
 def decls(cfg, path=EXAMPLE):
     return editorproject.declarations(cfg, path)
 
@@ -37,7 +46,7 @@ class MapHash(unittest.TestCase):
         # test/bridge/bridge_host_tests.cpp (map_hash_vectors) checks the same text.
         with open(HASH_TEXT, encoding="utf-8") as f:
             self.assertEqual(modbusmap.map_hash_text(load()), f.read())
-        self.assertEqual(modbusmap.map_hash(load()), 0xD4FDFC35)
+        self.assertEqual(modbusmap.map_hash(load()), 0xFF0EE490)
 
     def test_rename_keeps_and_move_changes_it(self):
         cfg = load()
@@ -60,7 +69,7 @@ class MapHash(unittest.TestCase):
         self.assertEqual((rows["bridge.plc_link"]["address"], rows["bridge.plc_link"]["count"]), (0, 3))
 
     def test_exports_carry_it(self):
-        cfg = load()
+        cfg = plain()
         rows = modbusmap.register_map(cfg)
         self.assertEqual(json.loads(modbusmap.to_json(cfg, rows))["map_hash"], "0xd4fdfc35")
         self.assertIn("map hash 0xd4fdfc35", modbusmap.to_st(cfg, rows))
@@ -80,7 +89,7 @@ class MapHash(unittest.TestCase):
 
 class RemoteDevice(unittest.TestCase):
     def setUp(self):
-        self.cfg = load()
+        self.cfg = plain()
         self.dev = openplcmodbus.remote_device(self.cfg, decls(self.cfg))
         self.groups = self.dev["modbusTcpConfig"]["ioGroups"]
 
@@ -160,7 +169,7 @@ class RemoteDevice(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def setUp(self):
-        self.cfg = load()
+        self.cfg = plain()
         self.decls = decls(self.cfg)
         self.in_st, self.out_st = openplcmodbus.programs(self.cfg, self.decls)
 
@@ -195,7 +204,7 @@ class Programs(unittest.TestCase):
         self.assertIn("rtd_AI0_Input_PV", names)
         link = lst["variables"][1]["type"]
         self.assertEqual(link["definition"], "array")
-        self.assertEqual(link["data"]["dimensions"], [{"dimension": "0..88"}])
+        self.assertEqual(link["data"]["dimensions"], [{"dimension": "0..1279"}])
         self.assertTrue(all(v["location"] == "" for v in lst["variables"]))
 
     def test_instances(self):
@@ -207,12 +216,103 @@ class Programs(unittest.TestCase):
         self.assertTrue(all(i["task"] == "main_task" for i in openplcmodbus.instances(resource)))
 
 
+class Mailboxes(unittest.TestCase):
+    """The example's mailboxes (add-bridge-mailboxes): one request mailbox,
+    the receive mailbox, one network's info and 4 cyclic jobs, inputs from
+    %IB66 (register 33), outputs from %QB32 (register 16)."""
+
+    def setUp(self):
+        self.cfg = load()
+        self.decls = decls(self.cfg)
+        self.groups, self.where = openplcmodbus.layout(self.cfg, self.decls)
+        self.in_st, self.out_st = openplcmodbus.programs(self.cfg, self.decls)
+
+    def test_blocks_never_cut(self):
+        blocks = [("I", 33, 72), ("I", 105, 120), ("I", 225, 18), ("I", 243, 17), ("Q", 16, 72), ("Q", 88, 3),
+                  ("Q", 91, 4)]
+        for area, first, count in blocks:
+            inside = [g for g in self.groups
+                      if g.area == area and g.first <= first and first + count <= g.first + g.count]
+            self.assertEqual(len(inside), 1, (area, first, count))
+        self.assertTrue(all(g.count <= 125 for g in self.groups))
+
+    def test_link_copies(self):
+        self.assertIn("canworks.link[89] := 16#0431;", self.in_st)
+        self.assertIn("canworks.link[216] := i33;", self.in_st)    # mailbox 0 response word 0
+        self.assertIn("canworks.link[287] := i104;", self.in_st)   # its last word
+        self.assertIn("canworks.link[720] := i105;", self.in_st)   # receive mailbox
+        self.assertIn("canworks.link[840] := i225;", self.in_st)   # network 0 info
+        self.assertIn("canworks.link[984] := i243;", self.in_st)   # cyclic job table tick
+        self.assertIn("canworks.link[1000] := i259;", self.in_st)  # its last word (4 jobs)
+        self.assertIn("q16 := canworks.link[144];", self.out_st)   # mailbox 0 request word 0
+        self.assertIn("q87 := canworks.link[215];", self.out_st)
+        self.assertIn("q88 := canworks.link[102];", self.out_st)   # receive acknowledgement
+        self.assertIn("q91 := canworks.link[128];", self.out_st)   # keepalive of job 0
+        self.assertIn("q94 := canworks.link[131];", self.out_st)
+
+    def test_flags_follow_the_counts(self):
+        cfg = load()
+        cfg["bridge"]["mailboxes"].update({"requests": 2, "receive": False, "network_info": False, "cyclic_jobs": 0})
+        in_st, out_st = openplcmodbus.programs(cfg, decls(cfg))
+        self.assertIn("canworks.link[89] := 16#0002;", in_st)
+        self.assertIn("canworks.link[360] := i105;", in_st)  # mailbox 1 response
+        self.assertNotIn("canworks.link[720]", in_st)
+
+    def test_without_mailboxes_no_flags(self):
+        in_st, _ = openplcmodbus.programs(plain(), decls(plain()))
+        self.assertNotIn("canworks.link[89]", in_st)
+
+
+class OtherPlc(unittest.TestCase):
+    """--export-modbus-map OUT.st of a PLC link config: the list, the client
+    channels and canworks_in/out over the channel variables (another Modbus
+    PLC; test/plc_modbus builds it with the library)."""
+
+    def setUp(self):
+        self.cfg = load()
+        self.text = openplcmodbus.other_plc_st(self.cfg, decls(self.cfg))
+
+    def test_list_and_channels(self):
+        self.assertIn("  link : ARRAY[0..1279] OF WORD;", self.text)
+        self.assertIn("  in_w : ARRAY[0..259] OF WORD; (* input registers 0..259, read with function 4 *)", self.text)
+        self.assertIn("  out_w : ARRAY[0..94] OF WORD;", self.text)
+        self.assertIn("function 4  registers 0..124 -> canworks.in_w[0..124]", self.text)
+        self.assertIn("function 16 registers 0..94 -> canworks.out_w[0..94]", self.text)
+        self.assertIn("global variable list named canworks", self.text)
+
+    def test_programs_over_the_channel_variables(self):
+        self.assertNotIn(" AT %", self.text)
+        self.assertIn("canworks.ok := canworks.in_w[0] = 16#FF0E AND canworks.in_w[1] = 16#E490", self.text)
+        self.assertIn("canworks.link[216] := canworks.in_w[33];", self.text)
+        self.assertIn("link_service(LINK := canworks.link);", self.text)
+        self.assertIn("canworks.out_w[16] := canworks.link[144];", self.text)
+        self.assertTrue(self.text.rstrip().endswith("canworks.out_w[0] := 1;\n\nEND_PROGRAM"))
+        self.assertIn("export the map again", self.text)
+
+    def test_cli(self):
+        from canworks import cli
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        path = os.path.join(d, "link.st")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["--config", EXAMPLE, "--export-modbus-map", path]), 0)
+        self.assertIn("canworks_in and canworks_out", out.getvalue())
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), self.text)
+
+    def test_needs_the_plc_link(self):
+        cfg = load()
+        del cfg["bridge"]["openplc"]
+        with self.assertRaises(openplcmodbus.OpenplcError):
+            openplcmodbus.other_plc_st(cfg, decls(cfg))
+
+
 class SyncProject(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         self.project = os.path.join(self.dir, "p")
         shutil.copytree(EDITOR_PROJECT, self.project)
-        self.cfg = load()
+        self.cfg = plain()
         self.decls = decls(self.cfg)
 
     def tearDown(self):

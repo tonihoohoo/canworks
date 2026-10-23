@@ -1,7 +1,7 @@
 """OpenPLC through Modbus in a real browser (add-openplc-modbus-target,
 spec canopen-configurator "Project target", "Saving an OpenPLC through
 Modbus project"): a plugin config switched with the Project page's button,
-the bridge page's OpenPLC settings, Save writing the editor files and the
+the bridge page's OpenPLC settings and Function blocks section, Save writing the editor files and the
 Project page's facts, and the question when canworks' own editor files were
 changed elsewhere. Needs Playwright, like test_configurator_page.py."""
 
@@ -48,6 +48,21 @@ class OpenplcModbusPage(OnlineBase):
         pg.fill('input[data-path="bridge.openplc.poll_ms"]', "20")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+
+        # The switch turned the function blocks' mailboxes on, placed after the data;
+        # a count change moves them, and the page says the editor needs Update declarations.
+        pg.wait_for_selector('[data-bridge-mailboxes="1"]')
+        self.assertIn("Update declarations", pg.inner_text("[data-bridge-mailbox-update]"))
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("per poll")')
+        self.assertIn("(budget 40)", pg.inner_text("[data-bridge-mailbox-cost]"))
+        pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "16")
+        pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("275 input")')
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "")
+        pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
+        self.checked()
 
         # Save writes the editor files; the Project page shows the facts.
         pg.click("#btn-save")

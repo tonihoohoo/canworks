@@ -61,6 +61,30 @@ def write(out_dir):
     return path
 
 
+def st_sources():
+    """[(file name, text)] of the library as plain ST for another IEC 61131-3
+    tool (plc-library spec, Library for other PLCs): every source of the
+    archive with a header naming the library version."""
+    out = []
+    for s in archive()["sources"]:
+        header = "(* %s library %s (canworks-deploy library --format st). *)\n" % (NAME, __version__)
+        out.append((s["fileName"], header + s["source"]))
+    return sorted(out)
+
+
+def write_st(out_dir):
+    """Writes st_sources() into out_dir; returns their paths."""
+    out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    if not os.path.isdir(out_dir):
+        raise LibraryError("%s is not a folder" % out_dir)
+    paths = []
+    for name, text in st_sources():
+        path = os.path.join(out_dir, name)
+        _write(path, text)
+        paths.append(path)
+    return paths
+
+
 def editor_user_data(environ=None, platform=None, home=None):
     """The editor's userData folder on this computer (it need not exist);
     $OPENPLC_EDITOR_USER_DATA overrides it."""

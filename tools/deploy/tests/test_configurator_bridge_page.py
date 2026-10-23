@@ -155,6 +155,40 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page")
 
+    def test_function_blocks_section(self):
+        """The Function blocks section (add-bridge-mailboxes): off for a
+        plain bridge; on, Suggest places both areas after the data; the
+        cost line and which blocks need which part; a count change keeps
+        the places for another client."""
+        pg = self.page
+        self.open()
+        self.to_bridge()
+        tree_view(pg, "bridge")
+        pg.wait_for_selector('[data-bridge-mailboxes="0"]')
+        pg.check('input[data-path="bridge.mailboxes"]')
+        pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes"),
+                         {"input_location": "%IB24", "output_location": "%QB6"})
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        cost = pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("input")')
+        # 72 response + 120 receive + 18 info + 17 cyclic table; 72 request + 3 ack + 4 keepalives.
+        self.assertEqual(cost.inner_text(), "The blocks take 227 input and 79 holding registers.")
+        needs = pg.inner_text('[data-bridge-mailbox-needs]')
+        self.assertIn("CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY", needs)
+        self.assertEqual(pg.locator("[data-bridge-mailbox-update]").count(), 0)  # OpenPLC only
+        pg.fill('input[data-path="bridge.mailboxes.requests"]', "2")
+        pg.uncheck('input[data-path="bridge.mailboxes.receive"]')
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("179 input")')
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes.input_location"), "%IB24")
+        pg.wait_for_selector('#bridge-map tr[data-bridge-row="bridge.mailbox.1.response"]')
+        pg.click("#btn-save")
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        self.assertEqual(load(self.config_path)["bridge"]["mailboxes"],
+                         {"input_location": "%IB24", "output_location": "%QB6", "requests": 2, "receive": False})
+        self.assertEqual(pg.evaluate(FIT_CHECK), [])
+        audit(pg, "Modbus bridge page with function blocks")
+
     def test_example_live_list_follows_the_network(self):
         """The example as it is: defaults written out show as the default,
         a network rename carries the live list along, a removal takes it."""

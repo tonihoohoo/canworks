@@ -143,6 +143,7 @@ add_library(canworks_bridge_proto STATIC
     src/bridge/modbus_server.cpp
     src/bridge/address_list.cpp
     src/bridge/bridge_blocks.cpp
+    src/bridge/mailboxes.cpp
 )
 target_include_directories(canworks_bridge_proto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge)
 target_compile_options(canworks_bridge_proto PRIVATE -Wall -Wextra -Wno-unused-parameter)
@@ -206,6 +207,7 @@ endif()
 add_executable(canworks-bridge
     src/bridge/bridge_host.cpp
     src/bridge/bridge_main.cpp
+    src/bridge/mailbox_engine.cpp
 )
 target_compile_definitions(canworks-bridge PRIVATE CANWORKS_VERSION="${CANWORKS_VERSION}")
 target_compile_options(canworks-bridge PRIVATE -Wall -Wextra -Wno-unused-parameter)

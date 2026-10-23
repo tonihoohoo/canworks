@@ -165,6 +165,7 @@ function renderBridge(view) {
           (openplc ? " The CO_NMT block uses it." : "")))),
     bridgeLiveLists(b),
     bridgeSdo(b),
+    bridgeMailboxes(b, openplc),
     el("h3", null, "Register map"),
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { bridge: "pack" }, title: "Every location packed densely from byte 0: data, then status, then the bridge blocks",
@@ -239,6 +240,82 @@ function bridgeSdo(b) {
       checkbox("Clients may write", "bridge.sdo_bridge_write", false, "On: an SDO write through the bridge is allowed; off, it ends aborted.")) : null);
 }
 
+// The function blocks' mailboxes (modbus-bridge-mailboxes; docs/plc-library.md):
+// a switch, the counts, the two areas with Suggest, what they cost and which
+// blocks need which part. For OpenPLC a count change moves both areas to a
+// free place at once; another client keeps its places until Suggest.
+const BRIDGE_MAILBOX_NEEDS = [
+  ["Request mailboxes", "the SDO blocks (CO_SDO_READ_BYTES, CO_SDO_READ_STRING, ...), CAN_SEND, CAN_SEND_CYCLIC, J1939_SEND, J1939_REQUEST, J1939_FIND_ECU, J1939_DM_READ and J1939_DM_CLEAR"],
+  ["Receive mailbox", "CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY"],
+  ["Cyclic jobs", "CAN_SEND_CYCLIC, one job per running block"],
+  ["Network info", "CAN_BUS_INFO and J1939_ECU_INFO"],
+];
+
+async function bridgeMailboxPlace(b) {
+  try {
+    b.mailboxes.input_location = await bridgeSuggested("mailbox_input");
+    b.mailboxes.output_location = await bridgeSuggested("mailbox_output");
+  } catch (e) { banner(e.message, true); }
+}
+
+function bridgeMailboxes(b, openplc) {
+  const on = el("input", { type: "checkbox", dataset: { path: "bridge.mailboxes" } });
+  on.checked = !!b.mailboxes;
+  on.addEventListener("change", async () => {
+    if (on.checked) {
+      b.mailboxes = {};
+      await bridgeMailboxPlace(b);
+    } else {
+      delete b.mailboxes;
+    }
+    changed(true);
+  });
+  const mb = b.mailboxes;
+  // A count change: OpenPLC's areas move to a free place right away.
+  const count = (f) => {
+    if (!openplc) return f;
+    f.querySelector("input").addEventListener("change", () => bridgeMailboxPlace(b).then(() => changed(true)));
+    return f;
+  };
+  const box = (label, key, help) => {
+    const f = checkbox(label, `bridge.mailboxes.${key}`, true, help);
+    if (openplc) f.querySelector("input").addEventListener("change", () => bridgeMailboxPlace(b).then(() => changed(true)));
+    return f;
+  };
+  return el("fieldset", { dataset: { bridgeMailboxes: mb ? "1" : "0" } }, el("legend", null, "Function blocks"),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Mailboxes for the canworks function blocks"),
+      hint("The PLC library's blocks for long SDO objects, raw CAN frames, J1939 and EMCY talk to the bridge through these registers. " +
+        (openplc ? "New OpenPLC configs start with them on." : "Default: off.")),
+      el("span", { class: "field-msg", dataset: { for: "bridge.mailboxes" } })),
+    mb ? [
+      el("div", { class: "grid" },
+        count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
+          hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks, and no receiver can be opened." })),
+        box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers."),
+        count(field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
+          hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." })),
+        box("Network info", "network_info", "Bus state and error counters of each network (up to 8): 18 input registers per network."),
+        bridgeLocation("Input area", "bridge.mailboxes.input_location", "mailbox_input", undefined, "%IB…", "Where the responses, the receive mailbox, network info and the cyclic job table start."),
+        bridgeLocation("Output area", "bridge.mailboxes.output_location", "mailbox_output", undefined, "%QB…", "Where the requests, the receive acknowledgement and the keepalives start.")),
+      el("p", { class: "muted", id: "bridge-mailbox-cost", dataset: { bridgeMailboxCost: "1" } }, bridgeMailboxCost()),
+      el("table", { class: "od", dataset: { bridgeMailboxNeeds: "1" } }, el("tbody", null,
+        BRIDGE_MAILBOX_NEEDS.map(([part, who]) => el("tr", null, el("th", null, part), el("td", null, who))))),
+      openplc ? notice("info", "A change here changes the map hash: the editor project needs Update declarations (Save does it in a project opened here) and a new Build before the blocks work.",
+        { live: false, dataset: { bridgeMailboxUpdate: "1" } }) : null,
+    ] : null);
+}
+
+// The cost line of the Function blocks section, from the last register map.
+function bridgeMailboxCost() {
+  const r = S.bridgeMap;
+  if (!r || !r.mailboxes) return "";
+  const m = r.mailboxes;
+  const regs = `The blocks take ${m.input_registers} input and ${m.output_registers} holding registers.`;
+  if (projectTarget() !== "openplc_modbus") return regs;
+  return regs + ` The whole map needs ${r.requests} Modbus request${r.requests === 1 ? "" : "s"} per poll` +
+    (r.requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with.` : ` (budget ${r.request_budget}).`);
+}
+
 // -- register map ---------------------------------------------------------------
 
 async function bridgeRefreshMap() {
@@ -265,6 +342,8 @@ function bridgeFillMap() {
   const host = $("#bridge-map");
   if (!host || !S.bridgeMap) return;
   const r = S.bridgeMap;
+  const cost = $("#bridge-mailbox-cost");
+  if (cost) cost.textContent = bridgeMailboxCost();
   // A refresh while the filter is being typed in keeps it focused.
   const old = host.querySelector('[data-bridge="filter"]');
   const typing = old && document.activeElement === old ? old.selectionStart : null;
