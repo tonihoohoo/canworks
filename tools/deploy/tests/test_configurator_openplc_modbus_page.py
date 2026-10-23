@@ -42,7 +42,8 @@ class OpenplcModbusPage(OnlineBase):
         # The bridge page: OpenPLC's poll and names, no server or client settings.
         pg.wait_for_selector("#tree #nav-bridge")
         tree_view(pg, "bridge")
-        pg.wait_for_selector("h2:has-text('Modbus bridge for OpenPLC')")
+        pg.wait_for_selector("h2:has-text('Modbus bridge')")
+        self.assertIn("OpenPLC's Modbus master reads and writes these registers", pg.inner_text("#view"))
         self.assertTrue(pg.is_visible('[data-bridge-openplc] input[data-path="bridge.openplc.poll_ms"]'))
         self.assertEqual(pg.locator('input[data-path="bridge.listen"]').count(), 0)
         self.assertEqual(pg.locator('input[data-path="bridge.writers"]').count(), 0)
@@ -76,11 +77,24 @@ class OpenplcModbusPage(OnlineBase):
         self.assertTrue(os.path.isfile(os.path.join(programs, "canworks_in.st")))
         self.assertTrue(os.path.isfile(os.path.join(programs, "canworks_out.st")))
         self.assertEqual(load(self.config_path)["bridge"]["openplc"], {"poll_ms": 20})
-        tree_view(pg, "project")
-        facts = pg.inner_text("[data-openplc-facts]")
+        # The facts are on the bridge page, next to the poll; the Project page has
+        # the editor project and what Save writes into it.
+        tree_view(pg, "bridge")
+        facts = pg.inner_text("[data-bridge-openplc] [data-openplc-facts]")
         self.assertIn("every 20 ms", facts)
         self.assertIn("127.0.0.1:1502", facts)
-        self.assertIn("devices/remote/canworks.json", facts)
+        tree_view(pg, "project")
+        editor = pg.inner_text('[data-editor-project="project"]')
+        self.assertIn("devices/remote/canworks.json", editor)
+        self.assertEqual(pg.locator("[data-openplc-facts]").count(), 0)
+
+        # Export: the register map files and the PLC link for another PLC; no
+        # Node-RED flow (OpenPLC is the only writer).
+        pg.click("#menu-export > summary")
+        shown = pg.eval_on_selector_all("#menu-export [data-export-program]", "bs => bs.filter(b => !b.hidden).map(b => b.dataset.exportProgram)")
+        self.assertEqual(shown, ["csv", "json", "st"])
+        self.assertEqual(pg.inner_text("#btn-export-map-st"), "ST for another PLC")
+        pg.click("#menu-export > summary")
 
         # canworks_in.st changed in the editor: Save asks before writing it again.
         changed = os.path.join(programs, "canworks_in.st")

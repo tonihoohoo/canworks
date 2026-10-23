@@ -15,7 +15,7 @@
 
 ## Export and import the flow
 
-In the configurator, open the bridge page and press **Export Node-RED flow**: it downloads `<folder>_node-red.json`. From the command line:
+In the configurator, pick **Export → Node-RED flow**: it downloads `<folder>_node-red.json`. From the command line:
 
 ```sh
 canworks-deploy --config canworks.json --export-nodered line1_node-red.json

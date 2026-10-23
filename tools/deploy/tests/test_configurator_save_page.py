@@ -11,7 +11,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, new_config, node_tab, tmpdir, tree_node, add_node
+from .helpers import REPO, export_program, new_config, node_tab, tmpdir, tree_node, add_node
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 TWO = os.path.join(REPO, "config", "two-networks")
@@ -165,8 +165,7 @@ class SaveAnytime(unittest.TestCase):
         cfg.pop("bridge", None)
         cfg["codesys"] = {}
         self.open(cfg)
-        pg.click("#menu-target > summary")
-        pg.click("#btn-codesys-download")
+        export_program(pg, "codesys")
         pg.wait_for_selector("[data-handoff-refused]")
         self.assertIn("The saved config has 1 error", pg.inner_text("[data-handoff-refused]"))
         pg.click("[data-handoff-refused] [data-open-problems]")

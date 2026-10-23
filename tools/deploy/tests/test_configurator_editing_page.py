@@ -14,7 +14,7 @@ import unittest
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tmpdir, tree_node, new_config, header_action, tool_tab
+from .helpers import REPO, editor_project_action, tmpdir, tree_node, new_config, header_action, tool_tab
 from .test_configurator_page import REQUIRED, load, sync_playwright
 
 PLANT = os.path.join(REPO, "examples", "virtual-plant")
@@ -212,8 +212,7 @@ class ProjectFiles(Base):
         with open(os.path.join(project, "project.json"), "w") as f:
             json.dump({"meta": {"name": "target"}}, f)
         self.open(folder)
-        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-        pg.click("#btn-move")
+        editor_project_action(pg, "move")
         pg.fill("#modal-extra input", project)
         self.answer("move")
         pg.wait_for_selector("#modal-text:has-text('already has a canworks/ folder')")

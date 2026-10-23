@@ -14,7 +14,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, back_to_nodes, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
+from .helpers import REPO, back_to_nodes, editor_project_action, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -332,7 +332,7 @@ class Layout(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
-        # An OpenPLC through Modbus config: its standalone header offers New editor project.
+        # An OpenPLC config: its standalone Project page offers New editor project.
         with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
             cfg = srv.Session().switch_target(json.load(f), "openplc_modbus")["config"]
         with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
@@ -343,14 +343,16 @@ class Layout(OnlineBase):
             pg.click("#start-open")
             pg.fill("[data-folder=path]", folder)
             pg.click("[data-folder=dialog] [data-value=use]")
-            pg.wait_for_selector("#menu-project:not([hidden])")
+            pg.wait_for_selector("#editor:not([hidden])")
             self.fits("standalone header at %d" % width)
             # The header's actions are on one line.
             tops = pg.eval_on_selector_all("#actions > *:not([hidden])", "es => es.map(e => Math.round(e.getBoundingClientRect().top))")
             self.assertEqual(len(set(tops)), 1, tops)
-            pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-            self.fits("project menu at %d" % width)
-            pg.click("#btn-new-project")
+            pg.click("#menu-export > summary")
+            self.fits("export menu at %d" % width)
+            self.assertGreaterEqual(pg.locator("#menu-export > .menu-panel").bounding_box()["x"], 0)
+            pg.click("#menu-export > summary")
+            editor_project_action(pg, "new")
             pg.wait_for_selector("#modal[open]")
             self.fits("new project dialog at %d" % width)
             # The SDO blocks box sits on one line with its label.
@@ -358,6 +360,45 @@ class Layout(OnlineBase):
             label = pg.locator('#modal-extra label:has-text("Enable the canworks function blocks")').bounding_box()
             self.assertLess(abs((box["y"] + box["height"] / 2) - (label["y"] + label["height"] / 2)), 8)
             pg.click("#modal-buttons button[data-value=cancel]")
+            header_action(pg, "#btn-close")
+            pg.wait_for_selector("#start:not([hidden])")
+
+    def test_header_one_row_with_simulation(self):
+        """tidy-targets-and-exports: an OpenPLC config with a simulated network keeps
+        the header on one row from 1280 px (the chip shrinks to "Simulated"), and
+        every header menu opens inside the window."""
+        pg = self.page
+        folder = os.path.join(self.dir, "simulated")
+        os.makedirs(folder)
+        shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
+        with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
+            cfg = srv.Session().switch_target(json.load(f), "openplc_modbus")["config"]
+        cfg["networks"][0].setdefault("adapter", {})["simulate"] = True
+        with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        for width in (1280, 1440, 1600):
+            pg.set_viewport_size({"width": width, "height": 800})
+            pg.goto(self.server.url)
+            pg.click("#start-open")
+            pg.fill("[data-folder=path]", folder)
+            pg.click("[data-folder=dialog] [data-value=use]")
+            pg.wait_for_selector("#sim-banner:not([hidden])")
+            rows = pg.evaluate("""() => {
+              const row = document.querySelector("header .top-row");
+              const parts = [...row.children, ...document.querySelector("#actions").children]
+                .filter((e) => e.id !== "actions" && e.offsetParent !== null).map((e) => e.getBoundingClientRect()).filter((r) => r.height);
+              return Math.max(...parts.map((r) => r.top)) < Math.min(...parts.map((r) => r.bottom));
+            }""")
+            self.assertTrue(rows, "header wraps at %d" % width)
+            self.assertTrue(pg.is_visible("#btn-bridge-install"))
+            for menu in ("#menu-export", "#menu-more"):
+                if not pg.is_visible(menu):
+                    continue
+                pg.click(menu + " > summary")
+                box = pg.locator(menu + " > .menu-panel").bounding_box()
+                self.assertGreaterEqual(box["x"], 0, "%s at %d" % (menu, width))
+                self.assertLessEqual(box["x"] + box["width"], width, "%s at %d" % (menu, width))
+                pg.click(menu + " > summary")
             header_action(pg, "#btn-close")
             pg.wait_for_selector("#start:not([hidden])")
 

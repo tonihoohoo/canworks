@@ -171,6 +171,8 @@ function wireShell() {
   });
   // The header wraps (tool tabs, connection bar): the sticky parts under it follow its height.
   new ResizeObserver(() => document.documentElement.style.setProperty("--header-h", $("#top").offsetHeight + "px")).observe($("#top"));
+  // A chip or name that grows later (the simulation chip, the folder's name) would wrap the top row.
+  new ResizeObserver(() => { if (!document.body.classList.contains("header-tight")) fitHeaderRow(); }).observe($("header .top-row"));
   // The simulation banner and the message bar stay under it (consistent-message-bars).
   new ResizeObserver(() => document.documentElement.style.setProperty("--bars-h", $("#page-bars").offsetHeight + "px")).observe($("#page-bars"));
   // The bottom panel and status bar cover the end of the window: scrolling keeps fields out from under them.
@@ -216,5 +218,21 @@ function fitHeaderMore() {
       if (e.tagName === "BUTTON") e.classList.remove("item");
     }
   }
+  fitHeaderRow();
 }
 HEADER_NARROW.addEventListener("change", fitHeaderMore);
+
+// The header stays one row (canopen-configurator "Header target action"):
+// when it would wrap, the simulation chip shows only "Simulated", its full
+// text staying in the tooltip and Details, and the folder's name gives up
+// the room it still needs.
+function fitHeaderRow() {
+  const row = $("header .top-row");
+  if (!row) return;
+  document.body.classList.remove("header-tight");
+  const actions = $("#actions");
+  const parts = [...row.children, ...(actions ? actions.children : [])].filter((e) => e !== actions && e.offsetParent !== null)
+    .map((e) => e.getBoundingClientRect()).filter((r) => r.height);
+  if (parts.length > 1 && Math.max(...parts.map((r) => r.top)) >= Math.min(...parts.map((r) => r.bottom))) document.body.classList.add("header-tight");
+}
+window.addEventListener("resize", fitHeaderRow);

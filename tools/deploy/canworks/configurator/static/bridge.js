@@ -116,7 +116,8 @@ function bridgeServerFields() {
 function bridgeOpenplcFields() {
   return [
     el("fieldset", { dataset: { bridgeOpenplc: "1" } }, el("legend", null, "OpenPLC"),
-      el("p", { class: "muted" }, "OpenPLC's own Modbus master reads and writes these registers on 127.0.0.1. Save writes its remote device, the canworks_in and canworks_out programs and the canworks variable list into the editor project. 32- and 64-bit values are low word first, as OpenPLC reads them."),
+      el("p", { class: "muted" }, "Save writes OpenPLC's remote device, the canworks_in and canworks_out programs and the canworks variable list into the editor project (see the Project page). 32- and 64-bit values are low word first, as OpenPLC reads them."),
+      openplcFacts(),
       el("div", { class: "grid" },
         field("Poll (ms)", "bridge.openplc.poll_ms", "int", { placeholder: "10",
           hint: "How often OpenPLC reads and writes the registers, 5 to 1000 ms. Each poll takes one Modbus request per register group." }),
@@ -145,8 +146,9 @@ function bridgeLossChoice() {
 function renderBridge(view) {
   const b = S.model.top.bridge;
   const openplc = projectTarget() === "openplc_modbus";
-  view.append(el("h2", null, openplc ? "Modbus bridge for OpenPLC" : "Modbus bridge"),
-    el("p", { class: "muted" }, "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
+  view.append(el("h2", null, "Modbus bridge"),
+    el("p", { class: "muted" }, (openplc ? "OpenPLC's Modbus master reads and writes these registers on 127.0.0.1. " : "") +
+      "canworks-bridge runs the networks of this config and serves every located value as a Modbus TCP register. " +
       "Input byte n is input register n/2 (even n the high byte), %IXn.b discrete input n·8+b; outputs are holding registers and coils the same way." +
       (openplc ? " Input bytes 0-11 hold the map hash and the status block, output bytes 0-5 the PLC link header (running, map hash): the bridge takes no output from a PLC whose map differs." : "")),
     el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { bridge: "install-device" },
@@ -170,11 +172,7 @@ function renderBridge(view) {
     el("div", { class: "toolbar" },
       el("button", { type: "button", dataset: { bridge: "pack" }, title: "Every location packed densely from byte 0: data, then status, then the bridge blocks",
         onclick: (e) => busy(e.currentTarget, "Packing…", bridgePack) }, "Pack for Modbus"),
-      ...[["csv", "Export CSV"], ["json", "Export JSON"], ["st", "Export ST variables"]].map(([fmt, label]) =>
-        el("button", { type: "button", dataset: { bridgeExport: fmt }, onclick: (e) => busy(e.currentTarget, "Exporting…", () => bridgeExport(fmt)) }, label)),
-      el("button", { type: "button", dataset: { bridgeExport: "nodered" },
-        title: "A Node-RED flow (needs node-red-contrib-modbus) that reads and writes these values by name through the bridge",
-        onclick: (e) => busy(e.currentTarget, "Exporting…", () => bridgeExport("nodered")) }, "Export Node-RED flow")),
+      el("span", { class: "muted", dataset: { bridgeExportsHint: "1" } }, "Export ▾ → For the program has the register map files.")),
     el("div", { id: "bridge-map" }, el("p", { class: "muted" }, "Loading the register map…")));
   bridgeRefreshMap();
 }

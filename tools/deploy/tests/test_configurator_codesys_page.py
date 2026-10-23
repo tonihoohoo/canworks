@@ -19,7 +19,7 @@ from canworks.codesys import plan as cplan
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tree_node, tree_view, new_config, add_node
+from .helpers import REPO, export_program, tree_node, tree_view, new_config, add_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import LINT, load
 
@@ -101,11 +101,15 @@ class CodesysPage(OnlineBase):
         self.assertEqual(pg.locator('#view [data-section="online"]').count(), 0)
         tree_view(pg, "bus")
         self.assertFalse(pg.is_visible('#tool-tabs [data-view="declarations"]'))
-        # The header: Build and Download, no editor project actions.
+        # The header: Build with no ▾; Download in Export ▾ → For the program, alone;
+        # no editor project section and no Copy as ST call (no canworks blocks in CODESYS).
         self.assertTrue(pg.is_visible("#btn-codesys-build"))
-        pg.click("#menu-target > summary")
-        self.assertTrue(pg.is_visible("#btn-codesys-download"))
-        pg.click("#menu-target > summary")
+        self.assertEqual(pg.locator("#menu-target, #menu-project").count(), 0)
+        pg.click("#menu-export > summary")
+        shown = pg.eval_on_selector_all("#menu-export [data-export-program]", "bs => bs.filter(b => !b.hidden).map(b => b.dataset.exportProgram)")
+        self.assertEqual(shown, ["codesys"])
+        pg.click("#menu-export > summary")
+        self.assertFalse(pg.evaluate("() => stCallsShown()"))
         # The node's PDOs: a Variable column with the names, no PLC location column.
         tree_node(pg, 1, "pdos")
         pg.wait_for_selector('input[data-path="nodes[1].tx_pdos[0].entries[0].name"]')
@@ -131,8 +135,7 @@ class CodesysPage(OnlineBase):
         self.assertNotIn("bridge", saved)
         # Download for CODESYS: the zip, nothing written to the folder.
         with pg.expect_download() as dl:
-            pg.click("#menu-target > summary")
-            pg.click("#btn-codesys-download")
+            export_program(pg, "codesys")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
         # Back to OpenPLC: every entry gets a location, the names stay.
         tree_view(pg, "project")

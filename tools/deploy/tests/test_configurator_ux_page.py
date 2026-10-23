@@ -15,7 +15,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, browse_eds, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
+from .helpers import PINGPONG, editor_project_action, browse_eds, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -159,7 +159,6 @@ class Probes(Layout):
         pg.wait_for_selector('#view [data-nodes="not-connected"]')
         pg.wait_for_selector('#tool-tabs button[data-view="nodes"][aria-selected="true"]')
         self.assertTrue(pg.is_hidden("#ws"))
-        self.assertTrue(pg.is_hidden("#menu-project"))
         self.assertTrue(pg.is_hidden("#menu-export"))
         self.assertTrue(pg.is_hidden("#btn-save"))
         self.assertFalse(pg.evaluate("() => !!document.querySelector('#btn-reload').offsetParent"))
@@ -448,7 +447,7 @@ class Probes(Layout):
         pg.focus("#menu-export > summary")
         pg.keyboard.press("Enter")
         pg.wait_for_selector("#menu-export[open]")
-        for _ in range(8):
+        for _ in range(20):
             pg.keyboard.press("Tab")
             if pg.evaluate("() => !document.querySelector('#menu-export').contains(document.activeElement)"):
                 break
@@ -713,9 +712,8 @@ class CleanProject(OnlineBase):
         pg.click("#start-open")
         pg.fill("[data-folder=path]", folder)
         pg.click("[data-folder=dialog] [data-value=use]")
-        pg.wait_for_selector("#menu-project:not([hidden])")
-        pg.evaluate("() => { document.querySelector('#menu-project').open = true; }")
-        pg.click("#btn-new-project")
+        pg.wait_for_selector("#editor:not([hidden])")
+        editor_project_action(pg, "new")
         pg.wait_for_selector("#modal[open]")
         self.assertEqual(pg.evaluate("() => document.activeElement.getAttribute('aria-label')"), "Parent folder")
         labels = [b.text_content().strip() for b in pg.query_selector_all("#modal-buttons button")]

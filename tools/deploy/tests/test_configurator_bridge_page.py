@@ -14,7 +14,7 @@ import shutil
 from canworks import modbusmap, nodered
 from canworks.configurator import server as srv
 
-from .helpers import REPO, tree_view
+from .helpers import REPO, export_program, tree_view
 from .test_configurator_layout import FIT_CHECK, audit
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import load
@@ -111,20 +111,23 @@ class BridgePage(OnlineBase):
                                            "max_clients_per_address": 2,
                                            "live_lists": [{"network": "field", "location": "%IB24"}]})
 
-        # Export ST variables: the file canworks-deploy --export-modbus-map map.st writes.
+        # Export ▾ → ST variables: the file canworks-deploy --export-modbus-map map.st writes.
+        # The bridge page has no export buttons, only the line pointing to Export.
         tree_view(pg, "bridge")
         pg.wait_for_selector('#bridge-map tr[data-bridge-row]')
+        self.assertEqual(pg.locator("#view [data-bridge-export]").count(), 0)
+        self.assertTrue(pg.is_visible("[data-bridge-exports-hint]"))
         with pg.expect_download() as dl:
-            pg.click('button[data-bridge-export="st"]')
+            export_program(pg, "st")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_modbus.st")
         with open(dl.value.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), modbusmap.to_st(saved, modbusmap.register_map(saved)))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor_modbus.st')")
 
-        # Export Node-RED flow: the file canworks-deploy --export-nodered rtd-monitor_node-red.json writes,
+        # Export ▾ → Node-RED flow: the file canworks-deploy --export-nodered rtd-monitor_node-red.json writes,
         # with the note that the writers have no loopback address.
         with pg.expect_download() as dl:
-            pg.click('button[data-bridge-export="nodered"]')
+            export_program(pg, "nodered")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_node-red.json")
         with open(dl.value.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), nodered.to_json(nodered.flow(saved, "rtd-monitor")[0]))
@@ -140,7 +143,7 @@ class BridgePage(OnlineBase):
                 { headers: { 'Content-Type': 'application/json' } }))
             : f(u, o);
         }""")
-        pg.click('button[data-bridge-export="csv"]')
+        export_program(pg, "csv")
         pg.wait_for_selector("#problems-bars .notice-error:has-text('Register map export stopped')")
         self.assertTrue(pg.is_hidden("#banner"))
         texts = pg.eval_on_selector_all("#problem-list li", "ls => ls.map((l) => l.textContent)")

@@ -54,7 +54,7 @@ The configurator runs in the background and stops when its tab is closed (**Quit
 
 ## 3. Exports
 
-From the configurator's **Export** menu in the header (**All DCFs**, **DBC**, **Documentation**) and `cell` → **Bus** → **Export EDS**, or from a terminal in the project folder:
+From the configurator's **Export** menu in the header (**Network files**: **All DCFs**, **DBC**, **Documentation**; **For the program**: the register map files and **ST for another PLC**) and `cell` → **Bus** → **Export EDS**, or from a terminal in the project folder:
 
 ```sh
 canworks-deploy --export-html plant.html --config canworks/canworks.json      # network documentation

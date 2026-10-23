@@ -19,7 +19,7 @@ BRIDGE, CODESYS, OPENPLC_MODBUS = "bridge", "codesys", "openplc_modbus"
 TARGETS = (BRIDGE, CODESYS, OPENPLC_MODBUS)
 # Not a target: a config of the removed OpenPLC plugin (no marker).
 PLUGIN = "plugin"
-LABELS = {BRIDGE: "the Modbus bridge", CODESYS: "CODESYS", OPENPLC_MODBUS: "OpenPLC through Modbus",
+LABELS = {BRIDGE: "the Modbus bridge", CODESYS: "CODESYS", OPENPLC_MODBUS: "OpenPLC",
           PLUGIN: "the removed OpenPLC plugin"}
 TITLES = {BRIDGE: "Modbus bridge", CODESYS: "CODESYS", OPENPLC_MODBUS: "OpenPLC", PLUGIN: "OpenPLC plugin (removed)"}
 # Targets whose networks canworks-bridge runs.
@@ -118,6 +118,8 @@ ROWS = [
     ("ui:bridge", frozenset((BRIDGE, OPENPLC_MODBUS)), {CODESYS: ""}, ()),
     ("ui:openplc_modbus", frozenset((OPENPLC_MODBUS,)), {BRIDGE: "", CODESYS: ""}, ()),
     ("ui:codesys", frozenset((CODESYS,)), {BRIDGE: "", OPENPLC_MODBUS: ""}, ()),
+    # Copy as ST call: the canworks blocks exist only in a bridge client's program.
+    ("ui:st_calls", _RUNTIME, {CODESYS: ""}, ()),
 ]
 
 _BY_KEY = {r[0]: r for r in ROWS}
