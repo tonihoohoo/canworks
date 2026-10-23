@@ -11,4 +11,4 @@
 
 ## 3. Hardware
 
-- [ ] 3.1 On the Linux device with node 23: a config with `watchdog_ms` 500 run with truST for 60 s gives no watchdog off/on lines in the bridge log while truST runs, and outputs off once when it stops
+- [x] 3.1 On the Linux device with node 23: a config with `watchdog_ms` 500 run with truST for 60 s gives no watchdog off/on lines in the bridge log while truST runs, and outputs off once when it stops (2026-10-23: 60 s with truST 0.24.75 and node 23: one outputs-on at the first write, no watchdog off while truST ran (472 with 50 ms), one off when it stopped; about 123 ms per scan; SDO and string reads 170 each)
