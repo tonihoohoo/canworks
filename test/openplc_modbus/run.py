@@ -21,7 +21,8 @@ that image (the header canworks_out writes, the values) and checks:
    SDO read through the PLC link's SDO registers reads it from the node;
 3. the function blocks' mailboxes: an SDO read through a request mailbox
    and a CAN receiver's frames in the receive mailbox, written and read as
-   the library's blocks do;
+   the library's blocks do, and a 1024-byte SDO read (a long string the test
+   adds to the digital node) in its first 128 bytes and FETCHes;
 4. the PLC stops as the runtime stops it (%Q zeroed for one more round,
    then the plugin's threads stop): with on_client_loss "hold" the node
    keeps the last real output, not the zeros;
@@ -53,6 +54,7 @@ from canworks import editorproject, modbusmap, openplcmodbus  # noqa: E402
 from canworks.configurator import server as srv  # noqa: E402
 
 IEC_BASE = 100
+LONG_TEXT = "".join(chr(0x41 + i % 26) for i in range(1024))
 FAILS = []
 
 
@@ -201,6 +203,15 @@ def main():
         print("== config", flush=True)
         for name in ("rtd8.eds", "dio16.eds", "simulation.json"):
             shutil.copy(os.path.join(EXAMPLE, name), work)
+        # A 1024-byte string on the digital node for the long SDO read.
+        with open(os.path.join(work, "dio16.eds"), encoding="utf-8") as f:
+            eds = f.read()
+        eds = eds.replace("[ManufacturerObjects]\nSupportedObjects=2\n",
+                          "[ManufacturerObjects]\nSupportedObjects=3\n3=0x2100\n", 1)
+        eds += ("\n[2100]\nParameterName=Long text\nObjectType=0x7\nDataType=0x0009\nAccessType=ro\n"
+                "DefaultValue=%s\nPDOMapping=0\n" % LONG_TEXT)
+        with open(os.path.join(work, "dio16.eds"), "w", encoding="utf-8") as f:
+            f.write(eds)
         with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         del cfg["bridge"]
@@ -297,10 +308,34 @@ def main():
         size = plc.get(rsp + 2) << 16 | plc.get(rsp + 3)
         check((plc.get(rsp + 1), size, plc.get(rsp + 8) >> 8) == (0x0200, 1, 0x5A),
               "it reads the output byte from the node (size %d, first byte %#x)" % (size, plc.get(rsp + 8) >> 8))
+        # SDO_READ of the 1024-byte string (node 6 0x2100:0): its first 128
+        # bytes in the answer, the rest in FETCHes (op 2, offset in A0).
+        def text(n):
+            return "".join(chr(plc.byte(2 * (rsp + 8) + i)) for i in range(n))
+
+        plc.put({req: 3, req + 1: 0x0300, req + 2: 0x0600, req + 3: 0x2100, req + 4: 0x0300, req + 5: 2000,
+                 req + 6: 0, req + 7: 0})
+        t0 = time.monotonic()
+        check(wait(lambda: plc.get(rsp) == 3 and plc.get(rsp + 1) >> 8 >= 2),
+              "a 1024-byte SDO read through the request mailbox ends (state %d, ERROR_ID %d)"
+              % (plc.get(rsp + 1) >> 8, plc.get(rsp + 1) & 0xFF))
+        took = time.monotonic() - t0
+        size = plc.get(rsp + 2) << 16 | plc.get(rsp + 3)
+        got = text(128)
+        call = 3
+        for offset in range(128, 1024, 128):
+            call += 1
+            plc.put({req: call, req + 1: 0x0200, req + 2: offset})
+            wait(lambda: plc.get(rsp) == call and plc.get(rsp + 1) >> 8 >= 2)
+            got += text(128)
+        check((plc.get(rsp + 1), size, got) == (0x0200, 1024, LONG_TEXT),
+              "it reads all 1024 bytes in 8 parts (size %d, %d matching, %.0f ms for the read)"
+              % (size, sum(a == b for a, b in zip(got, LONG_TEXT)), took * 1000))
+        call += 1
         # RX_OPEN (op 8): a CAN receiver for the rtd node's TPDO 1 (0x185, mask 0x7FF).
-        plc.put({req: 2, req + 1: 0x0800, req + 2: 0x0100, req + 3: 0, req + 4: 0, req + 5: 0x185, req + 6: 0,
+        plc.put({req: call, req + 1: 0x0800, req + 2: 0x0100, req + 3: 0, req + 4: 0, req + 5: 0x185, req + 6: 0,
                  req + 7: 0x7FF})
-        check(wait(lambda: plc.get(rsp) == 2 and plc.get(rsp + 1) == 0x0200), "a CAN receiver opens (state %d, "
+        check(wait(lambda: plc.get(rsp) == call and plc.get(rsp + 1) == 0x0200), "a CAN receiver opens (state %d, "
               "ERROR_ID %d)" % (plc.get(rsp + 1) >> 8, plc.get(rsp + 1) & 0xFF))
         slot = plc.get(rsp + 2)
 
