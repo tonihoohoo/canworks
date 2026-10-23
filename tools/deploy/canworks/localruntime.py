@@ -653,9 +653,19 @@ def cmd_remove(args, out):
             raise LocalRuntimeError("%s could not remove %s: %s" % (eng.name, name, _last_line(r.stderr)))
         out("removed %s" % name)
     if args.data:
+        kept = []
         for volume in (saved_volume(settings), BRIDGE_VOLUME):
             r = eng("volume", "rm", volume, timeout=60)
-            out("removed the volume %s" % volume if r.returncode == 0 else "no volume %s" % volume)
+            if r.returncode == 0:
+                out("removed the volume %s" % volume)
+            elif "no such volume" in (r.stderr or "").lower():
+                out("no volume %s" % volume)
+            else:
+                # Typically "volume is in use" by a container of an older install.
+                kept.append("%s could not remove the volume %s: %s" % (eng.name, volume, _last_line(r.stderr)))
+        if kept:
+            # The settings stay, so a second remove --data tries the same volume again.
+            raise LocalRuntimeError("\n".join(kept))
         if delete_settings():
             out("removed %s" % settings_path())
     return 0
