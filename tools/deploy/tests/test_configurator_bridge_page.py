@@ -280,7 +280,8 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         cost = pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("input")')
         # 72 response + 120 receive + 18 info + 17 cyclic table; 72 request + 3 ack + 4 keepalives.
-        self.assertEqual(cost.inner_text(), "The blocks take 227 input and 79 holding registers.")
+        self.assertEqual(cost.inner_text(), "The blocks take 227 input and 79 holding registers. Receiving: 9 CAN frames "
+                                            "per batch, one batch per two of your client's polls.")
         needs = pg.inner_text('[data-bridge-mailbox-needs]')
         self.assertIn("CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY", needs)
         self.assertEqual(pg.locator("[data-bridge-mailbox-update]").count(), 0)  # OpenPLC only

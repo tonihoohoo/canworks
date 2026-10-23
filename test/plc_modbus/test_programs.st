@@ -125,8 +125,8 @@ TEST 'mailbox words go between the registers and LINK, the link service runs'
   ASSERT_EQ(cin.canworks.link[216], 16#0042);
   ASSERT_EQ(cin.canworks.link[287], 16#5A5A);
   ASSERT_EQ(cin.canworks.link[720], 16#7001);
-  ASSERT_EQ(cin.canworks.link[840], 16#000C);
-  ASSERT_EQ(cin.canworks.link[1000], 16#0009);
+  ASSERT_EQ(cin.canworks.link[960], 16#000C);
+  ASSERT_EQ(cin.canworks.link[1120], 16#0009);
   (* CW_LINK_SERVICE ran: one scan, the new batch acknowledged *)
   ASSERT_EQ(cin.canworks.link[90], 1);
   ASSERT_EQ(cin.canworks.link[102], 16#7001);

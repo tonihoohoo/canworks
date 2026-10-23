@@ -44,8 +44,8 @@ uint8_t err_full(Family f) { return f == kFamilySdo ? 5 : f == kFamilyJ1939 ? 9 
 
 unsigned record_words(uint8_t kind) {
   switch (kind) {
-    case kRxCan: return 14;
-    case kRxJ1939: return 16;
+    case kRxCan: return 10;
+    case kRxJ1939: return 12;
     case kRxEmcy: return 12;
     default: return 7;
   }
@@ -58,7 +58,6 @@ void encode_record(uint8_t receiver, uint8_t kind, const RxRecord& rec, bool lon
   out.push_back(static_cast<uint16_t>(receiver << 8 | (kind & 0x0F) << 4 | flags));
   out.push_back(rec.queued);
   out.push_back(static_cast<uint16_t>(rec.dropped));
-  for (int s = 48; s >= 0; s -= 16) out.push_back(static_cast<uint16_t>(rec.time_us >> s));
   auto bytes = [&](size_t from, size_t n) {
     for (size_t i = 0; i < n; i += 2) {
       uint8_t hi = from + i < rec.data.size() ? rec.data[from + i] : 0;
@@ -82,6 +81,7 @@ void encode_record(uint8_t receiver, uint8_t kind, const RxRecord& rec, bool lon
       bytes(0, 8);
       break;
     case kRxEmcy:
+      for (int s = 48; s >= 0; s -= 16) out.push_back(static_cast<uint16_t>(rec.time_us >> s));
       out.push_back(static_cast<uint16_t>(rec.node << 8 | rec.error_register));
       out.push_back(rec.error_code);
       bytes(0, 6);
@@ -451,7 +451,8 @@ void Mailboxes::build_batch() {
   }
   std::vector<uint16_t> words;
   uint32_t present = 0, long_taken = 0;
-  const size_t room = kRxWords - kRxHeaderWords;
+  uint64_t first_time = 0;
+  const size_t room = layout_.receive_bytes() / 2 - kRxHeaderWords;
   for (;;) {
     // The oldest stashed record of the receivers that may still add one.
     int pick = -1;
@@ -464,6 +465,7 @@ void Mailboxes::build_batch() {
     Receiver& rx = *receivers_[pick];
     if (words.size() + record_words(rx.spec.kind) > room) break;
     bool is_long = rx.spec.kind == kRxJ1939 && rx.next.data.size() > 8;
+    if (!present) first_time = rx.next.time_us;
     encode_record(static_cast<uint8_t>(pick), rx.spec.kind, rx.next, is_long, words);
     present |= 1u << pick;
     if (is_long) {
@@ -479,20 +481,23 @@ void Mailboxes::build_batch() {
   batch_seq_ = static_cast<uint16_t>(batch_seq_ == 0xFFFF ? 1 : batch_seq_ + 1);
   batch_present_ = present;
   batch_words_ = words;
+  batch_time_ = first_time;
   batch_acked_ = false;
   last_pending_ = present;
   batch_shown_ = Clock::now();
 }
 
 void Mailboxes::encode_receive(uint8_t* block) const {
-  std::memset(block, 0, kRxBytes);
+  const unsigned words = layout_.receive_bytes() / 2;
+  std::memset(block, 0, words * 2);
   set_word(block, 0, batch_seq_);
   set_word(block, 1, static_cast<uint16_t>(batch_present_ >> 16));
   set_word(block, 2, static_cast<uint16_t>(batch_present_));
   set_word(block, 3, static_cast<uint16_t>(batch_words_.size()));
   set_word(block, 4, tick_);
   for (unsigned i = 0; i < receivers_.size(); ++i) block[10 + i] = receivers_[i]->handle ? receivers_[i]->gen : 0;
-  for (size_t k = 0; k < batch_words_.size() && kRxHeaderWords + k < kRxWords; ++k)
+  for (unsigned k = 0; k < 4; ++k) set_word(block, 21 + k, static_cast<uint16_t>(batch_time_ >> (48 - 16 * k)));
+  for (size_t k = 0; k < batch_words_.size() && kRxHeaderWords + k < words; ++k)
     set_word(block, kRxHeaderWords + static_cast<unsigned>(k), batch_words_[k]);
 }
 
@@ -679,6 +684,7 @@ unsigned Mailboxes::end_all(const char*) {
       ++n;
     }
   batch_words_.clear();
+  batch_time_ = 0;
   batch_present_ = 0;
   batch_acked_ = true;
   last_pending_ = 0;

@@ -237,11 +237,12 @@ A PLC writes its whole output image every poll, so after a bridge restart the PL
 | --- | --- | --- |
 | `requests` | 1 | Request mailboxes, 0 to 4: operations that run at the same time. |
 | `receive` | true | The receive mailbox for CAN, J1939 and EMCY receivers. |
+| `receive_blocks` | 1 | Receive mailbox blocks of 120 registers, 1 or 2. Two carry more than twice the records per batch, for one more Modbus request per poll ([throughput](#receive-throughput)). |
 | `cyclic_jobs` | 4 | Cyclic frame jobs, 0 to 16. |
 | `network_info` | true | A network info block for each of the first 8 networks. |
 | `input_location`, `output_location` | required | Where the input and output areas start, at an even byte. Pack for Modbus and the configurator's Suggest set them. |
 
-The input area holds, in this order: one response block per request mailbox (72 registers each), the receive mailbox (120 registers), the network info blocks (18 registers each) and the cyclic job table (a tick and 4 registers per job). The output area holds one request block per request mailbox (72 registers each), the receive acknowledgement (3 registers) and one keepalive register per cyclic job. The default mailboxes with one network take 227 input and 79 holding registers. Each block is a located value of the map hash, and neither OpenPLC's register groups nor the suggested client channels ever cut one over two requests. The bridge logs the ranges at start.
+The input area holds, in this order: one response block per request mailbox (72 registers each), the receive mailbox (120 registers per receive block), the network info blocks (18 registers each) and the cyclic job table (a tick and 4 registers per job). The output area holds one request block per request mailbox (72 registers each), the receive acknowledgement (3 registers) and one keepalive register per cyclic job. The default mailboxes with one network take 227 input and 79 holding registers. Each block is a located value of the map hash, and neither OpenPLC's register groups nor the suggested client channels ever cut one over two requests. The bridge logs the ranges at start.
 
 **Request mailboxes.** A request block holds a counter (word 0), the operation and network index (word 1: operation in the high byte), six arguments (words 2-7) and 128 data bytes (words 8-71, byte 2k in the high byte of word 8 + k). An operation starts once each time the counter changes to a value other than the response's echo; the response echoes the counter with state busy, then done or error with an ERROR_ID (word 1: state in the high byte), the results in words 2-7 and the first 128 bytes of the answer. Rewriting the same request starts nothing. Operations:
 
@@ -259,7 +260,13 @@ The input area holds, in this order: one response block per request mailbox (72 
 
 The ERROR_IDs are those of the matching block family ([plc-library.md](plc-library.md#sdo-blocks), [raw-can.md](raw-can.md#error-ids), [j1939.md](j1939.md#error-ids)). Each mailbox runs one operation at a time; different mailboxes run in parallel.
 
-**Receive mailbox.** For each open receiver the bridge keeps a queue (CAN up to 256 frames, J1939 up to 32 messages, EMCY its place in the network's history of 64) and shows the records in batches: word 0 the batch sequence, words 1-2 the receivers present in it, word 3 the record words used, word 4 a millisecond tick, words 5-20 each receiver number's generation, then the records (CAN 14 words, J1939 16, EMCY 12), each with its receiver, kind and flags, the records still queued, the dropped count and the UTC receive time. The next batch comes once the acknowledgement names the current sequence with no receiver still pending. A batch that is not acknowledged within 1 s (5 s while a long J1939 message is being fetched) closes the receivers still pending and moves on, logged once, so a reader that stopped does not hold up the others. At most 32 receivers are open at once.
+**Receive mailbox.** For each open receiver the bridge keeps a queue (CAN up to 256 frames, J1939 up to 32 messages, EMCY its place in the network's history of 64) and shows the records in batches: word 0 the batch sequence, words 1-2 the receivers present in it, word 3 the record words used, word 4 a millisecond tick, words 5-20 each receiver number's generation, words 21-24 the batch time (the UTC receive time in microseconds of the batch's first, oldest record), then the records, in arrival order across all receive blocks. Each record has its receiver, kind and flags, the records still queued and the dropped count; a CAN record (10 words) adds the identifier, format, DLC and 8 data bytes, a J1939 record (12 words) the PGN, addresses, priority, length and the first 8 bytes, and an EMCY record (12 words) its own UTC receive time, node, error register, error code and 5 bytes. CAN and J1939 records share the batch time. The next batch comes once the acknowledgement names the current sequence with no receiver still pending. A batch that is not acknowledged within 1 s (5 s while a long J1939 message is being fetched) closes the receivers still pending and moves on, logged once, so a reader that stopped does not hold up the others. At most 32 receivers are open at once.
+
+<a id="receive-throughput"></a>**Receive throughput.** A batch holds 95 record words with one receive block and 215 with two: 9 or 21 CAN frames, 7 or 17 J1939 messages or EMCYs. A client that reads all its registers and then writes the acknowledgement, as OpenPLC's Modbus master does, sees the next batch one poll after the acknowledgement, so it gets one batch every two polls:
+
+    frames/s = records per batch × polls per second / 2
+
+At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive block and 1050 with two (measured with the runtime's own master: 444 and 1036); a 5 ms poll doubles it. The bridge's own part is under 1 ms. The configurator's Function blocks section shows the rate for the config's poll.
 
 **Network info** (18 registers per network, every 100 ms): CAN state and bus load, error counters, bus-offs, frames received and sent, error frames, and for a J1939 network its claim state, address, NAME and ECU count.
 
@@ -398,4 +405,4 @@ Modbus TCP has no authentication or encryption. Put the bridge on a machine netw
 - At most 16 connections (`max_clients`, up to 64), 4 per address, and 8 KB of unread replies per connection.
 - No Modbus RTU (serial); no Modbus TLS.
 - One bridge per CAN interface.
-- Function block mailboxes: at most 4 request mailboxes, 32 receivers, 16 cyclic jobs and network info for 8 networks.
+- Function block mailboxes: at most 4 request mailboxes, 2 receive blocks, 32 receivers, 16 cyclic jobs and network info for 8 networks. A program receives about 450 CAN frames/s with one receive block or 1050 with two at a 10 ms poll ([throughput](#receive-throughput)), and sends about 50 frames/s per request mailbox with `CAN_SEND`.

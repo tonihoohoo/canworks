@@ -77,6 +77,16 @@ class OpenplcModbusPage(OnlineBase):
         pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "")
         pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
         self.checked()
+        # The expected receive rate at the 20 ms poll: 9 frames per batch, one batch per two polls.
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 225 CAN frames/s")')
+        pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "2")
+        pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 525 CAN frames/s at this poll (21 per batch")')
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "")
+        pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
+        self.checked()
 
         # Save writes the editor files; the Project page shows the facts.
         pg.click("#btn-save")

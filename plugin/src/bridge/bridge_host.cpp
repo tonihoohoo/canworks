@@ -254,15 +254,17 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     MailboxLayout ml;
     ml.requests = cfg_.mb_requests;
     ml.receive = cfg_.mb_receive;
+    ml.receive_blocks = cfg_.mb_receive_blocks;
     ml.info_networks = cfg_.mb_info_networks;
     ml.cyclic_jobs = cfg_.mb_cyclic_jobs;
     ml.in_base = cfg_.mb_input.index;
     ml.out_base = cfg_.mb_output.index;
     mailbox_backend_.reset(new EngineMailboxBackend(static_cast<unsigned>(s.networks.size())));
     mailboxes_.reset(new Mailboxes(ml, *mailbox_backend_));
-    log_info("bridge mailboxes: %u request mailbox(es) at input byte %u and output byte %u, receive mailbox %s, "
-             "network info for %u network(s), %u cyclic job(s); %u input and %u output bytes",
-             ml.requests, ml.in_base, ml.out_base, ml.receive ? "on" : "off", ml.info_networks, ml.cyclic_jobs,
+    log_info("bridge mailboxes: %u request mailbox(es) at input byte %u and output byte %u, receive mailbox %s "
+             "(%u block(s)), network info for %u network(s), %u cyclic job(s); %u input and %u output bytes",
+             ml.requests, ml.in_base, ml.out_base, ml.receive ? "on" : "off", ml.receive ? ml.receive_blocks : 0,
+             ml.info_networks, ml.cyclic_jobs,
              ml.input_bytes(), ml.output_bytes());
   }
   first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);

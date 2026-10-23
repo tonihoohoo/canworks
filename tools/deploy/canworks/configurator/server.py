@@ -1900,6 +1900,14 @@ class Session:
             # What the Function blocks section costs (modbus-bridge-mailboxes).
             ins, outs = mailboxlayout.area_bytes(mb, len(cfg.get("networks") or []))
             out["mailboxes"] = {"input_registers": ins // 2, "output_registers": (outs + 1) // 2}
+            s = mailboxlayout.settings(mb, len(cfg.get("networks") or []))
+            if s["receive"]:
+                # One batch per two polls: the master reads, then acknowledges.
+                can = mailboxlayout.records_per_batch("can", s["receive_blocks"])
+                out["mailboxes"]["can_per_batch"] = can
+                if modbusmap.is_openplc(cfg):
+                    poll = bridgecheck.openplc_settings(cfg)["poll_ms"]
+                    out["mailboxes"]["can_per_second"] = round(can * 1000 / poll / 2)
         return out
 
     def bridge_pack(self, cfg):

@@ -3288,9 +3288,11 @@ class Parser {
         out += kMailboxBytes;
       }
       if (b.mb_receive) {
-        uses.push_back({at(b.mb_input, in), "bridge receive mailbox", kReceiveBytes});
+        for (unsigned k = 0; k < b.mb_receive_blocks; ++k) {
+          uses.push_back({at(b.mb_input, in), "bridge receive mailbox block " + std::to_string(k), kReceiveBytes});
+          in += kReceiveBytes;
+        }
         uses.push_back({at(b.mb_output, out), "bridge receive acknowledgement", kReceiveAckBytes});
-        in += kReceiveBytes;
         out += kReceiveAckBytes;
       }
       for (unsigned n = 0; n < b.mb_info_networks; ++n) {
@@ -3313,10 +3315,18 @@ class Parser {
       error(w, "field 'mailboxes' must be an object");
       return;
     }
-    check_known(o, mw, {"requests", "receive", "cyclic_jobs", "network_info", "input_location", "output_location"});
+    check_known(o, mw,
+                {"requests", "receive", "receive_blocks", "cyclic_jobs", "network_info", "input_location",
+                 "output_location"});
     uint64_t v;
     if (get_uint(o, "requests", mw, false, kMaxMailboxes, v)) c.mb_requests = (unsigned)v;
     get_bool(o, "receive", mw, c.mb_receive);
+    if (get_uint(o, "receive_blocks", mw, false, UINT32_MAX, v)) {
+      if (v < 1 || v > kMaxReceiveBlocks)
+        error(mw, "field 'receive_blocks' must be 1 or 2: " + std::to_string(v));
+      else
+        c.mb_receive_blocks = (unsigned)v;
+    }
     if (get_uint(o, "cyclic_jobs", mw, false, kMaxCyclicJobs, v)) c.mb_cyclic_jobs = (unsigned)v;
     get_bool(o, "network_info", mw, c.mb_network_info);
     c.mb_info_networks =
@@ -3669,7 +3679,8 @@ std::vector<ImageUse> image_uses(const ConfigSet& set) {
 }
 
 unsigned mailbox_input_bytes(const BridgeConfig& b) {
-  return b.mb_requests * kMailboxBytes + (b.mb_receive ? kReceiveBytes : 0) + b.mb_info_networks * kNetInfoBytes +
+  return b.mb_requests * kMailboxBytes + (b.mb_receive ? b.mb_receive_blocks * kReceiveBytes : 0) +
+         b.mb_info_networks * kNetInfoBytes +
          (b.mb_cyclic_jobs ? 2 + b.mb_cyclic_jobs * kCyclicJobBytes : 0);
 }
 

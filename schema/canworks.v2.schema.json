@@ -107,6 +107,7 @@
           "properties": {
             "requests": { "description": "Request mailboxes, 0-4 (default 1). Blocks share them in turn.", "type": "integer", "minimum": 0, "maximum": 4 },
             "receive": { "description": "The receive mailbox (default true).", "type": "boolean" },
+            "receive_blocks": { "description": "Receive mailbox blocks of 120 registers, 1 or 2 (default 1). Two blocks carry about twice as many frames per batch, for one more Modbus request per poll.", "type": "integer", "minimum": 1, "maximum": 2 },
             "cyclic_jobs": { "description": "Cyclic CAN frames the bridge sends, 0-16 (default 4).", "type": "integer", "minimum": 0, "maximum": 16 },
             "network_info": { "description": "A network info block for each of the first 8 networks (default true).", "type": "boolean" },
             "input_location": { "description": "Where the input area starts, an even input byte.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },

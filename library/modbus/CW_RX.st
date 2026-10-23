@@ -141,7 +141,7 @@ END_VAR
     slot_bit := SHL(WORD#1, SLOT MOD 16);
     IF LINK[720] <> seq THEN
       seq := LINK[720];
-      pos := 741;
+      pos := 745;
     END_IF;
     IF NOT synced THEN
       synced := (DINT_TO_WORD(WORD_TO_DINT(LINK[724]) - WORD_TO_DINT(tick0)) AND WORD#16#8000) = WORD#0;
@@ -149,12 +149,12 @@ END_VAR
     fresh := synced;
     IF fresh AND (LINK[722 - SLOT / 16] AND slot_bit) <> WORD#0 AND (LINK[pw] AND slot_bit) <> WORD#0 THEN
       found := FALSE;
-      WHILE NOT found AND pos < 741 + WORD_TO_INT(LINK[723]) AND pos < 840 DO
+      WHILE NOT found AND pos < 745 + WORD_TO_INT(LINK[723]) AND pos < 960 DO
         hdr := LINK[pos];
         size := 7;
         CASE WORD_TO_INT(SHR(hdr, 4) AND WORD#16#000F) OF
-          1: size := 14;
-          2: size := 16;
+          1: size := 10;
+          2: size := 12;
           3: size := 12;
         END_CASE;
         IF WORD_TO_INT(SHR(hdr, 8)) = SLOT THEN

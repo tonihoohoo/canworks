@@ -42,13 +42,15 @@ LIST_NAME = "canworks"
 # the blocks' own (turns, owners), 102-104 the receive acknowledgement, 105
 # the blocks' own, 128 + j the keepalive of cyclic job j, 144 + 144m request
 # mailbox m (72 request words, then 72 response words), 720 the receive
-# mailbox, 840 + 18n the info of network n, 984 the cyclic job table. A plain
+# mailbox (120 words per receive block, 2 at most), 960 + 18n the info of
+# network n, 1104 the cyclic job table. A plain
 # word array: STruC++ 0.7.0 emits a project's structs before a library's, so
 # a library STRUCT cannot be a list member.
 LINK_WORDS = 1280
 LINK_STATUS, LINK_CTL, LINK_SDO_REQ, LINK_SDO_RSP, LINK_FLAGS, LINK_LIVE = 0, 4, 7, 14, 21, 25
 LINK_MB_FLAGS, LINK_ACK, LINK_KEEPALIVE, LINK_MAILBOX, LINK_RECEIVE, LINK_INFO, LINK_CYCLIC = (
-    89, 102, 128, 144, 720, 840, 984)
+    89, 102, 128, 144, 720, 960, 1104)
+LINK_RECEIVE_WORDS = 120
 LINK_MAILBOX_WORDS = 144
 LINK_INFO_WORDS = 18
 DEFAULT_IEC_BASE = 100
@@ -390,7 +392,7 @@ def _mailbox_copies(cfg):
     for area, offset, nbytes, name, _ in mailboxlayout.blocks(mb, networks):
         part = name.split(".")[2:]
         if part[0] == "receive":
-            word = LINK_RECEIVE
+            word = LINK_RECEIVE + LINK_RECEIVE_WORDS * int(part[1])
         elif part[0] == "receive_ack":
             word = LINK_ACK
         elif part[0] == "network_info":

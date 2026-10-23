@@ -15,14 +15,16 @@
 //   2-7   arguments                  2-7   results
 //   8-71  data, 128 bytes            8-71  data, 128 bytes
 //
-//   receive mailbox (120 input registers)
+//   receive mailbox (120 input registers per receive block, 1 or 2 blocks
+//   one after the other; a batch spans all of them)
 //   0     batch sequence (starts at a different value each run)
 //   1-2   receivers present in the batch (word 1 bits 31-16, word 2 bits 15-0)
 //   3     record words used
 //   4     tick (milliseconds, wraps)
 //   5-20  receiver generations, receiver 2k in the high byte of word 5 + k
 //         (0: closed)
-//   21-   records
+//   21-24 batch time: the first record's receive time in UTC microseconds
+//   25-   records
 //   acknowledgement (3 holding registers): batch seen, pending (2 words)
 //
 //   network info (18 input registers per network, the first 8)
@@ -37,10 +39,10 @@
 //   per job)
 //
 // A record: 0 receiver << 8 | kind << 4 | flags, 1 still queued, 2 dropped
-// (low 16 bits), 3-6 receive time in UTC microseconds, then CAN: id (2),
-// flags << 8 | DLC, data (4); J1939: PGN (2), source << 8 | destination,
-// priority, length, first 8 bytes (4); EMCY: node << 8 | error register,
-// error code, manufacturer bytes (3).
+// (low 16 bits), then CAN (10 words): id (2), flags << 8 | DLC, data (4);
+// J1939 (12 words): PGN (2), source << 8 | destination, priority, length,
+// first 8 bytes (4); EMCY (12 words): receive time in UTC microseconds (4),
+// node << 8 | error register, error code, manufacturer bytes (3).
 
 #ifndef CANWORKS_BRIDGE_MAILBOXES_H
 #define CANWORKS_BRIDGE_MAILBOXES_H
@@ -59,9 +61,10 @@ constexpr unsigned kMbBytes = kMbWords * 2;
 constexpr unsigned kMbArgs = 6;
 constexpr unsigned kMbChunk = 128;
 constexpr unsigned kMbBuffer = 1785;
-constexpr unsigned kRxWords = 120;
+constexpr unsigned kRxWords = 120;  // one receive block
 constexpr unsigned kRxBytes = kRxWords * 2;
-constexpr unsigned kRxHeaderWords = 21;
+constexpr unsigned kRxHeaderWords = 25;
+constexpr unsigned kMaxRxBlocks = 2;
 constexpr unsigned kRxAckBytes = 6;
 constexpr unsigned kInfoWords = 18;
 constexpr unsigned kInfoBytes = kInfoWords * 2;
@@ -110,16 +113,18 @@ uint8_t err_full(Family f);
 struct MailboxLayout {
   unsigned requests = 0;
   bool receive = false;
+  unsigned receive_blocks = 1;
   unsigned info_networks = 0;
   unsigned cyclic_jobs = 0;
   uint32_t in_base = 0, out_base = 0;
 
   uint32_t response(unsigned m) const { return in_base + m * kMbBytes; }
   uint32_t receive_block() const { return in_base + requests * kMbBytes; }
-  uint32_t info(unsigned n) const { return receive_block() + (receive ? kRxBytes : 0) + n * kInfoBytes; }
+  uint32_t receive_bytes() const { return receive ? receive_blocks * kRxBytes : 0; }
+  uint32_t info(unsigned n) const { return receive_block() + receive_bytes() + n * kInfoBytes; }
   uint32_t cyclic_table() const { return info(info_networks); }
   uint32_t input_bytes() const {
-    return requests * kMbBytes + (receive ? kRxBytes : 0) + info_networks * kInfoBytes +
+    return requests * kMbBytes + receive_bytes() + info_networks * kInfoBytes +
            (cyclic_jobs ? 2 + cyclic_jobs * kJobWords * 2 : 0);
   }
   uint32_t request(unsigned m) const { return out_base + m * kMbBytes; }
@@ -280,6 +285,7 @@ class Mailboxes {
   uint16_t batch_seq_ = 0;
   uint32_t batch_present_ = 0;
   std::vector<uint16_t> batch_words_;
+  uint64_t batch_time_ = 0;  // the first record's receive time
   bool batch_acked_ = true;
   Clock::time_point batch_shown_{};
   uint32_t last_pending_ = 0;

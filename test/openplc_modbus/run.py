@@ -31,10 +31,15 @@ that image (the header canworks_out writes, the values) and checks:
 6. the example with a J1939 network too (examples/j1939's, on a CAN
    interface this test does not open): the bridge accepts the config, and
    the remote device and the runtime's model of its modbus_master.json
-   cover the J1939 signals.
+   cover the J1939 signals;
+7. the receive rate (faster-mailboxes): with the nodes' TPDOs on a 2 ms
+   SYNC and a receiver for every frame, a PLC that drains and acknowledges
+   each batch at once gets full batches (9 CAN records with one receive
+   block, 21 with two) and at least 400 and 900 frames/s at the 10 ms poll.
 """
 
 import argparse
+import copy
 import json
 import os
 import shutil
@@ -50,7 +55,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 EXAMPLE = os.path.join(ROOT, "examples", "modbus-bridge")
 sys.path.insert(0, os.path.join(ROOT, "tools", "deploy"))
 
-from canworks import editorproject, modbusmap, openplcmodbus  # noqa: E402
+from canworks import editorproject, mailboxlayout, modbusmap, openplcmodbus  # noqa: E402
 from canworks.configurator import server as srv  # noqa: E402
 
 IEC_BASE = 100
@@ -190,6 +195,68 @@ def with_j1939(work):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     return cfg, path
+
+
+def receive_rate(bridge_bin, cfg, work, mm, model_cls, logger, blocks, seconds=3.0):
+    """Step 7 for 1 or 2 receive blocks: (frames/s, batches, full batches,
+    what went wrong or "")."""
+    cfg = copy.deepcopy(cfg)
+    cfg["networks"][0]["master"]["sync_period_us"] = 2000
+    cfg["bridge"]["mailboxes"]["receive_blocks"] = blocks
+    cfg["bridge"]["listen"] = "127.0.0.1:%d" % free_port()
+    cfg = modbusmap.pack(cfg)
+    path = os.path.join(work, "rate-%d.json" % blocks)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    remote = openplcmodbus.remote_device(cfg, editorproject.declarations(cfg, path), IEC_BASE)
+    conf = os.path.join(work, "modbus_master_rate_%d.json" % blocks)
+    with open(conf, "w", encoding="utf-8") as f:
+        json.dump(master_config(remote), f, indent=2)
+    model = model_cls()
+    model.import_config_from_file(conf)
+    model.validate()
+    log = open(os.path.join(work, "bridge-rate-%d.log" % blocks), "w")
+    proc = subprocess.Popen([bridge_bin, "--config", path], stdout=log, stderr=subprocess.STDOUT)
+    image = Image(conf)
+    plc = Plc(image, remote)
+    hash_ = modbusmap.map_hash(cfg)
+    plc.put({0: 1, 1: hash_ >> 16, 2: hash_ & 0xFFFF})
+    master = mm.ModbusSlaveDevice(model.devices[0], image, logger)
+    master.start()
+    try:
+        if not wait(lambda: (plc.get(0) << 16 | plc.get(1)) == hash_ and plc.byte(4) == 1):
+            return 0, 0, 0, "the bridge never ran for the PLC (status %d)" % plc.byte(4)
+        mb = cfg["bridge"]["mailboxes"]
+        rsp, req = int(mb["input_location"][3:]) // 2, int(mb["output_location"][3:]) // 2
+        rx, ack = rsp + 72, req + 72
+        # RX_OPEN: CAN, every standard frame (ALL_IDS), DEPTH 256.
+        plc.put({req: 1, req + 1: 0x0800, req + 2: 0x0104, req + 3: 256, req + 4: 0, req + 5: 0, req + 6: 0, req + 7: 0})
+        if not wait(lambda: plc.get(rsp) == 1 and plc.get(rsp + 1) == 0x0200):
+            return 0, 0, 0, "the receiver did not open (%#06x)" % plc.get(rsp + 1)
+        full = mailboxlayout.records_per_batch("can", blocks)
+        seq, frames, batches, fulls = None, 0, 0, 0
+        warm = time.monotonic() + 0.5
+        while time.monotonic() < warm + seconds:
+            now_seq = plc.get(rx)
+            if now_seq != seq and plc.get(rx + 3):
+                seq = now_seq
+                n = plc.get(rx + 3) // 10
+                plc.put({ack: seq, ack + 1: 0, ack + 2: 0})
+                if time.monotonic() >= warm:
+                    frames += n
+                    batches += 1
+                    fulls += n == full
+            time.sleep(0.001)
+        return frames / seconds, batches, fulls, ""
+    finally:
+        master.stop()
+        master.join(10)
+        proc.terminate()
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log.close()
 
 
 def main():
@@ -352,8 +419,8 @@ def main():
             return (plc.get(rx + 1) << 16 | plc.get(rx + 2)) >> slot & 1
 
         check(wait(present, 5.0), "a batch in the receive mailbox carries the receiver's records")
-        first = rx + 21
-        check((plc.get(first) >> 8, plc.get(first) >> 4 & 0xF, plc.get(first + 7) << 16 | plc.get(first + 8))
+        first = rx + 25
+        check((plc.get(first) >> 8, plc.get(first) >> 4 & 0xF, plc.get(first + 3) << 16 | plc.get(first + 4))
               == (slot, 1, 0x185), "its first record is a CAN frame 0x185 (header %#06x)" % plc.get(first))
         seq = plc.get(rx)
         plc.put({ack: seq, ack + 1: 0, ack + 2: 0})
@@ -400,6 +467,14 @@ def main():
         model5.import_config_from_file(conf5)
         model5.validate()
         check(len(model5.devices) == 1, "the runtime reads its modbus_master.json")
+
+        print("7. the receive rate", flush=True)
+        for blocks, least in ((1, 400), (2, 900)):
+            fps, batches, fulls, why = receive_rate(args.bridge, cfg, work, mm, ModbusMasterConfig, logger, blocks)
+            check(batches > 0 and fulls >= batches - 1 and fps >= least,
+                  "%d receive block(s): %.0f frames/s at the 10 ms poll, %d of %d batches full (%d records), "
+                  "at least %d expected%s" % (blocks, fps, fulls, batches, mailboxlayout.records_per_batch("can", blocks),
+                                             least, ": " + why if why else ""))
     finally:
         for t in threads:
             t.stop()

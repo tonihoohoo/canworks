@@ -476,6 +476,12 @@ def _mailboxes(b, w, networks, err):
         v = _get_uint(o, key, mw, maximum, err)
         if v is not None:
             counts[key] = v
+    v = _get_uint(o, "receive_blocks", mw, 2 ** 32 - 1, err)
+    if v is not None:
+        if 1 <= v <= mailboxlayout.MAX_RECEIVE_BLOCKS:
+            counts["receive_blocks"] = v
+        else:
+            err(mw, "field 'receive_blocks' must be 1 or 2: %d" % v, [mw + ".receive_blocks"])
     for key in ("receive", "network_info"):
         if key not in o:
             continue

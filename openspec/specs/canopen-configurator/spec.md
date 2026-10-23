@@ -4187,7 +4187,7 @@ The header's workspace switch SHALL read **Configure | Commission | Devices** wh
 - **THEN** Devices opens with the PC's device list, the mode reads "Devices · no config", and Close returns to the start page
 
 ### Requirement: Function blocks section
-The Modbus bridge page of a bridge config and of an OpenPLC config SHALL have a **Function blocks** section with a switch and, while on, the number of request mailboxes (0-4), the receive mailbox on or off, the number of cyclic jobs (0-16), network info on or off and the input and output areas with Suggest, writing `bridge.mailboxes`. Turning it on SHALL place both areas in free ranges. The section SHALL show the registers the blocks take and, for OpenPLC, the requests per poll of the whole map against the budget of 40, and SHALL say which blocks need which part (for example "CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY" for the receive mailbox). For OpenPLC a count change SHALL move both areas to free ranges at once, and the section SHALL say that the editor project needs **Update declarations** and a new Build. **New config…** for OpenPLC and a switch to OpenPLC SHALL start with the section on, one request mailbox, the receive mailbox, 4 cyclic jobs and network info.
+The Modbus bridge page of a bridge config and of an OpenPLC config SHALL have a **Function blocks** section with a switch and, while on, the number of request mailboxes (0-4), the receive mailbox on or off with its receive blocks (1 or 2), the number of cyclic jobs (0-16), network info on or off and the input and output areas with Suggest, writing `bridge.mailboxes`. Turning it on SHALL place both areas in free ranges. The section SHALL show the registers the blocks take and, for OpenPLC, the requests per poll of the whole map against the budget of 40, the expected receive rate with the receive mailbox on ("about N CAN frames/s at this poll": the CAN records per batch times the poll rate, halved), and SHALL say which blocks need which part (for example "CAN_RECEIVE, J1939_RECEIVE and CO_RECV_EMCY" for the receive mailbox). For OpenPLC a count change SHALL move both areas to free ranges at once, and the section SHALL say that the editor project needs **Update declarations** and a new Build. **New config…** for OpenPLC and a switch to OpenPLC SHALL start with the section on, one request mailbox, the receive mailbox, 4 cyclic jobs and network info.
 
 #### Scenario: Turn on the receive mailbox
 - **WHEN** the user turns on the receive mailbox of an OpenPLC config
@@ -4196,6 +4196,10 @@ The Modbus bridge page of a bridge config and of an OpenPLC config SHALL have a 
 #### Scenario: New OpenPLC config
 - **WHEN** the user creates a new OpenPLC config
 - **THEN** its Function blocks section is on with one request mailbox, the receive mailbox, 4 cyclic jobs and network info
+
+#### Scenario: Second receive block
+- **WHEN** the user sets receive blocks to 2 in an OpenPLC config with a 10 ms poll
+- **THEN** the areas move to free ranges, the register and request counts grow by 120 registers and one request, and the expected rate reads about 1050 CAN frames/s
 
 ### Requirement: ST calls for the blocks over the bridge
 Every **Copy as ST call** of the configurator (an object dictionary entry, an NMT command, a CAN message, a J1939 PGN) SHALL write a call of the library's blocks over the bridge with `LINK := canworks.link`. An SDO call of an integer of up to 4 bytes SHALL use `CO_SDO_READ` or `CO_SDO_WRITE` with `DATA` converted to and from `UDINT` and the object's size; a wider integer, an OCTET_STRING or a DOMAIN SHALL use the `_BYTES` blocks, a REAL the `_REAL` blocks and a VISIBLE_STRING the `_STRING` blocks.
