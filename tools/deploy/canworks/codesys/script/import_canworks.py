@@ -417,11 +417,13 @@ def name_channels(dev, channels, report, where, write=True):
     """A mapped object is a parameter with id 0x1MMMMEE0 (mapping object
     0xMMMM, entry EE) holding Index, SubIndex and ObjectLength; its I/O
     channel is the parameter with the next id. Sets each channel's variable
-    and fixed address where they differ; returns what differed."""
+    and fixed address where they differ; returns what differed. An object
+    mapped twice in one PDO has a channel per entry, taken in entry order."""
     params = dict((p.id, p) for p in _params(dev))
     maps = {}
     changed = []
-    for pid, p in params.items():
+    for pid in sorted(params):
+        p = params[pid]
         if (pid & 0xF0000000) == 0x10000000 and (pid & 0xF) == 0:
             try:
                 el = dict((s.identifier, s.value) for s in p)
@@ -429,10 +431,14 @@ def name_channels(dev, channels, report, where, write=True):
             except Exception:
                 continue
             channel = params.get(pid + 1)
-            if channel is not None and key not in maps:
-                maps[key] = channel
+            if channel is not None:
+                maps.setdefault(key, []).append(channel)
+    taken = {}
     for ch in channels:
-        p = maps.get((ch["mapping"], ch["index"], ch["sub"]))
+        key = (ch["mapping"], ch["index"], ch["sub"])
+        k = taken.get(key, 0)
+        taken[key] = k + 1
+        p = maps[key][k] if k < len(maps.get(key, [])) else None
         what = "%s: 0x%04X:%d (PDO mapping 0x%04X)" % (where, ch["index"], ch["sub"], ch["mapping"])
         if p is None or p.io_mapping is None:
             if write:

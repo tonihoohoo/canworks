@@ -599,6 +599,23 @@ class Script(unittest.TestCase):
         report, log = self.rebuild(w, proj, cfg)
         self.assertIn("current  network field node 6 (DIO_1): up to date", report)
 
+    def test_object_mapped_twice_names_each_channel(self):
+        # One object in two entries of a PDO: each entry's channel gets its own name.
+        cfg = load(BRIDGE)
+        entries = cfg["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"]
+        entries[0]["name"] = "first"
+        entries[1] = dict(entries[0], name="again", iec_location=entries[1]["iec_location"])
+        w = fake_codesys.World()
+        proj = self.project(w)
+        report, _ = self.rebuild(w, proj, cfg)
+        self.assertTrue(report.startswith("result: ok"), report)
+        dio = self.field(proj).find("dio")[0]
+        self.assertEqual([fake_codesys.param(dio, pid).io_mapping.variable for pid in (0x11A00011, 0x11A00021)],
+                         ["dio_first", "dio_again"])
+        report, _ = self.rebuild(w, proj, cfg)
+        self.assertIn("current  network field node 6 (dio): up to date", report)
+        self.assertNotIn("did not take", report)
+
     def test_default_cob_ids_follow_the_node_id(self):
         w = fake_codesys.World()
         proj = self.project(w)
