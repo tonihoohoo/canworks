@@ -343,6 +343,39 @@ class Connections(Base):
         self.assertEqual((conn["kind"], conn["poll_ms"]), ("openplc", 20))
         self.assertFalse(any("was removed" in m for m in self.errors(cfg)))
 
+    def test_trust_next_to_openplc_cannot_download(self):
+        # OpenPLC's mailboxes and watchdog make truST's Download refuse: the
+        # check says so before the Download, at the fields to change.
+        self.open()
+        del self.cfg["bridge"]["watchdog_ms"]  # OpenPLC's add sets 50 ms
+        cfg = self.add(self.cfg, kind="openplc")
+        cfg = self.add(cfg, kind="trust", name="truST", address="192.168.10.7", bridge_host="192.168.10.5")
+        refused = lambda c: [(i["level"], i["paths"], i["message"]) for i in self.ok("/api/check", {"config": c})["items"]
+                             if "Download refused" in i["message"]]
+        got = refused(cfg)
+        self.assertEqual([(lv, p) for lv, p, _ in got],
+                         [("warning", ["bridge.mailboxes", "bridge.connections[1]"]),
+                          ("warning", ["bridge.watchdog_ms", "bridge.connections[1]"])], got)
+        self.assertTrue(got[0][2].startswith("truST: Download refused: "), got)
+        self.assertIn("the OpenPLC program shares these mailboxes, so its CAN_RECEIVE", got[0][2])
+        self.assertNotIn("data", self.download(cfg, 1))
+        # The two fixes: requests only, repacked, and a 500 ms watchdog.
+        mb = cfg["bridge"]["mailboxes"]
+        mb.update(requests=1, receive=False, network_info=False, cyclic_jobs=0)
+        mb.pop("receive_blocks", None)
+        cfg["bridge"]["watchdog_ms"] = 500
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        self.assertEqual(refused(cfg), [])
+        self.assertIn("data", self.download(cfg, 1))
+        # canworks-deploy --check prints the same texts.
+        cfg["bridge"].update(watchdog_ms=100, listen="0.0.0.0:1502")
+        path = os.path.join(self.folder, "canworks.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        errs = []
+        cli.run(cli.parser().parse_args(["--config", path, "--check"]), out=lambda *a: None, err=errs.append)
+        self.assertTrue(any(e.startswith("warning: truST: Download refused: ") and '"watchdog_ms": 500' in e for e in errs), errs)
+
     def test_file_names(self):
         # Both parts of a Download's name are safe file name characters.
         self.assertEqual(connections.file_stem("bridge cfg", {"kind": "plc", "name": "line PLC"}), "bridge-cfg-line-PLC")

@@ -41,7 +41,7 @@ Every folder has a `README.txt` with the next steps for that PLC. The bridge tak
 
 ## truST
 
-truST's PLCopen import drops AT addresses, so the located I/O image comes as its own file. Its `modbus-tcp` driver reads the whole `%I` image with one request and writes the whole `%Q` image with one request every cycle, at most 125 input and 123 holding registers. A map that needs more is refused for truST, with the way to trim it.
+truST's PLCopen import drops AT addresses, so the located I/O image comes as its own file. Its `modbus-tcp` driver reads the whole `%I` image with one request and writes the whole `%Q` image with one request every cycle, at most 125 input and 123 holding registers. A map that needs more is refused for truST, with the way to trim it. The configurator says so before the Download: the connection's row reads **Cannot download** and Problems has **Trim the mailboxes for truST** and **Set the watchdog to 500 ms** ([modbus-bridge.md](modbus-bridge.md#connections)).
 
 What works on truST:
 

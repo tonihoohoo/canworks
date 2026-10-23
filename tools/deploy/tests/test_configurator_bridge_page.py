@@ -259,6 +259,42 @@ class BridgePage(OnlineBase):
         pg.click('#problem-list [data-problem-fix="listen-all"]')
         pg.wait_for_function("() => S.model.top.bridge.listen === '0.0.0.0:502'")
 
+    def test_trust_cannot_download(self):
+        """A truST connection whose Download would be refused
+        (trust-connection-check): Cannot download on its row with the
+        reason, and the two Problems fixes, the trim one undo step."""
+        pg = self.page
+        ses = srv.Session()
+        cfg = ses.add_connection(self.cfg, {"kind": "trust", "name": "Cell PLC", "address": "192.168.10.7",
+                                            "bridge_host": "192.168.10.5"})["config"]
+        cfg["bridge"].update(plc_link=True, watchdog_ms=100,
+                             mailboxes={"input_location": "%IB0", "output_location": "%QB0"})
+        self.cfg = ses.bridge_pack(cfg)["config"]
+        self.write_config()
+        self.to_bridge()
+        tree_view(pg, "bridge")
+        pg.wait_for_selector('[data-connection="Cell PLC"] [data-conn-state="cannot_download"]')
+        self.assertIn("truST's Modbus driver moves one request each way",
+                      pg.get_attribute('[data-connection="Cell PLC"] [data-conn-state]', "title"))
+        problems = pg.inner_text("#problem-list")
+        self.assertIn("Cell PLC: Download refused: ", problems)
+        pg.click('#problem-list [data-problem-fix="watchdog-trust"]')
+        pg.wait_for_function("() => S.model.top.bridge.watchdog_ms === 500")
+        self.checked()
+        pg.click('#problem-list [data-problem-fix="trim-trust"]')
+        pg.wait_for_function("() => S.model.top.bridge.mailboxes.receive === false")
+        self.checked()
+        pg.wait_for_function("() => !document.querySelector('#problem-list').textContent.includes('Download refused')")
+        mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
+        self.assertEqual((mb["requests"], mb["network_info"], mb["cyclic_jobs"]), (1, False, 0))
+        tree_view(pg, "bridge")
+        pg.wait_for_selector('[data-connection="Cell PLC"] [data-conn-state="not_downloaded"]')
+        # The trim and its repack were one step.
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => S.model.top.bridge.mailboxes.receive !== false")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.watchdog_ms"), 500)
+
     def test_other_plc_formats(self):
         """An Other PLC connection: PLCopen XML or ST, no CODESYS choice, and
         the line pointing CODESYS to its own target."""

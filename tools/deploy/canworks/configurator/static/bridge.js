@@ -458,10 +458,21 @@ function connectionState(c) {
     const o = S.state.openplc;
     return o && o.outdated && o.outdated.length ? { key: "out_of_date", text: "Out of date: Save" } : { key: "in_sync", text: "In sync" };
   }
+  const refused = connectionRefusal(c);
+  if (refused) return { key: "cannot_download", text: "Cannot download", title: refused };
   if (!c.map_hash) return { key: "not_downloaded", text: "Not downloaded yet" };
   if (c.stale) return { key: "out_of_date", text: "Out of date" };
   const now = S.bridgeMap && S.bridgeMap.map_hash;
   return !now || now === c.map_hash ? { key: "up_to_date", text: "In sync" } : { key: "out_of_date", text: "Out of date" };
+}
+
+// The first reason the check gives why the connection's Download would be
+// refused (modbus-connections "Connections that cannot be downloaded").
+function connectionRefusal(c) {
+  const list = (S.model.top.bridge || {}).connections;
+  const path = `bridge.connections[${Array.isArray(list) ? list.indexOf(c) : -1}]`;
+  const it = ((S.check && S.check.items) || []).find((x) => (x.paths || []).includes(path) && / Download refused: /.test(x.message));
+  return it ? it.message.slice(it.message.indexOf("Download refused: ") + 18) : null;
 }
 
 // The rows' states again once the map hash is known.
@@ -474,6 +485,7 @@ function bridgeConnectionStates() {
     const st = connectionState(c);
     cell.dataset.connState = st.key;
     cell.textContent = st.text;
+    cell.title = st.title || "";
     const dl = document.querySelector(`[data-conn-download="${i}"]`);
     if (dl) {
       dl.textContent = st.key === "out_of_date" ? "Download again" : "Download";
@@ -512,7 +524,7 @@ function connectionRow(c, i) {
   writes.checked = c.writes === true;
   writes.addEventListener("change", () => connSet(i, "writes", writes.checked));
   const st = connectionState(c);
-  const state = el("span", { class: "conn-state", dataset: { connState: st.key } }, st.text);
+  const state = el("span", { class: "conn-state", title: st.title || null, dataset: { connState: st.key } }, st.text);
   const actions = [];
   if (openplc) {
     if (st.key === "out_of_date") actions.push(el("button", { type: "button", class: "small", dataset: { connSave: String(i) }, onclick: () => $("#btn-save").click() }, "Save"));
@@ -607,6 +619,22 @@ function connectionSettings(c, i) {
     ...notes, fields.length ? el("div", { class: "grid" }, fields.map(bound)) : null);
   box.addEventListener("toggle", () => { S.connOpen = box.open ? i : (S.connOpen === i ? null : S.connOpen); });
   return rowNotes.concat([box]);
+}
+
+// One request mailbox and nothing else, packed: what truST's one request
+// each way holds (Problems "Trim the mailboxes for truST"), one undo step.
+async function trimMailboxesForTrust() {
+  const cfg = fileConfig();
+  cfg.bridge.mailboxes = Object.assign({}, cfg.bridge.mailboxes, { requests: 1, receive: false, network_info: false, cyclic_jobs: 0 });
+  delete cfg.bridge.mailboxes.receive_blocks;
+  try {
+    const r = await api("POST", "/api/bridge/pack", { config: cfg });
+    bridgeReplaceDraft(r.config);
+    changed(true);
+    banner("The mailboxes keep one request mailbox, and every location is packed. Undo takes both back.");
+  } catch (e) {
+    banner(`Pack for Modbus failed: ${e.message}`, true);
+  }
 }
 
 async function plcLinkOn() {

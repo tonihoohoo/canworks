@@ -7987,6 +7987,16 @@ function bridgeProblemFixes(it) {
       changed(true);
     })];
   }
+  // A truST Download refused (modbus-connections "Fixes for a truST connection").
+  if (/Download refused: .*"watchdog_ms": \d+ or more/.test(it.message)) {
+    return [fix("Set the watchdog to 500 ms", "watchdog-trust", () => { b.watchdog_ms = 500; changed(true); })];
+  }
+  if (/Download refused: .*trim the mailboxes/.test(it.message)) {
+    const lost = hasOpenplc() ? " OpenPLC's CAN_RECEIVE, J1939_RECEIVE, CO_RECV_EMCY, CAN_SEND_CYCLIC, CAN_BUS_INFO and J1939_ECU_INFO stop working too." : "";
+    const button = fix("Trim the mailboxes for truST", "trim-trust", (e) => busy(e.currentTarget, "Trimming…", trimMailboxesForTrust));
+    button.title = "One request mailbox and nothing else, then Pack for Modbus." + lost;
+    return [button];
+  }
   const m = /^bridge\.connections\[(\d+)\]$/.exec(((it.paths || [])[0]) || "");
   if (m && /Download again$/.test(it.message)) {
     const i = Number(m[1]);

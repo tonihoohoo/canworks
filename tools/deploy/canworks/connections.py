@@ -218,10 +218,47 @@ def state(cfg, conn, current=None):
     return "up_to_date" if current is None or conn["map_hash"] == current else "out_of_date"
 
 
+# The blocks an OpenPLC program loses when the mailboxes are trimmed for truST.
+OPENPLC_TRIM_LOSES = "CAN_RECEIVE, J1939_RECEIVE, CO_RECV_EMCY, CAN_SEND_CYCLIC, CAN_BUS_INFO and J1939_ECU_INFO"
+
+# The PLCopen export each PLC connection's Download makes.
+DOWNLOAD_TARGETS = {"trust": "trust", "plc": "generic"}
+
+
+def download_problems(cfg):
+    """Warnings for each reason a truST or Other PLC connection's Download
+    would be refused (modbus-connections "Connections that cannot be
+    downloaded"): the export's own texts, pointing at the field to change.
+    One warning per text, for the first connection of the kind."""
+    out = []
+    b = cfg.get("bridge") if isinstance(cfg, dict) else None
+    items = b.get("connections") if isinstance(b, dict) else None
+    seen = set()
+    for i, c in enumerate(items if isinstance(items, list) else []):
+        if not isinstance(c, dict) or c.get("kind") not in DOWNLOAD_TARGETS or c["kind"] in seen:
+            continue
+        seen.add(c["kind"])
+        path = "bridge.connections[%d]" % i
+        label = c.get("name") or TITLES[c["kind"]]
+        try:
+            texts = plcopen_targets.check(cfg, DOWNLOAD_TARGETS[c["kind"]])
+        except (AttributeError, KeyError, TypeError, ValueError, modbusmap.MapError):
+            continue  # the config's own check says what is wrong
+        for text in texts:
+            if "trim the mailboxes" in text and any(isinstance(x, dict) and x.get("kind") == "openplc" for x in items):
+                text += ("; the OpenPLC program shares these mailboxes, so its " + OPENPLC_TRIM_LOSES
+                         + " blocks stop working too")
+            paths = (["bridge.watchdog_ms", path] if '"watchdog_ms"' in text
+                     else ["bridge.mailboxes", path] if "trim the mailboxes" in text else [path])
+            out.append({"level": "warning", "paths": paths, "message": "%s: Download refused: %s" % (label, text)})
+    return out
+
+
 def problems(cfg):
     """Problems-pane warnings of the connections: one per out-of-date
-    download, and a PLCopen or ST connection with no bridge address."""
-    out = []
+    download, a PLCopen or ST connection with no bridge address, and each
+    reason a PLC connection's Download would be refused."""
+    out = download_problems(cfg)
     current = map_hash_text(cfg)
     b = cfg.get("bridge") if isinstance(cfg, dict) else None
     items = b.get("connections") if isinstance(b, dict) else None
