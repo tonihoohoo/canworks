@@ -14,8 +14,8 @@
 ## 3. Docs, version, CI
 
 - [x] 3.1 `docs/configurator.md` (Save after a tools update)
-- [x] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file)
+- [x] 3.2 Tools minor version bump; CI time recorded in the PR (no new job or test file): 260 s wall, 1576 s summed (baseline 360 s / 2352 s)
 
 ## 4. Hardware (Linux device with the real node)
 
-- [ ] 4.1 On the bench copy of the OpenPLC project, after a tools update that changes `canworks_in`: the Project page lists it, Save is enabled without an edit, Save rewrites it and the PLC still builds and runs
+- [x] 4.1 On the bench copy of the OpenPLC project, after a tools update that changes `canworks_in`: the Project page lists it, Save is enabled without an edit, Save rewrites it and the PLC still builds and runs (2026-10-23, tools 0.122.0: canworks_in.st and canworks_out.st listed, Save on without an edit, off after Save; clean upload to the bench Pi built and ran, CO_NODE_LIVE for node 23 TRUE)
