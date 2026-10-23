@@ -1382,6 +1382,7 @@ class Page(unittest.TestCase):
         add_connection(pg, "openplc", button="new")
         self.assertIn("Save the config", pg.inner_text("#banner"))
         self.save()
+        pg.wait_for_function("() => !S.dirty")
         add_connection(pg, "openplc", button="new")
         pg.fill('#modal-extra input[aria-label="Parent folder"]', work)
         pg.fill('#modal-extra input[aria-label="Project name"]', "taken")
