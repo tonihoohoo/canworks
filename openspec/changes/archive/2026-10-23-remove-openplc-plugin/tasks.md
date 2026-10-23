@@ -62,7 +62,7 @@
 - [x] 8.3 `local-runtime.yml` (no image build; end-to-end test), `release-deploy.yml` (no local runtime image), `bridge-image.yml` (no runtime archive), `browser.yml` (configurator against the bridge with the virtual plant)
 - [x] 8.4 `runtime-watch.yml`: newest release plus upstream's Modbus master config model and the editor's remote device format and generator, with a recorded state
 - [x] 8.5 Bad-config parity corpus: overlapping words in a byte-addressed config, config with neither marker
-- [ ] 8.6 CI time: wall and summed job time against the median of the last five green `main` runs, both in the PR, neither higher
+- [x] 8.6 CI time: wall and summed job time against the median of the last five green `main` runs, both in the PR, neither higher
 
 ## 9. Specs and wording
 
@@ -80,7 +80,16 @@
 
 ## 11. Hardware (Linux device with the real node)
 
-- [ ] 11.1 One-off bench cleanup (design decision 10): plugin out of the managed Docker runtime (bind, `PYTHONPATH`, `plugins.conf` line), runtime container recreated, plugin files removed; record what was done in project files, not in the repo
-- [ ] 11.2 Devices page on the hardware project: **Install the bridge X** next to the pinned runtime, `canworks-bridge@<project>` owns the CAN interface, node OPERATIONAL
-- [ ] 11.3 Editor Build and upload of the generated project: values both ways, `canworks_ok` TRUE, `CO_SDO_READ` of 0x1018:1, `CO_NMT` stop and start; then a clean PLC start
+- [x] 11.1 One-off bench cleanup (design decision 10): plugin out of the managed Docker runtime (bind, `PYTHONPATH`, `plugins.conf` line), runtime container recreated, plugin files removed; record what was done in project files, not in the repo
+- [x] 11.2 Devices page on the hardware project: **Install the bridge X** next to the pinned runtime, `canworks-bridge@<project>` owns the CAN interface, node OPERATIONAL
+- [x] 11.3 Editor Build and upload of the generated project: values both ways, `canworks_ok` TRUE, `CO_SDO_READ` of 0x1018:1, `CO_NMT` stop and start; then a clean PLC start
 - [ ] 11.4 Local runtime on the Mac and on the Windows PC: `start`, virtual plant config with `--bridge local`, editor upload, nodes OPERATIONAL, `update`, `remove --data`
+
+## Results (2026-10-23)
+
+- 8.6: CI wall time on #241's last head 216 s and on #242 268 s, against a median of 324 s for the last five green `main` runs.
+- 11.1 PASS: runtime spec without the `/opt/canworks` bind and `PYTHONPATH`, runtime container recreated and healthy, no canworks line in `plugins.conf`; `/opt/canworks` and the old bridge prefix removed.
+- 11.2 PASS: Devices page main action **Install the bridge 0.117.0** next to OpenPLC Runtime v4.3.1; the bridge owns the slcan interface, `map hash ... (OpenPLC through Modbus)`, the node is OPERATIONAL (heartbeat 05).
+- 11.3 PASS: editor project uploaded; `ok` TRUE, state 5, identity serial read; `CO_SDO_READ` 0x1018:1 matches the bus; a forced output toggles its RPDO; `CO_NMT` stop and start (heartbeat 04, then 05); SDO reads while stopped end with ERROR_ID 1, abort 0x08000022; PLC stop gives "outputs off by the PLC link header", start gives outputs on again.
+- 11.4 Mac PASS: `start`, virtual plant with `--bridge local` (every network simulated), program upload, all nodes OPERATIONAL, `update` keeps the bridge's config, `remove --data` removes both containers and volumes. Windows part still open.
+- Finding: the device probe looks only at `/opt/canworks`, so a bridge that an older release installed beside the plugin (`/opt/canworks-bridge`) shows as not installed; no device is in use, so no code change.
