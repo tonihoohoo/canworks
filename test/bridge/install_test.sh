@@ -29,6 +29,11 @@ check 'grep -q "^ExecStart=$T/opt/bin/canworks-bridge --config $T/etc/%i/canwork
     "the unit runs one config per instance"
 check 'grep -qx "MemoryMax=256M" "$T/units/canworks-bridge@.service" && grep -qx "TasksMax=64" "$T/units/canworks-bridge@.service"' \
     "the unit limits memory and tasks"
+U="$T/units/canworks-bridge@.service"
+check 'grep -qx "Type=notify" "$U" && grep -qx "NotifyAccess=main" "$U" && grep -qx "WatchdogSec=20s" "$U"' \
+    "the unit waits for ready and has a watchdog"
+check 'grep -qx "Restart=always" "$U" && grep -qx "RestartSec=1" "$U" && grep -qx "StartLimitIntervalSec=0" "$U"' \
+    "the unit restarts the bridge without a start limit"
 check 'grep -qx "daemon-reload" "$T/calls"' "systemd reloads the units"
 check '[ -d "$T/etc" ]' "the config folder exists"
 check 'grep -qx can-j1939 "$T/modules/canworks-j1939.conf"' "can-j1939 loads at boot"

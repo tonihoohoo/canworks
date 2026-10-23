@@ -7,6 +7,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -25,6 +26,8 @@
 #include "modbus.h"
 #include "modbus_server.h"
 #include "modbus_client.hpp"
+#include "progress.h"
+#include "supervisor.h"
 
 using namespace canworks_bridge;
 
@@ -375,7 +378,9 @@ TEST(partial_request_closed) {
 }
 
 TEST(max_clients_per_address) {
-  ServerConfig cfg = open_config();
+  ServerConfig cfg;
+  std::string err;
+  EXPECT(cfg.writers.add("127.0.0.9", err));  // 127.0.0.1 reads only
   cfg.max_clients_per_address = 2;
   Fixture fx(cfg);
   Client a(fx.server.port()), b(fx.server.port());
@@ -386,6 +391,48 @@ TEST(max_clients_per_address) {
   EXPECT(wait_for([&] { return fx.logged("max_clients_per_address"); }));
   Client elsewhere(fx.server.port(), "127.0.0.1", 0, "127.0.0.2");
   EXPECT(elsewhere.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+}
+
+// Spec: a writer whose address already has max_clients_per_address
+// connections (dead ones nobody closed) takes the longest-idle one's slot.
+TEST(writer_takes_its_own_addresss_idle_slot) {
+  ServerConfig cfg = open_config();
+  cfg.max_clients_per_address = 2;
+  Fixture fx(cfg);
+  Client older(fx.server.port()), newer(fx.server.port());
+  EXPECT(older.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  EXPECT(newer.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  Client writer(fx.server.port());
+  EXPECT(writer.request(write_regs(0, {0x1234})).size() == 5);
+  EXPECT(older.closed());
+  EXPECT(newer.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  EXPECT(wait_for([&] { return fx.logged("to make room for writer"); }));
+}
+
+// Spec: every connection uses TCP keepalive (5 s idle, 2 s interval, 3
+// probes). The server runs in this process, so its accepted socket is here.
+TEST(keepalive_on_accepted_connections) {
+  Fixture fx;
+  Client c(fx.server.port());
+  EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  int found = 0;
+  for (int fd = 0; fd < 1024; ++fd) {
+    sockaddr_in local{}, peer{};
+    socklen_t ll = sizeof(local), pl = sizeof(peer);
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &ll) != 0 || local.sin_family != AF_INET) continue;
+    if (ntohs(local.sin_port) != fx.server.port()) continue;
+    if (::getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &pl) != 0) continue;  // the listening socket
+    int on = 0, idle = 0, intvl = 0, cnt = 0;
+    socklen_t n = sizeof(int);
+    ::getsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, &n);
+    ::getsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, &n);
+    ::getsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, &n);
+    ::getsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, &n);
+    EXPECT(on && idle == 5 && intvl == 2 && cnt == 3);
+    ++found;
+  }
+  EXPECT(found == 1);
 }
 
 // Spec: every slot taken by readers, the writer connects -> the oldest
@@ -702,6 +749,99 @@ TEST(client_wrote_tracks_written_bytes) {
   Client c(fx.server.port());
   c.request(write_regs(1, {0x0001}));
   EXPECT(fx.image.client_wrote(2, 2) && !fx.image.client_wrote(0, 2) && !fx.image.client_wrote(4, 2));
+}
+
+// Spec "Stall watchdog": a thread whose counter stops is named; one that
+// beats, or any while paused, is not; WATCHDOG=1 only while all are fresh.
+TEST(supervisor_names_a_stalled_thread) {
+  using canopen_plugin::ThreadProgress;
+  std::mutex mu;
+  std::vector<std::string> stalled, notes;
+  Supervisor::Options opt;
+  opt.stall = std::chrono::milliseconds(300);
+  opt.tick = std::chrono::milliseconds(20);
+  opt.notify_every = std::chrono::milliseconds(20);
+  opt.fresh = std::chrono::milliseconds(150);
+  opt.on_stall = [&](const std::string& who) {
+    std::lock_guard<std::mutex> l(mu);
+    stalled.push_back(who);
+  };
+  opt.notify = [&](const std::string& s) {
+    std::lock_guard<std::mutex> l(mu);
+    notes.push_back(s);
+  };
+  std::atomic<bool> run{true};
+  ThreadProgress* busy_ptr = nullptr;
+  std::thread busy([&] {
+    ThreadProgress p("busy thread");
+    busy_ptr = &p;
+    while (run) {
+      p.beat();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+  });
+  Supervisor sv(opt);
+  sv.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  {
+    std::lock_guard<std::mutex> l(mu);
+    EXPECT(stalled.empty());
+    EXPECT(!notes.empty() && notes.back() == "WATCHDOG=1");
+  }
+  {
+    ThreadProgress stuck("stuck thread");  // never beats
+    sv.pause(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(450));
+    {
+      std::lock_guard<std::mutex> l(mu);
+      EXPECT(stalled.empty());  // paused: nothing counts
+      notes.clear();
+    }
+    sv.pause(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(170));  // past `fresh` since the pause ended
+    {
+      std::lock_guard<std::mutex> l(mu);
+      notes.clear();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(90));  // still before the 300 ms stall
+    {
+      std::lock_guard<std::mutex> l(mu);
+      EXPECT(notes.empty());  // the stuck counter is not fresh: no WATCHDOG=1
+    }
+    EXPECT(wait_for([&] {
+      std::lock_guard<std::mutex> l(mu);
+      return !stalled.empty();
+    }));
+  }
+  sv.stop();
+  run = false;
+  busy.join();
+  (void)busy_ptr;
+  std::lock_guard<std::mutex> l(mu);
+  EXPECT(stalled.size() >= 1 && stalled[0] == "stuck thread");
+  for (const auto& s : stalled) EXPECT(s != "busy thread");
+}
+
+TEST(sd_notify_datagram) {
+  char path[] = "/tmp/canworks-notify-XXXXXX";
+  int tmp = ::mkstemp(path);
+  ::close(tmp);
+  ::unlink(path);
+  int fd = ::socket(AF_UNIX, SOCK_DGRAM, 0);
+  sockaddr_un a{};
+  a.sun_family = AF_UNIX;
+  std::strncpy(a.sun_path, path, sizeof(a.sun_path) - 1);
+  EXPECT(::bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0);
+  ::unsetenv("NOTIFY_SOCKET");
+  EXPECT(!sd_notify_state("READY=1"));  // not under systemd: nothing sent
+  ::setenv("NOTIFY_SOCKET", path, 1);
+  EXPECT(sd_notify_state("READY=1"));
+  char buf[64] = {};
+  ssize_t n = ::recv(fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
+  EXPECT(n == 7 && std::string(buf) == "READY=1");
+  ::unsetenv("NOTIFY_SOCKET");
+  ::close(fd);
+  ::unlink(path);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

@@ -115,8 +115,15 @@ class ControlBlock {
   uint8_t result_ = kCtrlOk;
 };
 
-// Status block: state, clients, 100 ms heartbeat, control echo and result.
-void encode_status(uint8_t* block, OutputState state, int clients, uint16_t heartbeat, const ControlBlock& control);
+// Status block byte 7.
+enum StatusFlag : uint8_t {
+  kStatusUncleanStart = 0x01,  // the previous run of this config did not stop cleanly
+};
+
+// Status block: state, clients, 100 ms heartbeat, control echo and result,
+// flags.
+void encode_status(uint8_t* block, OutputState state, int clients, uint16_t heartbeat, const ControlBlock& control,
+                   uint8_t flags = 0);
 
 // Live list: bit n set while node n is OPERATIONAL; bit 0 always 0.
 void encode_live_list(uint8_t* block, const std::bitset<128>& operational);

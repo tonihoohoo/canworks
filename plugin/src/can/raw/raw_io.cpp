@@ -11,6 +11,7 @@
 
 #include "../frame_tx.h"
 #include "../outputs_gate.h"
+#include "../progress.h"
 
 namespace canworks_raw {
 
@@ -319,9 +320,11 @@ int RawIo::next_timeout(uint64_t now) {
 }
 
 void RawIo::run() {
+  canopen_plugin::ThreadProgress progress("raw CAN thread on " + link_->where());
   bool open = false;
   bool reported = false;
   while (!stop_) {
+    progress.beat();
     if (!open) {
       int r = hooks_.prepare && !hooks_.prepare() ? -ENETDOWN : link_->open();
       if (r < 0) {

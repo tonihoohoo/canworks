@@ -181,7 +181,7 @@ set_tests_properties(slave_simulated_bus PROPERTIES TIMEOUT 120 ENVIRONMENT "${E
 # The Modbus bridge's server, register rule and own registers, with a Modbus
 # TCP client over loopback (modbus-bridge).
 add_executable(bridge_tests bridge/bridge_tests.cpp)
-target_include_directories(bridge_tests PRIVATE common)
+target_include_directories(bridge_tests PRIVATE common ${PROJECT_SOURCE_DIR}/plugin/src/can)
 target_link_libraries(bridge_tests PRIVATE canworks_bridge_proto)
 add_test(NAME bridge_tests COMMAND bridge_tests)
 set_tests_properties(bridge_tests PROPERTIES TIMEOUT 60)

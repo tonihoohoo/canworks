@@ -70,13 +70,14 @@ uint8_t ControlBlock::check(const ControlRequest& req, const std::vector<bool>& 
   }
 }
 
-void encode_status(uint8_t* block, OutputState state, int clients, uint16_t heartbeat, const ControlBlock& control) {
+void encode_status(uint8_t* block, OutputState state, int clients, uint16_t heartbeat, const ControlBlock& control,
+                   uint8_t flags) {
   block[0] = static_cast<uint8_t>(state);
   block[1] = static_cast<uint8_t>(std::min(clients, 255));
   put_be16(block + 2, heartbeat);
   put_be16(block + 4, control.counter());
   block[6] = control.result();
-  block[7] = 0;
+  block[7] = flags;
 }
 
 void encode_live_list(uint8_t* block, const std::bitset<128>& operational) {

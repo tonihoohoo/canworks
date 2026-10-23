@@ -3,8 +3,10 @@
 //
 //   canworks-bridge --config FILE [--check-only | --wait]
 
+#include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <sys/stat.h>
@@ -12,6 +14,7 @@
 
 #include "bridge_host.h"
 #include "log.h"
+#include "supervisor.h"
 #if CANWORKS_WITH_CANOPEN
 #include "canopen_runtime.h"
 #endif
@@ -96,14 +99,31 @@ int main(int argc, char** argv) {
 
   canworks_bridge::BridgeHost host;
   if (!host.start(config, CANWORKS_VERSION)) return 1;
+  // modbus-bridge "Stall watchdog": a thread that stops making progress
+  // aborts the process, so the service (or the container) restarts it.
+  canworks_bridge::Supervisor::Options opt;
+  if (const char* ms = std::getenv("CANWORKS_STALL_MS")) opt.stall = std::chrono::milliseconds(std::atol(ms));  // tests
+  opt.on_stall = [&opt](const std::string& who) {
+    canopen_plugin::log_error("canworks-bridge: the %s made no progress for %lld s; aborting so the service restarts",
+                              who.c_str(), static_cast<long long>(opt.stall.count() / 1000));
+    std::abort();
+  };
+  canworks_bridge::Supervisor supervisor(opt);
+  supervisor.start();
+  canworks_bridge::sd_notify_state("READY=1");
   while (!g_stop) {
     usleep(50000);
     if (host.upload_pending()) {
       usleep(300000);  // the put_config answer goes out first
-      host.apply_upload();
+      supervisor.pause(true);
+      bool runs = host.apply_upload();
+      supervisor.pause(false);
+      if (!runs) return 1;
     }
   }
   canopen_plugin::log_info("canworks-bridge: stopping");
+  canworks_bridge::sd_notify_state("STOPPING=1");
+  supervisor.stop();
   host.stop();
   return 0;
 }

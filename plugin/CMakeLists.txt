@@ -144,8 +144,11 @@ add_library(canworks_bridge_proto STATIC
     src/bridge/address_list.cpp
     src/bridge/bridge_blocks.cpp
     src/bridge/mailboxes.cpp
+    src/bridge/supervisor.cpp
 )
 target_include_directories(canworks_bridge_proto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge)
+# progress.h (header only) for the stall watchdog's counters.
+target_include_directories(canworks_bridge_proto PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/can)
 target_compile_options(canworks_bridge_proto PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(canworks_bridge_proto PUBLIC pthread)
 

@@ -161,7 +161,7 @@ The repository has a [Claude](https://claude.ai/code) skill, `canworks-datasheet
 
 ## Requirements and limits
 
-- **Linux device:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later) for `canworks-bridge`, as a systemd service or a container. For OpenPLC, the runtime runs next to it unmodified, as upstream's managed Docker install or a native install. canworks is pinned to OpenPLC runtime **v4.3.1** (`docker/local-runtime/runtime-version`): installs put a managed Docker device on it, CI tests it, and a device the OpenPLC Editor moved to another version gets **Switch runtime to v4.3.1** on the Devices page ([docs/devices.md](docs/devices.md)).
+- **Linux device:** Linux with SocketCAN (`slcan` adapters need Linux 6.0 or later) for `canworks-bridge`, as a systemd service (it restarts itself after a crash or a hang) or a container. For OpenPLC, the runtime runs next to it unmodified, as upstream's managed Docker install or a native install. canworks is pinned to OpenPLC runtime **v4.3.1** (`docker/local-runtime/runtime-version`): installs put a managed Docker device on it, CI tests it, and a device the OpenPLC Editor moved to another version gets **Switch runtime to v4.3.1** on the Devices page ([docs/devices.md](docs/devices.md)).
 - **OpenPLC:** each value arrives up to one poll (10 ms) after the bus, and two PDOs may come from different moments; no SYNC from the PLC cycle.
 - **CANopen:** master and slave roles, one role per CAN interface; no CiA 402 motion control, flying master, MPDO or SRDO, and no program download as a slave.
 - **Raw CAN:** classic CAN only (no CAN FD), raw integer signals.

@@ -12,6 +12,7 @@
 #include "bus.h"
 #include "log.h"
 #include "network.h"
+#include "progress.h"
 #include "raw_bridge_server.h"
 
 namespace canopen_plugin {
@@ -42,14 +43,18 @@ void SlaveBus::stop() {
 }
 
 bool SlaveBus::wait_for(std::chrono::milliseconds d) {
-  std::unique_lock<std::mutex> lock(mutex_);
-  cv_.wait_for(lock, d, [this] { return stop_.load(); });
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait_for(lock, d, [this] { return stop_.load(); });
+  }
+  progress_beat();
   return !stop_;
 }
 
 void SlaveBus::thread_main() {
   pthread_setname_np(pthread_self(), "canopen_slave");
   set_thread_log_prefix(cfg_.log_prefix.empty() ? "" : cfg_.log_prefix + ": ");
+  ThreadProgress progress(network_thread_name("CANopen slave bus thread", cfg_.network, cfg_.network_index));
   if (cfg_.adapter.simulate) {
     // On the simulated bus of its interface name, next to a simulated master
     // network: no adapter, no interface to wait for.
@@ -147,6 +152,7 @@ void SlaveBus::run_session() {
     int slices_after_shutdown = 0;
     while (true) {
       loop.run_for(kLoopSlice);
+      progress_beat();
       if (loop.stopped()) break;
       if (!shut_down && (stop_ || iface_down())) {
         if (!stop_) iface_lost = true;

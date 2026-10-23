@@ -25,6 +25,7 @@
 #include <lely/co/dcf.h>
 #include <lely/co/dev.h>
 
+#include "disk.h"
 #include "log.h"
 
 extern char** environ;
@@ -76,6 +77,15 @@ bool write_file(const std::string& path, const std::string& data) {
   if (!out) return false;
   out << data;
   return static_cast<bool>(out);
+}
+
+// Writes a file that exists to disk; false when it cannot be.
+bool sync_file(const std::string& path) {
+  int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return errno == ENOENT;
+  bool ok = ::fsync(fd) == 0;
+  ::close(fd);
+  return ok;
 }
 
 uint64_t fnv1a(uint64_t h, const std::string& data) {
@@ -861,6 +871,13 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
     // otherwise still be applied.
     unlink((out.work_dir + "/master.bin").c_str());
     for (const auto& n : cfg.nodes) unlink((out.work_dir + "/node_" + std::to_string(n.node_id) + ".bin").c_str());
+    // A full or read-only folder named as such (modbus-bridge "Full or
+    // read-only config folder"), before dcfgen fails on it.
+    std::string disk = disk_problem(out.work_dir);
+    if (!disk.empty()) {
+      errors.push_back(disk + ": the bridge writes its generated files there; free some space and start it again");
+      return false;
+    }
     if (!write_file(yaml_path, yaml)) {
       errors.push_back("cannot write " + yaml_path);
       return false;
@@ -895,7 +912,15 @@ bool generate_device_config(const Config& cfg, const std::string& dcfgen, Genera
       errors.push_back(buf);
     }
     if (!missing.empty()) return false;
-    write_file(hash_path, hash);
+    // The generated files reach the disk before the hash says they are
+    // current, so a power loss never leaves a partly written DCF in use.
+    bool synced = sync_file(out.master_dcf) && sync_file(out.work_dir + "/master.bin");
+    for (const auto& n : cfg.nodes)
+      synced = sync_file(out.work_dir + "/node_" + std::to_string(n.node_id) + ".bin") && synced;
+    if (synced && write_file(hash_path, hash)) {
+      sync_file(hash_path);
+      sync_file(out.work_dir);
+    }
   }
   // Also on a reused run, so the warnings show at every start.
   log_dcfgen_warnings(cfg, out.work_dir + "/dcfgen.log");

@@ -82,6 +82,13 @@ class BridgeStatusLine(unittest.TestCase):
         self.assertEqual(line, "Modbus bridge on 0.0.0.0:502, unit 1: outputs off (watchdog, on client loss stop); "
                                "1 client: 10.0.0.5 (writer) 12 requests; last config upload: started")
 
+    def test_last_stop(self):
+        base = {"state": "running", "listen": "0.0.0.0:502", "unit_id": 1, "clients": []}
+        self.assertTrue(diag.bridge_status_line(dict(base, last_stop="unclean")).endswith(
+            "; last stop unclean (crash, kill or power loss)"))
+        self.assertTrue(diag.bridge_status_line(dict(base, last_stop="clean")).endswith("; last stop clean"))
+        self.assertNotIn("last stop", diag.bridge_status_line(dict(base, last_stop="unknown")))
+
 
 if __name__ == "__main__":
     unittest.main()

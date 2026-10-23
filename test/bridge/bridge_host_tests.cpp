@@ -178,6 +178,35 @@ TEST(boots_and_serves_the_map) {
   EXPECT(c.request(read_req(kReadInputRegisters, 0, 32)) == exc(kReadInputRegisters, 2));
 }
 
+// Spec "Unclean stop reported": a run marker found at start sets status
+// byte 7 bit 0 for the run; a clean stop removes it.
+TEST(unclean_start_flag) {
+  canopen_plugin::set_log_sink(capture);
+  canopen_plugin::canopen_init_logging();
+  std::string path = example_copy(nullptr);
+  std::string dir = path.substr(0, path.rfind('/'));
+  ::mkdir((dir + "/.canworks").c_str(), 0755);
+  write_file(dir + "/.canworks/running", "test\n");
+  {
+    BridgeHost host;
+    host.listen_override = "127.0.0.1:0";
+    EXPECT(host.start(path, "test"));
+    EXPECT(host.last_stop() == "unclean");
+    Client c(host.modbus_port());
+    EXPECT(wait_for([&] { return (reg(c, kStatusReg + 3) & 0xFF) == kStatusUncleanStart; }));
+    host.stop();
+    struct stat st;
+    EXPECT(::stat((dir + "/.canworks/running").c_str(), &st) != 0);
+  }
+  BridgeHost again;
+  again.listen_override = "127.0.0.1:0";
+  EXPECT(again.start(path, "test"));
+  EXPECT(again.last_stop() == "clean");
+  Client c(again.modbus_port());
+  EXPECT(wait_for([&] { return reg(c, kStatusReg) != 0xFFFF && (reg(c, kStatusReg + 3) & 0xFF) == 0; }));
+  again.stop();
+}
+
 TEST(watchdog_stop_keeps_inputs) {
   Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 300); });
   EXPECT(h.ok);
