@@ -70,8 +70,8 @@ END_VAR
   END_IF;
   IF phase = 2 OR phase = 3 THEN
     LINK[128 + job] := UDINT_TO_WORD(WORD_TO_UDINT(LINK[128 + job]) + 1);
-    t := 985 + 4 * job;
-    fresh := (DINT_TO_WORD(WORD_TO_DINT(LINK[984]) - WORD_TO_DINT(tick0)) AND WORD#16#8000) = WORD#0;
+    t := 1105 + 4 * job;
+    fresh := (DINT_TO_WORD(WORD_TO_DINT(LINK[1104]) - WORD_TO_DINT(tick0)) AND WORD#16#8000) = WORD#0;
     IF fresh AND LINK[t + 1] <> gen THEN
       mb(RUN := FALSE, LINK := LINK);
       phase := 0;

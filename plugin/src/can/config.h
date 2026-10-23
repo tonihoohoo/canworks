@@ -634,6 +634,7 @@ struct BridgeConfig {
   bool has_mailboxes = false;
   unsigned mb_requests = 1;
   bool mb_receive = true;
+  unsigned mb_receive_blocks = 1;  // receive_blocks: 120 registers each
   unsigned mb_cyclic_jobs = 4;
   bool mb_network_info = true;
   unsigned mb_info_networks = 0;  // network_info: the first 8 networks
@@ -649,11 +650,11 @@ constexpr unsigned kBridgeLiveListBytes = 16;
 constexpr unsigned kBridgeSdoBytes = 14;
 // Mailbox blocks (bridge/mailboxes.h has their layout).
 constexpr unsigned kMailboxBytes = 144;    // one request or one response block
-constexpr unsigned kReceiveBytes = 240;    // the receive mailbox
+constexpr unsigned kReceiveBytes = 240;    // one receive mailbox block
 constexpr unsigned kReceiveAckBytes = 6;   // its acknowledgement
 constexpr unsigned kNetInfoBytes = 36;     // one network info block
 constexpr unsigned kCyclicJobBytes = 8;    // one cyclic job in the table (after a 2-byte tick)
-constexpr unsigned kMaxMailboxes = 4, kMaxCyclicJobs = 16, kMaxInfoNetworks = 8;
+constexpr unsigned kMaxMailboxes = 4, kMaxReceiveBlocks = 2, kMaxCyclicJobs = 16, kMaxInfoNetworks = 8;
 // Input and output bytes of the mailbox areas.
 unsigned mailbox_input_bytes(const BridgeConfig& b);
 unsigned mailbox_output_bytes(const BridgeConfig& b);

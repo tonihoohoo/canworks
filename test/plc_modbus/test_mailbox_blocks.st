@@ -344,6 +344,104 @@ TEST 'CAN_RECEIVE drains a batch in one scan'
   ASSERT_EQ(bridge.OPEN_RX, 0);
 END_TEST
 
+TEST 'CAN_RECEIVE takes 9 frames a batch with one receive block, all with the batch TIMESTAMP'
+  VAR
+    link : ARRAY[0..1279] OF WORD;
+    svc : CW_LINK_SERVICE;
+    bridge : MailboxModel;
+    rx : CAN_RECEIVE;
+    d : ARRAY[0..7] OF BYTE;
+    i : INT;
+    got : INT;
+    t0 : ULINT;
+    same : BOOL;
+  END_VAR
+  link[21] := 1;
+  link[89] := 16#0431;
+  FOR i := 1 TO 4 DO
+    svc(LINK := link);
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+    bridge(RX_BLOCKS := 1, LINK := link);
+    link := bridge.LINK;
+  END_FOR;
+  ASSERT_TRUE(rx.ACTIVE);
+  FOR i := 0 TO 29 DO
+    bridge(INJ_CAN := TRUE, INJ_ID := 16#181, INJ_B0 := INT_TO_BYTE(i), HOLD := TRUE, RX_BLOCKS := 1, LINK := link);
+    link := bridge.LINK;
+  END_FOR;
+  bridge(HOLD := FALSE, RX_BLOCKS := 1, LINK := link);
+  link := bridge.LINK;
+  svc(LINK := link);
+  rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  same := TRUE;
+  t0 := rx.TIMESTAMP;
+  WHILE rx.RECEIVED DO
+    ASSERT_EQ(d[0], INT_TO_BYTE(got));
+    same := same AND rx.TIMESTAMP = t0;
+    got := got + 1;
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  END_WHILE;
+  ASSERT_EQ(got, 9);
+  ASSERT_TRUE(same);
+  (* the next batch: the next frame, with its own time *)
+  bridge(RX_BLOCKS := 1, LINK := link);
+  link := bridge.LINK;
+  svc(LINK := link);
+  rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  ASSERT_TRUE(rx.RECEIVED);
+  ASSERT_EQ(d[0], INT_TO_BYTE(9));
+  ASSERT_TRUE(rx.TIMESTAMP <> t0);
+END_TEST
+
+TEST 'CAN_RECEIVE takes 21 frames a batch with two receive blocks'
+  VAR
+    link : ARRAY[0..1279] OF WORD;
+    svc : CW_LINK_SERVICE;
+    bridge : MailboxModel;
+    rx : CAN_RECEIVE;
+    d : ARRAY[0..7] OF BYTE;
+    i : INT;
+    got : INT;
+    t0 : ULINT;
+    same : BOOL;
+  END_VAR
+  link[21] := 1;
+  link[89] := 16#0431;
+  FOR i := 1 TO 4 DO
+    svc(LINK := link);
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+    bridge(RX_BLOCKS := 2, LINK := link);
+    link := bridge.LINK;
+  END_FOR;
+  ASSERT_TRUE(rx.ACTIVE);
+  FOR i := 0 TO 29 DO
+    bridge(INJ_CAN := TRUE, INJ_ID := 16#181, INJ_B0 := INT_TO_BYTE(i), HOLD := TRUE, RX_BLOCKS := 2, LINK := link);
+    link := bridge.LINK;
+  END_FOR;
+  bridge(HOLD := FALSE, RX_BLOCKS := 2, LINK := link);
+  link := bridge.LINK;
+  svc(LINK := link);
+  rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  same := TRUE;
+  t0 := rx.TIMESTAMP;
+  WHILE rx.RECEIVED DO
+    ASSERT_EQ(d[0], INT_TO_BYTE(got));
+    same := same AND rx.TIMESTAMP = t0;
+    got := got + 1;
+    rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  END_WHILE;
+  ASSERT_EQ(got, 21);
+  ASSERT_TRUE(same);
+  (* the next batch: the next frame, with its own time *)
+  bridge(RX_BLOCKS := 2, LINK := link);
+  link := bridge.LINK;
+  svc(LINK := link);
+  rx(ENABLE := TRUE, ID := 16#180, MASK := 16#780, RX_DATA := d, LINK := link);
+  ASSERT_TRUE(rx.RECEIVED);
+  ASSERT_EQ(d[0], INT_TO_BYTE(21));
+  ASSERT_TRUE(rx.TIMESTAMP <> t0);
+END_TEST
+
 TEST 'CAN_RECEIVE keeps receiving as the bridge clock wraps'
   VAR
     link : ARRAY[0..1279] OF WORD;

@@ -4,8 +4,10 @@
  * format), standard or EXTENDED, through a receiver of the bridge with a
  * queue of DEPTH frames (0: 32, at most 256). ENABLE opens it. Each call
  * gives at most one frame, oldest first: RECEIVED with RX_ID, RX_EXTENDED,
- * RX_RTR, RX_DLC, RX_DATA and TIMESTAMP (UTC microseconds); call it again in
- * the same scan to read more (`WHILE rx.RECEIVED DO ... rx(...); END_WHILE`).
+ * RX_RTR, RX_DLC, RX_DATA and TIMESTAMP (UTC microseconds, the receive time
+ * of the bridge's batch, which its frames share: about one poll); call it
+ * again in the same scan to read more
+ * (`WHILE rx.RECEIVED DO ... rx(...); END_WHILE`).
  * QUEUED frames still wait in the bridge, OVERFLOW the queue was full,
  * DROPPED frames lost. ERROR_ID (docs/plc-library.md#frame-blocks): 1 the
  * network is not running, 2 no such network, 3 invalid input, 5 no free
@@ -84,15 +86,15 @@ END_VAR
     DROPPED := DROPPED + WORD_TO_UDINT(DINT_TO_WORD(WORD_TO_DINT(LINK[rec + 2]) - WORD_TO_DINT(last_drop)));
     last_drop := LINK[rec + 2];
     OVERFLOW := (LINK[rec] AND WORD#16#0004) <> WORD#0;
-    TIMESTAMP := LWORD_TO_ULINT(SHL(WORD_TO_LWORD(LINK[rec + 3]), 48) OR SHL(WORD_TO_LWORD(LINK[rec + 4]), 32) OR
-                 SHL(WORD_TO_LWORD(LINK[rec + 5]), 16) OR WORD_TO_LWORD(LINK[rec + 6]));
-    RX_ID := WORD_TO_UDINT(LINK[rec + 7]) * 65536 + WORD_TO_UDINT(LINK[rec + 8]);
-    RX_EXTENDED := (LINK[rec + 9] AND WORD#16#0100) <> WORD#0;
-    RX_RTR := (LINK[rec + 9] AND WORD#16#0200) <> WORD#0;
-    RX_DLC := WORD_TO_USINT(LINK[rec + 9] AND WORD#16#00FF);
+    TIMESTAMP := LWORD_TO_ULINT(SHL(WORD_TO_LWORD(LINK[741]), 48) OR SHL(WORD_TO_LWORD(LINK[742]), 32) OR
+                 SHL(WORD_TO_LWORD(LINK[743]), 16) OR WORD_TO_LWORD(LINK[744]));
+    RX_ID := WORD_TO_UDINT(LINK[rec + 3]) * 65536 + WORD_TO_UDINT(LINK[rec + 4]);
+    RX_EXTENDED := (LINK[rec + 5] AND WORD#16#0100) <> WORD#0;
+    RX_RTR := (LINK[rec + 5] AND WORD#16#0200) <> WORD#0;
+    RX_DLC := WORD_TO_USINT(LINK[rec + 5] AND WORD#16#00FF);
     FOR i := 0 TO 3 DO
-      RX_DATA[2 * i] := WORD_TO_BYTE(SHR(LINK[rec + 10 + i], 8));
-      RX_DATA[2 * i + 1] := WORD_TO_BYTE(LINK[rec + 10 + i]);
+      RX_DATA[2 * i] := WORD_TO_BYTE(SHR(LINK[rec + 6 + i], 8));
+      RX_DATA[2 * i + 1] := WORD_TO_BYTE(LINK[rec + 6 + i]);
     END_FOR;
   END_IF;
   ACTIVE := rx.ACTIVE;

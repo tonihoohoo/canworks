@@ -122,9 +122,10 @@ struct Rig {
   std::vector<uint8_t> out, in;
   Clock::time_point now = Clock::now();
   uint16_t counter[kMaxRequestMailboxes] = {};
-  explicit Rig(unsigned requests = 1, unsigned jobs = 2) {
+  explicit Rig(unsigned requests = 1, unsigned jobs = 2, unsigned rx_blocks = 1) {
     layout.requests = requests;
     layout.receive = true;
+    layout.receive_blocks = rx_blocks;
     layout.info_networks = 2;
     layout.cyclic_jobs = jobs;
     layout.in_base = 100;
@@ -191,6 +192,25 @@ TEST(layout_sizes) {
   l.cyclic_jobs = 4;
   EXPECT(l.input_bytes() == 144 + 240 + 72 + 2 + 32);
   EXPECT(l.output_bytes() == 144 + 6 + 8);
+  l.receive_blocks = 2;
+  EXPECT(l.input_bytes() == 144 + 480 + 72 + 2 + 32);
+  EXPECT(l.info(0) == 144 + 480 && l.output_bytes() == 144 + 6 + 8);
+}
+
+TEST(record_sizes) {
+  std::vector<uint16_t> w;
+  RxRecord rec = can_rec(0x123, 77);
+  encode_record(3, kRxCan, rec, false, w);
+  EXPECT(w.size() == 10 && record_words(kRxCan) == 10);
+  EXPECT(w[3] == 0 && w[4] == 0x123 && w[5] == 2 && w[6] == 0x0002);
+  w.clear();
+  encode_record(3, kRxJ1939, rec, false, w);
+  EXPECT(w.size() == 12 && record_words(kRxJ1939) == 12);
+  w.clear();
+  rec.node = 5;
+  encode_record(3, kRxEmcy, rec, false, w);
+  EXPECT(w.size() == 12 && record_words(kRxEmcy) == 12);
+  EXPECT(w[6] == 77 && w[7] >> 8 == 5);  // EMCY keeps its own time
 }
 
 TEST(request_runs_once_per_counter) {
@@ -325,17 +345,19 @@ TEST(receiver_batches_and_acknowledgement) {
   EXPECT(r.backend.specs[1].id == 0x600 && r.backend.specs[1].mask == 0x780);
   // The generation shows in the receive mailbox.
   EXPECT(r.in[r.layout.receive_block() + 10 + slot] == gen);
-  for (unsigned i = 0; i < 10; ++i) r.backend.rx[1].push_back(can_rec(0x605, 1000 + i, static_cast<uint8_t>(i)));
+  for (unsigned i = 0; i < 12; ++i) r.backend.rx[1].push_back(can_rec(0x605, 1000 + i, static_cast<uint8_t>(i)));
   r.step();
   uint16_t seq = r.rx_word(0);
   EXPECT(seq != 0);
   EXPECT(r.rx_word(2) == (1u << slot));
   unsigned used = r.rx_word(3);
-  EXPECT(used == 7 * 14);  // 7 CAN records fit in 99 words
-  // First record: receiver, kind, time and the frame.
+  EXPECT(used == 9 * 10);  // 9 CAN records fit in 95 words
+  // The batch time is the first record's.
+  EXPECT(r.rx_word(21) == 0 && r.rx_word(22) == 0 && r.rx_word(23) == 0 && r.rx_word(24) == 1000);
+  // First record: receiver, kind and the frame.
   uint16_t w0 = r.rx_word(kRxHeaderWords);
   EXPECT((w0 >> 8) == slot && ((w0 >> 4) & 0xF) == kRxCan);
-  EXPECT(r.rx_word(kRxHeaderWords + 6) == 1000 && r.rx_word(kRxHeaderWords + 8) == 0x605);
+  EXPECT(r.rx_word(kRxHeaderWords + 4) == 0x605 && r.rx_word(kRxHeaderWords + 5) == 2);
   // Not acknowledged: the batch stays.
   for (int i = 0; i < 5; ++i) r.step();
   EXPECT(r.rx_word(0) == seq);
@@ -343,8 +365,40 @@ TEST(receiver_batches_and_acknowledgement) {
   r.ack(seq, 0);
   r.step();
   EXPECT(r.rx_word(0) == static_cast<uint16_t>(seq + 1));
-  EXPECT(r.rx_word(3) == 3 * 14);
-  EXPECT(r.rx_word(kRxHeaderWords + 10) >> 8 == 7);  // the eighth frame's first byte
+  EXPECT(r.rx_word(3) == 3 * 10);
+  EXPECT(r.rx_word(24) == 1009);
+  EXPECT(r.rx_word(kRxHeaderWords + 6) >> 8 == 9);  // the tenth frame's first byte
+}
+
+// 30 records queued: how many one batch takes, per kind and receive blocks.
+TEST(full_batches) {
+  struct Case {
+    uint8_t kind, network;
+    uint16_t a0, a3, a5;
+    unsigned one, two;
+  };
+  for (const Case& c : {Case{kRxCan, 0, kRxCan << 8, 0x100, 0x700, 9, 21},
+                        Case{kRxJ1939, 1, kRxJ1939 << 8, 65282, 255, 7, 17},
+                        Case{kRxEmcy, 0, kRxEmcy << 8, 0, 0, 7, 17}}) {
+    for (unsigned blocks = 1; blocks <= 2; ++blocks) {
+      Rig r(1, 2, blocks);
+      r.call(0, kOpRxOpen, c.network, {c.a0, 32, 0, c.a3, 0, c.a5});
+      EXPECT(r.wait(0));
+      EXPECT(r.state(0) == kMbDone);
+      for (unsigned i = 0; i < 30; ++i) {
+        RxRecord rec = can_rec(0x100, 500 + i, static_cast<uint8_t>(i));
+        rec.pgn = 65282;
+        r.backend.rx[1].push_back(rec);
+      }
+      r.step();
+      unsigned want = blocks == 1 ? c.one : c.two;
+      EXPECT(r.rx_word(3) == want * record_words(c.kind));
+      EXPECT(r.rx_word(24) == 500);
+      // The last record ends inside the receive area; the info follows it.
+      EXPECT(kRxHeaderWords + r.rx_word(3) <= blocks * kRxWords);
+      EXPECT(r.layout.info(0) == r.layout.receive_block() + blocks * kRxBytes);
+    }
+  }
 }
 
 TEST(acknowledgement_with_pending_waits) {
@@ -399,9 +453,9 @@ TEST(long_j1939_message_held_for_fetch) {
   r.backend.rx[1].push_back(m);
   r.step();
   // One long record per receiver and batch.
-  EXPECT(r.rx_word(3) == 16);
+  EXPECT(r.rx_word(3) == 12);
   EXPECT((r.rx_word(kRxHeaderWords) & kRecLong) != 0);
-  EXPECT(r.rx_word(kRxHeaderWords + 11) == 40);
+  EXPECT(r.rx_word(kRxHeaderWords + 7) == 40);
   r.call(0, kOpRxFetch, 1, {0, 0});
   EXPECT(r.wait(0));
   EXPECT(r.state(0) == kMbDone && r.rsp(0, 2) == 40 && r.data(0, 40)[39] == 39);

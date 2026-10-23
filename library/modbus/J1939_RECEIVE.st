@@ -5,7 +5,8 @@
  * the bridge with a queue of DEPTH messages (0: 4, at most 32). ENABLE
  * opens it; changed filter inputs open it again. Each call gives at most one
  * message, oldest first: RECEIVED with RX_PGN, RX_SOURCE, RX_DESTINATION,
- * RX_PRIORITY, RX_LENGTH bytes in RX_DATA and TIMESTAMP (UTC microseconds).
+ * RX_PRIORITY, RX_LENGTH bytes in RX_DATA and TIMESTAMP (UTC microseconds,
+ * the receive time of the bridge's batch, which its messages share).
  * A message longer than 8 bytes is read whole (RX_FETCH through a request
  * mailbox) before RECEIVED. QUEUED messages still wait in the bridge, OVERFLOW
  * the queue was full, DROPPED messages lost. ERROR_ID
@@ -112,13 +113,13 @@ END_VAR
     DROPPED := DROPPED + WORD_TO_UDINT(DINT_TO_WORD(WORD_TO_DINT(LINK[rec + 2]) - WORD_TO_DINT(last_drop)));
     last_drop := LINK[rec + 2];
     OVERFLOW := (LINK[rec] AND WORD#16#0004) <> WORD#0;
-    TIMESTAMP := LWORD_TO_ULINT(SHL(WORD_TO_LWORD(LINK[rec + 3]), 48) OR SHL(WORD_TO_LWORD(LINK[rec + 4]), 32) OR
-                 SHL(WORD_TO_LWORD(LINK[rec + 5]), 16) OR WORD_TO_LWORD(LINK[rec + 6]));
-    RX_PGN := WORD_TO_UDINT(LINK[rec + 7]) * 65536 + WORD_TO_UDINT(LINK[rec + 8]);
-    RX_SOURCE := WORD_TO_USINT(SHR(LINK[rec + 9], 8));
-    RX_DESTINATION := WORD_TO_USINT(LINK[rec + 9] AND WORD#16#00FF);
-    RX_PRIORITY := WORD_TO_USINT(LINK[rec + 10]);
-    RX_LENGTH := WORD_TO_UINT(LINK[rec + 11]);
+    TIMESTAMP := LWORD_TO_ULINT(SHL(WORD_TO_LWORD(LINK[741]), 48) OR SHL(WORD_TO_LWORD(LINK[742]), 32) OR
+                 SHL(WORD_TO_LWORD(LINK[743]), 16) OR WORD_TO_LWORD(LINK[744]));
+    RX_PGN := WORD_TO_UDINT(LINK[rec + 3]) * 65536 + WORD_TO_UDINT(LINK[rec + 4]);
+    RX_SOURCE := WORD_TO_USINT(SHR(LINK[rec + 5], 8));
+    RX_DESTINATION := WORD_TO_USINT(LINK[rec + 5] AND WORD#16#00FF);
+    RX_PRIORITY := WORD_TO_USINT(LINK[rec + 6]);
+    RX_LENGTH := WORD_TO_UINT(LINK[rec + 7]);
     IF (LINK[rec] AND WORD#16#0001) <> WORD#0 THEN
       (* Longer than 8 bytes: read it whole first. *)
       fetching := TRUE;
@@ -127,8 +128,8 @@ END_VAR
     ELSE
       RECEIVED := TRUE;
       FOR i := 0 TO 3 DO
-        RX_DATA[2 * i] := WORD_TO_BYTE(SHR(LINK[rec + 12 + i], 8));
-        RX_DATA[2 * i + 1] := WORD_TO_BYTE(LINK[rec + 12 + i]);
+        RX_DATA[2 * i] := WORD_TO_BYTE(SHR(LINK[rec + 8 + i], 8));
+        RX_DATA[2 * i + 1] := WORD_TO_BYTE(LINK[rec + 8 + i]);
       END_FOR;
     END_IF;
   END_IF;

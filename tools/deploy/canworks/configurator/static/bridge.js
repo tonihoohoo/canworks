@@ -277,7 +277,9 @@ function bridgeMailboxes(b, openplc) {
       el("div", { class: "grid" },
         count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
           hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks, and no receiver can be opened." })),
-        box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers."),
+        box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers per receive block."),
+        count(field("Receive blocks", "bridge.mailboxes.receive_blocks", "int", { placeholder: "1",
+          hint: "1 or 2: a batch of received records fills them all. One block carries 9 CAN frames per batch, two carry 21 for one more Modbus request per poll." })),
         count(field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
           hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." })),
         box("Network info", "network_info", "Bus state and error counters of each network (up to 8): 18 input registers per network."),
@@ -297,9 +299,11 @@ function bridgeMailboxCost() {
   if (!r || !r.mailboxes) return "";
   const m = r.mailboxes;
   const regs = `The blocks take ${m.input_registers} input and ${m.output_registers} holding registers.`;
-  if (!hasOpenplc()) return regs;
+  if (!hasOpenplc())
+    return regs + (m.can_per_batch ? ` Receiving: ${m.can_per_batch} CAN frames per batch, one batch per two of your client's polls.` : "");
   return regs + ` The whole map needs ${r.requests} Modbus request${r.requests === 1 ? "" : "s"} per poll` +
-    (r.requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with.` : ` (budget ${r.request_budget}).`);
+    (r.requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with.` : ` (budget ${r.request_budget}).`) +
+    (m.can_per_second ? ` Receiving: about ${m.can_per_second} CAN frames/s at this poll (${m.can_per_batch} per batch, one batch every two polls).` : "");
 }
 
 // -- register map ---------------------------------------------------------------

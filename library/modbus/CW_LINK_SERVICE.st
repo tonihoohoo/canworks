@@ -16,8 +16,9 @@
  * 98-101 owner stamps (scan counter), 102 receive batch seen, 103-104 the
  * receivers still pending (word 103 bits 31-16), 105 last batch taken,
  * 128 + j keepalive of cyclic job j, 144 + 144m request mailbox m (72
- * request words, then 72 response words), 720 the receive mailbox, 840 + 18n
- * the info of network n, 984 the cyclic job table.
+ * request words, then 72 response words), 720 the receive mailbox (120
+ * words per receive block, 2 at most), 960 + 18n the info of network n, 1104
+ * the cyclic job table.
  *)
 FUNCTION_BLOCK CW_LINK_SERVICE
 VAR_IN_OUT

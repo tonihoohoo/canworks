@@ -41,6 +41,7 @@ VAR_INPUT
   NO_J1939 : BOOL;
   HOLD : BOOL;           (* no new batch this round *)
   SKIP_MS : WORD;        (* extra milliseconds on the bridge's clock this round *)
+  RX_BLOCKS : INT := 1;  (* receive_blocks: 95 record words, 215 with 2 *)
 END_VAR
 VAR_OUTPUT
   TX_COUNT : INT;
@@ -108,7 +109,7 @@ VAR
   used : INT;
   acked : BOOL := TRUE;
   shown_rounds : INT;
-  words : ARRAY[0..98] OF WORD;
+  words : ARRAY[0..214] OF WORD;
   job_on : ARRAY[0..15] OF BOOL;
   job_gen : ARRAY[0..15] OF WORD;
   job_count : ARRAY[0..15] OF UDINT;
@@ -130,6 +131,7 @@ VAR
   taken_long : DWORD;
   size : INT;
   room : BOOL;
+  batch_tick : WORD;     (* the batch time's low word *)
   bits : DWORD;
 END_VAR
   tick := tick + 10 + SKIP_MS;
@@ -561,9 +563,9 @@ END_VAR
         slot := q_slot[k];
         size := 7;
         IF q_kind[k] = 1 THEN
-          size := 14;
+          size := 10;
         ELSIF q_kind[k] = 2 THEN
-          size := 16;
+          size := 12;
         ELSIF q_kind[k] = 3 THEN
           size := 12;
         END_IF;
@@ -575,7 +577,7 @@ END_VAR
             q_code[i] := q_code[i + 1]; q_flags[i] := q_flags[i + 1]; q_ext[i] := q_ext[i + 1];
           END_FOR;
           q_n := q_n - 1;
-        ELSIF used + size > 99 OR (SHR(taken_long, slot) AND 1) <> 0 THEN
+        ELSIF used + size > SEL(RX_BLOCKS = 2, 95, 215) OR (SHR(taken_long, slot) AND 1) <> 0 THEN
           k := q_n;
         ELSE
           words[used] := SHL(INT_TO_WORD(slot), 8) OR SHL(q_kind[k], 4) OR q_flags[k];
@@ -586,26 +588,22 @@ END_VAR
             END_IF;
           END_FOR;
           words[used + 2] := rx_drop[slot];
-          words[used + 3] := 0;
-          words[used + 4] := 16#0006;
-          words[used + 5] := 16#0000;
-          words[used + 6] := tick;
           IF q_kind[k] = 1 THEN
-            words[used + 7] := UDINT_TO_WORD(SHR(q_id[k], 16));
-            words[used + 8] := UDINT_TO_WORD(q_id[k]);
-            words[used + 9] := SEL(q_ext[k], WORD#0, WORD#16#0100) OR UINT_TO_WORD(q_len[k]);
+            words[used + 3] := UDINT_TO_WORD(SHR(q_id[k], 16));
+            words[used + 4] := UDINT_TO_WORD(q_id[k]);
+            words[used + 5] := SEL(q_ext[k], WORD#0, WORD#16#0100) OR UINT_TO_WORD(q_len[k]);
             FOR i := 0 TO 3 DO
-              words[used + 10 + i] := SHL(BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i), 8) OR
+              words[used + 6 + i] := SHL(BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i), 8) OR
                                       ((BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i + 1)) AND 16#00FF);
             END_FOR;
           ELSIF q_kind[k] = 2 THEN
-            words[used + 7] := UDINT_TO_WORD(SHR(q_id[k], 16));
-            words[used + 8] := UDINT_TO_WORD(q_id[k]);
-            words[used + 9] := SHL(q_src[k], 8) OR 16#00FF;
-            words[used + 10] := 6;
-            words[used + 11] := UINT_TO_WORD(q_len[k]);
+            words[used + 3] := UDINT_TO_WORD(SHR(q_id[k], 16));
+            words[used + 4] := UDINT_TO_WORD(q_id[k]);
+            words[used + 5] := SHL(q_src[k], 8) OR 16#00FF;
+            words[used + 6] := 6;
+            words[used + 7] := UINT_TO_WORD(q_len[k]);
             FOR i := 0 TO 3 DO
-              words[used + 12 + i] := SHL(BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i), 8) OR
+              words[used + 8 + i] := SHL(BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i), 8) OR
                                       ((BYTE_TO_WORD(q_b0[k]) + INT_TO_WORD(2 * i + 1)) AND 16#00FF);
             END_FOR;
             IF q_len[k] > 8 THEN
@@ -618,6 +616,10 @@ END_VAR
               END_FOR;
             END_IF;
           ELSE
+            words[used + 3] := 0;
+            words[used + 4] := 16#0006;
+            words[used + 5] := 16#0000;
+            words[used + 6] := tick;
             words[used + 7] := SHL(UDINT_TO_WORD(q_id[k]), 8) OR 16#0081;
             words[used + 8] := q_code[k];
             words[used + 9] := 16#0102;
@@ -636,6 +638,7 @@ END_VAR
       END_WHILE;
       IF present <> 0 THEN
         seq := seq + 1;
+        batch_tick := tick;
         acked := FALSE;
         shown_rounds := 0;
       END_IF;
@@ -645,6 +648,10 @@ END_VAR
     LINK[722] := DWORD_TO_WORD(present);
     LINK[723] := INT_TO_WORD(used);
     LINK[724] := tick;
+    LINK[741] := 0;
+    LINK[742] := 16#0006;
+    LINK[743] := 16#0000;
+    LINK[744] := batch_tick;
     OPEN_RX := 0;
     FOR i := 0 TO 15 DO
       LINK[725 + i] := SHL(SEL(rx_on[2 * i], WORD#0, rx_gen[2 * i] AND 16#00FF), 8) OR
@@ -655,15 +662,15 @@ END_VAR
         OPEN_RX := OPEN_RX + 1;
       END_IF;
     END_FOR;
-    FOR i := 0 TO 98 DO
-      LINK[741 + i] := words[i];
+    FOR i := 0 TO SEL(RX_BLOCKS = 2, 94, 214) DO
+      LINK[745 + i] := words[i];
     END_FOR;
   END_IF;
   (* ---- network info: network 0 a J1939 network, network 1 not ---- *)
   IF (LINK[89] AND 16#0020) <> 0 THEN
     info_count := info_count + 1;
     FOR k := 0 TO 1 DO
-      b := 840 + 18 * k;
+      b := 960 + 18 * k;
       LINK[b] := 16#000C;
       LINK[b + 1] := 1;
       LINK[b + 2] := 2;
@@ -695,9 +702,9 @@ END_VAR
   END_IF;
   (* ---- cyclic job table and keepalives ---- *)
   IF jobs > 0 THEN
-    LINK[984] := tick;
+    LINK[1104] := tick;
     FOR k := 0 TO jobs - 1 DO
-      b := 985 + 4 * k;
+      b := 1105 + 4 * k;
       IF job_on[k] THEN
         IF LINK[128 + k] = job_keep[k] THEN
           job_idle[k] := job_idle[k] + 1;

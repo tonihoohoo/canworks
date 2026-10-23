@@ -833,11 +833,11 @@ TEST(mailboxes_on_the_simulated_bus) {
   std::vector<uint16_t> rx;
   EXPECT(wait_for([&] {
     rx = regs(c, kReadInputRegisters, kRxReg, 30);
-    return rx.size() == 30 && rx[0] != 0 && rx[3] >= 14;
+    return rx.size() == 30 && rx[0] != 0 && rx[3] >= 10;
   }, 3000));
   if (rx.size() == 30) {
     uint16_t seq = rx[0];
-    EXPECT((rx[21] >> 8) == r[2]);  // the record's receiver
+    EXPECT((rx[25] >> 8) == r[2]);  // the record's receiver
     EXPECT(write(c, kAckReg, {seq, 0, 0}));
     EXPECT(wait_for([&] { return reg(c, kRxReg) != seq; }, 3000));
   }

@@ -250,14 +250,28 @@ class Mailboxes(unittest.TestCase):
         self.assertIn("canworks.link[216] := i33;", self.in_st)    # mailbox 0 response word 0
         self.assertIn("canworks.link[287] := i104;", self.in_st)   # its last word
         self.assertIn("canworks.link[720] := i105;", self.in_st)   # receive mailbox
-        self.assertIn("canworks.link[840] := i225;", self.in_st)   # network 0 info
-        self.assertIn("canworks.link[984] := i243;", self.in_st)   # cyclic job table tick
-        self.assertIn("canworks.link[1000] := i259;", self.in_st)  # its last word (4 jobs)
+        self.assertIn("canworks.link[839] := i224;", self.in_st)   # its last word
+        self.assertIn("canworks.link[960] := i225;", self.in_st)   # network 0 info
+        self.assertIn("canworks.link[1104] := i243;", self.in_st)  # cyclic job table tick
+        self.assertIn("canworks.link[1120] := i259;", self.in_st)  # its last word (4 jobs)
         self.assertIn("q16 := canworks.link[144];", self.out_st)   # mailbox 0 request word 0
         self.assertIn("q87 := canworks.link[215];", self.out_st)
         self.assertIn("q88 := canworks.link[102];", self.out_st)   # receive acknowledgement
         self.assertIn("q91 := canworks.link[128];", self.out_st)   # keepalive of job 0
         self.assertIn("q94 := canworks.link[131];", self.out_st)
+
+    def test_two_receive_blocks(self):
+        cfg = load()
+        cfg["bridge"]["mailboxes"]["receive_blocks"] = 2
+        groups, _ = openplcmodbus.layout(cfg, decls(cfg))
+        for first in (105, 225):
+            inside = [g for g in groups if g.area == "I" and g.first <= first and first + 120 <= g.first + g.count]
+            self.assertEqual(len(inside), 1, first)
+        in_st, _ = openplcmodbus.programs(cfg, decls(cfg))
+        self.assertIn("canworks.link[840] := i225;", in_st)   # receive block 1
+        self.assertIn("canworks.link[959] := i344;", in_st)
+        self.assertIn("canworks.link[960] := i345;", in_st)   # network 0 info stays at 960
+        self.assertIn("canworks.link[1104] := i363;", in_st)
 
     def test_flags_follow_the_counts(self):
         cfg = load()
