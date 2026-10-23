@@ -1322,6 +1322,10 @@ class Page(unittest.TestCase):
         pg.click("#modal-buttons button[data-value=move]")
         pg.wait_for_selector("#mode:has-text('project rtd-monitor')")
         self.assertIn("Moved into", pg.inner_text("#banner"))
+        # The Project page stays open, now naming the editor project.
+        editor = pg.inner_text('[data-editor-project="project"]')
+        self.assertIn("rtd-monitor", editor)
+        self.assertNotIn("null", editor)
         moved = load(os.path.join(self.project, "canworks", "canworks.json"))
         # A new OpenPLC config targets OpenPLC through Modbus: version 2, with networks.
         self.assertEqual(moved["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["index"], "0x7130")
@@ -1367,8 +1371,9 @@ class Page(unittest.TestCase):
         self.assertEqual(load(os.path.join(work, "rtd-monitor", "project.json"))["data"]["libraries"][0]["name"],
                          "canworks")
         self.assertTrue(os.path.isfile(os.path.join(user_data, "libraries", "registry.json")))
-        tree_view(pg, "project")
+        # The Project page it started from stays open, naming the project.
         self.assertTrue(pg.is_visible('[data-editor-project="project"]'))
+        self.assertNotIn("null", pg.inner_text('[data-editor-project="project"]'))
         # The bridge's I/O comes in through canworks_in, not main's located variables.
         with open(os.path.join(work, "rtd-monitor", "pous", "programs", "canworks_in.st"), encoding="utf-8") as f:
             self.assertIn("canworks", f.read())

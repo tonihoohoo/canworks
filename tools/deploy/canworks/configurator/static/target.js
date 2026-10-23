@@ -249,8 +249,8 @@ function editorProjectSection() {
     box.append(el("table", { class: "od" }, el("tbody", null,
       el("tr", null, el("th", null, "Project"), el("td", null, S.state.name)),
       el("tr", null, el("th", null, "Folder"), el("td", { class: "mono" }, S.state.folder || "")))),
-    o && o.old_main ? oldMainNotice(o.old_main) : null,
-    o && o.outdated && o.outdated.length ? outdatedNotice(o.outdated) : null,
+    o && o.old_main ? oldMainNotice(o.old_main) : "",
+    o && o.outdated && o.outdated.length ? outdatedNotice(o.outdated) : "",
     el("p", { class: "muted" }, o
       ? "Save writes " + o.files.join(", ") + " and the canworks variable list into this editor project. An open OpenPLC Editor must reopen the project before Build."
       : "Save writes the remote device, the canworks_in and canworks_out programs and the canworks variable list into this editor project once the config has no errors."));
