@@ -8,7 +8,8 @@
 - [x] 1.2 OpenPLC Editor: a global `ARRAY[0..1279] OF WORD` in the `canworks` list loads, builds and is kept on save (needs the editor; with 8.1)
   - Stock OpenPLC Editor on the Mac, library 0.118.1: the list loads, Build only succeeds (its program.st has `link : ARRAY [0..1279] OF WORD`, the same as the uploaded build), and after Save the project file parses equal to the one before (keys reordered only).
 - [x] 1.3 Runtime v4.3.1 Modbus master with the extra groups (72-register write, 72- and 120-register reads): one connection, groups sent in file order, all within one poll at 10 ms (`test/openplc_modbus/run.py`: 7 groups, a 120-register read and a 92-register write, mailbox round trips pass)
-- [ ] 1.4 CODESYS (if a copy is available on the Windows PC): paste one block's ST source with an in-out word array into a project and build; if not available, leave 8.5 open and say so in the PR
+- [x] 1.4 CODESYS (if a copy is available on the Windows PC): paste one block's ST source with an in-out word array into a project and build; if not available, leave 8.5 open and say so in the PR
+  - CODESYS V3.5 SP22 Patch 4 on the Windows PC, headless script, Control Win V3 x64: `CAN_SEND`, `CW_REQUEST`, `CW_MB_CALL` and `CW_LINK_SERVICE` as POUs from the ST sources, a PLC_PRG with `link : ARRAY[0..1279] OF WORD` calling them; build and code generation with 0 errors and 0 warnings. An instance named `s` does not compile there (reserved IL operator); no generated code or doc uses one.
 
 ## 2. Bridge
 
