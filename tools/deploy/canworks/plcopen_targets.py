@@ -113,6 +113,11 @@ def task_interval_ms(cfg):
     return max(10, int(wd // 5) // 5 * 5)
 
 
+# The shortest bridge watchdog a truST export takes: a truST scan with the
+# copy programs and the library takes about 100-125 ms on a Pi 5.
+TRUST_MIN_WATCHDOG_MS = 500
+
+
 def check(cfg, target):
     """Problems that stop an export, as texts."""
     if target not in TARGETS:
@@ -133,6 +138,11 @@ def check(cfg, target):
             out.append("truST's Modbus driver moves one request each way (at most %d input and %d holding "
                        "registers); this map uses %d and %d: %s"
                        % (modbusmap.MAX_READ_REGISTERS, modbusmap.MAX_WRITE_REGISTERS, n["I"], n["Q"], hint))
+        wd = bridgecheck.link_settings(cfg)["watchdog_ms"]
+        if 0 < wd < TRUST_MIN_WATCHDOG_MS:
+            out.append("a truST scan with the library takes about 100-125 ms, so the bridge's watchdog of %d ms "
+                       "would switch the outputs off and on every scan: set \"watchdog_ms\": %d or more in "
+                       "\"bridge\"" % (wd, TRUST_MIN_WATCHDOG_MS))
     return out
 
 

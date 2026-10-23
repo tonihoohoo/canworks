@@ -76,7 +76,7 @@ What works on truST:
 4. Write your program into `main` (with `--with-main`), or add it to `canworks_task` in the imported configuration.
 5. `trust-runtime build --project <project folder>`, then run it.
 
-The task runs every fifth of the bridge's watchdog time (at least 10 ms). The driver writes the outputs every cycle, which keeps the bridge's watchdog fed. When the bridge stops answering, `canworks.ok` goes FALSE and the PLC keeps running (`on_error = "warn"`).
+A truST scan with the copy programs and the library takes about 100–125 ms on a Pi 5, whatever the task interval, so the bridge's watchdog must be at least 500 ms (or 0, off): the export refuses a shorter one, including OpenPLC's default of five polls (50 ms), and names `"watchdog_ms": 500`. The PLC link's default of 1000 ms passes. The task runs every fifth of the bridge's watchdog time (at least 10 ms). The driver writes the outputs every cycle, which keeps the bridge's watchdog fed. When the bridge stops answering, `canworks.ok` goes FALSE and the PLC keeps running (`on_error = "warn"`).
 
 CI imports and builds the truST export, with the whole library, against a pinned truST release (`test/plcopen/fetch-trust.sh`).
 
