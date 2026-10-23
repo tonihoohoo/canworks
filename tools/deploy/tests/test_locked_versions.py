@@ -7,7 +7,7 @@ import os
 import re
 import unittest
 
-from canworks.devices import plan
+from canworks import localruntime
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -19,12 +19,12 @@ def read(*parts):
 
 class LockedVersions(unittest.TestCase):
     def test_tested_runtime(self):
-        self.assertEqual(plan.TESTED_RUNTIME, read("docker", "local-runtime", "runtime-version").strip(),
-                         "bump TESTED_RUNTIME in canworks/devices/plan.py with docker/local-runtime/runtime-version")
+        self.assertEqual(localruntime.TESTED_RUNTIME, read("docker", "local-runtime", "runtime-version").strip(),
+                         "bump TESTED_RUNTIME in canworks/localruntime.py with docker/local-runtime/runtime-version")
 
     def test_pinned_bootloader(self):
-        self.assertEqual(plan.PINNED_BOOTLOADER, read("docker", "local-runtime", "bootloader-version").strip(),
-                         "bump PINNED_BOOTLOADER in canworks/devices/plan.py with docker/local-runtime/bootloader-version")
+        self.assertEqual(localruntime.PINNED_BOOTLOADER, read("docker", "local-runtime", "bootloader-version").strip(),
+                         "bump PINNED_BOOTLOADER in canworks/localruntime.py with docker/local-runtime/bootloader-version")
 
     # canopen-ci "One runtime pin": no image tag or runtime install outside the pin files.
     def test_one_runtime_pin(self):

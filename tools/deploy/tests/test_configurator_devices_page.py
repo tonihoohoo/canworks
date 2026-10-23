@@ -38,19 +38,14 @@ printf '#!/bin/sh\n' > "$FAKE_FS/opt/canworks/bin/canworks-bridge"
 chmod +x "$FAKE_FS/opt/canworks/bin/canworks-bridge"
 : > "$FAKE_FS/etc/systemd/system/canworks-bridge@.service"
 echo 0.98.0 > "$FAKE_FS/opt/canworks/VERSION"
-instance=""; config=""; openplc=0
+instance=""; config=""
 while [ $# -gt 0 ]; do
     case $1 in
         --instance) instance=$2; shift ;;
         --config) config=$2; shift ;;
-        --with-openplc) openplc=1 ;;
     esac
     shift
 done
-if [ "$openplc" = 1 ] && [ ! -f "$FAKE_FS/var/lib/openplc-bootloader/runtime-spec.json" ]; then
-    mkdir -p "$FAKE_FS/var/lib/openplc-bootloader"
-    echo '{"version": "v4.3.1"}' > "$FAKE_FS/var/lib/openplc-bootloader/runtime-spec.json"
-fi
 if [ -n "$instance" ]; then
     mkdir -p "$FAKE_FS/etc/canworks-bridge/$instance"
     cp "$config"/* "$FAKE_FS/etc/canworks-bridge/$instance/"
@@ -152,9 +147,9 @@ class DevicesPage(OnlineBase):
             self.assertEqual(len(f.read().splitlines()), 1)
         rows = pg.eval_on_selector_all("[data-devices=rows] tbody tr", "rs => rs.map((r) => [r.dataset.part, "
                                        "r.cells[1].innerText, r.cells[2].innerText, r.classList.contains('muted-row')])")
-        self.assertEqual(rows[0][0], "runtime")
-        self.assertEqual(rows[0][2:], ["not used by this project", True])  # the ping-pong config is the bridge's
-        self.assertEqual(rows[1][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
+        # canworks parts only: no OpenPLC runtime row, though the device has one.
+        self.assertEqual([r[0] for r in rows], ["bridge", "link", "discovery", "can"])
+        self.assertEqual(rows[0][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
 
@@ -261,7 +256,7 @@ class DevicesPage(OnlineBase):
 
     def test_without_config(self):
         # devices-without-config: the start page's Install on a device, the
-        # role question for a device with nothing of canworks, a job, and the
+        # bridge for a device with nothing of canworks, a job, and the
         # same device listed when a config is opened afterwards.
         pg = self.page
         # A device with nothing on it: no runtime, no bridge.
@@ -283,24 +278,19 @@ class DevicesPage(OnlineBase):
         self.assertNotIn("Raspberry", pg.inner_text("#view"))
         self.add_device(config=False)
         self.answer("cancel")  # no key login
-        pg.wait_for_selector("[data-devices=roles]")
-        self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 3)
-        self.assertEqual(pg.inner_text("[data-devices=start]"), "Install OpenPLC Runtime and the bridge 0.98.0")
-        self.assertIn("Nothing installed yet", pg.inner_text(".devices-list"))
-        pg.click("label:has([data-devices-role=bridge])")
         pg.wait_for_selector("[data-devices=start]:has-text('Install the bridge 0.98.0')")
-        self.assertTrue(pg.is_checked("[data-devices-role=bridge]"))
+        self.assertEqual(pg.locator("[data-devices=roles]").count(), 0)
+        self.assertNotIn("OpenPLC", pg.inner_text("#view"))
+        self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 3)
+        self.assertIn("Nothing installed yet", pg.inner_text(".devices-list"))
+        self.assertIn("starts with a config", pg.inner_text("[data-devices=main-hint]"))
         self.assertEqual(pg.locator("[data-devices=options]").count(), 0)
-        pg.click("label:has([data-devices-role=openplc])")
-        pg.wait_for_selector("[data-devices=start]:has-text('Install OpenPLC Runtime and the bridge 0.98.0')")
         pg.click("[data-devices=start]")
         self.answer("go", {"[data-devices=sudo]": SUDO_PW})
         pg.wait_for_selector("[data-devices=done]", timeout=20000)
-        self.assertIn("The OpenPLC Runtime and the bridge are installed", pg.inner_text("[data-devices=done]"))
-        # The new runtime asks for its first user, as with a config.
-        pg.wait_for_selector("#modal[open]:has-text('has no user yet')")
-        self.answer("cancel")
+        self.assertIn("The bridge is installed", pg.inner_text("[data-devices=done]"))
         pg.wait_for_selector("[data-devices=up-to-date]")
+        self.assertEqual(pg.locator("#modal[open]").count(), 0)
         # No project took the device as its runtime host.
         online_json = os.path.join(self.cfg_dir, "online.json")
         if os.path.isfile(online_json):

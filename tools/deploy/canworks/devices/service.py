@@ -41,6 +41,20 @@ def file_sha256(path):
         return None
 
 
+def summary(instances, own=None):
+    """One line on a device's bridge instances for the device list: the open
+    project's, else the running ones by name and how many are stopped."""
+    if own and any(i.get("name") == own for i in instances):
+        return "This project's bridge"
+    running = [i["name"] for i in instances if i.get("state") == "active"]
+    stopped = len(instances) - len(running)
+    if running:
+        return " · ".join(["%s running" % ", ".join(running)] + (["%d stopped" % stopped] if stopped else []))
+    if stopped:
+        return "%d bridge%s stopped" % (stopped, "" if stopped == 1 else "s")
+    return ""
+
+
 class Devices:
     def __init__(self, settings_folder, paths=None, probe_env=None, latest=None):
         self.store = store_mod.Store(settings_folder)
@@ -92,15 +106,13 @@ class Devices:
             v = release.latest_on_device(conn)
         return v
 
-    def view(self, target, instance, config_path, pc_version, runtimes=None, own_host=None):
-        """The device list: every device of this PC, each with what it is to
-        which project ("Runtime of line3" from `runtimes`, host -> project
-        names whose runtime host it is; "Bridge of packer" from its last
-        probe), the open project's own devices first (its runtime host
-        `own_host`, its bridge `instance`)."""
+    def view(self, target, instance, config_path, pc_version, own_host=None):
+        """The device list: every device of this PC, each with one line on
+        its bridge instances from its last probe (`summary`), the open
+        project's own devices first (its runtime host `own_host`, its bridge
+        `instance`)."""
         out = []
         sha = file_sha256(config_path) if config_path else None
-        runtimes = runtimes or {}
         for d in self.store.devices():
             did = store_mod.device_id(d["host"], d.get("port"))
             item = {"id": did, "host": d["host"], "port": d.get("port") or 22, "user": d.get("user") or "",
@@ -108,9 +120,10 @@ class Devices:
             if d.get("probe"):
                 item["plan"] = plan_mod.plan(d["probe"], target, d.get("latest"), pc_version, instance, sha)
                 item["latest"] = d.get("latest")
-            bridges = [i.get("name") for i in ((d.get("probe") or {}).get("bridge") or {}).get("instances") or []
-                       if isinstance(i, dict) and i.get("name")]
-            item["tags"] = ["Runtime of %s" % n for n in runtimes.get(d["host"], [])] + ["Bridge of %s" % n for n in bridges]
+            found = [i for i in ((d.get("probe") or {}).get("bridge") or {}).get("instances") or []
+                     if isinstance(i, dict) and i.get("name")]
+            bridges = [i["name"] for i in found]
+            item["summary"] = summary(found, instance)
             item["mine"] = bool((own_host and own_host == d["host"]) or (instance and instance in bridges))
             out.append(item)
         # The open project's devices first; otherwise as added.
@@ -189,7 +202,7 @@ class Devices:
             conn.put_files(upload, files)
         options = options or {}
         link = options.get("link") is not False
-        if action in ("install_bridge", "install_openplc_bridge") and probe.get("link") is not None \
+        if action == "install_bridge" and probe.get("link") is not None \
                 and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
             link = False  # the device's link serves another config: not repointed at a bridge
         discovery = options.get("discovery") is not False
@@ -245,10 +258,6 @@ class Devices:
         dev = self.store.get(did)
         conn, _ = self.connection(did)
         jobs.stop(conn, (dev.get("probe") or {}).get("sudo"), sudo_password, job_id, self.paths)
-
-    def runtime_user(self, did, user, password):
-        conn, _ = self.connection(did)
-        jobs.create_runtime_user(conn, user, password)
 
     def running_jobs(self):
         return [{"device": did, "job": job_id, "started": jobs.started_at(job_id)}

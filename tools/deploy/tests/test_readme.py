@@ -37,7 +37,7 @@ NOT_PAGE = {
     "Device notes", "Save and problems:", "Lists:", "Any window size:",
     "Small things done once:", "Messages:", "Access:", "Commission a CANopen device",
     # Example labels with versions or project names in them
-    "Update 0.93.4 → 0.98.0", "Switch runtime to v4.3.1", "Runtime of line3",
+    "Update 0.93.4 → 0.98.0", "This project's bridge",
 }
 
 LINK = re.compile(r"\]\(([^)\s]+)\)|(?:src|srcset)=\"([^\"]+)\"")

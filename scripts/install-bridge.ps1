@@ -5,7 +5,6 @@
 #
 #   $f = "$env:TEMP\install-bridge.ps1"; irm https://github.com/tonihoohoo/canworks/releases/latest/download/install-bridge.ps1 -OutFile $f; powershell -NoProfile -ExecutionPolicy RemoteSigned -File $f -Ssh admin@plc.local
 #   ... -Ssh admin@plc.local -Instance line1 -Config .\line1     # also set up and start a bridge
-#   ... -Ssh admin@plc.local -WithOpenplc -Instance line1 -Config .\line1   # OpenPLC runtime first
 #   ... -Ssh admin@plc.local -Options --uninstall,--purge        # install-bridge.sh options
 #
 #   -Ssh USER@HOST   the device (sudo there may ask for its password)
@@ -16,10 +15,6 @@
 #   -Config DIR      folder on this PC with canworks.json and its EDS/DBC files;
 #                    copied to the device, checked, installed as
 #                    /etc/canworks-bridge/NAME/ and started
-#   -WithOpenplc     when the device has no OpenPLC runtime, install upstream's at the
-#                    release's pinned versions first (install-bridge.sh --with-openplc)
-#   -PinnedRuntime   put a managed Docker runtime on the release's pinned version
-#                    (install-bridge.sh --pinned-runtime)
 #   -Options ...     options for the release's install-bridge.sh
 #   -DryRun          print the ssh and scp commands, change nothing
 #
@@ -35,8 +30,6 @@ param(
     [string]$Instance = "",
     [string]$Config = "",
     [string[]]$Options = @(),
-    [switch]$WithOpenplc,
-    [switch]$PinnedRuntime,
     [switch]$DryRun
 )
 
@@ -105,8 +98,6 @@ if (-not $DryRun -and -not (Get-Command ssh -ErrorAction SilentlyContinue)) {
 
 Write-Host "install-bridge: installing canworks-bridge $Version on $Ssh"
 $deviceArgs = @("--version", $Version) + $Options
-if ($WithOpenplc) { $deviceArgs += "--with-openplc" }
-if ($PinnedRuntime) { $deviceArgs += "--pinned-runtime" }
 if ($Instance) {
     # The config goes to a folder of its own on the device first; the install
     # over ssh -t cannot carry files (its stdin is the terminal).

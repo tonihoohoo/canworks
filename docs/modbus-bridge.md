@@ -67,7 +67,7 @@ sudo scripts/install-bridge.sh
 
 This builds Lely CANopen and dcfgen into `/opt/canworks`, builds `canworks-bridge` into `/opt/canworks/bin`, installs the systemd template unit `canworks-bridge@.service` and creates `/etc/canworks-bridge/`. With CANopen it also installs the [CANopen simulator](simulator.md) `canworks-canopen-sim` into `/opt/canworks/bin`. Both routes take the same options: `--without-canopen` builds J1939 only (no Lely or dcfgen), `--without-j1939` CANopen only; with J1939 the script loads the kernel module `can-j1939` and lists it in `/etc/modules-load.d/canworks-j1939.conf`. The build needs this source, Lely CANopen and the system's libraries only. `--uninstall` stops every bridge and removes the unit and the binaries, and the remote link when it was installed for a bridge; the configs and the OpenPLC Runtime stay, and `--purge` also removes the configs. An update restarts every `canworks-bridge@` instance that was running; stopped ones stay stopped.
 
-`--with-openplc` first installs upstream's OpenPLC Runtime (managed Docker, `https://runtime.getedge.me`) at the version canworks is pinned to, when the device has none, and waits until it answers; a failed runtime install stops before the bridge. Nothing of canworks goes into the runtime or its container. `--pinned-runtime` puts a managed Docker runtime that was moved to another version back on the pinned one; its container is recreated, so the PLC stops and comes back without a program.
+The script installs canworks only. For an OpenPLC PLC on the same device, install the OpenPLC Runtime first with [upstream's installer](https://github.com/Autonomy-Logic/openplc-runtime); the bridge runs next to it and changes nothing in it.
 
 Each service instance runs one config:
 

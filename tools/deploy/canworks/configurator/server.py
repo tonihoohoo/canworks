@@ -3317,7 +3317,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else None
         try:
             if route == ("GET", "/api/devices"):
-                return {"devices": dev.view(target, instance, saved, __version__, *self._device_projects(project)),
+                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project)),
                         "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
                 known = {d["host"] for d in dev.store.devices()}
@@ -3375,11 +3375,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if route == ("POST", "/api/devices/stop"):
                 dev.stop(did, body.get("job"), sudo)
                 return {}
-            if route == ("POST", "/api/devices/runtime_user"):
-                # The runtime user's password, not the SSH one: its own field.
-                user_password = body.get("user_password") if isinstance(body.get("user_password"), str) else ""
-                dev.runtime_user(did, body.get("user") or "", user_password)
-                return {}
         except dssh.NeedTrust as e:
             raise ApiError(409, str(e), need="trust", fingerprint=e.fingerprint, key_type=e.key_type)
         except dssh.KeyChanged as e:
@@ -3397,20 +3392,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         raise ApiError(404, "no such API: %s %s" % route)
 
     @staticmethod
-    def _device_projects(project):
-        """The device list's project tags: host -> the names of the projects
-        whose Online access runtime host it is, and the open project's own
-        runtime host (None with no config)."""
-        projects = (online.Settings(config_dir()).load().get("projects") or {})
-        runtimes, own = {}, None
-        for folder, p in projects.items():
-            host = runtime_host_only((p or {}).get("host") if isinstance(p, dict) else None)
-            if not host:
-                continue
-            runtimes.setdefault(host, []).append(os.path.basename(os.path.normpath(folder)))
-            if folder == project:
-                own = host
-        return runtimes, own
+    def _own_host(project):
+        """The open project's Online access runtime host (its devices are
+        listed first), or None with no config."""
+        if not project:
+            return None
+        p = (online.Settings(config_dir()).load().get("projects") or {}).get(project)
+        return runtime_host_only((p or {}).get("host") if isinstance(p, dict) else None)
 
     def _watch(self, settings, folder, body):
         """The object dictionary watch lists of this project, kept per node in

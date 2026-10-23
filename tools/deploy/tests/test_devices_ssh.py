@@ -220,7 +220,7 @@ class Service(Device):
         out = self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         self.assertTrue(out["offer_key_login"])
         self.assertEqual(out["latest"], "0.98.0")
-        self.assertEqual(out["plan"]["main"]["action"], "install_openplc_bridge")
+        self.assertEqual(out["plan"]["main"]["action"], "install_bridge")
         self.assertEqual(self.store.get(self.did)["latest"], "0.98.0")
         # The connection is kept: the next calls need no password.
         self.store.update(self.did, probe=dict(out["probe"], sudo="password"))
@@ -230,17 +230,34 @@ class Service(Device):
         self.assertNotIn(SSH_PW, files_text(self.settings))
         self.assertNotIn(SUDO_PW, files_text(self.settings))
 
-    # The runtime install with the bridge is the pinned version; a bridge install leaves the runtime alone.
-    def test_runtime_install_pins_the_runtime(self):
+    # device-install: the jobs install canworks only, never the OpenPLC runtime.
+    def test_no_runtime_actions(self):
         out = self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
         seen = []
         real = jobs.start
         jobs.start = lambda conn, mode, pw, action, lines, paths, job_id=None: seen.append(lines) or "20261022T000000Z-abcd"
         self.addCleanup(setattr, jobs, "start", real)
         self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd"))
-        for action, pinned in (("install_openplc_bridge", True), ("install_bridge", False), ("switch_runtime", True)):
-            self.devices.start(self.did, action, {}, None)
-            self.assertEqual("--pinned-runtime" in seen[-1][0], pinned, action)
+        self.devices.start(self.did, "install_bridge", {}, None)
+        self.assertNotIn("openplc", seen[-1][0])
+        self.assertNotIn("runtime", seen[-1][0])
+        for action in ("install_openplc_bridge", "switch_runtime"):
+            with self.subTest(action=action), self.assertRaises(ssh.SshError):
+                self.devices.start(self.did, action, {}, None)
+
+    def test_list_summary(self):
+        # The device list: one line on the bridge instances, no Runtime of / Bridge of tags.
+        b = {"version": "0.98.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "packer", "state": "active"}, {"name": "test", "state": "inactive"}]}
+        self.store.update(self.did, probe={"probe": 1, "bridge": b}, latest="0.98.0")
+        item = self.devices.view(None, None, None, "0.98.0")[0]
+        self.assertEqual(item["summary"], "packer running · 1 stopped")
+        self.assertNotIn("tags", item)
+        item = self.devices.view("bridge", "packer", None, "0.98.0")[0]
+        self.assertEqual(item["summary"], "This project's bridge")
+        self.assertTrue(item["mine"])
+        self.assertEqual(service.summary([{"name": "a"}, {"name": "b"}]), "2 bridges stopped")
+        self.assertEqual(service.summary([]), "")
 
     def test_probe_on_a_dropped_kept_connection(self):
         self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)

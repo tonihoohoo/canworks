@@ -6,6 +6,6 @@ To try it:
 
 1. In the configurator, **New config…** with **Modbus bridge**, then on the **Modbus bridge** page **Add connection…** → **OpenPLC** → **New editor project…**; copy this folder's files into the new project's `canworks/` folder and open the project again. Or open an editor project and put them there.
 2. **Save**: the configurator writes `devices/remote/canworks.json`, the `canworks_in` and `canworks_out` programs and the `canworks` variable list. Use the values in `main` by name, such as `canworks.dio_Write_output_8_bit_1`, and the blocks with `LINK := canworks.link` (paste [main.st](main.st) for a start).
-3. On the **Devices** page, **Install OpenPLC Runtime and this project's bridge** on a Linux device (or **Install and start this project's bridge** next to a runtime), then the editor's **Build and upload**.
+3. Install the OpenPLC Runtime on a Linux device with [upstream's installer](https://github.com/Autonomy-Logic/openplc-runtime), then on the **Devices** page **Install and start this project's bridge** there, then the editor's **Build and upload**.
 
 `canworks.ok` is TRUE once the bridge answers with the map the program was built for.
