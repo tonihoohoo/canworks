@@ -1157,6 +1157,14 @@ body.header-tight header .top-row .sim-what { display: none; }
   #mode .mode-name { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
   #mode .target-mark, #mode .unsaved-mark { flex: none; white-space: pre; }
 }
+/* Wider, a header that would still wrap (a wide font, the simulation chip) does the same. */
+@media (min-width: 801px) {
+  body.header-tight header .top-row { flex-wrap: nowrap; }
+  body.header-tight header .top-row > * { flex-shrink: 0; }
+  body.header-tight header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
+  body.header-tight #mode .mode-name { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+  body.header-tight #mode .target-mark, body.header-tight #mode .unsaved-mark { flex: none; white-space: pre; }
+}
 /* A Commission node's one-line header (commission-master-detail): back to Nodes, the node, its live state. */
 .node-head { flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px; }
 .node-head h2 { margin: 0; }

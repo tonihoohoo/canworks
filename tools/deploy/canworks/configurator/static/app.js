@@ -8362,7 +8362,8 @@ function placeMenu(m) {
   const panel = m.querySelector(":scope > .menu-panel, :scope > div[role=menu]");
   if (!panel) return;
   panel.style.left = panel.style.right = "";
-  if (panel.getBoundingClientRect().left < 0) { panel.style.left = "0"; panel.style.right = "auto"; }
+  const left = panel.getBoundingClientRect().left;
+  if (left < 0) { panel.style.left = (panel.offsetLeft - left) + "px"; panel.style.right = "auto"; }
 }
 
 // The header's menus: native details elements, one open at a time,
