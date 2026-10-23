@@ -134,6 +134,15 @@ class FlowShape(unittest.TestCase):
         nodes, _, lay = nodered.flow(load(EXAMPLE), "line1", readonly=True)
         self.assertEqual(by_type(nodes, "canworks-out"), [])
 
+    def test_nmt_needs_the_status_block(self):
+        cfg = load(EXAMPLE)
+        del cfg["bridge"]["status_location"]
+        nodes, notes, lay = nodered.flow(cfg, "line1")
+        self.assertIsNone(lay["status"])
+        self.assertIn("no status block (status_location)", " ".join(notes))
+        self.assertNotIn("NMT", nodered.block_parts(lay))
+        self.assertFalse([n for n in nodered.flow(load(EXAMPLE), "line1")[1] if "status block" in n])
+
     def test_bit_channels_by_name(self):
         cfg = load(EXAMPLE)
         dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
@@ -209,7 +218,7 @@ class CommandLine(unittest.TestCase):
             self.assertIn("17 values in, 4 out", text)
             self.assertIn("no loopback address", text)
             self.assertIn(nodered.package_name(), text)
-            self.assertIn("block nodes: NMT (control block), short SDO (SDO registers)\n", text)
+            self.assertIn("block nodes: NMT (control and status blocks), short SDO (SDO registers)\n", text)
             with open(path, encoding="utf-8") as f:
                 nodes = json.load(f)
             self.assertEqual(by_type(nodes, "tab")[0]["label"], "canworks line1")

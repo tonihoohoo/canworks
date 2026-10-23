@@ -235,6 +235,9 @@ def flow(cfg, name="canworks", host=None, poll_ms=None, readonly=None):
     ro = read_only(cfg) if readonly is None else readonly
     h, port, poll, notes = options(cfg, host, poll_ms, ro)
     lay = layout(cfg, rows, ro)
+    if not ro and lay["control"] is not None and lay["status"] is None:
+        notes.append("the config has a control block but no status block (status_location), so the nmt node "
+                     "cannot see the bridge's answer and ends with ERROR_ID 22; add a status block")
 
     def nid(key):
         return hashlib.sha1(("canworks-node-red:%s:%s" % (name, key)).encode("utf-8")).hexdigest()[:16]
@@ -272,8 +275,8 @@ def block_parts(lay):
     if lay["readOnly"]:
         return "none (read-only flow)"
     parts = []
-    if lay["control"] is not None:
-        parts.append("NMT (control block)")
+    if lay["control"] is not None and lay["status"] is not None:
+        parts.append("NMT (control and status blocks)")
     if lay["sdoReq"] is not None:
         parts.append("short SDO (SDO registers)")
     mb = lay["mailboxes"]
