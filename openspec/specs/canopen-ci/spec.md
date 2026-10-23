@@ -192,11 +192,15 @@ Every workflow SHALL declare a top-level read-only token permission and widen it
 - **THEN** review finds it missing against this rule
 
 ### Requirement: Node-RED flow tests
-The Node-RED flow tests (golden flow, function-node code run under `node`, round trip against a Modbus server stub) SHALL run in the existing tools test shard and SHALL skip with a message where `node` is missing. No Node-RED installation and no new pull request job SHALL be added.
+The Node-RED tests SHALL run in the existing tools test shard and SHALL skip with a message where `node` is missing: the golden flow of the example configs, the package's `node --test` suite (built-in runner, a minimal Node-RED stub, a scripted model of the bridge's registers in place of the Modbus client, no npm packages), the value codec against images packed in Python, the generated layout check and the package `.tgz` contents. The engine job, which already builds the bridge and runs it with simulated nodes, SHALL also run the package's nodes on the minimal stub against it (`test/nodered/run.py`) for values in and out, short and long SDO reads, NMT, a CAN receive with acknowledgement, a cyclic job start and stop, and a bridge restart. No Node-RED installation and no new pull request job SHALL be added, and the PR SHALL report the CI time against the baseline.
 
 #### Scenario: No new job
-- **WHEN** a pull request changes only `tools/deploy/canworks/nodered.py`
-- **THEN** the flow tests run in the existing tools shard and the pull request's job list is the same as before
+- **WHEN** a pull request changes only `tools/deploy/canworks/nodered_package/nodes/canworks.js`
+- **THEN** the package tests run in the existing tools shard and the pull request's job list is the same as before
+
+#### Scenario: Restart baseline against the real bridge
+- **WHEN** the engine job's run restarts the bridge after a CAN send whose request is still in its holding registers, and the bridge node reconnects
+- **THEN** no frame goes out and the client's next send ends done
 
 ### Requirement: Python of the code under test
 Each CI job SHALL run its Python on the version the code it tests runs on, without adding jobs: jobs that test code which runs on the runtime (`engine`, `vcan` and the `tools` shards) SHALL use the Python of the pinned runtime image (3.11), and jobs that test PC-only code (`configurator-page`, `browser`, `local-runtime` and the PC tools job on Windows and macOS) SHALL use the PC tools' default Python (3.14). The README's local test commands SHALL use the PC tools' default Python.

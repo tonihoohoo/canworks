@@ -159,9 +159,13 @@ def parser():
                           "file is the PLC link for another Modbus PLC: the canworks list, its client "
                           "channels, canworks_in and canworks_out")
     src.add_argument("--export-nodered", metavar="FILE",
-                     help="write a Node-RED flow (for node-red-contrib-modbus) that reads and writes a bridge config's "
-                          "values by name through the bridge, instead of deploying; nothing is built or uploaded "
-                          "(docs/node-red.md)")
+                     help="write a Node-RED flow of a bridge config (the canworks bridge node with this config's "
+                          "layout, canworks in and canworks out) instead of deploying; it needs the node-red-canworks "
+                          "package of the same version (docs/node-red.md)")
+    src.add_argument("--export-nodered-package", metavar="OUT",
+                     help="write the Node-RED node package node-red-canworks-<version>.tgz (OUT a file or a folder) "
+                          "to install in Node-RED (Manage palette > Install > upload, or npm install FILE); needs "
+                          "no --config")
     src.add_argument("--export-codesys", metavar="DIR",
                      help="write the CANopen networks for CODESYS into DIR (node DCFs, canworks-codesys.json and "
                           "the script import_canworks.py to run in CODESYS) instead of deploying")
@@ -186,8 +190,8 @@ def parser():
                    help="with --export-nodered: the bridge address the flow connects to (default: the bridge's "
                         "listen address, 127.0.0.1 when it listens on all addresses)")
     p.add_argument("--nodered-poll-ms", metavar="MS", type=int,
-                   help="with --export-nodered: how often the flow reads the inputs (default %d ms, at most a third "
-                        "of the bridge's watchdog_ms)" % nodered.DEFAULT_POLL_MS)
+                   help="with --export-nodered: the canworks bridge node's poll period (default %d ms, at least 10 "
+                        "and at most a third of the bridge's watchdog_ms)" % nodered.DEFAULT_POLL_MS)
     p.add_argument("--dbc-sdo", choices=dbcexport.SDO_OPTIONS,
                    help="with --export-dbc: SDO frames to include: none (default), config (the config's SDO "
                         "variables and startup SDOs) or all (every EDS object up to 32 bits)")
@@ -236,7 +240,7 @@ def parser():
     p.add_argument("--doc-embed-eds", action="store_true",
                    help="with --export-html: embed each node's EDS file so it can be saved from the document")
     p.add_argument("--force", action="store_true", help="with --into-project: replace an existing canworks/ folder")
-    p.add_argument("--config", required=True, metavar="FILE",
+    p.add_argument("--config", metavar="FILE",
                    help="the config (canworks.json, or the folder that holds it); EDS and DBC paths are relative to it")
     p.add_argument("--token", help="with --bridge: the diagnostics token (default: $%s, else a prompt)" % diag.TOKEN_ENV)
     p.add_argument("--token-file", metavar="FILE", help="with --bridge: read the diagnostics token from this file")
@@ -325,15 +329,27 @@ def _export_nodered(config, path, host, poll_ms, out):
     except ValueError as e:
         raise Failure("%s: not valid JSON (%s)" % (config, e))
     try:
-        inputs, outputs, notes = nodered.export(cfg, path, host=host, poll_ms=poll_ms)
+        inputs, outputs, notes, lay = nodered.export(cfg, path, host=host, poll_ms=poll_ms)
     except nodered.FlowError as e:
         raise Failure("%s: %s" % (config, e))
     except OSError as e:
         raise Failure("cannot write %s: %s" % (path, e))
     for note in notes:
         out("note: " + note)
-    out("wrote %s: Node-RED flow with %d values in, %d out (import it in Node-RED; needs node-red-contrib-modbus)"
-        % (path, inputs, outputs))
+    out("wrote %s: Node-RED flow with %d values in, %d out%s (import it in Node-RED; needs the package %s, "
+        "from canworks-deploy --export-nodered-package)"
+        % (path, inputs, outputs, ", read-only" if lay["readOnly"] else "", nodered.package_name()))
+    out("block nodes: " + nodered.block_parts(lay))
+    return 0
+
+
+def _export_nodered_package(path, out):
+    try:
+        written = nodered.export_package(path)
+    except OSError as e:
+        raise Failure("cannot write %s: %s" % (path, e))
+    out("wrote %s: install it in Node-RED with Manage palette > Install > upload, or npm install %s in the "
+        "Node-RED user folder" % (written, os.path.basename(written)))
     return 0
 
 
@@ -491,6 +507,13 @@ def run(args, out=print, err=None, confirm_source=None):
     if not getattr(args, "export_nodered", None) and (getattr(args, "nodered_host", None)
                                                      or getattr(args, "nodered_poll_ms", None) is not None):
         raise Failure("--nodered-host and --nodered-poll-ms go with --export-nodered")
+    package_out = getattr(args, "export_nodered_package", None)
+    if package_out:
+        if args.check_only:
+            raise Failure("--export-nodered-package only writes the package; leave out --check-only")
+        return _export_nodered_package(package_out, out)
+    if not args.config:
+        raise Failure("give the config with --config FILE")
     map_file = getattr(args, "export_modbus_map", None)
     if map_file:
         if args.check_only:
@@ -935,7 +958,7 @@ def main(argv=None):
             print("error: " + str(e), file=sys.stderr)
             return 1
     args = parser().parse_args(argv)
-    if os.path.isdir(args.config):
+    if args.config and os.path.isdir(args.config):
         # A project's canworks/ folder: its canworks.json (opening a folder fails differently per OS).
         args.config = os.path.join(args.config, "canworks.json")
     try:

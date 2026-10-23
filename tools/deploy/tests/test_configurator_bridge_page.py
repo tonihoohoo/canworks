@@ -175,6 +175,14 @@ class BridgePage(OnlineBase):
         self.assertEqual(got.suggested_filename, "rtd-monitor-Flows.json")
         with open(got.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), nodered.to_json(nodered.flow(cfg, "rtd-monitor-Flows")[0]))
+        pg.wait_for_selector("#banner:has-text('it needs the package %s')" % nodered.package_name())
+        # Package on the row: the .tgz canworks-deploy --export-nodered-package writes.
+        with pg.expect_download() as dl:
+            pg.click('[data-conn-package="1"]')
+        self.assertEqual(dl.value.suggested_filename, nodered.package_name())
+        with open(dl.value.path(), "rb") as f:
+            self.assertEqual(f.read(), nodered.package_tgz())
+        pg.wait_for_selector("#banner:has-text('Manage palette > Install > upload')")
 
         # A stopped download: each finding its own Problems row, no message bar.
         pg.evaluate("""() => {

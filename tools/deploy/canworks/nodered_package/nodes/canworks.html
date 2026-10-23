@@ -1,0 +1,290 @@
+<!-- canworks.html - the editor side of node-red-canworks: forms and help. -->
+<script type="text/javascript">
+(function () {
+  var COLOR = "#a6bbcf";
+  function bridgeField() { return { value: "", type: "canworks-bridge", required: true }; }
+  RED.nodes.registerType("canworks-bridge", {
+    category: "config", paletteLabel: "canworks bridge",
+    defaults: {
+      name: { value: "" }, host: { value: "127.0.0.1", required: true }, port: { value: 1502, required: true, validate: RED.validators.number() },
+      unit: { value: 1 }, period: { value: 10, validate: RED.validators.number() }, readOnly: { value: false },
+      layout: { value: "", required: true }
+    },
+    label: function () { return this.name || "canworks " + this.host + ":" + this.port; },
+    oneditprepare: function () {
+      var t = "no layout: export the flow from canworks";
+      try {
+        var l = JSON.parse(this.layout || "null");
+        if (l) t = "canworks " + l.version + ", map " + l.mapHash + "; inputs: " + l.inputs.length + ", outputs: " + l.outputs.length +
+          "; networks: " + l.networks.map(function (n) { return n.name; }).join(", ") +
+          "; request mailboxes: " + (l.mailboxes ? l.mailboxes.requests.length : 0) + (l.readOnly ? "; read-only" : "");
+      } catch (e) { t = "the layout is broken: export the flow from canworks again"; }
+      $("#node-config-canworks-layout").text(t);
+    }
+  });
+  RED.nodes.registerType("canworks-in", {
+    category: "canworks", color: COLOR, inputs: 0, outputs: 1, icon: "font-awesome/fa-sign-in",
+    defaults: { name: { value: "" }, bridge: bridgeField(), filter: { value: "" } },
+    label: function () { return this.name || (this.filter ? "canworks " + this.filter : "canworks in"); },
+    paletteLabel: "canworks in"
+  });
+  RED.nodes.registerType("canworks-out", {
+    category: "canworks", color: COLOR, inputs: 1, outputs: 0, icon: "font-awesome/fa-sign-out", align: "right",
+    defaults: { name: { value: "" }, bridge: bridgeField(), topic: { value: "" } },
+    label: function () { return this.name || (this.topic ? "canworks " + this.topic : "canworks out"); },
+    paletteLabel: "canworks out"
+  });
+  // Fields shown only for some values of another field: [field, controller, values].
+  var SHOW = {
+    "canworks-sdo": [["value", "action", ["write"]], ["size", "datatype", ["unsigned", "signed", "real"]]],
+    "canworks-can-cyclic": [["can_id", "action", ["start"]], ["extended", "action", ["start"]], ["dlc", "action", ["start"]],
+      ["data", "action", ["start"]], ["period", "action", ["start"]]],
+    "canworks-can-receive": [["can_id", "all_ids", [false]], ["mask", "all_ids", [false]]],
+    "canworks-j1939-receive": [["pgn", "all_pgns", [false]]],
+    "canworks-nmt": [["node", "command", ["start", "stop", "preop", "reset", "reset_comm"]],
+      ["network", "command", ["start", "stop", "preop", "reset", "reset_comm"]]]
+  };
+  function valueOf(id) {
+    var el = $("#node-input-" + id);
+    return el.is(":checkbox") ? el.is(":checked") : el.val();
+  }
+  var NODES = [{"type": "canworks-nmt", "label": "nmt", "icon": "fa-power-off", "inputs": 1, "fields": [["network", ""], ["command", "start"], ["node", "0"], ["timeout", ""]]}, {"type": "canworks-sdo", "label": "sdo", "icon": "fa-exchange", "inputs": 1, "fields": [["network", ""], ["node", ""], ["index", ""], ["subindex", "0"], ["action", "read"], ["datatype", "unsigned"], ["size", "4"], ["value", ""], ["timeout", ""]]}, {"type": "canworks-emcy", "label": "emcy", "icon": "fa-exclamation-triangle", "inputs": 0, "fields": [["network", ""], ["node", "0"], ["skip_old", false]]}, {"type": "canworks-can-send", "label": "can send", "icon": "fa-paper-plane", "inputs": 1, "fields": [["network", ""], ["can_id", ""], ["extended", false], ["rtr", false], ["dlc", ""], ["data", ""], ["timeout", ""]]}, {"type": "canworks-can-cyclic", "label": "can cyclic", "icon": "fa-refresh", "inputs": 1, "fields": [["network", ""], ["can_id", ""], ["extended", false], ["dlc", ""], ["data", ""], ["period", "100"], ["action", "start"]]}, {"type": "canworks-can-receive", "label": "can receive", "icon": "fa-inbox", "inputs": 0, "fields": [["network", ""], ["can_id", ""], ["mask", ""], ["extended", false], ["all_ids", false], ["depth", ""]]}, {"type": "canworks-j1939-send", "label": "j1939 send", "icon": "fa-paper-plane-o", "inputs": 1, "fields": [["network", ""], ["pgn", ""], ["destination", "255"], ["priority", "6"], ["data", ""], ["timeout", ""]]}, {"type": "canworks-j1939-request", "label": "j1939 request", "icon": "fa-question", "inputs": 1, "fields": [["network", ""], ["pgn", ""], ["destination", "255"], ["timeout", ""]]}, {"type": "canworks-j1939-receive", "label": "j1939 receive", "icon": "fa-inbox", "inputs": 0, "fields": [["network", ""], ["pgn", ""], ["all_pgns", false], ["source", ""], ["all_destinations", false], ["depth", ""]]}, {"type": "canworks-j1939-dm", "label": "j1939 dm", "icon": "fa-medkit", "inputs": 1, "fields": [["network", ""], ["action", "read"], ["address", ""], ["previous", false], ["timeout", ""]]}, {"type": "canworks-find-ecu", "label": "find ecu", "icon": "fa-search", "inputs": 1, "fields": [["network", ""], ["ecu_name", ""], ["mask", ""]]}];
+  NODES.forEach(function (n) {
+    var defaults = { name: { value: "" }, bridge: bridgeField() };
+    n.fields.forEach(function (f) { defaults[f[0]] = { value: f[1] }; });
+    RED.nodes.registerType(n.type, {
+      category: "canworks", color: COLOR, inputs: n.inputs, outputs: 1, icon: "font-awesome/" + n.icon,
+      defaults: defaults, paletteLabel: n.label,
+      label: function () { return this.name || n.label; },
+      oneditprepare: function () {
+        var rules = SHOW[n.type] || [];
+        function update() {
+          rules.forEach(function (r) {
+            $("#node-input-" + r[0]).closest(".form-row").toggle(r[2].indexOf(valueOf(r[1])) >= 0);
+          });
+        }
+        rules.forEach(function (r) { $("#node-input-" + r[1]).on("change", update); });
+        update();
+      }
+    });
+  });
+})();
+</script>
+<script type="text/html" data-template-name="canworks-bridge">
+<div class="form-row"><label for="node-config-input-name">Name</label><input type="text" id="node-config-input-name"></div>
+<div class="form-row"><label for="node-config-input-host">Host</label><input type="text" id="node-config-input-host"></div>
+<div class="form-row"><label for="node-config-input-port">Port</label><input type="text" id="node-config-input-port"></div>
+<div class="form-row"><label for="node-config-input-unit">Unit</label><input type="text" id="node-config-input-unit"></div>
+<div class="form-row"><label for="node-config-input-period">Poll ms</label><input type="text" id="node-config-input-period"></div>
+<div class="form-row"><label for="node-config-input-readOnly">Read-only</label><input type="checkbox" id="node-config-input-readOnly" style="width:auto"></div>
+<div class="form-row"><label>Layout</label><div id="node-config-canworks-layout" style="display:inline-block;width:70%;vertical-align:top"></div></div>
+<input type="hidden" id="node-config-input-layout">
+</script>
+<script type="text/html" data-help-name="canworks-bridge">
+<p>One Modbus TCP connection to canworks-bridge, shared by every canworks node that uses it.</p>
+<p>The layout (register map, bridge blocks, mailboxes, networks) comes from the canworks flow export: export the flow again after
+changing the config. The poll period stays between 10 ms and a third of the bridge's <code>watchdog_ms</code>.</p>
+<p>A read-only bridge node writes nothing: the PLC program owns the bridge's writes, or the Node-RED connection does not write.</p>
+</script>
+<script type="text/html" data-template-name="canworks-in">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-filter">Topics</label><input type="text" id="node-input-filter" placeholder="empty: all; names or prefix*"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-in">
+<p>Sends one message per changed value of the bridge, and every value once after the first read.</p>
+<h3>Outputs</h3><dl class="message-properties">
+<dt>topic <span class="property-type">string</span></dt><dd>the register map name, or <code>bridge.state</code>, <code>bridge.clients</code>,
+<code>bridge.command</code>, <code>&lt;network&gt;.node&lt;N&gt;.operational</code>, <code>&lt;network&gt;.bus_state</code>, <code>.bus_load</code>,
+<code>.rx_errors</code>, <code>.tx_errors</code>, <code>.bus_offs</code>, and for J1939 <code>.address</code>, <code>.claim</code>, <code>.name</code>, <code>.ecus</code></dd>
+<dt>payload <span class="property-type">number | boolean | string</span></dt><dd>the value with the map's type, scale and offset</dd>
+<dt class="optional">unit <span class="property-type">string</span></dt><dd>the map's unit</dd></dl>
+<p><b>Topics</b> limits the names: exact names or a prefix ending in <code>*</code>, separated by commas.</p>
+</script>
+<script type="text/html" data-template-name="canworks-out">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-topic">Output</label><input type="text" id="node-input-topic" placeholder="empty: msg.topic"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-out">
+<p>Sets the output <code>msg.topic</code> (or the node's Output) to <code>msg.payload</code>; the bridge gets it with the next poll.
+A value outside the output's range is refused with a warning. A read-only bridge node drops values.</p>
+</script>
+<script type="text/html" data-template-name="canworks-nmt">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-command">Command</label><select id="node-input-command"><option value="start">start</option><option value="stop">stop</option><option value="preop">preop</option><option value="reset">reset</option><option value="reset_comm">reset_comm</option><option value="run">run</option><option value="idle">idle</option></select></div>
+<div class="form-row"><label for="node-input-node">Node</label><input type="text" id="node-input-node" placeholder="1-127, 0: every node"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 5000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-nmt">
+<p>Sends an NMT command through the bridge's control block, or <code>run</code>/<code>idle</code> to the bridge itself.</p>
+<p>The node of the PLC blocks CO_NMT; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form. <code>msg.payload</code> a string sets <code>command</code>.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the CANopen block ERROR_IDs (1 abort, 2 timeout, 5 busy, 6 bad input, 7 too long, 21 writes not allowed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-sdo">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-node">Node</label><input type="text" id="node-input-node" placeholder="1-127"></div>
+<div class="form-row"><label for="node-input-index">Index</label><input type="text" id="node-input-index" placeholder="e.g. 0x1008"></div>
+<div class="form-row"><label for="node-input-subindex">Subindex</label><input type="text" id="node-input-subindex"></div>
+<div class="form-row"><label for="node-input-action">Action</label><select id="node-input-action"><option value="read">read</option><option value="write">write</option></select></div>
+<div class="form-row"><label for="node-input-datatype">Type</label><select id="node-input-datatype"><option value="unsigned">unsigned</option><option value="signed">signed</option><option value="real">real</option><option value="bytes">bytes</option><option value="string">string</option></select></div>
+<div class="form-row"><label for="node-input-size">Size</label><select id="node-input-size"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option></select></div>
+<div class="form-row"><label for="node-input-value">Value</label><input type="text" id="node-input-value" placeholder="for a write"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 5000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-sdo">
+<p>Reads or writes an object of a CANopen node. Numbers up to 4 bytes use the SDO registers when the config has them, everything else a request mailbox (up to 1024 bytes).</p>
+<p>The node of the PLC blocks CO_SDO_READ, CO_SDO_WRITE and their _BYTES, _STRING, _REAL forms; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form. <code>msg.payload</code> a number, string, array or Buffer sets <code>value</code>.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the CANopen block ERROR_IDs (1 abort, 2 timeout, 5 busy, 6 bad input, 7 too long, 21 writes not allowed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-emcy">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-node">Node</label><input type="text" id="node-input-node" placeholder="0: every node"></div>
+<div class="form-row"><label for="node-input-skip_old">Skip old</label><input type="checkbox" id="node-input-skip_old" style="width:auto"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-emcy">
+<p>Holds a receiver while deployed and sends one message per EMCY: <code>{node, code, register, data, time}</code>.</p>
+<p>The node of the PLC blocks CO_RECV_EMCY; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Outputs</h3><p><code>msg.canworks</code> holds <code>status</code>, <code>queued</code>, <code>dropped</code>, <code>overflow</code>. When the bridge closes the receiver (ERROR_ID 8) or the link drops (20), one message with <code>status</code> <code>error</code> and the node opens it again.</p>
+<p>Errors: the CANopen block ERROR_IDs (1 abort, 2 timeout, 5 busy, 6 bad input, 7 too long, 21 writes not allowed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-can-send">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-can_id">ID</label><input type="text" id="node-input-can_id"></div>
+<div class="form-row"><label for="node-input-extended">Extended</label><input type="checkbox" id="node-input-extended" style="width:auto"></div>
+<div class="form-row"><label for="node-input-rtr">RTR</label><input type="checkbox" id="node-input-rtr" style="width:auto"></div>
+<div class="form-row"><label for="node-input-dlc">DLC</label><input type="text" id="node-input-dlc" placeholder="empty: data length"></div>
+<div class="form-row"><label for="node-input-data">Data</label><input type="text" id="node-input-data" placeholder="hex, e.g. 01 02 0a"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 1000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-can-send">
+<p>Sends one CAN frame.</p>
+<p>The node of the PLC blocks CAN_SEND; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form. <code>msg.payload</code> a Buffer, array or hex string sets <code>data</code>.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the CAN block ERROR_IDs (1 network not running, 3 bad input, 5 no free slot, 6 not confirmed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-can-cyclic">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-can_id">ID</label><input type="text" id="node-input-can_id"></div>
+<div class="form-row"><label for="node-input-extended">Extended</label><input type="checkbox" id="node-input-extended" style="width:auto"></div>
+<div class="form-row"><label for="node-input-dlc">DLC</label><input type="text" id="node-input-dlc" placeholder="empty: data length"></div>
+<div class="form-row"><label for="node-input-data">Data</label><input type="text" id="node-input-data" placeholder="hex"></div>
+<div class="form-row"><label for="node-input-period">Period ms</label><input type="text" id="node-input-period"></div>
+<div class="form-row"><label for="node-input-action">Action</label><select id="node-input-action"><option value="start">start</option><option value="stop">stop</option></select></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-can-cyclic">
+<p>Starts, changes or stops one cyclic frame the bridge sends. The frames stop within 1 s when Node-RED stops.</p>
+<p>The node of the PLC blocks CAN_SEND_CYCLIC; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form. <code>msg.payload</code> a Buffer, array or hex string sets <code>data</code>.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the CAN block ERROR_IDs (1 network not running, 3 bad input, 5 no free slot, 6 not confirmed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-can-receive">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-can_id">ID</label><input type="text" id="node-input-can_id"></div>
+<div class="form-row"><label for="node-input-mask">Mask</label><input type="text" id="node-input-mask" placeholder="empty: the ID exactly"></div>
+<div class="form-row"><label for="node-input-extended">Extended</label><input type="checkbox" id="node-input-extended" style="width:auto"></div>
+<div class="form-row"><label for="node-input-all_ids">All IDs</label><input type="checkbox" id="node-input-all_ids" style="width:auto"></div>
+<div class="form-row"><label for="node-input-depth">Depth</label><input type="text" id="node-input-depth" placeholder="queue depth, empty: the bridge&#x27;s default"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-can-receive">
+<p>Holds a receiver while deployed and sends one message per frame: <code>{id, extended, rtr, dlc, data, time}</code>.</p>
+<p>The node of the PLC blocks CAN_RECEIVE; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Outputs</h3><p><code>msg.canworks</code> holds <code>status</code>, <code>queued</code>, <code>dropped</code>, <code>overflow</code>. When the bridge closes the receiver (ERROR_ID 8) or the link drops (20), one message with <code>status</code> <code>error</code> and the node opens it again.</p>
+<p>Errors: the CAN block ERROR_IDs (1 network not running, 3 bad input, 5 no free slot, 6 not confirmed); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-j1939-send">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-pgn">PGN</label><input type="text" id="node-input-pgn"></div>
+<div class="form-row"><label for="node-input-destination">Destination</label><input type="text" id="node-input-destination" placeholder="255: global"></div>
+<div class="form-row"><label for="node-input-priority">Priority</label><input type="text" id="node-input-priority" placeholder="0-7"></div>
+<div class="form-row"><label for="node-input-data">Data</label><input type="text" id="node-input-data" placeholder="hex, up to 1785 bytes"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 5000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-j1939-send">
+<p>Sends a J1939 message; long ones go as a transport session.</p>
+<p>The node of the PLC blocks J1939_SEND; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form. <code>msg.payload</code> a Buffer, array or hex string sets <code>data</code>.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the J1939 block ERROR_IDs (2 no network, 3 bad input, 6 timeout, 9 no free slot, 12 NACK, 13 no DM1); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-j1939-request">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-pgn">PGN</label><input type="text" id="node-input-pgn"></div>
+<div class="form-row"><label for="node-input-destination">Destination</label><input type="text" id="node-input-destination"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 5000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-j1939-request">
+<p>Requests a PGN and sends the answer: <code>msg.payload</code> a Buffer, <code>msg.canworks.source</code>.</p>
+<p>The node of the PLC blocks J1939_REQUEST; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the J1939 block ERROR_IDs (2 no network, 3 bad input, 6 timeout, 9 no free slot, 12 NACK, 13 no DM1); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-j1939-receive">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-pgn">PGN</label><input type="text" id="node-input-pgn"></div>
+<div class="form-row"><label for="node-input-all_pgns">All PGNs</label><input type="checkbox" id="node-input-all_pgns" style="width:auto"></div>
+<div class="form-row"><label for="node-input-source">Source</label><input type="text" id="node-input-source" placeholder="empty: any source"></div>
+<div class="form-row"><label for="node-input-all_destinations">All destinations</label><input type="checkbox" id="node-input-all_destinations" style="width:auto"></div>
+<div class="form-row"><label for="node-input-depth">Depth</label><input type="text" id="node-input-depth"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-j1939-receive">
+<p>Holds a receiver while deployed and sends one message per J1939 message: <code>{pgn, source, destination, priority, data, time}</code>.</p>
+<p>The node of the PLC blocks J1939_RECEIVE; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Outputs</h3><p><code>msg.canworks</code> holds <code>status</code>, <code>queued</code>, <code>dropped</code>, <code>overflow</code>. When the bridge closes the receiver (ERROR_ID 8) or the link drops (20), one message with <code>status</code> <code>error</code> and the node opens it again.</p>
+<p>Errors: the J1939 block ERROR_IDs (2 no network, 3 bad input, 6 timeout, 9 no free slot, 12 NACK, 13 no DM1); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-j1939-dm">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-action">Action</label><select id="node-input-action"><option value="read">read</option><option value="clear">clear</option></select></div>
+<div class="form-row"><label for="node-input-address">Address</label><input type="text" id="node-input-address" placeholder="source to read, destination to clear"></div>
+<div class="form-row"><label for="node-input-previous">Previous</label><input type="checkbox" id="node-input-previous" style="width:auto"></div>
+<div class="form-row"><label for="node-input-timeout">Timeout ms</label><input type="text" id="node-input-timeout" placeholder="empty: 5000"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-j1939-dm">
+<p>Reads active (DM1) or previously active (DM2) codes as <code>[{spn, fmi, oc, cm}]</code> with lamps in <code>msg.canworks</code>, or clears them (DM11, DM3).</p>
+<p>The node of the PLC blocks J1939_DM_READ, J1939_DM_CLEAR; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the J1939 block ERROR_IDs (2 no network, 3 bad input, 6 timeout, 9 no free slot, 12 NACK, 13 no DM1); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>
+<script type="text/html" data-template-name="canworks-find-ecu">
+<div class="form-row"><label for="node-input-bridge">Bridge</label><input type="text" id="node-input-bridge"></div>
+<div class="form-row"><label for="node-input-network">Network</label><input type="text" id="node-input-network" placeholder="name or index; empty: the only one"></div>
+<div class="form-row"><label for="node-input-ecu_name">NAME</label><input type="text" id="node-input-ecu_name" placeholder="64-bit, decimal or 0x"></div>
+<div class="form-row"><label for="node-input-mask">Mask</label><input type="text" id="node-input-mask" placeholder="empty: every bit"></div>
+<div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+</script>
+<script type="text/html" data-help-name="canworks-find-ecu">
+<p>Finds the address of an ECU by its NAME: <code>msg.payload</code> the address or <code>null</code>.</p>
+<p>The node of the PLC blocks J1939_FIND_ECU; field names as their inputs in lower case (<code>can_id</code> for ID, <code>ecu_name</code> for NAME, <code>datatype</code> for the SDO type; <code>msg.payload</code> may also say <code>id</code>, <code>name</code>, <code>type</code>).</p>
+<h3>Inputs</h3><p>Each message runs one job. Fields of an object <code>msg.payload</code> override the form.</p>
+<h3>Outputs</h3><p>One message per job: <code>msg.payload</code> the result (<code>null</code> on error), <code>msg.canworks</code> <code>{status, errorId, abortCode, abortText, text, request}</code>.</p>
+<p>Errors: the J1939 block ERROR_IDs (2 no network, 3 bad input, 6 timeout, 9 no free slot, 12 NACK, 13 no DM1); 8 cancelled by a restart or link stop, 20 the bridge is not reachable, 22 the config has no part of the bridge this node needs (or read-only).</p>
+</script>

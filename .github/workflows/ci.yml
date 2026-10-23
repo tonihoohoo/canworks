@@ -163,6 +163,9 @@ jobs:
           python -m pip install -q "$(grep '^pymodbus' upstream-runtime/core/src/drivers/plugins/python/modbus_master/requirements.txt)"
           test/openplc_modbus/run.py --bridge build/bin/canworks-bridge --runtime upstream-runtime
 
+      - name: Node-RED package (node-red-canworks's nodes against the bridge, ~5 s)
+        run: test/nodered/run.py --bridge build/bin/canworks-bridge
+
   vcan:
     # The engine on vcan, split over three runners (each has its own vcan0) so
     # each runs about the same test time. Test step times (pull request #69, 2026-10-10):

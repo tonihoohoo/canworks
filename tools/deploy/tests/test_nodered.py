@@ -1,28 +1,36 @@
-"""Node-RED flow of bridge configs (canworks.nodered, modbus-bridge-map
-"Node-RED flow"): the flow's nodes, host and poll options, the command-line
-export, and the generated function code run under node (tests/data/nodered/
-harness.js) against register images packed independently here."""
+"""Node-RED flow and package of bridge configs (canworks.nodered;
+modbus-bridge-map "Node-RED flow", nodered-blocks): the flow's nodes and the
+layout its bridge node carries, host and poll options, the command-line
+exports, the package .tgz and its generated layout, the package's value
+codec under node against images packed here with struct, and the package's
+own node --test suite (tests/nodered/)."""
 
 import contextlib
 import copy
+import gzip
 import io
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
-from canworks import cli, nodered
+from canworks import __version__, cli, mailboxlayout, modbusmap, nodered
 
 from .test_contract import REPO
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
+JS = os.path.join(os.path.dirname(__file__), "nodered")
 BRIDGE = os.path.join(DATA, "modbus", "bridge.json")
 EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge", "canworks.json")
 GOLDEN = os.path.join(DATA, "nodered", "modbus-bridge-example.json")
-HARNESS = os.path.join(DATA, "nodered", "harness.js")
+GOLDEN_MAILBOXES = os.path.join(DATA, "nodered", "modbus-bridge-mailboxes.json")
+MAILBOXES_H = os.path.join(REPO, "plugin", "src", "bridge", "mailboxes.h")
+MAILBOXES_CPP = os.path.join(REPO, "plugin", "src", "bridge", "mailboxes.cpp")
 NODE = shutil.which("node")
 
 
@@ -31,105 +39,113 @@ def load(path=BRIDGE):
         return json.load(f)
 
 
+def with_mailboxes(cfg=None):
+    """The example with Node-RED as a writer, SDO writes and the mailboxes:
+    the config of the package's node tests (tests/nodered/)."""
+    cfg = cfg or load(EXAMPLE)
+    cfg["bridge"].update({"listen": "127.0.0.1:1502", "writers": ["127.0.0.1"], "sdo_bridge_write": True,
+                          "mailboxes": {"requests": 2, "cyclic_jobs": 2, "input_location": "%IB64",
+                                        "output_location": "%QB64"}})
+    return cfg
+
+
 def by_type(nodes, typ):
     return [n for n in nodes if n["type"] == typ]
 
 
-def named(nodes, name):
-    return next(n for n in nodes if n.get("name") == name)
+def bridge_layout(nodes):
+    return json.loads(by_type(nodes, "canworks-bridge")[0]["layout"])
 
 
-def run_js(nodes, steps):
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
-        json.dump(nodes, f)
-        path = f.name
-    try:
-        proc = subprocess.run([NODE, HARNESS, path], input=json.dumps(steps), capture_output=True, text=True,
-                              check=False)
-    finally:
-        os.unlink(path)
-    if proc.returncode:
-        raise AssertionError("node failed: %s" % proc.stderr)
-    return json.loads(proc.stdout)
-
-
-class Image:
-    """A byte image packed with struct, independent of the generated code."""
-
-    def __init__(self, nbytes):
-        self.b = bytearray(nbytes)
-
-    def put(self, row, fmt, value, low_first=False):
-        raw = struct.pack(">" + fmt, value)
-        if low_first:
-            words = [raw[i:i + 2] for i in range(0, len(raw), 2)]
-            raw = b"".join(reversed(words))
-        self.b[row["byte"]:row["byte"] + len(raw)] = raw
-
-    def bit(self, row, value):
-        bit = row["address"] - row["byte"] * 8
-        if value:
-            self.b[row["byte"]] |= 1 << bit
-        else:
-            self.b[row["byte"]] &= ~(1 << bit) & 255
-
-    def regs(self, start, count):
-        return [struct.unpack(">H", bytes(self.b[2 * i:2 * i + 2]))[0] for i in range(start, start + count)]
-
-
-def rows_by_name(cfg):
-    from canworks import modbusmap
-    return {r["name"]: r for r in modbusmap.register_map(cfg)}
+def check_golden(test, path, text):
+    if os.environ.get("CANWORKS_UPDATE_GOLDEN"):
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+    with open(path, encoding="utf-8") as f:
+        test.assertEqual(text, f.read(), "regenerate with CANWORKS_UPDATE_GOLDEN=1 when the change is meant")
 
 
 class FlowShape(unittest.TestCase):
     def test_example_matches_golden(self):
-        nodes, notes, _ = nodered.flow(load(EXAMPLE), "modbus-bridge-example")
-        text = nodered.to_json(nodes)
-        if os.environ.get("CANWORKS_UPDATE_GOLDEN"):
-            with open(GOLDEN, "w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
-        with open(GOLDEN, encoding="utf-8") as f:
-            self.assertEqual(text, f.read(), "regenerate with CANWORKS_UPDATE_GOLDEN=1 when the change is meant")
+        nodes, _, _ = nodered.flow(load(EXAMPLE), "modbus-bridge-example")
+        check_golden(self, GOLDEN, nodered.to_json(nodes))
+
+    def test_mailboxes_match_golden(self):
+        nodes, _, _ = nodered.flow(with_mailboxes(), "modbus-bridge-mailboxes")
+        check_golden(self, GOLDEN_MAILBOXES, nodered.to_json(nodes))
 
     def test_nodes(self):
-        nodes, notes, sp = nodered.flow(load(EXAMPLE), "line1")
+        nodes, notes, lay = nodered.flow(load(EXAMPLE), "line1")
         tab = by_type(nodes, "tab")[0]
         self.assertEqual(tab["label"], "canworks line1")
-        client = by_type(nodes, "modbus-client")[0]
-        self.assertEqual((client["tcpHost"], client["tcpPort"], client["unit_id"]), ("127.0.0.1", "1502", "1"))
-        self.assertNotIn("z", client)
-        reads = [n for n in by_type(nodes, "modbus-read") if n["dataType"] == "InputRegister"]
-        self.assertEqual([(n["adr"], n["quantity"], n["rate"]) for n in reads], [("0", "31", "100")])
-        backs = [n for n in by_type(nodes, "modbus-read") if n["dataType"] == "HoldingRegister"]
-        self.assertEqual([(n["adr"], n["quantity"]) for n in backs], [("0", "13")])
-        self.assertEqual(sorted(n["name"] for n in by_type(nodes, "link out")), ["canworks in", "canworks sdo result"])
-        self.assertEqual(sorted(n["name"] for n in by_type(nodes, "link in")),
-                         ["canworks nmt", "canworks out", "canworks sdo"])
-        self.assertEqual(named(nodes, "tick")["repeat"], "0.1")
-        self.assertTrue(all(n["z"] == tab["id"] for n in nodes if n["type"] not in ("tab", "modbus-client")))
+        self.assertIn(nodered.package_name().replace(".tgz", ""), tab["info"])
+        cfg_node = by_type(nodes, "canworks-bridge")[0]
+        self.assertEqual((cfg_node["host"], cfg_node["port"], cfg_node["unit"], cfg_node["period"], cfg_node["readOnly"]),
+                         ("127.0.0.1", 1502, 1, 10, False))
+        self.assertNotIn("z", cfg_node)
+        self.assertEqual(json.loads(cfg_node["layout"]), lay)
+        self.assertEqual(by_type(nodes, "canworks-in")[0]["bridge"], cfg_node["id"])
+        self.assertEqual(by_type(nodes, "canworks-out")[0]["bridge"], cfg_node["id"])
+        self.assertTrue(all(n["z"] == tab["id"] for n in nodes if n["type"] not in ("tab", "canworks-bridge")))
         ids = [n["id"] for n in nodes]
         self.assertEqual(len(ids), len(set(ids)))
-        # Every wire points at a node of the flow.
-        for n in nodes:
-            for out in n.get("wires", []):
-                for target in out:
-                    self.assertIn(target, ids, n["name"])
-        self.assertEqual(len(sp["inputs"]), 17)
-        self.assertEqual(len(sp["outputs"]), 4)
+        self.assertFalse([n for n in nodes if n["type"].startswith("modbus") or n["type"] == "function"],
+                         "no node-red-contrib-modbus nodes or generated code")
+
+    def test_layout(self):
+        lay = nodered.flow(load(EXAMPLE), "line1")[2]
+        self.assertEqual((len(lay["inputs"]), len(lay["outputs"])), (17, 4))
+        self.assertEqual((lay["version"], lay["unit"], lay["readOnly"], lay["watchdogMs"]), (__version__, 1, False, 1000))
+        self.assertEqual(lay["read"], [[0, 31]])
+        self.assertEqual(lay["write"], [[0, 13]])
+        self.assertEqual((lay["status"], lay["control"], lay["sdoReq"], lay["sdoResp"]), (24, 6, 12, 48))
+        self.assertEqual(lay["live"], [{"net": "field", "b": 32, "nodes": [5, 6]}])
+        self.assertEqual(lay["networks"], [{"index": 0, "name": "field", "kinds": ["can", "canopen"]}])
+        self.assertIsNone(lay["mailboxes"])
+        row = next(r for r in lay["inputs"] if r["n"] == "dio.0x6401:1")
+        self.assertEqual(row, {"n": "dio.0x6401:1", "b": 10, "k": "signed", "size": 2, "regs": [5, 5]})
+
+    def test_mailbox_layout(self):
+        lay = nodered.flow(with_mailboxes(), "t")[2]
+        mb = lay["mailboxes"]
+        self.assertEqual(mb["requests"], [{"req": 64, "resp": 64}, {"req": 208, "resp": 208}])
+        self.assertEqual(mb["receive"], {"block": 352, "blocks": 1, "ack": 352})
+        self.assertEqual(mb["info"], [{"net": 0, "name": "field", "j1939": False, "b": 592}])
+        self.assertEqual(mb["cyclic"], {"table": 628, "keepalive": 358, "jobs": 2})
+        # Every block is inside a read or write channel.
+        def covered(byte, n, channels):
+            return any(s * 2 <= byte and byte + n <= (s + c) * 2 for s, c in channels)
+        for m in mb["requests"]:
+            self.assertTrue(covered(m["resp"], 144, lay["read"]))
+            self.assertTrue(covered(m["req"], 144, lay["write"]))
+        self.assertTrue(covered(mb["receive"]["block"], 240, lay["read"]))
+        self.assertTrue(covered(mb["cyclic"]["keepalive"], 4, lay["write"]))
+
+    def test_read_only(self):
+        cfg = load(EXAMPLE)
+        cfg["bridge"]["plc_link"] = True
+        for cfg in (modbusmap.pack(cfg),):
+            nodes, notes, lay = nodered.flow(cfg, "line1")
+            self.assertEqual(by_type(nodes, "canworks-out"), [])
+            self.assertTrue(by_type(nodes, "canworks-bridge")[0]["readOnly"])
+            self.assertEqual((lay["readOnly"], lay["outputs"], lay["write"]), (True, [], []))
+            self.assertIn("It only reads: the bridge's writes belong to the PLC program.", by_type(nodes, "tab")[0]["info"])
+            self.assertFalse([n for n in notes if "writers" in n], "no writers note for a flow that does not write")
+        nodes, _, lay = nodered.flow(load(EXAMPLE), "line1", readonly=True)
+        self.assertEqual(by_type(nodes, "canworks-out"), [])
 
     def test_bit_channels_by_name(self):
         cfg = load(EXAMPLE)
         dio = [n for n in cfg["networks"][0]["nodes"] if n["name"] == "dio"][0]
         dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "jog_x_plus"}]  # 0x6000:1 at %IB8
-        _, _, sp = nodered.flow(cfg, "line1")
-        row = [r for r in sp["inputs"] if r["n"] == "dio.jog_x_plus"][0]
+        lay = nodered.flow(cfg, "line1")[2]
+        row = [r for r in lay["inputs"] if r["n"] == "dio.jog_x_plus"][0]
         self.assertEqual((row["k"], row["b"], row["bit"]), ("bit", 8, 3))
 
     def test_ids_are_stable_per_name(self):
-        a, _, _ = nodered.flow(load(EXAMPLE), "line1")
-        b, _, _ = nodered.flow(load(EXAMPLE), "line1")
-        c, _, _ = nodered.flow(load(EXAMPLE), "line2")
+        a = nodered.flow(load(EXAMPLE), "line1")[0]
+        b = nodered.flow(load(EXAMPLE), "line1")[0]
+        c = nodered.flow(load(EXAMPLE), "line2")[0]
         self.assertEqual([n["id"] for n in a], [n["id"] for n in b])
         self.assertFalse(set(n["id"] for n in a) & set(n["id"] for n in c))
 
@@ -137,9 +153,8 @@ class FlowShape(unittest.TestCase):
         cfg = load(EXAMPLE)
         for key in ("status_location", "control_location", "live_lists", "sdo_bridge_location"):
             cfg["bridge"].pop(key)
-        nodes, _, _ = nodered.flow(cfg)
-        self.assertEqual([n["name"] for n in by_type(nodes, "link in")], ["canworks out"])
-        self.assertEqual([n["name"] for n in by_type(nodes, "link out")], ["canworks in"])
+        lay = nodered.flow(cfg)[2]
+        self.assertEqual((lay["status"], lay["control"], lay["sdoReq"], lay["live"]), (None, None, None, []))
 
     def test_not_a_bridge_config(self):
         cfg = load(EXAMPLE)
@@ -152,9 +167,9 @@ class Options(unittest.TestCase):
     def test_defaults_and_overrides(self):
         cfg = load(EXAMPLE)
         h, port, poll, notes = nodered.options(cfg)
-        self.assertEqual((h, port, poll), ("127.0.0.1", 1502, 100))
+        self.assertEqual((h, port, poll), ("127.0.0.1", 1502, 10))
         self.assertIn("no loopback address", notes[0])
-        self.assertEqual(nodered.options(cfg, "192.168.1.5")[:3], ("192.168.1.5", 1502, 100))
+        self.assertEqual(nodered.options(cfg, "192.168.1.5")[:3], ("192.168.1.5", 1502, 10))
         self.assertEqual(nodered.options(cfg, "pi.local:502")[:2], ("pi.local", 502))
         self.assertEqual(nodered.options(cfg, "[fd00::5]:1503")[:2], ("fd00::5", 1503))
         cfg["bridge"]["listen"] = "192.168.1.9:502"
@@ -166,6 +181,7 @@ class Options(unittest.TestCase):
         self.assertEqual(nodered.options(cfg)[3], [])
         cfg["bridge"]["writers"] = []
         self.assertIn("'writers' is empty", nodered.options(cfg)[3][0])
+        self.assertEqual(nodered.options(cfg, readonly=True)[3], [])
 
     def test_poll_clamped(self):
         cfg = load(EXAMPLE)
@@ -175,8 +191,6 @@ class Options(unittest.TestCase):
         self.assertTrue(any("333 ms instead of 500 ms" in n for n in notes))
         cfg["bridge"]["watchdog_ms"] = 0
         self.assertEqual(nodered.options(cfg, poll_ms=5000)[2], 5000)
-        _, _, sp = nodered.flow(cfg, poll_ms=5000)
-        self.assertEqual((sp["keepalive"], sp["tickMs"]), (False, 5000))
 
     def test_bad_port(self):
         with self.assertRaises(nodered.FlowError):
@@ -194,10 +208,25 @@ class CommandLine(unittest.TestCase):
             text = out.getvalue()
             self.assertIn("17 values in, 4 out", text)
             self.assertIn("no loopback address", text)
+            self.assertIn(nodered.package_name(), text)
+            self.assertIn("block nodes: NMT (control block), short SDO (SDO registers)\n", text)
             with open(path, encoding="utf-8") as f:
                 nodes = json.load(f)
             self.assertEqual(by_type(nodes, "tab")[0]["label"], "canworks line1")
-            self.assertEqual(by_type(nodes, "modbus-read")[0]["rate"], "50")
+            self.assertEqual(by_type(nodes, "canworks-bridge")[0]["period"], 50)
+
+    def test_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(cli.main(["--export-nodered-package", tmp]), 0)
+                self.assertEqual(cli.main(["--export-nodered-package", os.path.join(tmp, "x.tgz")]), 0)
+            with open(os.path.join(tmp, nodered.package_name()), "rb") as f:
+                a = f.read()
+            with open(os.path.join(tmp, "x.tgz"), "rb") as f:
+                self.assertEqual(f.read(), a)
+            self.assertEqual(a, nodered.package_tgz())
+            self.assertIn("Manage palette > Install > upload", out.getvalue())
 
     def test_refusals(self):
         cfg = load(EXAMPLE)
@@ -210,242 +239,135 @@ class CommandLine(unittest.TestCase):
                 cli.run(cli.parser().parse_args(["--config", src, "--export-nodered", os.path.join(tmp, "f.json")]))
             with self.assertRaisesRegex(cli.Failure, "only writes the Node-RED flow"):
                 cli.run(cli.parser().parse_args(["--config", EXAMPLE, "--export-nodered", os.path.join(tmp, "f.json"),
-                                        "--check-only"]))
+                                                 "--check-only"]))
             with self.assertRaisesRegex(cli.Failure, "--nodered-host"):
-                cli.run(cli.parser().parse_args(["--config", EXAMPLE, "--export-modbus-map", os.path.join(tmp, "m.csv"),
-                                        "--nodered-host", "x"]))
+                cli.run(cli.parser().parse_args(["--config", EXAMPLE, "--export-modbus-map",
+                                                 os.path.join(tmp, "m.csv"), "--nodered-host", "x"]))
+            with self.assertRaisesRegex(cli.Failure, "give the config"):
+                cli.run(cli.parser().parse_args(["--export-nodered", os.path.join(tmp, "f.json")]))
 
 
-@unittest.skipUnless(NODE, "node is not installed: the Node-RED function code is not run")
-class FunctionCode(unittest.TestCase):
-    """The generated function bodies under node, on the test bridge config."""
+class Package(unittest.TestCase):
+    def test_files(self):
+        files = dict(nodered.package_files())
+        self.assertEqual(sorted(files), ["LICENSE", "README.md", "lib/bridge.js", "lib/codec.js", "lib/jobs.js",
+                                         "lib/layout.js", "lib/modbus.js", "lib/texts.js", "nodes/canworks.html",
+                                         "nodes/canworks.js", "package.json"])
+        pkg = json.loads(files["package.json"])
+        self.assertEqual((pkg["name"], pkg["version"]), (nodered.PACKAGE, __version__))
+        self.assertNotIn("dependencies", pkg)
+        self.assertEqual(pkg["node-red"]["nodes"], {"canworks": "nodes/canworks.js"})
+        for f in pkg["files"]:
+            self.assertTrue(any(p == f or p.startswith(f + "/") for p in files), f)
 
-    def setUp(self):
-        self.cfg = load()
-        self.cfg["bridge"]["writers"] = ["127.0.0.1"]
-        self.rows = rows_by_name(self.cfg)
+    def test_tgz(self):
+        a, b = nodered.package_tgz(), nodered.package_tgz()
+        self.assertEqual(a, b, "the same bytes for the same version")
+        self.assertEqual(gzip.decompress(a)[:8], b"package/")
+        with tarfile.open(fileobj=io.BytesIO(a)) as tar:
+            members = tar.getmembers()
+            self.assertEqual([m.name for m in members], ["package/" + p for p, _ in nodered.package_files()])
+            self.assertTrue(all(m.isfile() and m.mode == 0o644 for m in members))
+            pkg = json.loads(tar.extractfile("package/package.json").read())
+        self.assertEqual(pkg["version"], __version__)
 
-    def flow(self, cfg=None):
-        nodes, _, sp = nodered.flow(cfg or self.cfg, "t")
-        return nodes, sp
+    def test_layout_is_fresh(self):
+        with open(os.path.join(nodered.PACKAGE_DIR, "lib", "layout.js"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), nodered.layout_js(),
+                             "lib/layout.js is stale: run python -m canworks.nodered layout in tools/deploy")
 
-    def inputs(self, low_first=False):
-        r = self.rows
-        img = Image(80)
-        img.put(r["sensor.0x6000:1"], "I", 0x12345678, low_first)
-        img.put(r["sensor.0x6000:2"], "h", -1234)
-        img.put(r["sensor.0x6000:3"], "B", 200)
-        img.put(r["field.state"], "B", 5)
-        img.put(r["sensor.state"], "B", 127)
-        img.bit(r["sensor.0x6000:4"], True)
-        img.bit(r["sensor.status"], False)
-        img.bit(r["sensor.TPDO1.timeout"], True)
-        st = r["bridge.status"]["byte"]
-        img.b[st:st + 8] = bytes([1, 2, 0, 9, 0, 3, 0, 0])
-        live = r["bridge.live_list.field"]["byte"]
-        img.b[live + 0] = 1 << 5      # node 5 operational
-        return img
+    def test_layout_follows_the_bridge(self):
+        with open(MAILBOXES_H, encoding="utf-8") as f:
+            h = f.read()
+        with open(MAILBOXES_CPP, encoding="utf-8") as f:
+            cpp = f.read()
 
-    def test_decode_every_type_and_only_changes(self):
-        nodes, sp = self.flow()
-        img = self.inputs()
-        regs = img.regs(2, 34)
-        out = run_js(nodes, [{"node": "decode 2-35", "msg": {"payload": regs}},
-                             {"node": "decode 2-35", "msg": {"payload": regs}}])
-        first = {m["topic"]: m["payload"] for m in out["results"][0][0]}
-        self.assertEqual(first["sensor.0x6000:1"], 0x12345678)
-        self.assertEqual(first["sensor.0x6000:2"], -1234)
-        self.assertEqual(first["sensor.0x6000:3"], 200)
-        self.assertEqual(first["field.state"], 5)
-        self.assertEqual(first["sensor.state"], 127)
-        self.assertIs(first["sensor.0x6000:4"], True)
-        self.assertIs(first["sensor.status"], False)
-        self.assertIs(first["sensor.TPDO1.timeout"], True)
-        self.assertEqual(first["bridge.state"], "running")
-        self.assertEqual(first["bridge.clients"], 2)
-        self.assertEqual(first["bridge.command"], {"counter": 3, "result": "ok"})
-        self.assertIs(first["field.node5.operational"], True)
-        self.assertEqual(out["results"][1], [[], []])
-        self.assertEqual(out["status"]["decode 2-35"]["text"], "running, 2 clients")
+        def const(name):
+            return int(re.search(r"\b%s\s*=\s*(0x[0-9a-fA-F]+|\d+)" % name, h).group(1), 0)
+
+        lay = mailboxlayout.client_layout()
+        self.assertEqual((lay["mailboxWords"], lay["chunk"], lay["buffer"], lay["receiveWords"], lay["rxHeaderWords"],
+                          lay["infoWords"], lay["jobWords"], lay["maxReceivers"]),
+                         tuple(const(n) for n in ("kMbWords", "kMbChunk", "kMbBuffer", "kRxWords", "kRxHeaderWords",
+                                                   "kInfoWords", "kJobWords", "kMaxReceivers")))
+        ops = {re.sub(r"(?<!^)([A-Z])", r"_\1", m.group(1)).lower(): int(m.group(2))
+               for m in re.finditer(r"kOp(\w+) = (\d+)", h) if m.group(1) != "None"}
+        self.assertEqual(lay["ops"], ops)
+        self.assertEqual(lay["states"], {"idle": const("kMbIdle"), "busy": const("kMbBusy"), "done": const("kMbDone"),
+                                         "error": const("kMbError")})
+        self.assertEqual(lay["rxKinds"], {"can": const("kRxCan"), "j1939": const("kRxJ1939"), "emcy": const("kRxEmcy")})
+        self.assertEqual(lay["recordFlags"], {"long": const("kRecLong"), "restart": const("kRecRestart"),
+                                              "overflow": const("kRecOverflow")})
+        self.assertEqual(lay["rxOpenFlags"], {"can_extended": const("kRxCanExtended"), "j1939_all_pgns": const("kRxJ1939Any"),
+                                              "j1939_all_destinations": const("kRxJ1939AllDestinations"),
+                                              "j1939_filter_source": const("kRxJ1939FilterSource"),
+                                              "emcy_skip_old": const("kRxEmcySkipOld")})
+        words = dict(re.findall(r"case kRx(\w+): return (\d+);", cpp))
+        self.assertEqual(lay["recordWords"], {"can": int(words["Can"]), "j1939": int(words["J1939"]),
+                                              "emcy": int(words["Emcy"])})
+        # The batch time's words, the EMCY time's and where each record's body starts (the header's comment).
+        self.assertIn("//   %d-%d batch time" % (lay["batchTimeWord"], lay["batchTimeWord"] + 3), h)
+        self.assertIn("EMCY (12 words): receive time in UTC microseconds (4)", h)
+        self.assertEqual((lay["recordBodyWord"], lay["emcyTimeWord"]), ({"can": 3, "j1939": 3, "emcy": 7}, 3))
+
+
+def run_codec(rows, image, writes=()):
+    proc = subprocess.run([NODE, os.path.join(JS, "codec_run.js")], capture_output=True, text=True, check=False,
+                          input=json.dumps({"rows": rows, "image": bytes(image).hex(), "writes": list(writes)}))
+    if proc.returncode:
+        raise AssertionError("node failed: %s" % proc.stderr)
+    out = json.loads(proc.stdout)
+    return out["values"], bytes.fromhex(out["image"]), out["errors"]
+
+
+@unittest.skipUnless(NODE, "node is not installed: the package is not run")
+class Codec(unittest.TestCase):
+    """lib/codec.js on images packed here with struct: every type of the
+    test bridge config, word order, 64-bit, REAL64, scale and offset."""
+
+    def rows(self, cfg):
+        return nodered.flow(cfg, "t")[2]
+
+    def test_decode_every_type(self):
+        lay = self.rows(load())
+        img = bytearray(lay["inBytes"])
+        by = {r["n"]: r for r in lay["inputs"]}
+        struct.pack_into(">I", img, by["sensor.0x6000:1"]["b"], 0x12345678)
+        struct.pack_into(">h", img, by["sensor.0x6000:2"]["b"], -1234)
+        img[by["sensor.0x6000:3"]["b"]] = 200
+        img[by["sensor.0x6000:4"]["b"]] |= 1 << 3
+        img[by["sensor.TPDO1.timeout"]["b"]] |= 1 << by["sensor.TPDO1.timeout"]["bit"]
+        img[by["field.state"]["b"]] = 5
+        values, _, _ = run_codec(lay["inputs"], img)
+        self.assertEqual(values["sensor.0x6000:1"], 0x12345678)
+        self.assertEqual(values["sensor.0x6000:2"], -1234)
+        self.assertEqual(values["sensor.0x6000:3"], 200)
+        self.assertIs(values["sensor.0x6000:4"], True)
+        self.assertIs(values["sensor.status"], False)
+        self.assertIs(values["sensor.TPDO1.timeout"], True)
+        self.assertEqual(values["field.state"], 5)
 
     def test_low_first(self):
-        cfg = copy.deepcopy(self.cfg)
+        cfg = load()
         cfg["bridge"]["word_order"] = "low_first"
-        nodes, sp = self.flow(cfg)
-        out = run_js(nodes, [{"node": "decode 2-35", "msg": {"payload": self.inputs(True).regs(2, 34)}}])
-        first = {m["topic"]: m["payload"] for m in out["results"][0][0]}
-        self.assertEqual(first["sensor.0x6000:1"], 0x12345678)
-
-    def test_change_emits_one_message(self):
-        nodes, sp = self.flow()
-        img = self.inputs()
-        a = img.regs(2, 34)
-        img.put(self.rows["sensor.0x6000:2"], "h", 77)
-        b = img.regs(2, 34)
-        out = run_js(nodes, [{"node": "decode 2-35", "msg": {"payload": a}},
-                             {"node": "decode 2-35", "msg": {"payload": b}}])
-        self.assertEqual(out["results"][1][0], [{"topic": "sensor.0x6000:2", "payload": 77}])
-
-    def seed(self, img=None):
-        regs = (img or Image(102)).regs(0, 51)
-        return {"node": "seed 0-50", "msg": {"payload": regs}}
-
-    def written(self, msgs):
-        """The output image after the write messages."""
-        img = Image(102)
-        for m in msgs:
-            p = m["payload"]
-            self.assertEqual((p["fc"], p["unitid"]), (16, 1))
-            for i, v in enumerate(p["value"]):
-                img.b[(p["address"] + i) * 2:(p["address"] + i) * 2 + 2] = struct.pack(">H", v)
-        return img
-
-    def test_writes_wait_for_read_back(self):
-        nodes, sp = self.flow()
-        held = Image(102)
-        held.put(self.rows["sensor.0x6200:1"], "H", 4321)
-        out = run_js(nodes, [
-            {"node": "encode", "msg": {"topic": "sensor.0x6200:3", "payload": 1.5}},
-            {"node": "encode", "msg": {"topic": "canworks_tick"}},
-            self.seed(held),
-        ])
-        self.assertEqual(out["results"][0], [[]])
-        self.assertEqual(out["results"][1], [[]])
-        self.assertEqual(out["status"]["encode"]["text"], "waiting for the bridge")
-        seeded = out["results"][2][0]
-        self.assertEqual(seeded, [{"topic": "canworks_seeded"}])
-        out = run_js(nodes, [{"node": "encode", "msg": {"topic": "sensor.0x6200:3", "payload": 1.5}},
-                             self.seed(held), {"node": "encode", "msg": seeded[0]}])
-        img = self.written(out["results"][2][0])
-        self.assertEqual(struct.unpack(">f", bytes(img.b[4:8]))[0], 1.5)
-        self.assertEqual(struct.unpack(">H", bytes(img.b[0:2]))[0], 4321, "read-back value kept")
+        lay = self.rows(cfg)
+        row = next(r for r in lay["inputs"] if r["n"] == "sensor.0x6000:1")
+        img = bytearray(lay["inBytes"])
+        img[row["b"]:row["b"] + 4] = bytes([0x56, 0x78, 0x12, 0x34])
+        self.assertEqual(run_codec([row], img)[0]["sensor.0x6000:1"], 0x12345678)
 
     def test_encode_values_and_errors(self):
-        nodes, sp = self.flow()
-        out = run_js(nodes, [
-            self.seed(), {"node": "encode", "msg": {"topic": "canworks_seeded"}},
-            {"node": "encode", "msg": {"topic": "sensor.0x6200:1", "payload": 65535}},
-            {"node": "encode", "msg": {"topic": "sensor.0x6200:2", "payload": True}},
-            {"node": "encode", "msg": {"topic": "sensor.0x6200:1", "payload": 65536}},
-            {"node": "encode", "msg": {"topic": "nope", "payload": 1}},
-            {"node": "encode", "msg": {"topic": "canworks_tick"}},
-        ])
-        img = self.written(out["results"][2][0])
-        self.assertEqual(struct.unpack(">H", bytes(img.b[0:2]))[0], 65535)
-        img = self.written(out["results"][3][0])
-        self.assertEqual(img.b[100] & 2, 2)      # %QX100.1
-        self.assertEqual(out["results"][4], [[]])
-        self.assertEqual(out["results"][5], [[]])
-        self.assertTrue(any("out of range" in w for w in out["warnings"]))
-        self.assertTrue(any("no output named \"nope\"" in w for w in out["warnings"]))
-        keep = self.written(out["results"][6][0])
-        self.assertEqual(struct.unpack(">H", bytes(keep.b[0:2]))[0], 65535)
-        self.assertEqual(keep.b[100] & 2, 2)
-
-    def test_no_keepalive_without_watchdog(self):
-        cfg = copy.deepcopy(self.cfg)
-        cfg["bridge"]["watchdog_ms"] = 0
-        nodes, sp = self.flow(cfg)
-        out = run_js(nodes, [self.seed(), {"node": "encode", "msg": {"topic": "canworks_tick"}}])
-        self.assertEqual(out["results"][1], [[]])
-
-    def test_nmt(self):
-        nodes, sp = self.flow()
-        held = Image(102)
-        ctl = self.rows["bridge.control"]["byte"]
-        held.b[ctl:ctl + 2] = struct.pack(">H", 41)
-        out = run_js(nodes, [
-            {"node": "nmt", "msg": {"payload": {"network": "field", "node": 4, "command": "stop"}}},
-            self.seed(held),
-            {"node": "nmt", "msg": {"payload": {"network": "field", "node": 4, "command": "stop"}}},
-            {"node": "nmt", "msg": {"payload": {"command": "idle"}}},
-            {"node": "nmt", "msg": {"payload": {"network": "nope", "node": 4, "command": "start"}}},
-            {"node": "nmt", "msg": {"payload": {"network": "field", "node": 4, "command": "jump"}}},
-        ])
-        self.assertEqual(out["results"][0], [[]])
-        img = self.written(out["results"][2][0])
-        self.assertEqual(bytes(img.b[ctl:ctl + 6]), bytes([0, 42, 4, 0, 4, 0]))
-        img = self.written(out["results"][3][0])
-        self.assertEqual(bytes(img.b[ctl:ctl + 6]), bytes([0, 43, 2, 0, 0, 0]))
-        self.assertEqual(len(out["warnings"]), 3)
-
-    def test_sdo_read_write_and_timeout(self):
-        cfg = copy.deepcopy(self.cfg)
-        cfg["bridge"]["sdo_bridge_location"] = {"request": "%QB20", "response": "%IB72"}
-        self.rows = rows_by_name(cfg)
-        nodes, sp = self.flow(cfg)
-        req = self.rows["bridge.sdo_bridge.request"]["byte"]
-        resp = self.rows["bridge.sdo_bridge.response"]["byte"]
-        name = "decode %d-%d" % (sp["read"][0][0], sp["read"][0][0] + sp["read"][0][1] - 1)
-        start, count = sp["read"][0]
-
-        def answer(counter, status, abort=0, value=0):
-            img = self.inputs()
-            img.b.extend(bytes(200))
-            img.b[resp:resp + 14] = struct.pack(">HBBIIH", counter, status, 0, abort, value, 0)
-            return {"node": name, "msg": {"payload": img.regs(start, count)}}
-
-        seed = {"node": "seed 0-50", "msg": {"payload": Image(102).regs(0, 51)}}
-        out = run_js(nodes, [
-            seed,
-            {"node": "sdo", "msg": {"topic": "serial", "payload": {"network": "field", "node": 4, "index": 0x1018,
-                                                                  "subindex": 4}}},
-            {"node": "sdo", "msg": {"payload": {"network": "field", "node": 4, "index": 0x6200, "subindex": 1,
-                                                "value": 7, "length": 1}}},
-            answer(1, 1),
-            answer(1, 2, 0, 123456),
-            {"node": "sdo", "msg": {"topic": "canworks_tick"}},
-            answer(2, 3, 0x06020000),
-            {"node": "sdo", "msg": {"payload": {"network": "field", "node": 4, "index": 0x1000}}, "now": 1000000},
-            {"node": "sdo", "msg": {"topic": "canworks_tick"}, "now": 1000000 + sp["sdoTimeoutMs"] + 1},
-            {"node": "sdo", "msg": {"payload": {"network": "field", "node": 200, "index": 1}}},
-        ])
-        first = self.written(out["results"][1][0])
-        self.assertEqual(bytes(first.b[req:req + 14]),
-                         bytes([0, 1, 1, 0, 4, 4, 0x10, 0x18, 0, 0, 0, 0, 0, 0]))
-        self.assertEqual(out["results"][2], [[], []], "second request waits for the first")
-        self.assertEqual(out["results"][3][1], [], "busy: no result yet")
-        self.assertEqual(out["results"][4][1], [{"topic": "serial", "payload": 123456, "sdo": {
-            "status": "done", "abort": 0, "abortText": "",
-            "request": {"network": "field", "node": 4, "index": 0x1018, "subindex": 4}}}])
-        second = self.written(out["results"][5][0])
-        self.assertEqual(bytes(second.b[req:req + 14]),
-                         bytes([0, 2, 2, 0, 4, 1, 0x62, 0x00, 1, 0, 0, 0, 0, 7]))
-        aborted = out["results"][6][1][0]
-        self.assertEqual((aborted["payload"], aborted["sdo"]["status"], aborted["sdo"]["abortText"]),
-                         (None, "aborted", "0x06020000"))
-        self.assertEqual(out["results"][8][1][0]["sdo"]["status"], "timeout")
-        self.assertTrue(any("node must be 1-127" in w for w in out["warnings"]))
-
-
-@unittest.skipUnless(NODE, "node is not installed: the Node-RED function code is not run")
-class Conversions(unittest.TestCase):
-    """decodeRow/encodeRow on rows the test configs do not have: 64-bit,
-    REAL64, scale and offset, signed bytes."""
-
-    def run_lib(self, rows, values, nbytes=16):
-        sp = {"unit": 1, "inBytes": nbytes, "outBytes": nbytes, "inputs": rows, "outputs": rows,
-              "read": [[0, nbytes // 2]], "write": [[0, nbytes // 2]], "status": None, "control": None,
-              "sdoReq": None, "sdoResp": None, "live": [], "networks": {}, "masters": [], "sdoTimeoutMs": 2000,
-              "keepalive": True, "tickMs": 100}
-        nodes = [
-            {"type": "function", "name": "seed", "outputs": 1, "initialize": nodered.START_CODE,
-             "func": nodered.function_body(sp, nodered.SEED, 0)},
-            {"type": "function", "name": "encode", "outputs": 1, "func": nodered.function_body(sp, nodered.ENCODE)},
-            {"type": "function", "name": "decode", "outputs": 2, "func": nodered.function_body(sp, nodered.DECODE, 0)},
-        ]
-        steps = [{"node": "seed", "msg": {"payload": [0] * (nbytes // 2)}},
-                 {"node": "encode", "msg": {"topic": "canworks_seeded"}}]
-        steps += [{"node": "encode", "msg": {"topic": n, "payload": v}} for n, v in values]
-        out = run_js(nodes, steps)
-        regs = [0] * (nbytes // 2)
-        for res in out["results"][2:]:
-            for m in res[0]:
-                p = m["payload"]
-                regs[p["address"]:p["address"] + p["quantity"]] = p["value"]
-        back = run_js(nodes, [{"node": "decode", "msg": {"payload": regs}}])
-        return bytes(b for r in regs for b in struct.pack(">H", r)), \
-            {m["topic"]: m["payload"] for m in back["results"][0][0]}, out["warnings"]
+        lay = self.rows(load())
+        rows = lay["outputs"]
+        by = {r["n"]: r for r in rows}
+        _, img, errors = run_codec(rows, bytes(lay["outBytes"]), [
+            ["sensor.0x6200:1", 65535], ["sensor.0x6200:2", True], ["sensor.0x6200:3", 1.5],
+            ["sensor.0x6200:1", 65536], ["sensor.0x6200:2", "yes"]])
+        self.assertEqual(struct.unpack_from(">H", img, by["sensor.0x6200:1"]["b"])[0], 65535, "the refused value left it")
+        self.assertEqual(img[100] & 2, 2)  # %QX100.1
+        self.assertEqual(struct.unpack_from(">f", img, by["sensor.0x6200:3"]["b"])[0], 1.5)
+        self.assertIn("out of range", errors["sensor.0x6200:1"])
+        self.assertIn("true or false", errors["sensor.0x6200:2"])
 
     def test_64_bit_and_scale(self):
         rows = [
@@ -455,25 +377,32 @@ class Conversions(unittest.TestCase):
             {"n": "scaled", "b": 24, "k": "unsigned", "size": 2, "regs": [12, 12], "s": 0.1, "o": -40},
             {"n": "s8", "b": 26, "k": "signed", "size": 1, "regs": [13, 13]},
         ]
-        raw, back, warnings = self.run_lib(rows, [("i64", -2), ("u64", "18446744073709551615"),
-                                                  ("r64", 3.25), ("scaled", 21.5), ("s8", -3)], 28)
-        self.assertEqual(warnings, [])
+        _, raw, errors = run_codec(rows, bytes(28), [["i64", -2], ["u64", "18446744073709551615"], ["r64", 3.25],
+                                                     ["scaled", 21.5], ["s8", -3]])
+        self.assertEqual(errors, {})
         self.assertEqual(raw[0:8], struct.pack(">q", -2))
         self.assertEqual(raw[8:16], b"\xff" * 8)
         self.assertEqual(raw[16:24], struct.pack(">d", 3.25))
         self.assertEqual(raw[24:26], struct.pack(">H", 615))
         self.assertEqual(raw[26], 0xfd)
+        back = run_codec(rows, raw)[0]
         self.assertEqual(back["i64"], -2)
         self.assertEqual(back["u64"], "18446744073709551615")
         self.assertEqual(back["r64"], 3.25)
         self.assertAlmostEqual(back["scaled"], 21.5)
         self.assertEqual(back["s8"], -3)
 
-    def test_low_first_32(self):
-        rows = [{"n": "v", "b": 0, "k": "unsigned", "size": 4, "regs": [0, 1], "lo": True}]
-        raw, back, _ = self.run_lib(rows, [("v", 0x12345678)], 4)
-        self.assertEqual(raw, bytes([0x56, 0x78, 0x12, 0x34]))
-        self.assertEqual(back["v"], 0x12345678)
+
+@unittest.skipUnless(NODE, "node is not installed: the package is not run")
+class NodeSuite(unittest.TestCase):
+    """The package's node --test suite (tests/nodered/*.test.js): every node
+    against a scripted model of the bridge's registers."""
+
+    def test_suite(self):
+        tests = sorted(os.path.join(JS, f) for f in os.listdir(JS) if f.endswith(".test.js"))
+        proc = subprocess.run([NODE, "--test", "--test-reporter=dot"] + tests, capture_output=True, text=True,
+                              check=False, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout[-6000:] + proc.stderr[-3000:])
 
 
 if __name__ == "__main__":

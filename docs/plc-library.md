@@ -1,6 +1,6 @@
 # The `canworks` function block library
 
-`canworks` is one OpenPLC Editor library with the function blocks and functions a PLC program uses to work with the networks canworks-bridge runs for it ([OpenPLC](modbus-bridge.md#openplc)): SDO transfers of any size, NMT, EMCY, CAN frames, J1939 messages and trouble codes. The blocks talk to the bridge through the registers the generated `canworks_in` and `canworks_out` programs copy every scan, so they need nothing inside the runtime and never make the scan wait, and they work on [another Modbus PLC](#on-another-modbus-plc) too. The library's version is the PC tools' version.
+`canworks` is one OpenPLC Editor library with the function blocks and functions a PLC program uses to work with the networks canworks-bridge runs for it ([OpenPLC](modbus-bridge.md#openplc)): SDO transfers of any size, NMT, EMCY, CAN frames, J1939 messages and trouble codes. The blocks talk to the bridge through the registers the generated `canworks_in` and `canworks_out` programs copy every scan, so they need nothing inside the runtime and never make the scan wait, and they work on [another Modbus PLC](#on-another-modbus-plc) too. The library's version is the PC tools' version. In Node-RED the same jobs are nodes of the `node-red-canworks` package, with the same ERROR_IDs ([node-red.md](node-red.md#block-nodes)).
 
 ## What it holds
 

@@ -1,0 +1,14 @@
+{
+  "name": "node-red-canworks",
+  "version": "0.0.0",
+  "description": "Node-RED nodes for the canworks Modbus TCP bridge: values in and out, CANopen NMT, SDO and EMCY, raw CAN and J1939",
+  "keywords": ["node-red", "canopen", "j1939", "can", "modbus"],
+  "license": "Apache-2.0",
+  "repository": {"type": "git", "url": "https://github.com/tonihoohoo/canworks.git", "directory": "tools/deploy/canworks/nodered_package"},
+  "engines": {"node": ">=18"},
+  "node-red": {
+    "version": ">=3.0.0",
+    "nodes": {"canworks": "nodes/canworks.js"}
+  },
+  "files": ["lib", "nodes", "README.md", "LICENSE"]
+}

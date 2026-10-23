@@ -45,7 +45,7 @@ import webbrowser
 import zipfile
 
 from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, docexport, editorproject, edslint, mainmove, modbusmap, parameters, project as project_mod, plclibrary
-from .. import bundle, connections, mailboxlayout, openplcmodbus, targets
+from .. import bundle, connections, mailboxlayout, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
 from ..bustrace import explain as explain_mod, framebuild
@@ -2014,8 +2014,17 @@ class Session:
                 cfg, conn, editorproject.declarations(cfg, self.config_path), folder)
         except connections.DownloadError as e:
             return self._map_problems(cfg, e.problems)
-        return {"items": [], "errors": 0, "name": name, "content_type": mime, "notes": notes,
-                "map_hash": connections.map_hash_text(cfg), "data": connections.encode(data)}
+        out = {"items": [], "errors": 0, "name": name, "content_type": mime, "notes": notes,
+               "map_hash": connections.map_hash_text(cfg), "data": connections.encode(data)}
+        if conn["kind"] == "nodered":
+            out["package"] = nodered.package_name()
+        return out
+
+    def nodered_package(self):
+        """Package on a Node-RED connection: the .tgz `canworks-deploy
+        --export-nodered-package` writes."""
+        return {"name": nodered.package_name(), "content_type": "application/gzip",
+                "data": connections.encode(nodered.package_tgz())}
 
     def _map_problems(self, cfg, problems):
         """A stopped register map or Node-RED export in the /api/check shape:
@@ -3095,6 +3104,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif route == ("POST", "/api/connections/download"):
                     self._need_open(s)
                     out = s.connection_download(body.get("config"), body.get("index"))
+                elif route == ("POST", "/api/nodered_package"):
+                    out = s.nodered_package()
                 elif route == ("POST", "/api/export_notes"):
                     self._need_open(s)
                     out = s.export_notes(body.get("config"), body.get("eds"), body.get("notes"), body.get("own") is True)

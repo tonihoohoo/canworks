@@ -71,3 +71,40 @@ def area_bytes(mailboxes, networks):
     ins = sum(n for a, _, n, _, _ in blocks(mailboxes, networks) if a == "I")
     outs = sum(n for a, _, n, _, _ in blocks(mailboxes, networks) if a == "Q")
     return ins, outs
+
+
+# -- words inside the blocks ----------------------------------------------------
+# The register layout of plugin/src/bridge/mailboxes.h for clients that speak
+# the mailboxes themselves (the Node-RED package, nodered-blocks). A test
+# checks these against the header.
+
+CHUNK = 128              # data bytes per request or response
+BUFFER = 1785            # staging and result buffer
+MAX_RECEIVERS = 32
+OPS = {"stage": 1, "fetch": 2, "sdo_read": 3, "sdo_write": 4, "can_send": 5, "cyclic_set": 6,
+       "cyclic_stop": 7, "rx_open": 8, "rx_close": 9, "rx_fetch": 10, "j1939_send": 11,
+       "j1939_request": 12, "dm_read": 13, "dm_clear": 14, "find_ecu": 15}
+STATES = {"idle": 0, "busy": 1, "done": 2, "error": 3}
+RX_KINDS = {"can": 1, "j1939": 2, "emcy": 3}
+RECORD_FLAGS = {"long": 0x01, "restart": 0x02, "overflow": 0x04}
+RX_OPEN_FLAGS = {"can_extended": 0x01, "j1939_all_pgns": 0x01, "j1939_all_destinations": 0x02,
+                 "j1939_filter_source": 0x04, "emcy_skip_old": 0x01}
+CAN_FLAGS = {"extended": 0x01, "rtr": 0x02}
+BATCH_TIME_WORD = 21     # the batch time (UTC microseconds, 4 words) in the receive header
+# A record: word 0 receiver << 8 | kind << 4 | flags, 1 still queued, 2
+# dropped, then the kind's words (RECORD_WORDS above): CAN and J1939 from
+# word 3; EMCY its receive time (UTC microseconds) in 3-6, then the rest.
+RECORD_BODY_WORD = {"can": 3, "j1939": 3, "emcy": 7}
+EMCY_TIME_WORD = 3
+INFO_WORDS = NET_INFO_BYTES // 2
+JOB_WORDS = CYCLIC_JOB_BYTES // 2
+
+
+def client_layout():
+    """The constants above as one object (lib/layout.js of the Node-RED package)."""
+    return {"chunk": CHUNK, "buffer": BUFFER, "maxReceivers": MAX_RECEIVERS, "mailboxWords": MAILBOX_BYTES // 2,
+            "receiveWords": RECEIVE_BYTES // 2, "rxHeaderWords": RX_HEADER_WORDS, "ops": OPS, "states": STATES,
+            "rxKinds": RX_KINDS, "recordFlags": RECORD_FLAGS, "rxOpenFlags": RX_OPEN_FLAGS, "canFlags": CAN_FLAGS,
+            "recordWords": RECORD_WORDS, "batchTimeWord": BATCH_TIME_WORD, "emcyTimeWord": EMCY_TIME_WORD,
+            "recordBodyWord": RECORD_BODY_WORD, "maxReceiveBlocks": MAX_RECEIVE_BLOCKS,
+            "infoWords": INFO_WORDS, "jobWords": JOB_WORDS}
