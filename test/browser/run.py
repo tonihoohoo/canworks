@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""The configurator in Chromium against the real plugin (fix-gui-test-findings
-task 8.4, canopen-ci "Browser run against the real plugin").
+"""The configurator in Chromium against the real bridge (fix-gui-test-findings
+task 8.4, canopen-ci "Browser run against the real bridge").
 
   test/browser/run.py [--build-dir build] [--out DIR] [--headed]
 
-Starts canopen_host with libcanworks_plugin.so on a copy of
-examples/virtual-plant with CANWORKS_FORCE_SIMULATE=1, so every network runs
-on the plugin's simulated bus with simulated devices and no CAN interface is
-needed, and the plugin's diagnostics channel on a free port of 127.0.0.1.
+Starts canworks-bridge on a copy of examples/virtual-plant with
+CANWORKS_FORCE_SIMULATE=1, so every network runs on the simulated bus with
+simulated devices and no CAN interface is needed, its Modbus port and its
+diagnostics channel on free ports of 127.0.0.1.
 Starts canworks-config (this checkout's tools/deploy) on the copy and drives
 it with Playwright through these steps:
 
@@ -22,16 +22,15 @@ it with Playwright through these steps:
   trace        a live trace started, stopped and downloaded (pcapng)
   power-cycle  Power off and on of node 5: node 5 is OPERATIONAL again, and
                5 s later the status and an SDO read still answer
-  host-stop    canopen_host stops within 5 s of SIGTERM
+  host-stop    canworks-bridge stops within 5 s of SIGTERM
 
 A failed step is reported with a screenshot in --out and the run goes on
 (a step that needs the connection is skipped without one). Exits 0 when
-every step passed, 1 otherwise. The stand-in PLC program of canopen_host
-does not run the example's ST program.
+every step passed, 1 otherwise. No PLC runs the example's program.
 
-Needs a build of canworks_plugin and canopen_host, Python Playwright and a
+Needs a build of canworks-bridge, Python Playwright and a
 Chromium: CANWORKS_CHROMIUM names its executable, else Playwright's own
-(python -m playwright install chromium). docs/development.md, "The plugin
+(python -m playwright install chromium). docs/development.md, "The bridge
 and the configurator without a CAN interface".
 """
 
@@ -80,11 +79,11 @@ class Run:
             cfg = json.load(f)
         self.port = free_port()
         cfg["diagnostics"]["port"] = self.port
+        cfg["bridge"]["listen"] = "127.0.0.1:%d" % free_port()
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         build = self.args.build_dir
-        host_cmd = [os.path.join(build, "test", "canopen_host"), os.path.join(build, "plugins", "libcanworks_plugin.so"),
-                    cfg_path, "3600"]
+        host_cmd = [os.path.join(build, "bin", "canworks-bridge"), "--config", cfg_path]
         self.host_log = open(os.path.join(self.out, "host.log"), "w")
         self.host = subprocess.Popen(host_cmd, stdout=self.host_log, stderr=subprocess.STDOUT,
                                      env=dict(os.environ, CANWORKS_FORCE_SIMULATE="1"))
@@ -100,17 +99,17 @@ class Run:
         if not m:
             raise SystemExit("canworks-config did not start: %r (see %s)" % (line, self.config_log.name))
         self.url = m.group(1)
-        # The diagnostics channel is up once the plugin started its networks.
+        # The diagnostics channel is up once the bridge started its networks.
         deadline = time.time() + 30
         while time.time() < deadline:
             if self.host.poll() is not None:
-                raise SystemExit("canopen_host exited with %s (see %s)" % (self.host.returncode, self.host_log.name))
+                raise SystemExit("canworks-bridge exited with %s (see %s)" % (self.host.returncode, self.host_log.name))
             try:
                 socket.create_connection(("127.0.0.1", self.port), timeout=1).close()
                 return
             except OSError:
                 time.sleep(0.5)
-        raise SystemExit("the plugin's diagnostics port %d did not open in 30 s (see %s)" % (self.port, self.host_log.name))
+        raise SystemExit("the bridge's diagnostics port %d did not open in 30 s (see %s)" % (self.port, self.host_log.name))
 
     def stop_host(self):
         """SIGTERM; True when the host stopped within 5 s."""
@@ -388,7 +387,7 @@ class Run:
 
     def host_stop(self):
         if not self.stop_host():
-            raise AssertionError("canopen_host did not stop within 5 s of SIGTERM (killed)")
+            raise AssertionError("canworks-bridge did not stop within 5 s of SIGTERM (killed)")
 
     def run(self):
         from playwright.sync_api import sync_playwright

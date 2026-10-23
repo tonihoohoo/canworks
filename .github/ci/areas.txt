@@ -11,9 +11,7 @@ j1939 tools/deploy/tests/test_configurator_j1939_*
 j1939 tools/deploy/tests/data/j1939/*
 j1939 test/j1939/*
 j1939 test/j1939_unit/*
-j1939 test/j1939_blocks/*
 j1939 library/canworks/J1939_*
-j1939 library/src/j1939_common.inc
 j1939 test/fixtures/config/cases-j1939.json
 j1939 test/fixtures/j1939-dm/*
 j1939 test/fixtures/j1939_not_available.json
@@ -34,16 +32,13 @@ canopen scripts/build-lely.sh
 canopen scripts/dcf-tools-constraints.txt
 canopen config/*
 canopen test/bus/*
-canopen test/cia402/*
 canopen test/commissioning/*
-canopen test/drive/*
 canopen test/fixed/*
 canopen test/localbus/*
 canopen test/lss/*
 canopen test/networks/*
 canopen test/params/*
 canopen test/pingpong/*
-canopen test/plc_sdo/*
 canopen test/rawframes/*
 canopen test/sensor/*
 canopen test/sim/*
