@@ -157,6 +157,19 @@ class Convert(unittest.TestCase):
         result = contract.check_config(res.cfg, path)
         self.assertEqual((result.errors, result.warnings), ([], []))
 
+    def test_fixed_address_must_fit_the_channel(self):
+        # CODESYS refuses an address of another size or direction: the check says so first.
+        res = run(EDITED_XML)
+        folder = tmpdir(self)
+        for name, path in res.eds_files.items():
+            shutil.copy(path, os.path.join(folder, name))
+        path = os.path.join(folder, "canworks.json")
+        entry = pdo(node(res.cfg, "dio"), "rx_pdos", 1)["entries"][2]
+        for address, ok in (("%QW20", True), ("%QB20", False), ("%IW20", False)):
+            entry["codesys"]["address"] = address
+            errors = [e for e in contract.check_config(res.cfg, path).errors if "CODESYS address" in e]
+            self.assertEqual(errors == [], ok, (address, errors))
+
     def test_variable_names_become_entry_names(self):
         res = run(PLANT_XML)
         # Every channel has the name canworks would give it: no name needed.

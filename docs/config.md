@@ -80,7 +80,7 @@ A config with a top-level `codesys` object is built into a CODESYS project ([cod
 | node `codesys.device` | The device's name in the CODESYS project tree, when it is not the node's `name`. |
 | node `codesys.checks` | The identity values CODESYS checks at boot: a list of `vendor`, `product`, `revision`. Default `["vendor"]`. |
 | PDO `codesys.by_manager` | `false`: the PDO is not processed by the CANopen Manager. Default `true`. |
-| entry `codesys.address` | A fixed I/O address for the entry's channel, such as `%IB40` or `%QW20`. Default: CODESYS assigns it. |
+| entry `codesys.address` | A fixed I/O address for the entry's channel, such as `%IB40` or `%QW20`: `%I` for a TPDO entry, `%Q` for an RPDO entry, of the entry's size (`X` 1 bit, `B` 8, `W` 16, `D` 32, `L` 64), which the check makes sure of. Default: CODESYS assigns it. |
 | entry `codesys.variable` | The channel's variable when it is no valid entry `name`. |
 | startup SDO `codesys.abort_on_error`, `codesys.jump_to_line` | The SDO row's "abort if error" and the line to jump to on an error. |
 

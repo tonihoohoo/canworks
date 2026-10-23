@@ -2015,6 +2015,18 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                 for k, e in enumerate(p["entries"]):
                     entry = {"index": _uint(e["index"]), "subindex": _uint(e.get("subindex", 0)), "type": e["type"]}
                     loc = parse_location(e.get("iec_location"))
+                    carried = e.get("codesys") if codesys and isinstance(e.get("codesys"), dict) else {}
+                    fixed = parse_location(carried["address"]) if isinstance(carried.get("address"), str) else None
+                    if fixed is not None:
+                        # CODESYS refuses an address of another size or direction than the channel's.
+                        area = "I" if key == "tx_pdos" else "Q"
+                        if str(fixed.area).upper() != area or not type_fits(e["type"], str(fixed.size).upper()):
+                            err("%s: entries[%d]" % (pw, k),
+                                "%s, object 0x%04X:%d: CODESYS address %s does not fit the channel, a %d bit %s; "
+                                "give a %%%s address of that size" % (
+                                    label, entry["index"], entry["subindex"], carried["address"],
+                                    CO_TYPES[e["type"]][1], "input" if area == "I" else "output", area),
+                                ["%s.%s[%d].entries[%d].codesys.address" % (w, key, j, k)])
                     route = routed.get((net_name, node["node_id"], entry["index"], entry["subindex"])) \
                         if isinstance(routed, dict) else None
                     if loc is None and route and key == "rx_pdos" and any(
