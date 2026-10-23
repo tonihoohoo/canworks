@@ -1,6 +1,6 @@
 ## 0. Order
 
-- [ ] 0.1 Apply only after `modbus-connections` is merged and archived: rebase on main, rewrite the deltas against the archived spec text (its bridge config and export changes), re-validate
+- [x] 0.1 Apply only after `modbus-connections` is merged and archived: rebase on main, rewrite the deltas against the archived spec text (its bridge config and export changes), re-validate
 - [ ] 0.2 Tell the coordinator when this merges, so `add-nodered-blocks` can rebase onto the new layout
 
 ## 1. Bridge
@@ -15,7 +15,7 @@
 - [x] 2.2 Map, OpenPLC remote device and suggested client channels: one group or channel per receive block; map hash covers both
 - [x] 2.3 Generated `canworks_in` / ST link export: copy the receive blocks, info and cyclic table to their new `LINK` places
 - [x] 2.4 Configurator Function blocks section: receive blocks 1 or 2, expected rate for OpenPLC, rule in words for other clients; request count includes the second block
-- [x] 2.5 Tools minor version bump (0.123.0); tests (layout, map, remote device, page test of the section)
+- [x] 2.5 Tools minor version bump (0.124.0); tests (layout, map, remote device, page test of the section)
 
 ## 3. Library
 
@@ -37,7 +37,7 @@
 
 ## 6. Archive
 
-- [ ] 6.1 `openspec archive faster-mailboxes --yes` in the apply PR
+- [x] 6.1 `openspec archive faster-mailboxes --yes` in the apply PR
 
 ## 7. Hardware (Pi, when free)
 
