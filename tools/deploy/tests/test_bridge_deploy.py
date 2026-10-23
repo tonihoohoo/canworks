@@ -34,6 +34,13 @@ class BridgeDeploy(unittest.TestCase):
         self.assertIn("4 files", out)
         self.assertIn("not uploaded (--check-only)", out)
 
+    def test_config_folder_means_its_canworks_json(self):
+        # Opening a folder fails differently per OS ("Permission denied" on Windows).
+        code, out, err = run_cli("--bridge", "127.0.0.1", "--config", os.path.dirname(EXAMPLE), "--check-only",
+                                 "--simulated")
+        self.assertEqual(code, 0, err)
+        self.assertIn("4 files", out)
+
     def test_files_are_the_conf_folder(self):
         with open(EXAMPLE, encoding="utf-8") as f:
             cfg = json.load(f)

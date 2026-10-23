@@ -14,7 +14,7 @@ No Python needed: one line installs uv and the newest release (`curl -LsSf https
 canworks-deploy --config canworks.json --bridge 192.168.1.20 --token-file token.txt
 ```
 
-The tool:
+`--config` takes the config file or the folder that holds it (`canworks/` of an editor project means its `canworks.json`). The tool:
 
 1. reads the config and checks it the way the bridge does at load: the JSON Schema for its `schema_version`, the checks the schema cannot express (the byte image, locations, links, the target), and the EDS checks (object exists, PDO-mappable, `DataType`, `AccessType`, startup SDO value range). A problem stops the deploy, naming the file and JSON path, with the bridge's own wording for EDS problems;
 2. collects the config with each EDS file as `canworks/eds/<file>` (each node's `eds` rewritten to that path), plus the simulation file and its files when there is one ([Simulated devices](#simulated-devices));
