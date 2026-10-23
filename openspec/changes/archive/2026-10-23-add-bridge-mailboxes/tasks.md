@@ -5,7 +5,8 @@
 ## 1. Spikes (before the code)
 
 - [x] 1.1 STruC++: a block with an in-out `ARRAY[0..1279] OF WORD`, 40 instances in one program, scan time and generated code size; the test runner's in-out copy-back note of `test/plc_modbus` (STruC++ 0.7.0 copies an in-out array into the instance and back on every call, nested calls too; 20 `CAN_SEND` and 20 `CO_SDO_READ_BYTES` all waiting for one mailbox: about 0.2 ms per scan at -O2 on an x86 runner, 1.3 ms at -O0; 24 KB of generated C++ for that program)
-- [ ] 1.2 OpenPLC Editor: a global `ARRAY[0..1279] OF WORD` in the `canworks` list loads, builds and is kept on save (needs the editor; with 8.1)
+- [x] 1.2 OpenPLC Editor: a global `ARRAY[0..1279] OF WORD` in the `canworks` list loads, builds and is kept on save (needs the editor; with 8.1)
+  - Stock OpenPLC Editor on the Mac, library 0.118.1: the list loads, Build only succeeds (its program.st has `link : ARRAY [0..1279] OF WORD`, the same as the uploaded build), and after Save the project file parses equal to the one before (keys reordered only).
 - [x] 1.3 Runtime v4.3.1 Modbus master with the extra groups (72-register write, 72- and 120-register reads): one connection, groups sent in file order, all within one poll at 10 ms (`test/openplc_modbus/run.py`: 7 groups, a 120-register read and a 92-register write, mailbox round trips pass)
 - [ ] 1.4 CODESYS (if a copy is available on the Windows PC): paste one block's ST source with an in-out word array into a project and build; if not available, leave 8.5 open and say so in the PR
 
