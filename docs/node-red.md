@@ -17,7 +17,7 @@
 
 - A running `canworks-bridge` with a config ([modbus-bridge.md](modbus-bridge.md#install)). Node-RED is usually on the same device. In the configurator, add it as a **Node-RED** connection on the Modbus bridge page with its address (`127.0.0.1` on the bridge's device) and **Writes** on, and the bridge's writers follow; the export says so when the config's `writers` do not allow it.
 - Node-RED 3 or 4 on Node.js 18 or newer. In Docker use a versioned image such as `nodered/node-red:4.1`; there is no `4` tag.
-- For the block nodes, the bridge parts they use in the config: `control_location` for NMT, `sdo_bridge_location` and `mailboxes` for SDO, `mailboxes` for the CAN, J1939 and EMCY nodes ([plc-library.md](plc-library.md#the-mailboxes)). **Pack for Modbus** in the configurator sets them all.
+- For the block nodes, the bridge parts they use in the config: `control_location` and `status_location` for NMT (the status block carries the bridge's answer; a config with the PLC link has it at `%IB4`), `sdo_bridge_location` and `mailboxes` for SDO, `mailboxes` for the CAN, J1939 and EMCY nodes ([plc-library.md](plc-library.md#the-mailboxes)). The configurator's **Modbus bridge** page turns them on (**Bridge blocks**, **Function blocks**), and **Pack for Modbus** places them.
 
 ## Install the package
 
@@ -88,7 +88,7 @@ The message keeps `msg.topic`, and `msg.canworks` says how the job ended: `{stat
 | --- | --- |
 | 8 | Cancelled: the link stopped, the network restarted or the bridge restarted. |
 | 20 | The bridge is not reachable (or the connection dropped during the job). |
-| 22 | The config has no part of the bridge this node needs (the node's status says which), or the flow is read-only. |
+| 22 | The config has no part of the bridge this node needs (the node's status says which, for example **nmt** without a status block), or the flow is read-only. |
 
 Numbers up to 4 bytes go through the SDO registers when the config has them; everything else through a request mailbox, with the long transfers staged and fetched in 128-byte steps. Jobs queue in the order they arrive: each takes the first free request mailbox and keeps it for its whole transfer, short SDO jobs share the SDO registers and NMT commands the control block. Waiting does not count against a job's timeout (5 s when empty). At most 64 jobs wait per bridge node; one more ends with the family's "no free slot" ERROR_ID (5, or 9 for J1939). The node's status shows busy, done or the last ERROR_ID.
 

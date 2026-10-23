@@ -153,6 +153,17 @@ test("nmt: control block, result 6 is ERROR_ID 8, bad command", async () => {
   await finish(t);
 });
 
+test("nmt without a status block ends with ERROR_ID 22 at once", async () => {
+  const t = setup((lay) => (lay.status = null));
+  const nmt = t.add("canworks-nmt", { node: "6" });
+  await ready(t);
+  const m = await run(t, nmt, { payload: "stop" });
+  assert.strictEqual(m.canworks.errorId, 22);
+  assert.match(m.canworks.text, /status block/);
+  assert.strictEqual(t.model.controls.length, 0, "no command written");
+  await finish(t);
+});
+
 test("sdo up to 4 bytes through the SDO registers; aborts", async () => {
   const t = setup();
   t.model.od.set("5:4120:1", 0x12345678);

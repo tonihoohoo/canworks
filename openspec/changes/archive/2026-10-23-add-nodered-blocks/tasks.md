@@ -49,6 +49,11 @@
 
 ## 7. Hardware (Pi, when free)
 
-- [ ] 7.1 Node-RED 4.1 in Docker on the bench device, package installed by upload; flow of the bench bridge config: values in and out, NMT stop/start of the real node, short and long SDO reads (0x1008 as string, 0x1018:1)
-- [ ] 7.2 CAN receive of the node's heartbeat, cyclic send seen in the bus trace, EMCY if the node can raise one (else simulated node), J1939 on a simulated ECU
-- [ ] 7.3 Restart the bridge while idle: no spurious ERROR_ID 8, next jobs run; stop Node-RED: outputs off by the watchdog and cyclic frames stop within 1 s
+- [x] 7.1 Node-RED 4.1 in Docker on the bench device, package installed by upload; flow of the bench bridge config: values in and out, NMT stop/start of the real node, short and long SDO reads (0x1008 as string, 0x1018:1)
+- [x] 7.2 CAN receive of the node's heartbeat, cyclic send seen in the bus trace, EMCY if the node can raise one (else simulated node), J1939 on a simulated ECU
+- [x] 7.3 Restart the bridge while idle: no spurious ERROR_ID 8, next jobs run; stop Node-RED: outputs off by the watchdog and cyclic frames stop within 1 s
+
+Bench run 2026-10-23 (Node-RED 4.1.12 in Docker, package 0.128.0 by palette upload, real CANopen node at 500 kbit/s, OpenPLC program stopped):
+- 7.1: values in and out pass (an output reached the bus 7 ms after the write); SDO 0x1018:1 in 16 ms, 0x1008 and a segmented 0x100A string through the mailbox pass. NMT stop/start reached the node (heartbeat 4, then 5, live list followed), but the nmt node timed out with ERROR_ID 2: the test config had no status block, which carries the answer. Fixed after the run: nmt ends with ERROR_ID 22 at once without a status block, and the flow export notes it.
+- 7.2: can receive of the heartbeat passes (records 4-9 ms after the frame, batch time matches the bus); cyclic 100 ms passes (gaps 99.9-100.0 ms, nothing after the stop); can send passes. EMCY and J1939 not run: the node cannot raise an EMCY on demand and the bench has no J1939 ECU.
+- 7.3: bridge restart while idle passes (no ERROR_ID 8, receivers send one ERROR_ID 20 and reopen, nothing stale runs, next SDO and send run); stopping Node-RED stops the cyclic frames about 90 ms later by the watchdog.

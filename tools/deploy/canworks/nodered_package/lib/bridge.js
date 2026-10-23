@@ -417,6 +417,9 @@ class Bridge extends EventEmitter {
     return new Promise((resolve, reject) => {
       try {
         if (this.lay.control === null || this.lay.control === undefined) throw new CwError(22, "the config has no control block");
+        // The answer (the last command counter handled) is in the status block.
+        if (this.lay.status === null || this.lay.status === undefined)
+          throw new CwError(22, "the config has no status block (status_location), which carries the NMT answer");
         this._guard();
         const cmd = NMT_COMMANDS[command];
         if (!cmd) throw new CwError(6, "command must be one of " + Object.keys(NMT_COMMANDS).join(", "));
