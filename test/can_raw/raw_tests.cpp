@@ -1396,6 +1396,96 @@ TEST(raw_io_inputs_go_stale_while_the_link_is_down) {
   io.stop();
 }
 
+// A link on an interface that is down: the socket binds, then reports
+// POLLERR at once (a pipe whose read end is closed), as SocketCAN does after
+// `ip link set can0 down`.
+class DownLink : public RawLink {
+ public:
+  ~DownLink() override { close(); }
+  int open() override {
+    ++opens;
+    int p[2];
+    if (pipe(p)) return -EIO;
+    if (down) {
+      ::close(p[0]);
+      fd_ = p[1];  // POLLERR: no reader
+      other_ = -1;
+    } else {
+      fd_ = p[0];
+      other_ = p[1];
+    }
+    return 0;
+  }
+  void close() override {
+    if (fd_ >= 0) ::close(fd_);
+    int o = other_.exchange(-1);
+    if (o >= 0) ::close(o);
+    fd_ = -1;
+  }
+  int fd() const override { return fd_; }
+  Confirm confirm() const override { return Confirm::Write; }
+  void set_filters(const std::vector<LinkFilter>&, bool) override {}
+  void read(std::vector<LinkFrame>&, size_t) override {}
+  int write(const canworks_can_frame&, Origin) override { return 0; }
+  std::string where() const override { return "test"; }
+  // `ip link set down`: the open socket reports a hang-up.
+  void go_down() {
+    down = true;
+    int o = other_.exchange(-1);
+    if (o >= 0) ::close(o);
+  }
+  std::atomic<bool> down{false};
+  std::atomic<int> opens{0};
+
+ private:
+  int fd_ = -1;
+  std::atomic<int> other_{-1};
+};
+
+// The interface goes down and stays down: the port reports state 4 the
+// whole time (the bridge's bus flag), and the thread does not reopen in a
+// loop; up again, the bus is reported active.
+TEST(raw_io_reports_a_down_interface) {
+  PlcPort port(2);
+  port.set_rules(PortRules{});
+  set_port(2, &port);
+  std::unique_ptr<DownLink> owned(new DownLink);
+  DownLink* link = owned.get();
+  RawIoHooks hooks;
+  hooks.bus_info = [link](canworks_can_bus_info& info) {
+    info.state = link->down ? 4 : 0;
+    return false;
+  };
+  RawIo io(std::move(owned), 500000, false, nullptr, &port, hooks);
+  io.start();
+  canworks_can_bus_info info{};
+  uint16_t err = 0;
+  auto state_is = [&](uint8_t s) {
+    for (int i = 0; i < 100; ++i) {
+      port.bus_info(&info, &err);
+      if (info.state == s) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+  };
+  CHECK(state_is(0));
+  link->go_down();
+  CHECK(state_is(4));
+  int opens = link->opens;
+  bool always_down = true;
+  for (int i = 0; i < 50; ++i) {  // 500 ms: never reported active meanwhile
+    port.bus_info(&info, &err);
+    if (info.state != 4) always_down = false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  CHECK(always_down);
+  CHECK(link->opens - opens <= 10);
+  link->down = false;
+  CHECK(state_is(0));
+  io.stop();
+  set_port(2, nullptr);
+}
+
 // A link that counts what is written and confirms it with its echo.
 class CountLink : public RawLink {
  public:

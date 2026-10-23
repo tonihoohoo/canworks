@@ -40,7 +40,7 @@
 
 ## 6. Hardware (Linux device with node 23; needs the coordinator's OK on the Pi and Toni's typed go)
 
-- [ ] 6.1 Install the new unit; `systemctl show` lists notify, the watchdog, `Restart=always`, the 1 s delay and no start limit
-- [ ] 6.2 `kill -9` the bridge: time until Modbus answers and node 23 is operational again; status byte 7 bit 0 set; `canworks-diag status` says unclean
-- [ ] 6.3 `kill -STOP` the bridge for 15 s: the stall abort (or systemd's watchdog) restarts it, and node 23 runs again
-- [ ] 6.4 Clean PLC start afterwards
+- [x] 6.1 Install the new unit; `systemctl show` lists notify, the watchdog, `Restart=always`, the 1 s delay and no start limit (Pi 2026-10-23, main 6f22192: Type=notify, WatchdogUSec=20s, Restart=always, RestartUSec=1s, StartLimitIntervalUSec=0)
+- [x] 6.2 `kill -9` the bridge: time until Modbus answers and node 23 is operational again; status byte 7 bit 0 set; `canworks-diag status` says unclean (Pi 2026-10-23: Modbus +1.76 s, node 23 OPERATIONAL +3.78 s, byte 7 bit 0 set, log "the previous run of this config did not stop cleanly"; the bench config has no diag token, so `canworks-diag status` was not run)
+- [x] 6.3 `kill -STOP` the bridge for longer than systemd's 20 s watchdog (a stopped process stops its own stall abort too): systemd restarts it, and node 23 runs again (Pi 2026-10-23: 25 s stop, "Watchdog timeout (limit 20s)!" at +20 s, Modbus +21.4 s, node 23 OPERATIONAL +23.4 s; a 15 s stop just resumes, node 23 rebooted on its heartbeat timeout)
+- [x] 6.4 Clean PLC start afterwards (Pi 2026-10-23)
