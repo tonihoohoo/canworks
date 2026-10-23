@@ -1714,10 +1714,7 @@ class Session:
         "j1939_address", "j1939_status", "j1939_valid" and the diagnostics
         keys of J1939_PLACES (no node needed), "j1939_dm_dtcs" with the number
         of codes as type (that many free consecutive %ID), or
-        "j1939_rx"/"j1939_tx" with the signal's length in bits as type. For a
-        PDO entry's bit channels (no node needed): "bit_in"/"bit_out" for one
-        bit, or "bits_in"/"bits_out" with their number as type (`locations`:
-        that many consecutive free bits from a byte's first bit)."""
+        "j1939_rx"/"j1939_tx" with the signal's length in bits as type."""
         used = layout.taken(cfg, self.uses) if isinstance(cfg, dict) else set()
         start = layout.DEFAULT_START if start in (None, "") else int(start)
         for key, size, _, _ in layout.MASTER_LOCATIONS:
@@ -1743,22 +1740,6 @@ class Session:
             if not 1 <= count <= 32:
                 raise ApiError(400, "the codes of a watched ECU need their number, 1 to 32, as type")
             return {"location": layout.suggest("I", "D", used, start, count)}
-        if direction in ("bit_in", "bit_out"):
-            # One bit channel: the lowest free bit.
-            return {"location": layout.suggest("I" if direction == "bit_in" else "Q", "X", used, start)}
-        if direction in ("bits_in", "bits_out"):
-            # An entry's bit channels: `type_name` consecutive free bits from a byte's first bit.
-            try:
-                count = int(type_name)
-            except (TypeError, ValueError):
-                count = 0
-            if not 1 <= count <= 64:
-                raise ApiError(400, "an entry's bits need their number, 1 to 64, as type")
-            area = "I" if direction == "bits_in" else "Q"
-            element = start * 8
-            while not layout.is_free(used, area, "X", element, count):
-                element += 8
-            return {"locations": [element_str(area, "X", element + k) for k in range(count)]}
         if direction in ("j1939_rx", "j1939_tx"):
             # A signal: `type_name` is its length in bits.
             try:

@@ -860,17 +860,6 @@ class CheckAndSave(Running):
         self.assertIn("no PDO", data["reason"])
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "status"})
         self.assertEqual(data["location"], "%IX100.0")
-        # An entry's bit channels: consecutive free bits from a byte's first bit, or one free bit.
-        data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bits_in", "type": 3})
-        self.assertEqual(data, {"locations": ["%IX100.0", "%IX100.1", "%IX100.2"]})
-        self.cfg["networks"][0]["nodes"][0]["status_location"] = "%IX100.1"
-        data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bits_in", "type": 3})
-        self.assertEqual(data["locations"][0], "%IX101.0")
-        data = self.ok("POST", "/api/place", {"config": self.cfg, "direction": "bit_in"})
-        self.assertEqual(data, {"location": "%IX100.0"})
-        del self.cfg["networks"][0]["nodes"][0]["status_location"]
-        status, data, _ = self.request("POST", "/api/place", {"config": self.cfg, "direction": "bits_out", "type": 0})
-        self.assertEqual(status, 400, data)
         data = self.ok("POST", "/api/place", {"config": self.cfg, "node": 0, "direction": "state"})
         self.assertEqual(data["location"], "%IB100")
         self.cfg["networks"][0]["nodes"][0]["state_location"] = "%IB100"

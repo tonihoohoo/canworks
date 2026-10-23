@@ -1543,10 +1543,6 @@ def _print_protocol_status(st, out):
             if v.get("abort_code"):
                 line += ", " + abort_text(v["abort_code"])
             out.write(line + "\n")
-    for nd in st.get("nodes") or []:
-        if nd.get("interpolation_period_us"):
-            out.write("node %s: cyclic synchronous axis, interpolation time period %s us\n"
-                      % (nd.get("node_id"), nd["interpolation_period_us"]))
 
 
 J1939_STATES = {0: "claiming an address", 1: "claimed", 2: "cannot claim", 3: "no bus"}

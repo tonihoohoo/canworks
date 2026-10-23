@@ -1,7 +1,7 @@
 # canopen-master-bringup Specification
 
 ## Purpose
-Brings a CANopen network up from the OpenPLC runtime: loads the JSON network configuration and the slaves' EDS files, opens the SocketCAN interface, and configures and starts every slave node as the NMT master.
+Brings a CANopen network up in canworks-bridge: loads the JSON network configuration and the slaves' EDS files, opens the SocketCAN interface, and configures and starts every slave node as the NMT master.
 
 ## Requirements
 

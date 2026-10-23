@@ -109,7 +109,7 @@ Every client polls the mailboxes' registers on every cycle, whether or not a blo
 
 - **OpenPLC**: Check and Save read the editor project's POUs. A declared mailbox block whose part is off is an error in Problems, with **Turn on what the program uses**, which turns on only the parts the declared blocks need. Mailboxes that nothing declares get a warning with **Turn off the mailboxes**.
 - **Another client** (truST, another PLC, Node-RED): turn them on in the **Function blocks** section of the Modbus bridge page ([configurator.md](configurator.md#modbus-bridge)), with only the parts its program uses. Copy as ST call names a missing part.
-- `canworks-deploy diag` shows how many mailbox operations and receivers the bridge has had since it started, and says when nothing has used them.
+- `canworks-diag status` shows how many mailbox operations and receivers the bridge has had since it started, and says when nothing has used them.
 
 **What works without them:** the config's values (PDOs, CAN messages, J1939 PGNs, DM1 codes and lamps), `CO_NMT`, `CO_NODE_LIVE`, the status block, and `CO_SDO_READ` and `CO_SDO_WRITE` for objects of up to 4 bytes on any node.
 

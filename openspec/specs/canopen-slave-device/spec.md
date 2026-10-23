@@ -1,7 +1,7 @@
 # canopen-slave-device Specification
 
 ## Purpose
-Lets an OpenPLC controller be one CANopen device (NMT slave) on a network run by another master, with its object dictionary from an EDS and chosen objects bound to the PLC program's inputs and outputs.
+Lets canworks-bridge be one CANopen device (NMT slave) on a network run by another master, with its object dictionary from an EDS and chosen objects bound to the PLC program's inputs and outputs.
 
 ## Requirements
 

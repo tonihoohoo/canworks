@@ -1,7 +1,7 @@
 # canopen-node-supervision Specification
 
 ## Purpose
-Defines what the PLC sees when CANopen nodes are missing or fail: the PLC keeps scanning, each node's state is visible to the program, and the master recovers nodes on its own.
+Defines what the PLC sees when CANopen nodes are missing or fail: the bridge keeps serving, each node's state is visible to the program, and the master recovers nodes on its own.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # plc-library Specification
 
 ## Purpose
-The `canworks` function block library as a whole: how it is built, delivered, installed and enabled, how it is presented across the tools and docs, and how each block family finds its plugin interface version.
+The `canworks` function block library as a whole: how it is built, delivered, installed and enabled, and how it is presented across the tools and docs.
 
 ## Requirements
 

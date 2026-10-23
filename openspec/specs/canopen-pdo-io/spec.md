@@ -1,7 +1,7 @@
 # canopen-pdo-io Specification
 
 ## Purpose
-Connects CANopen process data to the PLC program: every PDO-mapped object is bound to an explicit IEC location and exchanged with the PLC I/O image once per scan cycle.
+Connects CANopen process data to the bridge's byte image: every PDO-mapped object is bound to an explicit IEC location, which a Modbus client reads or writes; inputs are published every 1 ms and outputs go out at each accepted write (see `modbus-bridge`, "Bridge image timing").
 
 ## Requirements
 
