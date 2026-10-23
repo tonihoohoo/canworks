@@ -121,8 +121,15 @@ def add(cfg, conn):
     b = out["bridge"]
     if conn["kind"] == "openplc" and bridgecheck.is_openplc(out):
         raise ValueError("the config already has an OpenPLC connection")
+    conn = dict(conn)
+    if conn["kind"] == "openplc":
+        # The removed `bridge.openplc` gives way to the connection, which keeps its settings.
+        old = b.pop("openplc", None)
+        for f in bridgecheck.CONNECTION_FIELDS["openplc"]:
+            if isinstance(old, dict) and f in old:
+                conn.setdefault(f, old[f])
     items = b.get("connections") if isinstance(b.get("connections"), list) else []
-    b["connections"] = items + [dict(conn)]
+    b["connections"] = items + [conn]
     sync_writers(out)
     if conn["kind"] == "openplc":
         openplc_settings(out, conn)
@@ -131,9 +138,9 @@ def add(cfg, conn):
 
 
 def file_stem(config_name, conn):
-    """`<config name>-<connection name>` with only letters, digits, '_', '-' and '.'."""
-    name = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(conn.get("name") or conn.get("kind"))).strip("-") or conn["kind"]
-    return "%s-%s" % (config_name or "canworks", name)
+    """`<config name>-<connection name>`, each with only letters, digits, '_', '-' and '.'."""
+    safe = lambda s: re.sub(r"[^A-Za-z0-9_.-]+", "-", str(s)).strip("-")
+    return "%s-%s" % (safe(config_name or "") or "canworks", safe(conn.get("name") or conn.get("kind")) or conn["kind"])
 
 
 def bridge_host(cfg, conn):
