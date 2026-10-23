@@ -201,7 +201,8 @@ class OpenplcModbusPage(OnlineBase):
         self.open()
         tree_view(pg, "project")
         pg.click("[data-switch-modbus]")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        pg.wait_for_selector("#banner:has-text('targets Modbus bridge now')")
+        pg.wait_for_function("() => hasOpenplc()")
         self.assertNotIn("mailboxes", pg.evaluate("() => S.model.top.bridge"))
         self.checked()
         self.assertIn("main declares CAN_RECEIVE, which needs the request and receive mailboxes",

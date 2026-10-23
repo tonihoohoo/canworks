@@ -14,7 +14,7 @@
 - [x] 2.2 Schema + `bridgecheck.py`: `blocks` on `trust`, `plc`, `nodered`; truST only `none`/`sdo_send`
 - [x] 2.3 `server.py`: check adds the program scan results for an OpenPLC connection (errors per missing part, info when unused); `/api/bridge/map` returns the cost without mailboxes and with the default parts
 - [x] 2.4 `diag.py`: mailboxes line and the unused hint; "no mailboxes"
-- [x] 2.5 Version bump (minor, 0.127.0)
+- [x] 2.5 Version bump (minor, 0.128.0)
 
 ## 3. Configurator
 
