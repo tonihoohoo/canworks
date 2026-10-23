@@ -344,11 +344,16 @@ class Connections(Base):
         self.assertFalse(any("was removed" in m for m in self.errors(cfg)))
 
     def test_trust_next_to_openplc_cannot_download(self):
-        # OpenPLC's mailboxes and watchdog make truST's Download refuse: the
-        # check says so before the Download, at the fields to change.
+        # OpenPLC's mailboxes (its program's blocks turned them on) and
+        # watchdog make truST's Download refuse: the check says so before the
+        # Download, at the fields to change.
         self.open()
         del self.cfg["bridge"]["watchdog_ms"]  # OpenPLC's add sets 50 ms
         cfg = self.add(self.cfg, kind="openplc")
+        cfg["bridge"]["mailboxes"] = {}
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
         cfg = self.add(cfg, kind="trust", name="truST", address="192.168.10.7", bridge_host="192.168.10.5")
         refused = lambda c: [(i["level"], i["paths"], i["message"]) for i in self.ok("/api/check", {"config": c})["items"]
                              if "Download refused" in i["message"]]
