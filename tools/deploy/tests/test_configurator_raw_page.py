@@ -98,7 +98,8 @@ class RawPage(OnlineBase):
 
     def plain_config(self, rx):
         self.cfg = {"schema_version": 2, "bridge": {"listen": "127.0.0.1:502", "writers": ["127.0.0.1"]}, "networks": [{
-            "name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000},
+            "name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000,
+                                                          "restart_ms": 100},
             "raw": {"rx": rx}}]}
         self.write_config()
 

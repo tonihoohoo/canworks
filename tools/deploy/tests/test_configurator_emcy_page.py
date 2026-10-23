@@ -238,6 +238,9 @@ class EdsLimits(OnlineBase):
         # 0x1016 sub 1 read-only: no entry the setting can go to.
         start = text.index("[1016sub1]")
         use_eds(self.project, text[:start] + text[start:].replace("AccessType=rw", "AccessType=ro", 1))
+        # Unset first: the ping-pong config uses the heartbeat consumer.
+        del self.cfg["networks"][0]["nodes"][0]["heartbeat_consumer"]
+        self.write_config()
         self.open()
         tree_node(pg, 0, "advanced")
         sel = 'select[data-path="nodes[0].heartbeat_consumer"]'

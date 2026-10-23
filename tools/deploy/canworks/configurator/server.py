@@ -312,20 +312,22 @@ NO_NODES = re.compile(r"field 'nodes' lists no slave nodes")
 def empty_config():
     """A new config before its target's marker (switch_target adds it)."""
     return {"schema_version": 2,
-            "networks": [{"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000, "restart_ms": 100},
+            "networks": [{"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000,
+                                      "restart_ms": BUS_OFF_RESTART_MS},
                           "master": {"node_id": 1}, "nodes": []}]}
 
 
 # A SocketCAN adapter the bridge sets up without a bus-off restart (Problems
 # for bridge stop and bus-off); the page offers the 100 ms fix.
+BUS_OFF_RESTART_MS = 100  # app.js BUS_OFF_RESTART_MS
 BUS_OFF_TEXT = "restart_ms is not set: after a bus-off the interface stays off until it is restarted by hand"
 
 
 def bus_off_problems(cfg):
     """Problems-pane warnings for every SocketCAN adapter the bridge
     configures (configure_link on) without restart_ms; a simulated bus and
-    a vcan interface have no bus-off."""
-    if not isinstance(cfg, dict):
+    a vcan interface have no bus-off. CODESYS sets up its own adapter."""
+    if targets.target(cfg) != targets.BRIDGE:
         return []
     v2 = isinstance(cfg.get("networks"), list)
     out = []
@@ -1528,6 +1530,9 @@ class Session:
                 if isinstance(adapter, dict):
                     adapter.setdefault("type", "socketcan")
                     adapter.setdefault("interface", "can%d" % k)
+                    # A new adapter for the bridge: restarts itself after a bus-off.
+                    if adapter["type"] == "socketcan" and not str(adapter["interface"]).startswith("vcan"):
+                        adapter.setdefault("restart_ms", BUS_OFF_RESTART_MS)
         if openplc is None:
             openplc = old == targets.PLUGIN and self.mode == "project"
         openplc = openplc and target == targets.BRIDGE

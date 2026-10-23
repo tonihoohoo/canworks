@@ -658,8 +658,10 @@ function hasOutputs(net, n) {
 function firstOutputs(before, after) {
   (after.networks || []).forEach((net, k) => {
     const old = ((before.networks || [])[k] || {}).nodes || [];
-    for (const n of net.nodes || []) {
-      const was = old.find((o) => num(o.node_id) === num(n.node_id));
+    // Same count: the same nodes, perhaps with a new node ID; otherwise by ID.
+    const same = old.length === (net.nodes || []).length;
+    for (const [i, n] of (net.nodes || []).entries()) {
+      const was = same ? old[i] : old.find((o) => num(o.node_id) === num(n.node_id));
       if (was && hasOutputs(before.networks[k], was)) continue;
       if (hasOutputs(net, n)) protectOutputs(net, n, true);
     }

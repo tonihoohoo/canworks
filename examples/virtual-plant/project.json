@@ -57,6 +57,16 @@
             "documentation": "canworks-bridge answers and serves this program's map"
           },
           {
+            "name": "bus_ok",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "ok, and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear)"
+          },
+          {
             "name": "link",
             "class": "global",
             "type": {
