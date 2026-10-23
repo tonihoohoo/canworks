@@ -161,7 +161,9 @@ def download(cfg, conn, decls, config_name):
         if kind == "nodered":
             period = conn.get("period_ms")
             host = conn.get("bridge_host") or None
-            nodes, notes, _ = nodered.flow(cfg, stem, host=host, poll_ms=period if isinstance(period, int) else None)
+            # Without Writes, or next to a PLC that owns the writes, the flow only reads.
+            nodes, notes, _ = nodered.flow(cfg, stem, host=host, poll_ms=period if isinstance(period, int) else None,
+                                           readonly=nodered.read_only(cfg) or conn.get("writes") is not True)
             return stem + ".json", MIME["json"], nodered.to_json(nodes).encode("utf-8"), notes
         fmt = conn.get("format") or ("plcopen" if kind in ("trust", "plc") else "csv")
         if kind in ("trust", "plc") and fmt == "plcopen":

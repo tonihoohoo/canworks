@@ -1,6 +1,6 @@
 ## 0. Order
 
-- [ ] 0.1 Apply only after `modbus-connections` and `faster-mailboxes` have merged (the coordinator says when); rebase on main and rewrite the deltas against their archived text: the Node-RED connection kind with `period_ms` and `bridge_host` (`--nodered-poll-ms` stays the command-line name of `period_ms`), the connection's file name `<config name>-<connection name>.json`, `plc_link` instead of `bridge.openplc` (also for the bridge's control and SDO restart baseline, which `modbus-connections` keys on `plc_link`; the package's write-back stays for configs without it), and the receive layout (25-word header with the batch time in words 21-24, CAN records 10 words, J1939 12, EMCY 12, `receive_blocks` 1 or 2; a record's `time` comes from the batch time); regenerate `lib/layout.js`
+- [x] 0.1 Apply only after `modbus-connections` and `faster-mailboxes` have merged (the coordinator says when); rebase on main and rewrite the deltas against their archived text: the Node-RED connection kind with `period_ms` and `bridge_host` (`--nodered-poll-ms` stays the command-line name of `period_ms`), the connection's file name `<config name>-<connection name>.json`, `plc_link` instead of `bridge.openplc` (also for the bridge's control and SDO restart baseline, which `modbus-connections` keys on `plc_link`; the package's write-back stays for configs without it), and the receive layout (25-word header with the batch time in words 21-24, CAN records 10 words, J1939 12, EMCY 12, `receive_blocks` 1 or 2; a record's `time` comes from the batch time); regenerate `lib/layout.js`
 - [x] 0.2 Pin names as merged with `add-plcopen-export`: the receive blocks' `RECEIVED`, `CAN_RECEIVE`'s `ALL_IDS`, `J1939_RECEIVE`'s `ALL_PGNS`. The receiver nodes use the fields `all_ids` and `all_pgns`; each received record is one message, so `RECEIVED` has no field; docs and help texts use these names
 - [x] 0.3 Leave `mailboxes-on-demand`'s Node-RED **canworks blocks** choice to that change; here block nodes use whatever mailbox parts the config has and end with ERROR_ID 22 for a missing part
 
@@ -23,9 +23,9 @@
 
 ## 3. PC tools
 
-- [ ] 3.1 (built for `bridge.openplc`; `plc_link` and the connection's `writes` at the rebase) `nodered.py`: flow of package nodes (config node with layout, canworks in/out, comment), stable ids, read-only flow when the connection does not write or `plc_link` is true; remove the `node-red-contrib-modbus` nodes and generated function code
+- [x] 3.1 `nodered.py`: flow of package nodes (config node with layout, canworks in/out, comment), stable ids, read-only flow when the connection does not write or `plc_link` is true; remove the `node-red-contrib-modbus` nodes and generated function code
 - [x] 3.2 Deterministic `.tgz` writer; `--export-nodered-package OUT`; `--nodered-poll-ms` default 10; printed summary
-- [ ] 3.3 (until the rebase: Export ▾ **Node-RED package** next to **Node-RED flow**, with the server format `nodered_package`) Configurator: the Node-RED connection's Download writes the new flow; its row gets Node-RED package and the install line; Problems warning for Writes with `plc_link`; server route
+- [x] 3.3 Configurator: the Node-RED connection's Download writes the new flow (read-only without Writes); its row gets **Package** and the install line; Problems warning for Writes with `plc_link` (already in `modbus-connections`); server route `/api/nodered_package`
 - [x] 3.4 `release-deploy.yml`: attach `node-red-canworks-<version>.tgz`
 
 ## 4. Tests
@@ -33,15 +33,15 @@
 - [x] 4.1 `node --test` suite with the RED stub and the scripted mailbox model: every node's happy path and ERROR_IDs 5/9, 8, 20, 22; sharing order with one mailbox; receive batch of 20 frames; long J1939 receive; cyclic keepalive; restart baseline; read-only mode
 - [x] 4.2 Python: golden flows of the example configs, layout freshness, `.tgz` contents and determinism, CLI options
 - [x] 4.3 Integration job: package client against the real bridge (values, long SDO read, CAN receive and acknowledgement, cyclic start/stop, restart baseline)
-- [ ] 4.4 Page test: the Node-RED connection's Download and Node-RED package give the command-line files
+- [x] 4.4 Page test: the Node-RED connection's Download and Node-RED package give the command-line files
 - [ ] 4.5 CI time against the baseline in the PR
 
 ## 5. Docs
 
 - [x] 5.1 `docs/node-red.md` rewritten: install (upload, `npm install`, Docker `/data`), the config node, values, every block node with inputs, outputs and ERROR_IDs, receivers, restart and watchdog, timing, read-only OpenPLC use, moving from an older export
-- [ ] 5.2 (done but the configurator's Node-RED connection, at the rebase) `docs/modbus-bridge.md` Clients and `docs/plc-library.md`: point to the Node-RED nodes; `docs/configurator.md` Node-RED connection
-- [ ] 5.3 README in the same PR, after the final rebase: re-read the whole README against main; Node-RED goes through the canworks package (`node-red-canworks` from the release or the configurator), no `node-red-contrib-modbus` anywhere; keep it short and bridge-first; no other section left describing the old flow; run `tools/deploy/tests/test_readme.py` (#257: links, `canworks-*` commands and options, configurator labels must exist) before opening the PR
-- [ ] 5.4 Tools minor version bump
+- [x] 5.2 `docs/modbus-bridge.md` Clients and `docs/plc-library.md`: point to the Node-RED nodes; `docs/configurator.md` Node-RED connection
+- [x] 5.3 README in the same PR, after the final rebase: re-read the whole README against main; Node-RED goes through the canworks package (`node-red-canworks` from the release or the configurator), no `node-red-contrib-modbus` anywhere; keep it short and bridge-first; no other section left describing the old flow; run `tools/deploy/tests/test_readme.py` (#257: links, `canworks-*` commands and options, configurator labels must exist) before opening the PR
+- [x] 5.4 Tools minor version bump (0.125.0)
 
 ## 6. Archive
 

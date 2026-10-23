@@ -89,6 +89,9 @@ async function main() {
   check(await until(() => rx.sent.length >= 5, 5000), "canworks can receive gets node 6's heartbeats (" + rx.sent.length + ")");
   const hb = rx.sent[rx.sent.length - 1];
   check(hb.payload && hb.payload.id === 0x706 && hb.payload.data.length === 1, "as {id, data} records");
+  const age = hb.payload && hb.payload.time ? Date.now() - new Date(hb.payload.time).getTime() : NaN;
+  check(age >= -1000 && age < 5000, "with the batch time as their time (" + age + " ms old)");
+  check(b.lay.mailboxes.receive.blocks === 2, "over two receive blocks");
   m = await job(send);
   check(m.canworks.status === "done", "canworks can send ends done");
   m = await job(cyc);

@@ -99,7 +99,7 @@ Numbers up to 4 bytes go through the SDO registers when the config has them; eve
 | **j1939 receive** | `{pgn, source, destination, priority, data, time}`; long messages are fetched whole |
 | **emcy** | `{node, code, register, data, time}` |
 
-`time` is when the bridge received it, and `msg.canworks` has `queued`, `dropped` and `overflow` from the bridge's queue. When the bridge closes the receiver (link stop, network restart) or the connection drops, the node sends one message with `msg.canworks.status` `error` and ERROR_ID 8 or 20, and opens the receiver again. More receivers than the bridge has end with the family's "no free receiver" ERROR_ID in the node's status.
+`time` is when the bridge received it: for **emcy** the record's own time, for **can receive** and **j1939 receive** the receive time of the batch's first record, shared by the batch (accurate to about one poll; use a [bus trace](trace.md) for frame-to-frame timing). With `receive_blocks` 2 a batch carries 21 CAN frames instead of 9 ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). `msg.canworks` has `queued`, `dropped` and `overflow` from the bridge's queue. When the bridge closes the receiver (link stop, network restart) or the connection drops, the node sends one message with `msg.canworks.status` `error` and ERROR_ID 8 or 20, and opens the receiver again. More receivers than the bridge has end with the family's "no free receiver" ERROR_ID in the node's status.
 
 ## Restart, link loss and watchdog
 
@@ -111,7 +111,7 @@ The bridge node writes whole write channels, so it expects to be the bridge's on
 
 ## Next to OpenPLC: read-only flows
 
-When an OpenPLC program owns the bridge's writes (a config with the PLC link, `bridge.openplc`), the exported flow is **read-only**: its bridge node writes nothing, the tab has no **canworks out**, a **canworks out** added by hand warns once and drops values, and block nodes end each job with ERROR_ID 22. **canworks in** works as usual, so a Node-RED dashboard can run next to the PLC. **Read-only** on the bridge node's edit dialog does the same for any flow.
+When a PLC program owns the bridge's writes (a config with the PLC link, `bridge.plc_link`, which an OpenPLC connection turns on), the exported flow is **read-only**, and so is the Download of a Node-RED connection with **Writes** off: its bridge node writes nothing, the tab has no **canworks out**, a **canworks out** added by hand warns once and drops values, and block nodes end each job with ERROR_ID 22. **canworks in** works as usual, so a Node-RED dashboard can run next to the PLC. **Read-only** on the bridge node's edit dialog does the same for any flow.
 
 ## Timing and limits
 

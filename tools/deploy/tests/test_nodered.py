@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 import unittest
 
-from canworks import __version__, cli, mailboxlayout, nodered
+from canworks import __version__, cli, mailboxlayout, modbusmap, nodered
 
 from .test_contract import REPO
 
@@ -109,7 +109,7 @@ class FlowShape(unittest.TestCase):
         lay = nodered.flow(with_mailboxes(), "t")[2]
         mb = lay["mailboxes"]
         self.assertEqual(mb["requests"], [{"req": 64, "resp": 64}, {"req": 208, "resp": 208}])
-        self.assertEqual(mb["receive"], {"block": 352, "ack": 352})
+        self.assertEqual(mb["receive"], {"block": 352, "blocks": 1, "ack": 352})
         self.assertEqual(mb["info"], [{"net": 0, "name": "field", "j1939": False, "b": 592}])
         self.assertEqual(mb["cyclic"], {"table": 628, "keepalive": 358, "jobs": 2})
         # Every block is inside a read or write channel.
@@ -122,10 +122,9 @@ class FlowShape(unittest.TestCase):
         self.assertTrue(covered(mb["cyclic"]["keepalive"], 4, lay["write"]))
 
     def test_read_only(self):
-        from canworks.configurator import server as srv
         cfg = load(EXAMPLE)
-        del cfg["bridge"]
-        for cfg in (srv.Session().switch_target(cfg, "openplc_modbus")["config"],):
+        cfg["bridge"]["plc_link"] = True
+        for cfg in (modbusmap.pack(cfg),):
             nodes, notes, lay = nodered.flow(cfg, "line1")
             self.assertEqual(by_type(nodes, "canworks-out"), [])
             self.assertTrue(by_type(nodes, "canworks-bridge")[0]["readOnly"])
@@ -306,6 +305,10 @@ class Package(unittest.TestCase):
         words = dict(re.findall(r"case kRx(\w+): return (\d+);", cpp))
         self.assertEqual(lay["recordWords"], {"can": int(words["Can"]), "j1939": int(words["J1939"]),
                                               "emcy": int(words["Emcy"])})
+        # The batch time's words, the EMCY time's and where each record's body starts (the header's comment).
+        self.assertIn("//   %d-%d batch time" % (lay["batchTimeWord"], lay["batchTimeWord"] + 3), h)
+        self.assertIn("EMCY (12 words): receive time in UTC microseconds (4)", h)
+        self.assertEqual((lay["recordBodyWord"], lay["emcyTimeWord"]), ({"can": 3, "j1939": 3, "emcy": 7}, 3))
 
 
 def run_codec(rows, image, writes=()):

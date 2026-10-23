@@ -240,7 +240,8 @@ class Connections(Base):
                        period_ms=200)
         r = self.download(cfg, len(cfg["bridge"]["connections"]) - 1)
         self.assertEqual(r["name"], "pump-station-Flows.json")
-        nodes, _, _ = nodered.flow(cfg, "pump-station-Flows", host="192.168.10.5", poll_ms=200)
+        # Without Writes the flow only reads.
+        nodes, _, _ = nodered.flow(cfg, "pump-station-Flows", host="192.168.10.5", poll_ms=200, readonly=True)
         self.assertEqual(base64.b64decode(r["data"]).decode(), nodered.to_json(nodes))
         self.assertEqual(r["package"], nodered.package_name())
 

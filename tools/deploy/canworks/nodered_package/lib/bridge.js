@@ -606,7 +606,7 @@ class Bridge extends EventEmitter {
   }
 
   _receive() {
-    const rb = this.lay.mailboxes.receive.block, img = this.inImg;
+    const { block: rb, blocks } = this.lay.mailboxes.receive, img = this.inImg;
     const w = (k) => be16(img, rb + 2 * k);
     const tick = w(4);
     const gen = (slot) => img[rb + 10 + slot];
@@ -620,8 +620,11 @@ class Bridge extends EventEmitter {
     }
     const used = w(3);
     const words = [];
-    for (let k = 0; k < used && L.rxHeaderWords + k < L.receiveWords; k++) words.push(w(L.rxHeaderWords + k));
-    const records = parseRecords(words);
+    // A batch spans every receive block, one after the other.
+    for (let k = 0; k < used && L.rxHeaderWords + k < L.receiveWords * (blocks || 1); k++) words.push(w(L.rxHeaderWords + k));
+    let us = 0n;
+    for (let k = 0; k < 4; k++) us = (us << 16n) | BigInt(w(L.batchTimeWord + k));
+    const records = parseRecords(words, us);
     const opening = [...this.receivers].some((rx) => rx.opening);
     // Records of a receiver whose open answer came in this same read: take
     // the batch next poll, once the receiver knows its slot.
@@ -681,11 +684,17 @@ class Bridge extends EventEmitter {
 // Tests put a model of the bridge here (tests/nodered/fake_bridge.js).
 Bridge.clientFactory = null;
 
-// The records of the receive mailbox's batch.
-function parseRecords(words) {
+// The records of the receive mailbox's batch. `batchUs` is the batch time:
+// the first record's receive time in UTC microseconds. CAN and J1939
+// records carry no time of their own and get it; EMCY records have theirs.
+function parseRecords(words, batchUs) {
   const out = [];
   const kinds = {};
   for (const k of Object.keys(L.rxKinds)) kinds[L.rxKinds[k]] = k;
+  const stamp = (rec, us) => {
+    rec.time = us ? new Date(Number(us / 1000n)) : null;
+    rec.timeUs = us.toString();
+  };
   let i = 0;
   while (i < words.length) {
     const w0 = words[i];
@@ -700,18 +709,16 @@ function parseRecords(words) {
       overflow: (flags & L.recordFlags.overflow) !== 0, restart: (flags & L.recordFlags.restart) !== 0,
       long: (flags & L.recordFlags.long) !== 0,
     };
-    let us = 0n;
-    for (let k = 0; k < 4; k++) us = (us << 16n) | BigInt(r[L.recordTimeWord + k]);
-    rec.time = us ? new Date(Number(us / 1000n)) : null;
-    rec.timeUs = us.toString();
-    const b = L.recordBodyWord;
+    const b = L.recordBodyWord[kind];
     if (kind === "can") {
+      stamp(rec, batchUs || 0n);
       rec.id = r[b] * 65536 + r[b + 1];
       rec.extended = (r[b + 2] & 0x0100) !== 0;
       rec.rtr = (r[b + 2] & 0x0200) !== 0;
       rec.dlc = r[b + 2] & 255;
       rec.data = codec.wordsToBytes(r.slice(b + 3, b + 7), Math.min(8, rec.dlc));
     } else if (kind === "j1939") {
+      stamp(rec, batchUs || 0n);
       rec.pgn = r[b] * 65536 + r[b + 1];
       rec.source = r[b + 2] >> 8;
       rec.destination = r[b + 2] & 255;
@@ -719,6 +726,9 @@ function parseRecords(words) {
       rec.length = r[b + 4];
       rec.data = codec.wordsToBytes(r.slice(b + 5, b + 9), Math.min(8, rec.length));
     } else {
+      let us = 0n;
+      for (let k = 0; k < 4; k++) us = (us << 16n) | BigInt(r[L.emcyTimeWord + k]);
+      stamp(rec, us);
       rec.node = r[b] >> 8;
       rec.register = r[b] & 255;
       rec.code = r[b + 1];

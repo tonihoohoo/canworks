@@ -23,13 +23,13 @@ Every config has one target, what runs the CAN networks, picked in **New configâ
 
 ### Modbus bridge
 
-The config is a normal `canworks.json` with a `bridge` object. Its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers give the client what function blocks would. [Node-RED](docs/node-red.md) gets the values by name and the function blocks as nodes from the canworks node package, and `canworks-deploy --bridge HOST` uploads a new config to a running bridge ([docs/modbus-bridge.md](docs/modbus-bridge.md)). [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
+The config is a normal `canworks.json` with a `bridge` object. Its `%I`/`%Q` locations become input and holding registers, discrete inputs and coils by one fixed rule. A watchdog stops or holds the outputs when the client goes away, and status, control, live list and SDO request registers give the client what function blocks would. `canworks-deploy --bridge HOST` uploads a new config to a running bridge ([docs/modbus-bridge.md](docs/modbus-bridge.md)). [`examples/modbus-bridge`](examples/modbus-bridge/canworks.json) is a simulated example.
 
 The programs and tools that use the registers are the config's **connections**, listed first on the configurator's **Modbus bridge** page, each with the files it needs from **Download** and who may write following them ([docs/modbus-bridge.md](docs/modbus-bridge.md#connections)):
 
 - **OpenPLC:** the bridge runs next to an unmodified [OpenPLC Runtime v4](https://github.com/Autonomy-Logic/openplc-runtime), and saving the config in an OpenPLC Editor project writes the Modbus settings and a `canworks` variable list, so the program uses named values such as `canworks.dio_door_open` and the `canworks` function blocks ([docs/modbus-bridge.md](docs/modbus-bridge.md#openplc), [docs/plc-library.md](docs/plc-library.md)).
 - **truST and other PLCs:** the variables, copy programs and function blocks as PLCopen XML (`--export-plcopen`, [docs/plcopen.md](docs/plcopen.md)), or the PLC link as ST ([docs/plc-library.md](docs/plc-library.md#on-another-modbus-plc)).
-- **Node-RED:** a flow that reads and writes every value by name (`--export-nodered`, [docs/node-red.md](docs/node-red.md)).
+- **Node-RED:** the canworks node package, whose nodes read and write every value by name over one Modbus connection and run the function blocks' jobs (SDO, NMT, CAN, J1939, EMCY), and a flow that sets it up for the config (`--export-nodered-package`, `--export-nodered`, [docs/node-red.md](docs/node-red.md)).
 - **HMI, SCADA or script:** the register map as CSV, JSON or IEC 61131-3 ST (`--export-modbus-map`).
 
 ### CODESYS
@@ -126,7 +126,7 @@ Every connection checks the bit rate first and refuses a wrong one, so a single 
 | Command | What it does |
 | --- | --- |
 | `canworks-config` | The configurator, a local web page: build the network, commission devices, trace the bus, run simulations ([docs/configurator.md](docs/configurator.md)). |
-| `canworks-deploy` | Writes the config and the editor files into an editor project, uploads the config to a bridge, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects, Modbus register maps, Node-RED flows and the Node-RED package, and PLCopen XML ([docs/deploy.md](docs/deploy.md)). |
+| `canworks-deploy` | Writes the config and the editor files into an editor project, uploads the config to a bridge, checks configs offline, creates editor projects, installs the `canworks` function block library, and exports DCF, DBC, HTML network documentation, CODESYS projects, Modbus register maps, Node-RED flows, the Node-RED package and PLCopen XML ([docs/deploy.md](docs/deploy.md)). |
 | `canworks-diag` | The online functions from a terminal: parameter backup, compare and restore, LSS, raw frames, trace and replay, simulator control, `explain` for a frame bit by bit, the CiA 309-3 `gateway`, and `discover` and `link` for runtimes on other networks ([docs/diagnostics.md](docs/diagnostics.md)). |
 | `canworks-local-runtime` | The local runtime: the upstream OpenPLC Runtime and `canworks-bridge` in containers on the PC, every network simulated (Docker Engine, Podman or Colima; amd64 and arm64) ([docs/local-runtime.md](docs/local-runtime.md)). Not a device simulator. |
 | `canworks-canopen-sim` | **CANopen** simulator, on the bridge's Linux device (installed with the bridge): plays CANopen and plain CAN devices from their EDS on a SocketCAN interface for any master, with a `test` mode that writes a JUnit report ([docs/simulator.md](docs/simulator.md#canworks-canopen-sim)). |

@@ -95,7 +95,7 @@ The flow of a Node-RED connection (modbus-connections) whose `writes` is false, 
 - **THEN** its flow has **canworks out** and the block nodes run jobs
 
 ### Requirement: Node-RED connection files
-The Node-RED connection's Download SHALL give the flow (`--export-nodered` with the connection's `bridge_host` and `period_ms`, default 10), and its row SHALL also offer **Node-RED package** (`node-red-canworks-<tools version>.tgz`, the file `--export-nodered-package` writes) with the line "Install once in Node-RED: Manage palette > Install > upload". Out of date SHALL follow the flow's map hash only; the package SHALL NOT make a connection out of date.
+The Node-RED connection's Download SHALL give the flow (`--export-nodered` with the connection's `bridge_host` and `period_ms`, default 10), and its row SHALL also offer **Package** (`node-red-canworks-<tools version>.tgz`, the file `--export-nodered-package` writes), and the message after either download SHALL say how to install the package ("Install it once in Node-RED: Manage palette > Install > upload" after **Package**; the package name the flow needs after **Download**). Out of date SHALL follow the flow's map hash only; the package SHALL NOT make a connection out of date.
 
 #### Scenario: Both files
 - **WHEN** the user adds a Node-RED connection and presses Download and then Node-RED package

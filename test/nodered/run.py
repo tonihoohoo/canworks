@@ -3,9 +3,9 @@
 
     test/nodered/run.py --bridge build/bin/canworks-bridge
 
-The example bridge config with the mailboxes and Node-RED as a writer; its
-two simulated CANopen nodes run inside the bridge, so no CAN interface is
-needed. The PC tools write the flow; integration.js loads the package's
+The example bridge config with the mailboxes (two receive blocks) and
+Node-RED as a writer; its two simulated CANopen nodes run inside the bridge,
+so no CAN interface is needed. The PC tools write the flow; integration.js loads the package's
 nodes on it (with the test harness in place of Node-RED) and starts,
 restarts and stops the bridge itself. Needs node 18 or newer.
 """
@@ -63,7 +63,7 @@ def main():
         with open(os.path.join(EXAMPLE, "canworks.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         cfg["bridge"].update({"listen": "127.0.0.1:%d" % free_port(), "writers": ["127.0.0.1"], "sdo_bridge_write": True,
-                              "mailboxes": {"input_location": "%IB64", "output_location": "%QB64"}})
+                              "mailboxes": {"receive_blocks": 2, "input_location": "%IB64", "output_location": "%QB64"}})
         cfg_path = os.path.join(work, "canworks.json")
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)

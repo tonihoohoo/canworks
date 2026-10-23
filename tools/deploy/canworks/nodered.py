@@ -133,10 +133,9 @@ def options(cfg, host=None, poll_ms=None, readonly=False):
 
 
 def read_only(cfg):
-    """True when another program owns the bridge's writes: a PLC link (an
-    OpenPLC program), so the flow only reads."""
-    b = cfg.get("bridge") or {}
-    return b.get("openplc") is not None or bool(b.get("plc_link"))
+    """True when a PLC program owns the bridge's writes (the PLC link), so
+    the flow only reads."""
+    return modbusmap.has_plc_link(cfg)
 
 
 def layout(cfg, rows, readonly=None):
@@ -182,7 +181,8 @@ def layout(cfg, rows, readonly=None):
         mailboxes = {
             "requests": [{"req": block("bridge.mailbox.%d.request" % m), "resp": block("bridge.mailbox.%d.response" % m)}
                          for m in range(s["requests"])],
-            "receive": ({"block": block("bridge.mailbox.receive"), "ack": block("bridge.mailbox.receive_ack")}
+            "receive": ({"block": block("bridge.mailbox.receive.0"), "blocks": s["receive_blocks"],
+                         "ack": block("bridge.mailbox.receive_ack")}
                         if s["receive"] else None),
             "info": [{"net": n["index"], "name": n["name"] or str(n["index"]), "j1939": n["protocol"] == "j1939",
                       "b": block("bridge.mailbox.network_info.%d" % i)}

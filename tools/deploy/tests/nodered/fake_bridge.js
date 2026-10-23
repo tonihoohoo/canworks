@@ -10,6 +10,14 @@ const path = require("path");
 
 const L = require(path.join(__dirname, "..", "..", "canworks", "nodered_package", "lib", "layout"));
 
+// Four words of a UTC microsecond time, high word first, at w[at].
+function putUs(w, at, us) {
+  for (let k = 3; k >= 0; k--) {
+    w[at + k] = Number(us & 0xffffn);
+    us >>= 16n;
+  }
+}
+
 class FakeBridge {
   constructor(layout) {
     this.lay = layout;
@@ -225,9 +233,10 @@ class FakeBridge {
   _fillReceive() {
     if (!this.rxPending.length) return;
     const b = this.w(this.lay.mailboxes.receive.block);
-    const room = L.receiveWords - L.rxHeaderWords;
+    const room = L.receiveWords * (this.lay.mailboxes.receive.blocks || 1) - L.rxHeaderWords;
     const words = [];
     let present = 0;
+    let batchUs = null;
     while (this.rxPending.length) {
       const rec = this.rxPending[0];
       const n = L.recordWords[rec.kind];
@@ -237,12 +246,9 @@ class FakeBridge {
       w[0] = (rec.slot << 8) | (L.rxKinds[rec.kind] << 4) | (rec.flags || 0);
       w[1] = rec.queued || 0;
       w[2] = rec.dropped || 0;
-      let t = BigInt(rec.timeUs || 0);
-      for (let k = 3; k >= 0; k--) {
-        w[L.recordTimeWord + k] = Number(t & 0xffffn);
-        t >>= 16n;
-      }
-      (rec.body || []).forEach((v, i) => (w[L.recordBodyWord + i] = v));
+      if (batchUs === null) batchUs = BigInt(rec.timeUs || 0);
+      if (rec.kind === "emcy") putUs(w, L.emcyTimeWord, BigInt(rec.timeUs || 0));
+      (rec.body || []).forEach((v, i) => (w[L.recordBodyWord[rec.kind] + i] = v));
       words.push(...w);
       present |= 1 << rec.slot;
     }
@@ -253,6 +259,9 @@ class FakeBridge {
     this.inp[b + 2] = present & 0xffff;
     this.inp[b + 3] = words.length;
     this.inp[b + 4] = this.tick();
+    const head = new Array(4).fill(0);
+    putUs(head, 0, batchUs || 0n);
+    head.forEach((v, k) => (this.inp[b + L.batchTimeWord + k] = v));
   }
 
   _cyclicTable() {

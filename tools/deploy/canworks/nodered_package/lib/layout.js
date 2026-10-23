@@ -3,6 +3,7 @@
 "use strict";
 
 module.exports = {
+  "batchTimeWord": 21,
   "buffer": 1785,
   "canFlags": {
     "extended": 1,
@@ -18,6 +19,7 @@ module.exports = {
     "refused (bus down or too many commands wait)",
     "not run: the bridge restarted"
   ],
+  "emcyTimeWord": 3,
   "errorTexts": {
     "all": {
       "20": "the bridge is not reachable",
@@ -63,6 +65,7 @@ module.exports = {
   "infoWords": 18,
   "jobWords": 4,
   "mailboxWords": 72,
+  "maxReceiveBlocks": 2,
   "maxReceivers": 32,
   "ops": {
     "can_send": 5,
@@ -82,19 +85,22 @@ module.exports = {
     "stage": 1
   },
   "receiveWords": 120,
-  "recordBodyWord": 7,
+  "recordBodyWord": {
+    "can": 3,
+    "emcy": 7,
+    "j1939": 3
+  },
   "recordFlags": {
     "long": 1,
     "overflow": 4,
     "restart": 2
   },
-  "recordTimeWord": 3,
   "recordWords": {
-    "can": 14,
+    "can": 10,
     "emcy": 12,
-    "j1939": 16
+    "j1939": 12
   },
-  "rxHeaderWords": 21,
+  "rxHeaderWords": 25,
   "rxKinds": {
     "can": 1,
     "emcy": 3,
