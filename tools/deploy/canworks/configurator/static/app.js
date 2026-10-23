@@ -8085,6 +8085,8 @@ async function save(overwrite, editorOverwrite) {
     // "Settings the target does not use are left out on save").
     const left = r.left_out ? ` (${r.left_out} setting${r.left_out === 1 ? "" : "s"} ${TARGET_LABEL[projectTarget()]} does not use left out)` : "";
     if (r.errors) banner(`Saved with ${counted(r.errors, "error", "errors")}: ${TARGET_RUNNER[projectTarget()]} refuses this config until ${r.errors === 1 ? "it is" : "they are"} fixed. See Problems.`, "warning");
+    else if (r.editor && r.editor.library_ok === false)
+      banner("Saved " + r.written.join(", ") + left + ", but " + r.editor.library + ".", "warning");
     else banner("Saved " + r.written.join(", ") + left +
       (r.editor && r.editor.written && r.editor.written.length ? ". An open OpenPLC Editor must reopen the project before Build." : ""));
     runCheck();

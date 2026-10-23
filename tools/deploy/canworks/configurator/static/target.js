@@ -239,9 +239,43 @@ function openplcModbusFacts() {
   return el("div", { dataset: { openplcFacts: "1" } },
     el("table", { class: "od" }, el("tbody", null, rows.map(([k, v]) => el("tr", null, el("th", null, k), el("td", null, v))))),
     o.warning ? notice("warning", o.warning, { live: false, dataset: { openplcWarning: "1" } }) : null,
+    o.old_main ? oldMainNotice(o.old_main) : null,
     el("p", { class: "muted" }, editor
       ? "Save writes " + o.files.join(", ") + " and the canworks variable list into this editor project. An open OpenPLC Editor must reopen the project before Build."
       : "Open the OpenPLC Editor project as a project here: Save then writes the remote device, the canworks_in and canworks_out programs and the canworks variable list into it."));
+}
+
+// main still declares canworks values at the removed plugin's locations
+// (canopen-configurator "Old located variables in an OpenPLC project's main").
+function oldMainNotice(old) {
+  const n = old.count;
+  const where = old.locations.join(", ") + (n > old.locations.length ? ", ..." : "");
+  return notice("warning",
+    `main declares ${n} canworks value${n === 1 ? "" : "s"} at the removed plugin's locations (${where}), which read nothing now. ` +
+    "Use canworks.* in main removes those declarations and writes each use as canworks.<name>; your own I/O, comments and other programs stay as they are.",
+    { live: false, dataset: { oldMain: String(n) }, actions: [el("button", { type: "button", class: "primary",
+      dataset: { moveMain: "1" }, onclick: () => moveMain() }, "Use canworks.* in main")] });
+}
+
+async function moveMain() {
+  if (S.dirty) { banner("Save first: main is moved for the saved config.", "warning"); return; }
+  let r;
+  try {
+    r = await api("POST", "/api/openplc/move_main", { config: fileConfig() });
+  } catch (e) {
+    banner(`main was not changed: ${e.message}`, true);
+    return;
+  }
+  const n = r.moved.length;
+  banner(el("span", { dataset: { mainMoved: String(n) } },
+    `Moved ${n} declaration${n === 1 ? "" : "s"} and ${r.uses} use${r.uses === 1 ? "" : "s"} in main to canworks.* ` +
+    `(the old main is ${r.backup})` +
+    (r.clashes.length ? `; left as they are, declared twice in main: ${r.clashes.join(", ")}` : "") +
+    ". An open OpenPLC Editor must reopen the project before Build; a type that does not fit shows as a Build error on its line."));
+  // The Project page's facts and Problems read main again.
+  S.state = await api("GET", "/api/state");
+  render();
+  runCheck();
 }
 
 // Switches the project target in one undo step, without asking: the server
@@ -266,7 +300,9 @@ async function switchTarget(target) {
   if (r.removed) done.push(`${r.removed} setting${r.removed === 1 ? "" : "s"} ${TARGET_LABEL[target]} does not use removed`);
   if (r.located) done.push(`${r.located} PDO entr${r.located === 1 ? "y" : "ies"} got a location`);
   const page = target === "bridge" ? " See the Modbus bridge page."
-    : target === "openplc_modbus" ? " Save writes the editor files; see the Project page." : target === "codesys" ? " See the CODESYS page." : "";
+    : target === "openplc_modbus" ? " Save writes the editor files; see the Project page." +
+      (r.old_main ? ` main still declares ${r.old_main} canworks value${r.old_main === 1 ? "" : "s"} at the plugin's locations: after Save, Use canworks.* in main there.` : "")
+    : target === "codesys" ? " See the CODESYS page." : "";
   banner(el("span", { dataset: { switchDone: target } },
     `The project targets ${TARGET_TITLE[target]} now` + (done.length ? ": " + done.join(", ") + "." : ".") + page + " ",
     el("button", { type: "button", class: "link", dataset: { undo: "1" }, onclick: () => undo(false) }, "Undo")));
