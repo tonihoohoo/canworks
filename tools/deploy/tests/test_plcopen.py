@@ -242,8 +242,11 @@ class Targets(unittest.TestCase):
                 if errors is None:
                     self.skipTest("neither lxml nor xmllint")
                 self.assertEqual(errors, [])
-        errors = schema_errors(plcopen_targets.library_xml(created=CREATED))
-        self.assertEqual(errors, [])
+        with self.subTest("library"):
+            errors = schema_errors(plcopen_targets.library_xml(created=CREATED))
+            if errors is None:
+                self.skipTest("neither lxml nor xmllint")
+            self.assertEqual(errors, [])
 
     def test_files(self):
         self.assertEqual(sorted(export(self, "codesys")), ["README.txt", "canworks-codesys-modbus.json",
