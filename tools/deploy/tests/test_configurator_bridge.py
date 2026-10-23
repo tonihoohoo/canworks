@@ -274,6 +274,14 @@ class Connections(Base):
         cfg = self.add(self.cfg, kind="trust", name="truST", address="127.0.0.1")
         r = self.download(cfg, 0)
         self.assertIn("turn it on", r["items"][0]["message"])
+        # truST refuses a watchdog under 500 ms, and the item opens the field.
+        linked = copy.deepcopy(cfg)
+        linked["bridge"].update(plc_link=True, listen="127.0.0.1:502", watchdog_ms=100)
+        linked = self.ok("/api/bridge/pack", {"config": linked})["config"]
+        r = self.download(linked, 0)
+        self.assertIn((["bridge.watchdog_ms"], True),
+                      [(i["paths"], '"watchdog_ms": 500 or more' in i["message"]) for i in r["items"]])
+        self.assertNotIn("data", r)
         status, _ = self.request("/api/connections/download", {"config": cfg, "index": 5})
         self.assertEqual(status, 400)
 

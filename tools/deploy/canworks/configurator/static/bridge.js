@@ -115,7 +115,8 @@ function bridgeServerFields() {
           : bridgeListField("Writers", "bridge.writers", "The addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. Empty: nobody writes. To let every host write, give 0.0.0.0/0, ::/0.", "nobody writes", []),
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: openplc ? "5 polls, at least 50" : "1000",
-          hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
+          hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." +
+            (conns.some((c) => c && c.kind === "trust") ? " A truST connection needs 500 or more: a truST scan takes about 100-125 ms." : "") }),
         bridgeLossChoice())),
   ];
 }

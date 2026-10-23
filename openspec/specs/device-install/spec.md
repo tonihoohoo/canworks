@@ -177,7 +177,7 @@ The device page SHALL give the remote link and the local-network advertisement t
 - **THEN** the Remote link and Found on the local network rows have no action
 
 ### Requirement: OpenPLC project on a device
-For an OpenPLC project (a config with `bridge.openplc`), the device page SHALL show the OpenPLC runtime row and the bridge row, and the main action SHALL follow "One main action". The runtime SHALL be the pinned version and SHALL get nothing of canworks. The instance SHALL be named after the project folder.
+For an OpenPLC project (a config with an OpenPLC connection), the device page SHALL show the OpenPLC runtime row and the bridge row, and the main action SHALL follow "One main action". The runtime SHALL be the pinned version and SHALL get nothing of canworks. The instance SHALL be named after the project folder.
 
 #### Scenario: Fresh device
 - **WHEN** an OpenPLC project is open and the device has no runtime and no bridge, and the newest release is 0.120.0

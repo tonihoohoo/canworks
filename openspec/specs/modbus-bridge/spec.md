@@ -90,7 +90,7 @@ With `status_location` (8 input bytes), the bridge SHALL publish:
 - **THEN** the counter has grown by about 5
 
 ### Requirement: Control block
-With `control_location` (6 output bytes: counter word, command, network index, node, reserved), the bridge SHALL run a command once each time the counter changes, and SHALL echo the counter with a result in the status block (0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused because the network is down or too many NMT commands wait, 6 not run because the bridge restarted). For a config with `bridge.openplc` (a PLC that rewrites its whole output image every poll), the first control block a client writes after the bridge starts SHALL be taken as the last one handled and SHALL NOT run; when its counter is not 0 the status block SHALL echo it with result 6. Commands:
+With `control_location` (6 output bytes: counter word, command, network index, node, reserved), the bridge SHALL run a command once each time the counter changes, and SHALL echo the counter with a result in the status block (0 ok, 1 unknown command, 2 bad network, 3 bad node, 4 not a CANopen master network, 5 refused because the network is down or too many NMT commands wait, 6 not run because the bridge restarted). For a config with an OpenPLC connection (a PLC that rewrites its whole output image every poll), the first control block a client writes after the bridge starts SHALL be taken as the last one handled and SHALL NOT run; when its counter is not 0 the status block SHALL echo it with result 6. Commands:
 - 1 run (end outputs off from idle)
 - 2 idle (outputs off with the `on_client_loss` action)
 - 3 NMT start, 4 NMT stop, 5 NMT pre-operational, 6 reset node, 7 reset communication, for the node on that CANopen master network (node 0 = all nodes)
@@ -100,7 +100,7 @@ With `control_location` (6 output bytes: counter word, command, network index, n
 - **THEN** NMT stop goes to node 7 once, and the status block shows counter 42 with result 0
 
 #### Scenario: Other clients' first command runs
-- **WHEN** a Modbus client of a config without `bridge.openplc` writes the control block for the first time, command 4 with counter 1
+- **WHEN** a Modbus client of a config without `plc_link` writes the control block for the first time, command 4 with counter 1
 - **THEN** the command runs
 
 #### Scenario: Counter unchanged
@@ -108,7 +108,7 @@ With `control_location` (6 output bytes: counter word, command, network index, n
 - **THEN** the command runs only once
 
 #### Scenario: Bridge restart
-- **WHEN** the bridge of an OpenPLC config restarts while the PLC keeps writing its last control block, command 3 with counter 42
+- **WHEN** the bridge of a config with `plc_link` restarts while the PLC keeps writing its last control block, command 3 with counter 42
 - **THEN** no NMT start is sent, the status block shows counter 42 with result 6, and the client's next counter 43 runs its command
 
 ### Requirement: Live list
@@ -262,22 +262,11 @@ When `install-bridge.sh` installs a new bridge binary over an existing one, it S
 - **WHEN** the bridge image is built on `main`
 - **THEN** its venv holds the dependency versions of that commit's `uv.lock`
 
-### Requirement: OpenPLC section
-A bridge config MAY have an `openplc` object inside `bridge` with `poll_ms` (5-1000, default 10), `remote_device` (a file name, default `canworks`) and `iec_base` (an `%IW`/`%QW` index). With it the bridge SHALL listen on `127.0.0.1:1502` and let only `127.0.0.1` write unless `listen` and `writers` are set, SHALL default `watchdog_ms` to 5 × `poll_ms` (at least 50), SHALL refuse `word_order` `"high_first"`, and SHALL refuse a config whose `status_location` is not input byte 4 or that places any other location in input bytes 0-11 or output bytes 0-5.
-
-#### Scenario: Defaults
-- **WHEN** a bridge config has `"openplc": {}` and no `listen`, `writers` or `watchdog_ms`
-- **THEN** the bridge listens on 127.0.0.1 port 1502, accepts writes only from 127.0.0.1, and its watchdog is 50 ms
-
-#### Scenario: Location in the header
-- **WHEN** an `openplc` bridge config maps an RPDO entry at `%QW2`
-- **THEN** the config is refused, naming the entry and saying output bytes 0-5 hold the PLC link header
-
 ### Requirement: Map hash
-The bridge SHALL compute a 32-bit map hash of its config as `modbus-bridge-map` defines it, log it at start, and, in an `openplc` config, serve it at input registers 0 (high word) and 1 (low word).
+The bridge SHALL compute a 32-bit map hash of its config as `modbus-bridge-map` defines it, log it at start, and, in a config with `plc_link` true, serve it at input registers 0 (high word) and 1 (low word).
 
 #### Scenario: Hash served
-- **WHEN** an `openplc` bridge config with map hash 0x1234ABCD runs and a client reads input registers 0 and 1
+- **WHEN** a bridge config with `plc_link` true and map hash 0x1234ABCD runs and a client reads input registers 0 and 1
 - **THEN** it reads 0x1234 and 0xABCD
 
 ### Requirement: PLC link header
@@ -343,12 +332,26 @@ The engine, the bridge, the standalone simulator and their tests SHALL build fro
 - **THEN** the test fails, naming both files
 
 ### Requirement: PLC link on any bridge config
-A bridge config SHALL accept `plc_link: true`. It SHALL give the config the PLC link header of an `openplc` config (holding registers 0-2: running, map hash high and low word, not part of the output image; link states ok, stopped and mismatch with their status byte 0 values) and the bridge's map hash at input registers 0-1, with the same refusals for values located in those registers and the same rule that output writes apply only while the link state is ok. `bridge.openplc` SHALL imply `plc_link`. Without `plc_link`, a non-`openplc` bridge config SHALL behave as before.
+A bridge config SHALL accept `plc_link: true`, the only switch for the PLC link: holding registers 0-2 are the PLC link header (Requirement: PLC link header), input registers 0-1 the map hash and input byte 4 the status block, and a value located in those bytes SHALL be refused. Without `plc_link` a bridge config SHALL have no header and no hash in its image.
 
 #### Scenario: CODESYS client with the header
-- **WHEN** a config has `plc_link: true` without `openplc`, and a client writes the header with running 1 and the matching hash, then the outputs
+- **WHEN** a config has `plc_link: true` and a client writes the header with running 1 and the matching hash, then the outputs
 - **THEN** the outputs are applied, and a header with another hash leaves outputs off and logs the mismatch once
 
 #### Scenario: Old config
-- **WHEN** a bridge config without `plc_link` and `openplc` has a value at holding register 0
-- **THEN** it is accepted and works as before
+- **WHEN** a bridge config without `plc_link` has a value at holding register 0
+- **THEN** it is accepted and applied as a plain output register
+
+### Requirement: Connections ignored by the bridge
+canworks-bridge SHALL accept `bridge.connections` as a list of objects and SHALL NOT read its entries, so a configurator-only field never stops a bridge. Anything else than a list SHALL be refused.
+
+#### Scenario: Unknown kind
+- **WHEN** a bridge config has `"connections": [{"kind": "future"}]`
+- **THEN** the bridge starts and serves the registers as without it
+
+### Requirement: Removed openplc field
+canworks-bridge and the PC check SHALL refuse `bridge.openplc` with one message: the field was removed, OpenPLC is a connection on the Modbus bridge page, and the config must be opened in the configurator to add it.
+
+#### Scenario: Old OpenPLC config
+- **WHEN** `canworks-bridge --check-only` runs on a config with `"bridge": {"openplc": {}}`
+- **THEN** it exits non-zero with that message, naming `bridge.openplc`

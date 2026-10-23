@@ -22,7 +22,7 @@ Before uploading to a bridge, and for `--check`, the exports and `--into-project
 
 #### Scenario: Old plugin config
 - **WHEN** the user runs `canworks-deploy --config old.json --check` on a config with neither `bridge` nor `codesys`
-- **THEN** the tool exits non-zero with the message naming the configurator's **Switch to OpenPLC through Modbus**
+- **THEN** the tool exits non-zero with the message naming the configurator's **Use with canworks-bridge**
 
 ### Requirement: Export DCF files from the command line
 The deploy tool SHALL accept `--export-dcf DIR` as an alternative to `--bundle`, `--project` and `--into-project`. With it, the tool SHALL run the checks before upload on `--config`, export every node as `canopen-dcf-export` describes into DIR (created if missing, existing `node_<id>.dcf` files replaced), print one line per written file, and SHALL NOT build, assemble or upload anything. On any check or validation failure it SHALL exit non-zero, print every message and write no DCF.

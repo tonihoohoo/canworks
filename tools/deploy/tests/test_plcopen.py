@@ -14,7 +14,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from canworks import __version__, cli, editorproject, plcopen, plcopen_targets
+from canworks import __version__, cli, connections, editorproject, plcopen, plcopen_targets
 
 from .helpers import tmpdir
 from .test_contract import REPO
@@ -287,10 +287,9 @@ class Targets(unittest.TestCase):
                     self.assertIn('"watchdog_ms": 500 or more', problems[0])
                 for target in ("codesys", "generic"):
                     self.assertEqual([p for p in plcopen_targets.check(cfg, target) if "watchdog" in p], [])
-        # OpenPLC's default watchdog: five polls of 10 ms.
+        # Adding an OpenPLC connection sets OpenPLC's watchdog: five polls of 10 ms.
         b.pop("watchdog_ms", None)
-        del b["plc_link"]
-        b["openplc"] = {}
+        cfg = connections.add(cfg, connections.new("openplc", cfg))
         self.assertTrue([p for p in plcopen_targets.check(cfg, "trust") if "watchdog of 50 ms" in p])
 
     def test_refusals(self):
