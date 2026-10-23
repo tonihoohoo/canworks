@@ -28,5 +28,7 @@
 
 ## 5. Desktop checks (after release)
 
-- [ ] 5.1 Mac: a configurator left running across a command-line reinstall shows Restart and comes back in the new version.
-- [ ] 5.2 Windows: an update with a forced uv failure (e.g. a read-only wheel cache) restores the old env, and the Start menu shortcut still works.
+- [x] 5.1 Mac: a configurator left running across a command-line reinstall shows Restart and comes back in the new version.
+  PASSED 2026-10-23 (macOS 27.0.1, uv 0.10.7, main 9893d1d, scratch uv tool dir, test/pc-tools/update_e2e.py 0.129.0): a wheel uv refuses gave "failed … Still on 0.129.0" with the environment put back and no backup left; the update to 99.0.0 kept port and session; the command-line update passed; a 0.129.0 configurator with 99.0.0 installed beside it restarted into 99.0.0 with "Already on 99.0.0." and nothing installed.
+- [x] 5.2 Windows: an update with a forced uv failure (e.g. a read-only wheel cache) restores the old env, and the Start menu shortcut still works.
+  PASSED 2026-10-23 (Windows 11 24H2, uv 0.12.24, main 9893d1d, scratch uv tool dir with a space in its path, update_e2e.py 0.129.0): a held tools process gave "locked", nothing changed; a wheel uv refuses gave "failed … Still on 0.129.0" with the environment put back; the update to 99.0.0 and the background command-line update passed. The Start menu shortcut was not part of the scratch run (the environment comes back at the same path, which the shortcut points at). The failure message cut uv's error inside a path with a stray backtick: fixed in tools 0.129.1 (updater.short_reason).
