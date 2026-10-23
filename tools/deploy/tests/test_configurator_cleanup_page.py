@@ -122,7 +122,9 @@ class Parameters(CommissionPage):
         self.open_node(5, "params", "rtd8.eds")
         pg.wait_for_selector('button[data-online="restore"]')
         self.assertEqual(pg.inner_text('button[data-online="restore"]'), "Restore from backup…")
-        self.assertTrue(pg.is_visible("button:has-text('Factory defaults (0x1011)…')"))
+        # The 0x1011 box comes with the device's data, after the restore button.
+        pg.wait_for_selector('button[data-online="restore-defaults"]')
+        self.assertEqual(pg.inner_text('button[data-online="restore-defaults"]'), "Factory defaults (0x1011)…")
         self.assertTrue(pg.is_visible("fieldset.changes-device"))
         # Every file choice is a styled button with the file name next to it.
         self.assertEqual(pg.eval_on_selector_all('input[type="file"]', "(xs) => xs.filter((x) => x.offsetParent && !x.closest('.file-button')).length"), 0)
