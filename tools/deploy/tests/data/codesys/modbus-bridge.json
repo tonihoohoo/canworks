@@ -94,6 +94,12 @@
               "value": "TRUE",
               "what": "optional device",
               "element": "FLAG_Optional"
+            },
+            {
+              "id": 16871424,
+              "name": "Heartbeat-Producer Time",
+              "value": "100",
+              "what": "heartbeat producer time (ms)"
             }
           ],
           "channels": [
@@ -144,6 +150,12 @@
               "value": "TRUE",
               "what": "optional device",
               "element": "FLAG_Optional"
+            },
+            {
+              "id": 16871424,
+              "name": "Heartbeat-Producer Time",
+              "value": "100",
+              "what": "heartbeat producer time (ms)"
             }
           ],
           "channels": [

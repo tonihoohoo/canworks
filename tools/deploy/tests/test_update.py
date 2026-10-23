@@ -665,6 +665,17 @@ class Updater(unittest.TestCase):
         self.assertFalse(os.path.exists(updater.backup_path(self.env_dir)))
         self.assertEqual(self.installed(), "9.1.0")
 
+    def test_short_reason(self):
+        self.assertEqual(updater.short_reason(["error: no `x.whl`", "cause: gone"]), "error: no x.whl cause: gone")
+        long = ["Failed to read metadata: `/tmp/canworks-update-abc/%s.whl`" % ("x" * 280),
+                "cause: unable to locate the end of central directory record"]
+        why = updater.short_reason(long)
+        self.assertTrue(why.startswith("…"), why)
+        self.assertLessEqual(len(why), 301)
+        self.assertTrue(why.endswith("central directory record"))
+        self.assertNotIn("`", why)
+        self.assertFalse(why[1:].startswith("/"), why)  # cut between words, not inside a path
+
     def test_waits_for_the_configurator(self):
         path = self.run_file(self.fake_uv((0, "9.1.0")), pid=os.getpid())
         with mock.patch.object(updater, "WAIT_PID_S", 0.2):
