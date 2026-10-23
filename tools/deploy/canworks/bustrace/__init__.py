@@ -1,4 +1,4 @@
-"""Bus traces (canopen-bus-trace spec): frames recorded from the plugin's
+"""Bus traces (canopen-bus-trace spec): frames recorded from the bridge's
 diagnostics channel, CANopen decoding, file formats, statistics, triggers
 and the recorder the configurator and canworks-diag share.
 

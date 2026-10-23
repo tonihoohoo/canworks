@@ -1,5 +1,5 @@
 """The Commission workspace's Nodes table with a config, against a fake
-plugin runtime (commission-workspace tasks 6.1 and 6.3): the scan compared
+the bridge runtime (commission-workspace tasks 6.1 and 6.3): the scan compared
 with the config, its actions as draft edits, the node Status and Log tabs,
 live state on the tree and Unlock. Needs Playwright, like
 test_configurator_page.py."""
@@ -53,7 +53,7 @@ class NodesTable(OnlineBase):
             self.assertIn("Match", pg.inner_text('tr[data-draft-node="5"] td[data-compare]'))
             self.assertIn("cpp-slave.eds", pg.inner_text('tr[data-draft-node="5"]'))
             self.assertTrue(pg.is_visible("[data-unsaved]"))
-            self.assertEqual(len(load(self.config_path)["nodes"]), 1)
+            self.assertEqual(len(load(self.config_path)["networks"][0]["nodes"]), 1)
             open_log(pg)
             self.assertIn("Add to config", pg.inner_text('#log-panel [data-online="log"]'))
             # The tree has the new node, in Commission too.

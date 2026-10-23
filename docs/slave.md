@@ -8,8 +8,8 @@ A network with `"role": "slave"` makes the PLC one node of a CANopen network tha
 
 1. Describe the objects the two sides exchange in a short JSON file, and generate the EDS from it with `canworks-deploy slave-eds` ([below](#the-eds)) or with **Build the EDS** in the configurator ([configurator.md](configurator.md#slave-networks)).
 2. Add a network with `"role": "slave"`, its adapter, the node ID the other master expects, the EDS, and a PLC location for each object the program uses.
-3. Deploy as usual: the deploy tool and the editor hook carry the EDS with the config, and the plugin runs that file.
-4. Import the same EDS into the other master's configuration tool (**Export EDS** in the configurator gives it a name from the device name). The file the other master imports and the file the plugin runs are the same bytes.
+3. Deploy as usual: the deploy tool carries the EDS with the config to the bridge, and the bridge runs that file.
+4. Import the same EDS into the other master's configuration tool (**Export EDS** in the configurator gives it a name from the device name). The file the other master imports and the file the bridge runs are the same bytes.
 
 ## The config
 
@@ -52,7 +52,7 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 
 ## At runtime
 
-- At PLC start the plugin loads the EDS, runs the same lint and checks as for master networks, sets the node ID and sends its boot-up message. A config error opens no interface of any network.
+- At start the bridge loads the EDS, runs the same lint and checks as for master networks, sets the node ID and sends its boot-up message. A config error opens no interface of any network.
 - After boot-up the slave waits in PRE-OPERATIONAL for the master's NMT start, as CiA 301 asks. (Lely would start a device without an NMT startup object by itself, so an EDS without 0x1F80 gets a read-only 0x1F80 = 0x04, "do not start by itself"; an EDS with 0x1F80 keeps its own value.)
 - The slave obeys NMT start, stop, pre-operational, reset node and reset communication, addressed to its node ID or broadcast; PDOs move only in OPERATIONAL. Its SDO server answers uploads and downloads (expedited, segmented and block) for every object the EDS allows.
 - A value the master writes to a bound input, by RPDO or SDO, reaches the PLC at the next scan start; with several writes in one scan the newest wins. Inputs keep their last value while the node is not OPERATIONAL or the master's heartbeat is lost, unless `inputs_on_loss` is `"zero"`.
@@ -101,7 +101,7 @@ So the master can only ever reach `%I` locations. A location of the wrong area, 
 | `layout` | `manufacturer` | `manufacturer`: objects from the master in ARRAYs from 0x2000, objects to the master from 0x2100, one ARRAY per data type in the order the types first appear, sub-index 0 the count. `cia401`: device type 401 with the generic I/O objects, digital inputs 0x6000 and outputs 0x6200 (UNSIGNED8), analog inputs 0x6401 and outputs 0x6411 (INTEGER16); CiA 401 inputs are what the master reads. |
 | `objects[]` | | `name` (unique), `type` (a CANopen type: BOOLEAN, INTEGER8-64, UNSIGNED8-64, REAL32, REAL64), `direction` (`from_master`: AccessType `rww`, a PLC input; `to_master`: `ro`, a PLC output), and optional `default`, `low` and `high`. |
 
-The file has default RPDOs carrying the objects from the master and TPDOs carrying those to the master, packed in object order, 8 bytes each, with transmission type 255. PDOs 1-4 always exist with the CiA 301 COB-IDs (`$NODEID` + 0x180, 0x200, ...; unused ones switched off), so the master can remap them; PDOs 5 and up start switched off and get their COB-ID from the master. The communication area has what a CiA 301 slave with store and restore, configuration date, heartbeat, guarding, EMCY and LSS needs. Text fields (`device_name`, `vendor_name`, `order_code`, object names) must be printable ASCII, and `device_name` at most 243 characters, as CiA 306 asks. REAL defaults and limits are written as decimal numbers (`21.5`), which other masters' tools read; the plugin reads them through its prepared EDS copy. The output passes the plugin's EDS lint with `eds_lint: "all"` and a strict CiA 306 check of its own ([standards.md](standards.md#how-conformance-is-checked)); the generator checks both before it writes.
+The file has default RPDOs carrying the objects from the master and TPDOs carrying those to the master, packed in object order, 8 bytes each, with transmission type 255. PDOs 1-4 always exist with the CiA 301 COB-IDs (`$NODEID` + 0x180, 0x200, ...; unused ones switched off), so the master can remap them; PDOs 5 and up start switched off and get their COB-ID from the master. The communication area has what a CiA 301 slave with store and restore, configuration date, heartbeat, guarding, EMCY and LSS needs. Text fields (`device_name`, `vendor_name`, `order_code`, object names) must be printable ASCII, and `device_name` at most 243 characters, as CiA 306 asks. REAL defaults and limits are written as decimal numbers (`21.5`), which other masters' tools read; canworks reads them through its prepared EDS copy. The output passes canworks' EDS lint with `eds_lint: "all"` and a strict CiA 306 check of its own ([standards.md](standards.md#how-conformance-is-checked)); the generator checks both before it writes.
 
 A vendor-style EDS written by hand works too: any objects with access types from the table above can be bound.
 
@@ -111,7 +111,7 @@ With the top-level `diagnostics` object a slave network is served like a master 
 
 ## Simulated bus
 
-With the adapter option `"simulate": true` ([simulator.md](simulator.md)), a slave network runs on the plugin's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name. One config then runs the plugin's own master against its own slave, with no CAN adapter, vcan or privileges:
+With the adapter option `"simulate": true` ([simulator.md](simulator.md)), a slave network runs on the bridge's in-process simulated bus named by its `interface`, shared with a simulated master network of the same `interface` name. One config then runs the bridge's own master against its own slave, with no CAN adapter, vcan or privileges:
 
 ```json
 { "name": "plc", "adapter": { "type": "socketcan", "interface": "sim0", "bitrate": 250000, "simulate": true },
@@ -122,7 +122,7 @@ With the adapter option `"simulate": true` ([simulator.md](simulator.md)), a sla
   "slave": { "node_id": 10, "eds": "openplc-slave.eds", ... } }
 ```
 
-A simulated bus takes at most one master network and one slave network. On the master, the node for the slave has `"simulate": false`: otherwise the simulator would run a simulated device with the same node ID next to the plugin's slave, and the check refuses it. Both networks log a warning that they are simulated. `test/slave/simulated.sh` runs this setup (a ctest).
+A simulated bus takes at most one master network and one slave network. On the master, the node for the slave has `"simulate": false`: otherwise the simulator would run a simulated device with the same node ID next to the bridge's slave, and the check refuses it. Both networks log a warning that they are simulated. `test/slave/simulated.sh` runs this setup (a ctest).
 
 ## Limits
 

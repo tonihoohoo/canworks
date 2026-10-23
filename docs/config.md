@@ -1,12 +1,12 @@
-# canopen_config.json
+# canworks.json
 
-The canworks plugin reads one JSON file, the config path given for the `canworks` entry in the runtime's `plugins.conf`. It describes the CAN adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a version 2 file can also make the PLC itself a [slave](#slave-networks) or a [gateway](#gateway), or run a [J1939](j1939.md) network. Each PDO entry is bound to one explicit PLC address; nothing is assigned automatically.
+[canworks-bridge](modbus-bridge.md) reads one JSON file, `canworks.json`. It describes the CAN networks: for each its adapter, the master, and every slave node with its EDS file, PDO entries and startup SDOs; a network can also make the bridge itself a [slave](#slave-networks) or a [gateway](#gateway), or run a [J1939](j1939.md) network. Each PDO entry is bound to one explicit location in the bridge's byte image, which Modbus clients read and write as registers ([OpenPLC through Modbus](modbus-bridge.md#openplc-through-modbus) for an OpenPLC program); nothing is assigned automatically. A config with a `codesys` object is built into a [CODESYS](codesys.md) project instead.
 
-The format is a versioned contract: [`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json) (JSON Schema 2020-12) describes `schema_version` 1, the file with one CAN network, and [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) describes `schema_version` 2, the file with [several networks](#several-networks-schema_version-2). The plugin, the deploy tool ([docs/deploy.md](deploy.md)) and any future editor GUI read and write the same file. The deploy tool and the editor hook deliver it with each upload as `conf/canworks.json`, and the runtime points `plugins.conf` at it.
+The format is a versioned contract: [`schema/canworks.v2.schema.json`](../schema/canworks.v2.schema.json) (JSON Schema 2020-12) describes `schema_version` 2. The bridge, the deploy tool ([docs/deploy.md](deploy.md)) and the configurator read and write the same file; `canworks-deploy --bridge` and the configurator's **Install on device…** deliver it to the bridge. A version 1 file ([`schema/canworks.v1.schema.json`](../schema/canworks.v1.schema.json), one network at the top level) and a version 2 file with neither `bridge` nor `codesys` were made for the removed OpenPLC plugin: the bridge and the deploy tool refuse them, and the configurator opens them with **Switch to OpenPLC through Modbus**.
 
-A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. A number string has no spaces or line breaks around it (`"3\n"` is refused), and `"-0"` is refused on an unsigned type. A JSON number of 2^53 (9007199254740992) or more is refused in every field, since the plugin's JSON parser would round it: write a large 64-bit value as a string, such as `"0x20000000000001"`. `NaN` and `Infinity` are not JSON and are refused. An object may not have the same key twice.
+A number may be written as a JSON number or, where the schema allows it, as a string: decimal (`"12"`) or hex with `0x` (`"0x0C"`). A string with a leading zero, such as `"012"`, is refused everywhere with "leading zero: write 12 or 0x0C"; no tool reads a number as octal. A number string has no spaces or line breaks around it (`"3\n"` is refused), and `"-0"` is refused on an unsigned type. A JSON number of 2^53 (9007199254740992) or more is refused in every field, since the bridge's JSON parser would round it: write a large 64-bit value as a string, such as `"0x20000000000001"`. `NaN` and `Infinity` are not JSON and are refused. An object may not have the same key twice.
 
-At every PLC start the plugin validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
+At every start the bridge validates the file, runs `dcfgen`'s EDS lint on each node's EDS ([EDS lint](#eds-lint)), checks each entry against the node's EDS, and runs Lely's `dcfgen` on the device to produce the master DCF and one concise DCF per slave. The output goes to a `.canworks/` directory next to the config file and is reused while the config and EDS files are unchanged.
 
 ## Example (the Lely tutorial ping-pong slave)
 
@@ -14,57 +14,59 @@ This is [`config/pingpong/canopen_config.json`](../config/pingpong/canopen_confi
 
 ```json
 {
-  "schema_version": 1,
-  "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
-  "master": { "node_id": 1, "sync_period_us": 100000 },
-  "nodes": [
+  "schema_version": 2,
+  "bridge": { "listen": "127.0.0.1:1502", "writers": [ "127.0.0.1" ] },
+  "networks": [
     {
-      "node_id": 2,
-      "name": "pingpong",
-      "eds": "cpp-slave.eds",
-      "heartbeat_ms": 100,
-      "heartbeat_timeout_ms": 300,
-      "status_location": "%IX10.0",
-      "tx_pdos": [
-        { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] }
-      ],
-      "rx_pdos": [
-        { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] }
-      ],
-      "sdo": [
-        { "index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "value": 100 }
+      "adapter": { "type": "socketcan", "interface": "vcan0", "bitrate": 125000 },
+      "master": { "node_id": 1, "sync_period_us": 100000 },
+      "nodes": [
+        {
+          "node_id": 2,
+          "name": "pingpong",
+          "eds": "cpp-slave.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX10.0",
+          "tx_pdos": [ { "entries": [ { "index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID100" } ] } ],
+          "rx_pdos": [ { "entries": [ { "index": "0x4000", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%QD100" } ] } ],
+          "sdo": [ { "index": "0x1017", "subindex": 0, "type": "UNSIGNED16", "value": 100 } ]
+        }
       ]
     }
   ]
 }
 ```
 
-With the PLC program `%QD100 := %ID100 + 1`, the slave echoes every value back and the counter keeps increasing.
+With a Modbus client that writes `%ID100 + 1` back into `%QD100` (input registers 50-51, holding registers 50-51), the slave echoes every value back and the counter keeps increasing.
 
-Check a file without starting the PLC:
+Check a file without starting the bridge:
 
 ```sh
 canopen_check /etc/canworks/canopen_config.json
 ```
 
-`canopen_check` runs the same validation, EDS checks and `dcfgen` step as the plugin and prints every problem it finds. It is built from `tools/` by the development build (see the README).
+`canopen_check` runs the same validation, EDS checks and `dcfgen` step as the bridge and prints every problem it finds. It is built from `tools/` by the development build (see the README).
 
-`canopen_check --dump-writes` also lists each node's configuration download in the order the plugin sends it, one `write <node> 0x<index> <sub> <bytes>` line per SDO write, then the boot steps that are not object writes (`step <node> restore <sub>`). To get the same configuration as a CiA 306 DCF per node, see [Export the nodes as DCF files](deploy.md#export-the-nodes-as-dcf-files).
+`canopen_check --dump-writes` also lists each node's configuration download in the order the bridge sends it, one `write <node> 0x<index> <sub> <bytes>` line per SDO write, then the boot steps that are not object writes (`step <node> restore <sub>`). To get the same configuration as a CiA 306 DCF per node, see [Export the nodes as DCF files](deploy.md#export-the-nodes-as-dcf-files).
 
 ## Top level
 
 | Field | Required | Meaning |
 |---|---|---|
-| `schema_version` | no | The format version, default 1. A file with a higher version than the plugin supports is rejected with both versions named. |
-| `adapter` | yes | The CAN adapter (below). |
-| `master` | yes | The master's settings (below). |
-| `nodes` | yes | The slave nodes (below), at least one. An empty list is allowed only together with [`master.diagnostics`](#online-diagnostics), as a scan-only config for commissioning. |
+| `schema_version` | yes | `2`. A file with a higher version than the bridge supports is rejected with both versions named; version 1 is refused (above). |
+| `networks` | yes | 1 to 8 CAN networks ([Networks](#several-networks-schema_version-2)). |
+| `bridge` | one of the two | The [Modbus bridge](modbus-bridge.md): server, clients, bridge blocks, and `openplc` for [OpenPLC through Modbus](modbus-bridge.md#openplc-through-modbus). |
+| `codesys` | one of the two | A [CODESYS](#codesys-target) config. Both at once is an error. |
+| `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together. |
+| `cia309` | no | The [CiA 309-3 gateway](#cia-309-3-gateway). |
+| `gateway` | no | Routes between a slave network and the master networks ([gateway](#gateway)). |
 
-A version 2 file can name its target: a top-level `bridge` object makes it a [Modbus bridge](modbus-bridge.md) config, a `codesys` object a [CODESYS](#codesys-target) config, and neither an OpenPLC config. Both at once is an error. The checks warn about every set value the target does not use, naming the field and why ([configurator.md](configurator.md#project-target) lists them).
+The checks warn about every set value the target does not use, naming the field and why ([configurator.md](configurator.md#project-target) lists them).
 
 ### CODESYS target
 
-A config with a top-level `codesys` object is built into a CODESYS project ([codesys.md](codesys.md)); the OpenPLC plugin and `canworks-bridge` refuse it. It needs `schema_version` 2.
+A config with a top-level `codesys` object is built into a CODESYS project ([codesys.md](codesys.md)); `canworks-bridge` refuses it.
 
 | Field | Meaning |
 |---|---|
@@ -79,7 +81,7 @@ In a CODESYS config the PDO entries need no `iec_location` (CODESYS assigns the 
 
 ## Several networks (`schema_version` 2)
 
-One PLC can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. A network with `"protocol": "j1939"` is a J1939 ECU instead of a CANopen master or slave, with a `j1939` object in place of `master` and `nodes` ([j1939.md](j1939.md)). A network with `"protocol": "none"` is a plain CAN network that carries only raw CAN messages, and any network can have a `raw` object with plain frames received into `%I` and sent from `%Q` ([raw-can.md](raw-can.md)). Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
+One bridge can drive up to 8 CAN networks, each on its own adapter, with its own master, bit rate, SYNC and nodes. A network with `"protocol": "j1939"` is a J1939 ECU instead of a CANopen master or slave, with a `j1939` object in place of `master` and `nodes` ([j1939.md](j1939.md)). A network with `"protocol": "none"` is a plain CAN network that carries only raw CAN messages, and any network can have a `raw` object with plain frames received into `%I` and sent from `%Q` ([raw-can.md](raw-can.md)). Such a file has `"schema_version": 2` and a `networks` list instead of the top-level `adapter`, `master` and `nodes`; [`config/two-networks`](../config/two-networks/canopen_config.json) is an example:
 
 ```json
 {
@@ -96,24 +98,22 @@ One PLC can drive up to 8 CAN networks, each on its own adapter, with its own ma
 
 | Field | Required | Meaning |
 |---|---|---|
-| `networks` | yes | 1 to 8 networks. Each has `adapter`, `master` and `nodes` exactly as a version 1 file has them at the top level, and an optional `name`; a [slave network](#slave-networks) has `"role": "slave"` and `slave` instead of `master` and `nodes`, and a J1939 network has `"protocol": "j1939"` and `j1939` instead ([j1939.md](j1939.md)). |
+| `networks` | yes | 1 to 8 networks. A CANopen master network has `adapter`, `master` and `nodes` (below) and an optional `name`; a [slave network](#slave-networks) has `"role": "slave"` and `slave` instead of `master` and `nodes`, and a J1939 network has `"protocol": "j1939"` and `j1939` instead ([j1939.md](j1939.md)). |
 | `networks[].protocol` | no | `"canopen"` (default) or `"j1939"`. A J1939 network has no `role`, `master`, `nodes` or `slave`. |
 | `networks[].role` | no | `"master"` (default) or `"slave"`. CANopen networks only. |
 | `networks[].name` | no | A letter, then letters, digits and `_`, at most 16 characters; names differ, ignoring case. Default: the adapter's `interface`, which then must be usable as a name. |
-| `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together: one port and one token. In version 2 it sits at the top level, not in a network's `master`. |
+| `diagnostics` | no | [Online diagnostics](#online-diagnostics) for all networks together: one port and one token. It sits at the top level, not in a network's `master`. |
 | `gateway` | no | Routes between a slave network and the master networks ([gateway](#gateway)). |
 
-Each network is checked as a version 1 file is: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the PLC's one I/O image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
+Each network is checked on its own: node IDs and COB-IDs need only be unique inside their network, so node 2 can exist on two networks. Across networks, two networks may not use the same `interface` or the same `slcan` `device`, and no two locations may overlap: all networks share the bridge's one byte image. Messages name the network: `networks[1]: nodes[0]: ...`, and an overlap names both sides with their networks.
 
-An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANWORKS] drives: node 2 (pingpong) is operational`). In a version 2 file the generated files go to `.canworks/<name>/` instead of `.canworks/`. A version 2 file with one network otherwise behaves as a version 1 file. The PLC program's SDO function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-sdo.md](plc-sdo.md)).
+An error in any network rejects the whole file and no interface is opened. Once running, each network has its own bus thread: a network whose adapter fails or whose node is lost does not stop the others. With several networks every log line starts with the network's name (`[CANWORKS] drives: node 2 (pingpong) is operational`). The generated files go to `.canworks/<name>/`. The PLC program's function blocks pick the network with their `NETWORK` input: 0 for the first network in the list, 1 for the second, and so on ([plc-library.md](plc-library.md)).
 
-A version 2 file needs the plugin and the deploy tool from the same release or later; an older plugin rejects it as a newer `schema_version`. Version 1 files load unchanged, and the configurator saves a config with one network as version 1.
-
-Files written before the contract have top-level `interface` and `bitrate` instead of `adapter`. They still load, with the same meaning as before: a `socketcan` adapter with `configure_link: false`, so the plugin leaves the link as it finds it. The plugin logs a deprecation warning. A file with both `adapter` and a top-level `interface` or `bitrate` is rejected.
+Files written before the contract have top-level `interface` and `bitrate` instead of `adapter`. They still load, with the same meaning as before: a `socketcan` adapter with `configure_link: false`, so the bridge leaves the link as it finds it. The bridge logs a deprecation warning. A file with both `adapter` and a top-level `interface` or `bitrate` is rejected.
 
 ## Slave networks
 
-A network with `"role": "slave"` makes the PLC a node of a network another master runs ([slave.md](slave.md)); [`config/slave`](../config/slave/canopen_config.json) is an example. It has `adapter` as any network, and a `slave` object instead of `master` and `nodes`:
+A network with `"role": "slave"` makes the bridge a node of a network another master runs ([slave.md](slave.md)); [`config/slave`](../config/slave/canopen_config.json) is an example. It has `adapter` as any network, and a `slave` object instead of `master` and `nodes`:
 
 ```json
 { "name": "line", "role": "slave",
@@ -135,11 +135,11 @@ A network with `"role": "slave"` makes the PLC a node of a network another maste
 | `emcy_code_location` | no | `%QW`: a change to a non-zero code sends an EMCY with it, a change to 0 the error reset. |
 | `error_register_location` | no | `%QB`: the error register sent with that EMCY. |
 
-Everything else (PDO mapping, heartbeat, guarding, SYNC consumer, error behaviour) comes from the EDS, and the other master may change it over SDO. A slave network needs `schema_version` 2; a version 1 file with `role`, `slave`, `gateway`, `protocol` or `j1939` is rejected with a message that says so. Slave networks follow the rules of every network: their own interface, a name, and locations that overlap no other network's. With the device simulator's `"simulate": true` adapters, one master network and one slave network may share a simulated bus (the same `interface`).
+Everything else (PDO mapping, heartbeat, guarding, SYNC consumer, error behaviour) comes from the EDS, and the other master may change it over SDO. Slave networks follow the rules of every network: their own interface, a name, and locations that overlap no other network's. With the device simulator's `"simulate": true` adapters, one master network and one slave network may share a simulated bus (the same `interface`).
 
 ## Gateway
 
-A top-level `gateway` connects a slave network (the upper network) with the master networks of the same file: each route copies one value between a slave object and a field node's PDO entry, in the plugin, without the PLC program. Field node states, EMCYs and SDO access can be passed up too. Every field and the runtime behaviour: [gateway.md](gateway.md); [`config/gateway`](../config/gateway/canopen_config.json) is an example.
+A top-level `gateway` connects a slave network (the upper network) with the master networks of the same file: each route copies one value between a slave object and a field node's PDO entry, in the bridge, without the PLC program. Field node states, EMCYs and SDO access can be passed up too. Every field and the runtime behaviour: [gateway.md](gateway.md); [`config/gateway`](../config/gateway/canopen_config.json) is an example.
 
 ```json
 "gateway": {
@@ -156,10 +156,10 @@ A PDO entry that a route writes (an RPDO entry fed from the upper master) may le
 
 | Field | Required | Meaning |
 |---|---|---|
-| `type` | yes | The adapter backend: `socketcan` (an interface the system already has: CAN HAT, candleLight/gs_usb, PEAK, vcan) or `slcan` (a serial-line adapter such as a CANable with slcan firmware; see [slcan](#slcan-canable-lawicel-canusb)). Any other type leaves the plugin inactive with an error naming it. |
-| `interface` | yes | SocketCAN interface, e.g. `can0` or `vcan0`. With `slcan`, the name the plugin gives the interface it creates. 1-15 characters of letters, digits, `_`, `.`, `:` and `-` (the Linux limit), on every kind of network. |
+| `type` | yes | The adapter backend: `socketcan` (an interface the system already has: CAN HAT, candleLight/gs_usb, PEAK, vcan) or `slcan` (a serial-line adapter such as a CANable with slcan firmware; see [slcan](#slcan-canable-lawicel-canusb)). Any other type leaves the bridge inactive with an error naming it. |
+| `interface` | yes | SocketCAN interface, e.g. `can0` or `vcan0`. With `slcan`, the name the bridge gives the interface it creates. 1-15 characters of letters, digits, `_`, `.`, `:` and `-` (the Linux limit), on every kind of network. |
 | `bitrate` | yes | Bus bit rate in bit/s: 10000, 20000, 50000, 125000, 250000, 500000, 800000 or 1000000. |
-| `configure_link` | no | `socketcan` only. Default `true`: at PLC start the plugin sets the interface to `bitrate` and brings it up. A link that is already up at that rate is used as is; one up at another rate is taken down, set and brought up again, with a warning. A `vcan` link is only brought up. `false` leaves the link to the system, with a warning if its rate differs. |
+| `configure_link` | no | `socketcan` only. Default `true`: at start the bridge sets the interface to `bitrate` and brings it up. A link that is already up at that rate is used as is; one up at another rate is taken down, set and brought up again, with a warning. A `vcan` link is only brought up. `false` leaves the link to the system, with a warning if its rate differs. |
 | `restart_ms` | no | `socketcan` only. Bus-off auto-restart delay in ms, set together with the bit rate (`ip link ... restart-ms`). |
 | `device` | `slcan` | `slcan` only. Absolute path of the serial device, such as `/dev/serial/by-id/usb-Openlight_Labs_CANable2_...-if00` (preferred: `/dev/ttyACM0` can change number when the adapter is plugged in again). |
 | `simulate` | no | Default `false`. `true`: the network is simulated. The master runs on an in-process virtual bus with simulated devices; no interface or serial device is opened and no link is changed, so it needs no CAN hardware and no privileges. The other fields are still checked, so switching back needs only this one. Not allowed on a J1939 network, which uses a `vcan` interface for simulation instead. See [simulator.md](simulator.md#two-switches). |
@@ -167,7 +167,7 @@ A PDO entry that a route writes (an RPDO entry fed from the upper master) may le
 
 A field of the other type (`device` with `socketcan`, `configure_link` with `slcan`, ...) is an error, not ignored.
 
-Changing the link needs `CAP_NET_ADMIN`; the runtime runs as root and has it. Without it the plugin logs an error naming the interface and the missing permission, every node reports not operational, the PLC keeps scanning, and the plugin retries every second, as for a missing interface. Link setup runs in the plugin's bus thread before the master opens the interface, and again on every retry.
+Changing the link needs `CAP_NET_ADMIN`; the bridge runs as root and has it. Without it the bridge logs an error naming the interface and the missing permission, every node reports not operational, the Modbus port keeps serving, and the bridge retries every second, as for a missing interface. Link setup runs in the bridge's bus thread before the master opens the interface, and again on every retry.
 
 ### slcan (CANable, Lawicel CANUSB)
 
@@ -175,13 +175,13 @@ Changing the link needs `CAP_NET_ADMIN`; the runtime runs as root and has it. Wi
 "adapter": { "type": "slcan", "device": "/dev/serial/by-id/usb-Openlight_Labs_CANable2_...-if00", "interface": "can0", "bitrate": 500000 }
 ```
 
-At PLC start the plugin creates the interface itself, as `slcand` would: it opens `device` for exclusive use in raw mode, attaches the kernel's slcan driver, renames the new `slcanN` interface to `interface`, sets `bitrate`, sets the transmit queue to 1000 frames (the driver's 10 overflows on SDO and PDO bursts) and brings it up. No `slcand`, `can-utils` or systemd unit is needed; disable one you set up before. The log names the device, interface and bit rate.
+At start the bridge creates the interface itself, as `slcand` would: it opens `device` for exclusive use in raw mode, attaches the kernel's slcan driver, renames the new `slcanN` interface to `interface`, sets `bitrate`, sets the transmit queue to 1000 frames (the driver's 10 overflows on SDO and PDO bursts) and brings it up. No `slcand`, `can-utils` or systemd unit is needed; disable one you set up before. The log names the device, interface and bit rate.
 
-- **PLC stop:** the plugin takes the interface down and closes the device, so the interface no longer exists and the device is free.
-- **Unplugged adapter:** the kernel removes the interface; nodes report not operational, the log says the serial device is missing, and once the adapter is back the plugin creates the interface again and the nodes boot, with no restart.
-- **Name already taken:** if an interface named `interface` exists that the plugin did not create (typically from an old `slcand` service), the plugin leaves it alone, logs an error naming it, and retries; stopping the service is enough.
-- **Linux before 6.0:** the slcan driver there takes no bit rate over netlink. The plugin logs that and retries; on such a kernel create the interface with `slcand -o -c -s6 /dev/ttyACM0 can0` and use `socketcan` with `configure_link: false`.
-- **Bus diagnostics:** slcan firmware does not report the CAN error state. The bus state input reads 1 while the link is up and 0 when it is not, the error counters read 0, and with any bus diagnostic location set the plugin logs this once per PLC start. Node state bytes still drop to 0 when a node is lost, so key on those.
+- **Bridge stop:** the bridge takes the interface down and closes the device, so the interface no longer exists and the device is free.
+- **Unplugged adapter:** the kernel removes the interface; nodes report not operational, the log says the serial device is missing, and once the adapter is back the bridge creates the interface again and the nodes boot, with no restart.
+- **Name already taken:** if an interface named `interface` exists that the bridge did not create (typically from an old `slcand` service), the bridge leaves it alone, logs an error naming it, and retries; stopping the service is enough.
+- **Linux before 6.0:** the slcan driver there takes no bit rate over netlink. The bridge logs that and retries; on such a kernel create the interface with `slcand -o -c -s6 /dev/ttyACM0 can0` and use `socketcan` with `configure_link: false`.
+- **Bus diagnostics:** slcan firmware does not report the CAN error state. The bus state input reads 1 while the link is up and 0 when it is not, the error counters read 0, and with any bus diagnostic location set the bridge logs this once per start. Node state bytes still drop to 0 when a node is lost, so key on those.
 
 A CANable runs one of two firmwares. Check with `lsusb`:
 
@@ -197,26 +197,23 @@ Flashing candleLight (CANable updater, https://canable.io/updater/) turns the CA
 | Field | Required | Meaning |
 |---|---|---|
 | `node_id` | yes | The master's node ID, 1-127. |
-| `sync_period_us` | no | SYNC period in microseconds, for the master's own SYNC timer. Synchronous PDOs are exchanged on every SYNC. Left out or 0 without `"sync_source": "plc_cycle"`: the master produces no SYNC, and every configured PDO must be event-driven: a PDO whose transmission type, from `transmission` or else from the EDS, is 0-240 or 252 is rejected (set `"transmission": 254` or `255`), and so are `sync_window_us`, `sync_counter_overflow` and `sync_start`. Outputs are then sent as soon as they change (see [At runtime](#at-runtime)). Not allowed with `"sync_source": "plc_cycle"`. |
-| `sync_source` | no | `"timer"` (default): SYNC every `sync_period_us`. `"plc_cycle"`: SYNC from the PLC cycle ([SYNC from the PLC cycle](#sync-from-the-plc-cycle)). |
-| `sync_cycles` | no | With `"sync_source": "plc_cycle"`: one SYNC every this many PLC cycles, 1-1000 (default 1). |
+| `sync_period_us` | no | SYNC period in microseconds, for the master's own SYNC timer. Synchronous PDOs are exchanged on every SYNC. Left out or 0: the master produces no SYNC, and every configured PDO must be event-driven: a PDO whose transmission type, from `transmission` or else from the EDS, is 0-240 or 252 is rejected (set `"transmission": 254` or `255`), and so are `sync_window_us`, `sync_counter_overflow` and `sync_start`. Outputs are then sent as soon as they change (see [At runtime](#at-runtime)). |
 | `heartbeat_ms` | no | Heartbeat the master produces (default 0, off). |
 | `eds_lint` | no | Which `dcfgen` EDS lint findings stop the load: `"communication"` (default), `"all"` or `"off"` ([EDS lint](#eds-lint)). |
 | `strict_eds` | no | Deprecated: `true` reads as `eds_lint: "all"`, `false` as `"off"`. Not together with `eds_lint`. |
 | `bus_state_location` | no | An input byte (`%IB...`) with the CAN bus state (below). |
 | `tx_error_count_location` | no | An input byte (`%IB...`) with the controller's transmit error counter, clamped to 255. |
 | `rx_error_count_location` | no | An input byte (`%IB...`) with the controller's receive error counter, clamped to 255. |
-| `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the PLC started; wraps at 65535. |
+| `bus_off_count_location` | no | An input word (`%IW...`) counting bus-off events since the bridge started; wraps at 65535. |
 | `state_location` | no | An input byte (`%IB...`) with the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED. The master stays PRE-OPERATIONAL while a mandatory node is missing or with `start: false`, and no node exchanges PDOs then. |
-| `on_plc_stop` | no | What the master sends each configured node that is up when the PLC or the plugin stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). Before the command, OpenPLC runtime v4.3 sets every output to 0 and runs one last cycle, and canworks sends those zeros like any other outputs, so a node on `"keep"` ends up holding zeros; no output PDO is sent after that cycle. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next PLC start boots and starts the nodes as usual. It applies whatever the program held, and it is also what `CO_NETWORK_STOP` sends with `NODE_COMMAND := 0` ([plc-nmt.md](plc-nmt.md#stop-the-network-from-the-program-co_network_stop)). |
-| `scan_watchdog_ms` | no | 10-60000, default 1000; 0 turns it off. While the PLC runs and its scan has not finished a cycle for this long, the outputs stop: no RPDOs, raw or J1939 transmit messages, and no program frames (`CAN_SEND_CYCLIC` jobs pause at their period, a queued `CAN_SEND` ends with `ERROR_ID` 1). SYNC, inputs and node supervision keep running. The next finished scan sends the outputs again. Both are logged. A tripped watchdog keeps the outputs off until the scan finishes a cycle again or the PLC stops, also while this network's CAN interface is down and after it comes back. Set a larger value, or 0, for a program with a deliberately long scan. A J1939 or plain CAN network has its own: `j1939.scan_watchdog_ms` ([j1939.md](j1939.md#the-config)) and `raw.scan_watchdog_ms` ([raw-can.md](raw-can.md#plain-can-networks)), same range and default, so a project without a CANopen master is covered too. |
-| `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the plugin opens no port. |
+| `on_plc_stop` | no | What the master sends each configured node that is up when the bridge stops, before the network closes: `"preop"` (default) ENTER PRE-OPERATIONAL, `"stop"` STOP, `"keep"` nothing (the nodes keep their last outputs). No output PDO is sent after the command. Pre-operational stops the device's PDOs, so its own communication-loss setting applies, while SDO access stays. The next bridge start boots and starts the nodes as usual. A lost Modbus client is a separate case, handled by the bridge's `on_client_loss` ([modbus-bridge.md](modbus-bridge.md)). |
+| `diagnostics` | no | Turns on the diagnostics channel for the configurator's online view, its bus scan and `canworks-diag` (below, [Online diagnostics](#online-diagnostics)). Left out: the bridge opens no port. |
 
 The master also takes every option `dcfgen` offers for it (below, [Master options](#master-options)).
 
 ### EDS lint
 
-Many vendor EDS files break CiA 306 in objects nothing reads, most often a signed limit written as unsigned hex (`HighLimit=0xFF` on an INTEGER8). `dcfgen`'s own lint stops on every such finding, so the plugin runs the lint itself (the deploy tool's `canworks.edslint` module on Lely's `dcf` package, installed into `<prefix>/venv` by `install-stock.sh`) and decides by `eds_lint`:
+Many vendor EDS files break CiA 306 in objects nothing reads, most often a signed limit written as unsigned hex (`HighLimit=0xFF` on an INTEGER8). `dcfgen`'s own lint stops on every such finding, so the bridge runs the lint itself (the deploy tool's `canworks.edslint` module on Lely's `dcf` package, installed into `<prefix>/venv` by `install-bridge.sh`) and decides by `eds_lint`:
 
 | `eds_lint` | What stops the load |
 |---|---|
@@ -224,24 +221,24 @@ Many vendor EDS files break CiA 306 in objects nothing reads, most often a signe
 | `"all"` | Any finding (what `strict_eds: true` did). |
 | `"off"` | Nothing. |
 
-A finding is limit-only when it is about a `LowLimit` or `HighLimit`, or about a `DefaultValue` or `ParameterValue` outside the object's own limits but inside its data type's range. Neither `dcfgen` nor the master enforces EDS limits; values the plugin writes are range-checked against the data type. Findings that do not stop the load are logged as one warning per EDS with their count and the first three. A load the lint stops logs an error naming the node, the EDS, each finding with its object, and the setting that would accept it. PDO-mapped objects keep the plugin's data type, access type and mappability checks in every mode. `dcfgen` itself always runs with `--no-strict`.
+A finding is limit-only when it is about a `LowLimit` or `HighLimit`, or about a `DefaultValue` or `ParameterValue` outside the object's own limits but inside its data type's range. Neither `dcfgen` nor the master enforces EDS limits; values the bridge writes are range-checked against the data type. Findings that do not stop the load are logged as one warning per EDS with their count and the first three. A load the lint stops logs an error naming the node, the EDS, each finding with its object, and the setting that would accept it. PDO-mapped objects keep the bridge's data type, access type and mappability checks in every mode. `dcfgen` itself always runs with `--no-strict`.
 
-Before the lint, the plugin makes a prepared copy of an EDS that needs one, `.canworks/eds/node_<id>.eds`, which its EDS checks and `dcfgen` then read. The original file is left unchanged. The corrections are lossless:
+Before the lint, the bridge makes a prepared copy of an EDS that needs one, `.canworks/eds/node_<id>.eds`, which its EDS checks and `dcfgen` then read. The original file is left unchanged. The corrections are lossless:
 
 - a file that is not valid UTF-8 is converted from CP1252;
 - `0x200+$NODEID` is rewritten `$NODEID+0x200` (the CiA 306 form, the only one `dcfgen` parses), and a bare `$NODEID` (any case) `$NODEID+0`, which Lely's EDS parser needs;
 - a REAL32 or REAL64 value written as a decimal number (`12.345`, also a plain integer such as `100`) is rewritten as Lely's hexadecimal bit pattern (`0x4145851F`);
 - an OCTET_STRING or DOMAIN `DefaultValue` or `ParameterValue` that does not start with a hex digit (`----`) is cleared, since Lely reads these as hex and refuses the file otherwise. The master never writes these values.
 
-The plugin logs one line per node that needed corrections, with each kind and its count, and each cleared value with its object and old text. The configurator and the deploy tool run the same lint and corrections, so the PC refuses what the PLC would refuse. They also refuse what Lely's EDS parser cannot load, in its words: a `DataType` of 0 or above 0xFFFF ("DataType not specified"), one Lely has no sub-object for (0x000E, 0x0017, 0x001C and up: "unable to create sub-object 4002sub0"), and a TIME_OF_DAY or TIME_DIFFERENCE value that is not `<milliseconds> <days>`. An empty `DefaultValue` or `PDOMapping` reads as 0, as Lely reads it. An object list with `SupportedObjects` above 65535 is refused before it is read.
+The bridge logs one line per node that needed corrections, with each kind and its count, and each cleared value with its object and old text. The configurator and the deploy tool run the same lint and corrections, so the PC refuses what the bridge would refuse. They also refuse what Lely's EDS parser cannot load, in its words: a `DataType` of 0 or above 0xFFFF ("DataType not specified"), one Lely has no sub-object for (0x000E, 0x0017, 0x001C and up: "unable to create sub-object 4002sub0"), and a TIME_OF_DAY or TIME_DIFFERENCE value that is not `<milliseconds> <days>`. An empty `DefaultValue` or `PDOMapping` reads as 0, as Lely reads it. An object list with `SupportedObjects` above 65535 is refused before it is read.
 
 ### Bus diagnostics
 
-The four bus fields let the program tell a bus fault (cable, termination, bit rate, a babbling device) from one missing node. Each is optional on its own. The plugin reads the interface's CAN state, error counters and bus-off statistics over rtnetlink every 100 ms while the master runs. It does not need `CAP_NET_ADMIN` for this.
+The four bus fields let the program tell a bus fault (cable, termination, bit rate, a babbling device) from one missing node. Each is optional on its own. The bridge reads the interface's CAN state, error counters and bus-off statistics over rtnetlink every 100 ms while the master runs. It does not need `CAP_NET_ADMIN` for this.
 
 | Bus state | Meaning |
 |---|---|
-| 0 | No bus: the interface is missing, down, stopped, or the master is not running on it. Also the value before the plugin first runs. |
+| 0 | No bus: the interface is missing, down, stopped, or the master is not running on it. Also the value before the bridge first runs. |
 | 1 | Error-active: normal operation. A `vcan` interface that is up always reads 1. |
 | 2 | Error-warning: an error counter reached 96. |
 | 3 | Error-passive: an error counter reached 128. |
@@ -250,34 +247,34 @@ The four bus fields let the program tell a bus fault (cable, termination, bit ra
 The codes go up with severity, so `bus_state >= 3` means trouble.
 
 - **A pulled cable reads 3, not 4.** With no other node to acknowledge its frames, the master's transmit error counter climbs to 128 and stops there, because acknowledgement errors no longer count once the controller is error-passive. The nodes then drop out one by one through their own heartbeat or guarding timeouts.
-- **Without `adapter.restart_ms`, bus-off can last until something restarts the interface.** Whether it does depends on the adapter: many controllers wait for the kernel, while some USB adapters (gs_usb/candleLight firmware, for example) leave bus-off by themselves within milliseconds, so a wrong bit rate shows as a fast bus-off/error-passive/error-active cycle and a rising bus-off count. The plugin logs this. Set `restart_ms` (for example 100) so the kernel restarts controllers that wait.
+- **Without `adapter.restart_ms`, bus-off can last until something restarts the interface.** Whether it does depends on the adapter: many controllers wait for the kernel, while some USB adapters (gs_usb/candleLight firmware, for example) leave bus-off by themselves within milliseconds, so a wrong bit rate shows as a fast bus-off/error-passive/error-active cycle and a rising bus-off count. The bridge logs this. Set `restart_ms` (for example 100) so the kernel restarts controllers that wait.
 - **The bus-off count catches short bus-offs.** It comes from the kernel's statistics, so a bus-off the kernel recovers from between two readings or two scans is still counted. A short error-warning or error-passive spell can be missed by the state byte; the counters and the log show the trend.
-- **Some drivers report no error counters**, for example some SPI CAN controllers. The counter inputs then read 0, and the plugin logs this once when a counter location is configured. The state byte works with every SocketCAN driver.
+- **Some drivers report no error counters**, for example some SPI CAN controllers. The counter inputs then read 0, and the bridge logs this once when a counter location is configured. The state byte works with every SocketCAN driver.
 - The counters keep their last value while the interface is missing or down; the state byte reads 0.
 
-The plugin logs every state change: a warning on entering error-warning, error-passive or bus-off (an error line for bus-off), an info line on returning to error-active, and an error line for a bus-off the controller recovered from between two readings. When the state changes more than 5 times within one second, the rest of that second goes into one summary line.
+The bridge logs every state change: a warning on entering error-warning, error-passive or bus-off (an error line for bus-off), an info line on returning to error-active, and an error line for a bus-off the controller recovered from between two readings. When the state changes more than 5 times within one second, the rest of that second goes into one summary line.
 
 ### Master options
 
-Each is optional. A setting left out keeps the value the plugin always used, or `dcfgen`'s default where the plugin had none. Times counted by CiA in 100 µs units are given in microseconds and must be a multiple of 100 (at most 6553500). Numbers may be integers or decimal or `0x` hex strings.
+Each is optional. A setting left out keeps the value canworks always used, or `dcfgen`'s default where it had none. Times counted by CiA in 100 µs units are given in microseconds and must be a multiple of 100 (at most 6553500). Numbers may be integers or decimal or `0x` hex strings.
 
 | Field | Object | Meaning |
 |---|---|---|
 | `vendor_id`, `product_code`, `revision_number`, `serial_number` | 0x1018 | The master's own identity. |
-| `sync_window_us` | 0x1007 | Synchronous window length. Needs SYNC (`sync_period_us` or `"sync_source": "plc_cycle"`). |
-| `sync_counter_overflow` | 0x1019 | 0 (no counter) or 2-240: SYNC then carries a counter, which a PDO's `sync_start` needs. Needs SYNC (`sync_period_us` or `"sync_source": "plc_cycle"`). |
+| `sync_window_us` | 0x1007 | Synchronous window length. Needs SYNC (`sync_period_us`). |
+| `sync_counter_overflow` | 0x1019 | 0 (no counter) or 2-240: SYNC then carries a counter, which a PDO's `sync_start` needs. Needs SYNC (`sync_period_us`). |
 | `time_cob_id` | 0x1012 | COB-ID of the master's TIME message, default 0x100. With `time_period_ms` the master sets the producer bit (bit 30) itself. |
-| `time_period_ms` | 0x1012 bit 30 | 100-3600000. The master produces TIME: a CiA 301 TIME_OF_DAY from the runtime host's clock (UTC) on `time_cob_id` (or 0x100), sent at once when the bus comes up, again at once after the bus recovers, and then every `time_period_ms`. While the master is NMT STOPPED it sends no TIME (CiA 301), and sends one at once when it leaves STOPPED. Left out, the master sends no TIME. The start-up log names the COB-ID, the period and the host's time, so a host without NTP or a real-time clock shows up there. Nodes use TIME only when their own 0x1012 has the consumer bit: set the node's `time_cob_id` to `0x80000100` (or `0x80000000` plus your COB-ID); the plugin warns when no configured node does. |
+| `time_period_ms` | 0x1012 bit 30 | 100-3600000. The master produces TIME: a CiA 301 TIME_OF_DAY from the runtime host's clock (UTC) on `time_cob_id` (or 0x100), sent at once when the bus comes up, again at once after the bus recovers, and then every `time_period_ms`. While the master is NMT STOPPED it sends no TIME (CiA 301), and sends one at once when it leaves STOPPED. Left out, the master sends no TIME. The start-up log names the COB-ID, the period and the host's time, so a host without NTP or a real-time clock shows up there. Nodes use TIME only when their own 0x1012 has the consumer bit: set the node's `time_cob_id` to `0x80000100` (or `0x80000000` plus your COB-ID); the bridge warns when no configured node does. |
 | `emcy_inhibit_time_us` | 0x1015 | Inhibit time of the master's own EMCY, multiple of 100. |
 | `heartbeat_consumer` | 0x1016 | Default `true`: the master watches the nodes' heartbeats. `false` leaves 0x1016 empty, so a lost node is noticed only through guarding. |
 | `heartbeat_multiplier` | | 1-100, default 3. A node with `heartbeat_consumer: true` times out the master's heartbeat after `heartbeat_ms` × this. |
 | `error_behavior` | 0x1029 | An object of sub-index (as a string key, 1-254) to value: 0 pre-operational, 1 no change, 2 stopped, others manufacturer-specific. `{"1": 0}` |
 | `nmt_inhibit_time_us` | 0x102A | Minimum gap between two NMT commands, multiple of 100. |
-| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: the nodes are booted and configured (and started, with `start_nodes`), but no PDOs move and every status bit stays FALSE until the PLC program starts it with `CO_NETWORK_START` ([plc-nmt.md](plc-nmt.md#start-the-network-from-the-program-co_network_start)). Nothing else starts it, and each PLC start begins PRE-OPERATIONAL again. The plugin warns about this at load. |
+| `start` | 0x1F80 | Default `true`. `false` keeps the master PRE-OPERATIONAL: the nodes are booted and configured (and started, with `start_nodes`), but no PDOs move and every status bit stays FALSE. The bridge has no command that starts it, and the bridge warns about this at load. |
 | `start_nodes` | 0x1F80 | Default `true`. `false`: nodes are configured but stay PRE-OPERATIONAL (state byte 127). |
 | `start_all_nodes` | 0x1F80 | Default `false`. `true`: one broadcast NMT start once all mandatory nodes have booted, instead of one per node. |
 | `reset_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is reset, the master included. After the master's own reset its output PDOs stay off until each node is up again, and then carry the program's current outputs (never the device configuration's defaults). |
-| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included, and the master boots no node until canworks restarts ([plc-nmt.md](plc-nmt.md)). Takes precedence over `reset_all_nodes`. |
+| `stop_all_nodes` | 0x1F80 | Default `false`. `true`: when a mandatory node is lost, every node is stopped (state 4), the master included, and the master boots no node until the bridge restarts. Takes precedence over `reset_all_nodes`. |
 | `boot_time_ms` | 0x1F89 | Time allowed for all mandatory nodes to boot; 0 or left out: no limit. |
 | `sdo_timeout_ms` | | 10-60000, default 1000. How long the master waits for each SDO answer while it boots and configures a node: identity reads, PDO and startup SDO downloads and `restore_configuration`. Raise it for a device that answers late, for example one that saves each parameter to flash first; a timeout shows as error status B or J, or as abort code 0x05040000 with "no answer within ... ms" in the log. Before this setting the timeout was Lely's 100 ms. SDO variables and diagnostics requests have their own timeouts. |
 
@@ -290,12 +287,12 @@ Each is optional. A setting left out keeps the value the plugin always used, or 
 | Field | Required | Meaning |
 |---|---|---|
 | `token_verifier` | yes | The access token's SCRAM-SHA-256 verifier, `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>` (iterations 4096-1000000, a salt of at least 16 bytes). The token itself never goes in the file, and the verifier does not let anyone log in: the configurator generates the token and keeps it on the PC, and `canworks-diag hash-token` prints the verifier of a token you choose. The former `token_sha256` is refused: set the token again ([diagnostics.md](diagnostics.md#security)). |
-| `port` | no | TCP port the plugin listens on, 1024-65535, default 7531. |
+| `port` | no | TCP port the bridge listens on, 1024-65535, default 7531. |
 | `bind` | no | IPv4 address to listen on, default `0.0.0.0` (every interface). |
 | `allow_changes` | no | Default `false`: read-only. `true` also allows SDO writes and NMT commands from a client with the token. |
-| `remote_link` | no | The remote link's settings, read by the `canworks-link` service on the device: `internet` (default `false`), `relays` (https URLs) and `pairing` (`lan`, `anywhere` or `off`). The plugin only checks them ([remote-access.md](remote-access.md#over-the-internet-the-remote-link)). |
+| `remote_link` | no | The remote link's settings, read by the `canworks-link` service on the device: `internet` (default `false`), `relays` (https URLs) and `pairing` (`lan`, `anywhere` or `off`). The bridge only checks them ([remote-access.md](remote-access.md#over-the-internet-the-remote-link)). |
 
-The plugin listens while the PLC runs and closes the port when it stops. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the plugin starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
+The bridge listens while it runs. Everything a client sees and does is in [diagnostics.md](diagnostics.md), together with the security notes. With `"nodes": []` the bridge starts the master on the bus with no slaves, so the scan can find what is connected before any node is configured.
 
 ### CiA 309-3 gateway
 
@@ -303,11 +300,11 @@ The plugin listens while the PLC runs and closes the port when it stops. Everyth
 "cia309": { "port": 7533, "allow_changes": false }
 ```
 
-`master.cia309` in a version 1 file, a top-level `cia309` object in version 2 (one for all networks). Off without it. `port` (0: no plain port, else 1024-65535, default 7533), `bind` (`127.0.0.1` or `::1` only), `max_clients` (1-16, default 4), `allow_changes` and `allow_force` (both default `false`), `nets` (`{"1": "io"}`, version 2 only) and `default_net`. Unknown fields here are errors, not warnings. Everything about it is in [cia309-gateway.md](cia309-gateway.md).
+A top-level `cia309` object, one for all networks. Off without it. `port` (0: no plain port, else 1024-65535, default 7533), `bind` (`127.0.0.1` or `::1` only), `max_clients` (1-16, default 4), `allow_changes` and `allow_force` (both default `false`), `nets` (`{"1": "io"}`) and `default_net`. Unknown fields here are errors, not warnings. Everything about it is in [cia309-gateway.md](cia309-gateway.md).
 
 ### Simulated network and devices
 
-The two `simulate` switches give four combinations: everything simulated (`adapter.simulate: true`), a simulated network with some nodes absent (`"simulate": false` on them), some simulated devices next to real ones on a real network (`"simulate": true` on them), and every node simulated on a real interface. Behaviour of the simulated devices (moving values, faults, scenarios) comes from `simulation.json` next to the config. The plugin logs a warning naming what is simulated at every PLC start, and the diagnostics status reports `simulated_network` and each node's `simulated`. [simulator.md](simulator.md) has the details.
+The two `simulate` switches give four combinations: everything simulated (`adapter.simulate: true`), a simulated network with some nodes absent (`"simulate": false` on them), some simulated devices next to real ones on a real network (`"simulate": true` on them), and every node simulated on a real interface. Behaviour of the simulated devices (moving values, faults, scenarios) comes from `simulation.json` next to the config. The bridge logs a warning naming what is simulated at every start, and the diagnostics status reports `simulated_network` and each node's `simulated`. [simulator.md](simulator.md) has the details.
 
 ## `nodes[]`
 
@@ -315,7 +312,7 @@ The two `simulate` switches give four combinations: everything simulated (`adapt
 |---|---|---|
 | `node_id` | yes | 1-127, unique, not the master's ID. |
 | `name` | no | Used in log messages. |
-| `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file first, then in the runtime's `core/generated/conf/`, where a stock runtime extracts the uploaded `conf/` tree (the deploy tool puts EDS files under `conf/canworks/eds/`). The plugin logs the path it used. |
+| `eds` | yes | EDS file (CiA 306). A relative path is looked up next to the config file. The bridge logs the path it used. |
 | `heartbeat_ms` | no | Heartbeat period the slave is configured to produce; 0 switches its heartbeat off. Left out, the slave keeps the period its EDS gives (object 0x1017) and nothing is written. The master reports the node lost when no heartbeat arrives within `heartbeat_timeout_ms`. Every node must be supervised (below). |
 | `heartbeat_timeout_ms` | no | Default 3 × `heartbeat_ms`, or 3 × the EDS heartbeat period when `heartbeat_ms` is left out. The master's heartbeat consumer entry (0x1016) for the node is exactly this time (before, a timeout that was not a multiple of the period could come out 1 ms short). |
 | `guard_time_ms`, `life_time_factor` | no | Node guarding instead of heartbeat. Give both, and not together with `heartbeat_ms`. |
@@ -331,7 +328,7 @@ The two `simulate` switches give four combinations: everything simulated (`adapt
 | `rx_pdos` | no* | PDOs the slave receives (its RPDOs). Their entries are fed from outputs (`%Q...`). |
 | `sdo` | no | Startup SDOs (below). |
 | `sdo_variables` | no | Objects read or written over SDO while the network runs (see [SDO variables](#sdo-variables)). |
-| `simulate` | no | `true`: the plugin runs a simulated device for this node, built from its EDS, node ID, identity and LSS settings. Default: `adapter.simulate`. With `true` on a real network the simulated device runs next to the real devices on the same interface; with `false` on a simulated network the node is absent. See [simulator.md](simulator.md#two-switches). |
+| `simulate` | no | `true`: the bridge runs a simulated device for this node, built from its EDS, node ID, identity and LSS settings. Default: `adapter.simulate`. With `true` on a real network the simulated device runs next to the real devices on the same interface; with `false` on a simulated network the node is absent. See [simulator.md](simulator.md#two-switches). |
 
 \* Both may be left out: a node with no PDOs is still booted, supervised and sent its startup SDOs, and all its PDOs are switched off. `tx_pdos` and `rx_pdos` are named from the slave's point of view, as in its EDS.
 
@@ -339,7 +336,7 @@ At boot the master writes the node's PDO communication and mapping parameters ov
 
 ### Node options
 
-Each is optional. The first group lives only in the master (0x1F81 and the expected identity) and keeps the plugin's earlier behaviour when left out. The second group is written to the node, and a field left out writes nothing, so the node keeps its EDS value.
+Each is optional. The first group lives only in the master (0x1F81 and the expected identity) and keeps the earlier behaviour when left out. The second group is written to the node, and a field left out writes nothing, so the node keeps its EDS value.
 
 | Field | Where | Meaning |
 |---|---|---|
@@ -349,7 +346,6 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 | `retry_factor` | master 0x1F81 | Node guarding retries. Default `life_time_factor` (0 without guarding). |
 | `revision_number` | master 0x1F87 | Expected revision (0x1018 sub 3). Default: the EDS value. `0` switches the check off. |
 | `serial_number` | master 0x1F88 | Expected serial number (0x1018 sub 4), to pin one physical device. Left out: not checked. |
-| `axis` | PLC program | Marks the node as a CiA 402 drive used as a PLCopen axis; see [CiA 402 axis](#cia-402-axis). The plugin itself does nothing different. |
 | `lss` | master (LSS) | `{"assign": true}` gives the device its node ID over the bus by its serial number, `"store": true` also saves it in the device; see [LSS](#lss). Left out: no LSS. |
 | `heartbeat_consumer` | node 0x1016 | `true`: the node watches the master's heartbeat with timeout `master.heartbeat_ms` × `master.heartbeat_multiplier`; needs `master.heartbeat_ms` above 0. `false`: the node's entry is cleared. Left out: the EDS entries stay. Refused on a node whose EDS has no writable 0x1016. |
 | `heartbeat_watch` | node 0x1016 | `[{ "node": 10, "timeout_ms": 300 }]`: the node watches other nodes' heartbeats itself, one 0x1016 entry each (the entry naming that node, else the first unused one that is not the master's), so it can react without the master (its 0x1029, usually EMCY 0x8130). `timeout_ms` defaults to the watched node's heartbeat timeout as the master uses it (`heartbeat_timeout_ms`, else 3 × its heartbeat period) and must be above its period. Refused: watching itself or the master (use `heartbeat_consumer`), a node that sends no heartbeat (guarding, or a 0x1017 of 0), or more entries than the EDS 0x1016 has writable ones. See [PDO links](#pdo-links). |
@@ -362,11 +358,11 @@ Each is optional. The first group lives only in the master (0x1F81 and the expec
 
 Vendor ID and product code are always checked against the EDS; `dcfgen` has no switch for them.
 
-These fields write the same objects a startup SDO could. A startup SDO runs last and wins; the plugin and the deploy tool warn about the overlap.
+These fields write the same objects a startup SDO could. A startup SDO runs last and wins; the bridge and the deploy tool warn about the overlap.
 
-**Change from earlier releases:** `dcfgen` cleared a node's 0x1016 entry that watched the master when the config said nothing about it. The plugin now drops that write, so a node whose EDS watches the master keeps doing so. Set `heartbeat_consumer: false` to clear it.
+**Change from earlier releases:** `dcfgen` cleared a node's 0x1016 entry that watched the master when the config said nothing about it. The bridge now drops that write, so a node whose EDS watches the master keeps doing so. Set `heartbeat_consumer: false` to clear it.
 
-`dcfgen` 2.4.2 never writes a node's `time_cob_id` (a typo in its code compares against a fixed 0x100), so the plugin writes 0x1012 itself after the configuration `dcfgen` generated, and warns when the EDS has no 0x1012. `dcfgen`'s own warnings are logged as warnings with the node named.
+`dcfgen` 2.4.2 never writes a node's `time_cob_id` (a typo in its code compares against a fixed 0x100), so the bridge writes 0x1012 itself after the configuration `dcfgen` generated, and warns when the EDS has no 0x1012. `dcfgen`'s own warnings are logged as warnings with the node named.
 
 ### Configuration check
 
@@ -386,7 +382,7 @@ Caveats:
 - Changes made on the device by hand (a vendor tool, an SDO from the diagnostics channel) are not noticed. To force a download at the next boot, write 0 to the node's 0x1020 sub 1, or turn `config_check` off for one start.
 - Saving to flash can take longer than the boot SDO timeout; raise [`master.sdo_timeout_ms`](#master-options) if the save aborts with 0x05040000.
 
-The node's EDS must define 0x1020 sub 1 and sub 2 as writable UNSIGNED32, and the `store_configuration` sub-index of 0x1010 as writable; the plugin and the deploy tool reject the config otherwise.
+The node's EDS must define 0x1020 sub 1 and sub 2 as writable UNSIGNED32, and the `store_configuration` sub-index of 0x1010 as writable; the bridge and the deploy tool reject the config otherwise.
 
 ### LSS
 
@@ -407,7 +403,7 @@ the master gives the device with that serial number node ID 12 every time it sta
 
 **Boot retries.** When a node with `lss.assign` is lost or missing (for example a device that power-cycled and came back without a node ID, or a replaced device), the master searches for it again before each boot retry, one node at a time, at most as often as the retry backoff allows (1 to 16 seconds). A device that comes back without a node ID starts with the assigned one at once. A device that answers with **another** valid node ID gets the new ID pending, but keeps its old one until it is reset or power-cycled: the master sends no NMT command to the old ID, which may belong to another device, and logs `node 12 (valve): LSS assigned node ID 12; the device keeps node ID 5 until it is reset or power-cycled`. Power-cycle the device to finish.
 
-Rules, checked by the plugin and the deploy tool:
+Rules, checked by the bridge and the deploy tool:
 
 - `lss.assign` needs `serial_number`; vendor ID and product code always come from the EDS.
 - `lss.store` needs `lss.assign`.
@@ -417,35 +413,15 @@ Rules, checked by the plugin and the deploy tool:
 
 Without any node with `lss` and without diagnostics changes the master sends no LSS frame at all. To set the node ID or bit rate of a device by hand (commissioning, or a device that is not in the config yet), use the configurator's online view or `canworks-diag lss-...` ([diagnostics.md](diagnostics.md#what-it-offers)). Changing one device's bit rate takes effect at its next power cycle; set `adapter.bitrate` to match once all devices are set.
 
-### CiA 402 axis
-
-`axis` makes the node a PLCopen axis for the editor's motion blocks (`MC_Power`, `MC_MoveAbsolute`, ...), named after the node. The project generator declares the axis and calls the editor's CiA 402 drive bridge with the node's mapped standard objects (0x6040, 0x6041, 0x6060, 0x6061, 0x6064, 0x606C, 0x607A, 0x6081, 0x60FF, 0x6071, 0x6077); the plugin only accepts the field.
-
-```json
-"axis": { "scale_numerator": 1, "scale_denominator": 1, "scale_factor": 1.0 }
-```
-
-| Field | Meaning |
-|---|---|
-| `scale_numerator` | Drive increments for `scale_denominator` position units, -2147483648 to 2147483647 except 0. Default 1. |
-| `scale_denominator` | 1 to 4294967295. Default 1. |
-| `scale_factor` | The library's extra factor, any number but 0. Default 1.0. |
-| `cyclic` | `true`: the program drives the axis in the cyclic synchronous modes (CSP 8, CSV 9, CST 10) with the `CO402_Cyclic*` blocks. Default `false`. |
-| `interpolation_period_us` | With `cyclic`: the interpolation time period the plugin writes to the drive's 0x60C2 instead of the SYNC period, 100 to 255000. It must be 1-255 times 1 ms, 100 us, 10 us or 1 us. |
-
-An axis node needs `status_location` and 0x6040 in an RPDO and 0x6041 in a TPDO, each with a location; the deploy tool and the configurator check this and the other standard objects' directions and types. See [cia402.md](cia402.md).
-
-A **cyclic** axis also needs SYNC from the PLC cycle with one SYNC per cycle (`"sync_source": "plc_cycle"`, `sync_cycles` 1), 0x6060 and at least one set-point (0x607A, 0x60FF or 0x6071) mapped, and synchronous RPDOs (transmission type 0-240, the config's or else the EDS's) for the controlword, the mode and the set-points. The checks warn when the position or velocity feedback comes in a TPDO that is not synchronous, when the EDS has no 0x60C2 or 0x6065, and when its 0x6502 does not list the mode a mapped set-point needs. During node configuration the plugin writes 0x60C2 (sub 1 the value, sub 2 the exponent) from `interpolation_period_us` or the SYNC period, unless a startup SDO writes 0x60C2 or the EDS has none. See [cia402.md](cia402.md#cyclic-synchronous-modes).
-
 ### Mandatory nodes
 
-With `mandatory: true` on any node the master does not go OPERATIONAL until every mandatory node has booted, so **no node exchanges PDOs** before that, also the optional ones that are up. The plugin logs a missing mandatory node as an error naming it as the reason the network is held, the master state byte reads 127, and every status bit is FALSE. The PLC keeps scanning. Once the last mandatory node boots, the plugin starts the master and logs "all mandatory nodes have booted: starting the master".
+With `mandatory: true` on any node the master does not go OPERATIONAL until every mandatory node has booted, so **no node exchanges PDOs** before that, also the optional ones that are up. The bridge logs a missing mandatory node as an error naming it as the reason the network is held, the master state byte reads 127, and every status bit is FALSE. Once the last mandatory node boots, the bridge starts the master and logs "all mandatory nodes have booted: starting the master".
 
 When a mandatory node is lost later, the master resets that node (default), stops every node including itself (`stop_all_nodes`), or resets every node including itself (`reset_all_nodes`). An optional node that is lost is always reset on its own.
 
 ### Identity check and boot error byte
 
-When a node's identity does not match, the plugin reads the node's 0x1018 and logs one line per wrong device, for example `node 5 (rtd): wrong device: product code 1029 (0x00000405), expected 1028 (0x00000404) from rtd8.eds`. It keeps retrying quietly, without resetting the node, and logs again only when another device answers. The right device then boots normally. When 0x1018 reads the expected value after all, the boot's own read failed rather than the check, and the line says so instead: `the boot could not check the vendor ID (status D), which reads ... as expected now: is another CANopen master on the bus?`.
+When a node's identity does not match, the bridge reads the node's 0x1018 and logs one line per wrong device, for example `node 5 (rtd): wrong device: product code 1029 (0x00000405), expected 1028 (0x00000404) from rtd8.eds`. It keeps retrying quietly, without resetting the node, and logs again only when another device answers. The right device then boots normally. When 0x1018 reads the expected value after all, the boot's own read failed rather than the check, and the line says so instead: `the boot could not check the vendor ID (status D), which reads ... as expected now: is another CANopen master on the bus?`.
 
 `boot_error_location` holds the CiA 302 error status letter as its ASCII code:
 
@@ -470,7 +446,7 @@ Each communication field that is set (`cob_id`, `transmission`, `inhibit_time_us
 | Field | Required | Meaning |
 |---|---|---|
 | `number` | no | PDO number on the slave, 1-512 (TPDO *n* is object 0x1800+*n*-1, RPDO *n* is 0x1400+*n*-1). Defaults to the position in the list. |
-| `cob_id` | no | 11-bit COB-ID, or `"auto"`. Defaults to the CiA 301 value for PDOs 1-4 (TPDO: 0x180/0x280/0x380/0x480 + node ID, RPDO: 0x200/0x300/0x400/0x500 + node ID). Higher numbers need a COB-ID or `"auto"`, which picks the highest COB-ID in 0x181-0x57F that is outside every configured node's predefined set and not used by another PDO, in file order; the plugin logs the one it picked. |
+| `cob_id` | no | 11-bit COB-ID, or `"auto"`. Defaults to the CiA 301 value for PDOs 1-4 (TPDO: 0x180/0x280/0x380/0x480 + node ID, RPDO: 0x200/0x300/0x400/0x500 + node ID). Higher numbers need a COB-ID or `"auto"`, which picks the highest COB-ID in 0x181-0x57F that is outside every configured node's predefined set and not used by another PDO, in file order; the bridge logs the one it picked. |
 | `transmission` | no | Transmission type, 0-240 (synchronous) or 254/255 (event-driven). Left out, the slave keeps the transmission type its EDS gives and nothing is written, so a device whose transmission type is fixed still boots. Given, it is always written, also when it equals the EDS default, because a device can run with another value than its EDS says. The same holds for `inhibit_time_us`, `event_timer_ms` and `sync_start`. |
 | `inhibit_time_us` | no | TPDOs only. Minimum time between two sends of the PDO, in µs, a multiple of 100 (sub-index 3, which counts 100 µs). |
 | `event_timer_ms` | no | Sub-index 5. On a TPDO, the event timer: with an event-driven type the slave sends at least this often. On an RPDO, the deadline: the slave signals an error (usually an EMCY) when the PDO has not arrived within this time. 0 switches it off. |
@@ -483,7 +459,7 @@ Each communication field that is set (`cob_id`, `transmission`, `inhibit_time_us
 
 ### Receive timeout
 
-A node can stay operational, with a working heartbeat, while one of its input PDOs stops coming: a sensor fault, a remapped COB-ID, a node that only sends on change and has gone quiet. The node status bit does not show this. `timeout_ms` on a TPDO makes the master watch it: the plugin writes the time as the deadline (sub-index 5) of the master's own RPDO for that COB-ID in the master DCF, and Lely reports when it expires.
+A node can stay operational, with a working heartbeat, while one of its input PDOs stops coming: a sensor fault, a remapped COB-ID, a node that only sends on change and has gone quiet. The node status bit does not show this. `timeout_ms` on a TPDO makes the master watch it: the bridge writes the time as the deadline (sub-index 5) of the master's own RPDO for that COB-ID in the master DCF, and Lely reports when it expires.
 
 - A PDO counts as timed out when, while its node is up, no PDO has arrived for `timeout_ms`, also when none arrived at all after the node came up. The next PDO ends the timeout. While the node is down nothing times out and the timeout bit is FALSE; the node status bit covers that case.
 - Each timeout logs one warning (`node 2 TPDO 1: no PDO for 200 ms (timeout_ms); its inputs keep their last values`) and is counted; when the PDO is back, one line says how long it was missing.
@@ -508,13 +484,13 @@ Here the slave sends TPDO 1 at least every 100 ms; after 200 ms without it `%IX2
 
 ### Devices with a fixed PDO mapping
 
-Many simple I/O modules, and some drives, cannot change their PDO mapping: their EDS marks the mapping object (0x1600+*n*-1 or 0x1A00+*n*-1) `ro` or `const`. The plugin then uses the device mapping by itself: it writes no mapping, and the master packs and unpacks the PDO with the default mapping the EDS gives (`DefaultValue` of sub-index 0 and of each mapped sub-index). `"mapping": "device"` does the same for a PDO whose mapping the EDS lets the master write, for a device that refuses the change anyway or to keep its mapping as it is.
+Many simple I/O modules, and some drives, cannot change their PDO mapping: their EDS marks the mapping object (0x1600+*n*-1 or 0x1A00+*n*-1) `ro` or `const`. The bridge then uses the device mapping by itself: it writes no mapping, and the master packs and unpacks the PDO with the default mapping the EDS gives (`DefaultValue` of sub-index 0 and of each mapped sub-index). `"mapping": "device"` does the same for a PDO whose mapping the EDS lets the master write, for a device that refuses the change anyway or to keep its mapping as it is.
 
-With the device mapping, `entries` lists only the objects of that mapping the PLC uses, each with its location; order does not matter. Objects the config leaves out, dummy gaps included, still travel in the PDO but are not exchanged with the PLC. In an RPDO (PLC to node) they go out as 0, and the plugin warns about them at load. The plugin logs each device-mapped PDO with its mapping when it loads.
+With the device mapping, `entries` lists only the objects of that mapping the PLC uses, each with its location; order does not matter. Objects the config leaves out, dummy gaps included, still travel in the PDO but are not exchanged with the PLC. In an RPDO (PLC to node) they go out as 0, and the bridge warns about them at load. The bridge logs each device-mapped PDO with its mapping when it loads.
 
 The config is refused at load when `"mapping": "config"` is set on a fixed mapping, when an entry is not in the default mapping (the error lists it) or its type has another size there, or when the EDS gives no default mapping for a device-mapped PDO.
 
-Such devices usually fix the COB-ID and transmission type too. The plugin never writes a PDO communication sub-index the EDS marks read-only: dcfgen's switch-off and switch-on of the COB-ID while configuring a PDO is left out for them. The COB-ID the plugin uses, set in `cob_id` or the CiA 301 default when left out, must then equal the EDS value; a device with TPDO 2 on 0x380 + node ID, for example, needs `"cob_id"` set to that. A PDO the config does not use and whose COB-ID is read-only is not switched off but left as the device has it (the plugin logs this); the master ignores its frames.
+Such devices usually fix the COB-ID and transmission type too. The bridge never writes a PDO communication sub-index the EDS marks read-only: dcfgen's switch-off and switch-on of the COB-ID while configuring a PDO is left out for them. The COB-ID the bridge uses, set in `cob_id` or the CiA 301 default when left out, must then equal the EDS value; a device with TPDO 2 on 0x380 + node ID, for example, needs `"cob_id"` set to that. A PDO the config does not use and whose COB-ID is read-only is not switched off but left as the device has it (the bridge logs this); the master ignores its frames.
 
 ```json
 "tx_pdos": [ { "entries": [ { "index": "0x6000", "subindex": 2, "type": "UNSIGNED8", "iec_location": "%IB40" } ] } ],
@@ -550,33 +526,26 @@ The object's `AccessType` in the EDS must allow the direction: a `tx_pdos` entry
 
 ### Bit channels
 
-A byte or word of a device often carries one signal per bit: the eight inputs of an I/O module, the bits of a CiA 402 statusword. `bits` gives such bits a BOOL variable each, with a name of their own, so the program reads `panel_jog_x_plus` instead of picking bit 3 out of a byte:
+A byte or word of a device often carries one signal per bit: the eight inputs of an I/O module, the bits of a drive's statusword. `bits` gives such bits a BOOL variable each, with a name of their own, so the program reads `panel_jog_x_plus` instead of picking bit 3 out of a byte:
 
 ```json
 { "index": "0x6000", "subindex": 1, "type": "UNSIGNED8", "iec_location": "%IB40",
-  "bits": [ { "bit": 0, "name": "start", "iec_location": "%IX41.0" },
-            { "bit": 3, "name": "jog_x_plus", "iec_location": "%IX41.3" } ] }
+  "bits": [ { "bit": 0, "name": "start" },
+            { "bit": 3, "name": "jog_x_plus" } ] }
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
 | `bit` | yes | The bit of the entry's value, 0 for the least significant one, below the type's size. Each bit at most once. |
 | `name` | no | The variable name part, as an entry's `name`: the declaration is `<node>_<name>`. Default: `<entry part>_bit<n>` (`statusword_bit3`). Unique within the node together with the entry names (ignoring case). |
-| `iec_location` | OpenPLC | An `%IX` bit for a TPDO entry, a `%QX` bit for an RPDO entry. Left out in a CODESYS or Modbus bridge config. |
 
-Only integer entries (`INTEGER*`, `UNSIGNED*`) have bits. OpenPLC keeps its bit, byte and word tables apart (`%IX41.0` is not bit 0 of `%IB41`), so the plugin copies each bit every scan:
-
-- A TPDO entry may keep its own `iec_location` next to its bits: the program then has the whole value and the bits. Without one it has the bits only.
-- An RPDO entry has its bits or its own location, not both (both would write the same bits). The program sets the bits and the plugin builds the value from them; bits not listed are sent as 0.
-- A bit's location must not overlap any other location, as for entries.
-
-In a [CODESYS config](#codesys-target) the bits name the channel's bit variables and have no location. In a [Modbus bridge](modbus-bridge.md) config the entry keeps its own location and the bits are names only: each is served as the discrete input or coil that holds it.
+Only integer entries (`INTEGER*`, `UNSIGNED*`) have bits, and a bit has no location of its own: the entry keeps its location and the bridge serves each bit as the discrete input or coil that holds it ([modbus-bridge.md](modbus-bridge.md#byte-addresses)). Writing the coil of an output bit changes only that bit. In a [CODESYS config](#codesys-target) the bits name the channel's bit variables.
 
 ## PDO links
 
-A PDO is a broadcast frame: any RPDO with the same COB-ID receives it (CiA 301 producer/consumer). A *link* lets one node's TPDO feed RPDOs of other nodes directly, without the PLC scan in between: a joystick module driving a valve module, an encoder feeding a drive, enable bits that must keep moving while the PLC program is stopped for a download. The master configures both ends at boot and keeps receiving the TPDO itself, so the PLC can still read it.
+A PDO is a broadcast frame: any RPDO with the same COB-ID receives it (CiA 301 producer/consumer). A *link* lets one node's TPDO feed RPDOs of other nodes directly, without the PLC program in between: a joystick module driving a valve module, an encoder feeding a drive, enable bits that must keep moving while the PLC program is stopped for a download or the bridge restarts. The master configures both ends at boot and keeps receiving the TPDO itself, so the PLC can still read it.
 
-`links` sits at the top level of a version 1 file and in a CANopen master network of a version 2 file (it is refused on slave, J1939 and plain CAN networks):
+`links` sits in a CANopen master network (it is refused on slave, J1939 and plain CAN networks):
 
 ```json
 "nodes": [
@@ -596,14 +565,14 @@ A PDO is a broadcast frame: any RPDO with the same COB-ID receives it (CiA 301 p
 ]
 ```
 
-Node 20's RPDO 2 takes COB-ID 0x18A: the first value drives its analog output 1, the second is skipped by a dummy entry. The PLC reads the first value in `%IW100`; the second has no location and reaches only the consumer. Node 20 watches node 10's heartbeat for 300 ms and goes PRE-OPERATIONAL on its loss. The link keeps running while the PLC is stopped.
+Node 20's RPDO 2 takes COB-ID 0x18A: the first value drives its analog output 1, the second is skipped by a dummy entry. The PLC reads the first value in `%IW100`; the second has no location and reaches only the consumer. Node 20 watches node 10's heartbeat for 300 ms and goes PRE-OPERATIONAL on its loss. The link keeps running while the PLC program is stopped, since it never passes through it.
 
 | Field | Required | Meaning |
 |---|---|---|
 | `name` | no | Used in messages and the tools. Default `link <n>`, its 1-based place in the list. |
 | `from` | yes | `{ "node", "tpdo" }`: the producer and the number of one of its `tx_pdos`. The TPDO keeps all its settings there (COB-ID including `"auto"`, transmission, inhibit time, event timer, mapping, `timeout_ms`). A TPDO feeds at most one link: list all its consumers in that link. |
 | `to` | yes | One or more consumers. |
-| `on_plc_stop` | no | `"follow"` (default): the link's nodes get `master.on_plc_stop` like every node. `"keep"`: they get no NMT command on PLC stop. |
+| `on_plc_stop` | no | `"follow"` (default): the link's nodes get `master.on_plc_stop` like every node. `"keep"`: they get no NMT command when the bridge stops. |
 
 Each consumer:
 
@@ -624,13 +593,11 @@ Each consumer:
 
 **Loss and reboot.** A lost producer or consumer is handled by the normal supervision and boot; the master only logs which consumers lose their data (`node 10 lost: link stick_to_valves feeds node 20 RPDO 2, which get no data until it is back`). Consumers keep their last received values unless their deadline (`event_timer_ms`) or a [heartbeat watch](#node-options) makes them react; what they do then is the device's (its 0x1029 error behaviour). A node that boots again gets its whole configuration, link writes included, and the link carries data again once both ends are OPERATIONAL.
 
-**PLC stop.** With `"on_plc_stop": "keep"` the master sends the link's producer and consumers no NMT command when the PLC stops, logs `PLC stop: left running for their PDO links: ...`, and sends every other node `master.on_plc_stop`. The network still closes, so the master's heartbeat and SYNC stop: the plugin warns at load when a kept link has a synchronous producer or consumer type (it stops with SYNC) or a node with `heartbeat_consumer` (it sees the master's heartbeat stop and reacts per its 0x1029). The scan watchdog closes only the master's own TPDOs. At the next PLC start the master boots the nodes as usual, so the link pauses for the boot. The safety of a kept link is the devices': give the consumers a deadline and a heartbeat watch.
+**Bridge stop.** With `"on_plc_stop": "keep"` the master sends the link's producer and consumers no NMT command when the bridge stops, logs `stop: left running for their PDO links: ...`, and sends every other node `master.on_plc_stop`. The network still closes, so the master's heartbeat and SYNC stop: the bridge warns at load when a kept link has a synchronous producer or consumer type (it stops with SYNC) or a node with `heartbeat_consumer` (it sees the master's heartbeat stop and reacts per its 0x1029). At the next start the master boots the nodes as usual, so the link pauses for the boot. The safety of a kept link is the devices': give the consumers a deadline and a heartbeat watch.
 
-**SYNC timing.** A synchronous producer TPDO is sent after every n-th SYNC; a synchronous consumer RPDO applies its data at the next SYNC (one SYNC period later, all consumers in step); event-driven types pass data on at once. A synchronous consumer needs a master that produces SYNC; with `"sync_source": "plc_cycle"` a synchronous link runs at the PLC frame rate and stops with the PLC. Use event-driven types (254 or 255, with an event timer on the producer) for a link that must survive a PLC stop.
+**SYNC timing.** A synchronous producer TPDO is sent after every n-th SYNC; a synchronous consumer RPDO applies its data at the next SYNC (one SYNC period later, all consumers in step); event-driven types pass data on at once. A synchronous consumer needs a master that produces SYNC. Use event-driven types (254 or 255, with an event timer on the producer) for a link that must survive a bridge stop.
 
 **Fixed-mapping devices.** A producer with a fixed TPDO mapping uses its EDS default mapping as the layout; a consumer with a fixed RPDO mapping must match the producer position by position with its default mapping, and a consumer with a fixed COB-ID needs the producer TPDO on that COB-ID.
-
-An older plugin reading a file with `links` warns that the field is unknown and runs the nodes without the links.
 
 ## Startup SDOs
 
@@ -643,9 +610,9 @@ Each node may list object writes the master sends while it configures the node: 
 | `type` | yes | One of the PDO entry types. It must equal the object's `DataType` in the EDS, and the object's `AccessType` must be writable (`wo`, `rw`, `rwr` or `rww`). |
 | `value` | yes | A JSON number (`true`/`false` also work for `BOOLEAN`), or an integer as a decimal or `0x` hex string, which keeps 64-bit values exact. It must fit the type: `UNSIGNED8` takes 0-255, `INTEGER8` -128-127, and so on. |
 
-A startup SDO runs after everything the plugin writes from the node's settings, so one that writes a PDO parameter (0x1400-0x1BFF), the heartbeat time (0x1017, with `heartbeat_ms` set to another value) or the guarding parameters (0x100C/0x100D) overrides that setting. The plugin and the deploy tool warn about it but accept the file.
+A startup SDO runs after everything the bridge writes from the node's settings, so one that writes a PDO parameter (0x1400-0x1BFF), the heartbeat time (0x1017, with `heartbeat_ms` set to another value) or the guarding parameters (0x100C/0x100D) overrides that setting. The bridge and the deploy tool warn about it but accept the file.
 
-A slave that aborts a startup SDO is handled like any configuration SDO: the plugin logs the node ID, index, subindex and abort code, and that node stays not operational while the others run.
+A slave that aborts a startup SDO is handled like any configuration SDO: the bridge logs the node ID, index, subindex and abort code, and that node stays not operational while the others run.
 
 Many devices only accept some settings while PRE-OPERATIONAL. A node that comes back after a pulled cable or a lost heartbeat is often still OPERATIONAL, so when a configuration download fails (CiA 302 error status J) the master resets the node (NMT reset node) before the next retry and configures it again from PRE-OPERATIONAL. The retries back off up to 16 s, so a download that the device always refuses resets it at most that often. After the master starts a node, the node's heartbeat must say OPERATIONAL within two of the master's heartbeat consumer periods for it (plus 100 ms). A node that falls back to PRE-OPERATIONAL before its first heartbeat after the start is otherwise never noticed, because its heartbeat state does not change, so the master logs `node 10 (openplc) did not report OPERATIONAL in its heartbeat after the start command; booting it again` and boots it again.
 
@@ -719,27 +686,27 @@ With `nmt_command_location` the program commands the node through an output byte
 | 129 | Reset the node once when the byte changes to 129. |
 | 130 | Reset the node's communication once when the byte changes to 130. |
 
-A held node (2 or 128) is not rebooted by the master when it leaves OPERATIONAL, and a node that starts by itself is sent the hold again. A reset (129, 130) clears the hold, the node boots again, and the byte must change away and back to reset it again. The plugin logs each command it sends (`NMT STOP (held by the program)`, `NMT RESET NODE (from the program)`). Other values are ignored with a warning. The byte reads 0 at start, so a program that never writes it leaves the node to the master.
+A held node (2 or 128) is not rebooted by the master when it leaves OPERATIONAL, and a node that starts by itself is sent the hold again. A reset (129, 130) clears the hold, the node boots again, and the byte must change away and back to reset it again. The bridge logs each command it sends (`NMT STOP (held by the program)`, `NMT RESET NODE (from the program)`). Other values are ignored with a warning. The byte reads 0 at start, so a program that never writes it leaves the node to the master.
 
-The `CO_NMT` function block of the `canworks` library sends the same commands with the node picked at run time, also to a node the config does not list or to every node at once, and `CO_NETWORK_START` and `CO_NETWORK_STOP` start and stop the master itself ([plc-nmt.md](plc-nmt.md)). The byte, `CO_NMT` and an operator's NMT commands (online view, `canworks-diag nmt`, Modbus control block) set the same hold of a node, and the one that acted last decides; since the byte acts only when its value changes, use one of the two per node. A hold or a reset sent through the byte to a mandatory node is not a loss of that node: the master stays OPERATIONAL and `reset_all_nodes` or `stop_all_nodes` do not react.
+The `CO_NMT` function block of the `canworks` library sends the same commands with the node picked at run time, also to a node the config does not list or to every node at once ([plc-library.md](plc-library.md)). The byte, `CO_NMT` and an operator's NMT commands (online view, `canworks-diag nmt`, Modbus control block) set the same hold of a node, and the one that acted last decides; since the byte acts only when its value changes, use one of the two per node. A hold or a reset sent through the byte to a mandatory node is not a loss of that node: the master stays OPERATIONAL and `reset_all_nodes` or `stop_all_nodes` do not react.
 
 ## Compatibility rules
 
-Within one `schema_version`, a later release of the plugin accepts every file an earlier release accepted, with the same meaning. New optional fields may be added within a version. Removing a field, making an optional field required, or changing a field's meaning needs a new `schema_version`. Unknown fields are ignored with a warning that names the field and its JSON path (`nodes[0].colour`), so a file written for a newer release of the same version still loads. The one exception is the removed program download: a node with `software_file` or `software_version` is rejected (`node 2 (pingpong): unknown field 'software_file' (nodes[0].software_file)`). Update device firmware with the vendor's tool.
+Within one `schema_version`, a later release of the bridge accepts every file an earlier release accepted, with the same meaning. New optional fields may be added within a version. Removing a field, making an optional field required, or changing a field's meaning needs a new `schema_version`. Unknown fields are ignored with a warning that names the field and its JSON path (`nodes[0].colour`), so a file written for a newer release of the same version still loads. The one exception is the removed program download: a node with `software_file` or `software_version` is rejected (`node 2 (pingpong): unknown field 'software_file' (nodes[0].software_file)`). Update device firmware with the vendor's tool.
 
-The schema describes every field, its type and whether it is required. It cannot express these checks, which the plugin (and the deploy tool, before upload) run as well:
+The schema describes every field, its type and whether it is required. It cannot express these checks, which the bridge (and the deploy tool and the configurator, before they send it) run as well:
 
 - node IDs are unique and differ from the master's;
 - each entry's type fits its location's size (SDO variables too), and a PDO carries at most 64 bits;
 - PDO numbers are unique per direction, PDOs above 4 have a `cob_id`, and no two PDOs share a COB-ID;
 - `heartbeat_timeout_ms` is not shorter than `heartbeat_ms`, and heartbeat and node guarding are not combined;
-- locations do not overlap and lie inside the runtime's I/O image;
+- locations do not overlap and lie inside the bridge's byte image;
 - a startup SDO value fits its type, and numbers given as strings are in range;
 - everything against the EDS: the file parses, PDO numbers exist, objects exist, are PDO-mappable, have the configured `DataType` and an `AccessType` that allows the direction;
 - PDO links: producer and consumers are different nodes of the network, the producer TPDO is in its `tx_pdos` and feeds one link, the consumer RPDO is in its EDS and in neither its `rx_pdos` nor another link, both layouts match position by position against both EDS files, a fixed consumer COB-ID equals the link's, a synchronous consumer has SYNC;
 - `heartbeat_watch`: the watched node is on the network, is not the node itself or the master, sends a heartbeat, the timeout is above its period, and the EDS 0x1016 has room for every entry.
 
-The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks and J1939, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) [`cases-j1939.json`](../test/fixtures/config/cases-j1939.json) and, for PDO links, [`cases-links.json`](../test/fixtures/config/cases-links.json) run through the schema, the plugin and the deploy tool, and CI checks that they agree.
+The shared fixtures in [`test/fixtures/config/cases.json`](../test/fixtures/config/cases.json) and, for several networks and J1939, [`cases-v2.json`](../test/fixtures/config/cases-v2.json) [`cases-j1939.json`](../test/fixtures/config/cases-j1939.json) and, for PDO links, [`cases-links.json`](../test/fixtures/config/cases-links.json) run through the schema, the bridge and the deploy tool, and CI checks that they agree.
 
 ## Emergency messages
 
@@ -766,7 +733,7 @@ With `emcy_code_location` and `error_register_location` the program sees the lat
 - a boot-up message (the node restarted) sets both to 0;
 - while the node is lost, both keep their value.
 
-These two hold only the latest EMCY: a fault that is reset within one scan, or the same code twice in a row, does not show there. The function block [`CO_RECV_EMCY`](plc-sdo.md#every-emcy-co_recv_emcy) gives the program every EMCY of the network's configured nodes in order, from a queue of the last 64 (including the ones the log throttle did not log). The device's own error history, the pre-defined error field 0x1003, is read and cleared with [`canworks-diag errors`](diagnostics.md) or in the configurator's online node page.
+These two hold only the latest EMCY: a fault that is reset within one scan, or the same code twice in a row, does not show there. The device's own error history, the pre-defined error field 0x1003, is read and cleared with [`canworks-diag errors`](diagnostics.md) or in the configurator's online node page.
 
 ### EMCY COB-ID
 
@@ -786,12 +753,12 @@ The EMCY code and the [boot error byte](#identity-check-and-boot-error-byte) are
 
 ## What is rejected
 
-If the file does not exist, the plugin logs a warning with the expected path and stays inactive. Otherwise it stays inactive, opens no CAN interface, and logs every problem with the file and the field, node, object or location it concerns, when:
+If the file does not exist or is refused, the bridge does not start: it opens no CAN interface and no Modbus port, and logs every problem with the file and the field, node, object or location it concerns, when:
 
 - the file is not valid JSON (`NaN` and `Infinity` included), has an object with the same key twice, has a number string with a leading zero (`"012"`), spaces or a line break around it, a JSON number of 2^53 or more, or lacks a required field;
 - a node ID is outside 1-127, is used twice, or is the master's;
 - an EDS file is missing or cannot be parsed;
-- the file's `schema_version` is newer than the plugin's, or it has both `adapter` and the old top-level keys, or an unknown adapter type, or a field of the other adapter type, or an `slcan` adapter without an absolute `device`;
+- the file's `schema_version` is newer than the bridge's or is 1, it has neither `bridge` nor `codesys` (a config for the removed plugin), it has `codesys` (the bridge does not run CODESYS configs), or it has both `adapter` and the old top-level keys, or an unknown adapter type, or a field of the other adapter type, or an `slcan` adapter without an absolute `device`;
 - an entry names an object that the node's EDS does not define as PDO-mappable, whose `DataType` differs from the entry's type, or whose `AccessType` does not allow the direction;
 - a startup SDO names an object the EDS does not define, is not writable, has another `DataType`, or its value does not fit the type; or it writes 0x1010 or 0x1011 (store and restore: use `store_configuration` and `restore_configuration`), or a write SDO variable on them has no `trigger_location`;
 - an SDO variable names an object the EDS does not define, has another `DataType`, does not allow its direction, has a location of the wrong area or size, gives `period_ms` on a write or below 10, or a `timeout_ms` outside 10-60000; or its trigger is not `%QX`, its status not `%IB` or its abort code not `%ID`;
@@ -808,53 +775,27 @@ If the file does not exist, the plugin logs a warning with the expected path and
 - a time in µs that CiA counts in 100 µs is not a multiple of 100, `sync_counter_overflow` is 1 or above 240, or an `error_behavior` sub-index is outside 1-254;
 - a node sets `config_check` while its EDS has no writable 0x1020 sub 1 and sub 2, or `store_configuration` outside 1-127, without `config_check`, or on a 0x1010 sub-index its EDS does not define as writable;
 - a node sets `lss.assign` without `serial_number` or with `reset_communication: false`, `lss.store` without `lss.assign`, or two nodes with `lss.assign` have the same LSS address;
-- a node's `axis` is not an object, has an unknown field, a `scale_numerator` that is 0 or not an integer in the DINT range, a `scale_denominator` outside 1-4294967295 or a `scale_factor` of 0;
 - a node sets `heartbeat_consumer: true` while `master.heartbeat_ms` is 0, or has `software_file` or `software_version` (program download was removed);
-- a location lies outside the runtime's I/O image (index 1024 and up on a default runtime), raw message locations included; in a bridge config, a location or block whose bytes reach past the image;
+- a location or block, raw message locations included, has bytes past the image (8192 input and 8192 output bytes), a word, double or long word location starts at an odd byte, or two locations share a byte ([modbus-bridge.md](modbus-bridge.md#byte-addresses));
 - an `interface` is not 1-15 characters of letters, digits, `_`, `.`, `:` and `-`;
 - a node has no guarding and a heartbeat of 0 from its EDS default, without an explicit `"heartbeat_ms": 0`;
-- `master.on_plc_stop` is not `"preop"`, `"stop"` or `"keep"`, or `master.scan_watchdog_ms`, `j1939.scan_watchdog_ms` or a plain CAN network's `raw.scan_watchdog_ms` is not 0 or 10-60000, or `raw.scan_watchdog_ms` is on a CANopen or J1939 network;
+- `master.on_plc_stop` is not `"preop"`, `"stop"` or `"keep"`, or `master.sync_source` is `"plc_cycle"` (the bridge has no PLC cycle);
 - a bridge config has no `bridge.writers` (`[]` lets nobody write, `["0.0.0.0/0", "::/0"]` every address), or `bridge.max_clients_per_address` is outside 1-64 ([modbus-bridge.md](modbus-bridge.md));
-- in a version 2 file: `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
-- `nodes` is empty without `master.diagnostics` (in version 2, without the top-level `diagnostics`), or `master.diagnostics` has the former `token_sha256` or a `token_verifier` that is not a valid verifier, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
+- `networks` is missing, empty or longer than 8, a network name is invalid or used twice, two networks use the same interface or serial device, a field of a network (`adapter`, `master`, `nodes`) sits at the top level, or `diagnostics` sits in a network's `master`;
+- `nodes` is empty without the top-level `diagnostics`, or `diagnostics` has the former `token_sha256` or a `token_verifier` that is not a valid verifier, a `port` outside 1024-65535 or a `bind` that is not an IPv4 address;
 - a network's `protocol` is not `"canopen"` or `"j1939"`, a J1939 network has `role`, `master`, `nodes` or `slave`, lacks `j1939` or sets `adapter.simulate`, or a CANopen network has `j1939`;
-- a slave network has `master` or `nodes`, a master network has `slave`, a version 1 file has `role`, `slave`, `gateway`, `protocol` or `j1939`, or two master networks (or two slave networks) share a simulated bus;
+- a slave network has `master` or `nodes`, a master network has `slave`, or two master networks (or two slave networks) share a simulated bus;
 - a slave's `node_id` is outside 1-127 and not `null`, its EDS is missing or fails the lint, or a binding names an object the EDS does not define, an object bound twice, a `const` or `wo` object, a location of the wrong area for the object's access type or of a size that does not fit its type; a slave status location has the wrong type (`%IB` state, `%IX` communication OK, `%IW` SYNC count, `%QW` EMCY code, `%QB` error register);
 - a PDO entry has no `iec_location`, no gateway route writes it and its TPDO feeds no PDO link, or it is an RPDO entry of an object a gateway route reads from the node's TPDO (nothing would write it);
 - a link names a node that is not on the network, a TPDO that is not in the producer's `tx_pdos`, a TPDO another link names, a consumer that is the producer, an RPDO that is in the consumer's `rx_pdos`, in another link or not in its EDS, a consumer entry with `iec_location`, a layout that differs from the producer's in positions or sizes, a dummy entry the consumer's `[DummyUsage]` does not allow, a consumer object that is missing, not mappable, not receivable or of another type, a read-only consumer COB-ID other than the link's, a synchronous consumer without SYNC, or `links` on a slave, J1939 or plain CAN network;
 - a `heartbeat_watch` entry watches the node itself, the master, a node that is not on the network or sends no heartbeat, has a timeout not above the watched period, or does not fit the EDS 0x1016;
 - the `gateway` names an `upper` network that is missing or not a slave network, there is no master network, a route names a network, node, PDO entry or slave object that does not exist, its direction does not fit the slave object's access type, its two ends differ in type, its target has a second writer, `status` covers more than 4 master networks, or `status` or `sdo_bridge` is set while the slave's EDS lacks their objects.
 
-In every case the PLC starts and runs normally; fix the file and restart the PLC to activate the plugin.
+Fix the file and start the bridge again. A config sent over the network that the bridge refuses changes nothing: the running config stays ([modbus-bridge.md](modbus-bridge.md)).
 
 ## At runtime
 
-- Inputs are copied to the PLC before every scan and hold their last received value; a node that never came up reads zero. A TPDO with `timeout_ms` is flagged when it stops coming while its node is up (see [Receive timeout](#receive-timeout)).
-- Outputs are read after every scan and sent at the next SYNC, only to nodes that are operational. Without a SYNC period, the master looks for new outputs every millisecond and sends each event-driven PDO whose data changed (within its inhibit time); outputs that do not change send nothing.
-- With the SYNC timer (`sync_period_us`) the SYNC and the PLC cycle run on separate clocks: output latency varies between almost nothing and one SYNC period, and a scan may now and then see no new inputs. Use `"sync_source": "plc_cycle"` when that matters.
-- A node that is absent, rejects its configuration, or stops sending heartbeats does not stop the PLC or the other nodes. Its status bit goes FALSE, and the master keeps trying to boot and configure it in the background.
-
-## SYNC from the PLC cycle
-
-With `"sync_source": "plc_cycle"` the master sends SYNC at the start of the PLC cycle instead of from its own timer:
-
-```json
-"master": { "node_id": 1, "sync_source": "plc_cycle", "sync_cycles": 1 }
-```
-
-On every `sync_cycles`-th PLC cycle the plugin's `cycle_start()` first copies the newest inputs to the PLC and then asks the bus thread for a SYNC, which goes out with the outputs the previous scan wrote. For a node whose PDOs have transmission type 1, with cycle k starting at SYNC k:
-
-```
-cycle k:    SYNC k: nodes sample their inputs and send them    scan k runs and writes outputs
-cycle k+1:  the inputs of SYNC k reach the PLC                 SYNC k+1, then the outputs of scan k
-cycle k+2:  nodes apply the outputs of scan k at SYNC k+2
-```
-
-Inputs are one cycle old and outputs are applied two SYNCs after the scan that wrote them, every time. The SYNC period is the PLC task interval times `sync_cycles`; `sync_period_us` is not allowed with it, and the master's own 0x1006 stays 0. `sync_window_us` and `sync_counter_overflow` work as with the timer, and every PDO setting the config leaves out keeps its EDS value. The master takes synchronous inputs as they arrive (its own RPDOs become event-driven; the nodes keep their types), so they are ready for the next cycle.
-
-- The runtime calls the plugin once per PLC *frame*: a base tick on which at least one task is due. With one task, or tasks whose intervals are all multiples of the fastest one, frames come at the fastest task's interval. Other mixes (10 ms and 15 ms) give uneven frames and an uneven SYNC.
-- The bus thread runs at SCHED_FIFO priority 49 (the runtime's highest task level) so the SYNC follows the cycle closely. If the runtime may not set it, the plugin logs a warning and runs at normal priority.
-- When the PLC stops, SYNC stops. A node that supervises SYNC (its own 0x1006, or a drive's interpolation watchdog) reports that as a fault. A long scan overrun does not stop SYNC, because the runtime keeps starting frames.
-- While the master itself is NMT STOPPED (for example after `stop_all_nodes`), it sends no SYNC, as CiA 301 says, and these cycles do not count as merged; SYNC resumes when the master leaves STOPPED. The SYNC counter (`sync_counter_overflow`) starts again at 1 when the master resets communication.
-- A cycle below 1 ms is allowed, with a warning at start: the bus may not carry all PDOs in one period.
-- The diagnostics status ([diagnostics.md](diagnostics.md)) and the configurator's online view show the SYNC interval (last, shortest, longest), cycles merged into one SYNC because the bus thread fell behind, and late PDOs: node TPDOs with a cyclic synchronous type that did not arrive before the next SYNC. Both are also logged, at most once per 10 seconds per PDO.
+- Inputs hold their last received value; a node that never came up reads zero. A TPDO with `timeout_ms` is flagged when it stops coming while its node is up (see [Receive timeout](#receive-timeout)). Modbus clients read the newest inputs, which the bridge takes from the bus every millisecond.
+- Every output a Modbus client writes goes to the networks at once and is sent at the next SYNC, only to nodes that are operational. Without a SYNC period, each event-driven PDO whose data changed is sent at once (within its inhibit time); outputs that do not change send nothing ([modbus-bridge.md](modbus-bridge.md)).
+- The SYNC timer and the client's poll run on separate clocks: output latency varies between almost nothing and one SYNC period plus one poll.
+- A node that is absent, rejects its configuration, or stops sending heartbeats does not stop the bridge or the other nodes. Its status bit goes FALSE, and the master keeps trying to boot and configure it in the background.

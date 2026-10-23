@@ -222,7 +222,7 @@ class Declarations(unittest.TestCase):
         self.assertTrue(by["Status_Temp"]["description"].endswith("; page Page=1"), by["Status_Temp"])
         self.assertNotIn("page", by["Status_Count"]["description"])
         self.assertIn("page Sub=1", by["Display_B"]["description"])
-        self.assertNotIn("Display_Page", by)  # set by the plugin, no location
+        self.assertNotIn("Display_Page", by)  # set by the bridge, no location
 
 
 class Status(unittest.TestCase):

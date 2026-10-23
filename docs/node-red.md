@@ -66,6 +66,6 @@ With an `sdo_bridge_location`:
 
 ## Timing and limits
 
-- A new input value reaches **canworks in** within one poll period plus one SYNC period (about 100 to 150 ms with the defaults); an output reaches the bus by the next SYNC after the write. That suits monitoring, dashboards and slow control, not motion: a cyclic CiA 402 axis needs a PLC target.
+- A new input value reaches **canworks in** within one poll period plus one SYNC period (about 100 to 150 ms with the defaults); an output reaches the bus by the next SYNC after the write. That suits monitoring, dashboards and slow control, not motion.
 - Node-RED and the bridge talk Modbus TCP, so Node-RED can run on another machine; the bus side needs Linux ([modbus-bridge.md](modbus-bridge.md#limits)).
 - The flow depends on `node-red-contrib-modbus`; a palette update that renames node fields would need a new export.

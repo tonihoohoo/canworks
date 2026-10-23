@@ -10,22 +10,22 @@ Each slave entry MAY give an `sdo_variables` list. Each entry SHALL give `index`
 
 #### Scenario: Read entry accepted
 - **WHEN** node 5 has `"sdo_variables": [{"name": "serial", "index": "0x1018", "subindex": 4, "type": "UNSIGNED32", "direction": "read", "iec_location": "%ID200"}]`
-- **THEN** the plugin loads the configuration
+- **THEN** the bridge loads the configuration
 
 #### Scenario: Write entry on an input location
 - **WHEN** a `write` entry has `iec_location` `%IW200`
-- **THEN** the plugin rejects the configuration and names the node, the entry and `iec_location`
+- **THEN** the bridge rejects the configuration and names the node, the entry and `iec_location`
 
 #### Scenario: Period on a write entry
 - **WHEN** a `write` entry gives `period_ms`
-- **THEN** the plugin rejects the configuration and names the field
+- **THEN** the bridge rejects the configuration and names the field
 
 #### Scenario: Overlap with a PDO entry
 - **WHEN** a read entry's `iec_location` overlaps a PDO entry's location
-- **THEN** the plugin rejects the configuration and names both
+- **THEN** the bridge rejects the configuration and names both
 
 ### Requirement: EDS check of SDO variables
-At load the plugin SHALL check every SDO variable against the node's EDS: the object SHALL exist, its `DataType` SHALL equal the entry's `type`, a `read` entry's `AccessType` SHALL allow reading (`ro`, `rw`, `rwr`, `rww`, `const`) and a `write` entry's SHALL allow writing over SDO (`wo`, `rw`, `rwr`, `rww`). A failed check SHALL reject the configuration. A `write` entry that targets an object the plugin configures itself (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80) SHALL be accepted with a warning naming the node and the object. The deploy tool SHALL run the same checks before upload.
+At load the bridge SHALL check every SDO variable against the node's EDS: the object SHALL exist, its `DataType` SHALL equal the entry's `type`, a `read` entry's `AccessType` SHALL allow reading (`ro`, `rw`, `rwr`, `rww`, `const`) and a `write` entry's SHALL allow writing over SDO (`wo`, `rw`, `rwr`, `rww`). A failed check SHALL reject the configuration. A `write` entry that targets an object the bridge configures itself (0x1005-0x1007, 0x100C, 0x100D, 0x1014-0x1017, 0x1400-0x1BFF, 0x1F80) SHALL be accepted with a warning naming the node and the object. The deploy tool SHALL run the same checks before upload.
 
 #### Scenario: Write to a const object
 - **WHEN** a `write` entry targets 0x1018 subindex 4, which the EDS marks `const`
@@ -33,7 +33,7 @@ At load the plugin SHALL check every SDO variable against the node's EDS: the ob
 
 #### Scenario: Write to the heartbeat period
 - **WHEN** a `write` entry targets 0x1017 subindex 0
-- **THEN** the plugin loads the configuration and logs a warning that the program can override the node's heartbeat setting
+- **THEN** the bridge loads the configuration and logs a warning that the program can override the node's heartbeat setting
 
 ### Requirement: When read entries are read
 The master SHALL read a `read` entry from the node once after each successful boot of the node, then every `period_ms` while the node stays available when `period_ms` is given, and once on each rising edge of `trigger_location` when it is given. The value SHALL appear in the entry's `iec_location` by the next scan cycle after the transfer ends. The location SHALL read 0 before the first successful read and SHALL keep its last value when a read fails or the node is lost.
@@ -74,7 +74,7 @@ A `write` entry without `trigger_location` SHALL make the PLC the owner of the o
 - **THEN** the master writes 3 after the write of 1 ends, and does not write 2
 
 ### Requirement: Transfer status
-When `status_location` is given, the plugin SHALL keep it at the state of the entry's latest transfer: 0 none yet, 1 in progress, 2 done, 3 aborted, 4 node not available. When `abort_code_location` is given, the plugin SHALL set it to the CiA 301 abort code of the latest aborted transfer (0x05040000 for a timeout after `timeout_ms`) and to 0 after a successful one. A transfer that is due while the node is not available (not booted, lost, booting, or STOPPED) SHALL NOT be sent: an owned write or a read SHALL wait and be sent once the node is available again, with the status at 4 meanwhile; a triggered transfer SHALL be dropped with the status at 4. An aborted transfer SHALL be logged with the node, the object, the direction and the abort code in hex and words; further aborts of the same entry with the same code SHALL NOT be logged again until a transfer of that entry succeeds. Transfers SHALL NOT change the node's NMT state, status bit or state byte.
+When `status_location` is given, the bridge SHALL keep it at the state of the entry's latest transfer: 0 none yet, 1 in progress, 2 done, 3 aborted, 4 node not available. When `abort_code_location` is given, the bridge SHALL set it to the CiA 301 abort code of the latest aborted transfer (0x05040000 for a timeout after `timeout_ms`) and to 0 after a successful one. A transfer that is due while the node is not available (not booted, lost, booting, or STOPPED) SHALL NOT be sent: an owned write or a read SHALL wait and be sent once the node is available again, with the status at 4 meanwhile; a triggered transfer SHALL be dropped with the status at 4. An aborted transfer SHALL be logged with the node, the object, the direction and the abort code in hex and words; further aborts of the same entry with the same code SHALL NOT be logged again until a transfer of that entry succeeds. Transfers SHALL NOT change the node's NMT state, status bit or state byte.
 
 #### Scenario: Device refuses a write
 - **WHEN** node 23 aborts a write to 0x2020 subindex 1 with 0x06090030 (value range exceeded)

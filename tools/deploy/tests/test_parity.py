@@ -1,8 +1,8 @@
-"""The configurator and the plugin refuse the same configs (canopen-ci:
+"""The configurator and the bridge refuse the same configs (canopen-ci:
 "Configurator and plugin agree on bad configs"): every entry of
 test/fixtures/config/bad/ goes through the deploy tool's checks
 (contract.check_config, and simfile.check for its simulation file) and
-through build/canopen_check --no-dcfgen, the plugin's config loader. Both
+through build/canopen_check --no-dcfgen, the bridge's config loader. Both
 must refuse it.
 
 Each entry is {"description", "config", "simulation" (optional), "message"
@@ -101,7 +101,7 @@ class Parity(unittest.TestCase):
 
     def test_both_accept_the_base(self):
         # The entries' starting point (cases.json's base, simulated, with a
-        # value source the plugin takes), so the refusals are the entries' own.
+        # value source the bridge takes), so the refusals are the entries' own.
         cfg = load_cases()["base"]
         cfg["networks"][0]["adapter"]["simulate"] = True
         doc = {"description": "base", "config": cfg,

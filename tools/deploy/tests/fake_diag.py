@@ -1,8 +1,8 @@
-"""A stand-in for the plugin's diagnostics channel (plugin/src/can/diag.cpp), for
+"""A stand-in for the bridge's diagnostics channel (plugin/src/can/diag.cpp), for
 the CLI and configurator tests. Speaks protocol 2 (TLS and the SCRAM login,
 fake_tls.py) on 127.0.0.1, and tells a plain client to update.
 
-By default it is a plugin that runs one network and, like a plugin from
+By default it is a bridge that runs one network and, like a plugin from
 before several networks, lists none in the hello. FakePlugin(networks=...)
 lists them; with more than one, every request needs `network`. The first
 network's state is the FakePlugin's own attributes (status, objects, present,
@@ -12,7 +12,7 @@ With sim=FakeSim(...) (fake_sim.py) the first network simulates devices and
 answers the sim_ requests; without, every sim_ request answers "nothing
 simulated".
 
-send_frame and send_frame_stop follow the plugin's guards: allow_changes,
+send_frame and send_frame_stop follow the bridge's guards: allow_changes,
 then force for an identifier in `cob_ids` or while `operational` names a
 node. Cyclic jobs count their frames from the time they started and end with
 their connection."""
@@ -39,7 +39,7 @@ def status(config_sha256="0" * 64):
         "version": "v-test", "uptime_s": 12, "config_sha256": config_sha256, "session": True,
         "master": {"node_id": 1, "state": 5},
         "bus": {"interface": "vcan0", "state": 1, "tx_errors": 0, "rx_errors": 0, "bus_off_count": 0},
-        "sync": {"source": "plc_cycle", "cycles": 2, "count": 500, "last_us": 10012, "min_us": 9870,
+        "sync": {"source": "timer", "period_us": 10000, "count": 500, "last_us": 10012, "min_us": 9870,
                  "max_us": 10240, "skipped": 0, "late_pdos": 3},
         "nodes": [
             {"node_id": 2, "name": "pingpong", "state": 5, "status": True, "last_heard_ms": 100, "booted": True, "boot_error": None,
@@ -184,7 +184,7 @@ class FakePlugin:
         self.scan_nodes = copy.deepcopy(SCAN_RESULT)
         self.scan_left = None
         self.requests = []
-        self.extra_ops = {}  # op -> fn(req) giving a result, or raising ValueError with the plugin's error text
+        self.extra_ops = {}  # op -> fn(req) giving a result, or raising ValueError with the bridge's error text
         self.conns = set()  # the handlers of the open connections
         # LSS: devices by address (vendor, product, revision, serial) -> node ID (255: none).
         self.lss_devices = {(0x360, 0, 0, 0x42): 255, (0x360, 0, 0, 0x1234): 12}
@@ -228,7 +228,7 @@ class FakePlugin:
                 self.others["drives"].objects[(2, 0x1008, 0)] = b"drive"
                 self.others["drives"].present.add(2)
         # Raw frames (send_frame): what was sent, the cyclic jobs by number, the
-        # identifiers the configured network uses (the plugin's COB-ID map) and
+        # identifiers the configured network uses (the bridge's COB-ID map) and
         # a node that is OPERATIONAL (both need force).
         self.send_supported = True
         self.sent = []  # every frame request that was sent: {id, ext, rtr, dlc, data, forced}
@@ -239,13 +239,13 @@ class FakePlugin:
         self.operational = None  # a node ID: refuses sends without force
         # With force_running, sdo_write and nmt (all but start) to a node
         # whose status says OPERATIONAL (state 5), and a scan while any node
-        # is, need force, as the plugin asks.
+        # is, need force, as the bridge asks.
         self.force_running = False
         self.forced = []  # (op, node) of every request sent with force
         self.configured = set()  # extra configured node IDs (NMT allowed)
         self.refuse_writes = {}
         self.delay = 0.0  # seconds before each SDO answer  # (node, index, sub): abort code for a write
-        # The CiA 309-3 gateway (the cia309 op): None, an older plugin ("unknown
+        # The CiA 309-3 gateway (the cia309 op): None, an older bridge ("unknown
         # op"); "off", not configured; else the op's result.
         self.cia309 = None
         self.cia309_max = 4
@@ -292,7 +292,7 @@ class FakePlugin:
                             continue
                         sig = login.login(req)
                         if sig is None:
-                            return  # the plugin closes without an answer
+                            return  # the bridge closes without an answer
                         if fake.bad_signature:
                             sig = base64.b64encode(bytes(32)).decode()
                         authed = True
@@ -304,7 +304,7 @@ class FakePlugin:
                         continue
                     fake.requests.append(req)
                     if req.get("op") == "cia309":
-                        if fake.cia309 is None:  # an older plugin
+                        if fake.cia309 is None:  # an older bridge
                             self._send({"id": req.get("id"), "ok": False, "error": "unknown op 'cia309'"})
                             continue
                         if fake.cia309 == "off":
@@ -323,7 +323,7 @@ class FakePlugin:
                     if fake.delay and req.get("op") in ("sdo_read", "sdo_write"):
                         time.sleep(fake.delay)
                     self._send(dict(fake.answer(req, self), id=req.get("id")))
-                # The plugin ends a client's cyclic jobs when it disconnects.
+                # The bridge ends a client's cyclic jobs when it disconnects.
                 for j in fake.jobs.values():
                     if j["conn"] is self and not j["reason"]:
                         fake._end_job(j, "client disconnected")
@@ -393,7 +393,7 @@ class FakePlugin:
         return self
 
     def _pick(self, req):
-        """(network state, None) for a request, or (None, error) as the plugin
+        """(network state, None) for a request, or (None, error) as the bridge
         answers a missing or unknown network."""
         if not self.networks:
             return self, None

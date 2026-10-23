@@ -1,5 +1,5 @@
 """The shared config fixtures (test/fixtures/config/cases.json): the deploy
-tool must reach the plugin's verdict, with the same messages, and the JSON
+tool must reach the bridge's verdict, with the same messages, and the JSON
 Schema must give the stated verdict."""
 
 import copy
@@ -76,7 +76,7 @@ class SharedFixtures(unittest.TestCase):
                 for m in case.get("warnings", []):
                     self.assertIn(m, "\n".join(r.warnings))
                 if case["verdict"] == "accept":
-                    self.assertTrue(schema_valid, "the plugin accepts it, so the schema must too")
+                    self.assertTrue(schema_valid, "the bridge accepts it, so the schema must too")
 
 
 class Examples(unittest.TestCase):
@@ -155,7 +155,7 @@ class SdoValues(unittest.TestCase):
             self.assertEqual(contract.sdo_value(value, type_name), (None, problem), (value, type_name))
 
     def test_leading_zero_refused(self):
-        # Never octal: the plugin used to read "010" as 8 (canopen-config-contract).
+        # Never octal: the bridge used to read "010" as 8 (canopen-config-contract).
         self.assertEqual(contract.sdo_value("010", "UNSIGNED8"),
                          (None, "is not a valid integer (leading zero: write 10 or 0x0A)"))
         self.assertEqual(contract.sdo_value("-010", "INTEGER8"),
@@ -215,7 +215,7 @@ class SdoOverrides(unittest.TestCase):
 
 class EmcyCobIds(unittest.TestCase):
     """emcy_cob_id and a startup SDO to 0x1014 (add-emcy-history): the
-    plugin's checks and messages, the first failing one per node."""
+    bridge's checks and messages, the first failing one per node."""
 
     def config(self, emcy=None, sdo=None, second_emcy=None):
         cfg = load_cases()["base"]

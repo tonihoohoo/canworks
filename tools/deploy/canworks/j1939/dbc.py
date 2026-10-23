@@ -319,7 +319,7 @@ def build(net, config_path, names=None):
             signal_names = dbcexport._Names()
             for s in m["signals"]:
                 _, loc_text = dbcexport._location_label(str(s["location"]), names) if s["location"] else (
-                    None, "set by the plugin (pages %s)" % m.get("pages"))
+                    None, "set by the bridge (pages %s)" % m.get("pages"))
                 msg.signals.append(dbcexport.Signal(
                     signal_names.add(dbcexport.identifier(s["name"]) or "signal", str(s["start_bit"])),
                     s["start_bit"], s["length"], s["signed"], receivers=[PLC] if rx else [],

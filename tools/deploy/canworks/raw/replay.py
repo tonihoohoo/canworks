@@ -1,5 +1,5 @@
 """Replay of a recorded trace onto a bus (spec canopen-online-diagnostics,
-"Replay"): reading the file, the timing plan, batches for the plugin's
+"Replay"): reading the file, the timing plan, batches for the bridge's
 `replay` op and playing on a PC adapter through python-can."""
 
 import os
@@ -9,9 +9,9 @@ import time
 from ..bustrace import formats
 from ..bustrace.model import Frame
 
-MAX_RATE = 1000       # frames per second, on the plugin and on an adapter
+MAX_RATE = 1000       # frames per second, on the bridge and on an adapter
 BATCH = 500           # frames per `replay` request
-MAX_FRAMES = 200000   # frames of one replay through the plugin
+MAX_FRAMES = 200000   # frames of one replay through the bridge
 
 
 class ReplayError(ValueError):

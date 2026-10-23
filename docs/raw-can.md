@@ -9,7 +9,7 @@ Both work next to CANopen or J1939 on the same bus, and on a network with no pro
 
 ## Plain CAN networks
 
-A network with `"protocol": "none"` has an `adapter`, an optional `raw` object and nothing else. It still gets everything the plugin gives any bus: bus state and error counters, the bus trace, diagnostics status and `send_frame`.
+A network with `"protocol": "none"` has an `adapter`, an optional `raw` object and nothing else. It still gets everything the bridge gives any bus: bus state and error counters, the bus trace, diagnostics status and `send_frame`.
 
 ```json
 {
@@ -24,11 +24,9 @@ A network with `"protocol": "none"` has an `adapter`, an optional `raw` object a
 
 A config with `raw` or a `none` network is version 2; the configurator and the deploy tool write it so.
 
-`"scan_watchdog_ms"` in the `raw` object of a `none` network (10-60000, default 1000; 0 turns it off) is the network's scan watchdog, as `master.scan_watchdog_ms` is a CANopen master's: while the PLC runs and its scan has not finished a cycle for this long, the outputs gate closes, so `tx` messages and the program's frames stop ([Frame blocks](#frame-blocks)); received messages go on. The next finished scan opens the gate again. Both are logged. The gate is shared: a watchdog of any network stops the outputs of every network. Only a `none` network takes it in `raw`; a CANopen master has `master.scan_watchdog_ms` and a J1939 network `j1939.scan_watchdog_ms`.
-
 ### Listen-only
 
-`"listen_only": true` in the `adapter` of a `none` network makes the PLC a silent observer: it receives, but never acknowledges a frame or sends one. The plugin sets the controller to listen-only (SocketCAN ctrlmode, silent mode on slcan adapters). Where it cannot (`configure_link: false`, vcan, a simulated bus) it says so in the log and only refuses its own sends. A listen-only network may have no `tx` messages; program sends end with `ERROR_ID` 9 and `send_frame` is refused.
+`"listen_only": true` in the `adapter` of a `none` network makes the bridge a silent observer: it receives, but never acknowledges a frame or sends one. The bridge sets the controller to listen-only (SocketCAN ctrlmode, silent mode on slcan adapters). Where it cannot (`configure_link: false`, vcan, a simulated bus) it says so in the log and only refuses its own sends. A listen-only network may have no `tx` messages; program sends end with `ERROR_ID` 9 and `send_frame` is refused.
 
 ## Config messages
 
@@ -78,14 +76,14 @@ When the CAN interface goes away (an adapter unplugged, the interface down), eve
 | `id`, `extended`, `rtr`, `dlc` | The frame. `dlc` defaults to the bytes the signals need. |
 | `period_ms` | Sent every 1 to 60000 ms. |
 | `on_change`, `min_gap_ms` | Also sent when a signal value changes, but not more often than `min_gap_ms`; a change restarts the period. |
-| `trigger_location` | `%QX`: a rising edge sends the frame once. With `on_change` too, a change is sent also before the first edge: the first outputs after the PLC starts (or the outputs gate opens) are the values changes are compared with, and are not sent themselves. |
+| `trigger_location` | `%QX`: a rising edge sends the frame once. With `on_change` too, a change is sent also before the first edge: the first outputs after the bridge starts (or the outputs gate opens) are the values changes are compared with, and are not sent themselves. |
 | `enable_location` | `%QX`: FALSE stops periodic and on-change sends. |
 | `fill` | The byte value for bits no signal covers, default 0. |
 | `data_location` | `%QL`: the whole 8 bytes from the program; signals are written on top. |
 | `override_protocol` | Needed to send an identifier the network's protocol uses (see [Protocol identifiers](#protocol-identifiers)). |
 | `signals` | See [Signals](#signals). |
 
-A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the PLC runs and stops when it stops, or while the outputs gate is closed (a scan watchdog, the Modbus bridge's outputs off).
+A `tx` message needs at least one of `period_ms`, `on_change` or `trigger_location`. Sending starts when the bridge runs and stops when it stops, or while the bridge's outputs are off.
 
 A send the interface refuses (its transmit queue is full, or it is down) does not count as sent. An on-change or trigger send stays pending and goes out with the current values on a later 1 ms tick, still no more often than `min_gap_ms`. A refused periodic send waits for its next period; missed periods are not sent in a burst.
 
@@ -93,11 +91,11 @@ A send the interface refuses (its transmit queue is full, or it is down) does no
 
 | Field | Meaning |
 |---|---|
-| `name` | Used in declarations, the trace and the configurator. |
+| `name` | Used in the variable names, the trace and the configurator. |
 | `start_bit`, `length` | Bit numbering as DBC files use it: bit 0 is the least significant bit of byte 0. A little-endian signal starts at its least significant bit, a big-endian one at its most significant bit. |
 | `byte_order` | `little` (Intel, default) or `big` (Motorola). |
 | `signed` | Two's complement; the value is sign-extended into the location. |
-| `scale`, `offset`, `unit`, `minimum`, `maximum`, `comment` | For tools only: declarations, the trace and the configurator show physical values. The PLC always gets the raw integer, as for CANopen and J1939. |
+| `scale`, `offset`, `unit`, `minimum`, `maximum`, `comment` | For tools only: the variable descriptions, the trace and the configurator show physical values. The PLC always gets the raw integer, as for CANopen and J1939. |
 | `iec_location` | Big enough for `length`: `%IX`/`%QX` for 1 bit, then byte, word, double word or long word. |
 | `multiplexer`, `mux` | Multiplexing; see [Multiplexed messages](#multiplexed-messages). |
 | `valid_location` | `%IX`, received signals only: TRUE while frames carrying this signal arrive within `timeout_ms`. |
@@ -126,8 +124,8 @@ A message may have several switches, also nested (the DBC's `mNM` with `SG_MUL_V
 | `pages` | Behaviour |
 |---|---|
 | `program` (default) | The switch has an `iec_location` and the program picks the page: each send carries the page the switch outputs select. A switch output wider than the switch is cut to the switch's length first (17 on a 4-bit switch is page 1), as on J1939. A switch value that selects no page sends the switches and the always-present signals and shows `unknown_page` in the status. |
-| `all` | Every page is sent each period, one frame per page, in switch-value order. The plugin sets the switch, so it has no `iec_location`. |
-| `rotate` | One page per period, the next one each time. The plugin sets the switch. |
+| `all` | Every page is sent each period, one frame per page, in switch-value order. The bridge sets the switch, so it has no `iec_location`. |
+| `rotate` | One page per period, the next one each time. The bridge sets the switch. |
 
 `all` and `rotate` take at most 64 pages; a message with more needs `program`. With `on_change` a page goes out when one of its own signals changes (in `rotate`, the next changed page); `trigger_location` sends every page in `all`, the next page in `rotate` and the program's page in `program`. A refused paged send is retried as in [Sent messages](#sent-messages-tx).
 
@@ -150,21 +148,13 @@ On a CANopen or J1939 network some identifiers belong to the protocol: NMT, SYNC
 
 ### From a DBC file
 
-`canworks-config` imports a DBC file on a network's **CAN messages** page (**Import DBC…**): pick the messages, choose received or sent, and each signal gets a free location. The file is copied into the config folder on save and named in the network's `raw.dbc`; the plugin does not read it.
+`canworks-config` imports a DBC file on a network's **CAN messages** page (**Import DBC…**): pick the messages, choose received or sent, and each signal gets a free location. The file is copied into the config folder on save and named in the network's `raw.dbc`; the bridge does not read it.
 
 Messages with J1939 attributes belong on a J1939 network; plain 11-bit and 29-bit messages become raw messages. Multiplexed messages keep their switches and pages, simple (`M`, `m1`) and extended (`m1M`, `SG_MUL_VAL_`) alike. The other way round, `canworks-deploy --export-dbc` writes a network's raw messages into its DBC file next to the protocol's frames, with their multiplexing.
 
-### Declarations
+### In the program
 
-`canworks-deploy --new-project` and the configurator's declarations write a located variable per signal and per location, named `<message>_<signal>` (`<network>_<message>_<signal>` with several networks), with the message, scale and unit in its description:
-
-```
-Joystick_X AT %IW304 : INT;
-Joystick_status AT %IX300.0 : BOOL;
-Lamps_Red AT %QX300.1 : BOOL;
-```
-
-A received signal's `valid_location` is declared as `<message>_<signal>_valid`, for example `Sensor_Temp_valid AT %IX300.5 : BOOL;`.
+For OpenPLC through Modbus, `canworks-deploy --new-project` or `--into-project` and the configurator's **New editor project…** put a variable per signal and per location in the project's `canworks` list, named `<message>_<signal>` (`<network>_<message>_<signal>` with several networks), with the message, scale and unit in its description: `canworks.Joystick_X : INT`, `canworks.Joystick_status : BOOL`, `canworks.Lamps_Red : BOOL`. A received signal's `valid_location` becomes `<message>_<signal>_valid`, for example `canworks.Sensor_Temp_valid : BOOL`. Other Modbus clients get the same names from `--export-modbus-map` ([modbus-bridge.md](modbus-bridge.md)).
 
 ## Frame blocks
 
@@ -273,5 +263,5 @@ The configurator's CAN messages page has **Copy as ST call** on each message: a 
 
 - **Bus trace**: frames that match a raw message (or a message of the network's `dbc`) show its name and signal values in the trace rows and the [frame inspector](frame-inspector.md).
 - **Diagnostics status**: per raw message the frame count, short frames, unknown pages, timeout state and last time; program receivers, cyclic jobs, dropped frames and the confirmation mode.
-- **Replay**: `canworks-diag replay FILE --network cab` plays a recorded trace (candump `.log`, `.asc`, `.trc`, pcapng or a canworks trace) onto a network through the plugin, with its original spacing or `--rate N`, once or `--loop`; `--adapter` plays it on a PC adapter instead. It has the `send_frame` guards (`allow_changes`, force on protocol identifiers), stops with Ctrl-C or on disconnect and runs at most 1000 frames per second.
+- **Replay**: `canworks-diag replay FILE --network cab` plays a recorded trace (candump `.log`, `.asc`, `.trc`, pcapng or a canworks trace) onto a network through the bridge, with its original spacing or `--rate N`, once or `--loop`; `--adapter` plays it on a PC adapter instead. It has the `send_frame` guards (`allow_changes`, force on protocol identifiers), stops with Ctrl-C or on disconnect and runs at most 1000 frames per second.
 - **Simulator**: a simulation file's `raw_devices` play plain CAN devices on a simulated bus or with `canworks-canopen-sim` on an interface; see [Plain CAN devices](simulator.md#plain-can-devices).

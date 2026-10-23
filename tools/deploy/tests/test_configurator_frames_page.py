@@ -106,7 +106,7 @@ class TransmitList(Base):
         self.assertIsNone(self.fake.jobs[1]["reason"])
         self.assertIn("1 cyclic job running", pg.inner_text("#tx-summary"))
         network_tab(pg)
-        time.sleep(2.5)  # past the plugin's poll timeout: the page still polls
+        time.sleep(2.5)  # past the bridge's poll timeout: the page still polls
         self.assertIsNone(self.fake.jobs[1]["reason"])
         self.trace_view()
         pg.click(row + " [data-tx=stop]")

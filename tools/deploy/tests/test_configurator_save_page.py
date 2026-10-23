@@ -59,11 +59,14 @@ class SaveAnytime(unittest.TestCase):
 
     def config(self, **node):
         """One network with node 2 (the ping-pong slave), `node` merged into it."""
-        net = load(os.path.join(TWO, "canopen_config.json"))["networks"][0]
+        cfg = load(os.path.join(TWO, "canopen_config.json"))
+        net = cfg["networks"][0]
         n = dict(net["nodes"][0], **node)
         for k in [k for k, v in node.items() if v is None]:
             del n[k]
-        return {"schema_version": 1, "adapter": net["adapter"], "master": net["master"], "nodes": [n]}
+        net["nodes"] = [n]
+        cfg["networks"] = [net]
+        return cfg
 
     def open(self, cfg):
         with open(os.path.join(self.folder, "canworks.json"), "w", encoding="utf-8") as f:
@@ -93,8 +96,8 @@ class SaveAnytime(unittest.TestCase):
         self.assertEqual(pg.inner_text("#btn-save"), "Save")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner[data-notice=warning]")
-        self.assertRegex(pg.inner_text("#banner"), r"Saved with 1 error: the runtime refuses this config until it is fixed")
-        self.assertEqual(self.saved()["nodes"][0]["node_id"], 1)
+        self.assertRegex(pg.inner_text("#banner"), r"Saved with 1 error: the bridge refuses this config until it is fixed")
+        self.assertEqual(self.saved()["networks"][0]["nodes"][0]["node_id"], 1)
         self.settled()
         self.assertEqual(pg.inner_text("#btn-save"), "Saved, 1 problem")
         self.assertTrue(pg.is_disabled("#btn-save"))
@@ -114,7 +117,7 @@ class SaveAnytime(unittest.TestCase):
         pg.locator("#problem-list [data-problem-fix=none]").click()
         pg.click("#btn-save")
         pg.wait_for_selector("#btn-save:has-text('Saved')")
-        self.assertEqual(self.saved()["nodes"][0]["heartbeat_ms"], 0)
+        self.assertEqual(self.saved()["networks"][0]["nodes"][0]["heartbeat_ms"], 0)
 
     def test_new_node_starts_supervised(self):
         pg = self.page
@@ -159,8 +162,9 @@ class SaveAnytime(unittest.TestCase):
     def test_handoff_refused_with_an_error(self):
         pg = self.page
         cfg = self.config(node_id=1)  # the master's node ID
-        net = {k: cfg[k] for k in ("adapter", "master", "nodes")}
-        self.open({"schema_version": 2, "codesys": {}, "networks": [dict(net, name="io")]})
+        cfg.pop("bridge", None)
+        cfg["codesys"] = {}
+        self.open(cfg)
         pg.click("#menu-target > summary")
         pg.click("#btn-codesys-download")
         pg.wait_for_selector("[data-handoff-refused]")

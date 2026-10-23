@@ -108,7 +108,7 @@ def check(doc):
 
 def config_problems(doc, sim_path, cfg, config_path, eds_paths, network=None):
     """The problems of a (schema-valid) simulation file against the config,
-    as the plugin finds them when it loads the file (the deploy tool's
+    as the bridge finds them when it loads the file (the deploy tool's
     simfile.check): value sources on objects the master writes, values that
     do not fit an object, steps and faults on unknown devices or PDOs. In
     the shape of check(), with "level". Only the section of `network` when

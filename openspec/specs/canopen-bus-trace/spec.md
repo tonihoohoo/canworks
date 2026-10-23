@@ -1,7 +1,7 @@
 # canopen-bus-trace Specification
 
 ## Purpose
-Records the CAN traffic of the runtime's CANopen interface through the plugin's diagnostics channel, decodes it as CANopen, and lets the engineering PC save, open, export, graph and trigger on traces.
+Records the CAN traffic of the bridge's CAN interfaces through its diagnostics channel, decodes it as CANopen, and lets the engineering PC save, open, export, graph and trigger on traces.
 
 ## Requirements
 
@@ -27,7 +27,7 @@ When the connection ends, the frames recorded so far SHALL be kept and a marker 
 - **THEN** the trace view shows the frames recorded so far and recording continues
 
 #### Scenario: Lost frames shown
-- **WHEN** the plugin reports 120 lost frames during a fetch
+- **WHEN** the bridge reports 120 lost frames during a fetch
 - **THEN** the trace shows a gap marker with 120 lost frames at that time and the statistics count them
 
 #### Scenario: Connection ends

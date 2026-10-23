@@ -1,6 +1,6 @@
 """Plain CAN networks and the CAN messages page in a real browser (spec
 canopen-configurator, "CAN messages page"): a plain network built from the
-example DBC and saved, and the online view against the fake plugin's plain
+example DBC and saved, and the online view against the fake bridge's plain
 network status. Needs Playwright, like test_configurator_page.py."""
 
 import json
@@ -40,6 +40,7 @@ BO_ 769 Twin: 3 Sensor
 
 
 class RawPage(OnlineBase):
+    maxDiff = None
     def write_config(self, diagnostics=None):
         cfg = json.loads(json.dumps(self.cfg))
         if diagnostics:
@@ -81,17 +82,11 @@ class RawPage(OnlineBase):
         self.assertIn("0x18FF1020 ext", pg.inner_text('[data-raw-table="rx"]'))
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
-        # The network's own scan watchdog; a bad value shows at the field.
-        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "5")
-        pg.wait_for_selector('input[data-path="raw.scan_watchdog_ms"].invalid')
-        pg.fill('input[data-path="raw.scan_watchdog_ms"]', "250")
-        pg.wait_for_function("() => document.body.dataset.checking === '0'")
-        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
         net = saved["networks"][0]
-        self.assertEqual(net["raw"]["scan_watchdog_ms"], 250)
+        self.assertEqual(net["raw"]["dbc"], "cab.dbc")
         self.assertEqual(len(saved["networks"]), 1)
         self.assertEqual(net["protocol"], "none")
         self.assertEqual(net["adapter"]["interface"], "can1")
@@ -102,7 +97,7 @@ class RawPage(OnlineBase):
         self.assertTrue(all(s.get("iec_location") for m in net["raw"]["rx"] + net["raw"]["tx"] for s in m["signals"]))
 
     def plain_config(self, rx):
-        self.cfg = {"schema_version": 2, "networks": [{
+        self.cfg = {"schema_version": 2, "bridge": {"listen": "127.0.0.1:502", "writers": ["127.0.0.1"]}, "networks": [{
             "name": "cab", "protocol": "none", "adapter": {"type": "socketcan", "interface": "can0", "bitrate": 250000},
             "raw": {"rx": rx}}]}
         self.write_config()
@@ -111,8 +106,8 @@ class RawPage(OnlineBase):
         pg = self.page
         self.plain_config([{"name": "Status", "id": 0x300, "dlc": 3, "signals": [
             {"name": "Page", "start_bit": 0, "length": 8, "iec_location": "%IB300"},
-            {"name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW301"},
-            {"name": "Press", "start_bit": 8, "length": 16, "iec_location": "%IW302"}]}])
+            {"name": "Temp", "start_bit": 8, "length": 16, "iec_location": "%IW302"},
+            {"name": "Press", "start_bit": 8, "length": 16, "iec_location": "%IW304"}]}])
         self.open()
         tree_view(pg, "raw")
         pg.click('tr[data-raw="rx:0"]')

@@ -96,7 +96,7 @@ class ErrorHistory(OnlineBase):
             self.assertEqual(fp.forced, [("sdo_write", 2)])
 
     def test_plugin_refusal_asks_for_force(self):
-        # The page's status says the node is not running; the plugin refuses.
+        # The page's status says the node is not running; the bridge refuses.
         pg = self.page
         with FakePlugin(allow_changes=True) as fp:
             history(fp, 0x4210)
@@ -151,7 +151,7 @@ class EmcyCobField(OnlineBase):
         pg.evaluate("() => banner('')")  # the last save's message
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
-        return load(self.config_path)["nodes"][0]
+        return load(self.config_path)["networks"][0]["nodes"][0]
 
     def test_default_not_saved(self):
         pg = self.page

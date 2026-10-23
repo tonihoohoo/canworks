@@ -3,7 +3,7 @@ on the network (canopen-remote-adapter).
 
   canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500 [--allow-changes]
 
-The server speaks the plugin's diagnostics protocol: TLS with a certificate
+The server speaks the bridge's diagnostics protocol: TLS with a certificate
 made at start (by the openssl command) and the SCRAM-SHA-256 login bound to
 it, then one JSON line per request. After the login every request goes to a
 LocalBus handle of its own on the one open adapter (core.acquire shares it),
@@ -187,7 +187,7 @@ def make_context(openssl="openssl"):
 
 class _Login:
     """The server's half of the SCRAM-SHA-256 login (diag.scram_client is the
-    client's, plugin/src/can/secure_channel.h the plugin's)."""
+    client's, plugin/src/can/secure_channel.h the bridge's)."""
 
     def __init__(self, verifier, cert_hash):
         self.iterations, self.salt, self.stored, self.server_key = diag.parse_verifier(verifier)
@@ -452,7 +452,7 @@ class _Handler(socketserver.BaseRequestHandler):
         sig = login.check(req)
         if sig is None:
             srv.failed(self.peer)
-            return  # as the plugin: closed without an answer
+            return  # as the bridge: closed without an answer
         refused = srv.logged_in(self.peer)
         srv.done_pending(self.peer)
         self.authed, self.counted = True, not refused

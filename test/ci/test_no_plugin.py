@@ -1,6 +1,7 @@
 """The OpenPLC plugin stays removed (remove-openplc-plugin): no engine, test
 or tool source includes an OpenPLC runtime header, and no build file asks
-for the runtime's sources."""
+for the runtime's sources. No spec outside the archive describes canworks as a
+plugin."""
 
 import os
 import re
@@ -10,6 +11,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SOURCES = ("plugin", "test", "tools")
 # The runtime's plugin interface headers (core/src/drivers/ in its tree).
 RUNTIME_HEADERS = ("plugin_types.h", "plugin_logger.h", "iec_types.h", "plugin_driver.h")
+# "the plugin" or "the plugin's" for canworks; a line about the removed plugin
+# may name it.
+PLUGIN_WORDING = re.compile(r"\b(the|canworks|CANopen) plugin\b|\bplugin's\b", re.I)
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)
 
 
@@ -39,6 +43,21 @@ class NoRuntimeHeaders(unittest.TestCase):
             with open(path, encoding="utf-8") as f:
                 if "OPENPLC_ROOT" in f.read():
                     found.append(os.path.relpath(path, ROOT))
+        self.assertEqual(found, [])
+
+
+class NoPluginInSpecs(unittest.TestCase):
+    def test_specs_do_not_call_canworks_a_plugin(self):
+        found = []
+        specs = os.path.join(ROOT, "openspec", "specs")
+        for name in sorted(os.listdir(specs)):
+            path = os.path.join(specs, name, "spec.md")
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                for n, line in enumerate(f, 1):
+                    if PLUGIN_WORDING.search(line) and not re.search(r"removed|no longer", line, re.I):
+                        found.append("%s:%d" % (os.path.relpath(path, ROOT), n))
         self.assertEqual(found, [])
 
 

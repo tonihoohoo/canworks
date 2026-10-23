@@ -7,7 +7,7 @@ CiA 301 communication objects and the CiA 401 and 402 profiles (builtin_notes/),
 apply by the EDS's 0x1000 device type. The device file holds only what the
 user wrote; an object's note is its device entry merged field by field over
 its built-in entry. Notes never change what is written to a device: the
-deploy tool and the plugin do not read them.
+deploy tool and the bridge do not read them.
 """
 
 import copy

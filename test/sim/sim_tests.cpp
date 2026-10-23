@@ -5559,7 +5559,7 @@ TEST(sim_plc_nmt_network_start) {
   if (!sim->ok()) return;
   sim->net().Start();
   CHECK(sim->RunUntil([] { return sim->ib(20) == 5 && sim->ib(22) == 5; }, seconds(5)));
-  CHECK(logged("until the PLC program starts it with CO_NETWORK_START"));
+  CHECK(logged("the bridge has no command that starts it"));
   sim->RunFor(milliseconds(1000));
   CHECK_MSG(sim->ib(21) == 127, std::to_string(sim->ib(21)));
   CHECK(!sim->status());
@@ -5651,7 +5651,7 @@ TEST(sim_plc_nmt_mandatory) {
   CHECK_MSG(sim->RunUntil([] { return sim->ib(21) == 4; }, seconds(2)), std::to_string(sim->ib(21)));
   CHECK(run_block(sim, b.start));
   CHECK_MSG(b.start.ERROR_ID.get() == 9, std::to_string(b.start.ERROR_ID.get()));
-  CHECK(logged("the plugin must restart"));
+  CHECK(logged("canworks must restart"));
   b.stop.NODE_COMMAND = 0;
   CHECK(run_block(sim, b.stop));
   CHECK(b.stop.ERROR_ID.get() == 9);

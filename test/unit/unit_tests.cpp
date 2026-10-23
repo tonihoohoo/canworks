@@ -922,7 +922,7 @@ int run_fixture_file(const std::string& file) {
     CHECK_MSG(ok == want, name + join(errors));
     if (want) {
       std::string schema = cJSON_GetObjectItemCaseSensitive(c, "schema")->valuestring;
-      CHECK_MSG(schema == "valid", name + ": the plugin accepts it, so the schema must too");
+      CHECK_MSG(schema == "valid", name + ": the bridge accepts it, so the schema must too");
     }
     for (const char* key : {"messages", "plugin_messages"})
       for (const auto& m : strings(c, key)) CHECK_MSG(has_error(errors, m), name + ": " + m + join(errors));
@@ -2841,7 +2841,7 @@ TEST(config_sdo_variable_plugin_owned_write_warns) {
                   cfg, errors),
             join(errors));
   CHECK_MSG(cfg.warnings.size() == 1, join(cfg.warnings));
-  CHECK_MSG(has_warning(cfg, "node 2 (pingpong): SDO variable 0x1017:0 writes an object the plugin configures "
+  CHECK_MSG(has_warning(cfg, "node 2 (pingpong): SDO variable 0x1017:0 writes an object canworks configures "
                              "itself; the program can override the node's heartbeat setting"),
             join(cfg.warnings));
 }

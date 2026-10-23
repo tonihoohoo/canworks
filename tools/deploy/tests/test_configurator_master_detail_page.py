@@ -1,6 +1,6 @@
 """Commission with a config as master and detail (commission-master-detail):
 a network entry shows the Nodes table, a node entry only the node's page
-with its one-line header; last heard from the plugin's status; EMCY 0x0000
+with its one-line header; last heard from the bridge's status; EMCY 0x0000
 clears the diagnosis flag. Against a fake plugin runtime; needs Playwright,
 like test_configurator_page.py."""
 

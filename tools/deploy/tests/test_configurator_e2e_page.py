@@ -18,7 +18,7 @@ from .test_configurator_online_page import OnlineBase
 VIRTUAL = os.path.join(REPO, "examples", "virtual-plant")
 NETWORKS = [{"name": "io", "interface": "sim0", "bitrate": 250000, "master_node_id": 1},
             {"name": "motion", "interface": "sim1", "bitrate": 500000, "master_node_id": 1}]
-VIEWS = ["bus", "declarations", "online", "trace", "framelab", "simulation"]
+VIEWS = ["bus", "online", "trace", "framelab", "simulation"]
 
 
 class EndToEnd(OnlineBase):

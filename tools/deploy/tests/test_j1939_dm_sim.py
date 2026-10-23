@@ -72,7 +72,7 @@ class State(unittest.TestCase):
         self.assertEqual(s.oc, {(520192, 3): 1})
 
     def test_own_fixtures(self):
-        """The plugin's own-DM1 byte fixtures, built by the simulator's rules."""
+        """The bridge's own-DM1 byte fixtures, built by the simulator's rules."""
         with open(FIXTURES, encoding="utf-8") as f:
             cases = [c for c in json.load(f)["cases"] if c["kind"] == "own" and not c.get("lamps_output")]
         self.assertTrue(cases)

@@ -1,4 +1,4 @@
-"""The EDS lint the plugin runs before dcfgen (canopen-master-bringup:
+"""The EDS lint the bridge runs before dcfgen (canopen-master-bringup:
 "Prepared EDS copy", "EDS lint scope"): prepare's corrections, the blocking
 rule on dcf.lint's messages, the read step and the JSON command line."""
 

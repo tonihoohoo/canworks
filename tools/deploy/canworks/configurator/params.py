@@ -40,7 +40,7 @@ class Client:
     def __init__(self, conn, host, port, token, network=None, force=False):
         self.conn, self.key, self.network = conn, (host, port, token), network
         # Sent with SDO writes and NMT commands but START, after the page asked
-        # about an OPERATIONAL node: the plugin refuses them without it.
+        # about an OPERATIONAL node: the bridge refuses them without it.
         self.force = bool(force)
 
     def _call(self, fn):

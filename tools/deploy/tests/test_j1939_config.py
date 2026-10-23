@@ -45,7 +45,7 @@ class Networks(unittest.TestCase):
         self.assertEqual(str(j["rx"][0]["signals"][0]["location"]), "%IW210")
         self.assertEqual(j["ecu"]["name"]["ecu_instance"], 0)
         self.assertEqual(contract.j1939_name_value(base()["networks"][1]["j1939"]["ecu"]["name"]),
-                         0x80008200000004D2)  # as the plugin's J1939Name::value()
+                         0x80008200000004D2)  # as the bridge's J1939Name::value()
 
     def test_big_endian_bits(self):
         # Start bit 7, 16 bits: bytes 0 and 1, most significant byte first.

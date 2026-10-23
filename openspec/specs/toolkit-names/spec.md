@@ -24,59 +24,41 @@ The PC tools SHALL install `canworks-deploy`, `canworks-config`, `canworks-diag`
 - **THEN** the shell reports that the command is not found
 
 ### Requirement: Settings and environment names
-The PC tools SHALL keep per-user settings in a folder named `canworks` in the operating system's settings location. Every environment variable, CMake option or cache variable and Docker build argument that the plugin, the simulator, the PC tools, the install script, the build or the tests read SHALL have the prefix `CANWORKS_`; none SHALL have the prefix `CANOPEN_` or `OPENPLC_CANOPEN_`. Names only code sees (header guards, the C SDO API `CANOPEN_PLC_*`, Python constants) are not settings and MAY keep a CANopen name.
+The PC tools SHALL keep per-user settings in a folder named `canworks` in the operating system's settings location. Every environment variable, CMake option or cache variable and Docker build argument that the bridge, the simulator, the PC tools, the install script, the build or the tests read SHALL have the prefix `CANWORKS_`; none SHALL have the prefix `CANOPEN_` or `OPENPLC_CANOPEN_`. Names only code sees (header guards, the C SDO API `CANOPEN_PLC_*`, Python constants) are not settings and MAY keep a CANopen name.
 
 #### Scenario: Token from the environment
 - **WHEN** `CANWORKS_TOKEN` is set and the user runs `canworks-diag status`
 - **THEN** the client uses that token
 
 #### Scenario: Slave state folder
-- **WHEN** the plugin runs a slave network with `CANWORKS_STATE_DIR=/tmp/state`
+- **WHEN** the bridge runs a slave network with `CANWORKS_STATE_DIR=/tmp/state`
 - **THEN** a store to 0x1010 writes the state file under `/tmp/state`, and `CANOPEN_STATE_DIR` has no effect
 
 #### Scenario: Build without tests
 - **WHEN** a user configures the build with `-DCANWORKS_BUILD_TESTS=OFF`
 - **THEN** `canopen_check`, the tests and the ping-pong slave are not built
 
-### Requirement: Names on the PLC
-The plugin SHALL register as `canworks` in `plugins.conf` with library `libcanworks_plugin.so` installed under `/opt/canworks`, SHALL read the uploaded config `conf/canworks.json` with its files in `conf/canworks/`, and SHALL write generated files to `.canworks/` next to the config. The editor hook SHALL take the config from the project folder `canworks/` (`canworks/canworks.json`). The diagnostics port and protocol version SHALL stay as they are.
-
-#### Scenario: Deploy after the rename
-- **WHEN** a project is deployed with `canworks-deploy` 0.42.0 to a runtime installed with that version
-- **THEN** `plugins.conf` has one enabled `canworks` line, the runtime holds `conf/canworks.json`, and the configurator connects on port 7531
-
-#### Scenario: Editor upload
-- **WHEN** the editor's Build and Upload sends a project with a `canworks/` folder to a runtime with the editor hook installed
-- **THEN** the runtime enables `canworks` with that config
-
 ### Requirement: Simulator names
-Each simulator command SHALL name the protocol it simulates, and no command that is not a device simulator SHALL carry `sim` in its name. The CANopen device simulator binary SHALL be `canworks-canopen-sim` (it also plays the simulation file's plain CAN devices), the J1939 ECU simulator command SHALL be `canworks-j1939-sim`, the switch that forces simulation SHALL be `CANWORKS_FORCE_SIMULATE`, the local runtime command SHALL be `canworks-local-runtime`, its image SHALL be `ghcr.io/tonihoohoo/canworks-local-runtime`, and its container SHALL be `canworks-local-runtime`. The simulation file schemas keep their names (`canworks-sim.v1`, `canworks-sim.v2`), because both the plugin's simulated devices and `canworks-canopen-sim` read that file.
+Each simulator command SHALL name the protocol it simulates, and no command that is not a device simulator SHALL carry `sim` in its name. The CANopen device simulator binary SHALL be `canworks-canopen-sim` (it also plays the simulation file's plain CAN devices), the J1939 ECU simulator command SHALL be `canworks-j1939-sim`, the switch that forces simulation SHALL be `CANWORKS_FORCE_SIMULATE`, the local runtime command SHALL be `canworks-local-runtime`, its image SHALL be `ghcr.io/tonihoohoo/canworks-local-runtime`, and its container SHALL be `canworks-local-runtime`. The simulation file schemas keep their names (`canworks-sim.v1`, `canworks-sim.v2`), because both the bridge's simulated devices and `canworks-canopen-sim` read that file.
 
 #### Scenario: Local runtime start
 - **WHEN** a user runs `canworks-local-runtime start`
 - **THEN** a container named `canworks-local-runtime` runs the image `ghcr.io/tonihoohoo/canworks-local-runtime` at the tools' version
 
 #### Scenario: Old simulator names gone
-- **WHEN** a user installs the PC tools and the plugin of this release into a fresh environment and runs `canworks-sim` or `canworks-sim-runtime`
+- **WHEN** a user installs the PC tools and the bridge of this release into a fresh environment and runs `canworks-sim` or `canworks-sim-runtime`
 - **THEN** the shell reports that the command is not found
 
 ### Requirement: Schema file names
 The JSON Schemas SHALL be published as `schema/canworks.v1.schema.json`, `schema/canworks.v2.schema.json`, `schema/canworks-sim.v1.schema.json` and `schema/canworks-sim.v2.schema.json`, and the `schema_version` values inside config files SHALL keep their meaning.
 
 #### Scenario: Existing example
-- **WHEN** `config/pingpong/canopen_config.json` (`schema_version` 1) is checked against `schema/canworks.v1.schema.json`
+- **WHEN** `config/pingpong/canopen_config.json` (`schema_version` 2) is checked against `schema/canworks.v2.schema.json`
 - **THEN** it validates
 
 #### Scenario: Machine schema
 - **WHEN** the repository and the PC tools package are listed
 - **THEN** no file named `canworks-sim-machine.v1.schema.json` or `canworks-machine.v1.schema.json` is in either
-
-### Requirement: Older install cleaned up
-When `install-stock.sh` finds a `canopen` line in `plugins.conf`, a `/opt/openplc-canopen` folder, or runtime-spec entries that refer to `/opt/openplc-canopen`, it SHALL remove them before installing and print one line for each.
-
-#### Scenario: Bench PLC upgrade
-- **WHEN** the script runs on a runtime that has the 0.40.0 install
-- **THEN** afterwards `plugins.conf` has a `canworks` line and no `canopen` line, `/opt/openplc-canopen` is gone, and the output names both removals
 
 ### Requirement: No old names in the repository
 The repository SHALL contain a rename script that applies the old-to-new mapping and can report, without changing anything, any old project-level name left outside archived changes and the CANopen-specific names, including the old `CANOPEN_` environment variable, CMake option and build argument names. CI SHALL fail when that report finds one.
@@ -165,7 +147,7 @@ The repository's name check SHALL also report `canworks-sim-runtime` and the bar
 
 #### Scenario: Why two simulators
 - **WHEN** a reader wonders why the configurator's Simulation does not play their J1939 ECU
-- **THEN** the page says the CANopen simulator builds devices from EDS files on the plugin's virtual bus, while J1939 runs on the kernel's J1939 sockets with ECUs played from a DBC
+- **THEN** the page says the CANopen simulator builds devices from EDS files on the bridge's virtual bus, while J1939 runs on the kernel's J1939 sockets with ECUs played from a DBC
 
 ### Requirement: Simulator wording in the docs
 The README SHALL list every simulator command in its one table of commands, each with the protocol it simulates, and SHALL link the simulation overview from its Simulation section. The docs and the configurator SHALL call `canworks-canopen-sim` "the CANopen simulator" and `canworks-local-runtime` "the local runtime", and SHALL NOT use "standalone simulator" or "simulator runtime" for them.

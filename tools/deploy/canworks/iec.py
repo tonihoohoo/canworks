@@ -27,7 +27,7 @@ CO_TYPES = {
 }
 CO_TYPE_BY_CODE = {code: name for name, (code, _) in CO_TYPES.items()}
 
-# Which location sizes each type fits (plugin: co_type_fits).
+# Which location sizes each type fits (engine: co_type_fits).
 _FITS = {
     "BOOLEAN": "X",
     "INTEGER8": "B", "UNSIGNED8": "B",

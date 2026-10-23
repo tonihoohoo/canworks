@@ -4,7 +4,7 @@ and verifying it (canopen-device-commissioning spec).
 Like parameters.py, everything runs on the PC over the diagnostics
 operations sdo_read, sdo_write and nmt, one SDO at a time, so it works on a
 runtime and on a USB adapter (localbus). The source is a node of a
-canworks.json (the writes the plugin makes at boot) or a CiA 306 DCF.
+canworks.json (the writes the bridge makes at boot) or a CiA 306 DCF.
 
 0x1010 (store) and 0x1011 (restore defaults) are never written as part of
 a configuration: store() and restore_defaults() are separate, explicit
@@ -95,7 +95,7 @@ def _heartbeat_warnings(src):
 
 
 def config_source(ctx, from_node):
-    """The writes the plugin makes to `from_node` at boot, from a
+    """The writes the bridge makes to `from_node` at boot, from a
     parameters.NodeContext of that node (ctx.cfg is the node's network's
     config)."""
     from . import dcfexport

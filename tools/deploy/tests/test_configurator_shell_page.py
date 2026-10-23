@@ -29,7 +29,7 @@ class Workspaces(OnlineBase):
             self.runtime(fp)
             # Configure: the config pages and its tools, no connection bar until connected.
             tabs = [b.inner_text() for b in pg.query_selector_all("#tool-tabs [role=tab]")]
-            self.assertEqual(tabs, ["Network", "Variable declarations", "Simulation file"])
+            self.assertEqual(tabs, ["Network", "Simulation file"])
             self.assertFalse(pg.is_visible("#conn-bar"))
             self.assertTrue(pg.is_visible("#side"))
             self.assertTrue(pg.is_visible("#problems"))

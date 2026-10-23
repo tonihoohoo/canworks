@@ -1,6 +1,6 @@
 # Installing on a device from the configurator
 
-The configurator's **Devices** workspace installs canworks on a Linux device over SSH: with a config open, what that project needs (for an OpenPLC project the OpenPLC Runtime on a fresh device and the Modbus bridge with the project's saved config, for a bridge project the bridge, for a config that still uses the older canworks plugin the plugin); with no config, what you pick for the device ([Without a config](#without-a-config)). It runs the same release scripts as the one-line installs ([install-stock.md](install-stock.md), [modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
+The configurator's **Devices** workspace installs canworks on a Linux device over SSH: with a config open, what that project needs (for an OpenPLC project the OpenPLC Runtime on a fresh device and the Modbus bridge with the project's saved config, for a bridge project the bridge); with no config, what you pick for the device ([Without a config](#without-a-config)). It runs the same release script as the one-line install ([modbus-bridge.md](modbus-bridge.md#install)), always the newest release, and shows their progress step by step. A CODESYS project has nothing to install: the page says so.
 
 **Configure | Commission | Devices** at the top of the page switches to it while a config is open, and **Install on a device** on the start page opens it with no config. The devices are kept once for this PC, in `devices.json` in the configurator's settings folder, and every project lists the same devices: host, SSH port and user, the last check and the last job. No password is ever kept.
 
@@ -8,12 +8,12 @@ Each device in the list says what it is to which project: **Runtime of line3** w
 
 ## Without a config
 
-**Install on a device** on the start page (or **Set up a Linux device** on the first run) opens Devices with no config: the header reads **Devices · no config**, and **Close** goes back to the start page. The parts table has no "This project" column. A device with neither the canworks plugin nor the bridge asks **What should this device run?**:
+**Install on a device** on the start page (or **Set up a Linux device** on the first run) opens Devices with no config: the header reads **Devices · no config**, and **Close** goes back to the start page. The parts table has no "This project" column. A device without the bridge asks **What should this device run?**:
 
-- **OpenPLC PLC with canworks**: **Install OpenPLC Runtime and canworks X** on a device with no runtime, **Install canworks X** on one with a runtime. Upload a program afterwards (the editor's **Build and upload**, or `canworks-deploy`).
+- **OpenPLC PLC with canworks**: **Install OpenPLC Runtime and the bridge X** on a device with no runtime, **Install the bridge X** on one with a runtime. Build and upload the editor project afterwards, and put its config on the bridge from its Devices page.
 - **Modbus bridge**: **Install the bridge X**, without a config. Open the bridge project and install it from its Devices page to start the bridge with that config.
 
-A device that has the plugin or the bridge gets its main action from what is installed (**Update A → X**, **Rebuild for runtime vN**, or **Up to date**), with no question. The other part gets **Install…** in its row: the bridge next to the plugin, or the plugin (with the runtime when there is none) next to the bridge. The PLC and the bridge cannot use the same CAN interface, so give each config its own. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
+A device that has the bridge gets its main action from what is installed (**Update A → X**, or **Up to date**), with no question. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
 
 ## Adding a device
 
@@ -30,42 +30,37 @@ A connection stays open for two minutes after its last use, so checking a device
 Picking a device checks it again (**Check again** does too). The check is a read-only script, `device-probe.sh` from the PC tools, run on the device through the SSH connection; it needs neither root nor canworks on the device and changes nothing. When the SSH user cannot read the managed Docker runtime's folder (`/var/lib/openplc-bootloader`, root's only) or use Docker, and `sudo` needs no password, it reads them through `sudo -n`; without that the runtime still shows as managed Docker, with no version. An old native `openplc-runtime` unit that is installed but stopped does not hide a managed Docker runtime. The page shows:
 
 - a header line: system, architecture, free disk, internet access to github.com, and when the device was checked;
-- one row per part: **OpenPLC Runtime** (native, managed Docker or a container of your own, its version and whether its HTTPS port answers; on a runtime other than the one canworks is pinned to, one grey line says so, for example "canworks runs on runtime v4.3.1; this device runs v4.3.2"), **canworks plugin** (version, the runtime version it was built for, on or waiting for an upload; on a managed Docker runtime it waits for an upload from the install until the first upload), **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
+- one row per part: **OpenPLC Runtime** (native, managed Docker or a container of your own, its version and whether its HTTPS port answers; on a runtime other than the one canworks is pinned to, one grey line says so, for example "canworks runs on runtime v4.3.1; this device runs v4.3.2"), **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
 - one main action, or **Up to date**;
 - a running or last install job ([Install jobs](#install-jobs)).
 
 | The device has | The main action |
 | --- | --- |
-| No OpenPLC runtime (OpenPLC project) | **Install OpenPLC Runtime and this project's bridge** (`install-runtime.sh --with-openplc --bridge`: the pinned runtime, then the bridge with the project's saved config, no plugin) |
-| No OpenPLC runtime (OpenPLC plugin config) | **Install OpenPLC Runtime and canworks X** |
-| A runtime, no plugin (OpenPLC plugin config) | **Install canworks X** |
-| A plugin older than the newest release X (OpenPLC plugin config) | **Update A → X** |
-| A managed Docker runtime on another version than canworks' pinned v4.3.1 (moved from the OpenPLC Editor; plugin config) | **Switch runtime to v4.3.1** |
-| A native runtime the plugin was not built for (the runtime was updated; plugin config) | **Rebuild for runtime vN** |
-| No bridge (OpenPLC or bridge project) | **Install and start this project's bridge** |
+| No OpenPLC runtime (OpenPLC project) | **Install OpenPLC Runtime and the bridge X** (`install-bridge.sh --with-openplc`: the pinned runtime, then the bridge with the project's saved config) |
+| A runtime, no bridge (OpenPLC project) | **Install the bridge X** |
+| No bridge (bridge project) | **Install and start this project's bridge** |
 | A bridge older than X, or a development build | **Update A → X** |
-| A bridge without its service (a partial install) | **Install and start this project's bridge** |
+| A bridge without its service (a partial install) | **Install the bridge X** or **Install and start this project's bridge** |
+| A managed Docker runtime on another version than canworks' pinned v4.3.1 (moved from the OpenPLC Editor; OpenPLC project) | **Switch runtime to v4.3.1** (`install-bridge.sh --pinned-runtime`) |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
 
-In an OpenPLC project, a device that still has the canworks plugin shows it in its row as no longer used, with **Uninstall…**, and the page says to uninstall it so that it does not run the networks next to the bridge. After the install the editor's **Build and upload** starts the PLC with the program and its Modbus settings.
+After the install the editor's **Build and upload** starts the PLC with the program and its Modbus settings. **Switch runtime** recreates the runtime container, so the program has to be uploaded again.
 
-Every plugin job on a managed Docker runtime also puts the runtime on the version that release is pinned to (`install-runtime.sh --pinned-runtime`), so an install or update never leaves the device on an untested runtime; **Switch runtime** is that job for a current plugin. Like any Docker-mode install it recreates the runtime container, so the program has to be uploaded again.
-
-X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config (the PLC's) to the bridge: the option is then greyed and the link stays as it is.
+X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config to this project's bridge: the option is then greyed and the link stays as it is.
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-The `canworks-bridge` command that the plugin's own environment in `/opt/canworks` carries is not counted as a bridge. Each installed part has **Uninstall…** (the plugin with `install-runtime.sh --uninstall`, the bridge with `install-bridge.sh --uninstall`, which leaves the plugin's version file and its can-j1939 boot entry alone). The **Actions** menu has **Remove everything…** (both, with `--purge`, and the remote link) and **Remove device**, which only forgets the device on this PC (for every project). The OpenPLC Runtime itself is never removed from here.
+The bridge has **Uninstall…** (`install-bridge.sh --uninstall`). The **Actions** menu has **Remove everything…** (the bridge with `--purge`, its configs and the remote link) and **Remove device**, which only forgets the device on this PC (for every project). The OpenPLC Runtime itself is never removed from here.
 
 ### Remote link and discovery
 
-Once the plugin or the bridge is on the device, the **Remote link** row has **Turn on…** or **Turn off…** (and **Start** when the link is installed but stopped), and **Found on the local network** has **Turn on…** or **Turn off…**. Each runs as a job with the release's `install-link.sh` ([remote-access.md](remote-access.md)), with and without a config open. The link serves the PLC's config when the plugin is installed, otherwise the open bridge project's bridge or the only bridge on the device; with several bridges and none of these, the dialog asks which one. Turning the link off keeps its key and paired PCs on the device, so turning it on again keeps the pairings, and the advertisement stays (without the link) when discovery is on. **Remove everything…** removes the key and paired PCs too. The CAN interfaces row is only shown: the plugin or the bridge sets the interfaces up from the config.
+Once the bridge is on the device, the **Remote link** row has **Turn on…** or **Turn off…** (and **Start** when the link is installed but stopped), and **Found on the local network** has **Turn on…** or **Turn off…**. Each runs as a job with the release's `install-link.sh` ([remote-access.md](remote-access.md)), with and without a config open. The link serves the open project's bridge or the only bridge on the device; with several bridges and none of these, the dialog asks which one. Turning the link off keeps its key and paired PCs on the device, so turning it on again keeps the pairings, and the advertisement stays (without the link) when discovery is on. **Remove everything…** removes the key and paired PCs too. The CAN interfaces row is only shown: the bridge sets the interfaces up from the config.
 
 In **Add device…** a wrong host, user or port is said under its field. A device that does not answer reads **Not reached**, with one sentence ("Can't reach 192.0.2.10 on SSH port 22.") and what to check: SSH on the device, the same network, the address and the port.
 
 ## Starting an action
 
-An action asks once, and only for what stops or loses something: a plugin install or update on a managed Docker runtime ("The PLC stops and comes back without a program; upload it again afterwards."), a bridge update ("Running bridges restart."), switching the runtime back to the pinned version (names both versions), installing the OpenPLC Runtime (names upstream's installer, `https://runtime.getedge.me`, which installs Docker, and the pinned runtime version it installs), and uninstalling. When the SSH user needs a password for `sudo`, the same dialog asks for it. A user that is root or has password-less sudo is never asked, and an action with nothing to confirm then starts at once.
+An action asks once, and only for what stops or loses something: a bridge update ("Running bridges restart."), switching the runtime back to the pinned version (names both versions), installing the OpenPLC Runtime (names upstream's installer, `https://runtime.getedge.me`, which installs Docker, and the pinned runtime version it installs), and uninstalling. When the SSH user needs a password for `sudo`, the same dialog asks for it. A user that is root or has password-less sudo is never asked, and an action with nothing to confirm then starts at once.
 
 A bridge action copies the saved config folder (the regular files next to `canworks.json`, at most 50 MB) to a temporary folder on the device and installs it as the bridge instance named after the project folder; the job removes the temporary folder. A bridge action with unsaved changes asks to save first.
 
@@ -77,9 +72,9 @@ The page shows the steps the scripts announce, each with its time, the time so f
 
 A failed job shows its exit status, its last 20 log lines and, for the failures the scripts name (no internet access, a full disk, apt locked by another program, no runtime found, the runtime's image changed), what to do.
 
-When a job ends, the device is checked again and the page says what comes next: for the plugin, that canworks switches on with the next upload (the editor's **Build and upload**, or `canworks-deploy`) and, on a managed Docker runtime, that the PLC has no program until then; for the bridge, that it runs this project's saved config, with **Open in Commission**. The device becomes the project's runtime host under **Online access** when that was empty.
+When a job ends, the device is checked again and the page says what comes next: after the OpenPLC Runtime and the bridge are installed, or the runtime switched to the pinned version, that the editor project's **Build and upload** starts the PLC; for a project's bridge, that it runs this project's saved config, with **Open in Commission**; for a bridge installed with no config, that it starts with a config when that config's Devices page installs it there. The device becomes the project's runtime host under **Online access** when that was empty.
 
-After **Install OpenPLC Runtime and canworks**, a runtime with no user asks for the first user's name and password (twice) and creates it through the runtime's API on the device itself. A runtime that has users is left alone.
+After **Install OpenPLC Runtime and the bridge**, a runtime with no user asks for the first user's name and password (twice) and creates it through the runtime's API on the device itself. A runtime that has users is left alone.
 
 ## Other ways in
 
@@ -93,7 +88,7 @@ After **Install OpenPLC Runtime and canworks**, a runtime with no user asks for 
 - Passwords (SSH, sudo, the runtime's first user) are used for the one request that needs them and are written to no file, log, job log or browser storage. The sudo password reaches the device only on the standard input of `sudo -S`, checked alone first, so a wrong one never meets the job's commands.
 - Host keys are trusted only after you saw them, and a changed key is never replaced by itself.
 - The job runs the release's own scripts from `raw.githubusercontent.com/tonihoohoo/canworks/deploy-vX/scripts/` with `--version X`, as the one-line installs do.
-- Nothing is saved to a device's non-volatile memory; the plugin and bridge install as their scripts do.
+- Nothing is saved to a device's non-volatile memory; the bridge installs as its script does.
 
 ## Requirements
 

@@ -86,7 +86,7 @@ class LinksPage(unittest.TestCase):
         cfg = self.config()
         del cfg["networks"][0]["links"]
         del cfg["networks"][0]["nodes"][1]["heartbeat_watch"]
-        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][1]["iec_location"] = "%IW101"
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][1]["iec_location"] = "%IW106"
         self.write(cfg)
         pg = self.page
         self.open()
@@ -107,10 +107,10 @@ class LinksPage(unittest.TestCase):
         pg.click("#btn-save")
         pg.wait_for_selector("#btn-save:has-text('Saved')")
         saved = self.config()
-        self.assertEqual(saved["links"], [{"from": {"node": 10, "tpdo": 1}, "to": [
+        self.assertEqual(saved["networks"][0]["links"], [{"from": {"node": 10, "tpdo": 1}, "to": [
             {"node": 20, "rpdo": 2, "entries": [{"index": "0x6411", "subindex": 1, "type": "INTEGER16"},
                                                  {"index": "0x0003", "subindex": 0, "type": "INTEGER16"}]}]}])
-        self.assertEqual(saved["nodes"][1]["heartbeat_watch"], [{"node": 10}])
+        self.assertEqual(saved["networks"][0]["nodes"][1]["heartbeat_watch"], [{"node": 10}])
 
     def test_size_mismatch_marked(self):
         cfg = self.config()
@@ -199,7 +199,7 @@ class LinksPage(unittest.TestCase):
         pg.wait_for_selector('input[data-path="nodes[1].heartbeat_watch[0].timeout_ms"]')
         self.assertEqual(pg.get_attribute('input[data-path="nodes[1].heartbeat_watch[0].timeout_ms"]', "placeholder"),
                          "default (300 ms)")
-        self.assertEqual(self.config()["nodes"][1]["heartbeat_watch"], [{"node": 10}])
+        self.assertEqual(self.config()["networks"][0]["nodes"][1]["heartbeat_watch"], [{"node": 10}])
 
 
 if __name__ == "__main__":

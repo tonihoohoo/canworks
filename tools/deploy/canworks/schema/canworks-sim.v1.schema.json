@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks-sim.v1.schema.json",
   "title": "canworks simulation file, version 1",
-  "description": "Behaviour of simulated CANopen devices (docs/simulator.md). Checks the schema cannot express (objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the config) are run by the plugin, the simulator and the deploy tool's check.",
+  "description": "Behaviour of simulated CANopen devices (docs/simulator.md). Checks the schema cannot express (objects exist in the EDS, sources on master-written objects, expression syntax and references, node IDs in the config) are run by the bridge, the simulator and the deploy tool's check.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

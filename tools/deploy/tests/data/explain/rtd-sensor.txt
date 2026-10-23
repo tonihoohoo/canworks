@@ -183,7 +183,7 @@ EMCY of node 5 (rtd)
 
 What it is
   A node sends an emergency (EMCY) once when an error appears, and once more with code 0000 when all
-  errors are gone. The plugin hands the latest one to the PLC program.
+  errors are gone. The bridge hands the latest one to the PLC program.
 
 Identifier (11 bits, most significant first)
   function code 0001 = 1   node ID 0000101 = 5
@@ -244,7 +244,7 @@ EMCY of node 5 (rtd)
 
 What it is
   A node sends an emergency (EMCY) once when an error appears, and once more with code 0000 when all
-  errors are gone. The plugin hands the latest one to the PLC program.
+  errors are gone. The bridge hands the latest one to the PLC program.
 
 Identifier (11 bits, most significant first)
   function code 0001 = 1   node ID 0000101 = 5

@@ -2051,8 +2051,8 @@ class Parser {
     if (cJSON_GetObjectItemCaseSensitive(master, "cia309"))
       error(w, "field 'cia309' is a top-level object in schema_version 2, not part of a network's master");
     if (!m.start)
-      warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged "
-                 "until the PLC program starts it with CO_NETWORK_START");
+      warning(w, "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged; "
+                 "the bridge has no command that starts it");
   }
 
   // `parent_where`: "" (the top level).

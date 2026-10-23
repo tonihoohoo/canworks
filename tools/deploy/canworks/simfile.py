@@ -30,7 +30,7 @@ _schemas = {}
 
 VISIBLE_STRING = 0x0009
 DELAY_MAX_S = 600.0
-# The plugin's expression limits (sim_expr.cpp): longest text, deepest
+# The bridge's expression limits (sim_expr.cpp): longest text, deepest
 # nesting, and the samples delay() keeps.
 EXPR_MAX_LENGTH = 4096
 EXPR_MAX_DEPTH = 128
@@ -60,7 +60,7 @@ def bodies(data):
 
 def section_name(net):
     """The name a version 2 file's section uses for a network of
-    contract.networks(): its name, or its interface (as the plugin)."""
+    contract.networks(): its name, or its interface (as the bridge)."""
     if net["name"]:
         return net["name"]
     iface = net["adapter"].get("interface") if isinstance(net["adapter"], dict) else None
@@ -101,7 +101,7 @@ def parse_object(text):
     if not m:
         raise ValueError("%r is not an object (write 0xIIII:S)" % text)
     index = int(m.group(1), 16)
-    # As the plugin: "0x" hex, else decimal (leading zeros allowed: 01 is 1).
+    # As the bridge: "0x" hex, else decimal (leading zeros allowed: 01 is 1).
     sub = m.group(2) or "0"
     sub = int(sub[2:], 16) if sub[:2].lower() == "0x" else int(sub, 10)
     if sub > 255:
@@ -254,7 +254,7 @@ class _Parser:
 
     def enter(self, pos):
         """One level of nesting (a parenthesis, a call, a unary operator or
-        **), as the plugin counts them; leave() ends it."""
+        **), as the bridge counts them; leave() ends it."""
         self.nest += 1
         if self.nest > EXPR_MAX_DEPTH:
             raise ExprError(pos, "nested deeper than %d levels" % EXPR_MAX_DEPTH)
@@ -292,7 +292,7 @@ class _Parser:
         return node
 
     def binary(self, level):
-        # Precedence climbing, as the plugin parses (same trees, and one
+        # Precedence climbing, as the bridge parses (same trees, and one
         # call per level of nesting rather than one per operator level).
         left = self.power()
         while True:
@@ -381,7 +381,7 @@ class _Parser:
             else:
                 want = "%d argument%s" % (least, "" if least == 1 else "s")
             raise ExprError(pos, "%s takes %s, not %d" % (name, want, len(args)))
-        # As the plugin: a number written as the dead time is checked; one
+        # As the bridge: a number written as the dead time is checked; one
         # computed is limited to 0-600 s while running.
         if name == "delay" and args[1].kind == "num" and args[1].value > DELAY_MAX_S:
             raise ExprError(pos, "delay of %g s: the dead time is at most %d s" % (args[1].value, DELAY_MAX_S))
@@ -424,7 +424,7 @@ def _round(x):
 
 
 def _int(x):
-    """The integer part as the plugin takes it: 64-bit, saturated, 0 for a
+    """The integer part as the bridge takes it: 64-bit, saturated, 0 for a
     value that is not a finite number."""
     if math.isnan(x) or math.isinf(x):
         return 0
@@ -445,7 +445,7 @@ def _int64(v):
 
 
 class Evaluator:
-    """Evaluates a tree tick after tick, as the plugin does (sim_expr.cpp);
+    """Evaluates a tree tick after tick, as the bridge does (sim_expr.cpp);
     stateful functions keep their state per call site. Every argument is
     evaluated (if, && and || too), so stateful functions in a branch not
     taken still tick. On the first tick lag, rate_limit, delay and hold give
@@ -505,7 +505,7 @@ class Evaluator:
         if op == "*":
             return a * b
         # Division by zero and the like give NaN or infinity, as in the
-        # plugin; eval() refuses a result that is not a finite number.
+        # bridge; eval() refuses a result that is not a finite number.
         if op == "/":
             return _NAN if b == 0 else a / b
         if op == "%":
@@ -631,7 +631,7 @@ class Evaluator:
 
 
 def check_expression(text, known_devices, has_object):
-    """One expression checked as the plugin compiles it, for the
+    """One expression checked as the bridge compiles it, for the
     configurator's editor: None when it is fine, else (position, message).
     known_devices: the node IDs and extra device names (ints or text) an
     expression may name; has_object(device, (index, subindex)) whether a
@@ -748,7 +748,7 @@ def _resolve_path(value, base):
 
 
 def csv_problem(value, base, roots):
-    """Why the plugin would not read a CSV source's file, or None: it must
+    """Why the bridge would not read a CSV source's file, or None: it must
     resolve (links followed) under one of the folders `roots` (the
     simulation file's and the config's), be a regular file of at most 16 MB,
     with lines of at most 4096 bytes."""
@@ -958,7 +958,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
         return r
     raw_names = _check_raw_devices(data, path, cfg, err)
     if version >= 2:
-        # One section per network (as the plugin): each checked against its
+        # One section per network (as the bridge): each checked against its
         # own network's nodes, messages naming the section.
         nets = contract.networks(cfg) if isinstance(cfg, dict) else []
         names = [section_name(n) for n in nets]
@@ -986,7 +986,7 @@ def check(data, path, cfg=None, config_path=None, eds_paths=None):
                         raw=raw_names.get(name, raw_names.get(None, set())))
         return r
     if several_networks(cfg):
-        # As the plugin: a version 1 file serves a configuration with one network.
+        # As the bridge: a version 1 file serves a configuration with one network.
         warn("", "not used: a version 1 simulation file serves a configuration with one network only (version 2 "
                  "has a section per network under 'networks'); the simulated devices of a configuration with "
                  "several networks run with their default behaviour")
@@ -1289,7 +1289,7 @@ def _check_source(src, obj, dev, at, devices, err, base, csv_roots=None):
     if kind == "random_walk" and isinstance(src["random_walk"], dict):
         walk = src["random_walk"]
         if all(isinstance(walk.get(k), (int, float)) for k in ("min", "max")) and walk["min"] > walk["max"]:
-            err(w + ".random_walk", "random_walk needs min <= max and max_step above 0")  # the plugin's words
+            err(w + ".random_walk", "random_walk needs min <= max and max_step above 0")  # the bridge's words
     if kind == "csv":
         problem = csv_problem(src["csv"]["file"], base, csv_roots or [base])
         if problem:

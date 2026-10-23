@@ -30,7 +30,7 @@ class Page(_Page):
         canopen = os.path.join(self.project, "canworks")
         shutil.copy(FIXED_IO, canopen)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), canopen)
-        rtd = load(os.path.join(RTD, "canopen_config.json"))["nodes"][0]
+        rtd = load(os.path.join(RTD, "canopen_config.json"))["networks"][0]["nodes"][0]
         rtd.update(eds="rtd8.eds", status_location="%IX330.0")
         for p in rtd.get("tx_pdos", []):
             for k, e in enumerate(p["entries"]):

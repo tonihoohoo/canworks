@@ -1,12 +1,12 @@
 """Exports each configured node as a CiA 306 DCF (canopen-dcf-export spec).
 
-The DCF is the node's EDS (the prepared copy the plugin uses) with a
-ParameterValue on every sub-object the plugin writes during the node's
+The DCF is the node's EDS (the prepared copy the bridge uses) with a
+ParameterValue on every sub-object the bridge writes during the node's
 configuration download, a [DeviceComissioning] section and updated [FileInfo]
-keys. The download is built the way the plugin builds it on the PLC
+keys. The download is built the way the bridge builds it on the PLC
 (plugin/src/canopen/dcf_gen.cpp): the dcfgen input of make_dcfgen_yaml(), Lely
 dcfgen's own Slave/Master code (vendored as _lely_dcf/dcfgen_cli.py), then
-the plugin's post-processing of generate_device_config(). CI compares the
+the bridge's post-processing of generate_device_config(). CI compares the
 result with `canopen_check --dump-writes` for the fixture configs.
 """
 
@@ -87,10 +87,10 @@ def dcfgen_cli():
     return module
 
 
-# -- the plugin's configuration download -----------------------------------
+# -- the bridge's configuration download -----------------------------------
 
 class Download:
-    """A node's configuration download as the plugin performs it."""
+    """A node's configuration download as the bridge performs it."""
 
     def __init__(self, node_id):
         self.node_id = node_id
@@ -133,12 +133,12 @@ def _bitrate(cfg):
 
 
 def _fmt6(x):
-    # The plugin writes multipliers as "%.6f" into the YAML.
+    # The bridge writes multipliers as "%.6f" into the YAML.
     return float("%.6f" % x)
 
 
 def _normalized_nodes(cfg):
-    """The config's nodes with numbers resolved like the plugin's parser:
+    """The config's nodes with numbers resolved like the bridge's parser:
     PDO numbers (default: position), COB-IDs ("auto" and the defaults)."""
     nodes = []
     for n in cfg["nodes"]:
@@ -167,7 +167,7 @@ def _pdo_numbers(dev, comm_base):
 
 
 def _ro_pdo_comm(dev):
-    """The EDS's read-only PDO communication sub-indices (plugin:
+    """The EDS's read-only PDO communication sub-indices (engine:
     find_fixed_pdo_params)."""
     out = set()
     for base in (0x1400, 0x1800):
@@ -182,8 +182,8 @@ def _ro_pdo_comm(dev):
 
 
 def _emit_pdos(node_json, norm, dev, eds, ro, is_tx, linked=()):
-    """The node's `tpdo`/`rpdo` dcfgen entry (plugin: emit_pdos), or None.
-    `linked`: the node's PDO link consumer RPDOs, which the plugin writes
+    """The node's `tpdo`/`rpdo` dcfgen entry (engine: emit_pdos), or None.
+    `linked`: the node's PDO link consumer RPDOs, which the bridge writes
     itself."""
     key = "tx_pdos" if is_tx else "rx_pdos"
     comm_base = 0x1800 if is_tx else 0x1400
@@ -219,7 +219,7 @@ def _emit_pdos(node_json, norm, dev, eds, ro, is_tx, linked=()):
 def heartbeat_multiplier(period, timeout):
     """The node's heartbeat_multiplier for dcfgen, which writes the master's
     consumer time as int(period * multiplier): timeout / period, unless that
-    rounds below the timeout; then half a millisecond above it (plugin:
+    rounds below the timeout; then half a millisecond above it (engine:
     heartbeat_multiplier_text). 3.0 without a period."""
     if not period:
         return 3.0
@@ -228,7 +228,7 @@ def heartbeat_multiplier(period, timeout):
 
 
 def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, linked=()):
-    """The node's part of the plugin's dcfgen YAML (make_dcfgen_yaml), as
+    """The node's part of the bridge's dcfgen YAML (make_dcfgen_yaml), as
     the dict yaml.safe_load would read."""
     n = node_json
     y = {"dcf": dcf_path, "node_id": norm["node_id"]}
@@ -265,7 +265,7 @@ def dcfgen_input(cfg, node_json, norm, dcf_path, dev, eds, ro, linked=()):
 
 
 def master_input(cfg):
-    """The plugin's dcfgen `master` entry, as far as it shapes the slaves'
+    """The bridge's dcfgen `master` entry, as far as it shapes the slaves'
     downloads (the 0x1016 heartbeat consumer entry)."""
     m = cfg["master"]
     y = {"node_id": _u(m.get("node_id"), 1), "baudrate": _bitrate(cfg) // 1000,
@@ -283,7 +283,7 @@ def _concise(sdo):
 
 
 def _eds_unsigned(dev, index, sub):
-    """The EDS value of an UNSIGNED8/16/32 sub-object (plugin:
+    """The EDS value of an UNSIGNED8/16/32 sub-object (engine:
     eds_sub_value), or None."""
     try:
         s = dev[index][sub]
@@ -305,7 +305,7 @@ def _fnv1a(h, data):
 
 
 def config_stamp(writes, store_subindex):
-    """The node's configuration date and time (plugin: config_stamp)."""
+    """The node's configuration date and time (engine: config_stamp)."""
     h = _fnv1a(0xCBF29CE484222325, b"config stamp 1")
     for index, sub, data in writes:
         h = _fnv1a(h, bytes([index & 0xFF, index >> 8, sub, len(data) & 0xFF]) + data)
@@ -318,7 +318,7 @@ def config_stamp(writes, store_subindex):
 def _add_explicit_pdo_writes(n, norm, ro, sdos):
     """The PDO parameters the node's JSON sets explicitly, as writes after the
     write that switches their PDO off (else before the one that switches it
-    on, else last), unless dcfgen already wrote them; as the plugin's
+    on, else last), unless dcfgen already wrote them; as the bridge's
     add_explicit_pdo_writes."""
     sdos = list(sdos)
     for key, base in (("tx_pdos", 0x1800), ("rx_pdos", 0x1400)):
@@ -388,7 +388,7 @@ def _load_nodes(cfg, config_path, eds_paths):
 
 def link_setup(cfg, nodes):
     """The network's PDO links with their COB-IDs and consumer mapping modes,
-    and {node ID: resolved heartbeat_watch entries}, as the plugin resolves
+    and {node ID: resolved heartbeat_watch entries}, as the bridge resolves
     them for a config that passes contract.check_config."""
     links = links_mod.parse(cfg)
     by_id = {n.node_id: n for n in nodes}
@@ -438,7 +438,7 @@ def plugin_downloads(cfg, config_path, eds_paths=None, nodes=None):
         d = Download(node.node_id)
         sdos = [_concise(s) + (_config_source(_concise(s)[0]),) for s in slaves["node_%d" % node.node_id].sdo]
         # dcfgen switches every configured PDO off and on again through its
-        # COB-ID; the plugin drops writes to read-only PDO communication
+        # COB-ID; the bridge drops writes to read-only PDO communication
         # sub-indices (generate_device_config).
         sdos = [w for w in sdos if (w[0], w[1]) not in node.ro]
         # Explicit PDO parameters equal to the EDS default, which dcfgen leaves
@@ -592,7 +592,7 @@ def build_dcf(node, download, cfg, now, dcf_name):
         try:
             s = node.dev[index][sub]
         except KeyError:
-            problems.append("0x%04X sub %d: the plugin writes it, but the EDS does not define it" % (index, sub))
+            problems.append("0x%04X sub %d: the bridge writes it, but the EDS does not define it" % (index, sub))
             continue
         text = parameter_value(data, s.data_type.index)
         if text is None:

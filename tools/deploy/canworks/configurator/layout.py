@@ -208,26 +208,9 @@ C_MACROS = frozenset("""
 """.split())
 
 
-def project_checks(cfg, project_uses, allow_overlap=False):
-    """Checks every CANopen location against the project's devices. Returns
-    (items, declared): items as contract.Result.items, declared
-    {json path: variable name} for locations a located variable declares."""
-    by_key = {}
-    for u in project_uses:
-        by_key.setdefault(u.key(), []).append(u)
-    items, declared = [], {}
-    for u in project_uses:
-        if u.kind == "variable" and u.name and u.name.upper() in C_MACROS:
-            items.append({"level": "error", "message": "%s: the runtime cannot compile a variable named %s (a C library macro of that name); rename it"
-                          % (u.describe(), u.name), "paths": []})
-    for path, loc in canopen_uses(cfg):
-        for u in by_key.get((loc.area, loc.size, loc.element), []):
-            if u.kind == "variable":
-                declared.setdefault(path, u.name)
-                continue
-            msg = "%s is also used by %s" % (loc, u.describe())
-            if allow_overlap:
-                items.append({"level": "warning", "message": msg + " (overlap allowed)", "paths": [path], "overlap_allowed": True})
-            else:
-                items.append({"level": "error", "message": msg, "paths": [path], "overlap": True})
-    return items, declared
+def macro_problems(project_uses):
+    """The project's located variables the runtime cannot compile: a name
+    of a C library macro. Items as contract.Result.items."""
+    return [{"level": "error", "message": "%s: the runtime cannot compile a variable named %s (a C library macro of that name); rename it"
+             % (u.describe(), u.name), "paths": []}
+            for u in project_uses if u.kind == "variable" and u.name and u.name.upper() in C_MACROS]

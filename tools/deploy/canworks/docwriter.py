@@ -497,7 +497,7 @@ def _links(net):
                      consumers, reads, E(l["on_plc_stop"])])
     return ('<h3 id="%s-links">PDO links</h3><p class="muted">TPDOs other nodes receive directly (CiA 301 '
             'producer/consumer); the master configures both ends at boot. A link adds no frame and no bus load.</p>%s'
-            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "On PLC stop"],
+            % (_attr(net["anchor"]), _table(["Link", "COB-ID", "Producer", "Consumers", "PLC reads", "When the bridge stops"],
                                             rows)))
 
 

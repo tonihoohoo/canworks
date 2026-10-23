@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks.v1.schema.json",
   "title": "OpenPLC CANopen master configuration, schema_version 1",
-  "description": "The CANopen plugin's JSON config (conf/canworks.json, canopen_config.json). Unknown fields are allowed: the plugin and the deploy tool ignore them with a warning. Checks this schema cannot express are listed in docs/config.md.",
+  "description": "The CANopen bridge's JSON config (conf/canworks.json, canopen_config.json). Unknown fields are allowed: the bridge and the deploy tool ignore them with a warning. Checks this schema cannot express are listed in docs/config.md.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -202,7 +202,7 @@
           ]
         },
         "interface": {
-          "description": "The CAN interface (can0, vcan0) or, for slcan, the interface the plugin creates: 1-15 characters of letters, digits, '_', '.', ':' and '-' (a Linux interface name).",
+          "description": "The CAN interface (can0, vcan0) or, for slcan, the interface the bridge creates: 1-15 characters of letters, digits, '_', '.', ':' and '-' (a Linux interface name).",
           "type": "string",
           "minLength": 1,
           "maxLength": 15,
@@ -249,7 +249,7 @@
       "required": [
         "type"
       ],
-      "description": "The CAN adapter. 'socketcan': an existing SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan). 'slcan': a serial-line adapter (CANable with slcan firmware, Lawicel CANUSB); the plugin creates the interface from the serial device.",
+      "description": "The CAN adapter. 'socketcan': an existing SocketCAN interface (CAN HAT, candleLight/gs_usb, PEAK, vcan). 'slcan': a serial-line adapter (CANable with slcan firmware, Lawicel CANUSB); the bridge creates the interface from the serial device.",
       "allOf": [
         {
           "if": {
@@ -347,7 +347,7 @@
           "type": "boolean"
         },
         "bus_state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the CAN bus state: 0 no bus, 1 error-active, 2 error-warning, 3 error-passive, 4 bus-off.",
+          "description": "An input byte (%IB...) the bridge keeps at the CAN bus state: 0 no bus, 1 error-active, 2 error-warning, 3 error-passive, 4 bus-off.",
           "type": "string",
           "pattern": "^%[Ii][Bb][0-9]+$"
         },
@@ -367,7 +367,7 @@
           "pattern": "^%[Ii][Ww][0-9]+$"
         },
         "state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 resetting or not started.",
+          "description": "An input byte (%IB...) the bridge keeps at the master's own NMT state: 5 OPERATIONAL, 127 PRE-OPERATIONAL, 4 STOPPED, 0 resetting or not started.",
           "$ref": "#/$defs/input_byte"
         },
         "vendor_id": {
@@ -469,7 +469,7 @@
           ]
         },
         "on_plc_stop": {
-          "description": "NMT command to every configured node that is up when the PLC or the plugin stops, before the network closes: preop (default, ENTER PRE-OPERATIONAL), stop (STOP) or keep (no command).",
+          "description": "NMT command to every configured node that is up when the PLC or the bridge stops, before the network closes: preop (default, ENTER PRE-OPERATIONAL), stop (STOP) or keep (no command).",
           "enum": [
             "preop",
             "stop",
@@ -490,7 +490,7 @@
           ]
         },
         "diagnostics": {
-          "description": "The diagnostics channel: the plugin listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
+          "description": "The diagnostics channel: the bridge listens on TCP for the configurator's online view, manual SDO/NMT and network scan (docs/diagnostics.md). Absent = no network listener.",
           "type": "object",
           "properties": {
             "token_verifier": {
@@ -522,7 +522,7 @@
               "type": "boolean"
             },
             "remote_link": {
-              "description": "The remote link (docs/remote-access.md), read by the canworks-link service on the device; the plugin and the bridge only check it.",
+              "description": "The remote link (docs/remote-access.md), read by the canworks-link service on the device; the bridge and the bridge only check it.",
               "type": "object",
               "properties": {
                 "internet": {
@@ -644,7 +644,7 @@
           "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
         },
         "state_location": {
-          "description": "An input byte (%IB...) the plugin keeps at the node's NMT state: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL, 0 no contact.",
+          "description": "An input byte (%IB...) the bridge keeps at the node's NMT state: 4 STOPPED, 5 OPERATIONAL, 127 PRE-OPERATIONAL, 0 no contact.",
           "type": "string",
           "pattern": "^%[Ii][Bb][0-9]+$"
         },
@@ -786,7 +786,7 @@
           }
         },
         "simulate": {
-          "description": "true: this node is a simulated device run by the plugin (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
+          "description": "true: this node is a simulated device run by the bridge (docs/simulator.md). Default: true on a simulated network (adapter.simulate), false on a real one.",
           "type": "boolean"
         }
       },
@@ -1043,7 +1043,7 @@
       "maxLength": 64
     },
     "tx_entry": {
-      "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the plugin checks that.",
+      "description": "iec_location may be left out only when the TPDO feeds a PDO link (links); the bridge checks that.",
       "allOf": [
         {
           "$ref": "#/$defs/entry"
@@ -1268,7 +1268,7 @@
       ]
     },
     "uint_string": {
-      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"), with no leading zero (\"012\" is refused). Its range is checked by the plugin, not by this schema.",
+      "description": "An unsigned integer written as a string, decimal or 0x hex (\"0x2001\", \"8193\"), with no leading zero (\"012\" is refused). Its range is checked by the bridge, not by this schema.",
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+)$"
     },

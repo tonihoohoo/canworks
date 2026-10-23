@@ -172,10 +172,10 @@ jobs:
             ${previous:+--previous "$previous"} --out notes.md
           # The install scripts too: the documented one-line installers fetch
           # them from releases/latest/download/, so users run released code.
-          cp scripts/install-pc.sh scripts/install-pc.ps1 scripts/install-runtime.sh scripts/install-runtime.ps1 \
+          cp scripts/install-pc.sh scripts/install-pc.ps1 \
              scripts/install-bridge.sh scripts/install-bridge.ps1 tools/deploy/canworks/devices/device-probe.sh dist/
           gh release create "$TAG" dist/*.whl dist/canworks.stlib dist/canworks-$VERSION-constraints.txt \
-            dist/install-pc.sh dist/install-pc.ps1 dist/install-runtime.sh dist/install-runtime.ps1 \
+            dist/install-pc.sh dist/install-pc.ps1 \
             dist/install-bridge.sh dist/install-bridge.ps1 dist/device-probe.sh \
             --target "$SHA" \
             --title "PC tools $VERSION" \

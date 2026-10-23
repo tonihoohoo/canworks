@@ -10,7 +10,7 @@ the 7-bit occurrence count. The PLC gets one UDINT instead:
 DM1 and DM2 are the lamp byte, the flash byte and the codes; a message with
 no code carries one all-zero code (DM1 must still be 8 bytes). The byte
 fixtures in test/fixtures/j1939-dm/cases.json pin this module and the
-plugin's codec to the same bytes.
+bridge's codec to the same bytes.
 """
 
 PGN_DM1 = 0xFECA   # 65226 active codes

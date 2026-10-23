@@ -170,13 +170,13 @@ class AssistTests(unittest.TestCase):
         self.assertEqual(notes, [])
         self.assertEqual([m["name"] for m in raw["rx"]], ["Joystick"])
         self.assertEqual([m["name"] for m in raw["tx"]], ["Lamps"])
-        used = {("I", "X", 300 * 8)}
+        used = {("I", "X", 300 * 8), ("I", "b", 300)}
         filled = assist.suggest_locations(raw["rx"][0], "rx", used)
         self.assertEqual(filled, ["status_location", "signals[0].iec_location"])
         self.assertEqual(raw["rx"][0]["status_location"], "%IX300.1")
-        self.assertEqual(raw["rx"][0]["signals"][0]["iec_location"], "%IW300")
+        self.assertEqual(raw["rx"][0]["signals"][0]["iec_location"], "%IW302")
         assist.suggest_locations(raw["tx"][0], "tx", used)
-        self.assertEqual(sorted(s["iec_location"] for s in raw["tx"][0]["signals"]), ["%QW300", "%QX300.0"])
+        self.assertEqual(sorted(s["iec_location"] for s in raw["tx"][0]["signals"]), ["%QW302", "%QX300.0"])
         self.assertEqual(contract.check_raw(raw, "networks[0].raw")[0], [])
         st = assist.st_call(raw["rx"][0], "rx", 1)
         self.assertIn("rx_Joystick(ENABLE := TRUE, NETWORK := 1, ID := 16#123, RX_DATA := Joystick_data);", st)
@@ -335,7 +335,7 @@ class ReplayCli(unittest.TestCase):
 
 class StatusText(unittest.TestCase):
     """canworks-diag status of a plain CAN network, from an answer shaped as
-    the plugin's (DiagHub::offline_answer + RawRuntime::status)."""
+    the bridge's (DiagHub::offline_answer + RawRuntime::status)."""
 
     ANSWER = {
         "version": "0.45.0", "uptime_s": 12, "config_sha256": "ab" * 32, "network": "cab", "protocols": ["canopen", "j1939", "none"],

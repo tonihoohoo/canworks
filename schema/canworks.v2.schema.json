@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
   "title": "OpenPLC CANopen configuration, schema_version 2 (several networks, slave networks, gateway)",
-  "description": "The CANopen plugin's JSON config with a list of networks (docs/config.md#several-networks): master networks, one CANopen master per CAN interface, and slave networks, where OpenPLC is one CANopen device under another master (docs/slave.md), with an optional gateway between them (docs/gateway.md). A master network's adapter, master and nodes are the version 1 definitions, referenced from canworks.v1.schema.json, except that a PDO entry may leave out iec_location: the plugin allows that only for an entry a gateway route uses. Unknown fields are allowed: the plugin and the deploy tool ignore them with a warning. Checks this schema cannot express (unique names, interfaces and serial devices, IEC locations across networks, slave bindings and gateway routes against the EDS files) are listed in docs/config.md, docs/slave.md and docs/gateway.md.",
+  "description": "The CANopen bridge's JSON config with a list of networks (docs/config.md#several-networks): master networks, one CANopen master per CAN interface, and slave networks, where OpenPLC is one CANopen device under another master (docs/slave.md), with an optional gateway between them (docs/gateway.md). A master network's adapter, master and nodes are the version 1 definitions, referenced from canworks.v1.schema.json, except that a PDO entry may leave out iec_location: the bridge allows that only for an entry a gateway route uses. Unknown fields are allowed: the bridge and the deploy tool ignore them with a warning. Checks this schema cannot express (unique names, interfaces and serial devices, IEC locations across networks, slave bindings and gateway routes against the EDS files) are listed in docs/config.md, docs/slave.md and docs/gateway.md.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -47,7 +47,7 @@
   },
   "$defs": {
     "codesys": {
-      "description": "Makes this a CODESYS config, built into a CODESYS project with CODESYS's own CANopen Manager instead of run by the OpenPLC plugin (docs/codesys.md). PDO entries need no iec_location then: CODESYS assigns the I/O addresses and each entry's channel is named by its 'name' or the generated name. canworks-deploy's --codesys-* options override these settings.",
+      "description": "Makes this a CODESYS config, built into a CODESYS project with CODESYS's own CANopen Manager instead of run by canworks-bridge (docs/codesys.md). PDO entries need no iec_location then: CODESYS assigns the I/O addresses and each entry's channel is named by its 'name' or the generated name. canworks-deploy's --codesys-* options override these settings.",
       "type": "object",
       "properties": {
         "project": { "description": "The CODESYS project file the bus is built into (--codesys-import).", "type": "string", "minLength": 1 },
@@ -65,7 +65,7 @@
       }
     },
     "bridge": {
-      "description": "Makes this a Modbus bridge config, run by canworks-bridge instead of the OpenPLC plugin (docs/modbus-bridge.md). Locations are byte addresses then: %IWn covers input bytes n and n+1, word and larger locations start at an even byte, and no two locations share a byte (bits of one byte with different bit numbers excepted). Input byte n is input register n/2, %IXn.b discrete input n*8+b; outputs map to holding registers and coils the same way.",
+      "description": "The Modbus bridge: canworks-bridge runs the config and serves its values as Modbus TCP registers (docs/modbus-bridge.md); with `openplc` inside, for an OpenPLC program. Locations are byte addresses then: %IWn covers input bytes n and n+1, word and larger locations start at an even byte, and no two locations share a byte (bits of one byte with different bit numbers excepted). Input byte n is input register n/2, %IXn.b discrete input n*8+b; outputs map to holding registers and coils the same way.",
       "type": "object",
       "properties": {
         "listen": { "description": "address:port to serve Modbus TCP on, a numeric address: 0.0.0.0:502, [::]:502, 192.168.1.10:1502.", "type": "string", "minLength": 1 },
@@ -193,11 +193,11 @@
       ]
     },
     "raw": {
-      "description": "Raw CAN messages of the network (docs/raw-can.md): frames received into %I and sent from %Q, on any network. The plugin and the deploy tool check the fields themselves, with their own messages; unknown fields are ignored with a warning.",
+      "description": "Raw CAN messages of the network (docs/raw-can.md): frames received into %I and sent from %Q, on any network. The bridge and the deploy tool check the fields themselves, with their own messages; unknown fields are ignored with a warning.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string" },
+        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the bridge does not read it).", "type": "string" },
         "program_override_protocol": { "description": "The program's CAN_SEND and CAN_SEND_CYCLIC may use identifiers the network's protocol uses.", "type": "boolean" },
         "rx": { "description": "Messages received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/raw_rx" } },
         "tx": { "description": "Messages the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/raw_tx" } }
@@ -223,7 +223,7 @@
       },
       "required": [ "values" ]
     },
-    "signal_pages": { "description": "How a send message with switches goes out: \"program\" (default) the page the program's switch outputs select; \"all\" every page each period; \"rotate\" the next page each period. With \"all\" and \"rotate\" the plugin sets the switches, which then have no iec_location.", "enum": [ "program", "all", "rotate" ] },
+    "signal_pages": { "description": "How a send message with switches goes out: \"program\" (default) the page the program's switch outputs select; \"all\" every page each period; \"rotate\" the next page each period. With \"all\" and \"rotate\" the bridge sets the switches, which then have no iec_location.", "enum": [ "program", "all", "rotate" ] },
     "raw_signal": {
       "type": "object",
       "properties": {
@@ -290,7 +290,7 @@
       "type": "object",
       "properties": {
         "ecu": { "$ref": "#/$defs/j1939_ecu" },
-        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the plugin does not read it).", "type": "string", "minLength": 1 },
+        "dbc": { "description": "The DBC file the messages came from, relative to the config file (for the tools; the bridge does not read it).", "type": "string", "minLength": 1 },
         "rx": { "description": "PGNs received into the PLC.", "type": "array", "items": { "$ref": "#/$defs/j1939_rx" } },
         "tx": { "description": "PGNs the PLC sends.", "type": "array", "items": { "$ref": "#/$defs/j1939_tx" } },
         "requests": { "description": "Requests (PGN 59904) the PLC sends periodically; answers are received like any rx PGN.", "type": "array", "items": { "$ref": "#/$defs/j1939_request" } },
@@ -432,7 +432,7 @@
       "required": [ "spn", "fmi", "active_location" ]
     },
     "field_node": {
-      "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the plugin allows that only for an entry a gateway route uses, or of a TPDO that feeds a PDO link).",
+      "description": "A node of a master network: the version 1 node, except that a PDO entry may leave out iec_location (the bridge allows that only for an entry a gateway route uses, or of a TPDO that feeds a PDO link).",
       "type": "object",
       "properties": {
         "node_id": { "$ref": "canworks.v1.schema.json#/$defs/node/properties/node_id" },
@@ -569,7 +569,7 @@
       "required": [ "index", "subindex", "iec_location" ]
     },
     "gateway": {
-      "description": "OpenPLC as a gateway (docs/gateway.md): a slave on the upper network and the master of the other networks, with routes the plugin copies between them without the PLC program.",
+      "description": "OpenPLC as a gateway (docs/gateway.md): a slave on the upper network and the master of the other networks, with routes the bridge copies between them without the PLC program.",
       "type": "object",
       "properties": {
         "upper": {

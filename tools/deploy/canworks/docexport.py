@@ -1,7 +1,7 @@
 """Builds the network documentation of a config (canopen-network-docs spec).
 
 The document model is a plain JSON-serialisable dict built from the same code
-the other exports use, so it shows what the plugin puts on the bus:
+the other exports use, so it shows what the bridge puts on the bus:
 contract.check_config and location_uses (checks, networks, PLC addresses),
 dbcexport.build and frames (frames, COB-IDs, PDO layouts), and
 dcfexport.plugin_downloads (the boot SDO writes). docwriter turns it into one
@@ -266,7 +266,7 @@ def _pdo_rates(pdo, rates):
     if not tx:
         if rates.has_sync:
             if rates.sync_ms is None:
-                return 0.0, 0.0, "on change, sent at the next SYNC; not counted: PLC cycle not given", False
+                return 0.0, 0.0, "on change, sent at the next SYNC; not counted: SYNC period not known", False
             return 0.0, _per(rates.sync_ms), "on change, sent at the next SYNC, at most " + _sync_text(rates), False
         return 0.0, _per(OUTPUT_CHECK_MS), "on change, at most every %g ms (the master's output check)" % \
             OUTPUT_CHECK_MS, False

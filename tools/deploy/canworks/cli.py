@@ -680,7 +680,7 @@ def slave_eds_parser():
     p = argparse.ArgumentParser(
         prog="canworks-deploy slave-eds",
         description="Write the EDS of OpenPLC as a CANopen slave from a JSON description of its objects (identity, "
-                    "heartbeat, layout and objects with name, type, direction and limits), checked with the plugin's "
+                    "heartbeat, layout and objects with name, type, direction and limits), checked with the bridge's "
                     "EDS lint. See docs/slave.md.")
     p.add_argument("description", help="the description (JSON)")
     p.add_argument("-o", "--output", required=True, metavar="FILE.eds",

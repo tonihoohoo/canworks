@@ -38,7 +38,7 @@ ABOUT = {
              "is the message."),
     "time": "The TIME message gives every node the same clock: milliseconds after midnight and days since 1984-01-01.",
     "emcy": ("A node sends an emergency (EMCY) once when an error appears, and once more with code 0000 when all "
-             "errors are gone. The plugin hands the latest one to the PLC program."),
+             "errors are gone. The bridge hands the latest one to the PLC program."),
     "heartbeat": ("Every node repeats its NMT state at its producer heartbeat time (object 1017h). If the "
                   "heartbeat stops, the master marks the node as lost. A boot-up message is a heartbeat with state "
                   "0: the master then configures the node over SDO and starts it."),
@@ -57,7 +57,7 @@ ABOUT = {
     "error": ("An error frame is the CAN controller's report of a bus problem. SocketCAN delivers it as a frame "
               "whose identifier says the error class and whose data gives the details. It is not a frame that "
               "was on the bus."),
-    "raw": ("A raw CAN message of the configuration (its `raw` object): the plugin sends or receives it as it "
+    "raw": ("A raw CAN message of the configuration (its `raw` object): the bridge sends or receives it as it "
             "is, with the signals the configuration gives. It belongs to no protocol."),
     "other": "This identifier is not one of the CANopen predefined identifiers and not configured, so its data has "
              "no known meaning.",

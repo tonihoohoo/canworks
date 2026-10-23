@@ -444,21 +444,38 @@ def migrate(cfg):
 
 def migrate_strict_eds(cfg):
     """master.strict_eds as eds_lint (true "all", false "off"), in its
-    place. A master with both keeps both, for the check to report."""
-    master = cfg.get("master") if isinstance(cfg, dict) else None
+    place, in a version 1 file and in each network of a version 2 file. A
+    master with both keeps both, for the check to report."""
+    if not isinstance(cfg, dict):
+        return cfg, None
+    if isinstance(cfg.get("networks"), list):
+        cfg = dict(cfg)
+        nets, notice = [], None
+        for net in cfg["networks"]:
+            net, n = _migrate_strict_eds(net)
+            nets.append(net)
+            notice = notice or n
+        cfg["networks"] = nets
+        return cfg, notice
+    return _migrate_strict_eds(cfg)
+
+
+def _migrate_strict_eds(holder):
+    """migrate_strict_eds for one object with a `master`."""
+    master = holder.get("master") if isinstance(holder, dict) else None
     if isinstance(master, dict) and master.get("eds_lint") == "communication" and "strict_eds" not in master:
         # The default; the page saves it as no field.
-        cfg = dict(cfg)
-        cfg["master"] = {k: v for k, v in master.items() if k != "eds_lint"}
-        return cfg, None
+        holder = dict(holder)
+        holder["master"] = {k: v for k, v in master.items() if k != "eds_lint"}
+        return holder, None
     if not isinstance(master, dict) or not isinstance(master.get("strict_eds"), bool) or "eds_lint" in master:
-        return cfg, None
+        return holder, None
     mode = "all" if master["strict_eds"] else "off"
-    cfg = dict(cfg)
-    cfg["master"] = {("eds_lint" if k == "strict_eds" else k): (mode if k == "strict_eds" else v)
-                     for k, v in master.items()}
-    return cfg, ("This file uses the old 'strict_eds': %s. It is shown as EDS lint \"%s\", and saving writes it as "
-                 "'eds_lint'." % ("true" if mode == "all" else "false", {"all": "every object", "off": "off"}[mode]))
+    holder = dict(holder)
+    holder["master"] = {("eds_lint" if k == "strict_eds" else k): (mode if k == "strict_eds" else v)
+                        for k, v in master.items()}
+    return holder, ("This file uses the old 'strict_eds': %s. It is shown as EDS lint \"%s\", and saving writes it as "
+                    "'eds_lint'." % ("true" if mode == "all" else "false", {"all": "every object", "off": "off"}[mode]))
 
 
 def migrate_adapter(cfg):
@@ -750,6 +767,10 @@ class Session:
                 raise folder_error(e, "write to", self.folder)
             self.rescan()
 
+    def default_config(self):
+        """The empty config of the default target, OpenPLC through Modbus."""
+        return self.switch_target(empty_config(), targets.OPENPLC_MODBUS)["config"]
+
     def _write_new(self, target):
         """Writes the empty config of `target` (default OpenPLC through
         Modbus) into the folder just opened, unless it has one."""
@@ -814,15 +835,16 @@ class Session:
 
     def read_config(self):
         """(config, notices, error)."""
+        # Without a readable file: the new config of the default target, as New config... writes it.
         if not os.path.isfile(self.config_path):
-            return empty_config(), [], None
+            return self.default_config(), [], None
         try:
             with open(self.config_path, encoding="utf-8") as f:
                 cfg = contract.load(f)
         except OSError as e:
-            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
+            return self.default_config(), [], "%s cannot be read: %s" % (self.config_path, (e.strerror or str(e)).lower())
         except ValueError as e:
-            return empty_config(), [], "%s cannot be read: %s" % (self.config_path, e)
+            return self.default_config(), [], "%s cannot be read: %s" % (self.config_path, e)
         cfg, notices = migrate(cfg)
         return cfg, notices, None
 
@@ -1357,7 +1379,7 @@ class Session:
             raise ApiError(400, "cannot write the call: %s" % e)
 
     # -- checks -------------------------------------------------------------
-    def check(self, cfg, allow_overlap=False, notes=None):
+    def check(self, cfg, notes=None):
         if not isinstance(cfg, dict):
             raise ApiError(400, "config must be a JSON object")
         eds_paths = self.eds_paths(cfg)
@@ -1369,10 +1391,10 @@ class Session:
             pass  # notes are documentation: they never stop a check
         # The bridge's byte addresses are not the editor project's: no project addresses to clash with.
         tgt = targets.target(cfg)
-        extra, declared = layout.project_checks(cfg, [], allow_overlap)
         if tgt == targets.OPENPLC_MODBUS and self.mode == "project":
             items += self.openplc_items(cfg)
-        items += extra
+        if self.mode == "project":
+            items += layout.macro_problems(self.uses)
         decls = []
         try:
             summaries = self.eds_info(list(eds_paths))
@@ -1390,7 +1412,7 @@ class Session:
                 return (names[(value, ix, sub)], types[(value, ix, sub)]) if (value, ix, sub) in names else None
 
             decls = declare.declarations(
-                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), declared, slave_object,
+                cfg, lambda i, ix, sub: names.get((nodes[i].get("eds"), ix, sub)), {}, slave_object,
                 unlocated=tgt == targets.CODESYS)
         except (KeyError, TypeError, ValueError, AttributeError):
             pass  # the contract errors already say what is wrong with the entries
@@ -1400,7 +1422,7 @@ class Session:
             if it["level"] == "error" and NO_NODES.search(it.get("message", "")):
                 it["level"], it["handoff"] = "warning", True
         errors = sum(1 for i in items if i["level"] == "error")
-        return {"items": items, "errors": errors, "declared": declared, "declarations": decls,
+        return {"items": items, "errors": errors, "declarations": decls,
                 "overlaps": sum(1 for i in items if i.get("overlap"))}
 
     # -- DCF export ---------------------------------------------------------
@@ -1812,7 +1834,7 @@ class Session:
                 "routes": [{"index": "0x%04X" % r["index"], "subindex": r["subindex"]} for r in info["routes"]]}
 
     def export_eds(self, cfg, network):
-        """A slave network's EDS as the plugin runs it, for the other
+        """A slave network's EDS as the bridge runs it, for the other
         master's tool: the exact bytes, named after its device name."""
         net = self._slave_network(cfg, network)
         value = net["slave"].get("eds")
@@ -2015,7 +2037,7 @@ class Session:
             raise ApiError(409, "changed outside canworks: %s" % ", ".join(changed), editor_changed=changed)
 
     # -- save ---------------------------------------------------------------
-    def save(self, cfg, allow_overlap=False, overwrite=False, notes=None, editor_overwrite=False):
+    def save(self, cfg, overwrite=False, notes=None, editor_overwrite=False):
         """Writes the draft; settings the target does not use are left out
         (spec "Settings the target does not use are left out on save") and
         counted in `left_out`."""
@@ -2030,7 +2052,7 @@ class Session:
                            plugin=True)
         # A draft with errors is saved too: the steps that hand the config
         # over refuse it (spec "Hand-off steps need a config without errors").
-        checked = self.check(cfg, allow_overlap, notes=notes)
+        checked = self.check(cfg, notes=notes)
         if not overwrite and self.changed_on_disk():
             raise ApiError(409, "%s changed on disk after it was loaded" % self.config_path, changed_on_disk=True)
         openplc = self.mode == "project" and targets.target(cfg) == targets.OPENPLC_MODBUS
@@ -2887,7 +2909,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.j1939_st(body.get("config"), body.get("network", 0), body.get("kind"), body.get("index"))
                 elif route == ("POST", "/api/check"):
                     self._need_open(s)
-                    out = s.check(body.get("config"), bool(body.get("allow_overlap")), notes=body.get("notes"))
+                    out = s.check(body.get("config"), notes=body.get("notes"))
                 elif route == ("POST", "/api/export_dbc"):
                     self._need_open(s)
                     out = s.export_dbc(body.get("config"), body.get("sdo", "none"), body.get("network"), body.get("notes"))
@@ -2941,7 +2963,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = s.import_notes(body.get("config"), body.get("eds"), body.get("text"), body.get("file"), body.get("notes"))
                 elif route == ("POST", "/api/save"):
                     self._need_open(s)
-                    out = s.save(body.get("config"), bool(body.get("allow_overlap")), bool(body.get("overwrite")),
+                    out = s.save(body.get("config"), bool(body.get("overwrite")),
                                  body.get("notes"), bool(body.get("editor_overwrite")))
                     out["state"] = s.state()
                 elif route == ("POST", "/api/move"):
@@ -3092,7 +3114,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 job = body.get("job")
                 offset = body.get("offset") if isinstance(body.get("offset"), int) else 0
                 out = dev.follow(did, job, offset)
-                if out.get("done") and out.get("exit") == 0 and project and target == targets.OPENPLC_MODBUS:
+                if out.get("done") and out.get("exit") == 0 and project and target in targets.BRIDGES:
                     # The device becomes the project's runtime host when it had none.
                     settings = online.Settings(config_dir())
                     if not settings.project(project).get("host"):
@@ -3175,7 +3197,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # -- online access ------------------------------------------------------
     def _online(self, route, body):
         """/api/online/*: the token and host for this project, and requests
-        to the plugin's diagnostics channel through one kept-open connection."""
+        to the bridge's diagnostics channel through one kept-open connection."""
         s, conn = self.server.session, self.server.connection
         settings = online.Settings(config_dir())
         with s.lock:
@@ -3355,7 +3377,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(502, str(e), kind=e.kind)
             return {"jobs": self._jobs(folder, conn, bus_call)}
 
-        # The network the page picked; sent only to a plugin that runs several.
+        # The network the page picked; sent only to a bridge that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
         hostname, port, token = self._online_target(proj, config_path, network, body)
         host = str(hostname) if isinstance(hostname, online.AdapterTarget) else proj.get("host")
@@ -3477,7 +3499,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return res
         if route in (("POST", "/api/online/error_field"), ("POST", "/api/online/error_field_clear")):
             # The device's error history (0x1003) through the manual SDO read
-            # and write, so the plugin's guards apply to the clear: changes
+            # and write, so the bridge's guards apply to the clear: changes
             # allowed, and force (after the page asked) on an OPERATIONAL node.
             from .. import errorfield
             node = node_arg()
@@ -3856,7 +3878,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except ValueError as e:
                 raise ApiError(422, str(e))
 
-        # The network the page picked; sent only to a plugin that runs several.
+        # The network the page picked; sent only to a bridge that runs several.
         network = body.get("network") if isinstance(body.get("network"), str) and body.get("network") else None
 
         def call(fn):
@@ -4207,7 +4229,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             adapter = hasattr(hostname, "client")
-            try:  # a wrong host, token or an old plugin is said at once instead of retried
+            try:  # a wrong host, token or an old bridge is said at once instead of retried
                 c = connect()
                 try:
                     c.trace_stop()
@@ -4447,7 +4469,7 @@ def frame_from(body):
 
 def frame_error(e):
     """The ApiError for a refused or failed send: `force` true when the
-    plugin's reason says the request may be repeated with force."""
+    bridge's reason says the request may be repeated with force."""
     if diag.too_old(e):
         return ApiError(422, TOO_OLD_FRAMES, kind="too_old")
     return ApiError(422 if e.kind == "refused" else 502, str(e), kind=e.kind, force=diag.needs_force(e))

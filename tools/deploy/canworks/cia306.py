@@ -1,5 +1,5 @@
 """A strict CiA 306 check of the EDS and DCF files canworks writes itself
-(the slave EDS generator, the DCF export). Lely's lint, which the plugin
+(the slave EDS generator, the DCF export). Lely's lint, which the bridge
 runs, allow-lists keys but requires none and reads REAL values only as hex
 bit patterns; this check asks for what CiA 306 lists and what other masters'
 tools expect. It never runs on vendor files canworks only reads.

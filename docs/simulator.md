@@ -4,14 +4,14 @@ A project, its PLC program and the PC tools can be tried without the real device
 
 | To simulate | Tool or setting | Protocols | Runs on | Doc |
 |---|---|---|---|---|
-| Devices of a network, inside the runtime | `adapter.simulate` and per node `simulate` in `canworks.json` | CANopen, plain CAN | any runtime with the plugin, Docker too; no CAN hardware needed | [below](#two-switches) |
-| Devices on a SocketCAN interface, for any master | `canworks-canopen-sim` (the CANopen simulator) | CANopen, plain CAN | the Linux runtime host, installed with the plugin; `vcan` or a real interface | [below](#canworks-canopen-sim) |
+| Devices of a network, inside the bridge | `adapter.simulate` and per node `simulate` in `canworks.json` | CANopen, plain CAN | any bridge, the local runtime's too; no CAN hardware needed | [below](#two-switches) |
+| Devices on a SocketCAN interface, for any master | `canworks-canopen-sim` (the CANopen simulator) | CANopen, plain CAN | a Linux device, installed with the bridge; `vcan` or a real interface | [below](#canworks-canopen-sim) |
 | Other ECUs of a J1939 network | `canworks-j1939-sim` (the J1939 simulator) | J1939 | the PC (Windows, macOS, Linux) on a SocketCAN interface or a USB adapter | [j1939.md](j1939.md#simulator) |
 | A whole PLC on the PC | `canworks-local-runtime` (the local runtime) | CANopen, plain CAN | the PC, in a container | [local-runtime.md](local-runtime.md) |
 
 ### Why two simulators
 
-The CANopen simulator builds each device from its EDS and runs it with the plugin's own CANopen stack, on the plugin's virtual bus or on an interface: that is what lets a runtime with no CAN hardware run whole simulated networks. The plugin runs J1939 on the Linux kernel's J1939 sockets, which need a real or `vcan` interface, and the J1939 simulator plays ECUs from a DBC file on the PC. So a J1939 network does not run on the simulated bus (`adapter.simulate` is refused there) or in the local runtime: run it on a Linux runtime on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs. On a J1939 network the configurator's **Simulation** tab gives that command line for the network's DBC.
+The CANopen simulator builds each device from its EDS and runs it with the bridge's own CANopen stack, on the bridge's virtual bus or on an interface: that is what lets a bridge with no CAN hardware run whole simulated networks. The bridge runs J1939 on the Linux kernel's J1939 sockets, which need a real or `vcan` interface, and the J1939 simulator plays ECUs from a DBC file on the PC. So a J1939 network does not run on the simulated bus (`adapter.simulate` is refused there) or in the local runtime: run it on a Linux runtime on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs. On a J1939 network the configurator's **Simulation** tab gives that command line for the network's DBC.
 
 The rest of this page is about the CANopen simulator. The configurator's **Simulation** tab in Commission drives its devices, and **Simulation file** in Configure edits what they do.
 
@@ -26,8 +26,8 @@ Which devices are simulated, and where, is set in `canworks.json` with two switc
 
 | Field | Meaning |
 |---|---|
-| `adapter.simulate` | `true`: the network is simulated. The master runs on an in-process virtual bus inside the plugin: no CAN interface or serial device is opened, no link is changed, no privileges are needed (it works in the Docker install and on a host without any CAN hardware). The other adapter fields are kept and checked, so switching back needs only this field. Default `false`: the real adapter, as always. |
-| `simulate` (per node) | `true`: this node is a simulated device run by the plugin, built from the node's EDS, node ID, identity and LSS settings. Default: `true` on a simulated network, `false` on a real one. |
+| `adapter.simulate` | `true`: the network is simulated. The master runs on an in-process virtual bus inside the bridge: no CAN interface or serial device is opened, no link is changed, no privileges are needed (it works in the Docker install and on a host without any CAN hardware). The other adapter fields are kept and checked, so switching back needs only this field. Default `false`: the real adapter, as always. |
+| `simulate` (per node) | `true`: this node is a simulated device run by the bridge, built from the node's EDS, node ID, identity and LSS settings. Default: `true` on a simulated network, `false` on a real one. |
 
 That gives four combinations:
 
@@ -35,26 +35,26 @@ That gives four combinations:
 |---|---|---|
 | simulated | all (no node sets `simulate`) | Every node is simulated. The easy way to try a project. |
 | simulated | some (`"simulate": false` on the others) | The others are absent, as unplugged devices: their status bit stays FALSE and the master retries their boot. |
-| real | some (`"simulate": true` on them) | The simulated devices run inside the plugin on the real interface, next to the real devices. Real devices on the wire and the master see them as any other node. |
+| real | some (`"simulate": true` on them) | The simulated devices run inside the bridge on the real interface, next to the real devices. Real devices on the wire and the master see them as any other node. |
 | real | all | Every node is simulated, and their frames go out on the real interface. |
 
 A config with anything simulated is announced everywhere: a warning at every PLC start naming what is simulated, `simulated_network` and per-node `simulated` in the diagnostics status, a banner in the configurator, whose network tree marks simulated nodes hollow and absent ones dashed, and a question before the deploy tool uploads it. A simulated node's **Simulated device** tab in the configurator edits its part of the [simulation file](#the-simulation-file) (value sources, faults at start, default behaviour). Outputs to a simulated device go nowhere, so never leave a machine's config simulated.
 
-#### Forced by the runtime: `CANWORKS_FORCE_SIMULATE`
+#### Forced by the environment: `CANWORKS_FORCE_SIMULATE`
 
-A runtime started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local runtime](local-runtime.md) image sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing, and a value other than `1` or empty logs a warning that it is ignored. The plugin logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every PLC start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
+A bridge started with the environment variable `CANWORKS_FORCE_SIMULATE=1` runs every network simulated, master and slave networks alike, whatever its `adapter.simulate` and adapter settings say: no CAN interface or serial device is opened. The [local runtime](local-runtime.md)'s bridge container sets it. Nodes keep their own switches, so a node with `"simulate": false` stays absent, as on any simulated network. Only the exact value `1` forces; anything else (`0`, `true`, empty) changes nothing, and a value other than `1` or empty logs a warning that it is ignored. The bridge logs `simulation forced by the runtime environment (CANWORKS_FORCE_SIMULATE=1)` for each network at every start, the diagnostics status carries `simulation_forced`, and `canworks-diag status` and the configurator's online view say so.
 
 #### Several networks
 
-In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `canworks-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the plugin and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
+In a config with several networks ([version 2](config.md)), each network has its own switches: one network can be simulated while another runs on its real interface, and the simulated devices of each network are reached by its name (`--network NAME` on `canworks-diag sim`, the network picker in the configurator). The [simulation file](#the-simulation-file) has a section per network in version 2; a version 1 file serves a config with one network only (with several networks the bridge and the deploy tool's check say it is not used, and the simulated devices run with their [default behaviour](#default-behaviour)).
 
-A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the plugin's master then reaches canworks' own slave. A simulated bus takes one master network and one slave network.
+A simulated master network and a simulated [slave network](slave.md#simulated-bus) with the same `interface` name share one simulated bus: the bridge's master then reaches canworks' own slave. A simulated bus takes one master network and one slave network.
 
 #### Simulated devices on a real network
 
-Before a simulated device starts on a real interface, the plugin listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. Extra devices of the simulation file go through the same check, and so does a node ID a device stored over LSS in an earlier session: a device whose stored node ID is in use now is not started either. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line; the guard follows a node ID an LSS master gives the device. Such a device is taken for the rest of the session (until the PLC starts again): a power on, a `clear`, a fault or a scenario step for it is refused with "node N is taken by a real device", so it never boots next to the real one. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
+Before a simulated device starts on a real interface, the bridge listens for 1 second. A node ID that sends heartbeats, boot-up messages, EMCY or SDO answers there belongs to a real device: its simulated device is not started, the log names the conflict, the node's boot error says so, and the master goes on with the real device. Extra devices of the simulation file go through the same check, and so does a node ID a device stored over LSS in an earlier session: a device whose stored node ID is in use now is not started either. While a simulated device runs, a heartbeat, boot-up or EMCY with its node ID that it did not send makes it power off at once, with a log line; the guard follows a node ID an LSS master gives the device. Such a device is taken for the rest of the session (until the PLC starts again): a power on, a `clear`, a fault or a scenario step for it is refused with "node N is taken by a real device", so it never boots next to the real one. A real device that stays silent during that first second and never sends a heartbeat can still go unnoticed; give real devices a heartbeat.
 
-The simulated devices run in the plugin's bus thread on their own sockets on the same interface. The kernel's local loopback hands their frames to the master and puts them on the wire, so the bus trace shows them too.
+The simulated devices run in the bridge's bus thread on their own sockets on the same interface. The kernel's local loopback hands their frames to the master and puts them on the wire, so the bus trace shows them too.
 
 ### Default behaviour
 
@@ -64,14 +64,13 @@ Without any setting, each device chooses its behaviour from its device profile (
 |---|---|
 | CiA 401 (generic I/O) | Outputs loop back to inputs at the same subindex: 0x6200 to 0x6000, 0x6220 to 0x6020, 0x6250 to 0x6050 (digital), 0x6411 to 0x6401 (analogue), where both objects exist. |
 | CiA 404 (measuring) | Every object the EDS maps by default into a TPDO moves slowly: a sine with a 60 s period between 25 % and 75 % of its EDS limits (or of its data type's range). |
-| CiA 402 (drives) | The [drive model](#cia-402-drive-model). |
 | anything else | Nothing moves by itself; only the master and you change values. |
 
 `"default_behaviour": false` on a node in the simulation file switches this off.
 
 ### `canworks-canopen-sim`
 
-The CANopen simulator runs devices on a SocketCAN interface: for a plugin on the same host, for another CANopen master, or on a second adapter on a test bench. It is installed with the plugin (see [install-stock.md](install-stock.md)).
+The CANopen simulator runs devices on a SocketCAN interface: for a bridge on the same host, for another CANopen master, or on a second adapter on a test bench. It is installed with the bridge (see [devices.md](devices.md) or `install-bridge.sh` in [modbus-bridge.md](modbus-bridge.md)).
 
 ```sh
 canworks-canopen-sim canworks/canworks.json             # every node of the config on vcan0
@@ -102,7 +101,7 @@ Without `--real-bus`, an interface that is not vcan is refused, because simulate
 
 #### Control subcommands
 
-While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `canworks-diag sim ...` has the same subcommands for the plugin's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a CANopen simulator (`--sim HOST[:PORT]`).
+While a simulator runs, these talk to it over its control channel (default `127.0.0.1:7532`; `--sim HOST[:PORT]` and `--token`/`--token-file` for another one). `canworks-diag sim ...` has the same subcommands for the bridge's simulated devices (`--runtime HOST`, with `--network NAME` when the runtime runs several networks) and for a CANopen simulator (`--sim HOST[:PORT]`).
 
 ```sh
 canworks-canopen-sim status
@@ -132,11 +131,11 @@ canworks-canopen-sim test canworks/canworks.json --scenario alarm --junit result
 canworks-canopen-sim test --runtime plc.local --token-file token --scenario alarm
 ```
 
-With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the plugin's simulated devices through the diagnostics channel instead; with the port of a CANopen simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
+With a config it starts the devices as the run mode does, waits until every simulated node is OPERATIONAL (or `--start-timeout` seconds, default 30; then it runs the scenarios anyway, with a warning), runs the named scenarios (default: every scenario with `"test": true`) one after another (`--parallel` runs them together), and stops after the last one or after `--timeout` seconds (default 300; scenarios still running then fail). With `--runtime HOST[:PORT]` (default port 7531) it runs the scenarios in the bridge's simulated devices through the diagnostics channel instead; with the port of a CANopen simulator's control channel (`--runtime 127.0.0.1:7532`) it runs them there. It prints one line per scenario, writes a JUnit XML report with `--junit FILE`, and exits 0 only when every scenario passed (1: a scenario failed, 2: usage or start-up error).
 
 ### The simulation file
 
-Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It travels with the project like the config: the editor's Build and upload and the deploy tool carry it to the runtime. The file is optional. [`schema/canworks-sim.v1.schema.json`](../schema/canworks-sim.v1.schema.json) describes it; unknown keys are errors.
+Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It travels with the config: `canworks-deploy --bridge` and the configurator's install carry it to the bridge. The file is optional. [`schema/canworks-sim.v1.schema.json`](../schema/canworks-sim.v1.schema.json) describes it; unknown keys are errors.
 
 ```json
 {
@@ -150,8 +149,7 @@ Behaviour is set in `canworks/simulation.json`, next to `canworks.json`. It trav
         "0x7130:3": { "csv": { "file": "data/temp.csv", "interpolate": "linear", "loop": true } }
       },
       "faults": [ { "sdo_abort": { "object": "0x2000:1", "on": "write", "code": "0x08000020", "count": 1 } } ]
-    },
-    "4": { "drive": { "max_velocity": 50000, "max_acceleration": 200000, "lag_ms": 5 } }
+    }
   },
   "extra_devices": [
     { "node": 40, "name": "spare", "eds": "eds/pingpong.eds" },
@@ -194,7 +192,7 @@ A config with several networks takes a version 2 file ([`schema/canworks-sim.v2.
       "extra_devices": [ { "node": 0, "name": "spare_io", "eds": "dio16.eds", "identity": { "serial_number": 7099 } } ],
       "scenarios": { "alarm": { "test": true, "steps": [ { "node": 5, "override": { "0x7130:1": 300 } } ] } }
     },
-    "motion": { "nodes": { "4": { "drive": { "max_velocity": 50000 } } } }
+    "motion": { "nodes": { "4": { "sources": { "0x2001:1": { "sine": { "min": 0, "max": 100, "period_s": 20 } } } } } }
   }
 }
 ```
@@ -208,7 +206,6 @@ A node (or extra device) can have:
 | `default_behaviour` | `false` switches off the [default behaviour](#default-behaviour). |
 | `tick_ms` | Overrides the file's `tick_ms` for this device. |
 | `sources` | Object → [value source](#value-sources). Objects are written `"0xIIII:S"` (`"0xIIII"` is subindex 0). |
-| `drive` | Settings of the [drive model](#cia-402-drive-model). |
 | `faults` | [Faults](#faults) in force from the start. |
 | `identity` | Overrides 0x1018: `vendor_id`, `product_code`, `revision_number`, `serial_number`. |
 | `device_type` | Overrides 0x1000. |
@@ -237,7 +234,7 @@ Time counts from when the source was given, or from the device's power-on for so
 
 Simulated devices receive each other's PDOs on the simulated bus as real devices do, so a link between simulated nodes carries data once the master has configured them: a counter on the producer's TPDO object and the expression `[0x6411:1]` on the consumer's own TPDO object show the value pass through ([`examples/pdo-link`](../examples/pdo-link/README.md)). A simulated consumer with a `heartbeat_watch` notices its producer's heartbeat stop or a power off (`sim_fault` `heartbeat` or `power`) like a real device: it sends EMCY 0x8130 within the watch timeout and enters the state its 0x1029 sub 1 gives.
 
-Who wins, per object and tick: an override; else a value set once (`set`) until the next change of the source; else the value source; else the drive model; else the default behaviour. Writes from the master always land in the object dictionary (and are then overwritten by whichever of those is active). A change of an object mapped into an event-driven TPDO makes the device send that PDO, within its inhibit time, as device firmware does.
+Who wins, per object and tick: an override; else a value set once (`set`) until the next change of the source; else the value source; else the default behaviour. Writes from the master always land in the object dictionary (and are then overwritten by whichever of those is active). A change of an object mapped into an event-driven TPDO makes the device send that PDO, within its inhibit time, as device firmware does.
 
 ### Expressions
 
@@ -248,7 +245,7 @@ An expression computes a value every tick. It has numbers (`12`, `-3.5`, `0x1F`,
 | `[0x6200:1]` | Object 0x6200 subindex 1 of the same device (`[0x6200]` is subindex 0). |
 | `[7/0x6200:1]` | The same object of simulated node 7 (or of the extra device named `spare`: `[spare/0x6200:1]`). |
 
-A subindex is decimal (`:1`, `:01`) or hex with `0x` (`:0x01`); a node ID is written without leading zeros (`[7/…]`, not `[07/…]`). The configurator's check and the plugin read expressions alike and give the same values (the shared cases are in `test/fixtures/sim/expressions.json`).
+A subindex is decimal (`:1`, `:01`) or hex with `0x` (`:0x01`); a node ID is written without leading zeros (`[7/…]`, not `[07/…]`). The configurator's check and the bridge read expressions alike and give the same values (the shared cases are in `test/fixtures/sim/expressions.json`).
 
 Operators, from lowest to highest precedence: `||`, `&&`, `|`, `^`, `&`, `==` `!=`, `<` `<=` `>` `>=`, `<<` `>>`, `+` `-`, `*` `/` `%`, `**` (power, right to left), unary `-` `!` `~`. Bit operators work on the integer part as a signed 64-bit integer; a shift by less than 0 or more than 63 gives 0. Comparisons and `!` give 1 or 0. `&&` and `||` evaluate both sides.
 
@@ -275,23 +272,6 @@ if([4/0x6041] & 0x0400, 1, 0)                      1 once drive 4 reports target
 integrate([0x6200:1] * 10)                         a tank filled by an output
 ```
 
-### CiA 402 drive model
-
-A device whose profile is CiA 402 runs a drive model on the objects its EDS has:
-
-- the power drive state machine on the controlword 0x6040 and statusword 0x6041 (not ready to switch on, switch on disabled, ready to switch on, switched on, operation enabled, quick stop active, fault reaction active, fault), with fault reset, quick stop, "set-point acknowledge", "target reached", "following error" and "warning" bits;
-- the modes in 0x6060 (shown in 0x6061) that 0x6502 lists, or all of these when the EDS has no 0x6502: profile position (1), profile velocity (3), homing (6), cyclic synchronous position (8), cyclic synchronous velocity (9) and cyclic synchronous torque (10);
-- profile position: trapezoidal moves with the profile velocity 0x6081 and accelerations 0x6083/0x6084, absolute or relative (controlword bit 6), the set-point handshake with "change set immediately" (bit 5);
-- profile velocity: ramps to the target velocity 0x60FF;
-- cyclic synchronous modes: follow the target position 0x607A or velocity 0x60FF at every SYNC (or every tick when there is no SYNC); in torque mode the target torque 0x6071 (per mille) accelerates the axis by `torque_accel` per per mille, up to `max_velocity`, and 0x6077 shows it;
-- SYNC watchdog: once a SYNC has come in a cyclic synchronous mode with operation enabled, the drive faults with EMCY 0x8700 when no SYNC comes for three interpolation periods (0x60C2, or 10 ms when the EDS has none), as a real drive does when the PLC stops; `"sync_watchdog": false` switches it off;
-- set-point step counter: CSP set-points that move more than `max_velocity` times the interpolation period from one SYNC to the next are counted in `oversized_steps` of `sim_status`, so a test can show that a program's motion is smooth;
-- homing methods 17, 18 (limit switches), 19 to 22 (home switch: 19 and 20 search in the positive direction, 21 and 22 in the negative), 33, 34, 35 and 37 (current position), with the homing speeds 0x6099 and offset 0x607C; any other method ends with the homing error bit;
-- the actual position 0x6064 and velocity 0x606C follow the demand through a first-order lag, limited by `max_velocity` and `max_acceleration`;
-- the software position limits 0x607D stop a move at the limit and set the warning bit; the following error window 0x6065 (and time 0x6066) faults the drive with EMCY 0x8611 when exceeded.
-
-`drive` settings in the simulation file: `max_velocity` (counts/s, default 100000), `max_acceleration` (counts/s², default 1000000), `lag_ms` (default 5), `start_position` (0), `torque_accel` (counts/s² per per mille of target torque, default 10000), `sync_watchdog` (default true). Inputs, set as faults: `drive_input` with `blocked` (the axis does not move, which provokes a following error), `positive_limit`, `negative_limit` and `home_switch`.
-
 ### Faults
 
 Faults are given in the simulation file (`faults`, in force from the start), by a scenario step, from the configurator's Simulation view, or with `fault`/`clear` on the command line. Each fault is an object with one key:
@@ -300,8 +280,8 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 |---|---|---|---|
 | `emcy` | `code`, `register` (0), `msef` (5 bytes as hex, `"0000000000"`), `period_ms` (once) | Sends the EMCY, again every `period_ms` when given. Code 0x0000 is the CiA 301 error reset: one EMCY 0000 with the given register and bytes, which also empties the device's error history (0x1003) and stops a periodic EMCY; it takes no `period_ms`. Refused for a device whose EDS has no 0x1014 (COB-ID EMCY): it has no EMCY producer. | `emcy`: stops a periodic EMCY and sends the error reset (code 0x0000) when an EMCY was sent. |
 | `heartbeat` | `"stop"` | The device stops its heartbeat but goes on working (a firmware hang the master notices). | `heartbeat` |
-| `power` | `"off"`, `"on"` or `"cycle"` (with `off_ms`, default 1000) | Off: the device sends and answers nothing; in the plugin it stays off when the bus session restarts (the CAN interface went down and up) until `power` on, `clear` or a PLC restart. On: it boots again with the values from its file and its stored values. | `power` (powers on) |
-| `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. A reset node (also the master's NMT reset node) starts a simulated CiA 402 drive over as a power on does: a drive in Fault comes back in Switch on disabled. | - |
+| `power` | `"off"`, `"on"` or `"cycle"` (with `off_ms`, default 1000) | Off: the device sends and answers nothing; in the bridge it stays off when the bus session restarts (the CAN interface went down and up) until `power` on, `clear` or a bridge restart. On: it boots again with the values from its file and its stored values. | `power` (powers on) |
+| `reset` | `"node"` or `"comm"` | The device resets itself and sends its boot-up. | - |
 | `nmt_state` | `"stopped"`, `"preop"` or `"operational"` | The device changes its state by itself. | - |
 | `sdo_abort` | `object`, `code`, `on`: `read`, `write` or `both` (default), `count` (until cleared) | SDO transfers of that object abort with the code, also of an object in a PDO (the statusword, the controlword); the PDOs carry it as before. | `sdo_abort` (all), or with the object |
 | `sdo_delay` | `ms`, `object` (all) | SDO answers come `ms` later. | `sdo_delay` |
@@ -310,13 +290,12 @@ Faults are given in the simulation file (`faults`, in force from the start), by 
 | `identity` | `vendor_id`, `product_code`, `revision_number`, `serial_number` | 0x1018 reads these values from now on, also after a reset. | `identity` |
 | `device_type` | the value | 0x1000 reads it. | `device_type` |
 | `forget_node_id` | `true` | The device loses its node ID and waits for LSS, like a new device without DIP switches; `status` shows it as `no node ID, waiting for LSS`. An LSS master finds it with Fastscan and can give it a node ID; a power cycle gives back its configured one unless one was stored. Refused for a device whose EDS does not say `LSS_Supported=1`: without LSS it could never get a node ID back. | - |
-| `drive_input` | `blocked`, `positive_limit`, `negative_limit`, `home_switch` (booleans) | Inputs of the drive model. | `drive_input` |
 
 `clear` with `all` removes every fault that can be cleared and powers the device on.
 
 ### Stored parameters
 
-A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the plugin's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. A simulated device runs LSS only when its EDS says `LSS_Supported=1`, as Lely does: everything that needs LSS (`forget_node_id`, a device without a node ID, a node with `lss`) needs such an EDS. The plugin keeps stored values as long as the runtime runs (across PLC stop and start); the CANopen simulator as long as it runs, or in `--state-dir`.
+A device whose EDS has 0x1010 keeps what is saved with "save" (0x65766173) across power off/on, a reset and an NMT reset, per subindex range as CiA 301 defines (1: all, 2: communication, 3: application, 4 and up: manufacturer). "load" (0x64616F6C) to 0x1011 forgets them at the next reset. The configuration date and time in 0x1020 are kept with them, so the bridge's [configuration check](config.md#configuration-check) works. LSS "store configuration" keeps an LSS-assigned node ID the same way. As CiA 305 has it, LSS Fastscan finds only devices without a node ID: a device that has one does not answer it, so a search on a busy bus finds the new device. A simulated device runs LSS only when its EDS says `LSS_Supported=1`, as Lely does: everything that needs LSS (`forget_node_id`, a device without a node ID, a node with `lss`) needs such an EDS. The bridge keeps stored values as long as the runtime runs (across PLC stop and start); the CANopen simulator as long as it runs, or in `--state-dir`.
 
 ### Scenarios
 
@@ -341,7 +320,7 @@ A scenario with `"autostart": true` starts with the simulation; one with `"test"
 
 ### Plain CAN devices
 
-Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the plugin, and with `canworks-canopen-sim` on an interface (a file of `raw_devices` only needs no `--eds`; on a real bus they need no free node ID).
+Devices that speak neither CANopen nor J1939, such as a joystick or a display that sends and takes plain CAN frames ([raw-can.md](raw-can.md)), go in the simulation file's top-level `raw_devices`. They run on a simulated network of any protocol, a [plain CAN network](raw-can.md#plain-can-networks) included, inside the bridge, and with `canworks-canopen-sim` on an interface (a file of `raw_devices` only needs no `--eds`; on a real bus they need no free node ID).
 
 ```json
 "raw_devices": [
@@ -365,13 +344,13 @@ A scenario step with `"device": NAME` acts on a plain CAN device: `"fault": {"st
 
 ### Control protocol
 
-The plugin's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the CANopen simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The CANopen simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines; the first line must be `{"op": "hello"}`, answered with `protocol` (1), `version` and `simulator: true`. Any other first line closes the connection, at once and without an answer when it starts with an HTTP method, so a web page cannot send it requests.
+The bridge's diagnostics channel ([diagnostics.md](diagnostics.md#protocol)) and the CANopen simulator's control channel take the same requests: one JSON object per line each way, answers `{"id": ..., "ok": true, "result": {...}}` or `{"id": ..., "ok": false, "error": "..."}`. The CANopen simulator listens on `127.0.0.1:7532` by default. With a token it is encrypted and wants the same TLS and login as the diagnostics channel ([diagnostics.md](diagnostics.md#protocol)), computing the verifier from its token at start; its login answer carries `protocol` (2), `version` and `simulator: true`, and it refuses plain connections. Without a token (loopback only) it speaks plain lines; the first line must be `{"op": "hello"}`, answered with `protocol` (1), `version` and `simulator: true`. Any other first line closes the connection, at once and without an answer when it starts with an HTTP method, so a web page cannot send it requests.
 
 Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Values are JSON numbers, or strings for VISIBLE_STRING objects.
 
 | `op` | Fields | Result |
 |---|---|---|
-| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `drive` (whether the drive model runs), `oversized_steps` (drive model only), `faults` (the fault objects in force), `sources` (object → source), `overrides` (object → value)), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
+| `sim_status` | | `simulated_network`, `interface`, `devices` (each: `node`, `name`, `eds`, `profile`, `power` on/off, `nmt` (bootup, stopped, operational, preop), `conflict`, `faults` (the fault objects in force), `sources` (object → source), `overrides` (object → value)), `scenarios` (each: `name`, `state` idle/running/passed/failed/stopped, `step`, `message`) |
 | `sim_get` | `items`: list of `{"node", "object"}`, or `node` with `pdo: true` (every object in the device's active PDOs) | `values`: list of `{"node", "object", "value", "type"}` or `{"node", "object", "error"}` |
 | `sim_set` | `node`, `values`: object → value | |
 | `sim_override` | `node`, `values` | |
@@ -384,4 +363,4 @@ Objects are `"0xIIII:S"`; `node` is a node ID or the name of an extra device. Va
 | `sim_scenario_stop` | `name` | |
 | `sim_check_expr` | `node`, `expr` | `ok`, or `error` and `position` |
 
-`sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` need only the token; the others need `allow_changes` on the plugin's diagnostics channel. Every change is logged with the client's address. On a runtime that simulates nothing, every `sim_` request answers `nothing simulated`; a request for a node the plugin does not simulate answers `node N is not simulated`.
+`sim_status`, `sim_get`, `sim_scenario_list` and `sim_check_expr` need only the token; the others need `allow_changes` on the bridge's diagnostics channel. Every change is logged with the client's address. On a bridge that simulates nothing, every `sim_` request answers `nothing simulated`; a request for a node the bridge does not simulate answers `node N is not simulated`.

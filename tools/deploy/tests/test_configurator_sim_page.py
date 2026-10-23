@@ -152,26 +152,25 @@ class Network(Base):
         self.assertIn("nodes 5, 6, 7 simulated", text)
         self.assertIn(BANNER_END, text)
         # The banner is on every page.
-        for view in (lambda: tree_node(pg, 1), lambda: pg.click('button[data-view="declarations"]'),
-                     lambda: tool_tab(pg, "trace")):
+        for view in (lambda: tree_node(pg, 1), lambda: tool_tab(pg, "trace")):
             view()
             self.assertIn("The network is simulated", self.banner_text())
         network_tab(pg)
         tree_view(pg, "project")
         self.assertTrue(pg.is_checked('input[data-path="master.diagnostics.allow_changes"]'))
         saved = self.save()
-        self.assertEqual(saved["adapter"],
+        self.assertEqual(saved["networks"][0]["adapter"],
                          {"type": "socketcan", "simulate": True, "interface": "can0", "bitrate": 125000})
-        self.assertTrue(all("simulate" not in n for n in saved["nodes"]))
+        self.assertTrue(all("simulate" not in n for n in saved["networks"][0]["nodes"]))
         settings = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
-        self.assertTrue(diag.token_matches(settings["token"], saved["master"]["diagnostics"].pop("token_verifier")))
-        self.assertEqual(saved["master"]["diagnostics"], {"allow_changes": True})
+        self.assertTrue(diag.token_matches(settings["token"], saved["diagnostics"].pop("token_verifier")))
+        self.assertEqual(saved["diagnostics"], {"allow_changes": True})
         # Back to the real network: the adapter settings were kept.
         tree_view(pg, "bus")
         pg.select_option('select[data-path="adapter.simulate"]', "")
         self.assertEqual(self.banner_text(), "")
         saved = self.save()
-        self.assertEqual(saved["adapter"], {"type": "socketcan", "interface": "can0", "bitrate": 125000})
+        self.assertEqual(saved["networks"][0]["adapter"], {"type": "socketcan", "interface": "can0", "bitrate": 125000})
 
     def test_simulated_network_some_nodes(self):
         pg = self.page
@@ -183,8 +182,8 @@ class Network(Base):
         self.assertEqual(self.badges(), ["simulated", "simulated", "absent"])
         self.assertIn("nodes 5, 6 simulated and node 7 absent", self.banner_text())
         saved = self.save()
-        self.assertIs(saved["adapter"]["simulate"], True)
-        self.assertEqual([n.get("simulate") for n in saved["nodes"]], [None, None, False])
+        self.assertIs(saved["networks"][0]["adapter"]["simulate"], True)
+        self.assertEqual([n.get("simulate") for n in saved["networks"][0]["nodes"]], [None, None, False])
 
     def test_real_network_one_node(self):
         pg = self.page
@@ -195,9 +194,9 @@ class Network(Base):
         self.assertIn("Node 5 is simulated on the real network can0.", self.banner_text())
         self.assertIn(BANNER_END, self.banner_text())
         saved = self.save()
-        self.assertNotIn("simulate", saved["adapter"])
-        self.assertEqual([n.get("simulate") for n in saved["nodes"]], [True, None, None])
-        self.assertTrue(saved["master"]["diagnostics"]["allow_changes"])
+        self.assertNotIn("simulate", saved["networks"][0]["adapter"])
+        self.assertEqual([n.get("simulate") for n in saved["networks"][0]["nodes"]], [True, None, None])
+        self.assertTrue(saved["diagnostics"]["allow_changes"])
 
     def test_real_network_all_nodes(self):
         pg = self.page
@@ -207,12 +206,12 @@ class Network(Base):
         self.assertIn("Nodes 5, 6, 7 are simulated on the real network can0.", self.banner_text())
         self.assertIn("Simulated: nodes 5, 6, 7.", pg.inner_text('[data-sim="nodes"]'))
         saved = self.save()
-        self.assertEqual([n.get("simulate") for n in saved["nodes"]], [True, True, True])
+        self.assertEqual([n.get("simulate") for n in saved["networks"][0]["nodes"]], [True, True, True])
         pg.click('button[data-sim="none"]')
         self.assertEqual(self.banner_text(), "")
         self.assertEqual(self.badges(), ["", "", ""])
         saved = self.save()
-        self.assertTrue(all("simulate" not in n for n in saved["nodes"]))
+        self.assertTrue(all("simulate" not in n for n in saved["networks"][0]["nodes"]))
 
     def test_online_access_already_on_is_left_alone(self):
         pg = self.page
@@ -434,7 +433,7 @@ class Live(View):
             self.assertTrue(other.sent("sim_status"))
         projects = load(os.path.join(self.cfg_dir, "online.json"))["projects"][self.project]
         self.assertEqual((projects["sim_target"], projects["sim_address"]), ("simulator", other.address))
-        self.assertNotIn("sim", json.dumps(load(self.config_path)["master"]))
+        self.assertNotIn("sim", json.dumps(load(self.config_path)["networks"][0]["master"]))
         # Disconnect in the bar ends it; the Nodes table then says it needs a connection.
         pg.click('#conn-bar [data-conn="disconnect"]')
         pg.wait_for_selector('#conn-bar [data-conn="connect"]')
@@ -446,14 +445,15 @@ class Networks(View):
 
     def setUp(self):
         super().setUp()
-        io = rtd_config()
-        io.pop("schema_version", None)
+        cfg = rtd_config()
+        io = cfg["networks"][0]
         io["name"] = "io"
         io["nodes"][0]["simulate"] = True
-        diagnostics = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
+        cfg["diagnostics"] = {"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True}
         line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
                 "master": {"node_id": 1}, "nodes": [{"node_id": 6, "name": "n6", "eds": "rtd8.eds", "simulate": True}]}
-        self.write_config({"schema_version": 2, "diagnostics": diagnostics, "networks": [io, line]})
+        cfg["networks"].append(line)
+        self.write_config(cfg)
 
     def test_network_switch_drops_the_node(self):
         pg = self.page
@@ -594,12 +594,12 @@ class FileSections(Base):
 
     def setUp(self):
         super().setUp()
-        io = rtd_config()
-        io["name"] = "io"
+        cfg = rtd_config()
+        cfg["networks"][0]["name"] = "io"
         line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
                 "master": {"node_id": 1}, "nodes": [{"node_id": 6, "name": "n6", "eds": "rtd8.eds"}]}
-        io.pop("schema_version", None)
-        self.write_config({"schema_version": 2, "networks": [io, line]})
+        cfg["networks"].append(line)
+        self.write_config(cfg)
 
     def file_tab(self):
         tool_tab(self.page, "simulation")

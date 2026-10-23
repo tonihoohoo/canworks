@@ -6,15 +6,14 @@
 
 | Family | Blocks | Functions | Reference |
 |---|---|---|---|
-| CANopen over the bridge | `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_NMT`, `CO_NODE_LIVE` | | [below](#blocks-over-the-bridge), [plc-sdo.md](plc-sdo.md), [plc-nmt.md](plc-nmt.md) |
+| CANopen over the bridge | `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_NMT`, `CO_NODE_LIVE` | | [below](#blocks-over-the-bridge) |
 | Bit-exact REAL conversions | | `CW_DWORD_TO_REAL`, `CW_REAL_TO_DWORD`, `CW_LWORD_TO_LREAL`, `CW_LREAL_TO_LWORD` | [below](#real-conversions) |
-| CiA 402 cyclic modes | `CO402_CyclicPosition`, `CO402_CyclicVelocity`, `CO402_CyclicTorque`, `CO402_CyclicMoveAbsolute` | | [cia402.md](cia402.md#cyclic-synchronous-modes) (only with the plugin; leaving with it) |
 | CAN frame helpers | | `CAN_GET_BITS`, `CAN_SET_BITS`, `CAN_GET_UINT16`, `CAN_SET_UINT16`, `CAN_GET_UINT32`, `CAN_SET_UINT32`, `CAN_J1939_ID`, `CAN_J1939_PGN`, `CAN_J1939_SOURCE` | [raw-can.md](raw-can.md#frame-blocks) |
 | J1939 helpers | `J1939_NAME_SPLIT`, `J1939_DTC_SPLIT` | `J1939_GET_BITS`, `J1939_SET_BITS`, `J1939_NAME_MAKE`, `J1939_DTC_MAKE` | [j1939.md](j1939.md#program-blocks) |
 
 `canworks-deploy library --list` prints every block and function of the installed tools' library.
 
-The blocks that called into the OpenPLC plugin (the SDO `_REAL`, `_STRING` and `_BYTES` variants, `CO_RECV_EMCY`, `CO_NETWORK_START`, `CO_NETWORK_STOP`, `CO_GET_STATE`, the CAN frame and J1939 message and trouble code blocks) are no longer in the library: OpenPLC reaches canworks only through Modbus. SDOs of up to 4 bytes and NMT commands work over the bridge now; longer SDOs, raw CAN, J1939 and EMCY blocks need mailboxes in the bridge that are still to come.
+OpenPLC reaches canworks only through Modbus, so the library has no blocks for SDOs longer than 4 bytes, raw CAN frames, J1939 messages and trouble codes, or EMCYs: those need mailboxes in the bridge that are still to come. There are no CiA 402 blocks.
 
 ## Install and enable
 

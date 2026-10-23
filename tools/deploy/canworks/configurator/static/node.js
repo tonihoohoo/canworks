@@ -91,8 +91,7 @@ function supervisionTab(i, eds) {
     el("label", null, label, el("span", { class: "row" },
       field("", base + "." + key, "text", { placeholder }).querySelector("input"), suggestBtn(direction, key)),
       hint(help),
-      el("span", { class: "field-msg", dataset: { for: base + "." + key } }),
-      declNote(base + "." + key));
+      el("span", { class: "field-msg", dataset: { for: base + "." + key } }));
   // Every empty PLC signal gets a free location, one after another so each
   // suggestion sees the ones before it.
   const signals = [["status", "status_location"], ["state", "state_location"],

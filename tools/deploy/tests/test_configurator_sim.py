@@ -107,7 +107,7 @@ class File(Sim):
         self.assertEqual(simulation.check({"schema_version": 2}), [])  # no sections: default behaviour
 
     def test_check_and_save_refuse_what_the_plugin_refuses(self):
-        # Against the saved config, as the plugin loads the file (D3, D19).
+        # Against the saved config, as the bridge loads the file (D3, D19).
         cfg = sim_config()
         cfg["networks"][0]["nodes"][0]["sdo"] = [{"index": "0x6110", "subindex": 1, "type": "UNSIGNED16", "value": 30}]
         self.ok("POST", "/api/save", {"config": cfg})
@@ -241,7 +241,7 @@ class Offline(Sim):
 
     def test_with_the_real_checker(self):
         # The configurator's own simfile, not a stand-in: errors are shown
-        # without a runtime, with the plugin's positions.
+        # without a runtime, with the bridge's positions.
         self.ok("POST", "/api/save", {"config": sim_config()})
         r = self.ok("POST", "/api/sim/check_expr", {"node": 5, "expr": "1 + foo"})
         self.assertEqual((r["checked"], r["ok"], r["position"], r["by"]), (True, False, 4, "configurator"))

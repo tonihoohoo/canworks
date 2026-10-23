@@ -1,5 +1,5 @@
 """PDO links (canopen-pdo-links) and the node-to-node heartbeat watch: the
-rules the plugin applies at load, with its messages (plugin/src/can/config.cpp
+rules the bridge applies at load, with its messages (plugin/src/can/config.cpp
 parse_links, check_links, check_heartbeat_watch; plugin/src/canopen/
 eds_check.cpp check_links, check_heartbeat_watch), and the writes it adds to
 a consumer's configuration download (dcf_gen.cpp add_link_writes).

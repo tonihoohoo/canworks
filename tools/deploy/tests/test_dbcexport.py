@@ -294,7 +294,7 @@ class FixedFrames(unittest.TestCase):
         self.assertEqual(message(model(cfg), "pingpong_EMCY").cob_id, 0x82)
 
     def test_emcy_cob_id_from_the_eds(self):
-        # The plugin listens on the EDS default of 0x1014 for "eds", and for
+        # The bridge listens on the EDS default of 0x1014 for "eds", and for
         # "device" until the read (canopen-dbc-export "EMCY identifier from the EDS").
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)

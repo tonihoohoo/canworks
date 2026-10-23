@@ -139,9 +139,6 @@ class ProjectScan(unittest.TestCase):
                     "    old AT %IX1.0 : BOOL;\n  END_VAR\nEND_PROGRAM\n")
         got = {(str(u.loc), u.name) for u in scan.scan(d)[0]}
         self.assertEqual(got, {("%IW100", "rtd1"), ("%MD4", "s"), ("%IX1.0", "old")})
-        cfg = rtd_config()
-        _, declared = layout.project_checks(cfg, scan.scan(d)[0], False)
-        self.assertEqual(declared["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"], "rtd1")
 
     def test_unreadable_json_is_reported(self):
         d = tmpdir(self)
@@ -195,24 +192,10 @@ class Layout(unittest.TestCase):
         self.assertIn("all 4 PDOs", reason)
         self.assertIn("no PDO", layout.pack([], "BOOLEAN", 0)[1])
 
-    def test_project_checks(self):
-        uses, _ = scan.scan(FIXTURE)
-        cfg = {"nodes": [{"status_location": "%IX10.1", "tx_pdos": [{"entries": [
-            {"type": "INTEGER32", "iec_location": "%ID100"}, {"type": "INTEGER16", "iec_location": "%IW120"}]}]}]}
-        items, declared = layout.project_checks(cfg, uses)
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["level"], "error")
-        self.assertEqual(items[0]["paths"], ["nodes[0].tx_pdos[0].entries[0].iec_location"])
-        self.assertIn("devices/remote/ecat-bus.json", items[0]["message"])
-        self.assertEqual(declared, {"nodes[0].status_location": "door_ok",
-                                    "nodes[0].tx_pdos[0].entries[1].iec_location": "ai_spare"})
-        items, _ = layout.project_checks(cfg, uses, allow_overlap=True)
-        self.assertEqual(items[0]["level"], "warning")
-
-    def test_project_checks_c_macro_name(self):
+    def test_c_macro_name(self):
         from canworks.iec import parse_location
         uses = [scan.Use("pous/programs/main.st", "line 10", parse_location("%IX10.0"), "variable", "x_ok")]
-        items, _ = layout.project_checks({"nodes": []}, uses)
+        items = layout.macro_problems(uses)
         self.assertEqual([i["level"] for i in items], ["error"])
         self.assertIn("x_ok", items[0]["message"])
 

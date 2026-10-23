@@ -1,7 +1,7 @@
 """The config contract (CANopen and J1939 networks): schema_version, the published JSON Schema, and
-the checks the plugin runs that the schema cannot express.
+the checks the bridge runs that the schema cannot express.
 
-Messages that the plugin also produces use the plugin's wording (see
+Messages that the bridge also produces use the bridge's wording (see
 plugin/src/can/config.cpp); the shared fixtures in test/fixtures/config/ hold both
 to it.
 """
@@ -29,13 +29,13 @@ _SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schema")
 _schemas = {}
 _V1_REF = "canworks.v1.schema.json#"
 NETWORK_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
-# A Linux interface name the plugin can open or create (IFNAMSIZ - 1).
+# A Linux interface name the bridge can open or create (IFNAMSIZ - 1).
 INTERFACE_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
 ON_PLC_STOP = ("preop", "stop", "keep")
 
 
 def interface_message(name):
-    """The plugin's refusal of an interface name, or None when it is fine."""
+    """The bridge's refusal of an interface name, or None when it is fine."""
     if not isinstance(name, str) or not name or INTERFACE_NAME.fullmatch(name):
         return None
     return ("interface \"%s\" must be 1-15 characters of letters, digits, '_', '.', ':' and '-' (the 15-character "
@@ -43,20 +43,20 @@ def interface_message(name):
 
 
 def lss_unsupported_message(label):
-    """The plugin's refusal of LSS on a node whose EDS does not say
+    """The bridge's refusal of LSS on a node whose EDS does not say
     LSS_Supported=1: its `lss` object, and online LSS operations tied to it."""
     return "%s: 'lss' needs an EDS with LSS_Supported=1; this node's EDS has no LSS" % label
 
 
 def emcy_unsupported_message(label, field):
-    """The plugin's refusal of an EMCY field on a node whose EDS has no
+    """The bridge's refusal of an EMCY field on a node whose EDS has no
     0x1014 (canopen-node-supervision "EMCY and heartbeat consumer fields need
     their EDS objects")."""
     return "%s: '%s' needs an EDS with the EMCY COB-ID (0x1014); this node's EDS has no EMCY" % (label, field)
 
 
 def heartbeat_consumer_unsupported_message(label):
-    """The plugin's refusal of heartbeat_consumer on a node whose EDS has no
+    """The bridge's refusal of heartbeat_consumer on a node whose EDS has no
     writable 0x1016 sub-index."""
     return ("%s: 'heartbeat_consumer' needs an EDS with a writable consumer heartbeat time (0x1016); "
             "this node's EDS has none" % label)
@@ -69,7 +69,7 @@ def eds_has_heartbeat_consumer(eds):
 
 
 def supervision_message(label):
-    """The plugin's refusal of a node without heartbeat or guarding whose EDS
+    """The bridge's refusal of a node without heartbeat or guarding whose EDS
     heartbeat default is 0 (canopen-node-supervision)."""
     return ("%s has no heartbeat or guarding (its EDS heartbeat 0x1017 defaults to 0): its loss would never be "
             "detected; set heartbeat_ms, or \"heartbeat_ms\": 0 to accept that" % label)
@@ -104,7 +104,7 @@ def schema(version=2):
 def _pattern(validator, patrn, instance, schema):
     """The schema's "pattern" as ECMA-262 reads it: a final "$" ends the
     string, so "3\\n" does not pass "^[0-9]+$" (Python's "$" also matches
-    before a final newline; the plugin refuses such a string)."""
+    before a final newline; the bridge refuses such a string)."""
     full = patrn[:-1] + r"\Z" if patrn.endswith("$") and not patrn.endswith("\\$") else patrn
     if validator.is_type(instance, "string") and not re.search(full, instance):
         from jsonschema import ValidationError
@@ -157,7 +157,7 @@ def _plain(value, path, problems):
     return value
 
 
-# A JSON number the plugin's cJSON (a double) cannot hold exactly (canopen-
+# A JSON number the bridge's cJSON (a double) cannot hold exactly (canopen-
 # config-contract "64-bit values as JSON numbers").
 INEXACT_NUMBER = 2 ** 53
 INEXACT_NUMBER_MESSAGE = ("a JSON number of 2^53 (9007199254740992) or more cannot be read exactly; write it as a "
@@ -166,7 +166,7 @@ INEXACT_NUMBER_MESSAGE = ("a JSON number of 2^53 (9007199254740992) or more cann
 
 def inexact_numbers(value, path=()):
     """The places (json_path) of numbers in `value` whose magnitude is 2^53 or
-    more, which the plugin would round (plugin: inexact_numbers)."""
+    more, which the bridge would round (engine: inexact_numbers)."""
     out = []
     if isinstance(value, dict):
         for k, v in value.items():
@@ -197,7 +197,7 @@ def _no_constant(name):
 
 def loads(text):
     """A config's JSON text parsed, refusing an object that has the same key
-    twice (json keeps the last, the plugin's cJSON the first; plugin:
+    twice (json keeps the last, the bridge's cJSON the first; engine:
     repeated_keys) and NaN or Infinity (not JSON; cJSON refuses them).
     Raises ValueError, which names the key and its object."""
     problems = []
@@ -213,7 +213,7 @@ def load(f):
 
 
 def version_of(cfg):
-    """The config's schema_version as the plugin reads it (1 when left out),
+    """The config's schema_version as the bridge reads it (1 when left out),
     or None when it is not a version number."""
     if not isinstance(cfg, dict) or "schema_version" not in cfg:
         return 1
@@ -230,7 +230,7 @@ def networks(cfg):
     slave object, empty for the others), `j1939` (the j1939 object of a
     J1939 network, else empty). A version 2 network without a name is
     named after its interface. A version 1 file (of the removed OpenPLC
-    plugin) reads as its one network, so the configurator can show and
+    bridge) reads as its one network, so the configurator can show and
     switch it."""
     if version_of(cfg) == 1 or not isinstance(cfg.get("networks"), list):
         adapter = cfg.get("adapter")
@@ -363,8 +363,8 @@ _LEADING_ZERO = re.compile(r"^-?0[0-9]+$")
 
 def leading_zero_message(text):
     """The refusal of a number string with a leading zero ("012"), or None.
-    Octal is never meant in a config, so neither the tools nor the plugin
-    read it either way (plugin: leading_zero_message)."""
+    Octal is never meant in a config, so neither the tools nor the bridge
+    read it either way (engine: leading_zero_message)."""
     if not isinstance(text, str) or not _LEADING_ZERO.fullmatch(text):
         return None
     sign = "-" if text.startswith("-") else ""
@@ -374,7 +374,7 @@ def leading_zero_message(text):
 
 def _uint(value):
     """An unsigned integer given as a JSON number or a "0x.."/decimal string,
-    as the plugin reads it; None if it is not one. The one number parser:
+    as the bridge reads it; None if it is not one. The one number parser:
     parse_numbers() runs it over every numeric field before the range checks."""
     if isinstance(value, bool):
         return None
@@ -409,7 +409,7 @@ def _takes_number_string(node, root):
 def parse_numbers(value, node, root):
     """`value` with every number written as a string ("0x80", "128") where
     the schema takes it turned into the integer, so the schema's ranges
-    check hex and decimal alike (the plugin parses before its range check)."""
+    check hex and decimal alike (the bridge parses before its range check)."""
     if isinstance(value, str):
         n = _uint(value)
         return n if n is not None and _takes_number_string(node, root) else value
@@ -435,7 +435,7 @@ def parse_numbers(value, node, root):
 # ---------------------------------------------------------------------------
 # Schema errors in the user's words: the field's name and what it takes, not
 # the rule or pattern (canopen-configurator: "The check refuses what the
-# plugin refuses").
+# the bridge refuses").
 
 FIELD_NAMES = {
     "node_id": "node ID", "heartbeat_ms": "heartbeat period", "heartbeat_timeout_ms": "heartbeat timeout",
@@ -661,10 +661,10 @@ def unknown_fields(value, node, root, path, out):
 
 
 # ---------------------------------------------------------------------------
-# Startup SDO values (plugin: Parser::sdo_value)
+# Startup SDO values (engine: Parser::sdo_value)
 
 def sdo_value(value, type_name):
-    """Returns (data bytes or None, problem). Same rules as the plugin."""
+    """Returns (data bytes or None, problem). Same rules as the bridge."""
     bits = CO_TYPES[type_name][1]
     nbytes = 1 if bits == 1 else bits // 8
     if type_name in ("REAL32", "REAL64"):
@@ -697,7 +697,7 @@ def sdo_value(value, type_name):
     else:
         return None, "must be a number"
     if neg and not type_name.startswith("INTEGER"):
-        fits = False  # "-0" too, as the plugin reads it
+        fits = False  # "-0" too, as the bridge reads it
     elif type_name == "BOOLEAN":
         fits = 0 <= n <= 1
     elif type_name.startswith("INTEGER"):
@@ -718,7 +718,7 @@ def _value_text(value):
 # ---------------------------------------------------------------------------
 
 def _pdo_schema_message(cfg, path, e):
-    """The plugin's words for the PDO-only fields the schema rejects:
+    """The bridge's words for the PDO-only fields the schema rejects:
     (where, message), or None."""
     if len(path) < 4 or path[0] != "nodes" or path[2] not in ("tx_pdos", "rx_pdos"):
         return None
@@ -763,7 +763,7 @@ def default_cob_id(node_id, number, is_tx):
 
 def auto_cob_ids(nodes):
     """{(node index, "tx_pdos"/"rx_pdos", pdo index): COB-ID} for every PDO
-    whose cob_id is "auto", resolved like the plugin: the default for PDOs
+    whose cob_id is "auto", resolved like the bridge: the default for PDOs
     1-4; above, the highest COB-ID in 0x181-0x57F outside every node's
     predefined set and not used by another PDO, in config order. Nodes are
     dicts with integer node_id and PDO lists of dicts (number, cob_id)."""
@@ -809,7 +809,7 @@ def restricted_can_id(cob):
 
 
 def reserved_cob_service(cob, master, master_id, default_emcy, time=True):
-    """The service a PDO or TIME COB-ID would clash with, or None (plugin:
+    """The service a PDO or TIME COB-ID would clash with, or None (engine:
     reserved_cob_service): NMT, SYNC, TIME, the master's EMCY, a node's EMCY
     (`default_emcy`: the node IDs whose EMCY is not configured, so it is
     0x80 + node ID), a node's SDO or heartbeat, LSS or another restricted
@@ -835,7 +835,7 @@ def reserved_cob_service(cob, master, master_id, default_emcy, time=True):
 
 
 def configured_emcy_cob_id(n, sdo_entries=None):
-    """A node's configured EMCY COB-ID, as the plugin takes it: (value,
+    """A node's configured EMCY COB-ID, as the bridge takes it: (value,
     "emcy_cob_id") for a number in emcy_cob_id, else (value, "startup SDO",
     index in `sdo`) for the last startup SDO to 0x1014 sub-index 0 with bit
     31 clear, else None. `n` is the node as written; `sdo_entries` the
@@ -861,7 +861,7 @@ def configured_emcy_cob_id(n, sdo_entries=None):
 
 
 def check_emcy_cob_ids(raw_nodes, nodes, master, master_id, err):
-    """The plugin's load-time checks of the nodes' EMCY COB-IDs (in order,
+    """The bridge's load-time checks of the nodes' EMCY COB-IDs (in order,
     the first that fails gives the node's one error): the field's type, bit
     31, 11 bits, a restricted CAN-ID, and a clash with SYNC, TIME, the
     master's EMCY, another node's EMCY or a PDO. `nodes` are the parsed
@@ -929,8 +929,8 @@ def check_emcy_cob_ids(raw_nodes, nodes, master, master_id, err):
 
 
 def sdo_override(node, entry, data, linked_rpdos=()):
-    """What a startup SDO overrides among the settings the plugin writes for
-    the node (the same rule as the plugin's warning), or None.
+    """What a startup SDO overrides among the settings the bridge writes for
+    the node (the same rule as the bridge's warning), or None.
     `linked_rpdos`: the node's PDO link consumer RPDOs."""
     index, sub = entry["index"], entry["subindex"]
     value = int.from_bytes(data or b"", "little")
@@ -961,7 +961,7 @@ def sdo_override(node, entry, data, linked_rpdos=()):
 
 
 # Store (0x1010) and restore (0x1011) write the device's non-volatile memory:
-# never as a startup write (plugin: kNvmStartupMessage, kNvmVariableMessage).
+# never as a startup write (engine: kNvmStartupMessage, kNvmVariableMessage).
 NVM_STARTUP_MESSAGE = ("a startup SDO to 0x1010 (store) or 0x1011 (restore) would write the device's non-volatile "
                        "memory at every boot; use 'store_configuration' or 'restore_configuration'")
 NVM_VARIABLE_MESSAGE = ("a write SDO variable on 0x1010 (store) or 0x1011 (restore) without 'trigger_location' is "
@@ -970,8 +970,8 @@ NVM_VARIABLE_MESSAGE = ("a write SDO variable on 0x1010 (store) or 0x1011 (resto
 
 
 def plugin_owned_object(index):
-    """What the plugin itself configures in this object of a node, or None
-    (plugin: plugin_owned_object in config.cpp)."""
+    """What the bridge itself configures in this object of a node, or None
+    (engine: plugin_owned_object in config.cpp)."""
     if 0x1400 <= index <= 0x1BFF:
         return "the PDO settings"
     return {
@@ -1025,12 +1025,12 @@ REMOVED_NODE_FIELDS = ("software_file", "software_version")
 _NODE_PATH = re.compile(r"^(networks\[\d+\]\.)?nodes\[\d+\]$")
 
 
-# Adapter types and the fields only that type takes (plugin: Parser::parse_adapter).
+# Adapter types and the fields only that type takes (engine: Parser::parse_adapter).
 ADAPTER_TYPES = {"socketcan": ("configure_link", "restart_ms"), "slcan": ("device", "serial_baudrate")}
 
 
 def check_config(cfg, path, eds_dir=None, eds_paths=None):
-    """Checks a parsed config the way the plugin does at load.
+    """Checks a parsed config the way the bridge does at load.
 
     `path` names the file in messages. EDS files are found through
     `eds_paths` ({eds value: file path}) or relative to `eds_dir`
@@ -1054,8 +1054,8 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
         err("", "top level must be a JSON object")
         return r
 
-    # Numbers the plugin cannot read exactly, and NaN or Infinity (which the
-    # plugin's JSON parser refuses), before anything else (plugin:
+    # Numbers the bridge cannot read exactly, and NaN or Infinity (which the
+    # bridge's JSON parser refuses), before anything else (engine:
     # parse_config_set).
     bad = inexact_numbers(cfg)
     for where in bad:
@@ -1098,7 +1098,7 @@ def check_config(cfg, path, eds_dir=None, eds_paths=None):
     found = [(where, key) for where, key in found
              if not (key in REMOVED_NODE_FIELDS and _NODE_PATH.match(where[: -len(key)].rstrip(".")))]
 
-    # The CiA 309-3 gateway's object: its own checks below, in the plugin's
+    # The CiA 309-3 gateway's object: its own checks below, in the bridge's
     # words (an unknown field there is an error, not a warning).
     found = [(where, key) for where, key in found if not CIA309_PATH.match(where)]
     schema_errors = [e for e in schema_errors if not _cia309_error(e)]
@@ -1138,7 +1138,7 @@ def _cia309_error(e):
 def cia309_numbering(cfg):
     """The CiA 309-3 network numbers of a config: [(number, network name,
     network index)], `nets` when given, else 1..n in config order (as the
-    plugin numbers them). [] without a cia309 object."""
+    the bridge numbers them). [] without a cia309 object."""
     g = cia309_object(cfg)
     if g is None:
         return []
@@ -1284,7 +1284,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             by_net.setdefault(p[1], []).append((p[2:], e))
             continue
         if p[:1] == ["bridge"]:
-            continue  # the bridge checks below give the plugin's words
+            continue  # the bridge checks below give the bridge's words
         where = json_path(p)
         if where == "" and e.validator in ("not", "required"):
             continue  # moved keys and a missing networks list, reported above
@@ -1353,11 +1353,11 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
             (p == [] and e.validator == "not") or
             (p == ["master"] and e.validator == "not") or
             p[:1] == ["protocol"] or
-            # The raw object's own checks give the plugin's words.
+            # The raw object's own checks give the bridge's words.
             p[:1] == ["raw"] or
             (p == ["adapter"] and e.validator == "not") or
             (plain and (not p or p[0] in ("j1939",) + CANOPEN_KEYS)) or
-            # A J1939 network's own checks below give the plugin's words for
+            # A J1939 network's own checks below give the bridge's words for
             # everything but its adapter; a CANopen network's j1939 object is
             # reported above.
             (j1939 and (not p or p[0] in ("j1939",) + CANOPEN_KEYS)) or
@@ -1384,7 +1384,7 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
     bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None
     _check_across_networks(r, cfg, err, bridge_uses, locations=not codesys)
     # Sent raw messages on identifiers the protocol uses (after the checks
-    # across networks, as in the plugin).
+    # across networks, as in the bridge).
     for n in networks(cfg):
         raw = n["json"].get("raw")
         if not isinstance(raw, dict) or not raw.get("tx"):
@@ -1462,7 +1462,7 @@ def _check_across_networks(r, cfg, err, bridge_uses=None, locations=True):
             else:
                 devices[dev] = n["index"]
     # On a shared simulated bus the master's node for the slave network is the
-    # plugin's own slave: a simulated device with that node ID would answer
+    # bridge's own slave: a simulated device with that node ID would answer
     # next to it.
     for sl in nets:
         sa, ss = sl["adapter"], sl["slave"]
@@ -1497,7 +1497,7 @@ def _check_across_networks(r, cfg, err, bridge_uses=None, locations=True):
 
 
 def _report_overlaps(uses, where, err):
-    """Two location_uses() entries on one location (plugin: report_overlaps)."""
+    """Two location_uses() entries on one location (engine: report_overlaps)."""
     for i, a in enumerate(uses):
         for b in uses[i + 1:]:
             if a[0] == b[0]:
@@ -1506,7 +1506,7 @@ def _report_overlaps(uses, where, err):
 
 def location_uses(net, prefix=""):
     """Every IEC location of one network as (key, who, JSON path, text), named
-    as the plugin names them; key compares equal for the same variable."""
+    as the bridge names them; key compares equal for the same variable."""
     out = []
     base = net["path"] + "." if net["path"] else ""
 
@@ -1515,7 +1515,7 @@ def location_uses(net, prefix=""):
         if loc is not None:
             out.append(((loc.area, loc.size, loc.element), prefix + who, base + at, str(loc)))
 
-    # Raw messages first, named by their place in the file as the plugin does.
+    # Raw messages first, named by their place in the file as the bridge does.
     raw = (net.get("json") or {}).get("raw")
     if net["path"] and isinstance(raw, dict):
         for text, at in raw_contract.locations(raw, net["path"] + ".raw"):
@@ -1729,7 +1729,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
     else:
         err("", "missing required field 'adapter'")
 
-    # The EDS lint setting and its pre-contract alias, in the plugin's words.
+    # The EDS lint setting and its pre-contract alias, in the bridge's words.
     master_in = cfg.get("master")
     if isinstance(master_in, dict):
         if "eds_lint" in master_in and "strict_eds" in master_in:
@@ -1750,16 +1750,16 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if where in ("", "adapter") and e.validator in ("oneOf", "not", "required", "enum") and (
                 "adapter" in e.message or "interface" in e.message or "bitrate" in e.message
                 or "device" in e.message or e.validator == "not" or "socketcan" in e.message):
-            continue  # reported above, in the plugin's words
+            continue  # reported above, in the bridge's words
         if where == "adapter.device" and e.validator == "pattern":
             continue
         if where in ("adapter.interface", "adapter.device") and e.validator == "minLength":
             continue  # reported above as missing
         if where in ("adapter.interface", "interface") and e.validator in ("pattern", "maxLength"):
-            continue  # reported above, in the plugin's words
+            continue  # reported above, in the bridge's words
         if where == "master.on_plc_stop" or re.match(r"^nodes\[\d+\]\.emcy_cob_id$",
                                                                                      where):
-            continue  # reported below, in the plugin's words
+            continue  # reported below, in the bridge's words
         if (where == "master" and e.validator == "not") or where == "master.eds_lint":
             continue  # reported above
         if where.endswith("diagnostics.token_sha256"):
@@ -1781,7 +1781,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             continue  # misplaced in a slave network, reported by _check_v2
         if (where == "master" and e.validator == "required" and "'diagnostics'" in e.message) or (
                 version > 1 and where == "nodes" and e.validator == "minItems"):
-            # The schema's rule for an empty node list, in the plugin's words.
+            # The schema's rule for an empty node list, in the bridge's words.
             err("", "field 'nodes' lists no slave nodes (an empty list needs a top-level 'diagnostics', for a "
                     "scan-only configuration)", ["nodes"])
             continue
@@ -1826,7 +1826,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             slaves[net_index] = got
         return
 
-    # Schema-valid from here on: normalise numbers and run the plugin's
+    # Schema-valid from here on: normalise numbers and run the bridge's
     # cross-field checks.
     master = cfg["master"]
     master_id = _uint(master["node_id"])
@@ -1860,8 +1860,8 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         err("master", "field 'on_plc_stop' must be \"preop\", \"stop\" or \"keep\"", ["master.on_plc_stop"])
     _error_behavior(master, "master", err)
     if master.get("start") is False:
-        warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC "
-                       "program starts it with CO_NETWORK_START", ["master.start"])
+        warn("master", "'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged; the bridge "
+                       "has no command that starts it", ["master.start"])
     master_hb = _uint(master.get("heartbeat_ms", 0)) or 0
     links = links_mod.parse(cfg)
     linked_tx = {(l["producer"], l["tpdo"]) for l in links}
@@ -1985,7 +1985,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                             _uint(te.get("index")) == entry["index"] and _uint(te.get("subindex", 0)) == entry["subindex"]
                             for tp in n.get("tx_pdos", []) if isinstance(tp, dict)
                             for te in tp.get("entries", []) if isinstance(te, dict)):
-                        # The route takes the TPDO entry (plugin: TPDOs
+                        # The route takes the TPDO entry (engine: TPDOs
                         # first), so this one would have no writer.
                         err("%s: entries[%d]" % (pw, k),
                             "%s, object 0x%04X:%d: %s reads 0x%04X:%d from a TPDO entry, so this RPDO entry without "
@@ -2058,12 +2058,12 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             node["sdo_variables"].append(entry)
         nodes.append(node)
 
-    # PDO links and heartbeat watch: the rules between nodes (plugin:
+    # PDO links and heartbeat watch: the rules between nodes (engine:
     # check_links, check_heartbeat_watch).
     links_mod.check_rules(links, nodes, sync_period, err)
     links_mod.check_watch_rules(cfg["nodes"], nodes, master_id, err)
 
-    # "auto" COB-IDs, as the plugin resolves them.
+    # "auto" COB-IDs, as the bridge resolves them.
     for (i, key, j), cob in auto_cob_ids(nodes).items():
         nodes[i][key][j]["cob_id"] = cob
     for l in links:
@@ -2072,9 +2072,9 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if t is not None:
             l["cob_id"] = t["cob_id"] if isinstance(t.get("cob_id"), int) else t["default_cob_id"]
 
-    # Two PDOs on one COB-ID collide on the bus (plugin: add_cob), whether
+    # Two PDOs on one COB-ID collide on the bus (engine: add_cob), whether
     # the COB-ID is set, "auto" or the default, and a PDO on a service's
-    # COB-ID is taken for that service (plugin: check_pdo_cob_ids).
+    # COB-ID is taken for that service (engine: check_pdo_cob_ids).
     default_emcy = {node["node_id"] for n, node in zip(cfg["nodes"], nodes) if not configured_emcy_cob_id(n, node["sdo"])}
     if "time_cob_id" in master:
         t = (_uint(master["time_cob_id"]) or 0) & 0x7FF
@@ -2103,7 +2103,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
                     cobs[cob] = (who, at)
 
     # The nodes' EMCY COB-IDs (emcy_cob_id, or a startup SDO to 0x1014),
-    # after the "auto" COB-IDs, with the plugin's messages.
+    # after the "auto" COB-IDs, with the bridge's messages.
     check_emcy_cob_ids(cfg["nodes"], nodes, master, master_id, err)
 
     if len(r.errors) > before:
@@ -2120,7 +2120,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
         if not os.path.isfile(file):
             add("error", "node %d: EDS file %s not found" % (node["node_id"], file), [w + ".eds"])
             continue
-        # The plugin's EDS lint, on the prepared copy every later check reads.
+        # The bridge's EDS lint, on the prepared copy every later check reads.
         with open(file, "rb") as f:
             text, corrections, lint = edslint.check(f.read(), node["node_id"])
         label = "node %d" % node["node_id"] + (" (%s)" % node["name"] if node.get("name") else "")
@@ -2167,7 +2167,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             add("error", msg, [w + sub])
         eds_warnings += [(msg, w + sub) for msg, sub in warnings]
     # A node's EMCY COB-ID from its EDS default (0x1014), when the EDS moves it
-    # off 0x80 + node ID (plugin: check_eds_emcy_cob_ids).
+    # off 0x80 + node ID (engine: check_eds_emcy_cob_ids).
     for m in nodes:
         sub = eds_by_id[m["node_id"]].find(0x1014, 0) if m["node_id"] in eds_by_id else None
         if m["node_id"] not in default_emcy or sub is None:
@@ -2201,7 +2201,7 @@ def _check_network(r, cfg, prefix, version, schema_errors, path, base, eds_paths
             add("error", "%s and %s have the same LSS address (vendor ID 0x%08X, product code 0x%08X, serial "
                   "number 0x%08X)" % (labels[0], labels[1], p["vendor_id"], p["product_code"], p["serial_number"]),
                   ["nodes[%d].lss" % i, "nodes[%d].lss" % j])
-    # Heartbeat watch and PDO links against the EDS files (plugin: eds_check.cpp).
+    # Heartbeat watch and PDO links against the EDS files (engine: eds_check.cpp).
     links_mod.resolve_watch(cfg["nodes"], nodes, eds_by_id, master, add)
     links_mod.check_eds([l for l in links if "cob_id" in l], nodes, eds_by_id, sync_period, add, eds_warnings)
     if len(r.errors) == before:
@@ -2226,7 +2226,7 @@ def object_text(index, sub):
 
 
 def _check_slave(s, err, add, base, eds_paths):
-    """The plugin's checks of one schema-valid slave object: node ID, the
+    """The bridge's checks of one schema-valid slave object: node ID, the
     EDS (found, lint, readable) and every binding against it. Returns
     (Eds, eds value, {(index, subindex): (objects position, location)}), or
     None when the EDS cannot be used."""
@@ -2336,7 +2336,7 @@ def _net_phrase(net):
 
 
 def _check_gateway(cfg, err, warn, slaves):
-    """The plugin's checks of the gateway section (canopen-gateway): the
+    """The bridge's checks of the gateway section (canopen-gateway): the
     upper network, the field networks, and each route's two ends, their
     direction, type and single writer. `slaves`: what _check_slave()
     returned per network index, for the slave networks that passed."""
@@ -2351,7 +2351,7 @@ def _check_gateway(cfg, err, warn, slaves):
         err("gateway", "upper network '%s' is not in the config (networks: %s)"
             % (upper_name, ", ".join(n["name"] or "unnamed" for n in nets)), ["gateway.upper"])
     elif upper["role"] == "j1939":
-        # The plugin's words (parse_gateway).
+        # The bridge's words (parse_gateway).
         err("gateway", 'upper network "%s" must be a slave network ("role": "slave"); it is a J1939 network'
             % upper_name, ["gateway.upper"])
     elif upper["role"] != "slave":
@@ -2375,7 +2375,7 @@ def _check_gateway(cfg, err, warn, slaves):
                 # The first master network's records are required; a later
                 # network whose records are both missing (an EDS generated
                 # for fewer networks) is left out with a warning, as the
-                # plugin does.
+                # the bridge does.
                 if k > 0 and not eds.has(rec) and not eds.has(bits):
                     warn("gateway", "gateway status of %s is not published: objects 0x%04X and 0x%04X are "
                                     "not in the EDS %s" % (_net_phrase(m), rec, bits, eds_name), ["gateway.status"])
@@ -2483,7 +2483,7 @@ def _check_gateway(cfg, err, warn, slaves):
 
 
 # ---------------------------------------------------------------------------
-# J1939 networks (j1939-config spec; plugin: parse_j1939_network in
+# J1939 networks (j1939-config spec; engine: parse_j1939_network in
 # plugin/src/can/config.cpp and check_j1939 in plugin/src/j1939/j1939_config.cpp)
 
 J1939_MAX_PGN = 0x3FFFF
@@ -2541,7 +2541,7 @@ def j1939_name_value(name):
 
 
 def j1939_signal_bits(start_bit, length, big_endian=False):
-    """The message bits a signal covers, least significant first (plugin:
+    """The message bits a signal covers, least significant first (engine:
     j1939_signal_bits). DBC big byte order: the start bit is the most
     significant bit; the next lower bit is the next lower bit of the same
     byte, or bit 7 of the next byte."""
@@ -2575,17 +2575,17 @@ def _mux_def(sj, path):
 
 
 class _J1939Parser:
-    """Reads one networks[] entry's j1939 object the way the plugin does,
-    reporting through err(where, message, paths) with the plugin's places
+    """Reads one networks[] entry's j1939 object the way the bridge does,
+    reporting through err(where, message, paths) with the bridge's places
     and words. The result (parse()) is the object with defaults filled in
-    and locations parsed; entries and signals the plugin would drop are left
+    and locations parsed; entries and signals the bridge would drop are left
     out."""
 
     def __init__(self, err, warn=None):
         self.err = err
         self.warn = warn or (lambda *a: None)
 
-    # The plugin's field readers (j_uint, j_range, j_uint64, get_string, ...).
+    # The bridge's field readers (j_uint, j_range, j_uint64, get_string, ...).
     def uint(self, obj, key, where, path):
         if key not in obj:
             return None
@@ -2934,10 +2934,10 @@ class _J1939Parser:
         return q
 
     def signals(self, msg, where, path, rx, switch_mode=None):
-        """(signals, mux.Layout): the signals the plugin keeps (each with
+        """(signals, mux.Layout): the signals the bridge keeps (each with
         "index", its place in the message's list) and the multiplexing of
         the message's signals. `switch_mode`: "all" or "rotate" for a tx
-        entry whose switches the plugin sets ("" when `pages` was wrong)."""
+        entry whose switches the bridge sets ("" when `pages` was wrong)."""
         out = []
         if "signals" not in msg:
             self.err(where, "field 'signals' is missing", [path + ".signals"])
@@ -2988,7 +2988,7 @@ class _J1939Parser:
                 s[key] = default if v is None else v
             s["unit"] = self.string(sj, "unit", sw, sp) or ""
             if is_switch and switch_mode is not None:
-                # The plugin sets the switch; an empty mode was reported at `pages`.
+                # The bridge sets the switch; an empty mode was reported at `pages`.
                 if "iec_location" in sj and switch_mode:
                     self.err(where, 'signals[%d].iec_location: canworks sets switch %s when pages is "%s"; '
                              'leave it out' % (i, name, switch_mode), [sp + ".iec_location"])
@@ -3099,7 +3099,7 @@ class _J1939Parser:
 
 
 def check_j1939(net, err, warn=None):
-    """The plugin's checks of one J1939 network's j1939 object (the network's
+    """The bridge's checks of one J1939 network's j1939 object (the network's
     adapter and keys are checked by the caller). `err(where, message,
     paths)` (and `warn`, the same for warnings) gets places and paths
     relative to the network. Returns the parsed object (parse_j1939()) or
@@ -3115,7 +3115,7 @@ def check_j1939(net, err, warn=None):
 
 
 def parse_j1939(net):
-    """A J1939 network's j1939 object as the plugin reads it: {"ecu": {"name":
+    """A J1939 network's j1939 object as the bridge reads it: {"ecu": {"name":
     {field: value}, "address", "address_range", "state_location",
     "address_location"}, "dbc", "rx": [...], "tx": [...], "requests": [...]}
     with defaults filled in (tx length, priority, destination) and locations

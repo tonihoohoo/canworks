@@ -1,7 +1,7 @@
 """Signal packing as DBC files number bits (spec can-raw-messages, "Raw
 signals"): bit 0 is the least significant bit of byte 0; a little-endian
 (Intel) signal starts at its least significant bit, a big-endian (Motorola)
-signal at its most significant bit. Values are raw integers; the plugin
+signal at its most significant bit. Values are raw integers; the bridge
 (plugin/src/can/signals.*) and the library's CAN_GET_BITS / CAN_SET_BITS
 pack the same way, checked against test/fixtures/can_signals.json."""
 

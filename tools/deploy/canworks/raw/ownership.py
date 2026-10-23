@@ -1,4 +1,4 @@
-"""What a network's protocol uses a CAN identifier for, in the plugin's words
+"""What a network's protocol uses a CAN identifier for, in the bridge's words
 (protocol_id_use in plugin/src/can/frame_tx.cpp): sent raw messages on such
 an identifier need override_protocol (spec can-raw-messages)."""
 
@@ -70,7 +70,7 @@ def _canopen_use(net):
     for n in net.get("nodes") or []:
         if not isinstance(n, dict) or _uint(n.get("node_id")) is None:
             continue
-        # A PDO without a number is numbered by its place, as the plugin does.
+        # A PDO without a number is numbered by its place, as the bridge does.
         pdos = {key: [dict(p, number=_uint(p.get("number")) or j + 1)
                       for j, p in enumerate(n.get(key) or []) if isinstance(p, dict)]
                 for key in ("tx_pdos", "rx_pdos")}

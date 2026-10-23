@@ -1,7 +1,7 @@
 # canopen-dbc-export Specification
 
 ## Purpose
-Export the configured CANopen network as a DBC file, so that generic CAN bus tools can decode the PDOs and the fixed CANopen frames the plugin uses, without access to the EDS files or the PLC.
+Export the configured CANopen network as a DBC file, so that generic CAN bus tools can decode the PDOs and the fixed CANopen frames the bridge uses, without access to the EDS files or the PLC.
 
 ## Requirements
 
@@ -32,10 +32,10 @@ The DBC SHALL declare a network node `Master` for the PLC and one network node p
 - **THEN** its network node is `node23`
 
 ### Requirement: A message per configured PDO
-Every PDO in the config's `tx_pdos` and `rx_pdos` SHALL become one message with the PDO's COB-ID as the plugin resolves it (explicit `cob_id`, `"auto"`, or the CiA 301 default for PDOs 1-4), named `<node>_TPDO<n>` or `<node>_RPDO<n>`. A TPDO SHALL be sent by its node and received by `Master`; an RPDO SHALL be sent by `Master` and received by its node. The message length SHALL be the mapped bits rounded up to whole bytes.
+Every PDO in the config's `tx_pdos` and `rx_pdos` SHALL become one message with the PDO's COB-ID as the bridge resolves it (explicit `cob_id`, `"auto"`, or the CiA 301 default for PDOs 1-4), named `<node>_TPDO<n>` or `<node>_RPDO<n>`. A TPDO SHALL be sent by its node and received by `Master`; an RPDO SHALL be sent by `Master` and received by its node. The message length SHALL be the mapped bits rounded up to whole bytes.
 
 #### Scenario: Auto COB-ID
-- **WHEN** node 2 has TPDO 5 with `"cob_id": "auto"` and the plugin resolves it to 0x57F
+- **WHEN** node 2 has TPDO 5 with `"cob_id": "auto"` and the bridge resolves it to 0x57F
 - **THEN** the DBC message `<node>_TPDO5` has COB-ID 0x57F
 
 #### Scenario: RPDO direction
@@ -146,7 +146,7 @@ The objects SHALL be, with `config`, the node's `sdo_variables` and startup `sdo
 - **THEN** `Command` shows "Abort" and `Object` names the object; the abort code is the raw value of bytes 4-7, which the comment on `Command` explains
 
 ### Requirement: Warnings that affect the file
-When the deploy tool's checks warn that a startup SDO overrides PDO settings the plugin writes, the export SHALL still write the DBC from the PDO settings in the config and SHALL report the warning with it, stating that the DBC may not match the bus for that PDO.
+When the deploy tool's checks warn that a startup SDO overrides PDO settings the bridge writes, the export SHALL still write the DBC from the PDO settings in the config and SHALL report the warning with it, stating that the DBC may not match the bus for that PDO.
 
 #### Scenario: Startup SDO rewrites a COB-ID
 - **WHEN** a startup SDO writes 0x1800 sub 1 of a configured TPDO
@@ -175,7 +175,7 @@ A link SHALL NOT add a message: its frame is the producer TPDO's message. That m
 - **THEN** the second signal does not list node 20 as a receiver
 
 ### Requirement: EMCY identifier from the EDS
-The DBC export SHALL use a node's EMCY COB-ID as the plugin listens on it, including the EDS default.
+The DBC export SHALL use a node's EMCY COB-ID as the bridge listens on it, including the EDS default.
 
 #### Scenario: Moved EMCY in the EDS
 - **WHEN** the EDS sets 0x1014 to 0x0C2 for node 2

@@ -5,6 +5,7 @@ the bridge page's OpenPLC settings, Save writing the editor files and the
 Project page's facts, and the question when canworks' own editor files were
 changed elsewhere. Needs Playwright, like test_configurator_page.py."""
 
+import json
 import os
 
 from .helpers import tree_view
@@ -18,16 +19,21 @@ class OpenplcModbusPage(OnlineBase):
 
     def test_switch_save_and_changed_files(self):
         pg = self.page
+        # A config of the removed plugin: neither `bridge` nor `codesys`.
+        cfg = load(self.config_path)
+        del cfg["bridge"]
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
         self.open()
         tree_view(pg, "project")
-        # A plugin config: the line says the plugin is no longer offered, the button switches.
-        self.assertIn("no longer offers", pg.inner_text("[data-plugin-target]"))
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
+        # The line says the plugin was removed, the button switches.
+        self.assertIn("which was removed", pg.inner_text("[data-plugin-target]"))
+        self.assertEqual(pg.input_value('select[data-target="1"]'), "plugin")
         pg.click("[data-switch-modbus]")
         pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         self.assertEqual(pg.locator("[data-plugin-target]").count(), 0)
         self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
-        self.assertEqual(pg.locator('select[data-target="1"] option[value="openplc"]').count(), 0)
+        self.assertEqual(pg.locator('select[data-target="1"] option[value="plugin"]').count(), 0)
         self.assertEqual(pg.evaluate("() => projectTarget()"), "openplc_modbus")
 
         # The bridge page: OpenPLC's poll and names, no server or client settings.

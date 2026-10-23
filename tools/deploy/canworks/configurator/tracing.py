@@ -76,7 +76,7 @@ def _opt_time(v, what):
 
 
 def capture_filters(items):
-    """[{"id", "mask"}] from the page -> [(id, mask)]; the plugin takes up to 16."""
+    """[{"id", "mask"}] from the page -> [(id, mask)]; the bridge takes up to 16."""
     out = []
     for f in items or []:
         if not isinstance(f, dict):

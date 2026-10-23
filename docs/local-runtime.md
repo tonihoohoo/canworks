@@ -1,12 +1,12 @@
 # Local runtime: `canworks-local-runtime`
 
-The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program: runtime plugins such as CANopen cannot run in it. The local runtime takes its place on the engineering PC: the stock OpenPLC Runtime v4 with the CANopen plugin, in a container on Windows, macOS or Linux, with every CANopen network running simulated. A project with CANopen nodes then runs on the PC with no Linux device, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
+The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program, with no Modbus master to reach canworks. The local runtime takes its place on the engineering PC: upstream's OpenPLC Runtime v4 at the pinned version, unchanged, and canworks-bridge next to it, in two containers on Windows, macOS or Linux, with every network running simulated. An [OpenPLC project](modbus-bridge.md#openplc-through-modbus) with CANopen nodes then runs on the PC with no Linux device, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
 
 `canworks-local-runtime` comes with the PC tools ([install-pc.md](install-pc.md)). It needs a container engine; Docker Desktop is not needed.
 
 ## Container engine (once per PC)
 
-The image is published for amd64 and arm64, so it runs natively on Intel and AMD PCs and on M-series Macs.
+The images are published for amd64 and arm64, so it runs natively on Intel and AMD PCs and on M-series Macs.
 
 **Windows 10 22H2 or Windows 11:** a Linux distribution in WSL2 with Docker Engine or Podman inside it. The tools and the editor stay on Windows; `canworks-local-runtime` finds the engine through `wsl` by itself.
 
@@ -42,48 +42,48 @@ Podman works too: `brew install podman`, `podman machine init`, `podman machine 
 canworks-local-runtime start
 ```
 
-The first start downloads the image matching the tools' version (several hundred MB), creates the container `canworks-local-runtime` with its data volume, creates a runtime user `openplc` with a random password, and saves the address, user, password and the runtime's certificate fingerprint in `local-runtime.json` in the tools' settings folder (`%APPDATA%\canworks`, `~/Library/Application Support/canworks`, `~/.config/canworks`), readable only by you. It prints how to connect:
+The first start downloads upstream's runtime image at the pinned version and the bridge image matching the tools' version (several hundred MB), creates the container `canworks-local-runtime` with its data volume and the container `canworks-local-bridge` in its network (so the runtime's Modbus master reaches the bridge at `127.0.0.1:1502`) with a volume for its config, creates a runtime user `openplc` with a random password, and saves the address, user, password and the runtime's certificate fingerprint in `local-runtime.json` in the tools' settings folder (`%APPDATA%\canworks`, `~/Library/Application Support/canworks`, `~/.config/canworks`), readable only by you. It prints how to connect:
 
 ```
 Connect the OpenPLC Editor to it: target OpenPLC Runtime v4, address localhost:8443, user openplc, password from `canworks-local-runtime status --show-password`.
-Deploy with:   canworks-deploy --runtime local ...
+Put the project's config on its bridge:   canworks-deploy --config canworks/canworks.json --bridge local
 Diagnostics:   canworks-diag --runtime local status   (configurator: host "local")
-Every CANopen network runs simulated here: no CAN interface is used.
+Every network runs simulated here: no CAN interface is used.
 ```
 
 The password is printed only by `canworks-local-runtime status --show-password`.
 
-The saved certificate fingerprint changes only when `start` or `update` has just created the container itself. At any other time, a runtime that answers on the port with another certificate is refused before the password is sent: `start`, `canworks-deploy --runtime local` and `status` stop and say the certificate changed. Another program may be holding the port; when you recreated the container yourself, `canworks-local-runtime remove` and `start` pin the new certificate (the data volume, user and password stay).
+The saved certificate fingerprint changes only when `start` or `update` has just created the container itself. At any other time, a runtime that answers on the port with another certificate is refused before the password is sent: `start` and `status` stop and say the certificate changed. Another program may be holding the port; when you recreated the container yourself, `canworks-local-runtime remove` and `start` pin the new certificate (the data volume, user and password stay).
 
-The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the CANopen diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` (in a version 2 file, the top-level `diagnostics.port`) to 7532.
+The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the bridge's diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` (in a version 2 file, the top-level `diagnostics.port`) to 7532.
 
 ## Use it
 
 [tour.md](tour.md) takes you through [`examples/virtual-plant`](../examples/virtual-plant/README.md) on the local runtime step by step: every feature that does not need hardware, in one project.
 
-- **Editor:** type the address `localhost:8443` with the printed user and the password from `status --show-password` (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** a project with a `canworks/` folder ([install-stock.md](install-stock.md)). The runtime log shows the CANopen start, and the debugger shows the values of the simulated devices. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
-- **Deploy tool:** `canworks-deploy --runtime local --config canworks/canworks.json --project .` reads the address, user, password and fingerprint from `local-runtime.json`; `--user` (with `$OPENPLC_PASSWORD` or a prompt for its password) and `--ca`, `--fingerprint` or `--insecure` still win. It skips the question about uploading a non-simulated config, since nothing real is driven here.
-- **Diagnostics and configurator:** `canworks-diag --runtime local status`, and in the configurator's online access the **Local runtime** button (host `local`). The project's config needs `master.diagnostics` (in a version 2 file, the top-level `diagnostics`) with a token as for any runtime ([diagnostics.md](diagnostics.md)); the plugin's default `bind` (`0.0.0.0`) and port (7531) fit the container.
+- **Editor:** type the address `localhost:8443` with the printed user and the password from `status --show-password` (the device settings' search does not list the local runtime, since it scans the network rather than this PC; typing the address connects), then **Build and Upload** the project. Its remote device reads and writes the bridge, and the debugger shows the values of the simulated devices in the `canworks` variable list. Simulated values follow the project's simulation file ([simulator.md](simulator.md)).
+- **The config:** `canworks-deploy --config canworks/canworks.json --bridge local` (or the configurator's **Devices** page) puts the config on the local bridge, which restarts on it. It skips the question about uploading a non-simulated config, since nothing real is driven here. The bridge log shows the networks start.
+- **Diagnostics and configurator:** `canworks-diag --runtime local status`, and in the configurator's online access the **Local runtime** button (host `local`). The config needs `diagnostics` with a token as for any bridge ([diagnostics.md](diagnostics.md)); the default `bind` (`0.0.0.0`) and port (7531) fit the container.
 
 Other commands:
 
 ```sh
-canworks-local-runtime status [--show-password]   # container, image, PLC state and the last CANopen log lines
-canworks-local-runtime logs [-f]                  # the runtime's log
-canworks-local-runtime stop                       # start brings it back with the same program
-canworks-local-runtime update                     # the image for the installed tools' version, same data
-canworks-local-runtime remove [--data]            # delete the container; --data also the volume and saved credentials
+canworks-local-runtime status [--show-password]   # containers, images and PLC state
+canworks-local-runtime logs [--runtime] [-f]      # the bridge's log (--runtime: the runtime's)
+canworks-local-runtime stop                       # start brings it back with the same program and config
+canworks-local-runtime update                     # the images for the installed tools' version, same data
+canworks-local-runtime remove [--data]            # delete the containers; --data also the volumes and saved credentials
 ```
 
-`update` pulls the image that matches the installed tools (after a tools update), replaces the container and keeps the data volume, so the user, password and certificate stay the same. The new container has no program running: upload it again. `--image` runs another image, for example one built from a checkout (below).
+`update` pulls the images that match the installed tools (after a tools update), replaces the containers and keeps the volumes, so the user, password, certificate and the bridge's config stay the same. The new runtime container has no program running: upload it again. `--image` runs another bridge image, for example one built from a checkout (below), and `--runtime-image` another runtime image.
 
 ## Limits
 
-- Every CANopen network runs simulated, whatever `adapter.simulate` and the adapter settings say: the image sets `CANWORKS_FORCE_SIMULATE=1`, and the runtime log, `canworks-diag status` and the configurator's online view say so. A real CAN adapter cannot be reached from a container on Windows or macOS anyway.
-- J1939 networks do not run here: they need the Linux kernel's J1939 support, and the plugin refuses a J1939 network on the forced simulated bus. Run them on a Linux runtime, on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs ([j1939.md](j1939.md#simulator)).
+- Every network runs simulated, whatever `adapter.simulate` and the adapter settings say: the bridge container gets `CANWORKS_FORCE_SIMULATE=1`, and the bridge log, `canworks-diag status` and the configurator's online view say so. A real CAN adapter cannot be reached from a container on Windows or macOS anyway.
+- J1939 networks do not run here: they need the Linux kernel's J1939 support, and the bridge refuses a J1939 network on the forced simulated bus. Run them on a Linux device, on a CAN or `vcan` interface, with `canworks-j1939-sim` playing the other ECUs ([j1939.md](j1939.md#simulator)).
 - A simulated device behaves like a real one when it fails: a fault that stops its heartbeat (the ping-pong example's `device-hangs` scenario) makes the master report the node lost and boot it again, which resets the device's objects to their EDS defaults. A program that feeds a device's value back to it, like the ping-pong program, can then carry two counts at once (the value seems to jump between them) until the PLC is stopped and started.
 - No real-time timing: the PLC cycle and the simulated bus run at the speed of a PC container, which is fine for logic and I/O but says nothing about jitter on the real target.
-- On a Linux PC with a SocketCAN interface, experts can run the image with `-e CANWORKS_FORCE_SIMULATE=0 --network host` and the interface's capabilities; `canworks-local-runtime` does not do this.
+- On a Linux PC with a SocketCAN interface, install the bridge itself instead ([modbus-bridge.md](modbus-bridge.md#install)); `canworks-local-runtime` always simulates.
 
 ## Troubleshooting
 
@@ -97,10 +97,8 @@ canworks-local-runtime remove [--data]            # delete the container; --data
 ## Building the image from a checkout
 
 ```sh
-docker build -f docker/local-runtime/Dockerfile \
-  --build-arg RUNTIME_IMAGE=ghcr.io/autonomy-logic/openplc-runtime:$(cat docker/local-runtime/runtime-version) \
-  --build-arg TOOLS_VERSION=dev -t canworks-local-runtime:dev .
-canworks-local-runtime update --image canworks-local-runtime:dev
+docker build -f docker/bridge/Dockerfile --build-arg TOOLS_VERSION=dev -t canworks-bridge:dev .
+canworks-local-runtime update --image canworks-bridge:dev
 ```
 
-`test/local-runtime/run.sh --image canworks-local-runtime:dev --strucpp <strucpp>` runs the end-to-end check CI runs: start, a deploy of the ping-pong config with a compiled PLC program, the simulated node operational, diagnostics through the published port, stop, start, update and remove. Each tools release publishes `ghcr.io/tonihoohoo/canworks-local-runtime:<version>` and `:latest` for amd64 and arm64.
+`test/local-runtime/run.sh --image canworks-bridge:dev --strucpp <strucpp>` runs the end-to-end check CI runs: start, the ping-pong config as an OpenPLC config put on the bridge with `--bridge local`, a compiled PLC program uploaded with the editor's Modbus master config, the round trip through the bridge, diagnostics through the published port, stop, start, update and remove. Each tools release publishes `ghcr.io/tonihoohoo/canworks-bridge:<version>` and `:latest` for amd64 and arm64.

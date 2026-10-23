@@ -39,7 +39,8 @@
 #
 # Install: builds Lely CANopen and dcfgen into <prefix> (scripts/build-lely.sh)
 # and the deploy tool into <prefix>/venv (the bridge runs its EDS lint at every
-# load), builds canworks-bridge and installs it to <prefix>/bin/, installs the
+# load), builds canworks-bridge (and canworks-canopen-sim with CANopen) and
+# installs them to <prefix>/bin/, installs the
 # template unit canworks-bridge@.service and creates /etc/canworks-bridge/.
 # Bridge instances that were running are restarted on the new binary.
 # The build needs this source, Lely CANopen and the system's libraries only.
@@ -385,6 +386,7 @@ trap cleanup EXIT
 
 UNIT="$UNIT_DIR/canworks-bridge@.service"
 BIN="$PREFIX/bin/canworks-bridge"
+SIM="$PREFIX/bin/canworks-canopen-sim"
 
 if [ "$UNINSTALL" -eq 1 ]; then
     STEPS=1
@@ -393,7 +395,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
         "$SYSTEMCTL" disable --now "$u" >/dev/null 2>&1 || true
         say "Stopped $u"
     done
-    rm -f "$UNIT" "$BIN" "$PREFIX/VERSION"
+    rm -f "$UNIT" "$BIN" "$SIM" "$PREFIX/VERSION"
     "$SYSTEMCTL" daemon-reload || true
     rm -f "$MODULES_LOAD"
     if [ -f "$UNIT_DIR/canworks-link.service" ] && ! link_is_ours; then
@@ -482,8 +484,15 @@ else
     cmake -S "$REPO" -B "$BUILD_DIR" -DCANWORKS_BUILD_TESTS=OFF \
         -DCANWORKS_WITH_CANOPEN="$(on_off "$WITH_CANOPEN")" -DCANWORKS_WITH_J1939="$(on_off "$WITH_J1939")" \
         -DLELY_PREFIX="$PREFIX/lely" -DCANWORKS_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
-    cmake --build "$BUILD_DIR" --target canworks-bridge -j"$(nproc)" >/dev/null
+    # The CANopen simulator (docs/simulator.md) comes with a CANopen build.
+    targets=(canworks-bridge)
+    [ "$WITH_CANOPEN" -eq 0 ] || targets+=(canworks-canopen-sim)
+    cmake --build "$BUILD_DIR" --target "${targets[@]}" -j"$(nproc)" >/dev/null
     install -m 0755 "$BUILD_DIR/bin/canworks-bridge" "$BIN.new"
+    if [ "$WITH_CANOPEN" -eq 1 ]; then
+        install -m 0755 "$BUILD_DIR/bin/canworks-canopen-sim" "$SIM"
+        say "Installed $SIM"
+    fi
 fi
 # Bridges running the old binary get the new one once the unit is in place.
 ACTIVE=$("$SYSTEMCTL" list-units --state=active --plain --no-legend 'canworks-bridge@*' 2>/dev/null | awk '{print $1}' || true)

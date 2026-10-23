@@ -1,6 +1,6 @@
 """The CiA 309-3 client (canworks.cia309) and canworks-diag gateway against
 the fake plugin (canopen-cia309-gateway "Gateway client in the command-line
-tools"); the plugin itself is tested in test/cia309/run.sh."""
+tools"); the bridge itself is tested in test/cia309/run.sh."""
 
 import io
 import json

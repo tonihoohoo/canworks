@@ -7,7 +7,7 @@ Sub-index 0 holds the number of entries (UNSIGNED8), sub-indices 1 to that
 number (at most 254) the entries (UNSIGNED32), sub-index 1 the newest. An
 entry's low 16 bits are the error code, its high 16 bits the
 manufacturer-specific information. Clearing writes 0 to sub-index 0 with the
-manual write, so the plugin's guards apply: allow_changes, and force on an
+manual write, so the bridge's guards apply: allow_changes, and force on an
 OPERATIONAL node."""
 
 from .diag import DiagError, abort_text, emcy_class, parse_hex, sdo_failure
@@ -64,7 +64,7 @@ def read(client, node, timeout_ms=1000):
 def clear(client, node, force=None, timeout_ms=1000):
     """Writes UNSIGNED8 0 to 0x1003 sub-index 0. force: the caller's (None:
     the client's own). A refusal ("changes not allowed", "force needed")
-    raises DiagError as the plugin gives it; a write the device aborts
+    raises DiagError as the bridge gives it; a write the device aborts
     raises DiagError("refused") with the abort."""
     res = client.sdo_write(node, INDEX, 0, b"\x00", timeout_ms, force=force)
     if not res.get("success"):

@@ -64,7 +64,7 @@ def _entry(cfg, network, kind, index):
 
 
 def plugin_sets_switches(entry, kind):
-    """True for a send message whose switches the plugin sets (`pages` "all"
+    """True for a send message whose switches the bridge sets (`pages` "all"
     or "rotate"): they have no PLC location."""
     return kind == "tx" and isinstance(entry, dict) and entry.get("pages") in ("all", "rotate")
 

@@ -289,7 +289,7 @@ def check_bridge(cfg, nets, err, warn):
 
 
 def report_byte_overlaps(uses, where, err):
-    """`uses`: (loc, who, path, nbytes or None). The plugin's
+    """`uses`: (loc, who, path, nbytes or None). The bridge's
     report_byte_overlaps."""
     def count(u):
         return u[3] if u[3] else SIZE_BYTES[u[0].size]

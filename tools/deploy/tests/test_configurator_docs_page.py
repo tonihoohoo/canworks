@@ -75,34 +75,34 @@ class Browser(unittest.TestCase):
 
 class Document(Browser):
     def test_offline_and_complete(self):
-        url = export_example("cia402-drive", self.dir)
+        url = export_example("rtd-sensor", self.dir)
         pg = self.page()
         requests = []
         pg.on("request", lambda r: requests.append(r.url))
         pg.goto(url)
         self.assertEqual([u for u in requests if not u.startswith("file:")], [])
-        self.assertTrue(pg.is_visible("#node-4"))
+        self.assertTrue(pg.is_visible("#node-vcan0-5"))
         self.assertTrue(pg.is_visible("svg.topo"))
         self.assertEqual(pg.evaluate("JSON.parse(document.getElementById('canworks-doc').textContent)"
-                                     ".networks[0].nodes[0].node_id"), 4)
+                                     ".networks[0].nodes[0].node_id"), 5)
 
     def test_without_script(self):
         url = export_example("rtd-sensor", self.dir)
         pg = self.page(java_script_enabled=False)
         pg.goto(url)
-        self.assertTrue(pg.is_visible("#node-5"))
-        self.assertIn("0x185", pg.inner_text("#net-network"))
+        self.assertTrue(pg.is_visible("#node-vcan0-5"))
+        self.assertIn("0x185", pg.inner_text("#net-vcan0"))
         self.assertIn("%IW100", pg.inner_text("#io"))
 
     def test_point_at_a_bit(self):
         url = export_example("rtd-sensor", self.dir)
         pg = self.page()
         pg.goto(url)
-        grid = "#node-5 details.bits >> nth=0"
+        grid = "#node-vcan0-5 details.bits >> nth=0"
         pg.click(grid + " >> summary")
         pg.hover(grid + " >> .bit >> text='18'")
         text = pg.inner_text(grid + " >> .bitex")
-        for part in ("Bit 18 (byte 2, bit 2 of the byte)", "7130h:02", "bit 2 of 16 (weight 4)", "bit 2 of %IW101"):
+        for part in ("Bit 18 (byte 2, bit 2 of the byte)", "7130h:02", "bit 2 of 16 (weight 4)", "bit 2 of %IW102"):
             self.assertIn(part, text)
         pg.focus(grid + " >> .bit >> text='0'")
         self.assertIn("Bit 0 (byte 0", pg.inner_text(grid + " >> .bitex"))
@@ -111,17 +111,17 @@ class Document(Browser):
         url = export_example("rtd-sensor", self.dir)
         pg = self.page()
         pg.goto(url)
-        rows = "#net-network-frames-t tbody tr"
+        rows = "#net-vcan0-frames-t tbody tr"
         first = lambda: pg.inner_text(rows + " >> nth=0").split("\t")[0].strip()  # noqa: E731
         self.assertEqual(first(), "0x000")
-        pg.click("#net-network-frames-t thead th >> nth=0")
+        pg.click("#net-vcan0-frames-t thead th >> nth=0")
         self.assertEqual(first(), "0x000")
-        pg.click("#net-network-frames-t thead th >> nth=0")
+        pg.click("#net-vcan0-frames-t thead th >> nth=0")
         self.assertEqual(first(), "0x705")
         pg.fill('input[data-filter="io-t"]', "%IB")
         visible = pg.evaluate("[...document.querySelectorAll('#io-t tbody tr')].filter(r => !r.hidden)"
                               ".map(r => r.cells[0].innerText)")
-        self.assertEqual(visible, ["%IB100", "%IB101", "%IB102", "%IB103"])
+        self.assertEqual(visible, ["%IB110", "%IB111", "%IB112", "%IB113"])
 
     def test_deep_link(self):
         url = export_example("two-networks", self.dir)
@@ -131,7 +131,7 @@ class Document(Browser):
                              " return r.top >= -2 && r.top < 100; }")
 
     def test_phone_width(self):
-        url = export_example("cia402-drive", self.dir)
+        url = export_example("rtd-sensor", self.dir)
         pg = self.page(viewport={"width": 390, "height": 900})
         pg.goto(url)
         self.assertLessEqual(pg.evaluate("document.documentElement.scrollWidth"), 390)
@@ -150,12 +150,12 @@ class Document(Browser):
         self.assertNotEqual(light.evaluate(bg), before)
 
     def test_print(self):
-        url = export_example("cia402-drive", self.dir)
+        url = export_example("rtd-sensor", self.dir)
         pg = self.page(viewport={"width": 794, "height": 1123})  # A4 at 96 dpi
         pg.goto(url)
         pg.emulate_media(media="print")
         self.assertFalse(pg.is_visible("nav.toc"))
-        self.assertEqual(pg.evaluate("getComputedStyle(document.getElementById('node-4')).breakBefore"), "page")
+        self.assertEqual(pg.evaluate("getComputedStyle(document.getElementById('node-vcan0-5')).breakBefore"), "page")
         width = pg.evaluate("document.documentElement.clientWidth")
         wide = pg.evaluate("[...document.querySelectorAll('table')].filter(t => t.getBoundingClientRect().right > %d)"
                            ".length" % (width + 1))
@@ -199,7 +199,7 @@ class Configurator(Browser):
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor.html")
         with open(dl.value.path(), encoding="utf-8") as f:
             text = f.read()
-        self.assertIn('id="node-5"', text)
+        self.assertIn('id="node-can0-5"', text)
         self.assertFalse(os.path.exists(os.path.join(self.project, "canworks", "canworks.json")))
         pg.wait_for_selector("#banner:has-text('Exported rtd-monitor.html')")
         # A problem: nothing downloads, the Problems pane says why.

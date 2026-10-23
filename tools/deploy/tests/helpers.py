@@ -50,6 +50,13 @@ def pingpong_config(dir_, **changes):
     return path
 
 
+def openplc_config():
+    """A new config of OpenPLC through Modbus, as New config... writes it: one
+    network without nodes."""
+    from canworks.configurator import server as srv
+    return srv.Session().switch_target(srv.empty_config(), "openplc_modbus")["config"]
+
+
 def zip_contents(path):
     with zipfile.ZipFile(path) as z:
         return {n: z.read(n) for n in z.namelist()}
@@ -344,7 +351,7 @@ def back_to_nodes(page):
 def tool_tab(page, view):
     """Opens a tool tab as a user does: each tool is in one workspace
     (one-place-navigation), so the workspace switch comes first when needed."""
-    ws = "configure" if view in ("declarations", "simfile") else "commission"
+    ws = "configure" if view == "simfile" else "commission"
     if page.evaluate("() => !(S.state && S.state.commission) && workspace() !== %r" % ws):
         page.click('#ws [data-ws="%s"]' % ws)
     page.click('#tool-tabs button[data-view="%s"]' % view)

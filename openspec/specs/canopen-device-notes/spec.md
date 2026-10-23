@@ -31,10 +31,10 @@ Each entry of `objects` SHALL be an object that MAY have `name` (a copy of the E
 - **THEN** the schema check reports nothing for it
 
 ### Requirement: Notes stay on the PC
-Notes files SHALL NOT be copied to the PLC by the deploy tool or read by the plugin, and SHALL NOT change any value written to a device.
+Notes files SHALL NOT be copied to the PLC by the deploy tool or read by the bridge, and SHALL NOT change any value written to a device.
 
 #### Scenario: Not deployed
-- **WHEN** `canworks-deploy` bundles a project whose `canworks/` folder holds `valve.eds` and `valve.eds.notes.json`
+- **WHEN** `canworks-deploy --bridge` uploads a config whose folder holds `valve.eds` and `valve.eds.notes.json`
 - **THEN** the upload contains `valve.eds` and no notes file
 
 ### Requirement: Sub-objects inherit the object's note

@@ -24,7 +24,7 @@ Adding an imported message SHALL create an `rx` or `tx` entry with the DBC's sig
 - **THEN** the config has an `rx` entry for 65280 with `timeout_ms` 300 and each signal on a free `%I` location of matching size
 
 ### Requirement: Deploy checks for J1939
-The deploy tool SHALL run the J1939 config checks before upload and SHALL include J1939 signal, status, state and address locations in the address clash check across networks and plugins.
+The deploy tool SHALL run the J1939 config checks before upload and SHALL include J1939 signal, status, state and address locations in the address clash check across networks.
 
 #### Scenario: Clash with a CANopen PDO
 - **WHEN** a J1939 signal and a CANopen TPDO entry both map `%IW200`
@@ -90,11 +90,11 @@ With online access, a J1939 network's online view SHALL have a Faults panel: one
 
 ### Requirement: Trouble codes from the command line
 `canworks-diag dm` SHALL offer:
-- `list`: every ECU that sent DM1, with lamps and codes, from the plugin's status, or on a local adapter after listening 1.5 s
+- `list`: every ECU that sent DM1, with lamps and codes, from the bridge's status, or on a local adapter after listening 1.5 s
 - `read --address N`: the previously active codes of ECU N (DM2)
 - `clear --address N [--previous]`: DM11, or DM3 with `--previous`, refused without `--force`
 
-Through the plugin it SHALL use the PLC's claimed address. On a local adapter it SHALL claim a J1939 address for itself (default 249, `--source-address` to change) with a NAME of its own, refuse to send if it cannot claim, and send nothing when only listing.
+Through the bridge it SHALL use the PLC's claimed address. On a local adapter it SHALL claim a J1939 address for itself (default 249, `--source-address` to change) with a NAME of its own, refuse to send if it cannot claim, and send nothing when only listing.
 
 #### Scenario: List faults through the PLC
 - **WHEN** the user runs `canworks-diag dm list --network machine` while ECU 0 reports one code

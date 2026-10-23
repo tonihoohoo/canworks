@@ -82,7 +82,7 @@ class Tree(unittest.TestCase):
     def test_entries_and_marks(self):
         pg = self.page
         top = pg.evaluate("() => [...document.querySelectorAll('#tree > li')].map((li) => li.dataset.key)")
-        self.assertEqual(top, ["project", "0", "1", "2", "3", "gateway", "addnet"])
+        self.assertEqual(top, ["project", "0", "1", "2", "3", "gateway", "bridge", "addnet"])
         self.assertIn("CANopen slave", pg.inner_text('#tree [data-key="2"] > .tree-row .proto'))
         io = pg.evaluate("() => [...document.querySelectorAll('#tree [data-key=\"0\"] > ul > li > .tree-row .name')].map((e) => e.textContent)")
         self.assertEqual(io, ["Bus and master", "5 rtd (simulated)", "6 dio (simulated)", "7 new_io (simulated)",
@@ -122,18 +122,17 @@ class Tree(unittest.TestCase):
         pg.wait_for_selector('#tree [data-key="0:node:0"]')
         tree_node(pg, 2)
         pg.wait_for_selector('[data-node-tab-panel="supervision"]')
-        # CiA 402 only for the drive; a node without the tab opens General.
+        # No CiA 402 tab on any node.
         tree_net(pg, 1)
-        tree_node(pg, 0, "cia402")
-        self.assertIn("CiA 402", self.names(".node-tabs [role=tab]"))
-        tree_net(pg, 0)
         tree_node(pg, 0)
         self.assertNotIn("CiA 402", self.names(".node-tabs [role=tab]"))
-        pg.wait_for_selector('[data-node-tab-panel="general"]')
+        tree_net(pg, 0)
+        tree_node(pg, 0)
+        node_tab(pg, "general")
         # Each field's problems count on the tab that holds it.
         tabs_of = pg.evaluate("() => ['heartbeat_ms', 'guard_time_ms', 'heartbeat_consumer', 'emcy_cob_id', 'tx_pdos[0].cob_id', "
-                              "'sdo[1].value', 'axis.unit', 'name', 'check'].map(nodeTabOfPath)")
-        self.assertEqual(tabs_of, ["supervision", "supervision", "advanced", "supervision", "pdos", "sdos", "cia402", "general", "advanced"])
+                              "'sdo[1].value', 'name', 'check'].map(nodeTabOfPath)")
+        self.assertEqual(tabs_of, ["supervision", "supervision", "advanced", "supervision", "pdos", "sdos", "general", "advanced"])
         # Arrow keys move between the tabs.
         pg.focus('.node-tabs [data-node-tab="general"]')
         pg.keyboard.press("ArrowRight")
@@ -292,7 +291,7 @@ class Tree(unittest.TestCase):
                 self.assertTrue(pg.is_visible("#tree-toggle"))
                 continue
             tree_net(pg, 1)
-            for tab in ("general", "pdos", "sdos", "supervision", "cia402", "simulation", "notes", "advanced"):
+            for tab in ("general", "pdos", "sdos", "supervision", "simulation", "notes", "advanced"):
                 tree_node(pg, 0, tab)
                 self.assertEqual(pg.evaluate(FIT_CHECK), [], "%d px, %s" % (width, tab))
             tree_net(pg, 0)
@@ -306,6 +305,9 @@ class Tree(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
         cfg["networks"][3]["name"] = "conveyor_line_01"
+        for live in cfg["bridge"]["live_lists"]:
+            if live["network"] == "host":
+                live["network"] = "conveyor_line_01"
         cfg["networks"][3]["nodes"][0]["name"] = "temperature_inputs_left_side"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)

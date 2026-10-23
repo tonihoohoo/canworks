@@ -1,5 +1,5 @@
 """The configurator's online access: token and host on this PC, the proxy to
-the plugin's diagnostics channel, and EDS matching for scan results
+the bridge's diagnostics channel, and EDS matching for scan results
 (add-online-diagnostics tasks 3.2-3.5)."""
 
 import hashlib
@@ -27,7 +27,7 @@ class Online(Running):
         self.canopen = os.path.join(self.project, "canworks")
 
     def save(self, cfg):
-        status, data, _ = self.request("POST", "/api/save", {"config": cfg, "allow_overlap": True})
+        status, data, _ = self.request("POST", "/api/save", {"config": cfg})
         self.assertEqual(status, 200, data)
         return data
 
@@ -454,7 +454,7 @@ class TwoNetworks(Online):
             self.ok("POST", "/api/online/nmt", {"node": 2, "command": "stop", "network": "drives"})
             self.assertEqual(fp.network("drives").status["nodes"][0]["state"], 4)
             self.assertEqual(fp.status["nodes"][0]["hold"], "none")
-            # Without a network the plugin refuses, naming both.
+            # Without a network the bridge refuses, naming both.
             status, data, _ = self.request("POST", "/api/online/sdo_read", {"node": 2, "index": "0x1008"})
             self.assertEqual(status, 422)
             self.assertIn("io, drives", data["error"])

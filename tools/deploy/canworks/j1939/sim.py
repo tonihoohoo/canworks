@@ -110,7 +110,7 @@ def raw_limits(signal):
 
 def raw_state(signal, raw):
     """"valid", "error" or "not available" for a received raw value, as the
-    plugin decides it (spec j1939-ecu "Not-available values"): a signed signal
+    the bridge decides it (spec j1939-ecu "Not-available values"): a signed signal
     is always valid; unsigned 8, 16 and 32-bit signals use the J1939-71 ranges
     (0xFE.. error, 0xFF.. not available); other lengths of 2 bits or more all
     ones (not available) and all ones minus one (error)."""
@@ -616,7 +616,7 @@ def _claim_class():
 
 
 class DmState:
-    """The simulated ECU's trouble codes (j1939-diagnostics, as the plugin
+    """The simulated ECU's trouble codes (j1939-diagnostics, as the bridge
     keeps its own): the active set from the scenario's DtcPlans, an
     occurrence count per code (up to MAX_OC, +1 on each activation) and the
     previously active codes (a code that goes inactive, with its count)."""
@@ -978,7 +978,7 @@ class Simulator:
                 self._report("rx", "PGN %d from %d: cannot decode %s: %s" % (pgn, sa, msg.name, e), pgn=pgn,
                              source=sa, message=msg.name, data=bytes(data).hex(), error=str(e))
                 return
-        # Not available and error values, by the plugin's rule.
+        # Not available and error values, by the bridge's rule.
         from ..raw import signals as sig
         states = {}
         for s in msg.signals:

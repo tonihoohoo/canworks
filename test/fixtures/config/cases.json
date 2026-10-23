@@ -829,7 +829,7 @@
       "schema": "valid",
       "verdict": "accept",
       "warnings": [
-        "networks[0]: master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged until the PLC program starts it with CO_NETWORK_START"
+        "networks[0]: master: 'start' is false: the master stays PRE-OPERATIONAL and no PDOs are exchanged; the bridge has no command that starts it"
       ]
     },
     {

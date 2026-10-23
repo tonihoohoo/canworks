@@ -1,5 +1,5 @@
 """canworks-diag sim: live control of simulated devices
-(docs/simulator.md, "Control subcommands"), in the plugin with --runtime or
+(docs/simulator.md, "Control subcommands"), in the bridge with --runtime or
 in a standalone canworks-canopen-sim with --sim HOST[:PORT] (default: the
 local simulator, 127.0.0.1:7532).
 
@@ -133,7 +133,7 @@ def _common():
     what the main parser read when left out here."""
     c = argparse.ArgumentParser(add_help=False)
     s = argparse.SUPPRESS
-    c.add_argument("--runtime", default=s, metavar="HOST[:PORT]", help="the plugin's simulated devices")
+    c.add_argument("--runtime", default=s, metavar="HOST[:PORT]", help="the bridge's simulated devices")
     c.add_argument("--sim", dest="sim_addr", default=s, metavar="HOST[:PORT]",
                    help="a CANopen simulator (default 127.0.0.1:%d)" % simclient.SIM_PORT)
     c.add_argument("--network", default=s, metavar="NAME",
@@ -148,7 +148,7 @@ def _common():
 def add_parser(sub):
     common = _common()
     s = sub.add_parser("sim", parents=[common], help="control simulated devices (see docs/simulator.md)",
-                       description="Live control of simulated devices: the plugin's (--runtime HOST) or a "
+                       description="Live control of simulated devices: the bridge's (--runtime HOST) or a "
                                    "standalone canworks-canopen-sim's (--sim HOST[:PORT], default 127.0.0.1:%d)."
                                    % simclient.SIM_PORT)
     ss = s.add_subparsers(dest="sim_command", metavar="SIMCOMMAND")

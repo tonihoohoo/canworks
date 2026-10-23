@@ -19,11 +19,11 @@ STATIC = ROOT / "tools" / "deploy" / "canworks" / "configurator" / "static"
 
 NOT_PAGE = {
     # OpenPLC Editor and GitHub
-    "Build and Upload", "Build only", "Code → Download ZIP",
+    "Build and Upload", "Code → Download ZIP",
     # The tour's own lead-ins and the "What needs hardware" list
     "A deliberate mistake:", "The bit rate check", "slcan adapters", "Bus error states",
     "Commissioning straight from the PC", "J1939 networks", "Real-time timing",
-    "The install on a runtime host",
+    "The install on a Linux device",
 }
 
 BOLD = re.compile(r"\*\*([^*\n]+)\*\*")

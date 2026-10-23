@@ -256,8 +256,7 @@ function rawRemove(kind, i) {
   if (S.rawOpen && S.rawOpen.kind === kind) S.rawOpen = null;
   // The DBC file names where the messages came from: none left, no file.
   if (!getPath("raw.rx") && !getPath("raw.tx")) setPath("raw.dbc", undefined);
-  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol") &&
-      getPath("raw.scan_watchdog_ms") === undefined) {
+  if (!getPath("raw.rx") && !getPath("raw.tx") && !getPath("raw.dbc") && !getPath("raw.program_override_protocol")) {
     setPath("raw", undefined);
   }
   changed(true);
@@ -276,8 +275,6 @@ function renderCanMessages(view) {
       el("div", { class: "grid" },
         none ? checkbox("Listen only", "adapter.listen_only", false,
           "The PLC only watches the bus: it never acknowledges or sends a frame. Sent messages are not allowed then.") : null,
-        none ? field("Scan watchdog (ms)", "raw.scan_watchdog_ms", "intstr", { placeholder: "1000",
-          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (sent messages and the program's frames; received messages go on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }) : null,
         none ? null : checkbox("Program may send protocol identifiers", "raw.program_override_protocol", false,
           "On: CAN_SEND and CAN_SEND_CYCLIC may use identifiers the protocol owns (ERROR_ID 4 otherwise)."))),
     rawDbc());

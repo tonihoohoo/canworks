@@ -352,7 +352,7 @@ class NmtAndScan(Base):
 
 
 class Force(Base):
-    """The plugin's rule on a local adapter: SDO writes and NMT other than
+    """The bridge's rule on a local adapter: SDO writes and NMT other than
     start to a node heard OPERATIONAL, and a scan while one is, need force."""
 
     def test_running_node_needs_force(self):

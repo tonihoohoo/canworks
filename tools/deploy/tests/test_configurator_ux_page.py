@@ -5,6 +5,7 @@ access, the header menus, the node page sections, busy states, the online
 view's stale values and the wording. Needs Playwright, like
 test_configurator_page.py."""
 
+import json
 import os
 import shutil
 import time
@@ -130,12 +131,11 @@ class Probes(Layout):
     # -- 1.3 no "null" anywhere ----------------------------------------------
     def test_no_null_text_on_any_view(self):
         pg = self.page
-        self.cfg["networks"][0]["nodes"][1]["axis"] = {"cyclic": True}
         self.write_config({"token_verifier": diag.token_verifier(TOKEN), "allow_changes": True})
         with FakePlugin(allow_changes=True) as fp:
             self.remember(fp.runtime)
             self.open()
-            for view in ("bus", "declarations", "online", "trace", "framelab", "simulation"):
+            for view in ("bus", "online", "trace", "framelab", "simulation"):
                 if view == "bus":
                     tree_view(pg, "bus")
                 else:
@@ -168,7 +168,7 @@ class Probes(Layout):
         self.assertTrue(pg.is_visible("#log-panel"))
         self.assertTrue(pg.is_hidden("#tree"))
         self.assertTrue(pg.is_hidden('#tree [data-view="bus"]'))
-        self.assertEqual(pg.query_selector_all('button[data-view="declarations"], button[data-view="simulation"]'), [])
+        self.assertEqual(pg.query_selector_all('button[data-view="simulation"]'), [])
         shown = [b.text_content().strip() for b in pg.query_selector_all("#tool-tabs [role=tab]") if b.is_visible()]
         self.assertEqual(shown, ["Nodes", "Trace", "Frame lab"])
         self.assertTrue(pg.is_hidden("#side"))
@@ -212,14 +212,14 @@ class Probes(Layout):
         self.open()
         self.node(2, "pdos")
         path = "nodes[2].tx_pdos[0].entries[0]"
-        self.assertEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW320")
+        self.assertEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW330")
         pg.click('tr[data-path="%s"] button[title="Remove"]' % path)
         pg.wait_for_selector("#banner [data-removed]:has-text('Removed')")
         self.assertIn("from TPDO 1", pg.inner_text("#banner"))
-        self.assertNotEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW320")
+        self.assertNotEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW330")
         pg.click("#banner button[data-undo]")
         pg.wait_for_selector('input[data-path="%s.iec_location"]' % path)
-        self.assertEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW320")
+        self.assertEqual(pg.input_value('input[data-path="%s.iec_location"]' % path), "%IW330")
         self.assertEqual(pg.input_value('input[data-path="nodes[2].tx_pdos[0].timeout_ms"]'), "500")
         self.assertTrue(pg.is_hidden("#banner"))
 
@@ -599,7 +599,7 @@ class Probes(Layout):
         pg.wait_for_selector("#banner:has-text('Saved')")
         self.assertEqual(pg.evaluate("() => window.saves"), 1)
         self.assertTrue(pg.inner_text("#btn-save").startswith("Saved"))
-        self.assertEqual(load(self.config_path)["nodes"][0]["name"], "pong")
+        self.assertEqual(load(self.config_path)["networks"][0]["nodes"][0]["name"], "pong")
 
     # -- 5.4 labels -----------------------------------------------------------
     def test_old_labels_are_gone(self):
@@ -704,7 +704,11 @@ class CleanProject(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
-        shutil.copy(self.config_path, os.path.join(folder, "canworks.json"))
+        # New editor project is for OpenPLC through Modbus.
+        cfg = load(self.config_path)
+        cfg.setdefault("bridge", {})["openplc"] = {}
+        with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
         pg.goto(self.server.url)
         pg.click("#start-open")
         pg.fill("[data-folder=path]", folder)

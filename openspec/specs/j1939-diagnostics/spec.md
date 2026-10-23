@@ -70,7 +70,7 @@ When `diagnostics.dtcs` is non-empty or `lamps_location` is set, the network SHA
 - **THEN** it sends no DM1
 
 ### Requirement: Previously active codes
-A code that stops being active SHALL be kept, with its occurrence count, in the previously active list until cleared. The list SHALL be held in memory only and SHALL be empty after the plugin starts.
+A code that stops being active SHALL be kept, with its occurrence count, in the previously active list until cleared. The list SHALL be held in memory only and SHALL be empty after the bridge starts.
 
 #### Scenario: Fault goes away
 - **WHEN** an own code was active with OC 2 and its bit goes FALSE

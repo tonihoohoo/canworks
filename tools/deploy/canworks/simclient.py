@@ -1,6 +1,6 @@
 """Client for simulated CANopen devices (docs/simulator.md, "Control protocol").
 
-The same requests reach the plugin's simulated devices over its diagnostics
+The same requests reach the bridge's simulated devices over its diagnostics
 channel (port 7531, token, allow_changes for changes) and a standalone
 `canworks-canopen-sim` over its control channel (port 7532, token only when
 it has one). Both answer the diagnostics hello, so one diag.Client serves
@@ -10,7 +10,7 @@ from . import diag
 
 SIM_PORT = 7532
 
-# Requests that only read; the rest need allow_changes on the plugin.
+# Requests that only read; the rest need allow_changes on the bridge.
 READ_OPS = ("sim_status", "sim_get", "sim_scenario_list", "sim_check_expr")
 
 

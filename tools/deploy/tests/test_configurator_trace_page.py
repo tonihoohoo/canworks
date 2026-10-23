@@ -228,11 +228,9 @@ class Networks(TraceBase):
 
     def setUp(self):
         super().setUp()
-        io = dict(self.cfg, name="io")
-        io.pop("schema_version", None)
-        line = {"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
-                "master": {"node_id": 1}, "nodes": [{"node_id": 3, "name": "other", "eds": "cpp-slave.eds"}]}
-        self.cfg = {"schema_version": 2, "networks": [io, line]}
+        self.cfg["networks"][0]["name"] = "io"
+        self.cfg["networks"].append({"name": "line", "adapter": {"type": "socketcan", "interface": "can1", "bitrate": 125000},
+                                     "master": {"node_id": 1}, "nodes": [{"node_id": 3, "name": "other", "eds": "cpp-slave.eds"}]})
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.cfg, f, indent=2)
 

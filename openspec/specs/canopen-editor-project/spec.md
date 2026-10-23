@@ -54,29 +54,6 @@ The project SHALL get the config and its EDS and program files in its `canworks/
 - **WHEN** the config has an error
 - **THEN** creation is refused with that error and no project folder is created
 
-### Requirement: CANopen I/O declared in main
-The program `main` SHALL declare, in one `VAR` block, a located variable for every location the config uses: mapped PDO entries, master and node diagnostic inputs, NMT command bytes and SDO variable locations, with the names and IEC types of the configurator's located variable declarations. Declarations SHALL use the editor's own form `name : TYPE AT location;`. For every axis node `main` SHALL also declare the axis, named after the node, of the library's axis type, and one drive bridge instance named `<node>_bridge`. The program body SHALL hold a comment saying the block came from `canworks/canworks.json`; when the config has axis nodes, the body SHALL start with generated lines that, for each axis in config order, set the axis's three scaling fields from the config, for a cyclic axis also its `fCycleTime` from the project's task interval in seconds, and call its bridge with the axis, the node's mapped standard objects (only those mapped) and its status bit, and say they must stay first. Entries without a location SHALL be left out.
-
-#### Scenario: RTD sensor
-- **WHEN** a project is created from a config whose node `rtd` maps four INTEGER16 inputs at `%IW100` to `%IW103` and has status bit `%IX10.0`
-- **THEN** `main` declares `rtd_ok : BOOL AT %IX10.0;` and four `INT` variables at `%IW100` to `%IW103`, and nothing else in its VAR block
-
-#### Scenario: No locations
-- **WHEN** the config has nodes but no locations at all
-- **THEN** `main` has an empty `VAR` ... `END_VAR` block and the project is still created
-
-#### Scenario: Axis node
-- **WHEN** a project is created from a config whose node `drive` has `axis` with scale numerator 10 and maps 0x6040 at `%QW100` and 0x6041 at `%IW100`, with status bit `%IX10.0`
-- **THEN** `main` declares `drive : AXIS_REF_SM3;` and `drive_bridge : SM_Drive_GenericDS402;` next to the located variables, and its body starts with lines setting `drive.iRatioTechUnitsNum` to 10 and calling `drive_bridge` with `Axis := drive`, the statusword variable, `bOnline :=` the status bit variable and `wControlWord =>` the controlword variable
-
-#### Scenario: Axis project builds
-- **WHEN** the example CiA 402 config's project is opened in OpenPLC Editor 4.3.2 and a program line `MC_Power(Axis := drive, Enable := TRUE)` is added
-- **THEN** Build only succeeds for the target OpenPLC Runtime v4
-
-#### Scenario: Cyclic axis node
-- **WHEN** a project is created with `--task-interval T#5ms` from a config whose node `drive` has `"axis": {"cyclic": true}`
-- **THEN** the generated axis lines set `drive.fCycleTime := LREAL#0.005;` before the call of `drive_bridge`
-
 ### Requirement: Order and descriptions
 Declarations in `main` SHALL be ordered master diagnostics first, then node by node in config order; within a node: diagnostic inputs, PDO inputs, SDO variable inputs, then PDO outputs, SDO variable outputs and the NMT command byte. Each declaration SHALL carry a one-line comment that the editor shows as the variable's description, naming the node and the source (PDO and object index:subindex with the EDS name, SDO variable, or diagnostic).
 
@@ -112,7 +89,7 @@ Creating a project SHALL NOT change any existing file. It SHALL be refused when 
 - **THEN** the folder holds only `notes.txt` again and the error is shown
 
 ### Requirement: Function blocks in a new project
-Creating a project with the blocks option (`--blocks`) SHALL enable the `canworks` function block library in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows all of its blocks (`CO_*`, `CO402_*`, `CAN_*`, `J1939_*`). The option `--sdo-blocks` SHALL no longer exist. Without `--blocks` the project SHALL enable no library unless the config needs it (a cyclic CiA 402 axis). When the editor on the same computer has no `canworks` library, or an older version, creation SHALL install the tools' version into it as `canworks-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library. The output SHALL call it the canworks function block library.
+Creating a project with the blocks option (`--blocks`) SHALL enable the `canworks` function block library in the project, in the form the editor itself writes when the user enables a library, so the project's library tree shows all of its blocks and functions (`CO_*` over the bridge, `CW_*`, `CAN_*`, `J1939_*` helpers). The option `--sdo-blocks` SHALL no longer exist. Without `--blocks` the project SHALL enable the library only when its generated programs need it (the word helpers of `canworks_in`/`canworks_out`). When the editor on the same computer has no `canworks` library, or an older version, creation SHALL install the tools' version into it as `canworks-deploy library --install` does. When that is not possible (the editor has not run on this computer), creation SHALL still succeed and SHALL say how to install the library. The output SHALL call it the canworks function block library.
 
 #### Scenario: Option given
 - **WHEN** a project is created with `--blocks` and the library is installed in the editor

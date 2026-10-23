@@ -6,11 +6,11 @@ canworks-bridge: running the CAN networks without OpenPLC and serving their valu
 ## Requirements
 
 ### Requirement: Bridge process
-`canworks-bridge --config FILE` SHALL run the networks of a bridge config (a version 2 config with a `bridge` object) on Linux without an OpenPLC runtime. It SHALL run every network kind the build includes (CANopen master, slave and gateway, J1939, plain CAN, raw messages, simulated networks), the diagnostics channel, trace and the CiA 309-3 gateway (canopen-cia309-gateway) exactly as the plugin does. The only difference is that the process image is served to Modbus TCP clients instead of a PLC program. It SHALL log one line naming its config, its protocols, its listen address and the number of input and output bytes, and SHALL exit with a non-zero status and the check's messages when the config is not valid.
+`canworks-bridge --config FILE` SHALL run the networks of a bridge config (a version 2 config with a `bridge` object) on Linux without an OpenPLC runtime. It SHALL run every network kind the build includes (CANopen master, slave and gateway, J1939, plain CAN, raw messages, simulated networks), the diagnostics channel, trace and the CiA 309-3 gateway (canopen-cia309-gateway) exactly as the bridge does. The only difference is that the process image is served to Modbus TCP clients instead of a PLC program. It SHALL log one line naming its config, its protocols, its listen address and the number of input and output bytes, and SHALL exit with a non-zero status and the check's messages when the config is not valid.
 
 #### Scenario: CANopen network behind Modbus
 - **WHEN** the bridge runs a config with a CANopen master network on `can0` with node 5 and a `bridge` object
-- **THEN** node 5 is booted and exchanges PDOs as under the plugin, and a Modbus client reads its TPDO values from input registers
+- **THEN** node 5 is booted and exchanges PDOs as under the bridge, and a Modbus client reads its TPDO values from input registers
 
 #### Scenario: Config without bridge object
 - **WHEN** `canworks-bridge` is started with a config that has no `bridge` object
@@ -141,14 +141,14 @@ The bridge SHALL listen on `listen` and accept at most `max_clients` connections
 - **THEN** the oldest reader connection is closed and the writer is served
 
 ### Requirement: One owner per interface
-A process (bridge or OpenPLC plugin) SHALL take an exclusive lock for each real CAN interface it uses before bringing it up. When the lock is held by another process, the network SHALL fail to start with an error naming the interface and the owner's process ID, and the other networks SHALL run.
+A process (bridge or OpenPLC bridge) SHALL take an exclusive lock for each real CAN interface it uses before bringing it up. When the lock is held by another process, the network SHALL fail to start with an error naming the interface and the owner's process ID, and the other networks SHALL run.
 
 #### Scenario: Second bridge on can0
 - **WHEN** two bridge instances are configured with networks on `can0`
 - **THEN** the second logs that `can0` is owned by the first one's process ID and does not touch the interface
 
 ### Requirement: Several instances
-`scripts/install-bridge.sh` SHALL build and install the bridge with the same protocol options as the plugin install (`--without-canopen`, `--without-j1939`), and SHALL install a systemd template unit `canworks-bridge@NAME` that runs the config in `/etc/canworks-bridge/NAME/` with `CAP_NET_BIND_SERVICE` and restarts on failure. A release SHALL publish a multi-arch container image of the bridge.
+`scripts/install-bridge.sh` SHALL build and install the bridge with the same protocol options as the bridge install (`--without-canopen`, `--without-j1939`), and SHALL install a systemd template unit `canworks-bridge@NAME` that runs the config in `/etc/canworks-bridge/NAME/` with `CAP_NET_BIND_SERVICE` and restarts on failure. A release SHALL publish a multi-arch container image of the bridge.
 
 #### Scenario: Two machine sections
 - **WHEN** `canworks-bridge@press` uses `can0` on port 502 and `canworks-bridge@feeder` uses `can1` on port 1502
@@ -188,13 +188,6 @@ The Modbus server SHALL read from a connection only while less than one frame is
 #### Scenario: Pipelined reads
 - **WHEN** one client sends read requests faster than replies drain
 - **THEN** the bridge's memory stays flat and other clients keep their reply rate
-
-### Requirement: Bridge builds against the pinned runtime
-The bridge install and image SHALL build against the runtime release the project pins, with a checked archive hash.
-
-#### Scenario: Hash mismatch
-- **WHEN** the downloaded runtime archive's hash differs
-- **THEN** the install stops with a message
 
 ### Requirement: One-line bridge install and update
 
@@ -236,27 +229,12 @@ When `install-bridge.sh` installs a new bridge binary over an existing one, it S
 - **WHEN** the install line runs on a device where `canworks-bridge@press` runs and `canworks-bridge@feeder` is stopped
 - **THEN** `press` runs the new binary afterwards and `feeder` is still stopped
 
-### Requirement: Bridge prefix next to a Docker runtime
-
-When no `--prefix` is given and the default prefix `/opt/canworks` holds a Python environment the host cannot use (a prefix the OpenPLC runtime's Docker container set up), `install-bridge.sh` SHALL install into `/opt/canworks-bridge` instead and say so; `--uninstall` and later updates without `--prefix` SHALL find that install. An explicit `--prefix /opt/canworks` SHALL keep today's refusal with its message.
-
-#### Scenario: Device with the managed Docker runtime
-- **WHEN** the install line runs without `--prefix` on a device whose runtime runs in Docker with the canworks plugin
-- **THEN** the bridge is installed under `/opt/canworks-bridge`, the output says so, and the runtime's `/opt/canworks` is unchanged
-
 ### Requirement: Bridge installed version and steps
 `install-bridge.sh` SHALL write the bridge's version to `<prefix>/VERSION` on every install and update and remove it on `--uninstall`, and SHALL print `::canworks-step N/M text` lines when each step starts (download, build tools, Lely, bridge, instance check and start, restart of running instances), with its other output unchanged.
 
 #### Scenario: Bridge next to a Docker runtime
 - **WHEN** release 0.98.0 of the bridge is installed into `/opt/canworks-bridge`
 - **THEN** `/opt/canworks-bridge/VERSION` holds `0.98.0` and the output has step lines from `1/M` to `M/M`
-
-### Requirement: Uninstall beside the canworks plugin
-`install-bridge.sh --uninstall` SHALL keep `<prefix>/VERSION` when the prefix also holds the canworks plugin library, and SHALL keep the can-j1939 boot entry (`/etc/modules-load.d/canworks-j1939.conf`) while the plugin is installed. `install-stock.sh` SHALL likewise keep that entry, on uninstall and on an install without J1939, while the bridge's unit is installed.
-
-#### Scenario: Bridge removed from a PLC device
-- **WHEN** the bridge is uninstalled on a device whose canworks plugin uses J1939
-- **THEN** can-j1939 still loads at boot and the plugin's version file stays
 
 ### Requirement: Bridge install keeps another config's remote link
 `install-bridge.sh --with-link NAME` SHALL NOT repoint a remote link that serves another config (one not under `/etc/canworks-bridge/`, such as the PLC's). It SHALL skip the link step and say so.
@@ -311,3 +289,43 @@ In an `openplc` config, holding registers 0-2 SHALL be the PLC link header (runn
 #### Scenario: Watchdog with preop
 - **WHEN** `on_client_loss` is `"preop"` and the writer stops writing for `watchdog_ms`
 - **THEN** RPDOs stop, the master sends NMT enter pre-operational with node 0, and the next accepted write sends NMT start with node 0
+
+### Requirement: Bridge builds without runtime sources
+The engine, the bridge, the standalone simulator and their tests SHALL build from this repository, Lely CANopen and the system's libraries only. No build, install script, image or CI job SHALL download, check out or include any OpenPLC runtime source or header, and no canworks source SHALL include a runtime header.
+
+#### Scenario: Offline build
+- **WHEN** `install-bridge.sh` runs from a checkout on a Linux device whose only network access is to the Lely and Python package sources
+- **THEN** the bridge builds and installs, and no OpenPLC runtime archive is fetched
+
+#### Scenario: Runtime header added
+- **WHEN** a change adds `#include "plugin_types.h"` to an engine source
+- **THEN** a CI check fails naming the file
+
+### Requirement: OpenPLC runtime installed with the bridge
+`install-bridge.sh --with-openplc` (`-WithOpenplc` in `install-bridge.ps1`, passed over `--ssh` like the other options) SHALL, when no OpenPLC runtime is found on the device (no `openplc-runtime` service and no bootloader runtime spec), download the canworks release first, then run upstream's installer (`https://runtime.getedge.me`) as root with the release's pinned runtime and bootloader versions (`docker/local-runtime/runtime-version`, `bootloader-version`), wait up to 10 minutes until the runtime answers on its local HTTPS port, and then install the bridge as without the option. When a runtime is found it SHALL install the bridge only and leave the runtime alone. A failed upstream install SHALL end the script non-zero with the upstream output and SHALL NOT install the bridge. Nothing of canworks SHALL be put into the runtime or its container. `docs/modbus-bridge.md` and `docs/devices.md` SHALL describe it.
+
+#### Scenario: Fresh device
+- **WHEN** `install-bridge.sh --with-openplc --instance line1 --config DIR` runs on a Linux device without a runtime
+- **THEN** upstream's managed Docker runtime is installed at the pinned version and answers, and `canworks-bridge@line1` runs next to it with the config
+
+#### Scenario: Runtime present
+- **WHEN** the same command runs on a device with a runtime
+- **THEN** upstream's installer is not run and the runtime is unchanged
+
+#### Scenario: Release download fails
+- **WHEN** the canworks release cannot be downloaded
+- **THEN** the script fails before upstream's installer runs, and no runtime or Docker is installed
+
+### Requirement: Link and discovery with the bridge install
+`install-bridge.sh` SHALL install the Avahi advertisement by default (skipped with `--without-discovery`) and, with `--with-link`, the link service: a Python virtual environment with the pinned `iroh` package under the install prefix, the `canworks-link` command, `canworks-link.service` (enabled and started, watching the instance's config), and `/etc/canworks-link/` with no paired PCs. No other step on the device SHALL be needed. `--uninstall` SHALL remove the service, the command and the Avahi file and keep `/etc/canworks-link/` unless `--purge` is given.
+
+#### Scenario: Fresh install with the link
+- **WHEN** `install-bridge.sh --with-link --instance line1 --config DIR` runs on a device with no internet route
+- **THEN** the service starts, makes no outside connection, appears in discovery with its link ID, and the first PC that logs in with the right token on the LAN gets paired
+
+### Requirement: dcf-tools pinned for the bridge
+`build-lely.sh` SHALL install dcf-tools with the exact versions in `scripts/dcf-tools-constraints.txt`. That file SHALL name the Lely commit it was made for, and a test SHALL fail when the Lely commit changes without it.
+
+#### Scenario: Lely commit bumped alone
+- **WHEN** a change updates `_lely_dcf/VERSION` and not `scripts/dcf-tools-constraints.txt`
+- **THEN** the test fails, naming both files

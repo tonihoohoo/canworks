@@ -197,7 +197,7 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(saved["networks"][1]["nodes"][0]["eds"], "cpp-slave.eds")
         self.assertEqual(saved["diagnostics"]["port"], 7600)
         self.assertNotIn("diagnostics", saved["networks"][0]["master"])
-        # Remove drives: asked, naming it and its node; back to version 1.
+        # Remove drives: asked, naming it and its node; the config stays version 2.
         net_action(pg, 1, "remove")
         pg.wait_for_selector("#modal-text:has-text('Remove network drives')")
         self.assertIn("Remove network drives and its 1 node?", pg.inner_text("#modal-text"))
@@ -206,15 +206,15 @@ class NetworksPage(unittest.TestCase):
         self.assertEqual(self.tabs(), ["vcan0"])
         self.save()
         saved = load(self.config_path)
-        self.assertEqual(saved["schema_version"], 1)
-        self.assertEqual(saved["master"]["diagnostics"]["port"], 7600)
-        self.assertEqual(saved["nodes"], cfg["networks"][0]["nodes"])
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertEqual(saved["diagnostics"]["port"], 7600)
+        self.assertEqual(saved["networks"][0]["nodes"], cfg["networks"][0]["nodes"])
 
     # -- checks across networks (6.3) ---------------------------------------
     def test_suggestions_and_clashes_across_networks(self):
         pg = self.page
         cfg = self.two()
-        cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW100"
+        cfg["networks"][0]["nodes"][0]["emcy_code_location"] = "%IW108"
         # EMCY fields need 0x1014 in the nodes' EDS.
         shutil.copy(os.path.join(REPO, "test", "fixtures", "eds", "emcy-slave.eds"), os.path.join(self.folder, "cpp-slave.eds"))
         self.write(cfg)
@@ -228,7 +228,7 @@ class NetworksPage(unittest.TestCase):
         node_tab(pg, "supervision")
         pg.click('button[data-suggest="emcy"]')
         pg.wait_for_function("() => document.querySelector('input[data-path=\"nodes[0].emcy_code_location\"]').value")
-        self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW101")
+        self.assertEqual(pg.input_value('input[data-path="nodes[0].emcy_code_location"]'), "%IW110")
         # A location io uses, and io's interface: errors naming both networks.
         pg.fill('input[data-path="nodes[0].status_location"]', "%IX10.0")
         self.settled()

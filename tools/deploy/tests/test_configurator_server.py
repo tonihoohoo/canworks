@@ -522,7 +522,7 @@ class CheckAndSave(Running):
 
     def test_check_reruns_the_lint(self):
         # A node whose EDS has a finding in 0x6061: accepted with "off", the
-        # plugin's error with "all".
+        # bridge's error with "all".
         self.assertEqual(self.eds(os.path.join(LINT, "signed-hex.eds"))[0], 200)
         self.cfg["networks"][0]["nodes"].append({"node_id": 2, "name": "pingpong", "eds": "signed-hex.eds", "heartbeat_ms": 100, "tx_pdos": [
             {"entries": [{"index": "0x4001", "subindex": 0, "type": "UNSIGNED32", "iec_location": "%ID110"}]}]})

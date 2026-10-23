@@ -1,5 +1,5 @@
 """DCF export (canworks.dcfexport): the download list, the DCF
-text, its validation, and parity with the plugin's own download list
+text, its validation, and parity with the bridge's own download list
 (canopen_check --dump-writes)."""
 
 import contextlib
@@ -548,7 +548,7 @@ class Parity(unittest.TestCase):
 
     def test_link_fixture_cases(self):
         # PDO links and heartbeat watch (cases-links.json): the consumer RPDO
-        # and 0x1016 writes as the plugin adds them.
+        # and 0x1016 writes as the bridge adds them.
         doc = load_cases("cases-links.json")
         cases = []
         for case in doc["cases"]:

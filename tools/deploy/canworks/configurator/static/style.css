@@ -217,7 +217,6 @@ footer#bottom { position: sticky; bottom: 0; z-index: 3; background: var(--panel
 dialog#conn-dialog { max-width: 720px; width: min(720px, calc(100vw - 32px)); }
 dialog#conn-dialog h2 { margin-top: 0; }
 #problems-box > summary h3 { margin: 0; }
-#overlap-box { padding: 6px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 5px; display: flex; flex-direction: column; gap: 2px; }
 #side { border-right: 1px solid var(--line); padding: 10px; background: var(--panel); }
 /* The network tree (tree.js): one row per entry, marks and problem badges. */
 #tree, #tree ul { list-style: none; padding: 0; margin: 0; }
@@ -1150,13 +1149,14 @@ table.devices-rows tr.muted-row td { color: var(--muted); }
   #mode .mode-name { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   header .top-row h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-/* From 801 to 1100 px the header keeps one row whatever the font: the folder's name gives up the room. */
-@media (min-width: 801px) and (max-width: 1100px) {
+/* From 801 to 1499 px (where the header has its ⋯ menu) the header keeps one row whatever the font:
+   the folder's name gives up the room. */
+@media (min-width: 801px) and (max-width: 1499px) {
   header .top-row { flex-wrap: nowrap; }
   header .top-row > * { flex-shrink: 0; }
-  header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; }
-  #mode .mode-name { flex: 0 1 auto; min-width: 3ch; }
-  #mode .target-mark, #mode .unsaved-mark { flex: none; }
+  header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
+  #mode .mode-name { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+  #mode .target-mark, #mode .unsaved-mark { flex: none; white-space: pre; }
 }
 /* A Commission node's one-line header (commission-master-detail): back to Nodes, the node, its live state. */
 .node-head { flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px; }

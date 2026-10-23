@@ -30,11 +30,9 @@ DEVICES = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "De
 class CodesysPage(OnlineBase):
     def setUp(self):
         super().setUp()
-        # The example as an OpenPLC project: no bridge, per-type locations from 100.
+        # The example as an OpenPLC project.
         cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        del cfg["bridge"]
-        self.cfg = srv.Session().pack_openplc(cfg)["config"]
-        self.cfg["networks"][0]["master"]["scan_watchdog_ms"] = 500
+        self.cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
         for name in ("rtd8.eds", "dio16.eds"):
             shutil.copy(os.path.join(EXAMPLE, name), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -50,7 +48,7 @@ class CodesysPage(OnlineBase):
         # No question: what CODESYS does not use goes, the banner says so (target-cleans-up).
         pg = self.page
         tree_view(pg, "project")
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc")
+        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
         self.assertEqual(pg.locator("#tree #nav-codesys").count(), 0)
         pg.select_option('select[data-target="1"]', "codesys")
         pg.wait_for_selector("#banner:has-text('targets CODESYS now')")
@@ -83,13 +81,13 @@ class CodesysPage(OnlineBase):
     def test_switch_hides_and_back(self):
         pg = self.page
         self.open()
-        self.assertEqual(pg.inner_text("[data-target-mark]"), " · OpenPLC plugin")
-        self.assertTrue(pg.is_visible('input[data-path="master.scan_watchdog_ms"]'))
+        self.assertEqual(pg.inner_text("[data-target-mark]"), " · OpenPLC")
+        self.assertTrue(pg.is_visible('select[data-path="master.eds_lint"]'))
         self.to_codesys()
         self.assertEqual(pg.inner_text("[data-target-mark]"), " · CODESYS")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
-        # The Bus page: no scan watchdog, EDS lint, bus diagnostics or simulation; the CODESYS settings.
-        for path in ("master.scan_watchdog_ms", "master.eds_lint", "master.bus_state_location", "adapter.type",
+        # The Bus page: no EDS lint, bus diagnostics or simulation; the CODESYS settings.
+        for path in ("master.eds_lint", "master.bus_state_location", "adapter.type",
                      "adapter.simulate"):
             self.assertFalse(pg.is_visible('[data-path="%s"]' % path), path)
         self.assertEqual(pg.locator('select[data-path="master.sync_source"] option[value="plc_cycle"]').count(), 0)
@@ -130,23 +128,22 @@ class CodesysPage(OnlineBase):
         self.assertEqual(saved["networks"][0]["codesys"], {"net_id": 0})
         entries = saved["networks"][0]["nodes"][1]["tx_pdos"][0]["entries"]
         self.assertEqual(entries[0], {"index": "0x6000", "subindex": 1, "type": "UNSIGNED8", "name": "door_open"})
-        self.assertNotIn("scan_watchdog_ms", saved["networks"][0]["master"])
+        self.assertNotIn("bridge", saved)
         # Download for CODESYS: the zip, nothing written to the folder.
         with pg.expect_download() as dl:
             pg.click("#menu-target > summary")
             pg.click("#btn-codesys-download")
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
-        # Back to the OpenPLC plugin (no longer a choice on the page, so
-        # through the switch itself): every entry gets a location, the names stay.
+        # Back to OpenPLC: every entry gets a location, the names stay.
         tree_view(pg, "project")
-        pg.evaluate("() => switchTarget('openplc')")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC plugin now')")
+        pg.select_option('select[data-target="1"]', "openplc_modbus")
+        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
         self.assertIn("got a location", pg.inner_text("#banner"))
         pg.wait_for_selector("#tree #nav-codesys", state="detached")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         self.assertFalse(pg.is_visible("#btn-codesys-build"))
-        self.assertIsNone(pg.evaluate("() => unusedWhy('master.scan_watchdog_ms')"))  # the Bus page shows it again
+        self.assertIsNone(pg.evaluate("() => unusedWhy('master.eds_lint')"))  # the Bus page shows it again
         # One undo step brings CODESYS back: the banner's Undo, on the Project page.
         pg.click("#banner [data-undo]")
         pg.wait_for_selector("#tree #nav-codesys")
@@ -158,6 +155,7 @@ class CodesysPage(OnlineBase):
         mark; save leaves them out and says how many (target-cleans-up)."""
         pg = self.page
         cfg = self.cfg
+        cfg.pop("bridge", None)
         cfg["codesys"] = {}
         cfg["networks"][0]["master"]["on_plc_stop"] = "keep"
         cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["iec_location"] = "%IW100"
@@ -198,6 +196,7 @@ class CodesysPage(OnlineBase):
 
     def test_build_without_codesys(self):
         pg = self.page
+        self.cfg.pop("bridge", None)
         self.cfg["codesys"] = {"project": "C:\\Projects\\cell.project"}
         self.write_config()
         self.open()
@@ -250,6 +249,7 @@ class CodesysPage(OnlineBase):
         projects = os.path.join(self.dir, "projects")
         os.makedirs(os.path.join(projects, "old"))
         open(os.path.join(projects, "cell.project"), "w").close()
+        self.cfg.pop("bridge", None)
         self.cfg["codesys"] = {}
         self.write_config()
         self.open()
@@ -292,6 +292,7 @@ class CodesysPage(OnlineBase):
         pg = self.page
         plans = self.with_codesys()
         project = os.path.join(self.dir, "new.project")
+        self.cfg.pop("bridge", None)
         self.cfg["codesys"] = {"project": project}
         self.write_config()
         self.open()
@@ -317,6 +318,7 @@ class CodesysPage(OnlineBase):
 
     def test_commission_connects_through_an_adapter(self):
         pg = self.page
+        self.cfg.pop("bridge", None)
         self.cfg["codesys"] = {}
         self.write_config()
         self.open()

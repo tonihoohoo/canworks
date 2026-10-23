@@ -1,6 +1,6 @@
 """The usability hunt's smaller fixes in a real browser (ux-cleanup): the
-Supervision tab's PLC signals with Suggest all, the declarations table's
-check marks and filter, and the folder dialog's tags and selection. Needs
+Supervision tab's PLC signals with Suggest all and the folder dialog's
+tags and selection. Needs
 Playwright, like test_configurator_page.py."""
 
 import os
@@ -34,25 +34,6 @@ class Cleanup(base.Page):
         self.assertEqual(got[1], "%IB120")  # a filled one stays
         self.assertEqual(len(set(got)), 4)
         self.assertTrue(got[0].startswith("%IX") and got[2].startswith("%QB") and got[3].startswith("%IB"))
-
-    def test_declarations_check_marks_and_only_missing(self):
-        pg = self.page
-        self.node()
-        pg.click('button[data-view="declarations"]')
-        pg.wait_for_selector("[data-decl-table]")
-        # Under the block: the table and the filter; no network picker.
-        self.assertEqual(pg.locator('[data-online="network"]:visible').count(), 0)
-        pg.evaluate("""() => { S.check.declarations = [
-            { name: "a_ok", location: "%IX0.0", type: "BOOL", declared_as: "a_ok" },
-            { name: "b_temp", location: "%IW100", type: "INT", declared_as: "temp1" },
-            { name: "c_state", location: "%IB100", type: "USINT" }]; render(); }""")
-        states = pg.eval_on_selector_all("[data-decl-state]", "(tds) => tds.map((td) => [td.dataset.declState, td.textContent])")
-        self.assertEqual(states, [["same", "✓ declared"], ["other", "declared as temp1"], ["missing", "not yet"]])
-        pg.check("[data-decl-missing]")
-        self.assertEqual(pg.locator("[data-decl-state]").count(), 1)
-        pg.evaluate("() => { S.check.declarations = S.check.declarations.slice(0, 2); render(); }")
-        self.assertTrue(pg.is_checked("[data-decl-missing]"))
-        self.assertEqual(pg.inner_text("[data-decl-empty]"), "Every entry is declared in the project.")
 
     def test_folder_dialog_tags_and_selection(self):
         pg = self.page
@@ -93,7 +74,7 @@ class Cleanup(base.Page):
         pg = self.page
         self.node()
         node_tab(pg, "pdos")
-        self.assertIn("Inputs (TPDOs, device to PLC)", pg.inner_text("#node-panel"))
+        self.assertIn("Inputs (TPDOs, device to Modbus registers)", pg.inner_text("#node-panel"))
         pg.evaluate("() => { setPath('adapter.simulate', true); render(); }")
         tree_view(pg, "bus")
         adapter = "details[data-advanced=adapter]"
@@ -116,7 +97,7 @@ class Cleanup(base.Page):
 
     def test_walk_fixes(self):
         # Found walking the page at several window sizes: a stray "null" in
-        # Online access, the Only missing box above its label, and a header
+        # Online access and a header
         # that took two rows in a 911 x 512 window.
         pg = self.page
         self.node()
@@ -125,12 +106,6 @@ class Cleanup(base.Page):
         pg.wait_for_selector('[data-section=online]')
         self.assertEqual(pg.evaluate("""() => [...document.querySelector('[data-section=online]').childNodes]
             .filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent)"""), [])
-        pg.click('button[data-view="declarations"]')
-        pg.wait_for_selector("[data-decl-missing]")
-        box, text = pg.evaluate("""() => { const l = document.querySelector('[data-decl-missing]').closest('label');
-            const r = l.querySelector('input').getBoundingClientRect(), t = document.createRange(); t.selectNodeContents(l.lastChild);
-            const q = t.getBoundingClientRect(); return [r.top, q.top]; }""")
-        self.assertLess(abs(box - text), 12)
         pg.set_viewport_size({"width": 911, "height": 512})
         pg.wait_for_timeout(300)
         tops = pg.evaluate("""() => [...document.querySelectorAll('header .top-row > *')].filter((e) => e.offsetParent && !e.classList.contains('spacer') && e.getBoundingClientRect().width > 2)

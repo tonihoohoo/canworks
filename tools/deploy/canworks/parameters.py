@@ -513,7 +513,7 @@ def summary(rows):
 # -- configuration -----------------------------------------------------------------
 
 def config_writes(cfg, config_path, node_id, eds_paths=None):
-    """{(index, sub): data} the plugin writes to a node at boot, and
+    """{(index, sub): data} the bridge writes to a node at boot, and
     {(index, sub): SDO variable name} of the node's write SDO variables."""
     from . import dcfexport
     nodes = [n for n in cfg.get("nodes", []) if int(str(n.get("node_id")), 0) == node_id]

@@ -536,7 +536,6 @@ function importReport(res, { slave = false } = {}) {
   if (fixes.length) {
     const why = ", because its CANopen stack cannot read these values:";
     const reader = dcfs ? " The DCFs exported to CODESYS are built from a corrected copy:"
-      : bridgeTarget(target) ? " The Modbus bridge reads a corrected copy" + why
       : target === "codesys" ? " canworks reads a corrected copy" + why
       : " The bridge reads a corrected copy" + why;
     lines.push(el("div", { dataset: { report: "corrections" } },
@@ -901,7 +900,7 @@ function pagePath(p, version) {
 }
 
 // A /api/check shaped answer with its paths in the page's terms: `where` on
-// each item, and the declared map keyed by "<network index>|<path>".
+// each item.
 function normCheck(r, version) {
   // Values the target does not use are no problem: save leaves them out.
   if (r.items && r.items.some(isUnusedItem)) {
@@ -909,14 +908,6 @@ function normCheck(r, version) {
     r.warnings = r.items.filter((it) => it.level !== "error").length;
   }
   for (const it of r.items || []) it.where = (it.paths || []).map((p) => pagePath(p, version));
-  if (r.declared) {
-    const d = {};
-    for (const [p, name] of Object.entries(r.declared)) {
-      const w = pagePath(p, version);
-      d[`${w.net}|${w.path}`] = name;
-    }
-    r.declared = d;
-  }
   return r;
 }
 
@@ -1854,27 +1845,18 @@ function simSwitch(i) {
   return el("div", { class: "check-field" }, el("label", { class: "check" }, input, " Simulated"), hint(help));
 }
 
-// SYNC source: off (no SYNC keys), the master's timer (a period) or the PLC
-// cycle (a cycle count); the period and the cycle count exclude each other.
+// SYNC source: off (no SYNC keys) or the master's timer (a period).
 function syncSource(m) {
   m = m || {};
-  if (m.sync_source === "plc_cycle") return "plc_cycle";
   const us = m.sync_period_us;
   return us !== undefined && us !== null && us !== "" && us !== 0 ? "timer" : undefined;
 }
 
 function switchSyncSource(source) {
   const m = S.config.master || (S.config.master = {});
-  if (source === "plc_cycle") {
-    m.sync_source = "plc_cycle";
-    delete m.sync_period_us;
-  } else {
-    delete m.sync_source;
-    delete m.sync_cycles;
-    if (source === "timer") {
-      if (syncSource(m) !== "timer") m.sync_period_us = 10000;  // a starting period
-    } else delete m.sync_period_us;
-  }
+  if (source === "timer") {
+    if (syncSource(m) !== "timer") m.sync_period_us = 10000;  // a starting period
+  } else delete m.sync_period_us;
   changed(true);
 }
 
@@ -1964,21 +1946,16 @@ function renderBus(view) {
             help: "Default. The master sends no SYNC: every PDO needs an event-driven transmission type (254 or 255)." },
           { value: "timer", label: "Timer",
             help: "The master sends SYNC at a fixed period of its own, independent of the PLC cycle." },
-          { value: "plc_cycle", label: "PLC cycle",
-            help: "One SYNC at the start of every PLC cycle (or every N cycles): inputs are one cycle old and outputs reach the devices after a fixed delay. The SYNC period is the PLC task interval; give every task an interval that is a multiple of the fastest one." },
         ], { onChange: switchSyncSource, current: sync || "" }),
-        sync === "plc_cycle" ? field("Every N PLC cycles", "master.sync_cycles", "intstr", { placeholder: "1",
-          hint: "1 to 1000. Empty: a SYNC every PLC cycle." }) : sync === "timer" ? syncPeriodField() : null,
+        sync === "timer" ? syncPeriodField() : null,
         field("Master heartbeat (ms)", "master.heartbeat_ms", "intstr", { placeholder: "off",
           hint: "Empty: off. Set it when slaves should watch the master." }),
-        choice("When the PLC stops", "master.on_plc_stop", [
+        choice("When the bridge stops", "master.on_plc_stop", [
           { value: undefined, literal: "preop", label: "Pre-operational",
             help: "Default. Each node that is up gets ENTER PRE-OPERATIONAL before the network closes: its PDOs stop, so its own communication-loss setting applies, and SDO access stays for a restart." },
-          { value: "stop", label: "Stopped", help: "Each node that is up gets NMT STOP: PDOs and SDO stop until the next PLC start." },
+          { value: "stop", label: "Stopped", help: "Each node that is up gets NMT STOP: PDOs and SDO stop until the bridge starts the network again." },
           { value: "keep", label: "Keep running", help: "Nothing is sent: the nodes keep the last outputs they got. Only for devices that are safe that way." },
         ]),
-        field("Scan watchdog (ms)", "master.scan_watchdog_ms", "intstr", { placeholder: "1000",
-          hint: "When the PLC scan has not advanced for this long while the PLC runs, the outputs stop (RPDOs and raw sends; SYNC goes on) until it advances again. 10 to 60000, 0 turns it off. Empty: 1000." }),
         choice("EDS lint (dcfgen)", "master.eds_lint", [
           { value: undefined, literal: "communication", label: "Communication objects",
             help: targetText("lint_communication") },
@@ -1998,8 +1975,7 @@ function renderBus(view) {
         return el("label", null, label, el("span", { class: "row" },
           field("", path, "text", { placeholder }).querySelector("input"), btn),
           hint(TARGET_TEXT[help] ? targetText(help) : help),
-          el("span", { class: "field-msg", dataset: { for: path } }),
-          declNote(path));
+          el("span", { class: "field-msg", dataset: { for: path } }));
       })))]),
     ...(slave ? [] : [masterAdvanced()]));
 }
@@ -2057,13 +2033,8 @@ function masterAdvanced() {
     el("p", { class: "muted" }, "dcfgen's master options. Leave them empty unless a device or the plant needs them."),
     el("h3", null, "Start-up"),
     el("div", { class: "grid" },
-      el("div", null, checkbox("Master goes operational", m + "start", true,
-        "Off: the master stays pre-operational and no PDOs move until the PLC program starts it with CO_NETWORK_START."),
-        el("button", { type: "button", dataset: { action: "network-start-st" },
-          title: "Copy as ST call (CO_NETWORK_START block)", onclick: async () => {
-            await copyText(stNetworkStartCall());
-            banner("Copied the CO_NETWORK_START call. Enable the canworks library in the editor project to use it.");
-          } }, "Copy as ST call")),
+      checkbox("Master goes operational", m + "start", true,
+        "Off: the master stays pre-operational and no PDOs move; the bridge has no command that starts it."),
       checkbox("Start the nodes", m + "start_nodes", true,
         "Off: the master configures the nodes but leaves them pre-operational."),
       checkbox("Start all nodes with one command", m + "start_all_nodes", false,
@@ -2236,9 +2207,9 @@ function slaveFieldsets() {
           { value: "zero", label: "Zero", help: "Inputs read 0 while the node is not operational or the master's heartbeat is lost." },
         ]),
         choice("EDS lint (dcfgen)", base + ".eds_lint", [
-          { value: undefined, literal: "communication", label: "Communication objects", help: "Default. The PLC stops only on lint findings in 0x1000-0x1FFF." },
-          { value: "all", label: "Every object", help: "The PLC stops on any lint finding. An EDS built here always passes it." },
-          { value: "off", label: "Off", help: "The PLC never stops on a lint finding." },
+          { value: undefined, literal: "communication", label: "Communication objects", help: targetText("lint_communication") },
+          { value: "all", label: "Every object", help: targetText("lint_all") + " An EDS built here always passes it." },
+          { value: "off", label: "Off", help: targetText("lint_off") },
         ]))),
     slaveBuilder(),
     slaveObjects(eds),
@@ -2254,7 +2225,7 @@ function slaveFieldsets() {
           } }, "Suggest");
         return el("label", null, label, el("span", { class: "row" },
           field("", path, "text", { placeholder }).querySelector("input"), btn),
-          hint(help), el("span", { class: "field-msg", dataset: { for: path } }), declNote(path));
+          hint(help), el("span", { class: "field-msg", dataset: { for: path } }));
       }))),
   ];
 }
@@ -2288,7 +2259,7 @@ function slaveObjects(eds) {
       el("td", null, el("span", { class: "row" }, field("", path + ".iec_location", "text",
         { placeholder: dir === "output" ? "%Q…" : "%I…" }).querySelector("input"), suggest),
         el("span", { class: "field-msg", dataset: { for: path + ".iec_location" } }),
-        el("span", { class: "field-msg", dataset: { for: path } }), declNote(path + ".iec_location")),
+        el("span", { class: "field-msg", dataset: { for: path } })),
       el("td", null, field("", path + ".name", "text", { placeholder: info ? info.name : "" }).querySelector("input")),
       el("td", null, el("button", { type: "button", onclick: () => { objects.splice(j, 1); changed(true); } }, "Remove")));
   });
@@ -2600,7 +2571,6 @@ function objectInfo(eds, index, sub) {
   return eds.objects.find((o) => sameObject(o.index, o.subindex, index, sub)) || null;
 }
 
-function declaredAs(path) { return S.check && S.check.declared ? S.check.declared[`${S.net}|${path}`] : null; }
 
 // A section of the SDOs tab (startup SDO writes, SDO variables), with its
 // count and its add action in the summary. Open, as the tab holds nothing
@@ -2895,10 +2865,6 @@ function entryVariable(ep, prefix) {
   return d ? d.name || "" : "";
 }
 
-function declNote(path) {
-  return el("span", { class: "muted decl", dataset: { declFor: path } });
-}
-
 function renderPdos(i, key, dir, title, eds) {
   const n = S.config.nodes[i];
   const pdos = n[key] || [];
@@ -2964,8 +2930,7 @@ function renderPdos(i, key, dir, title, eds) {
           locations ? null : el("span", { class: "field-msg", dataset: { for: ep + ".type" } })),
         locations ? el("td", { dataset: { label: targetText("location_column") } }, loc, unmappedMark(i, dir, ep, e),
           el("span", { class: "field-msg", dataset: { for: ep + ".iec_location" } }),
-          el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } }),
-          declNote(ep + ".iec_location")) : null,
+          el("span", { class: "field-msg", dataset: { for: ep } }), el("span", { class: "field-msg", dataset: { for: ep + ".type" } })) : null,
         el("td", { dataset: { label: "PDO" } }, move),
         el("td", null, el("button", { type: "button", title: "Remove", "aria-label": `Remove ${e.index}:${e.subindex ?? 0} from the PDO`,
           onclick: () => removeEntry(i, key, j, k) }, "✕")));
@@ -3186,7 +3151,7 @@ function bitTable(i, dir, ep, e, info, eds) {
             } catch (err) { banner(err.message, true); }
           }) }, "Suggest");
         locCell = el("td", null, el("div", { class: "entry-variable" }, loc, suggest),
-          el("span", { class: "field-msg", dataset: { for: bp + ".iec_location" } }), declNote(bp + ".iec_location"));
+          el("span", { class: "field-msg", dataset: { for: bp + ".iec_location" } }));
       } else if (bridge) {
         locCell = el("td", { class: "muted", dataset: { bitModbus: bit } }, bridgeBitNumber(e, bit) || "with the entry's location");
       }
@@ -3503,7 +3468,7 @@ function timeoutLine(i, pb, p, eds) {
       } }, "Suggest");
     fields.push(el("label", null, "Timeout bit", el("span", { class: "row" }, loc, suggest),
       hint("Optional. TRUE while this PDO is timed out and its node is up. Empty: no bit."),
-      el("span", { class: "field-msg", dataset: { for: locPath } }), declNote(locPath)));
+      el("span", { class: "field-msg", dataset: { for: locPath } })));
   }
   return el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Timeout"),
     el("div", { class: "pdo-grid" }, ...fields));
@@ -3749,7 +3714,7 @@ function renderSdos(i, eds) {
   const fill = () => {
     const f = S.sdoFilter.toLowerCase();
     const writable = ((eds && eds.objects) || []).filter((o) => o.writable && o.type && !NO_STORE_WRITE[num(o.index)]);
-    const why = { signal: 0, plugin: 0, listed: 0 };
+    const why = { signal: 0, master: 0, listed: 0 };
     const shown = S.sdoShowAll ? writable : writable.filter((o) => {
       const r = sdoHiddenReason(list, o);
       if (r) why[r]++;
@@ -3757,7 +3722,7 @@ function renderSdos(i, eds) {
     });
     const parts = [];
     if (why.signal) parts.push(`${why.signal} process signal${why.signal === 1 ? "" : "s"} (PDO-mappable, map them in a PDO)`);
-    if (why.plugin) parts.push(`${why.plugin} ${targetText("sdo_hidden").replace(/^communication objects/, why.plugin === 1 ? "communication object" : "communication objects")}`);
+    if (why.master) parts.push(`${why.master} ${targetText("sdo_hidden").replace(/^communication objects/, why.master === 1 ? "communication object" : "communication objects")}`);
     if (why.listed) parts.push(`${why.listed} already in the list`);
     hidden.textContent = parts.length ? "Hidden: " + parts.join(", ") + "." : "";
     body.replaceChildren(...shown
@@ -3817,7 +3782,7 @@ function renderSdoVars(i, eds) {
       render();
     } }, "Suggest");
     return el("label", { class: "loc" }, label, el("span", { class: "row" }, input, btn),
-      el("span", { class: "field-msg", dataset: { for: vp + "." + key } }), declNote(vp + "." + key));
+      el("span", { class: "field-msg", dataset: { for: vp + "." + key } }));
   };
   const numField = (vp, label, key, placeholder) => {
     const input = field("", vp + "." + key, "int", { placeholder }).querySelector("input");
@@ -3872,7 +3837,7 @@ function renderSdoVars(i, eds) {
       .slice(0, 400)
       .map((o) => el("tr", null, el("td", null, `${o.index}:${o.subindex}`), el("td", null, o.name, noteLine(noteOfObj(o))),
         el("td", null, o.type), el("td", null, o.access),
-        el("td", null, write && pluginObject(o.index) ? el("span", { class: "field-msg warning" }, "set by the plugin") : null),
+        el("td", null, write && masterObject(o.index) ? el("span", { class: "field-msg warning" }, "set by the bridge") : null),
         el("td", null, el("button", { type: "button", dataset: { sdoVar: `${o.index}:${o.subindex}` },
           onclick: () => addSdoVar(i, o.index, o.subindex, S.varDirection) }, "Add")))));
   };
@@ -3896,11 +3861,11 @@ function renderSdoVars(i, eds) {
 function ownWriteWarnings(index, sub) {
   const out = [];
   if (onlineIsSlave()) {
-    if (pluginObject(index)) out.push(`The network's master may write ${hex4(index)} when it configures this device; your value lasts until then.`);
+    if (masterObject(index)) out.push(`The network's master may write ${hex4(index)} when it configures this device; your value lasts until then.`);
     const bound = slaveBindText(index, sub);
     if (bound) out.push(`${hex4(index)}:${sub} is bound to ${bound}; whatever writes it there (the program, the master's PDOs or the gateway) overwrites your value.`);
   } else {
-    if (pluginObject(index)) out.push(`The plugin configures ${hex4(index)} itself when the node boots; your value lasts until the next boot.`);
+    if (masterObject(index)) out.push(`The bridge configures ${hex4(index)} itself when the node boots; your value lasts until the next boot.`);
     const e = odEntryCached(S.onlineNode, index, sub);
     const rx = e ? (e.pdo || []).filter((m) => /^RPDO/.test(m.pdo)) : [];
     if (rx.length) out.push(`${hex4(index)}:${sub} is in ${rx.map(odPdoText).join(" and ")}: the PLC program writes it through the PDO every cycle, so your value is overwritten at once.`);
@@ -3908,7 +3873,7 @@ function ownWriteWarnings(index, sub) {
   return out;
 }
 
-function pluginObject(index) {
+function masterObject(index) {
   const ix = num(index);
   return (ix >= 0x1005 && ix <= 0x1007) || ix === 0x100C || ix === 0x100D || (ix >= 0x1014 && ix <= 0x1017) ||
     (ix >= 0x1400 && ix <= 0x1BFF) || ix === 0x1F80;
@@ -3918,7 +3883,7 @@ function pluginObject(index) {
 function sdoHiddenReason(list, o) {
   if (list.some((s) => sameObject(s.index, s.subindex, o.index, o.subindex))) return "listed";
   if (o.directions && o.directions.length) return "signal";
-  if (pluginObject(o.index)) return "plugin";
+  if (masterObject(o.index)) return "master";
   return null;
 }
 
@@ -4007,8 +3972,8 @@ async function copyStCall(node, index, subindex, type, readable, writable) {
   banner(`Copied the ${stBlock(type, write)} call. Enable the canworks library in the editor project to use it.`);
 }
 // "Copy as ST call" for NMT: a CO_NMT instance and its call for a node and a
-// CiA 301 command code, or a CO_NETWORK_START call (spec canopen-configurator,
-// Copy NMT calls as ST; the blocks are in the canworks library, docs/plc-nmt.md).
+// CiA 301 command code (spec canopen-configurator, Copy NMT calls as ST; the
+// block is in the canworks library, docs/plc-library.md).
 const NMT_CODES = { start: [1, "START"], stop: [2, "STOP"], preop: [128, "ENTER PRE-OPERATIONAL"],
   reset: [129, "RESET NODE"], "reset-comm": [130, "RESET COMMUNICATION"] };
 function stNmtCall(node, command, net = stNetwork()) {
@@ -4020,21 +3985,6 @@ function stNmtCall(node, command, net = stNetwork()) {
     `(* EXECUTE: a rising edge sends the command; FALSE clears DONE and ERROR. *)`,
     `${inst}(${args.join(", ")});`,
     `IF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID *)`, `END_IF;`, ``].join("\n");
-}
-// The editor's network for CO_NETWORK_START: its number and name with
-// several networks, null with one.
-function stEditNetwork() {
-  if (!several()) return null;
-  return { index: S.net || 0, name: netName(S.config) || `net${(S.net || 0) + 1}` };
-}
-function stNetworkStartCall(net = stEditNetwork()) {
-  const inst = `net_start${net ? "_" + net.name : ""}`;
-  const args = [`EXECUTE := ${inst}_go`, ...(net ? [`NETWORK := ${net.index} (* ${net.name} *)`] : []),
-    `TIMEOUT := T#0s (* no limit *)`];
-  return [`VAR`, `  ${inst} : CO_NETWORK_START;`, `  ${inst}_go : BOOL; (* TRUE once the machine is ready *)`, `END_VAR`, ``,
-    `(* The master goes OPERATIONAL (PDOs run) once every mandatory node has booted. *)`,
-    `${inst}(${args.join(", ")});`,
-    `IF ${inst}.ERROR THEN`, `  (* ${inst}.ERROR_ID: 2 timeout, 9 the master is STOPPED *)`, `END_IF;`, ``].join("\n");
 }
 const NO_ST_SLAVE = "The program's SDO blocks address nodes of a master network; on a slave network the program has the bound locations instead.";
 const RUNTIME_NO_CHANGES = "Online changes are not allowed in this configuration (turn on \"Allow changes\" under Online access, then upload).";
@@ -4510,7 +4460,7 @@ async function saveOnline(values) {
 
 // The Commission workspace's Nodes page with a config: the runtime's bus,
 // master and nodes. The connection is made in the connect panel and shown in
-// the connection bar; the page shows the session (plugin, protocol, notes).
+// the connection bar; the page shows the session (the bridge, protocol, notes).
 function renderOnline(view) {
   view.append(el("h2", { dataset: { onlinePart: "net" } }, "Nodes"));
   // An adapter on another machine needs no online access in the config.
@@ -4913,9 +4863,7 @@ async function commissionDevice() {
 // The status answer's SYNC object as one line (as the CLI's status prints it).
 function syncText(sy) {
   if (sy.source === "none") return "off";
-  const head = sy.source === "plc_cycle"
-    ? "PLC cycle" + (sy.cycles > 1 ? `, every ${sy.cycles} cycles` : "")
-    : `timer ${sy.period_us} µs`;
+  const head = `timer ${sy.period_us} µs`;
   let t = `${head}, ${sy.count} sent`;
   if (sy.count > 1) t += `, interval ${sy.last_us} µs (min ${sy.min_us}, max ${sy.max_us})`;
   return t + `, skipped ${sy.skipped}, late PDOs ${sy.late_pdos}`;
@@ -6032,7 +5980,7 @@ function odLimitText(e) {
 // Why "Keep in configuration" cannot be offered for an entry, or null.
 function keepReason(e, n) {
   if (e.sdo_variable) return "An SDO variable writes this entry from the program.";
-  if (pluginObject(e.index)) return `The plugin sets ${hex4(e.index)} itself` +
+  if (masterObject(e.index)) return `The bridge sets ${hex4(e.index)} itself` +
     (e.index === 0x1017 ? " from the node's heartbeat setting." : e.index >= 0x1400 && e.index <= 0x1BFF ? " from the node's PDO settings." : ".");
   if (!OD_NUMERIC.includes(e.type)) return "Startup SDOs take numbers only.";
   if (!["rw", "rwr", "rww", "wo"].includes(e.access)) return "The entry is not writable.";
@@ -6712,7 +6660,7 @@ function odEdit(id, n, e, cell, readKeys, note, done) {
     const warn = [];
     warn.push(...ownWriteWarnings(e.index, e.subindex));
     if (e.sdo_variable) warn.push(`SDO variable ${typeof e.sdo_variable === "string" ? e.sdo_variable : ""} writes this entry from the program; the program's value wins at its next write.`);
-    if (e.config && !pluginObject(e.index)) warn.push("The configuration writes this entry at every boot; your value lasts until the next boot.");
+    if (e.config && !masterObject(e.index)) warn.push("The configuration writes this entry at every boot; your value lasts until the next boot.");
     const x = Number(input.value.trim());
     if (input.value.trim() !== "" && !Number.isNaN(x) && ((e.low_limit !== undefined && x < e.low_limit) || (e.high_limit !== undefined && x > e.high_limit)))
       warn.push(`The EDS allows ${e.low_limit !== undefined ? e.low_limit : "…"} to ${e.high_limit !== undefined ? e.high_limit : "…"}; ${input.value.trim()} is outside.`);
@@ -7494,8 +7442,7 @@ async function runCheck() {
   const seq = ++S.checkSeq;
   try {
     const cfg = fileConfig();
-    const r = await api("POST", "/api/check", { config: cfg, allow_overlap: $("#allow-overlap").checked,
-      notes: S.model.notes });
+    const r = await api("POST", "/api/check", { config: cfg, notes: S.model.notes });
     if (seq !== S.checkSeq) return;
     S.check = normCheck(r, fileVersion(cfg));
     applyCheck();
@@ -7640,7 +7587,7 @@ async function exportDbc() {
 // An export's check in the Problems pane: the config check's items stay as
 // they are (the export repeats them, without the warnings) and the export's
 // own findings join them, so the count does not jump; the previous check's
-// declarations stay too, so the "declared as" hints do not go blank.
+// declarations stay too, so the Variable placeholders do not go blank.
 function exportProblems(r, cfg) {
   const fresh = normCheck(r, fileVersion(cfg));
   // The config check's, not an earlier export's: a failed export's findings
@@ -7653,7 +7600,7 @@ function exportProblems(r, cfg) {
     fresh.items = prev.items.concat((fresh.items || []).filter((it) => !seen.has(key(it))));
     fresh.errors = fresh.items.filter((it) => it.level === "error").length;
   }
-  for (const k of ["declared", "declarations"]) if (fresh[k] === undefined && prev[k] !== undefined) fresh[k] = prev[k];
+  if (fresh.declarations === undefined && prev.declarations !== undefined) fresh.declarations = prev.declarations;
   return fresh;
 }
 
@@ -7695,8 +7642,7 @@ function exportStopped(label, r, cfg) {
 
 // The errors that stop a hand-off step (spec "Hand-off steps need a config
 // without errors"): the check's errors and the warnings it marks as
-// stopping a hand-off (a network without nodes). Allowed overlaps are
-// warnings, so they do not count.
+// stopping a hand-off (a network without nodes).
 function handoffErrors() {
   return ((S.check && S.check.items) || []).filter((it) => it.level === "error" || it.handoff).length;
 }
@@ -7749,14 +7695,8 @@ async function wireDbc() {
 function applyCheck() {
   for (const x of document.querySelectorAll(".invalid, .warned")) x.classList.remove("invalid", "warned");
   for (const x of document.querySelectorAll(".field-msg[data-for]")) x.textContent = "";
-  // One name per entry: the Variable placeholder is the name the declarations
-  // use; "declared as" only when the editor project declares it otherwise.
+  // One name per entry: the Variable placeholder is the name the declarations use.
   const prefix = fileVersion(fileConfig()) === 2 ? `networks[${S.net}].` : "";
-  for (const x of document.querySelectorAll(".decl")) {
-    const name = declaredAs(x.dataset.declFor);
-    const d = ((S.check && S.check.declarations) || []).find((y) => y.path === prefix + x.dataset.declFor);
-    x.textContent = name && (!d || d.name !== name) ? ` declared as ${name}` : "";
-  }
   for (const x of document.querySelectorAll("input[data-entry-variable]")) {
     x.placeholder = entryVariable(x.dataset.entryVariable, prefix);
     x.title = x.placeholder;
@@ -7795,9 +7735,6 @@ function applyCheck() {
   }
   if (!items.length && S.check) list.append(el("li", { class: "ok" }, Icons.stateIcon("ok", { label: false }), "No problems."));
   if (focusedAt >= 0) { const b = list.children[Math.min(focusedAt, list.children.length - 1)]; if (b && b.firstChild && b.firstChild.focus) b.firstChild.focus(); }
-  // The overlap override goes with the overlap errors, and stays while ticked.
-  const overlaps = items.some((it) => it.overlap || it.overlap_allowed);
-  $("#overlap-box").hidden = !(S.state && S.state.mode === "project" && (overlaps || $("#allow-overlap").checked));
   fillCounts(countProblems());
   stripProblems(items.length);
   updateSave();
@@ -8130,7 +8067,7 @@ function updateSave() {
 async function save(overwrite, editorOverwrite) {
   const cfg = fileConfig();
   try {
-    const r = await api("POST", "/api/save", { config: cfg, allow_overlap: $("#allow-overlap").checked, overwrite: !!overwrite,
+    const r = await api("POST", "/api/save", { config: cfg, overwrite: !!overwrite,
       notes: S.model.notes, editor_overwrite: !!editorOverwrite });
     S.state = r.state;
     setModel(S.state.config);
@@ -8335,7 +8272,6 @@ function wire() {
   $("#btn-close").onclick = () => (S.devicesOnly && !(S.state && S.state.mode) ? devicesOnlyClose() : closeFolder());
   $("#btn-move").onclick = () => busy($("#btn-move"), "Moving…", moveIntoProject);
   $("#btn-new-project").onclick = () => busy($("#btn-new-project"), "Creating…", newEditorProject);
-  $("#allow-overlap").onchange = runCheck;
   $("#eds-input").addEventListener("change", (e) => {
     const f = e.target.files[0];
     e.target.value = "";

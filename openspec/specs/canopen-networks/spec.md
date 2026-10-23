@@ -10,10 +10,10 @@ A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen 
 
 #### Scenario: Two networks
 - **WHEN** a version 2 config has networks on `can0` (nodes 2 and 3) and `can1` (nodes 2 and 10)
-- **THEN** the plugin loads it and logs one line per network naming its interface, bit rate, master node ID and number of slaves
+- **THEN** the bridge loads it and logs one line per network naming its interface, bit rate, master node ID and number of slaves
 
 #### Scenario: Version 1 file
-- **WHEN** the plugin loads `config/pingpong/canopen_config.json` (version 1)
+- **WHEN** the bridge loads `config/pingpong/canopen_config.json` (version 1)
 - **THEN** it runs one network exactly as before this change, with the same log lines and the same generated files
 
 #### Scenario: Too many networks
@@ -22,11 +22,11 @@ A version 2 config SHALL hold a `networks` list of 1 to 8 entries. Each CANopen 
 
 #### Scenario: CANopen and J1939 networks
 - **WHEN** a version 2 config has a CANopen network on `can0` and a J1939 network on `can1`
-- **THEN** the plugin loads it and logs one line for the CANopen network as above and one for the J1939 network naming its interface, bit rate, address and numbers of received and sent PGNs
+- **THEN** the bridge loads it and logs one line for the CANopen network as above and one for the J1939 network naming its interface, bit rate, address and numbers of received and sent PGNs
 
 #### Scenario: CANopen and plain CAN networks
 - **WHEN** a version 2 config has a CANopen network on `can0` with two raw messages and a plain CAN network on `can1`
-- **THEN** the plugin loads it, the CANopen line also gives the number of raw messages, and the plain network's line names its interface, bit rate and numbers of received and sent raw messages
+- **THEN** the bridge loads it, the CANopen line also gives the number of raw messages, and the plain network's line names its interface, bit rate and numbers of received and sent raw messages
 
 ### Requirement: Network names
 A network's `name` SHALL match `[A-Za-z][A-Za-z0-9_]*` and be at most 16 characters; without `name`, the network SHALL be named after its adapter's `interface` when the interface name matches that pattern, and the config SHALL be rejected otherwise. Names SHALL be unique in the file, compared without case.
@@ -69,11 +69,11 @@ Every IEC location in the file (PDO entries, SDO variables, status, state, EMCY,
 - **THEN** the configuration is rejected, naming both JSON paths and the location
 
 ### Requirement: A config error stops every network
-Any configuration, EDS or dcfgen error in any network SHALL leave the whole plugin inactive with no CAN interface opened, as for a single network, and the log SHALL name the network of each problem.
+Any configuration, EDS or dcfgen error in any network SHALL leave the whole bridge inactive with no CAN interface opened, as for a single network, and the log SHALL name the network of each problem.
 
 #### Scenario: One network has a bad EDS
 - **WHEN** network `drives` names an EDS that does not exist and network `io` is valid
-- **THEN** the plugin logs the error with `drives` in it, opens neither interface, and the PLC runs normally
+- **THEN** the bridge logs the error with `drives` in it, opens neither interface, and the PLC runs normally
 
 ### Requirement: Networks run independently
 Each network SHALL have its own CAN connection, master, SYNC, heartbeat, TIME, node supervision, boot retries and bus diagnostics. An interface that is missing, down or bus-off SHALL affect only its own network's nodes, status bits and bus state byte; the other networks SHALL keep exchanging PDOs.
@@ -85,13 +85,6 @@ Each network SHALL have its own CAN connection, master, SYNC, heartbeat, TIME, n
 #### Scenario: Interface comes back
 - **WHEN** the adapter of network `drives` is plugged in again
 - **THEN** network `drives` reconnects and boots its nodes, and network `io` is not restarted
-
-### Requirement: Same scan for all networks
-At each PLC scan, the inputs of every running network SHALL be copied into the PLC image before the program runs, and the outputs SHALL be handed to every network after it runs, with no network's work blocking the scan.
-
-#### Scenario: Inputs from both networks in one scan
-- **WHEN** a node on `io` and a node on `drives` both send new TPDO values before a scan
-- **THEN** the program sees both new values in that scan
 
 ### Requirement: Network in log messages
 With more than one network, every log line about a network, its master, its bus or its nodes SHALL start with the network name. With one network, log lines SHALL stay as they were.
@@ -107,17 +100,17 @@ With a version 2 config, each network's dcfgen output and prepared EDS copies SH
 - **WHEN** only a PDO on network `io` changes between two PLC starts
 - **THEN** the log says the device configuration was generated for `io` and reused for `drives`
 
-### Requirement: Protocols built into the plugin
-The plugin SHALL be one library that runs every supported protocol, each protocol selectable at build time and on by default. Its log at load and its diagnostics status SHALL name the protocols it was built with. A config with a network whose protocol is not built in SHALL be rejected as a configuration error naming the network and the protocol.
+### Requirement: Protocols built into the bridge
+The bridge SHALL be one program that runs every supported protocol, each protocol selectable at build time and on by default. Its log at start and its diagnostics status SHALL name the protocols it was built with. A config with a network whose protocol is not built in SHALL be rejected as a configuration error naming the network and the protocol.
 
 #### Scenario: Default build
-- **WHEN** the plugin is built with default options and loads a config with a CANopen and a J1939 network
+- **WHEN** the bridge is built with default options and loads a config with a CANopen and a J1939 network
 - **THEN** it logs that it supports canopen and j1939 and runs both networks
 
 #### Scenario: J1939-only build
-- **WHEN** the plugin is built without CANopen and loads a config with a CANopen network
-- **THEN** the configuration is rejected with an error naming the network and saying CANopen is not built into this plugin, and no interface is opened
+- **WHEN** the bridge is built without CANopen and loads a config with a CANopen network
+- **THEN** the configuration is rejected with an error naming the network and saying CANopen is not built into this bridge, and no interface is opened
 
 #### Scenario: Build without Lely
-- **WHEN** the plugin is built without CANopen on a system without Lely or dcfgen installed
+- **WHEN** the bridge is built without CANopen on a system without Lely or dcfgen installed
 - **THEN** the build succeeds

@@ -110,7 +110,7 @@ class Runtime(unittest.TestCase):
             self.assertEqual([v["object"] for v in json.loads(out)["values"]], ["0x7130:1", "0x7130:2", "0x6150:1"])
             code, out, err = run("--runtime", fp.runtime, "sim", "get", "spare", "0x2000")
             self.assertIn("node spare 0x2000:0 = 9", out)
-            # The plugin's own status names what is simulated.
+            # The bridge's own status names what is simulated.
             code, out, err = run("--runtime", fp.runtime, "status")
             self.assertIn("simulated network: no CAN interface is used; no node is simulated", out)
 

@@ -29,7 +29,7 @@
       <summary aria-haspopup="menu">Project</summary>
       <div role="menu" aria-label="Project">
         <button id="btn-move" type="button" class="item" role="menuitem">Move into project…</button>
-        <button id="btn-new-project" type="button" class="item" role="menuitem" title="Create an OpenPLC Editor project with this config and its I/O declared in the program main">New editor project…</button>
+        <button id="btn-new-project" type="button" class="item" role="menuitem" title="Create an OpenPLC Editor project with this config: the bridge as its Modbus device, and the canworks variables and programs">New editor project…</button>
       </div>
     </details>
     <details id="menu-export" class="menu" data-config="1">
@@ -118,8 +118,6 @@
   <section id="problems" aria-label="Problems"><details id="problems-box" open>
     <summary><h2 class="side-caption">Problems</h2> <span id="problem-count" class="muted" aria-live="polite"></span></summary>
     <div id="problems-bars" class="notice-slot"></div>
-    <div id="overlap-box" hidden><label class="check" title="Count an overlap with the editor project as a warning, not an error"><input id="allow-overlap" type="checkbox"> Allow overlap</label>
-      <span class="hint">These overlaps then stop nothing here, like the deploy tool's --allow-clash.</span></div>
     <ul id="problem-list" data-box="problems" data-box-label="the problems list"></ul>
   </details></section>
   <section id="log-panel" aria-label="Log" hidden><details id="log-box">

@@ -83,7 +83,7 @@ class SendFrames(Online):
             self.connect(fp)
             self.server.sender.connection.idle = 0.3
             self.ok("POST", "/api/online/send_frame", {"id": "60A", "period_ms": 100})
-            time.sleep(0.7)  # the page stopped polling: the connection closes, the plugin ends the job
+            time.sleep(0.7)  # the page stopped polling: the connection closes, the bridge ends the job
             self.assertEqual(fp.jobs[1]["reason"], "client disconnected")
             r = self.ok("POST", "/api/online/send_jobs", {})
             self.assertEqual([(j["job"], j["reason"]) for j in r["ended"]], [(1, "connection closed")])

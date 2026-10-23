@@ -116,6 +116,7 @@ class AddNode(OnlineBase):
 class AddNodeCodesys(OnlineBase):
     def test_names_only_for_codesys(self):
         pg = self.page
+        self.cfg.pop("bridge", None)
         self.cfg["codesys"] = {}
         self.write_config()
         shutil.copy(os.path.join(RTD, "rtd8.eds"), os.path.join(self.project, "canworks"))

@@ -35,9 +35,9 @@ def generate(test, desc, gateway=None):
     """Generates, checks the lint verdict with eds_lint "all", and reads it back."""
     text, info = slaveeds.generate(desc, gateway)
     _, corrections, lint = edslint.check(text.encode("utf-8"))
-    # Decimal REALs (CiA 306) are the one correction the plugin's prepared copy makes.
+    # Decimal REALs (CiA 306) are the one correction the bridge's prepared copy makes.
     test.assertEqual([c.kind for c in corrections if c.kind != "real"], [],
-                     "the plugin would read a corrected copy, not the file itself")
+                     "the bridge would read a corrected copy, not the file itself")
     test.assertEqual(cia306.check(text), [])
     test.assertIsNone(lint.read_error)
     test.assertEqual([f.message for f in lint.failing("all")], [])
@@ -196,7 +196,7 @@ class Generator(unittest.TestCase):
             slaveeds.generate({"objects": [obj("l\u00e4mp\u00f6", "UNSIGNED8", "to_master")]})
 
     def test_real_default_reaches_the_plugin(self):
-        # The file has CiA 306's 21.5; the plugin's prepared copy gives Lely
+        # The file has CiA 306's 21.5; the bridge's prepared copy gives Lely
         # the same REAL.
         text, _ = slaveeds.generate({"objects": [obj("temp", "REAL32", "to_master", default=21.5, low=-40.5,
                                                      high=1e20)]})
@@ -329,7 +329,7 @@ class Command(unittest.TestCase):
 
 
 class SlaveContract(unittest.TestCase):
-    """The plugin's checks of a slave network and a gateway, on the PC."""
+    """The bridge's checks of a slave network and a gateway, on the PC."""
 
     def setUp(self):
         self.dir = tmpdir(self)

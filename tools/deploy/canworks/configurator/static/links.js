@@ -360,9 +360,9 @@ function linkBox(l, i) {
       el("label", null, "TPDO", tpdoSel, el("span", { class: "field-msg", dataset: { for: lp + ".from.tpdo" } })),
       el("label", null, "COB-ID", el("output", { dataset: { linkCob: String(i) } }, cob === null ? "?" : "0x" + cob.toString(16).toUpperCase()),
         hint("The producer TPDO's; set it on the producer.")),
-      choice("On PLC stop", lp + ".on_plc_stop", [
+      choice("When the bridge stops", lp + ".on_plc_stop", [
         { value: undefined, literal: "follow", label: "Follow the master", help: "The link's nodes get the master's on_plc_stop command like every node." },
-        { value: "keep", label: "Keep running", help: "The master sends the link's nodes no NMT command on PLC stop, so the link runs on (event-driven types only: SYNC stops)." },
+        { value: "keep", label: "Keep running", help: "The master sends the link's nodes no NMT command when the bridge stops, so the link runs on (event-driven types only: SYNC stops)." },
       ])),
     el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Producer"), linkLiveCell((l.from || {}).node),
       el("span", { class: "muted" }, prodNode ? `${nodeText(prodNode)} TPDO ${(l.from || {}).tpdo}: ${prod.length} position${prod.length === 1 ? "" : "s"}, ${prod.reduce((s, p) => s + p.bits, 0)} bit` : "")),
