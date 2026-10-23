@@ -757,7 +757,7 @@ class Page(unittest.TestCase):
         self.assertIn("node ID 12 at every start", pg.locator(assign).locator("xpath=ancestor::div[1]").inner_text())
         # Without a serial number it is an error, and the field says why.
         self.settled()
-        self.assertGreater(pg.locator("#problem-list li.error").count(), 0)
+        pg.wait_for_selector("#problem-list li.error")
         pg.wait_for_selector('[data-for="nodes[0].serial_number"]:has-text("serial_number")')
         path = os.path.join(self.project, "canworks", "canworks.json")
         self.assertFalse(os.path.exists(path))
