@@ -41,4 +41,18 @@
 
 ## 7. Hardware (Pi, when free)
 
-- [ ] 7.1 OpenPLC project with `receive_blocks` 1 and 2 on the bench: Windows gs_usb adapter sending 0x6A0-0x6AF at 200, 500 and 1000 frames/s for 20 s each; frames received against sent, `DROPPED`, no stall closes; record in the PR
+- [x] 7.1 OpenPLC project with `receive_blocks` 1 and 2 on the bench: Windows gs_usb adapter sending 0x6A0-0x6AF at 200, 500 and 1000 frames/s for 20 s each; frames received against sent, `DROPPED`, no stall closes; record in the PR
+  - Result 2026-10-23, Pi 5 (OpenPLC runtime v4.3.1, 10 ms poll, node 23 on the same bus), 0x6A0-0x6AF from the Windows gs_usb adapter, DLC 8, 20 s bursts:
+
+    | Blocks | Adapter on the Pi | Rate | Sent | Received by the PLC | DROPPED | Stall closes |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 1 | CANable2 slcan | 200/s | 4000 | 4000 | 0 | 0 |
+    | 1 | CANable2 slcan | 400/s | 8000 | 8000 | 0 | 0 |
+    | 2 | CANable2 slcan | 200/s | 4000 | 4000 | 0 | 0 |
+    | 2 | CANable2 slcan | 400/s | 8000 | 8000 | 0 | 0 |
+    | 1 | CANable2 candleLight | 500/s | 10000 | 9168 | 832 (OVERFLOW set) | 0 |
+    | 1 | CANable2 candleLight | 1000/s | 20000 | 9163 | 10837 (OVERFLOW set) | 0 |
+    | 2 | CANable2 candleLight | 500/s | 10000 | 10000 | 0 | 0 |
+    | 2 | CANable2 candleLight | 1000/s | 19999 | 19999 | 0 | 0 |
+
+    One block tops out at about 458 frames/s and two take 1000/s without loss, as predicted (450 and 1050). Received plus dropped equals sent in every row. The CANable2's slcan firmware stopped receiving above about 400 frames/s (an adapter limit, not the bridge's), so the high rates ran after reflashing it to candleLight.

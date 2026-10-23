@@ -267,7 +267,7 @@ The ERROR_IDs are those of the matching block family ([plc-library.md](plc-libra
 
     frames/s = records per batch × polls per second / 2
 
-At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive block and 1050 with two (measured with the runtime's own master: 444 and 1036); a 5 ms poll doubles it. The bridge's own part is under 1 ms. The configurator's Function blocks section shows the rate for the config's poll.
+At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive block and 1050 with two (measured with the runtime's own master: 444 and 1036; on a Raspberry Pi 5 bench one block took about 458 frames/s and two took 1000 frames/s without loss); a 5 ms poll doubles it. The bridge's own part is under 1 ms. The configurator's Function blocks section shows the rate for the config's poll.
 
 **Network info** (18 registers per network, every 100 ms): CAN state and bus load, error counters, bus-offs, frames received and sent, error frames, and for a J1939 network its claim state, address, NAME and ECU count.
 
