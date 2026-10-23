@@ -1,14 +1,13 @@
 # PLCopen XML for other PLCs
 
-`canworks-bridge` runs the CAN networks and serves their values as Modbus TCP registers. OpenPLC gets its program side written by Save in the configurator. For other PLCs that import PLCopen XML (TC6 2.01), `canworks-deploy --export-plcopen` writes the same program side as one file, plus a small part per PLC that connects it to the bridge:
+`canworks-bridge` runs the CAN networks and serves their values as Modbus TCP registers. OpenPLC gets its program side written by Save in the configurator. For other PLCs that import PLCopen XML (TC6 2.01), `canworks-deploy --export-plcopen` writes the same program side as one file, plus a small part per PLC that connects it to the bridge. In the configurator it is the **Download** of a truST or Other PLC [connection](configurator.md#connections) on the Modbus bridge page, as a zip named `<config>-<connection>.zip`.
 
 | PLC | `--for` | What connects the program to the bridge |
 | --- | --- | --- |
-| CODESYS-based tools | `codesys` | A script for CODESYS's script engine adds the Modbus TCP client devices and orders the task |
 | truST | `trust` | `canworks_io.st` and an `io.toml` part for truST's `modbus-tcp` driver |
 | Any other tool with PLCopen XML import | `generic` | The register map as CSV and the channels to set up by hand |
 
-CODESYS here is a Modbus client of the bridge, and the bridge still runs the CAN networks. To let CODESYS run the CANopen master itself, use [the CODESYS target](codesys.md) instead.
+CODESYS is not a Modbus client of the bridge: `--for codesys` is refused. To build the networks into CODESYS, CODESYS runs the CANopen master itself as [the CODESYS target](codesys.md) (`canworks-deploy --codesys-import`).
 
 ## What the file holds
 
@@ -26,32 +25,19 @@ The file ends at one rule: **input register k is `canworks.in_w[k]`, holding reg
 
 ### The PLC link
 
-The export needs the bridge's PLC link: `"plc_link": true` in the `bridge` object (an OpenPLC config has it already), then **Pack for Modbus**. The bridge then puts its map hash at input registers 0-1 and takes a header at holding registers 0-2. `canworks.ok` is TRUE only while the hash matches the one the programs were generated for and the bridge's counter moves, and the bridge applies outputs only while the header carries that hash. A program built for another map therefore leaves the outputs off. Export again after every config change. ([modbus-bridge.md](modbus-bridge.md#openplc-through-modbus) describes the header and the hash.)
+The export needs the bridge's PLC link: `"plc_link": true` in the `bridge` object (an OpenPLC config has it already), then **Pack for Modbus**. The bridge then puts its map hash at input registers 0-1 and takes a header at holding registers 0-2. `canworks.ok` is TRUE only while the hash matches the one the programs were generated for and the bridge's counter moves, and the bridge applies outputs only while the header carries that hash. A program built for another map therefore leaves the outputs off. Export again after every config change. ([modbus-bridge.md](modbus-bridge.md#openplc) describes the header and the hash.)
 
 ## Export
 
 ```sh
-canworks-deploy --config canworks.json --export-plcopen out --for codesys --bridge-host 192.168.10.5
-canworks-deploy --config canworks.json --export-plcopen out --for trust --with-main
+canworks-deploy --config canworks.json --export-plcopen out --for trust --bridge-host 192.168.10.5 --with-main
 canworks-deploy --config canworks.json --export-plcopen out --for generic
 ```
 
-- `--bridge-host` is the bridge's address as the PLC sees it. Without it, the export uses `listen` when that is a real address. For truST on the bridge's own Linux device a wildcard `listen` gives 127.0.0.1. CODESYS needs a real address.
-- `--with-main` (truST, generic) adds an empty program `main` to the task between `canworks_in` and `canworks_out`.
-- `--codesys-plc NAME` and `--codesys-ethernet NAME` (CODESYS) name the PLC device and the Ethernet adapter when the project has several.
+- `--bridge-host` is the bridge's address as the PLC sees it. Without it, the export uses `listen` when that is a real address. For truST on the bridge's own Linux device a wildcard `listen` gives 127.0.0.1. A connection's **Bridge address the PLC uses** setting is this value.
+- `--with-main` adds an empty program `main` to the task between `canworks_in` and `canworks_out`.
 
 Every folder has a `README.txt` with the next steps for that PLC. The bridge takes writes only from the addresses in `writers`, so the PLC's address must be one of them.
-
-## CODESYS
-
-The folder holds `canworks.xml`, `canworks-codesys-modbus.json` (the bridge's address, port and unit ID, the channels and the cycle), `import_canworks_modbus.py` and `import_canworks.py`.
-
-1. Open the PLC project in CODESYS.
-2. **Tools > Scripting > Execute Script File...**, pick `import_canworks_modbus.py`.
-3. The script finds the PLC as [the CODESYS export](codesys.md) does, imports `canworks.xml` into its application (replacing what an earlier run imported), adds or reuses an Ethernet adapter, a Modbus TCP Master and under it a Modbus TCP Slave `canworks_bridge` with the bridge's address, port and unit ID, and puts `canworks_in` first and `canworks_out` last in the task that runs your program. It builds the project and writes `import_report.txt` next to itself. It does not save.
-4. Do what the report lists as **by hand**: the slave's channels (one read and one write channel each, with function, cycle, offset, length and the `canworks.in_w`/`canworks.out_w` range to map), the Ethernet adapter's network interface, and the task calls when the application has several tasks.
-
-Run the script again after a new export; it reuses the devices it added.
 
 ## truST
 

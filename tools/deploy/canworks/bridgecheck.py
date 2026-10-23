@@ -19,20 +19,37 @@ STATUS_BYTES = 8
 CONTROL_BYTES = 6
 LIVE_LIST_BYTES = 16
 SDO_BYTES = 14
-# bridge.openplc: the map hash at input bytes 0-3, the status block at input
+# bridge.plc_link: the map hash at input bytes 0-3, the status block at input
 # byte 4, the PLC link header at output bytes 0-5.
 OPENPLC_HASH_BYTES = 4
 OPENPLC_STATUS_BYTE = 4
 OPENPLC_HEADER_BYTES = 6
+# What adding an OpenPLC connection sets (modbus-connections "OpenPLC
+# connection bridge settings").
 OPENPLC_LISTEN = "127.0.0.1:1502"
-OPENPLC_WRITERS = ["127.0.0.1"]
+OPENPLC_ADDRESS = "127.0.0.1"
 OPENPLC_POLL_MS = 10
 # The largest byte address of a bridge config (+1), per direction.
 IMAGE_BYTES = 8192
 
 KEYS = ("listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers", "readers", "watchdog_ms", "on_client_loss",
-        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "openplc", "plc_link", "mailboxes")
-OPENPLC_KEYS = ("poll_ms", "remote_device", "iec_base")
+        "status_location", "control_location", "live_lists", "sdo_bridge_location", "sdo_bridge_write", "plc_link", "mailboxes",
+        "connections")
+OPENPLC_REMOVED = ("field 'openplc' was removed: OpenPLC is a connection on the Modbus bridge page; open the config in "
+                   "the configurator and add it there")
+
+# bridge.connections (modbus-connections): the configurator's clients. Each
+# kind's own fields.
+CONNECTION_KINDS = ("openplc", "trust", "plc", "nodered", "hmi")
+CONNECTION_TITLES = {"openplc": "OpenPLC", "trust": "truST", "plc": "Other PLC", "nodered": "Node-RED",
+                     "hmi": "HMI, SCADA or script"}
+CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash")
+CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base"),
+                     "trust": ("format", "library", "bridge_host"),
+                     "plc": ("format", "library", "bridge_host"),
+                     "nodered": ("period_ms", "bridge_host"),
+                     "hmi": ("format",)}
+CONNECTION_FORMATS = {"trust": ("plcopen",), "plc": ("plcopen", "st"), "hmi": ("csv", "json", "st")}
 
 # Every address may write: the explicit form `writers` needs for that.
 ALL_WRITERS = ["0.0.0.0/0", "::/0"]
@@ -44,21 +61,32 @@ def is_bridge_config(cfg):
     return isinstance(cfg, dict) and "bridge" in cfg
 
 
-def is_openplc(cfg):
-    """OpenPLC through its Modbus master: a bridge config with `bridge.openplc`."""
+def connections(cfg):
+    """The well-formed entries of `bridge.connections` (dicts with a kind)."""
     b = cfg.get("bridge") if isinstance(cfg, dict) else None
-    return isinstance(b, dict) and isinstance(b.get("openplc"), dict)
+    items = b.get("connections") if isinstance(b, dict) else None
+    return [c for c in items if isinstance(c, dict) and isinstance(c.get("kind"), str)] if isinstance(items, list) else []
+
+
+def openplc_connection(cfg):
+    """The config's OpenPLC connection, or None."""
+    return next((c for c in connections(cfg) if c["kind"] == "openplc"), None)
+
+
+def is_openplc(cfg):
+    """OpenPLC through its Modbus master: a bridge config with an OpenPLC connection."""
+    return openplc_connection(cfg) is not None
 
 
 def has_plc_link(cfg):
-    """The PLC link header and map hash: `bridge.plc_link` or `bridge.openplc`."""
+    """The PLC link header and map hash: `bridge.plc_link` true."""
     b = cfg.get("bridge") if isinstance(cfg, dict) else None
-    return isinstance(b, dict) and (isinstance(b.get("openplc"), dict) or b.get("plc_link") is True)
+    return isinstance(b, dict) and b.get("plc_link") is True
 
 
 def link_settings(cfg):
     """The effective settings the generated link code needs: openplc_settings
-    for an openplc config, else the bridge's own (watchdog default 1000 ms)."""
+    with an OpenPLC connection, else the bridge's own (watchdog default 1000 ms)."""
     if is_openplc(cfg):
         return openplc_settings(cfg)
     b = cfg.get("bridge") or {}
@@ -70,9 +98,9 @@ def link_settings(cfg):
 
 
 def openplc_settings(cfg):
-    """The effective bridge settings of an openplc config (defaults applied)."""
+    """The OpenPLC connection's settings and the bridge's (defaults applied)."""
     b = cfg.get("bridge") or {}
-    o = b.get("openplc") or {}
+    o = openplc_connection(cfg) or {}
     poll = _uint(o.get("poll_ms"))
     poll = OPENPLC_POLL_MS if poll is None else max(5, min(poll, 1000))
     listen = b.get("listen") if isinstance(b.get("listen"), str) else OPENPLC_LISTEN
@@ -83,30 +111,150 @@ def openplc_settings(cfg):
         "iec_base": _uint(o.get("iec_base")),
         "listen": listen,
         "port": int(listen.rsplit(":", 1)[1]) if _valid_listen(listen) else 1502,
-        "watchdog_ms": max(50, 5 * poll) if wd is None else wd,
+        "watchdog_ms": 1000 if wd is None else wd,
     }
 
 
-def _openplc(b, w, err):
-    """Checks bridge.openplc; True when present."""
-    if "openplc" not in b:
+def openplc_watchdog(poll_ms):
+    """The watchdog an OpenPLC connection sets when there is none: 5 polls, at least 50 ms."""
+    return max(50, 5 * poll_ms)
+
+
+def connection_writers(cfg):
+    """The sorted addresses of the connections that write (bridge.writers
+    follows them)."""
+    return sorted({c["address"] for c in connections(cfg)
+                   if c.get("writes") is True and isinstance(c.get("address"), str) and c["address"]},
+                  key=_address_key)
+
+
+def _address_key(text):
+    try:
+        a = ipaddress.ip_address(text)
+        return (a.version, int(a), text)
+    except ValueError:
+        return (9, 0, text)
+
+
+def _is_loopback(host):
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
+def listen_host(listen):
+    """The address part of a listen text, or None."""
+    if not isinstance(listen, str) or not _valid_listen(listen):
+        return None
+    return listen[1:listen.find("]:")] if listen.startswith("[") else listen.rsplit(":", 1)[0]
+
+
+def listen_all(listen):
+    """`listen` on every address with the same port (Listen on all addresses)."""
+    port = listen.rsplit(":", 1)[1] if isinstance(listen, str) and _valid_listen(listen) else "502"
+    return "0.0.0.0:" + port
+
+
+def _connections(b, w, err, warn, link):
+    """Checks bridge.connections (modbus-connections "Connections in the config")."""
+    if "connections" not in b:
+        return
+    items = b["connections"]
+    if not isinstance(items, list):
+        err(w, "field 'connections' must be a list", [w + ".connections"])
+        return
+    names = {}
+    openplc = 0
+    listen = listen_host(b.get("listen"))
+    for i, c in enumerate(items):
+        cw = "%s.connections[%d]" % (w, i)
+        if not isinstance(c, dict):
+            err(cw, "must be an object", [cw])
+            continue
+        kind = c.get("kind")
+        if kind not in CONNECTION_KINDS:
+            err(cw, "field 'kind' must be one of %s" % ", ".join('"%s"' % k for k in CONNECTION_KINDS), [cw + ".kind"])
+            continue
+        for key in c:
+            if key not in CONNECTION_COMMON + CONNECTION_FIELDS[kind]:
+                err(cw, "unknown field '%s' for a %s connection" % (key, CONNECTION_TITLES[kind]), [cw + "." + key])
+        name = c.get("name")
+        label = name if isinstance(name, str) and name else CONNECTION_TITLES[kind]
+        if not isinstance(name, str) or not 1 <= len(name) <= 64:
+            err(cw, "field 'name' must be 1-64 characters", [cw + ".name"])
+        elif name in names:
+            err(cw, "connection name \"%s\" is used twice (also connections[%d])" % (name, names[name]), [cw + ".name"])
+        else:
+            names[name] = i
+        address = c.get("address")
+        if "address" not in c:
+            err(cw, "missing required field 'address' (the client's IP address)", [cw + ".address"])
+        elif not isinstance(address, str) or not _valid_address(address):
+            err(cw, "field 'address' must be an IPv4 or IPv6 address, not %s" % _show(address), [cw + ".address"])
+        elif listen and _is_loopback(listen) and not _is_loopback(address):
+            err(cw, "%s connects from %s, but the bridge listens on %s only: listen on all addresses"
+                % (label, address, b.get("listen")), [w + ".listen", cw + ".address"])
+        if "writes" in c and not isinstance(c["writes"], bool):
+            err(cw, "field 'writes' must be true or false", [cw + ".writes"])
+        if "map_hash" in c and not (isinstance(c["map_hash"], str) and len(c["map_hash"]) == 10
+                                    and c["map_hash"].startswith("0x")
+                                    and all(ch in "0123456789abcdef" for ch in c["map_hash"][2:])):
+            err(cw, "field 'map_hash' must look like 0x1234abcd", [cw + ".map_hash"])
+        if kind in CONNECTION_FORMATS and "format" in c and c["format"] not in CONNECTION_FORMATS[kind]:
+            err(cw, "field 'format' of a %s connection must be %s" % (
+                CONNECTION_TITLES[kind], " or ".join('"%s"' % f for f in CONNECTION_FORMATS[kind])), [cw + ".format"])
+        if "library" in c and not isinstance(c["library"], bool):
+            err(cw, "field 'library' must be true or false", [cw + ".library"])
+        if "bridge_host" in c and not isinstance(c["bridge_host"], str):
+            err(cw, "field 'bridge_host' must be a string", [cw + ".bridge_host"])
+        v = _get_uint(c, "period_ms", cw, 60000, err)
+        if v is not None and v < 10:
+            err(cw, "field 'period_ms' must be 10-60000", [cw + ".period_ms"])
+        if kind == "openplc":
+            openplc += 1
+            if openplc > 1:
+                err(cw, "a config has one OpenPLC connection", [cw + ".kind"])
+            v = _get_uint(c, "poll_ms", cw, 1000, err)
+            if v is not None and v < 5:
+                err(cw, "field 'poll_ms' must be 5-1000", [cw + ".poll_ms"])
+            if "remote_device" in c:
+                rd = c["remote_device"]
+                if (not isinstance(rd, str) or not 1 <= len(rd) <= 64
+                        or not all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in rd)):
+                    err(cw, "field 'remote_device' must be 1-64 letters, digits, '_' or '-' (the editor's file name)",
+                        [cw + ".remote_device"])
+            _get_uint(c, "iec_base", cw, 65535, err)
+            if isinstance(address, str) and _valid_address(address) and not _is_loopback(address):
+                err(cw, "an OpenPLC connection's address is 127.0.0.1: OpenPLC runs on the bridge's device",
+                    [cw + ".address"])
+            if not link:
+                err(w, "an OpenPLC connection needs 'plc_link' true: OpenPLC's program checks the map hash",
+                    [w + ".plc_link"])
+            if b.get("word_order") == "high_first":
+                err(w, "field 'word_order' must be \"low_first\" with an OpenPLC connection: OpenPLC's Modbus master "
+                       "reads 32- and 64-bit values lowest word first", [w + ".word_order"])
+        elif link and c.get("writes") is True and kind in ("nodered", "hmi"):
+            warn(cw, "%s writes, but with the PLC link only the PLC writes outputs and mailboxes: untick Writes"
+                 % label, [cw + ".writes"])
+    if items and isinstance(b.get("writers"), list):
+        cfg = {"bridge": b}
+        if sorted(b["writers"], key=_address_key) != connection_writers(cfg):
+            warn(w, "'writers' (%s) differ from the connections that write (%s): use the connections' addresses"
+                 % (", ".join(map(str, b["writers"])) or "none", ", ".join(connection_writers(cfg)) or "none"),
+                 [w + ".writers"])
+
+
+def _valid_address(text):
+    try:
+        ipaddress.ip_address(text)
+        return True
+    except ValueError:
         return False
-    o = b["openplc"]
-    ow = w + ".openplc"
-    if not isinstance(o, dict):
-        err(w, "field 'openplc' must be an object", [ow])
-        return False
-    v = _get_uint(o, "poll_ms", ow, 1000, err)
-    if v is not None and v < 5:
-        err(ow, "field 'poll_ms' must be 5-1000", [ow + ".poll_ms"])
-    if "remote_device" in o:
-        name = o["remote_device"]
-        if (not isinstance(name, str) or not 1 <= len(name) <= 64
-                or not all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in name)):
-            err(ow, "field 'remote_device' must be 1-64 letters, digits, '_' or '-' (the editor's file name)",
-                [ow + ".remote_device"])
-    _get_uint(o, "iec_base", ow, 65535, err)
-    return True
+
+
+def _show(value):
+    return '"%s"' % value if isinstance(value, str) else "a %s" % type(value).__name__
 
 
 def _uint(value):
@@ -202,20 +350,17 @@ def check_bridge(cfg, nets, err, warn):
     if not isinstance(b, dict):
         err("", "field 'bridge' must be an object", ["bridge"])
         return uses
-    openplc = _openplc(b, w, err)
-    link = openplc
+    if "openplc" in b:
+        err(w, OPENPLC_REMOVED, [w + ".openplc"])
+    link = False
     if "plc_link" in b:
         if not isinstance(b["plc_link"], bool):
             err(w, "field 'plc_link' must be true or false", [w + ".plc_link"])
-        elif openplc and not b["plc_link"]:
-            err(w, "field 'plc_link' can't be false with 'openplc': OpenPLC always uses the PLC link",
-                [w + ".plc_link"])
         else:
-            link = link or b["plc_link"]
+            link = b["plc_link"]
     listen = b.get("listen")
     if "listen" not in b:
-        if not openplc:
-            err(w, "missing required field 'listen'", [w + ".listen"])
+        err(w, "missing required field 'listen'", [w + ".listen"])
     elif not isinstance(listen, str) or not listen:
         err(w, "field 'listen' must be a non-empty string", [w + ".listen"])
     elif not _valid_listen(listen):
@@ -224,16 +369,13 @@ def check_bridge(cfg, nets, err, warn):
     _get_uint(b, "unit_id", w, 255, err)
     if "word_order" in b and b["word_order"] not in ("high_first", "low_first"):
         err(w, "field 'word_order' must be \"high_first\" or \"low_first\"", [w + ".word_order"])
-    if openplc and b.get("word_order") == "high_first":
-        err(w, "field 'word_order' must be \"low_first\" with 'openplc': OpenPLC's Modbus master reads 32- and "
-               "64-bit values lowest word first", [w + ".word_order"])
     v = _get_uint(b, "max_clients", w, 64, err)
     if v is not None and v < 1:
         err(w, "field 'max_clients' must be 1-64", [w + ".max_clients"])
     v = _get_uint(b, "max_clients_per_address", w, 64, err)
     if v is not None and v < 1:
         err(w, "field 'max_clients_per_address' must be 1-64", [w + ".max_clients_per_address"])
-    if "writers" not in b and not openplc:
+    if "writers" not in b:
         err(w, WRITERS_MISSING, [w + ".writers"])
     for key in ("writers", "readers"):
         if key not in b:
@@ -251,8 +393,8 @@ def check_bridge(cfg, nets, err, warn):
     loc = _block(b, "status_location", w, "I", STATUS_BYTES, err)
     if link:
         if loc and loc.index != OPENPLC_STATUS_BYTE:
-            err(w, "field 'status_location' must be %%IB4 with '%s' (input bytes 0-3 hold the map hash), or left "
-                   "out" % ("openplc" if openplc else "plc_link"), [w + ".status_location"])
+            err(w, "field 'status_location' must be %IB4 with 'plc_link' (input bytes 0-3 hold the map hash), or "
+                   "left out", [w + ".status_location"])
         loc = parse_location("%IB4")
     if loc:
         uses.append((loc, "bridge status_location", w + ".status_location", STATUS_BYTES))
@@ -311,8 +453,9 @@ def check_bridge(cfg, nets, err, warn):
     elif b.get("sdo_bridge_write") is True and "sdo_bridge_location" not in b:
         warn(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'", [w + ".sdo_bridge_write"])
     uses.extend(_mailboxes(b, w, len(nets), err))
+    _connections(b, w, err, warn, link)
     if link:
-        where = w + (".openplc" if openplc else ".plc_link")
+        where = w + ".plc_link"
         uses.append((parse_location("%IB0"), "bridge map hash (PLC link)", where, OPENPLC_HASH_BYTES))
         uses.append((parse_location("%QB0"), "the PLC link header (output bytes 0-5)", where, OPENPLC_HEADER_BYTES))
     return uses

@@ -211,8 +211,7 @@ const char* const kCodesysConfig =
     "canworks-deploy --codesys-import, not canworks-bridge";
 // A config with neither marker (canopen-config-contract "Config target").
 const char* const kNotBridgeConfig =
-    "this config is for the removed OpenPLC plugin; open it in the configurator and use Switch to OpenPLC through "
-    "Modbus";
+    "this config is for the removed OpenPLC plugin; open it in the configurator and use Use with canworks-bridge";
 
 // Node fields of the removed program (firmware) download.
 const std::initializer_list<const char*> kRemovedNodeFields = {"software_file", "software_version"};
@@ -3374,38 +3373,6 @@ class Parser {
     return !p.empty() && !*end && bits >= 0 && bits <= max_bits;
   }
 
-  // bridge.openplc: OpenPLC through its Modbus master (modbus-bridge spec).
-  void parse_openplc(const cJSON* b, const std::string& w, BridgeConfig& c) {
-    const cJSON* o = cJSON_GetObjectItemCaseSensitive(b, "openplc");
-    if (!o) return;
-    const std::string ow = w + ".openplc";
-    if (!cJSON_IsObject(o)) {
-      error(w, "field 'openplc' must be an object");
-      return;
-    }
-    c.openplc = true;
-    check_known(o, ow, {"poll_ms", "remote_device", "iec_base"});
-    uint64_t v;
-    if (get_uint(o, "poll_ms", ow, false, 1000, v)) {
-      if (v < 5) error(ow, "field 'poll_ms' must be 5-1000");
-      c.poll_ms = (unsigned)std::max<uint64_t>(v, 5);
-    }
-    std::string name;
-    if (get_string(o, "remote_device", ow, false, name)) {
-      bool ok = !name.empty() && name.size() <= 64;
-      for (char ch : name)
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ok = false;
-      if (!ok)
-        error(ow, "field 'remote_device' must be 1-64 letters, digits, '_' or '-' (the editor's file name)");
-      else
-        c.remote_device = name;
-    }
-    if (get_uint(o, "iec_base", ow, false, 65535, v)) {
-      c.has_iec_base = true;
-      c.iec_base = (unsigned)v;
-    }
-  }
-
   void parse_bridge(const cJSON* root, ConfigSet& set) {
     const cJSON* b = cJSON_GetObjectItemCaseSensitive(root, "bridge");
     const std::string w = "bridge";
@@ -3418,17 +3385,16 @@ class Parser {
     check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
                        "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
-                       "sdo_bridge_location", "sdo_bridge_write", "openplc", "plc_link", "mailboxes"});
-    parse_openplc(b, w, c);
-    // plc_link: the PLC link header for any client; openplc always has it.
-    bool link = c.openplc;
-    if (cJSON_GetObjectItemCaseSensitive(b, "plc_link")) {
-      get_bool(b, "plc_link", w, link);
-      if (c.openplc && !link) error(w, "field 'plc_link' can't be false with 'openplc': OpenPLC always uses the PLC link");
-    }
-    c.plc_link = c.openplc || link;
-    if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "listen")) c.listen = "127.0.0.1:1502";
-    if (get_string(b, "listen", w, !c.openplc, c.listen)) {
+                       "sdo_bridge_location", "sdo_bridge_write", "plc_link", "mailboxes", "connections"});
+    // bridge.openplc was removed (modbus-connections): OpenPLC is a connection.
+    if (cJSON_GetObjectItemCaseSensitive(b, "openplc"))
+      error(w, "field 'openplc' was removed: OpenPLC is a connection on the Modbus bridge page; open the config in "
+               "the configurator and add it there");
+    // bridge.connections: the configurator's clients; the bridge doesn't read them.
+    const cJSON* conns = cJSON_GetObjectItemCaseSensitive(b, "connections");
+    if (conns && !cJSON_IsArray(conns)) error(w, "field 'connections' must be a list");
+    get_bool(b, "plc_link", w, c.plc_link);
+    if (get_string(b, "listen", w, true, c.listen)) {
       bool v6 = !c.listen.empty() && c.listen[0] == '[';
       size_t colon = v6 ? c.listen.find("]:") : c.listen.rfind(':');
       std::string host = colon == std::string::npos ? "" : c.listen.substr(v6 ? 1 : 0, v6 ? colon - 1 : colon);
@@ -3450,12 +3416,6 @@ class Parser {
       else if (order != "high_first")
         error(w, "field 'word_order' must be \"high_first\" or \"low_first\"");
     }
-    if (c.openplc) {
-      if (order == "high_first")
-        error(w, "field 'word_order' must be \"low_first\" with 'openplc': OpenPLC's Modbus master reads 32- and "
-                 "64-bit values lowest word first");
-      c.low_first = true;
-    }
     if (get_uint(b, "max_clients", w, false, 64, v)) {
       if (v < 1) error(w, "field 'max_clients' must be 1-64");
       c.max_clients = (unsigned)v;
@@ -3464,8 +3424,7 @@ class Parser {
       if (v < 1) error(w, "field 'max_clients_per_address' must be 1-64");
       c.max_clients_per_address = (unsigned)v;
     }
-    if (c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "writers")) c.writers.push_back("127.0.0.1");
-    if (!c.openplc && !cJSON_GetObjectItemCaseSensitive(b, "writers"))
+    if (!cJSON_GetObjectItemCaseSensitive(b, "writers"))
       error(w, "missing required field 'writers': list the addresses that may write, or [\"0.0.0.0/0\", \"::/0\"] "
                "to let every address write");
     for (const char* key : {"writers", "readers"}) {
@@ -3485,7 +3444,6 @@ class Parser {
         (std::strcmp(key, "writers") == 0 ? c.writers : c.readers).push_back(it->valuestring);
       }
     }
-    if (c.openplc) c.watchdog_ms = std::max(50u, 5 * c.poll_ms);
     if (get_uint(b, "watchdog_ms", w, false, 60000, v)) c.watchdog_ms = (unsigned)v;
     std::string loss;
     if (get_string(b, "on_client_loss", w, false, loss)) {
@@ -3501,8 +3459,8 @@ class Parser {
     c.has_status = block_location(b, "status_location", w, IecArea::Input, kBridgeStatusBytes, c.status_location);
     if (c.plc_link) {
       if (c.has_status && c.status_location.index != kOpenplcStatusByte)
-        error(w, std::string("field 'status_location' must be %IB4 with '") + (c.openplc ? "openplc" : "plc_link") +
-                     "' (input bytes 0-3 hold the map hash), or left out");
+        error(w, std::string("field 'status_location' must be %IB4 with 'plc_link'") +
+                     " (input bytes 0-3 hold the map hash), or left out");
       c.has_status = true;
       c.status_location = IecLocation();
       c.status_location.area = IecArea::Input;

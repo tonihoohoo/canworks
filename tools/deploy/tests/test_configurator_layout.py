@@ -14,7 +14,7 @@ from canworks import diag
 from canworks.configurator import server as srv
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import REPO, back_to_nodes, editor_project_action, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
+from .helpers import with_openplc, REPO, back_to_nodes, editor_project_action, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD
 
@@ -334,7 +334,7 @@ class Layout(OnlineBase):
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
         # An OpenPLC config: its standalone Project page offers New editor project.
         with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
-            cfg = srv.Session().switch_target(json.load(f), "openplc_modbus")["config"]
+            cfg = with_openplc(json.load(f))
         with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(cfg, f)
         for width in (1000, 1280, 1440):
@@ -372,7 +372,7 @@ class Layout(OnlineBase):
         os.makedirs(folder)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
         with open(os.path.join(RTD, "canopen_config.json"), encoding="utf-8") as f:
-            cfg = srv.Session().switch_target(json.load(f), "openplc_modbus")["config"]
+            cfg = with_openplc(json.load(f))
         cfg["networks"][0].setdefault("adapter", {})["simulate"] = True
         with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(cfg, f)

@@ -1412,28 +1412,18 @@ A successful export SHALL report in the message bar; when it has warnings, the m
 - **THEN** the message bar says "Exported <file> with 2 warnings." and Problems is open with the two warnings
 
 ### Requirement: Bridge settings panel
-A bridge project SHALL have a "Modbus bridge" page with:
-- listen address and port, unit ID, word order, maximum clients
-- writer and reader allowlists
-- watchdog time and client-loss action
-- status block, control block, live lists and SDO bridge locations, each with a "Suggest" button that places it after the packed data
+A bridge project SHALL have a "Modbus bridge" page with Connections first, then: listen address and port, unit ID, word order, maximum clients; "Who may write" from the connections and the readers allowlist; watchdog time and client-loss action; status block, control block, live lists and SDO bridge locations, each with "Suggest".
 
 #### Scenario: Add a live list
 - **WHEN** the user adds a live list for network `field` and clicks Suggest
 - **THEN** a free 16-byte input range is chosen and shown in the register map
 
 ### Requirement: Register map preview and export
-The bridge page SHALL show:
-- the register map as a table (Modbus table, address, size, type, name, source) with a filter;
-- the suggested client channels;
-- "Pack for Modbus";
-- one line saying that Export ▾ → For the program has the register map files.
-
-The page SHALL have no export buttons; the CSV, JSON and ST variable exports are in Export ▾ (see "Export menu groups").
+The bridge page SHALL show the register map as a table (Modbus table, address, size, type, name, source) with a filter, the suggested client channels and "Pack for Modbus". It SHALL have no export buttons of its own: the map files are the Downloads of HMI, SCADA or script connections.
 
 #### Scenario: Export the ST list
-- **WHEN** the user picks ST variables in Export ▾ on a Modbus bridge config
-- **THEN** the browser downloads the same file `canworks-deploy --export-modbus-map map.st` writes for this config
+- **WHEN** the user downloads an HMI connection with `format` `st`
+- **THEN** the browser gets the same file `canworks-deploy --export-modbus-map map.st` writes for this config
 
 ### Requirement: Changes are never sent twice
 When a request to the runtime or the adapter gets no answer in time, the configurator SHALL send it again only for operations that only read. For any other operation it SHALL report that there was no answer and that the request may have been carried out, without sending it again.
@@ -3286,52 +3276,38 @@ While the runtime does not answer, the online status SHALL be reported without a
 - **THEN** the page shows the connection state and the console has no repeated errors
 
 ### Requirement: Project target
-A project SHALL have one target: "OpenPLC" (default; OpenPLC Runtime through its Modbus master and the bridge), "Modbus bridge" or "CODESYS".
-
-The target SHALL be chosen in a "Project target" field on the Project page (see "Network tree") and shown in the header, where the badge opens the Project page. No network's Bus page and no Modbus bridge page SHALL have the field. The page, its messages and the check's warnings SHALL use these three names and no other name for a target, apart from the removed plugin's message and its button.
-
-The target SHALL come from the config:
-- a `bridge` object holding `openplc` makes it OpenPLC;
-- any other `bridge` object makes it Modbus bridge;
-- a `codesys` object makes it CODESYS.
-
-A config with neither (a config of the removed OpenPLC plugin) SHALL open read-only, with one message saying the plugin is no longer supported and **Switch to OpenPLC through Modbus**. As one undo step, the switch SHALL:
-- repack the locations for the bridge;
-- add `"bridge": {"openplc": {}, "writers": ["127.0.0.1"]}`;
-- remove what the bridge does not use, including `axis`, `sync_source`, `sync_cycles` and `scan_watchdog_ms`.
-
-Until the switch the page SHALL NOT save the config.
+A project SHALL have one target, by what runs the CAN networks: "Modbus bridge" (`bridge` object) or "CODESYS" (`codesys` object). The Project page's "Project target" field SHALL offer these two, the header SHALL show the target, and its badge SHALL open the Project page. OpenPLC SHALL NOT be a target: it is a connection (`modbus-connections`). A config with neither object SHALL open read-only with **Use with canworks-bridge** (Requirement: Plugin configs).
 
 #### Scenario: Target shown
 - **WHEN** the user opens a config with a `codesys` object
 - **THEN** the Project page's Project target field and the header show CODESYS
 
+#### Scenario: Two choices
+- **WHEN** the user opens the Project target field of a Modbus bridge config with an OpenPLC connection
+- **THEN** it offers Modbus bridge and CODESYS only, and the header reads "Modbus bridge"
+
 #### Scenario: Plugin config opened
-- **WHEN** the user opens a config with no `bridge` and no `codesys` object, whose master has `"sync_source": "plc_cycle"` and whose node `drive` has `axis`
-- **THEN** the message offers Switch to OpenPLC through Modbus and Save is disabled; after the switch the config has `bridge.openplc`, no `sync_source` and no `axis`, timer SYNC is asked for in Problems, and one Undo restores the config as it was opened
+- **WHEN** the user opens a config with no `bridge` and no `codesys` object
+- **THEN** it opens read-only with Use with canworks-bridge (Requirement: Plugin configs) and Save is disabled
 
 #### Scenario: One name
-- **WHEN** the user switches an OpenPLC config to Modbus bridge and back
-- **THEN** the banner, the header badge, the target field and the bridge page heading say "OpenPLC" and "Modbus bridge", never "OpenPLC through Modbus" or "OpenPLC Runtime"
+- **WHEN** the user switches a Modbus bridge config with an OpenPLC connection to CODESYS and back
+- **THEN** the header badge, the target field and the bridge page heading say "CODESYS" and "Modbus bridge", the connection row says "OpenPLC", and nothing says "OpenPLC through Modbus" or "OpenPLC Runtime"
 
 ### Requirement: Only what the target uses is shown
-The page SHALL hide every field, table column, choice option, fieldset, node tab, tree entry, menu item, page and start-page action that the project's target does not use, as the relevance table of `canopen-config-contract` lists them, whether or not the config has a value for it, and SHALL NOT list, mark or ask about such values (Requirement: Settings the target does not use are left out on save). Hints, labels and page texts that differ between targets SHALL use the project target's wording: a bridge or CODESYS project SHALL NOT be told about the Linux device, the PLC scan or PLC locations where they do not apply. The editor project's address scan line SHALL be shown for OpenPLC only. A section SHALL be hidden only when none of its controls is left, and a section whose settings the target does not use (the Emergency section for CODESYS) SHALL not be drawn. A node tab left with nothing SHALL say in one line that the target does not use its settings instead of staying blank. The same rules SHALL apply to all three targets. No target SHALL show a CiA 402 axis setting, a scan watchdog, SYNC from the PLC cycle or a Variable declarations page: they no longer exist.
+The page SHALL hide every field, column, option, section, node tab, tree entry, menu item, page and action that the target does not use, as the relevance table of `canopen-config-contract` lists it, with or without a value, and SHALL NOT mention such values. Texts that differ SHALL use the target's wording. A node tab left empty SHALL say the target does not use its settings. OpenPLC-only parts SHALL follow the OpenPLC connection instead of a target.
 
 #### Scenario: CODESYS project
 - **WHEN** the project's target is CODESYS
-- **THEN** the page shows no IEC location fields or column, status locations, SDO variables, EDS lint, simulated devices, raw CAN messages, gateway, Online access, Emergency section or OpenPLC Editor project actions, and the protocol choice offers only CANopen master
+- **THEN** the page shows no IEC location fields or column, status locations, SDO variables, EDS lint, simulated devices, raw CAN messages, gateway, Online access, Emergency section, Connections or Editor project section, and the protocol choice offers only CANopen master
 
 #### Scenario: Bridge project
-- **WHEN** the project's target is Modbus bridge
-- **THEN** the Project page has no Editor project section and the Bus page's role hint says the bridge is the network's master
+- **WHEN** a Modbus bridge config has no OpenPLC connection and is not inside an editor project
+- **THEN** the Project page has no Editor project section, the bridge page has no OpenPLC settings, and the Bus page's role hint says the bridge is the network's master
 
 #### Scenario: OpenPLC project
-- **WHEN** the project's target is OpenPLC
-- **THEN** no CODESYS page, field or action is shown, and the Modbus bridge page shows none of the listen, port, writers, readers, word order or client limit fields
-
-#### Scenario: Leftover value
-- **WHEN** a CODESYS project still has `on_plc_stop` set to `keep`
-- **THEN** the field is hidden, nothing on the page or in Problems mentions it, and the next save leaves it out
+- **WHEN** a Modbus bridge config has an OpenPLC connection
+- **THEN** no CODESYS page, field or action is shown, the Project page has the Editor project section, and the bridge page shows its listen, word order and client fields as plain bridge settings
 
 #### Scenario: Leftover location in a CODESYS project
 - **WHEN** a CODESYS project's node `dio` has one TPDO entry with `iec_location` `%IW100`
@@ -3345,23 +3321,24 @@ The page SHALL hide every field, table column, choice option, fieldset, node tab
 - **WHEN** a CODESYS project's node has no heartbeat or guarding settings (Method "EDS default") and the user opens its Supervision tab
 - **THEN** the Method choice is shown, there is no Emergency section, and the tab is not blank
 
+#### Scenario: Leftover value
+- **WHEN** a CODESYS project still has `on_plc_stop` set to `keep`
+- **THEN** the field is hidden, nothing on the page or in Problems mentions it, and the next save leaves it out
+
 #### Scenario: Wording guard
 - **WHEN** the browser tests open every page and node tab of a config with every setting set, once per target
-- **THEN** no field the target does not use is visible, no node tab is blank, and no visible text uses another target's words (for CODESYS: the bridge, the Linux device, PLC location, an IEC address, OpenPLC), apart from the Project target field's help
+- **THEN** no field the target does not use is visible, no node tab is blank, and a CODESYS page names no bridge, Linux device, PLC location or OpenPLC
 
 ### Requirement: Switching the target
-Picking another target SHALL switch at once, without a dialog, as one undo step, and a message SHALL say what was done and that Undo restores the previous target:
-- to CODESYS: every PDO entry without a `name` gets its current generated name, the values CODESYS does not use are removed, and `bridge` is removed;
-- from CODESYS: `codesys` objects are removed and every entry without a location gets one, per type for OpenPLC or packed for Modbus for the bridge; entry names stay;
-- between OpenPLC and Modbus bridge: every location is repacked for the new target and the values it does not use are removed.
+Picking the other target SHALL switch at once, without a dialog, as one undo step, with a message saying what was done and that Undo restores it. To CODESYS: entries without `name` get their generated name, values CODESYS does not use and `bridge` (with its connections) are removed. From CODESYS: `codesys` objects are removed and every entry gets a location packed for Modbus; names stay.
 
 #### Scenario: OpenPLC to CODESYS
-- **WHEN** the user switches an OpenPLC project with node `dio` mapping 0x6000 sub 1 to `%IB8` to CODESYS
-- **THEN** no dialog opens, the entry has `name` `Read_input_8_bit_1` and no `iec_location`, the config has a `codesys` object, Check reports no problems, and one Undo restores the OpenPLC project
+- **WHEN** the user switches a bridge project with node `dio` mapping 0x6000 sub 1 to `%IB12` and an OpenPLC connection to CODESYS
+- **THEN** no dialog opens, the entry has `name` `Read_input_8_bit_1` and no `iec_location`, the config has a `codesys` object and no `bridge`, and one Undo restores the bridge project with its connection
 
 #### Scenario: CODESYS to bridge
 - **WHEN** the user switches that CODESYS project to Modbus bridge
-- **THEN** every entry has a byte-addressed location, the `codesys` objects are gone and the register map row of the entry is named after `Read_input_8_bit_1`
+- **THEN** every entry has a byte-addressed location, the `codesys` objects are gone, and Connections is empty
 
 ### Requirement: Variable names of PDO entries
 The PDO table SHALL have a Variable column for every target, editing the entry's `name`, with the full name the declarations and exports will use as placeholder (for OpenPLC the declared name, such as `io_rtd_AI0_Input_PV`). The entry SHALL show a "declared as" line only when the editor project declares its location under a different name. The Location column SHALL be shown only for targets that use locations, also when an entry of a target without locations still has one.
@@ -3431,38 +3408,23 @@ Download SHALL offer the `codesys-export` folder as `<config folder name>_codesy
 - **THEN** the page says CODESYS was not found and offers Download for CODESYS
 
 ### Requirement: Target of a new config
-New config… SHALL be one dialog that asks first what will run the networks. It SHALL offer three choices with one sentence each:
-- **OpenPLC**: the canworks bridge runs the networks next to the OpenPLC Runtime, and OpenPLC reads and writes them over Modbus, set up for you;
-- **Modbus bridge**: no OpenPLC; the values are served as Modbus TCP registers, naming Node-RED, HMIs and another PLC;
-- **CODESYS**: a CODESYS PLC runs the CANopen master.
+New config… SHALL ask "What runs the CAN networks?" with two cards: **Modbus bridge** (canworks-bridge runs the networks and serves Modbus TCP registers; the card lists OpenPLC, truST, other PLCs, Node-RED and HMI, SCADA or scripts as what it works with) and **CODESYS** (a CODESYS PLC runs the CANopen master). Modbus bridge SHALL be preselected. Then it SHALL ask for the name and location, and Create SHALL write the empty config before the page opens it.
 
-OpenPLC SHALL be preselected and SHALL write a config with `bridge.openplc`.
-
-The dialog SHALL then ask for a name (the folder, new or existing and empty) and its location, with Choose… opening the folder dialog.
-
-For OpenPLC it SHALL offer "Also create an OpenPLC Editor project here":
-- ticked by default when the editor's `openplc-cli` is found;
-- disabled with the reason when it is not.
-
-Ticked, the folder SHALL become a new OpenPLC Editor project, opened as a project. While the project is created, the dialog SHALL show "Creating the editor project…" with Create disabled. Otherwise the folder SHALL become a config folder.
-
-In both cases Create SHALL write the target's empty config to disk (the project's `canworks/` folder, or the config folder) before the page opens it, so a reload shows the new config with its target.
+#### Scenario: New Modbus bridge config
+- **WHEN** the user creates a new Modbus bridge config and reloads the page
+- **THEN** the folder holds a config with a `bridge` object and no connections, and the page shows it with the Modbus bridge target and "Saved"
 
 #### Scenario: New CODESYS config
 - **WHEN** the user creates a new config with target CODESYS
 - **THEN** the config is version 2 with a `codesys` object, it is on disk, and the page shows the CODESYS target
 
-#### Scenario: New Modbus bridge config
-- **WHEN** the user creates a new config with target Modbus bridge and reloads the page
-- **THEN** the folder holds a config with a `bridge` object, and the page shows it with the Modbus bridge target and "Saved"
-
 #### Scenario: New OpenPLC config with an editor project
-- **WHEN** `openplc-cli` is found and the user creates a new OpenPLC config in `~/plc/new-machine` with the editor-project tick on
-- **THEN** the dialog shows "Creating the editor project…" until `~/plc/new-machine` is an OpenPLC Editor project with a config holding `bridge.openplc` in its `canworks/` folder and `devices/remote/canworks.json`, and the page shows the mode "project new-machine"
+- **WHEN** `openplc-cli` is found, the user creates a new Modbus bridge config and adds an OpenPLC connection with New editor project… in `~/plc/new-machine`
+- **THEN** the dialog shows "Creating the editor project…" until `~/plc/new-machine` is an OpenPLC Editor project with the config in its `canworks/` folder holding an `openplc` connection and `devices/remote/canworks.json`, and the page shows the mode "project new-machine"
 
 #### Scenario: No editor command-line tool
-- **WHEN** `openplc-cli` is not found and the user picks OpenPLC
-- **THEN** the editor-project tick is off and disabled with the reason, and Create makes a config folder
+- **WHEN** `openplc-cli` is not found and the user adds an OpenPLC connection to a standalone config
+- **THEN** New editor project… is disabled with the reason, and the connection is added to the config in its folder
 
 ### Requirement: Commission in a CODESYS project
 In a CODESYS project, Commission SHALL connect through a USB adapter only, since no canworks runtime runs the bus.
@@ -4070,20 +4032,11 @@ Saving an OpenPLC project (target OpenPLC, inside an editor project) with no err
 - **THEN** the project lists the library as enabled and `canworks_in` builds without adding it by hand
 
 ### Requirement: OpenPLC project page
-The Project page of an OpenPLC project SHALL show the target and the Editor project section (see "Editor project on the Project page").
-
-The Modbus bridge page of such a project SHALL be headed "Modbus bridge", with one line saying OpenPLC's Modbus master reads and writes these registers on 127.0.0.1. Its OpenPLC box SHALL start with these facts from the saved config:
-- the remote device and its port;
-- the poll period with the number of Modbus requests per poll, and the warning above 40;
-- the writer-loss time;
-- the map hash;
-- the first editor `%IW`/`%QW`.
-
-The box SHALL also hold the poll period (`poll_ms`, placeholder 10), the remote device name, the first editor location, the unit ID, the watchdog and the loss action. The page SHALL show the status block as fixed `%IB4`, and no listen, port, writers, readers, word order or client limit fields; those follow `bridge.openplc`.
+A bridge config's OpenPLC connection SHALL have **Settings** on its row, opening the poll period (`poll_ms`, placeholder 10), the remote device name and the first editor location, with facts from the saved config: the remote device and port, the poll with requests per poll and the warning above 40, the writer-loss time, the map hash and the first editor `%IW`/`%QW`.
 
 #### Scenario: Requests per poll
-- **WHEN** an OpenPLC project has 30 nodes with two TPDOs and two RPDOs each, none contiguous
-- **THEN** the Modbus bridge page's OpenPLC box shows the request count above 40 with the warning, and Problems lists it as a warning
+- **WHEN** a config with an OpenPLC connection has 30 nodes with two TPDOs and two RPDOs each, none contiguous
+- **THEN** the OpenPLC connection's settings show the request count above 40 with the warning, and Problems lists it
 
 ### Requirement: Master settings on the Bus page
 The configurator SHALL edit the master's node ID, SYNC period, master heartbeat period, EDS lint setting and boot SDO timeout. The SYNC period field SHALL be optional: left empty it SHALL show "off" as its placeholder and SHALL save no `sync_period_us`, and its hint SHALL say that synchronous PDOs then need an event-driven transmission type. New configs SHALL still start with a SYNC period of 10 ms. The boot SDO timeout field SHALL show 1000 as its placeholder and SHALL save nothing when left empty. The EDS lint setting SHALL offer "communication objects" (`"communication"`, the default, saved as no field), "every object" (`"all"`) and "off" (`"off"`). A loaded config with `strict_eds` SHALL be shown as the matching setting and saved as `eds_lint`, with the page saying so.
@@ -4251,20 +4204,13 @@ Every **Copy as ST call** of the configurator (an object dictionary entry, an NM
 - **WHEN** the user copies the ST call of an INTEGER16 entry in the Online view's object dictionary
 - **THEN** the copied text declares a `CO_SDO_READ`, calls it with `LINK := canworks.link` and converts the result with `UDINT_TO_INT`
 
-### Requirement: Live lists for every network on switch to OpenPLC
-Switching a config to OpenPLC through Modbus SHALL add a live list for every CANopen master network, naming a network without a `name` by its adapter's interface as the config's checks and the bridge do, so `CO_NODE_LIVE` works on each. The config's networks SHALL NOT be renamed.
-
-#### Scenario: One unnamed network
-- **WHEN** a plugin config with one unnamed CANopen master network on `can1` is switched to OpenPLC through Modbus
-- **THEN** `bridge.live_lists` has an entry for network `can1`, the network keeps no `name`, and `CO_NODE_LIVE` on network 0 reads its nodes
-
 ### Requirement: Old located variables in an OpenPLC project's main
-For an OpenPLC project (target OpenPLC through Modbus, inside an editor project) the configurator SHALL find, in `pous/programs/main.st`, the located declarations whose names are members of the `canworks` variable list. When there are any, the Project page SHALL show a warning that `main` still declares that many canworks values at their old plugin locations, which read nothing now, naming the first locations, with the button **Use canworks.\* in main**; Problems SHALL list the same as a warning that opens the Project page; and the message after **Switch to OpenPLC through Modbus** SHALL mention it.
+For an OpenPLC project (a config with an OpenPLC connection, inside an editor project) the configurator SHALL find, in `pous/programs/main.st`, the located declarations whose names are members of the `canworks` variable list. When there are any, the Project page SHALL show a warning that `main` still declares that many canworks values at their old plugin locations, which read nothing now, naming the first locations, with the button **Use canworks.\* in main**; Problems SHALL list the same as a warning that opens the Project page; and the message after **Use with canworks-bridge** SHALL mention it.
 
 The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then remove those declarations and the generated comment `(* CANopen I/O declared from canworks/canworks.json *)`, keep the `VAR` block even when it is left empty (as the editor writes an empty program), and replace each use of a removed name in the program's code with `canworks.<name>`, matching names without regard to case, and leaving comments, strings and names after a `.` unchanged. A name that `main` also declares without a location SHALL be neither removed nor replaced. The message SHALL give the number of declarations and uses moved, name any names left, say where the copy is, and say that an OpenPLC Editor with the project open must reopen it before Build. Located declarations of other names, other POUs and the config SHALL NOT change.
 
 #### Scenario: Switched plugin project
-- **WHEN** a plugin project whose `main` declares `rtd_ok : BOOL AT %IX10.0;` and uses `IF rtd_ok THEN` is switched to OpenPLC through Modbus and saved
+- **WHEN** a plugin project whose `main` declares `rtd_ok : BOOL AT %IX10.0;` and uses `IF rtd_ok THEN` gets Use with canworks-bridge and is saved
 - **THEN** the Project page warns that `main` declares 1 canworks value at its old plugin location `%IX10.0`, and Problems lists the warning
 
 #### Scenario: Move
@@ -4276,43 +4222,47 @@ The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then re
 - **THEN** after the move `start_button` is still declared at `%IX0.0` and the comment still reads `rtd_ok`
 
 ### Requirement: Where things are
-The configurator SHALL place its parts by one rule. The Project page holds the target and actions on the whole project. The header's primary target button puts the config onto the target. Export ▾ holds every file written for download, apart from one item's export on its own page (slave EDS, device notes). A target page holds that target's settings. Copy as ST call stays on its item. `docs/configurator.md` SHALL state this rule.
+The configurator SHALL place its parts by one rule: the Project page holds the target and whole-project actions; the header's primary button puts the config onto the target; Export ▾ holds the network files; the Modbus bridge page holds the bridge settings and the Connections, each with its program-side files; Copy as ST call stays on its item. `docs/configurator.md` SHALL state this rule.
 
 #### Scenario: Node-RED flow
 - **WHEN** a user of a Modbus bridge config looks for the Node-RED flow
-- **THEN** it is in Export ▾ under For the program, and the Modbus bridge page has no export buttons
+- **THEN** it is the Download of a Node-RED connection on the Modbus bridge page, and Export ▾ has no Node-RED item
 
 ### Requirement: Export menu groups
-Export ▾ SHALL have two labelled groups. **Network files** SHALL hold All DCFs, This node's DCF, DBC and Documentation. **For the program** SHALL hold the target's own files, and a group with no item SHALL be hidden: Modbus bridge gets Register map (CSV), Register map (JSON), ST variables and Node-RED flow; OpenPLC gets the two register map files and ST for another PLC (the PLC link file); CODESYS gets Download for CODESYS.
+Export ▾ SHALL hold the network files: All DCFs, This node's DCF, DBC and Documentation, and on a CODESYS config Download for CODESYS. It SHALL hold no register map, ST, PLCopen or Node-RED item: those are each connection's Download (`modbus-connections`).
+
+#### Scenario: Bridge config
+- **WHEN** the user opens Export ▾ on a Modbus bridge config with connections
+- **THEN** it lists All DCFs, This node's DCF, DBC and Documentation, and nothing for a program
 
 #### Scenario: OpenPLC config
-- **WHEN** the user opens Export ▾ on an OpenPLC config
-- **THEN** For the program lists Register map (CSV), Register map (JSON) and ST for another PLC, and no Node-RED flow
+- **WHEN** the user opens Export ▾ on a Modbus bridge config with an OpenPLC connection
+- **THEN** it has no register map, ST, PLCopen or Node-RED item
 
 #### Scenario: Node-RED flow from the menu
-- **WHEN** the user picks Node-RED flow in Export ▾ on a Modbus bridge config with a valid map
-- **THEN** the browser downloads `<config name>-node-red.json`, equal to the command-line export of the same config
+- **WHEN** a Modbus bridge config has a valid map and the user opens Export ▾
+- **THEN** there is no Node-RED flow item, and the bridge page's Add connection offers Node-RED, whose Download gives `<config name>-<connection name>.json`, equal to the command-line export
 
 #### Scenario: CODESYS download from the menu
 - **WHEN** the user picks Download for CODESYS in Export ▾ on a CODESYS config
 - **THEN** the browser downloads `<config folder name>_codesys.zip` as Download on the CODESYS page does
 
 ### Requirement: Same files from the menu
-Each For the program item SHALL download the same file as before: the `canworks-deploy --export-modbus-map` formats, `--export-nodered` with default host and period, and the `codesys-export` zip. When the register map or the export cannot be computed, it SHALL show the reason instead of a file.
+Each connection's Download and each Export ▾ item SHALL give the same file as its command-line export: `--export-modbus-map` formats, `--export-nodered` with the connection's host and period, `--export-plcopen` with the connection's settings, and the `codesys-export` zip. When the file cannot be computed, it SHALL show the reason instead.
 
 #### Scenario: Map cannot be computed
-- **WHEN** the register map of a Modbus bridge config has an error and the user picks Register map (CSV)
-- **THEN** nothing downloads and the reason is shown as "Exports report progress and keep Problems clean" says
+- **WHEN** the register map of a Modbus bridge config has an error and the user presses Download on an HMI connection
+- **THEN** nothing downloads, the reason is shown, and the connection's `map_hash` is unchanged
 
 ### Requirement: Editor project on the Project page
-The Project page of an OpenPLC config SHALL have an **Editor project** section under the target, and other targets SHALL NOT have it. In project mode it SHALL name the project, its folder and the files Save writes into it. In standalone mode it SHALL say there is no editor project, so PLC addresses are not checked, and offer **Move into project…** and **New editor project…** with their existing dialogs.
+The Project page SHALL have an **Editor project** section when the config is inside an OpenPLC Editor project or has an OpenPLC connection. In project mode it SHALL name the project, its folder and the files Save writes. Standalone, it SHALL offer **Move into project…** and **New editor project…**. CODESYS configs SHALL NOT have the section.
 
 #### Scenario: Standalone OpenPLC config
-- **WHEN** a standalone OpenPLC config's Project page is open
-- **THEN** the Editor project section offers Move into project… and New editor project…, and the header has no Project menu
+- **WHEN** a standalone config with an OpenPLC connection opens its Project page
+- **THEN** the Editor project section offers Move into project… and New editor project…
 
 #### Scenario: Modbus bridge config
-- **WHEN** a Modbus bridge config's Project page is open
+- **WHEN** a standalone bridge config without an OpenPLC connection opens its Project page
 - **THEN** it has no Editor project section
 
 ### Requirement: Header menus stay inside the window
@@ -4329,7 +4279,7 @@ When the header would not fit one row, the simulation chip SHALL show only its m
 - **THEN** the chip reads "Simulated", and the Export panel is inside the window
 
 ### Requirement: Copy as ST call only where the blocks run
-Copy as ST call (object dictionary entry, NMT command, CAN message, J1939 PGN) SHALL be offered only on Modbus bridge and OpenPLC configs, not on a CODESYS config and not when commissioning a device without a config.
+Copy as ST call (object dictionary entry, NMT command, CAN message, J1939 PGN) SHALL be offered only on Modbus bridge configs, not on a CODESYS config and not when commissioning a device without a config.
 
 #### Scenario: CODESYS config
 - **WHEN** the user opens a node's object dictionary in Commission on a CODESYS config
@@ -4343,7 +4293,7 @@ When the config lacks the bridge part a copied block needs, the button SHALL sta
 - **THEN** the copied text starts with a comment saying it needs the Function blocks' receive mailbox on the Modbus bridge page
 
 ### Requirement: Out-of-date OpenPLC editor files
-For an OpenPLC project (target OpenPLC through Modbus, inside an editor project) the configurator SHALL compare the editor files Save writes for the saved config (the remote device file and the `canworks_in` and `canworks_out` programs) with the files on disk. A file SHALL count as out of date when canworks wrote it last and it is missing now or Save would now write a different text; in a project canworks never wrote into, nothing SHALL count. `project.json` SHALL count as out of date when its `canworks` variable list has other member names or types than Save writes, or when it does not enable the `canworks` library; the library entry's version SHALL NOT count, since Save installs the configurator's own library into the editor. A file changed since canworks wrote it SHALL NOT count as out of date; Save keeps asking before writing it. When anything is out of date, the Project page SHALL list it under the editor files, Problems SHALL list one warning that opens the Project page, and Save SHALL be enabled with the title "The editor files are from an older canworks; Save writes them again". Saving then SHALL write the editor files as a normal save does and SHALL leave `canworks.json` unchanged.
+For an OpenPLC project (a config with an OpenPLC connection, inside an editor project) the configurator SHALL compare the editor files Save writes for the saved config (the remote device file and the `canworks_in` and `canworks_out` programs) with the files on disk. A file SHALL count as out of date when canworks wrote it last and it is missing now or Save would now write a different text; in a project canworks never wrote into, nothing SHALL count. `project.json` SHALL count as out of date when its `canworks` variable list has other member names or types than Save writes, or when it does not enable the `canworks` library; the library entry's version SHALL NOT count, since Save installs the configurator's own library into the editor. A file changed since canworks wrote it SHALL NOT count as out of date; Save keeps asking before writing it. When anything is out of date, the Project page SHALL list it under the editor files, Problems SHALL list one warning that opens the Project page, and Save SHALL be enabled with the title "The editor files are from an older canworks; Save writes them again". Saving then SHALL write the editor files as a normal save does and SHALL leave `canworks.json` unchanged.
 
 #### Scenario: Tools update changes canworks_in
 - **WHEN** a project saved with an older canworks is opened in a configurator whose `canworks_in` code differs, and the user has made no change
@@ -4358,33 +4308,41 @@ For an OpenPLC project (target OpenPLC through Modbus, inside an editor project)
 - **THEN** the file is not listed as out of date and Save stays disabled; a later save asks before writing it, as today
 
 ### Requirement: Export for another PLC
-Export ▾ → For the program SHALL offer **For another PLC (PLCopen XML)…** on Modbus bridge configs only, not on OpenPLC or CODESYS configs. Its dialog SHALL ask for the PLC (CODESYS as a Modbus client of the bridge, truST, Other PLC with PLCopen XML), the bridge address the PLC uses (default: `listen` when it is neither a wildcard nor a loopback address), whether to include the library (on), and for CODESYS the optional PLC and Ethernet interface names.
+The truST and Other PLC (`format` `plcopen`) connections SHALL download the `--export-plcopen` folder as a zip for `trust` or `generic`. Their settings SHALL hold the bridge address the PLC uses (default: `listen` when it is neither a wildcard nor a loopback address) and whether to include the library (on).
+
+#### Scenario: truST connection
+- **WHEN** the user downloads a truST connection with bridge address 192.168.10.5 on a config with `plc_link`
+- **THEN** the zip equals `canworks-deploy --export-plcopen --for trust --bridge-host 192.168.10.5` for the config
 
 #### Scenario: Only on Modbus bridge configs
-- **WHEN** the user opens Export ▾ on an OpenPLC config
-- **THEN** For the program has no For another PLC (PLCopen XML)… item
-
-### Requirement: CODESYS route explained
-Under the CODESYS choice the dialog SHALL say that CODESYS only reads and writes the bridge's registers while canworks-bridge runs the CAN networks, and SHALL link to the Project page to switch the project target to CODESYS when CODESYS should run the CANopen master itself.
-
-#### Scenario: CODESYS chosen
-- **WHEN** the user picks CODESYS in the dialog
-- **THEN** the line under it explains the Modbus client route and its link opens the Project page's target field
+- **WHEN** a CODESYS config is open
+- **THEN** there is no Connections list and nothing offers a PLCopen download
 
 ### Requirement: Export for another PLC download
-The dialog SHALL download `<config name>-<target>.zip` with the same files `canworks-deploy --export-plcopen` writes for those settings. On a config without `plc_link` the dialog SHALL say so and offer **Turn on the PLC link and repack**, one undo step.
-
-#### Scenario: Export for CODESYS
-- **WHEN** the user exports a bridge config with `plc_link` for CODESYS with bridge address 192.168.10.5
-- **THEN** the zip holds `canworks.xml`, the plan with host 192.168.10.5 and `import_canworks_modbus.py`, equal to the command-line export
+The zip SHALL be named `<config name>-<connection name>.zip`. On a config without `plc_link` a PLCopen connection SHALL say so and offer **Turn on the PLC link and repack**, one undo step.
 
 #### Scenario: PLC link off
-- **WHEN** the config has no `plc_link` and the user opens the dialog
-- **THEN** the dialog explains the PLC link and offers to turn it on and repack, and Undo restores the previous layout
+- **WHEN** the config has no `plc_link` and the user adds an Other PLC connection with `format` `plcopen`
+- **THEN** the row explains the PLC link and offers to turn it on and repack, and Undo restores the previous layout
+
+#### Scenario: Export for CODESYS
+- **WHEN** the user opens an Other PLC connection's settings
+- **THEN** its format offers PLCopen XML and ST only, with no CODESYS choice, and a line says CODESYS uses the CODESYS target
 
 ### Requirement: Reachability warnings for other PLCs
-On a bridge config with `plc_link` and without `openplc`, Problems SHALL warn when `listen` is a loopback address ("only a program on the bridge's own device can reach it"), and the export dialog SHALL warn when its bridge address is empty or the PLC address entered is not covered by `writers`.
+A PLCopen or ST connection whose bridge address is empty SHALL show a warning on its row and in Problems. Connection addresses that cannot reach `listen` SHALL be the error of `modbus-connections` "Connections reach the bridge".
+
+#### Scenario: No bridge address
+- **WHEN** a truST connection has no bridge address and `listen` is `0.0.0.0:502`
+- **THEN** its row and Problems warn that the PLC needs the bridge's address
 
 #### Scenario: Loopback listen
-- **WHEN** a config with `plc_link` listens on `127.0.0.1:1502`
-- **THEN** Problems shows the warning with a link to the bridge page's listen field
+- **WHEN** a config with `plc_link` listens on `127.0.0.1:1502` and has a truST connection at 192.168.10.7
+- **THEN** Problems shows the error naming the truST connection with Listen on all addresses
+
+### Requirement: Plugin configs
+A config with neither `bridge` nor `codesys` (the removed plugin's) SHALL open read-only with one message and **Use with canworks-bridge**. As one undo step it SHALL repack for the bridge, add `bridge`, add an OpenPLC connection when the folder is inside an OpenPLC Editor project, and remove `axis`, `sync_source`, `sync_cycles` and `scan_watchdog_ms`. Until then the page SHALL NOT save.
+
+#### Scenario: Plugin project
+- **WHEN** the user opens a plugin config inside an editor project, whose master has `"sync_source": "plc_cycle"`, and presses Use with canworks-bridge
+- **THEN** the config has `bridge` with an OpenPLC connection, `plc_link` true and no `sync_source`, and one Undo restores the config as opened

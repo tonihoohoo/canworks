@@ -1,4 +1,4 @@
-"""OpenPLC through its own Modbus master (a bridge config with `bridge.openplc`).
+"""OpenPLC through its own Modbus master (a bridge config with an OpenPLC connection).
 
 The OpenPLC runtime reaches canworks-bridge with the Modbus master the editor
 configures from a remote device. This module makes, from a config and its
@@ -70,7 +70,7 @@ class OpenplcError(ValueError):
 
 
 def settings(cfg):
-    """bridgecheck.link_settings (openplc_settings for an openplc config)
+    """bridgecheck.link_settings (openplc_settings with an OpenPLC connection)
     plus the unit id."""
     out = bridgecheck.link_settings(cfg)
     unit = cfg["bridge"].get("unit_id", 1)
@@ -132,12 +132,12 @@ def _units(items, area):
 
 
 def layout(cfg, decls, iec_base=None):
-    """(groups, {(area, register): "%IWn"/"%QWn"}) of an openplc config: in
+    """(groups, {(area, register): "%IWn"/"%QWn"}) with an OpenPLC connection: in
     file order, the header write group first, then the read groups, then the
     other write groups. Contiguous registers of one class share a group up to
     125 (read) or 123 (write) registers."""
     if not modbusmap.is_openplc(cfg):
-        raise OpenplcError("not an OpenPLC Modbus config: its bridge has no \"openplc\" object")
+        raise OpenplcError("the config has no OpenPLC connection (bridge.connections)")
     items = modbusmap.collect(cfg)
     problems = modbusmap.check(items)
     if problems:
@@ -719,7 +719,7 @@ def outdated_files(project_dir, cfg, decls, uses=()):
 
 def sync_project(project_dir, cfg, decls, uses=(), force=False):
     """Writes the remote device, canworks_in, canworks_out and the list and
-    instances in project.json for an openplc config. Raises ChangedFiles
+    instances in project.json with an OpenPLC connection. Raises ChangedFiles
     unless `force` when one of canworks' files was changed by someone else.
     Returns {written, iec_base, requests, warning}."""
     base, texts = own_texts(cfg, decls, uses)

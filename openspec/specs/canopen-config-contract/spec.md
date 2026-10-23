@@ -321,19 +321,19 @@ The master's heartbeat consumer entry for a node SHALL equal the node's `heartbe
 - **THEN** the master's 0x1016 entry for the node is 10 ms
 
 ### Requirement: Config target
-A config SHALL target one system: OpenPLC through Modbus when it has a top-level `bridge` object holding an `openplc` object, the Modbus bridge when it has a `bridge` object without one, CODESYS when it has a top-level `codesys` object. A config with both `bridge` and `codesys` SHALL be an error. A config with neither SHALL be refused by the bridge, the deploy tool and the configurator's check with one message: the config is for the removed OpenPLC plugin, and the configurator's **Switch to OpenPLC through Modbus** converts it. A CODESYS config SHALL be version 2.
+A config SHALL target one system: the Modbus bridge when it has a top-level `bridge` object, CODESYS when it has a top-level `codesys` object. A config with both SHALL be an error. A config with neither SHALL be refused by the bridge, the deploy tool and the check with one message: it is for the removed OpenPLC plugin, and the configurator's **Use with canworks-bridge** converts it. A CODESYS config SHALL be version 2.
 
 #### Scenario: Both markers
 - **WHEN** a config has both `bridge` and `codesys`
 - **THEN** the check fails saying a config targets one system
 
 #### Scenario: OpenPLC through Modbus
-- **WHEN** a config has `"bridge": {"openplc": {}, "writers": ["127.0.0.1"]}`
-- **THEN** its target is OpenPLC through Modbus and `canworks-bridge` runs it
+- **WHEN** a config has a `bridge` object with `plc_link` true and an `openplc` entry in `connections`
+- **THEN** its target is the Modbus bridge and `canworks-bridge` runs it
 
 #### Scenario: Old plugin config
 - **WHEN** `canworks-bridge --check-only` or `canworks-deploy --check` runs on a config with neither `bridge` nor `codesys`
-- **THEN** it exits non-zero with the message naming **Switch to OpenPLC through Modbus**, and nothing is started or uploaded
+- **THEN** it exits non-zero with the message naming **Use with canworks-bridge**, and nothing is started or uploaded
 
 ### Requirement: CODESYS section in the schema
 The version 2 schema SHALL define an optional top-level `codesys` object with `project`, `device`, `create` (`TYPE:ID:VERSION`) and `variables` (boolean), and an optional network `codesys` object with `net_id` (0-255) and `interface` (a name), all optional. In a CODESYS config PDO entries SHALL NOT need `iec_location` and `adapter.interface` SHALL be optional.

@@ -49,8 +49,9 @@ class Target(unittest.TestCase):
     def test_target_from_the_markers(self):
         cfg = load(BRIDGE)
         self.assertEqual(targets.target(cfg), "bridge")
-        cfg["bridge"]["openplc"] = {}
-        self.assertEqual(targets.target(cfg), "openplc_modbus")
+        # OpenPLC is a connection of the bridge, not a target (modbus-connections).
+        cfg["bridge"]["connections"] = [{"kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1", "writes": True}]
+        self.assertEqual(targets.target(cfg), "bridge")
         del cfg["bridge"]
         self.assertEqual(targets.target(cfg), "plugin")  # the removed plugin's config
         cfg["codesys"] = {}
@@ -108,13 +109,13 @@ class Unused(unittest.TestCase):
         # The page's list of settings the target does not use names each one.
         rows = {r["key"]: r for r in targets.table()}
         for key, _, _, _ in targets.ROWS:
-            if not key.startswith("ui:"):
+            if not key.startswith(("ui:", "conn:")):
                 self.assertTrue(rows[key]["label"], key)
         self.assertEqual(rows["nodes.tx_pdos.entries.iec_location"]["label"], "PLC location")
 
     def test_openplc_does_not_use_codesys_settings(self):
         cfg = load(BRIDGE)
-        cfg["bridge"]["openplc"] = {}
+        cfg["bridge"]["connections"] = [{"kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1", "writes": True}]
         cfg["networks"][0]["codesys"] = {"net_id": 1}
         self.assertEqual(targets.unused(cfg), [("networks[0].codesys", "codesys",
                                                 "CODESYS settings of the network")])
@@ -135,8 +136,10 @@ class Unused(unittest.TestCase):
 
     def test_table_for_the_page(self):
         rows = {r["key"]: r for r in targets.table()}
-        self.assertEqual(rows["ui:editor_project"]["targets"], ["openplc_modbus"])
-        self.assertEqual(rows["nodes.rx_pdos.entries.bits.iec_location"]["refused"], ["bridge", "openplc_modbus"])
+        self.assertEqual([r["key"] for r in targets.table() if r["key"].startswith("conn:")], ["conn:openplc"])
+        self.assertEqual(rows["conn:openplc"]["targets"], ["bridge"])
+        self.assertEqual(rows["nodes.rx_pdos.entries.bits.iec_location"]["refused"], ["bridge"])
+        self.assertEqual(targets.TARGETS, ("bridge", "codesys"))
 
 
 class EntryName(unittest.TestCase):
@@ -335,22 +338,22 @@ class Server(Running):
         self.assertTrue(all(e.get("iec_location") for e in entries(out)))
         self.assertEqual(check(out).errors, [])
 
-    def test_bridge_and_openplc(self):
-        out = self.switch(self.cfg, "openplc_modbus")["config"]
-        self.assertEqual(targets.target(out), "openplc_modbus")
-        self.assertEqual(check(out).errors, [])
-        back = self.switch(out, "bridge")["config"]
-        self.assertEqual(targets.target(back), "bridge")
-        self.assertNotIn("openplc", back["bridge"])
+    def test_openplc_is_no_target(self):
+        status, data, _ = self.request("POST", "/api/switch_target", {"config": self.cfg, "target": "openplc_modbus"})
+        self.assertEqual(status, 400, data)
+        self.assertIn("bridge, codesys", data["error"])
 
-    def test_plugin_config_switches_to_openplc(self):
+    def test_plugin_config_used_with_the_bridge(self):
         cfg = load(BRIDGE)
         del cfg["bridge"]
         status, data, _ = self.request("POST", "/api/save", {"config": cfg})
         self.assertEqual(status, 409, data)
         self.assertTrue(data["plugin"])
-        out = self.switch(cfg, "openplc_modbus")["config"]
-        self.assertEqual(targets.target(out), "openplc_modbus")
+        self.assertIn("Use with canworks-bridge", data["error"])
+        # Use with canworks-bridge: a standalone folder gets no OpenPLC connection.
+        out = self.switch(cfg, "bridge")["config"]
+        self.assertEqual(targets.target(out), "bridge")
+        self.assertNotIn("connections", out["bridge"])
         self.assertEqual(check(out).errors, [])
         self.ok("POST", "/api/save", {"config": out})
         # The removed plugin is not a target to switch to.

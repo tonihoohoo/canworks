@@ -249,7 +249,7 @@ class SimBanner(Base):
     def test_one_line_with_details(self):
         # compact-chrome: a chip in the header row, the full text under Details.
         pg = self.page
-        pg.set_viewport_size({"width": 1440, "height": 900})
+        pg.set_viewport_size({"width": 1920, "height": 900})
         self.open()
         pg.wait_for_selector("#sim-banner:not([hidden])")
         self.assertEqual(pg.locator("#top .top-row #sim-banner").count(), 1)

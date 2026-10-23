@@ -1,4 +1,4 @@
-"""OpenPLC through its Modbus master (canworks.openplcmodbus and the map hash
+"""The OpenPLC connection: OpenPLC through its Modbus master (canworks.openplcmodbus and the map hash
 of canworks.modbusmap): the hash both sides compute, the editor's remote
 device file, the generated programs and the project changes. The ST of the
 programs is compiled and run by test/plc_modbus/run.sh."""
@@ -130,7 +130,7 @@ class RemoteDevice(unittest.TestCase):
 
     def test_iec_base_and_settings(self):
         cfg = load()
-        cfg["bridge"]["openplc"] = {"poll_ms": 20, "remote_device": "can_bus", "iec_base": 300}
+        cfg["bridge"]["connections"][0].update({"poll_ms": 20, "remote_device": "can_bus", "iec_base": 300})
         cfg["bridge"]["listen"] = "127.0.0.1:1600"
         dev = openplcmodbus.remote_device(cfg, decls(cfg), iec_base=300)
         self.assertEqual(dev["name"], "can_bus")
@@ -162,7 +162,7 @@ class RemoteDevice(unittest.TestCase):
 
     def test_not_openplc(self):
         cfg = load()
-        del cfg["bridge"]["openplc"]
+        del cfg["bridge"]["connections"]
         with self.assertRaises(openplcmodbus.OpenplcError):
             openplcmodbus.remote_device(cfg, [])
 
@@ -311,7 +311,7 @@ class OtherPlc(unittest.TestCase):
 
     def test_needs_the_plc_link(self):
         cfg = load()
-        del cfg["bridge"]["openplc"]
+        del cfg["bridge"]["plc_link"]
         with self.assertRaises(openplcmodbus.OpenplcError):
             openplcmodbus.other_plc_st(cfg, decls(cfg))
 
@@ -360,7 +360,7 @@ class SyncProject(unittest.TestCase):
         with open(path, "a", encoding="utf-8") as f:
             f.write("(* edited *)\n")
         cfg = copy.deepcopy(self.cfg)
-        cfg["bridge"]["openplc"]["poll_ms"] = 20
+        cfg["bridge"]["connections"][0]["poll_ms"] = 20
         with self.assertRaises(openplcmodbus.ChangedFiles) as e:
             openplcmodbus.sync_project(self.project, cfg, self.decls)
         self.assertEqual(e.exception.files, ["pous/programs/canworks_out.st"])
@@ -431,7 +431,7 @@ class SyncProject(unittest.TestCase):
         # the fixture's ai_spare takes %IW120: 33 input words from 100 would cross it
         self.assertEqual(openplcmodbus.free_iec_base(self.cfg, self.decls, uses), 121)
         cfg = copy.deepcopy(self.cfg)
-        cfg["bridge"]["openplc"]["iec_base"] = 500
+        cfg["bridge"]["connections"][0]["iec_base"] = 500
         r = openplcmodbus.sync_project(self.project, cfg, self.decls, uses)
         self.assertEqual(r["iec_base"], 500)
 

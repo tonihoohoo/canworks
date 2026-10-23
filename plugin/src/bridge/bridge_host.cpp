@@ -244,9 +244,9 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   if (cfg_.plc_link) supervisor_->link_off(OutputState::kPlcStopped);
   control_ = ControlBlock();
   // A PLC behind the link header rewrites its whole output image every poll,
-  // so after a restart its last request would run again: openplc configs
+  // so after a restart its last request would run again: PLC link configs
   // take a baseline first. Other clients write a block when they mean it.
-  control_known_ = sdo_known_ = !cfg_.openplc;
+  control_known_ = sdo_known_ = !cfg_.plc_link;
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
   mailboxes_.reset();
   mailbox_backend_.reset();
@@ -281,7 +281,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
            config_path.c_str(), canopen_plugin::built_in_protocols().c_str(), cfg_.listen.c_str(), cfg_.unit_id,
            cfg_.low_first ? "low_first" : "high_first", image_.input_size(), image_.output_size(), cfg_.watchdog_ms,
            loss_name(cfg_.on_client_loss), map_hash_,
-           cfg_.openplc ? " (OpenPLC through Modbus)" : cfg_.plc_link ? " (PLC link)" : "");
+           cfg_.plc_link ? " (PLC link)" : "");
   started_ = now;
   stop_ = false;
   thread_ = std::thread(&BridgeHost::loop, this);
@@ -542,7 +542,6 @@ cJSON* BridgeHost::status_json() const {
   char hash[16];
   std::snprintf(hash, sizeof(hash), "0x%08x", map_hash_);
   cJSON_AddStringToObject(b, "map_hash", hash);
-  cJSON_AddBoolToObject(b, "openplc", cfg_.openplc);
   cJSON_AddBoolToObject(b, "plc_link", cfg_.plc_link);
   cJSON_AddStringToObject(b, "on_client_loss", loss_name(cfg_.on_client_loss));
   cJSON_AddStringToObject(b, "listen", cfg_.listen.c_str());

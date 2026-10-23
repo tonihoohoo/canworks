@@ -154,7 +154,7 @@ Messages with J1939 attributes belong on a J1939 network; plain 11-bit and 29-bi
 
 ### In the program
 
-For OpenPLC through Modbus, `canworks-deploy --new-project` or `--into-project` and the configurator's **New editor project…** put a variable per signal and per location in the project's `canworks` list, named `<message>_<signal>` (`<network>_<message>_<signal>` with several networks), with the message, scale and unit in its description: `canworks.Joystick_X : INT`, `canworks.Joystick_status : BOOL`, `canworks.Lamps_Red : BOOL`. A received signal's `valid_location` becomes `<message>_<signal>_valid`, for example `canworks.Sensor_Temp_valid : BOOL`. Other Modbus clients get the same names from `--export-modbus-map` ([modbus-bridge.md](modbus-bridge.md)).
+For a config with an OpenPLC connection, `canworks-deploy --new-project` or `--into-project` and the configurator's **New editor project…** put a variable per signal and per location in the project's `canworks` list, named `<message>_<signal>` (`<network>_<message>_<signal>` with several networks), with the message, scale and unit in its description: `canworks.Joystick_X : INT`, `canworks.Joystick_status : BOOL`, `canworks.Lamps_Red : BOOL`. A received signal's `valid_location` becomes `<message>_<signal>_valid`, for example `canworks.Sensor_Temp_valid : BOOL`. Other Modbus clients get the same names from `--export-modbus-map` ([modbus-bridge.md](modbus-bridge.md)).
 
 ## Frame blocks
 

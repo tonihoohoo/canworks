@@ -511,7 +511,9 @@ class SlaveNetworks(unittest.TestCase):
         cfg, path = example("slave")
         [net] = build(cfg, path)["networks"]
         self.assertIn("not counted: the write rate is not known", frame(net, "OpenPLC_TPDO1")["trigger"])
-        cfg["bridge"]["openplc"] = {"poll_ms": 10}
+        cfg["bridge"].update({"plc_link": True, "word_order": "low_first", "writers": ["127.0.0.1"],
+                              "connections": [{"kind": "openplc", "name": "OpenPLC", "address": "127.0.0.1",
+                                               "writes": True, "poll_ms": 10}]})
         [net] = build(cfg, path)["networks"]
         t1 = frame(net, "OpenPLC_TPDO1")
         self.assertEqual(t1["rate_worst"], 100.0)

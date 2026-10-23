@@ -140,7 +140,7 @@ The located variable declarations and `main` of a new editor project SHALL decla
 - **THEN** the declarations contain `panel_Read_input_8_bit_1_bit3 AT %IX140.3 : BOOL;`
 
 ### Requirement: Modbus I/O in an OpenPLC project
-An editor project created for, or saved from, a config with `bridge.openplc` SHALL get:
+An editor project created for, or saved from, a config with an OpenPLC connection SHALL get:
 - the remote device file of `modbus-bridge-map`;
 - a global variable list `canworks` (one global of that name, its members used as `canworks.<name>`) with `ok : BOOL`, `link : ARRAY[0..1279] OF WORD` (the blocks' view of the bridge's status, control, SDO and live list registers and of its mailboxes, "Requirement: Link array for mailboxes") and one member per located value, named as the declarations name it, typed from the value's CANopen or signal type (BOOL for bits, SINT, USINT, INT, UINT, DINT, UDINT, LINT, ULINT, REAL, LREAL, BYTE, WORD, DWORD, LWORD);
 - a program `canworks_in` that converts the input words into those variables (32- and 64-bit values from two or four words, lowest word first; REAL and LREAL through the library's `CW_DWORD_TO_REAL` and `CW_LWORD_TO_LREAL`), fills `canworks.link` and sets `canworks.ok` while the bridge's status counter changed within max(300 ms, 3 × `watchdog_ms`) and the bridge's map hash equals the program's;
@@ -165,7 +165,7 @@ The raw `%IW`/`%QW` words SHALL be declared only inside `canworks_in` and `canwo
 - **THEN** `main.st` is unchanged and the Project page offers **Use canworks.\* in main**
 
 ### Requirement: Link array for mailboxes
-In an editor project for a config with `bridge.openplc`, `canworks.link` SHALL be declared `ARRAY[0..1279] OF WORD`. `canworks_in` SHALL copy the response blocks, receive mailbox, network info and cyclic table into their `LINK` places, set the mailbox flags from the config and then call `CW_LINK_SERVICE(LINK := canworks.link)` before any user code runs; `canworks_out` SHALL copy the request blocks, receive acknowledgement and keepalives from `LINK` to their holding registers before writing the PLC link header. Words of blocks the config does not have SHALL stay 0. Update declarations SHALL rewrite the declaration and both programs when `mailboxes` changes.
+In an editor project for a config with an OpenPLC connection, `canworks.link` SHALL be declared `ARRAY[0..1279] OF WORD`. `canworks_in` SHALL copy the response blocks, receive mailbox, network info and cyclic table into their `LINK` places, set the mailbox flags from the config and then call `CW_LINK_SERVICE(LINK := canworks.link)` before any user code runs; `canworks_out` SHALL copy the request blocks, receive acknowledgement and keepalives from `LINK` to their holding registers before writing the PLC link header. Words of blocks the config does not have SHALL stay 0. Update declarations SHALL rewrite the declaration and both programs when `mailboxes` changes.
 
 #### Scenario: Mailboxes added later
 - **WHEN** the user turns on the Function blocks section of an existing OpenPLC project and runs Update declarations

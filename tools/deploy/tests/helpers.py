@@ -51,10 +51,22 @@ def pingpong_config(dir_, **changes):
 
 
 def openplc_config():
-    """A new config of OpenPLC through Modbus, as New config... writes it: one
-    network without nodes."""
+    """A new Modbus bridge config with an OpenPLC connection, as Add
+    connection writes it: one network without nodes."""
     from canworks.configurator import server as srv
-    return srv.Session().switch_target(srv.empty_config(), "openplc_modbus")["config"]
+    s = srv.Session()
+    cfg = s.default_config()
+    return s.add_connection(cfg, {"kind": "openplc"})["config"]
+
+
+def with_openplc(cfg):
+    """`cfg` put onto the Modbus bridge (when it is not) with an OpenPLC
+    connection, as Use with canworks-bridge and Add connection write it."""
+    from canworks import bridgecheck
+    from canworks.configurator import server as srv
+    s = srv.Session()
+    cfg = s.switch_target(cfg, "bridge", openplc=False)["config"]
+    return cfg if bridgecheck.is_openplc(cfg) else s.add_connection(cfg, {"kind": "openplc"})["config"]
 
 
 def zip_contents(path):
@@ -315,18 +327,31 @@ def net_action(page, k, action):
     page.click('[data-menu-pop] [data-value="%s"]' % action)
 
 
-def new_config(pg, path, target="openplc_modbus", project=False):
+def new_config(pg, path, target="bridge"):
     """New config… on the start page: `path` as name and location, the
-    target picked, the editor-project tick set (simplify-start-page)."""
+    target picked (modbus-connections: Modbus bridge or CODESYS)."""
     pg.click("#start-new")
     pg.wait_for_selector("[data-new-config=form]")
     pg.click('label:has([data-new-target="%s"])' % target)
     pg.fill("[data-new-config=location]", os.path.dirname(path))
     pg.fill("[data-new-config=name]", os.path.basename(path))
-    box = "[data-new-config=project]"
-    if target == "openplc_modbus" and not pg.is_disabled(box):
-        pg.set_checked(box, project)
     pg.click("#modal-buttons button[data-value=create]")
+
+
+def add_connection(pg, kind, name=None, address=None, writes=None, button="add"):
+    """The Modbus bridge page's Add connection…: the kind picked, its name,
+    address and Writes filled, then `button` (add, new or move)."""
+    tree_view(pg, "bridge")
+    pg.click("[data-conn-add]")
+    pg.wait_for_selector("[data-conn-dialog]")
+    pg.click('label:has([data-conn-kind="%s"])' % kind)
+    if name is not None:
+        pg.fill("[data-conn-name]", name)
+    if address is not None:
+        pg.fill("[data-conn-address]", address)
+    if writes is not None:
+        pg.set_checked("[data-conn-writes]", writes)
+    pg.click("#modal-buttons button[data-value=%s]" % button)
 
 
 def header_action(page, sel):
@@ -337,12 +362,12 @@ def header_action(page, sel):
     page.click(sel)
 
 
-def export_program(page, fmt):
-    """Export ▾ → For the program → the item `fmt` (csv, json, st, nodered,
-    codesys): every download is in the Export menu (tidy-targets-and-exports)."""
+def export_codesys(page):
+    """Export ▾ → Download for CODESYS (modbus-connections: the program-side
+    files are the connections' Downloads)."""
     if not page.evaluate("document.querySelector('#menu-export').open"):
         page.click("#menu-export > summary")
-    page.click(f'#menu-export [data-export-program="{fmt}"]')
+    page.click("#btn-codesys-download")
 
 
 def editor_project_action(page, which):

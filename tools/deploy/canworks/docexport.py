@@ -1332,7 +1332,7 @@ def build(cfg, config_path, eds_paths=None, names=None, network=None, title=None
     several = len(every) > 1
     networks = []
     # OpenPLC writes the bridge's outputs once a poll; another Modbus client's writes are not known.
-    write_ms = openplcmodbus.settings(cfg)["poll_ms"] if targets.target(cfg) == targets.OPENPLC_MODBUS else None
+    write_ms = openplcmodbus.settings(cfg)["poll_ms"] if bridgecheck.is_openplc(cfg) else None
     gateway_cfg = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else None
     for net in nets:
         if net["role"] == "j1939":

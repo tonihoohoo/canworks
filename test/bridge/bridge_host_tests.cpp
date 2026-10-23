@@ -646,20 +646,10 @@ TEST(openplc_restart_does_not_replay) {
   EXPECT(logged("NMT STOP requested by the Modbus control block"));
 }
 
-TEST(openplc_defaults_and_refusals) {
+TEST(openplc_refusals) {
   canopen_plugin::set_log_sink(capture);
-  // No listen, no writers: 127.0.0.1:1502 and 127.0.0.1.
-  std::string path = example_copy(
-      [](cJSON* r) {
-        cJSON_DeleteItemFromObject(bridge_of(r), "writers");
-        cJSON_DeleteItemFromObject(bridge_of(r), "listen");
-      },
-      OPENPLC_EXAMPLE_DIR);
-  uint32_t hash = 0;
-  EXPECT(BridgeHost::check(path, nullptr, &hash));
-  EXPECT(hash != 0);
   // A location inside the PLC link header.
-  path = example_copy(
+  std::string path = example_copy(
       [](cJSON* r) {
         cJSON* node = cJSON_GetArrayItem(
             cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "nodes"), 1);
@@ -670,21 +660,44 @@ TEST(openplc_defaults_and_refusals) {
       OPENPLC_EXAMPLE_DIR);
   EXPECT(!BridgeHost::check(path));
   EXPECT(logged("PLC link header"));
-  path = example_copy([](cJSON* r) { set_string(bridge_of(r), "word_order", "high_first"); }, OPENPLC_EXAMPLE_DIR);
-  EXPECT(!BridgeHost::check(path));
-  EXPECT(logged("must be \"low_first\" with 'openplc'"));
   path = example_copy([](cJSON* r) { set_string(bridge_of(r), "status_location", "%IB40"); }, OPENPLC_EXAMPLE_DIR);
   EXPECT(!BridgeHost::check(path));
-  EXPECT(logged("must be %IB4 with 'openplc'"));
+  EXPECT(logged("must be %IB4 with 'plc_link'"));
+  // The removed openplc field (modbus-connections): one message.
+  path = example_copy([](cJSON* r) { cJSON_AddItemToObject(bridge_of(r), "openplc", cJSON_CreateObject()); },
+                      OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("field 'openplc' was removed: OpenPLC is a connection on the Modbus bridge page"));
 }
 
-// The PLC link without openplc (bridge.plc_link): any Modbus client that runs
+// bridge.connections is the configurator's: the bridge accepts any entries
+// and refuses only a value that is not a list.
+TEST(connections_ignored) {
+  canopen_plugin::set_log_sink(capture);
+  std::string path = example_copy(
+      [](cJSON* r) {
+        cJSON* list = cJSON_GetObjectItem(bridge_of(r), "connections");
+        cJSON* c = cJSON_CreateObject();
+        cJSON_AddStringToObject(c, "kind", "future");
+        cJSON_AddItemToArray(list, c);
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(BridgeHost::check(path));
+  path = example_copy(
+      [](cJSON* r) {
+        cJSON_DeleteItemFromObject(bridge_of(r), "connections");
+        cJSON_AddStringToObject(bridge_of(r), "connections", "openplc");
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(!BridgeHost::check(path));
+  EXPECT(logged("field 'connections' must be a list"));
+}
+
+// The PLC link without an OpenPLC connection: any Modbus client that runs
 // canworks_in/canworks_out gets the same header and map hash guard.
 void plc_link_only(cJSON* r) {
   cJSON* b = bridge_of(r);
-  cJSON_DeleteItemFromObject(b, "openplc");
-  cJSON_AddBoolToObject(b, "plc_link", true);
-  set_string(b, "listen", "127.0.0.1:1502");
+  cJSON_DeleteItemFromObject(b, "connections");
   set_number(b, "watchdog_ms", 0);
 }
 
@@ -708,6 +721,24 @@ TEST(plc_link_without_openplc) {
   EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 77; }));
 }
 
+// The restart baseline follows the PLC link, not the OpenPLC connection:
+// any PLC that rewrites its whole output image gets it (modbus-connections).
+TEST(plc_link_restart_does_not_replay) {
+  Host h(plc_link_only, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  EXPECT(header(c, 1, served_hash(c)));
+  EXPECT(write(c, kOControlReg, {7, (4 << 8) | 0, 5 << 8}));
+  EXPECT(wait_for([&] {
+    auto s = regs(c, kReadInputRegisters, kOStatusReg, 4);
+    return s.size() == 4 && s[2] == 7 && (s[3] >> 8) == 6;
+  }));
+  usleep(300000);
+  EXPECT(ooperational(c));  // the last NMT STOP was not replayed
+}
+
 TEST(plc_link_refusals) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy(
@@ -718,9 +749,14 @@ TEST(plc_link_refusals) {
       OPENPLC_EXAMPLE_DIR);
   EXPECT(!BridgeHost::check(path));
   EXPECT(logged("must be %IB4 with 'plc_link'"));
-  path = example_copy([](cJSON* r) { cJSON_AddBoolToObject(bridge_of(r), "plc_link", false); }, OPENPLC_EXAMPLE_DIR);
-  EXPECT(!BridgeHost::check(path));
-  EXPECT(logged("can't be false with 'openplc'"));
+  // Without plc_link the header bytes are plain outputs.
+  path = example_copy(
+      [](cJSON* r) {
+        plc_link_only(r);
+        cJSON_ReplaceItemInObject(bridge_of(r), "plc_link", cJSON_CreateBool(false));
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(BridgeHost::check(path));
 }
 
 TEST(map_hash_vectors) {

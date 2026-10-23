@@ -3,8 +3,8 @@ target", "Only what the target uses is shown", "Switching the target",
 "Variable names of PDO entries", "CODESYS settings", "CODESYS actions",
 "Target of a new config", "Commission in a CODESYS project", "Placeholder
 look", "CODESYS project file dialog", "New project name in the file
-dialog", "PLC devices installed in CODESYS"): an OpenPLC
-project switched to CODESYS and back, what the page hides, a leftover value
+dialog", "PLC devices installed in CODESYS"): a Modbus bridge project
+with an OpenPLC connection switched to CODESYS and back, what the page hides, a leftover value
 with Remove, the CODESYS page and Bus page settings, Download for CODESYS,
 Build without CODESYS, Browse… and the PLC device list, Build creating a
 new project, and a new CODESYS config from the start page. Needs
@@ -19,7 +19,7 @@ from canworks.codesys import plan as cplan
 
 from canworks.configurator import server as srv
 
-from .helpers import REPO, export_program, tree_node, tree_view, new_config, add_node
+from .helpers import REPO, export_codesys, with_openplc, tree_node, tree_view, new_config, add_node
 from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import LINT, load
 
@@ -30,9 +30,8 @@ DEVICES = os.path.join(os.path.dirname(__file__), "data", "codesys-devices", "De
 class CodesysPage(OnlineBase):
     def setUp(self):
         super().setUp()
-        # The example as an OpenPLC project.
-        cfg = load(os.path.join(EXAMPLE, "canworks.json"))
-        self.cfg = srv.Session().switch_target(cfg, "openplc_modbus")["config"]
+        # The example as an OpenPLC project: the bridge with an OpenPLC connection.
+        self.cfg = with_openplc(load(os.path.join(EXAMPLE, "canworks.json")))
         for name in ("rtd8.eds", "dio16.eds"):
             shutil.copy(os.path.join(EXAMPLE, name), os.path.join(self.project, "canworks"))
         self.write_config()
@@ -48,7 +47,7 @@ class CodesysPage(OnlineBase):
         # No question: what CODESYS does not use goes, the banner says so (target-cleans-up).
         pg = self.page
         tree_view(pg, "project")
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
+        self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
         self.assertEqual(pg.locator("#tree #nav-codesys").count(), 0)
         pg.select_option('select[data-target="1"]', "codesys")
         pg.wait_for_selector("#banner:has-text('targets CODESYS now')")
@@ -81,7 +80,7 @@ class CodesysPage(OnlineBase):
     def test_switch_hides_and_back(self):
         pg = self.page
         self.open()
-        self.assertEqual(pg.inner_text("[data-target-mark]"), " · OpenPLC")
+        self.assertEqual(pg.inner_text("[data-target-mark]"), " · Modbus bridge")
         self.assertTrue(pg.is_visible('select[data-path="master.eds_lint"]'))
         self.to_codesys()
         self.assertEqual(pg.inner_text("[data-target-mark]"), " · CODESYS")
@@ -101,13 +100,14 @@ class CodesysPage(OnlineBase):
         self.assertEqual(pg.locator('#view [data-section="online"]').count(), 0)
         tree_view(pg, "bus")
         self.assertFalse(pg.is_visible('#tool-tabs [data-view="declarations"]'))
-        # The header: Build with no ▾; Download in Export ▾ → For the program, alone;
-        # no editor project section and no Copy as ST call (no canworks blocks in CODESYS).
+        # The header: Build with no ▾; Download for CODESYS in Export ▾ after the
+        # network files; no editor project section and no Copy as ST call (no
+        # canworks blocks in CODESYS).
         self.assertTrue(pg.is_visible("#btn-codesys-build"))
         self.assertEqual(pg.locator("#menu-target, #menu-project").count(), 0)
         pg.click("#menu-export > summary")
-        shown = pg.eval_on_selector_all("#menu-export [data-export-program]", "bs => bs.filter(b => !b.hidden).map(b => b.dataset.exportProgram)")
-        self.assertEqual(shown, ["codesys"])
+        shown = pg.eval_on_selector_all("#menu-export button.item", "bs => bs.filter(b => !b.hidden).map(b => b.textContent)")
+        self.assertEqual(shown, ["All DCFs", "This node's DCF", "DBC", "Documentation", "Download for CODESYS"])
         pg.click("#menu-export > summary")
         self.assertFalse(pg.evaluate("() => stCallsShown()"))
         # The node's PDOs: a Variable column with the names, no PLC location column.
@@ -135,13 +135,15 @@ class CodesysPage(OnlineBase):
         self.assertNotIn("bridge", saved)
         # Download for CODESYS: the zip, nothing written to the folder.
         with pg.expect_download() as dl:
-            export_program(pg, "codesys")
+            export_codesys(pg)
         self.assertEqual(dl.value.suggested_filename, "rtd-monitor_codesys.zip")
-        # Back to OpenPLC: every entry gets a location, the names stay.
+        # Back to the bridge: every entry gets a location, the names stay, and
+        # Connections is empty (the switch to CODESYS removed them).
         tree_view(pg, "project")
-        pg.select_option('select[data-target="1"]', "openplc_modbus")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        pg.select_option('select[data-target="1"]', "bridge")
+        pg.wait_for_selector("#banner:has-text('targets Modbus bridge now')")
         self.assertIn("got a location", pg.inner_text("#banner"))
+        self.assertEqual(pg.evaluate("() => connectionsOf().length"), 0)
         pg.wait_for_selector("#tree #nav-codesys", state="detached")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")

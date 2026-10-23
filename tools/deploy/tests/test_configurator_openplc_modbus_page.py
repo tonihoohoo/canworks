@@ -1,7 +1,8 @@
-"""OpenPLC through Modbus in a real browser (add-openplc-modbus-target,
-spec canopen-configurator "Project target", "Saving an OpenPLC through
-Modbus project"): a plugin config switched with the Project page's button,
-the bridge page's OpenPLC settings and Function blocks section, Save writing
+"""The OpenPLC connection in a real browser (modbus-connections; spec
+canopen-configurator "Plugin configs", "OpenPLC project page"): a plugin
+config in an editor project put onto canworks-bridge with the Project page's
+button, which adds the OpenPLC connection, its Settings on the bridge page
+and the Function blocks section, Save writing
 the editor files and the Project page's facts, the question when canworks'
 own editor files were changed elsewhere, and Use canworks.* in main
 (openplc-modbus-followups). Needs Playwright, like test_configurator_page.py."""
@@ -29,27 +30,36 @@ class OpenplcModbusPage(OnlineBase):
             json.dump(cfg, f, indent=2)
         self.open()
         tree_view(pg, "project")
-        # The line says the plugin was removed, the button switches.
+        # The line says the plugin was removed; the button puts it onto the
+        # bridge with an OpenPLC connection (an editor project).
         self.assertIn("which was removed", pg.inner_text("[data-plugin-target]"))
         self.assertEqual(pg.input_value('select[data-target="1"]'), "plugin")
+        self.assertEqual(pg.inner_text("[data-switch-modbus]"), "Use with canworks-bridge")
         pg.click("[data-switch-modbus]")
-        pg.wait_for_selector("#banner:has-text('targets OpenPLC now')")
+        pg.wait_for_selector("#banner:has-text('targets Modbus bridge now')")
+        self.assertIn("OpenPLC connection", pg.inner_text("#banner"))
         self.assertEqual(pg.locator("[data-plugin-target]").count(), 0)
-        self.assertEqual(pg.input_value('select[data-target="1"]'), "openplc_modbus")
-        self.assertEqual(pg.locator('select[data-target="1"] option[value="plugin"]').count(), 0)
-        self.assertEqual(pg.evaluate("() => projectTarget()"), "openplc_modbus")
+        self.assertEqual(pg.input_value('select[data-target="1"]'), "bridge")
+        self.assertEqual(pg.eval_on_selector_all('select[data-target="1"] option', "os => os.map(o => o.value)"),
+                         ["bridge", "codesys"])
+        self.assertEqual(pg.evaluate("() => projectTarget()"), "bridge")
+        self.assertIn("Modbus bridge", pg.inner_text("[data-target-mark]"))
 
-        # The bridge page: OpenPLC's poll and names, no server or client settings.
+        # The bridge page: the OpenPLC connection first, with its poll in
+        # Settings; the server fields stay plain bridge settings.
         pg.wait_for_selector("#tree #nav-bridge")
         tree_view(pg, "bridge")
         pg.wait_for_selector("h2:has-text('Modbus bridge')")
-        self.assertIn("OpenPLC's Modbus master reads and writes these registers", pg.inner_text("#view"))
-        self.assertTrue(pg.is_visible('[data-bridge-openplc] input[data-path="bridge.openplc.poll_ms"]'))
-        self.assertEqual(pg.locator('input[data-path="bridge.listen"]').count(), 0)
-        self.assertEqual(pg.locator('input[data-path="bridge.writers"]').count(), 0)
+        row = pg.inner_text('[data-connection][data-conn-kind="openplc"]')
+        self.assertIn("OpenPLC", row)
+        self.assertIn("In sync", row)
+        self.assertEqual(pg.input_value('input[data-path="bridge.connections[0].address"]'), "127.0.0.1")
+        self.assertEqual(pg.input_value('input[data-path="bridge.listen"]'), "127.0.0.1")
+        self.assertEqual(pg.inner_text("[data-bridge-who]"), "127.0.0.1")
         self.assertEqual(pg.inner_text("[data-bridge-status-fixed]"), "%IB4")
         self.assertEqual(pg.locator('select[data-path="bridge.on_client_loss"] option[value="preop"]').count(), 1)
-        pg.fill('input[data-path="bridge.openplc.poll_ms"]', "20")
+        pg.click('[data-conn-settings-of="0"] > summary')
+        pg.fill('input[data-path="bridge.connections[0].poll_ms"]', "20")
         self.checked()
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
 
@@ -76,11 +86,12 @@ class OpenplcModbusPage(OnlineBase):
         self.assertEqual(load(remote)["modbusTcpConfig"]["port"], 1502)
         self.assertTrue(os.path.isfile(os.path.join(programs, "canworks_in.st")))
         self.assertTrue(os.path.isfile(os.path.join(programs, "canworks_out.st")))
-        self.assertEqual(load(self.config_path)["bridge"]["openplc"], {"poll_ms": 20})
-        # The facts are on the bridge page, next to the poll; the Project page has
-        # the editor project and what Save writes into it.
+        conn = load(self.config_path)["bridge"]["connections"][0]
+        self.assertEqual((conn["kind"], conn["poll_ms"]), ("openplc", 20))
+        # The facts are in the connection's Settings, next to the poll; the
+        # Project page has the editor project and what Save writes into it.
         tree_view(pg, "bridge")
-        facts = pg.inner_text("[data-bridge-openplc] [data-openplc-facts]")
+        facts = pg.inner_text('[data-conn-settings-of="0"] [data-openplc-facts]')
         self.assertIn("every 20 ms", facts)
         self.assertIn("127.0.0.1:1502", facts)
         tree_view(pg, "project")
@@ -88,12 +99,10 @@ class OpenplcModbusPage(OnlineBase):
         self.assertIn("devices/remote/canworks.json", editor)
         self.assertEqual(pg.locator("[data-openplc-facts]").count(), 0)
 
-        # Export: the register map files and the PLC link for another PLC; no
-        # Node-RED flow (OpenPLC is the only writer).
+        # Export ▾: the network files only (modbus-connections).
         pg.click("#menu-export > summary")
-        shown = pg.eval_on_selector_all("#menu-export [data-export-program]", "bs => bs.filter(b => !b.hidden).map(b => b.dataset.exportProgram)")
-        self.assertEqual(shown, ["csv", "json", "st"])
-        self.assertEqual(pg.inner_text("#btn-export-map-st"), "ST for another PLC")
+        shown = pg.eval_on_selector_all("#menu-export button.item", "bs => bs.filter(b => !b.hidden).map(b => b.textContent)")
+        self.assertEqual(shown, ["All DCFs", "This node's DCF", "DBC", "Documentation"])
         pg.click("#menu-export > summary")
 
         # canworks_in.st changed in the editor: Save asks before writing it again.
@@ -101,18 +110,18 @@ class OpenplcModbusPage(OnlineBase):
         with open(changed, "a", encoding="utf-8") as f:
             f.write("(* mine *)\n")
         tree_view(pg, "bridge")
-        pg.fill('input[data-path="bridge.openplc.poll_ms"]', "10")
+        pg.fill('input[data-path="bridge.connections[0].poll_ms"]', "10")
         self.checked()
         pg.click("#btn-save")
         pg.wait_for_selector("[data-editor-changed]")
         self.assertIn("pous/programs/canworks_in.st", pg.inner_text("[data-editor-changed]"))
         pg.click('#modal-buttons button[data-value="cancel"]')
-        self.assertEqual(load(self.config_path)["bridge"]["openplc"], {"poll_ms": 20})
+        self.assertEqual(load(self.config_path)["bridge"]["connections"][0]["poll_ms"], 20)
         pg.click("#btn-save")
         pg.wait_for_selector("[data-editor-changed]")
         pg.click('#modal-buttons button[data-value="overwrite"]')
         pg.wait_for_selector("#banner:has-text('Saved')")
-        self.assertEqual(load(self.config_path)["bridge"]["openplc"], {"poll_ms": 10})
+        self.assertEqual(load(self.config_path)["bridge"]["connections"][0]["poll_ms"], 10)
         with open(changed, encoding="utf-8") as f:
             self.assertNotIn("(* mine *)", f.read())
 

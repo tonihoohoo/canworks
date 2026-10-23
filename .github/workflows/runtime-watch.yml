@@ -1,7 +1,7 @@
 name: OpenPLC runtime watch
 
 # Upstream's newest OpenPLC runtime and editor releases against the ones
-# canworks is tested with, and the files its OpenPLC through Modbus target
+# canworks is tested with, and the files its OpenPLC connection
 # follows at them: the runtime's Modbus master config model, the editor's
 # remote device format and its generator of the runtime's config (recorded
 # in .github/ci/upstream-watch.json; canopen-ci, Runtime release watch). When

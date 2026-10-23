@@ -16,7 +16,7 @@ for the local runtime's bridge (canworks-local-runtime). See docs/deploy.md.
   canworks-deploy --config canworks.json --into-project <project>
 
 copies the config and its files into an OpenPLC Editor project's canworks/
-folder and, for an OpenPLC through Modbus config, writes the editor's remote
+folder and, for a config with an OpenPLC connection, writes the editor's remote
 device, the canworks_in and canworks_out programs and the `canworks`
 variable list (docs/modbus-bridge.md).
 
@@ -44,8 +44,8 @@ Uploads nothing.
   canworks-deploy --config canworks.json --new-project <dir> [--task-interval T#10ms]
 
 creates an OpenPLC Editor project in <dir> with openplc-cli create: target
-OpenPLC Runtime v4, the config in its canworks/ folder and, for an OpenPLC
-through Modbus config, the editor files of --into-project. Uploads nothing.
+OpenPLC Runtime v4, the config in its canworks/ folder and, with an OpenPLC
+connection, the editor files of --into-project. Uploads nothing.
 With --blocks the project also enables the canworks function block library
 (the CO_* blocks over the bridge and the CAN and J1939 helpers).
 
@@ -59,7 +59,7 @@ variable names in a CODESYS project (in the IDE, or headless). With
 (docs/codesys.md). A CODESYS config (one with a "codesys" object) holds
 these settings itself; the options override them.
 
-  canworks-deploy --config canworks.json --export-plcopen <dir> --for codesys|trust|generic [--bridge-host HOST]
+  canworks-deploy --config canworks.json --export-plcopen <dir> --for trust|generic [--bridge-host HOST]
 
 writes the program side of a bridge config with the PLC link ("plc_link":
 true) for a PLC other than OpenPLC: canworks.xml (PLCopen XML with the
@@ -139,8 +139,8 @@ def parser():
                           "directly or over the remote link, link:NAME over the link only, and `local` is the "
                           "local runtime's bridge (canworks-local-runtime)" % diag.DEFAULT_PORT)
     src.add_argument("--into-project", metavar="DIR",
-                     help="copy the config and its files into this editor project's canworks/ folder; for an "
-                          "OpenPLC through Modbus config also write the editor's remote device, canworks_in, "
+                     help="copy the config and its files into this editor project's canworks/ folder; for a "
+                          "config with an OpenPLC connection also write the editor's remote device, canworks_in, "
                           "canworks_out and the canworks variable list")
     src.add_argument("--export-dcf", metavar="DIR",
                      help="write each node's configuration as a CiA 306 DCF (node_<id>.dcf) into DIR instead of "
@@ -155,7 +155,7 @@ def parser():
     src.add_argument("--export-modbus-map", metavar="FILE",
                      help="write the Modbus register map of a bridge config (one with a \"bridge\" object) as CSV, "
                           "JSON or an ST variable list, chosen by the extension (.csv, .json, .st), instead of "
-                          "deploying; nothing is built or uploaded. For a config with bridge.openplc the .st "
+                          "deploying; nothing is built or uploaded. For a config with plc_link the .st "
                           "file is the PLC link for another Modbus PLC: the canworks list, its client "
                           "channels, canworks_in and canworks_out")
     src.add_argument("--export-nodered", metavar="FILE",
@@ -175,7 +175,7 @@ def parser():
                           "and the Modbus client setup for the PLC named with --for (docs/plcopen.md)")
     src.add_argument("--new-project", metavar="DIR",
                      help="create an OpenPLC Editor project in DIR (with openplc-cli create) that holds this config "
-                          "and, for an OpenPLC through Modbus config, the editor files of --into-project")
+                          "and, for a config with an OpenPLC connection, the editor files of --into-project")
     p.add_argument("--blocks", action="store_true",
                    help="with --new-project: enable the canworks function block library (the CO_* blocks over "
                         "the bridge, CAN and J1939 helpers) in the project, and install it into the editor if it is "
@@ -196,10 +196,10 @@ def parser():
                         "several networks: export "
                         "only this network (default: every network, DCFs in a folder per network, a DBC file per "
                         "network, one HTML document)")
-    p.add_argument("--for", dest="plcopen_for", choices=("codesys", "trust", "generic"),
-                   help="with --export-plcopen: the PLC: codesys (a script that imports the file and adds the Modbus "
-                        "TCP client), trust (truST: io.toml driver and I/O image) or generic (standard PLCopen XML "
-                        "and the register map)")
+    p.add_argument("--for", dest="plcopen_for", choices=("trust", "generic", "codesys"),
+                   help="with --export-plcopen: the PLC: trust (truST: io.toml driver and I/O image) or generic "
+                        "(standard PLCopen XML and the register map); CODESYS runs the CANopen master itself "
+                        "(--codesys-import)")
     p.add_argument("--bridge-host", metavar="HOST",
                    help="with --export-plcopen: the bridge's address as the PLC sees it (default: the bridge's "
                         "listen address; truST also takes 127.0.0.1 when the bridge listens on every address)")
@@ -208,16 +208,12 @@ def parser():
     p.add_argument("--with-main", action="store_true",
                    help="with --export-plcopen --for trust or generic: add an empty program main to the task, "
                         "between canworks_in and canworks_out")
-    p.add_argument("--codesys-ethernet", metavar="NAME",
-                   help="with --export-plcopen --for codesys: the Ethernet adapter in the CODESYS device that gets "
-                        "the Modbus TCP Master (default: the device's own, or a new one)")
     p.add_argument("--codesys-net", metavar="NAME=N", action="append",
                    help="with --export-codesys or --codesys-import: the CODESYS network number of network NAME "
                         "(default: the number its interface ends in, can1 -> 1); repeat per network")
     p.add_argument("--codesys-plc", metavar="NAME",
-                   help="with --export-codesys, --codesys-import or --export-plcopen --for codesys: the device in "
-                        "the CODESYS project that gets the CANbus or the Modbus client (default: the device of the "
-                        "project's active application, or its only device)")
+                   help="with --export-codesys or --codesys-import: the device in the CODESYS project that gets "
+                        "the CANbus (default: the device of the project's active application, or its only device)")
     p.add_argument("--codesys-can", metavar="NETWORK=OBJECT", action="append",
                    help="with --export-codesys or --codesys-import: the CAN interface object in the CODESYS device "
                         "that gets network NETWORK's bus (default: the device's only CAN interface, or the one "
@@ -295,11 +291,9 @@ def _export_modbus_map(config, path, out):
 def _export_plcopen(args, out_dir, out):
     target = args.plcopen_for
     if not target:
-        raise Failure("--export-plcopen needs --for codesys, trust or generic")
-    if target != "codesys" and (args.codesys_plc or args.codesys_ethernet):
-        raise Failure("--codesys-plc and --codesys-ethernet go with --for codesys")
-    if target == "codesys" and args.with_main:
-        raise Failure("--with-main goes with --for trust or generic: CODESYS keeps your own programs and tasks")
+        raise Failure("--export-plcopen needs --for trust or generic")
+    if target == "codesys":
+        raise Failure(plcopen_targets.CODESYS_REFUSED)
     try:
         with open(args.config, encoding="utf-8") as f:
             cfg = contract.load(f)
@@ -310,8 +304,7 @@ def _export_plcopen(args, out_dir, out):
     try:
         texts = plcopen_targets.files(
             cfg, editorproject.declarations(cfg, args.config), target, host=args.bridge_host,
-            library=not args.no_library, with_main=args.with_main, config_name=os.path.basename(args.config),
-            codesys_plc=args.codesys_plc, codesys_ethernet=args.codesys_ethernet,
+            library=not args.no_library, with_main=args.with_main,
             created=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))
         paths = plcopen_targets.write(out_dir, texts)
     except (plcopen_targets.ExportError, plcopen.PlcopenError, modbusmap.MapError, openplcmodbus.OpenplcError) as e:
@@ -506,10 +499,12 @@ def run(args, out=print, err=None, confirm_source=None):
 
     plcopen_dir = getattr(args, "export_plcopen", None)
     for opt, key in (("--for", "plcopen_for"), ("--bridge-host", "bridge_host"), ("--no-library", "no_library"),
-                     ("--with-main", "with_main"), ("--codesys-ethernet", "codesys_ethernet")):
+                     ("--with-main", "with_main")):
         if getattr(args, key, None) and not plcopen_dir:
             raise Failure("%s needs --export-plcopen" % opt)
     if plcopen_dir:
+        if getattr(args, "codesys_plc", None):
+            raise Failure("--codesys-plc needs --export-codesys or --codesys-import")
         if args.check_only:
             raise Failure("--export-plcopen only writes files; leave out --check-only")
         return _export_plcopen(args, plcopen_dir, out)
@@ -709,7 +704,7 @@ def run(args, out=print, err=None, confirm_source=None):
 
 def editor_lines(synced):
     """What --new-project and --into-project say about the editor files of
-    an OpenPLC through Modbus config (editorproject.write_editor_files)."""
+    a config with an OpenPLC connection (editorproject.write_editor_files)."""
     if not synced:
         return []
     out = ["wrote the editor's remote device, canworks_in, canworks_out and the canworks variable list (%d Modbus "

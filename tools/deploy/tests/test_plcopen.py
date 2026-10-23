@@ -1,7 +1,7 @@
 """PLCopen XML export (canworks.plcopen, canworks.plcopen_targets and the
-CODESYS script import_canworks_modbus.py): the ST parser, the TC6 writer
-against the PLCopen schema, the three targets' files (golden files), the
-CLI, the CODESYS script on the fake script engine, and, with the pinned truST
+the ST parser, the TC6 writer against the PLCopen schema, the two targets'
+files (golden files), the CLI, CODESYS refused (it runs the CANopen master
+itself), and, with the pinned truST
 CLI (CANWORKS_TRUST, test/plcopen/fetch-trust.sh), truST's import and build."""
 
 import contextlib
@@ -14,9 +14,8 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from canworks import __version__, cli, editorproject, plcopen, plcopen_targets
+from canworks import __version__, cli, connections, editorproject, plcopen, plcopen_targets
 
-from . import fake_codesys
 from .helpers import tmpdir
 from .test_contract import REPO
 
@@ -37,7 +36,8 @@ def link_config(dir_, mailboxes=True):
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
     b = cfg["bridge"]
-    del b["openplc"]
+    for key in ("connections", "word_order", "watchdog_ms"):
+        del b[key]
     b.update({"plc_link": True, "listen": "0.0.0.0:1502", "writers": ["192.168.10.20"]})
     if mailboxes == "trimmed":
         # What fits truST's one request each way: one request mailbox.
@@ -54,10 +54,7 @@ def export(test, target, mailboxes=None, **kw):
     d = tmpdir(test)
     path, cfg = link_config(d, mailboxes=target != "trust" if mailboxes is None else mailboxes)
     kw.setdefault("created", CREATED)
-    if target == "codesys":
-        kw.setdefault("host", "192.168.10.5")
-    return plcopen_targets.files(cfg, editorproject.declarations(cfg, path), target, config_name="canworks.json",
-                                 **kw)
+    return plcopen_targets.files(cfg, editorproject.declarations(cfg, path), target, **kw)
 
 
 def schema_errors(text):
@@ -225,12 +222,9 @@ class Targets(unittest.TestCase):
                 shutil.rmtree(folder, ignore_errors=True)
                 os.makedirs(folder)
                 for name, text in files.items():
-                    if name not in (plcopen_targets.CODESYS_SCRIPT, plcopen_targets.CODESYS_HELPER):
-                        with open(os.path.join(folder, name), "w", encoding="utf-8", newline="\n") as f:
-                            f.write(text.replace(__version__, "VERSION"))
+                    with open(os.path.join(folder, name), "w", encoding="utf-8", newline="\n") as f:
+                        f.write(text.replace(__version__, "VERSION"))
             for name, text in files.items():
-                if name in (plcopen_targets.CODESYS_SCRIPT, plcopen_targets.CODESYS_HELPER):
-                    continue
                 with self.subTest(target=target, file=name), open(os.path.join(folder, name), encoding="utf-8") as f:
                     self.assertEqual(text.replace(__version__, "VERSION"), f.read(),
                                      "UPDATE_GOLDEN=1 rewrites tests/data/plcopen")
@@ -249,9 +243,6 @@ class Targets(unittest.TestCase):
             self.assertEqual(errors, [])
 
     def test_files(self):
-        self.assertEqual(sorted(export(self, "codesys")), ["README.txt", "canworks-codesys-modbus.json",
-                                                           "canworks.xml", "import_canworks.py",
-                                                           "import_canworks_modbus.py"])
         self.assertEqual(sorted(export(self, "trust")), ["README.txt", "canworks.xml", "canworks_io.st",
                                                          "io.toml.part"])
         self.assertEqual(sorted(export(self, "generic")), ["README.txt", "canworks-modbus-map.csv", "canworks.xml"])
@@ -265,18 +256,9 @@ class Targets(unittest.TestCase):
         root = ET.fromstring(xml)
         self.assertEqual([i.get("typeName") for i in root.findall(".//p:task/p:pouInstance", NS)],
                          ["canworks_in", "main", "canworks_out"])
-        xml = export(self, "codesys", library=False)[plcopen_targets.XML_NAME]
+        xml = export(self, "generic", library=False)[plcopen_targets.XML_NAME]
         self.assertEqual([p.get("name") for p in ET.fromstring(xml).findall(".//p:pou", NS)],
                          ["canworks_in", "canworks_out"])
-
-    def test_codesys_plan(self):
-        plan = json.loads(export(self, "codesys", codesys_plc="PLC1")[plcopen_targets.CODESYS_PLAN])
-        self.assertEqual((plan["format"], plan["plc"], plan["bridge"], plan["cycle_ms"]),
-                         (1, "PLC1", {"host": "192.168.10.5", "port": 1502, "unit_id": 1}, 200))
-        for ch in plan["channels"]:
-            self.assertLessEqual(ch["count"], 125 if ch["function"] == 4 else 123)
-            self.assertEqual(ch["variable"], "canworks.in_w" if ch["function"] == 4 else "canworks.out_w")
-        self.assertEqual(plan["channels"][0]["start"], 0)
 
     def test_trust_io(self):
         files = export(self, "trust")
@@ -305,10 +287,9 @@ class Targets(unittest.TestCase):
                     self.assertIn('"watchdog_ms": 500 or more', problems[0])
                 for target in ("codesys", "generic"):
                     self.assertEqual([p for p in plcopen_targets.check(cfg, target) if "watchdog" in p], [])
-        # OpenPLC's default watchdog: five polls of 10 ms.
+        # Adding an OpenPLC connection sets OpenPLC's watchdog: five polls of 10 ms.
         b.pop("watchdog_ms", None)
-        del b["plc_link"]
-        b["openplc"] = {}
+        cfg = connections.add(cfg, connections.new("openplc", cfg))
         self.assertTrue([p for p in plcopen_targets.check(cfg, "trust") if "watchdog of 50 ms" in p])
 
     def test_refusals(self):
@@ -318,10 +299,8 @@ class Targets(unittest.TestCase):
         with self.assertRaisesRegex(plcopen_targets.ExportError, "one request each way.*\"requests\": 1, "
                                     "\"receive\": false.*CAN_RECEIVE"):
             plcopen_targets.files(cfg, decls, "trust")
-        with self.assertRaisesRegex(plcopen_targets.ExportError, "bridge's address as the PLC sees it"):
-            plcopen_targets.files(cfg, decls, "codesys")
-        cfg["bridge"]["listen"] = "127.0.0.1:1502"
-        with self.assertRaisesRegex(plcopen_targets.ExportError, "bridge's address as the PLC sees it"):
+        # CODESYS is not a Modbus client of the bridge (modbus-connections).
+        with self.assertRaisesRegex(plcopen_targets.ExportError, "CODESYS runs the CANopen master itself"):
             plcopen_targets.files(cfg, decls, "codesys")
         del cfg["bridge"]["plc_link"]
         with self.assertRaisesRegex(plcopen_targets.ExportError, "no PLC link"):
@@ -350,13 +329,12 @@ class Cli(unittest.TestCase):
         d = tmpdir(self)
         path, _ = link_config(d)
         out_dir = os.path.join(d, "out")
-        code, out, err = self.run_cli("--config", path, "--export-plcopen", out_dir, "--for", "codesys",
-                                      "--bridge-host", "10.0.0.2", "--codesys-plc", "PLC1")
+        code, out, err = self.run_cli("--config", path, "--export-plcopen", out_dir, "--for", "generic",
+                                      "--bridge-host", "10.0.0.2")
         self.assertEqual(code, 0, err)
-        self.assertIn("wrote 5 files", out)
-        with open(os.path.join(out_dir, plcopen_targets.CODESYS_PLAN), encoding="utf-8") as f:
-            plan = json.load(f)
-        self.assertEqual((plan["bridge"]["host"], plan["plc"], plan["config"]), ("10.0.0.2", "PLC1", "canworks.json"))
+        self.assertIn("wrote 3 files", out)
+        with open(os.path.join(out_dir, plcopen_targets.README_NAME), encoding="utf-8") as f:
+            self.assertIn("the PLC reaches it at 10.0.0.2", f.read())
 
     def test_trust_with_trimmed_mailboxes(self):
         files = export(self, "trust", mailboxes="trimmed")
@@ -370,8 +348,9 @@ class Cli(unittest.TestCase):
         out_dir = os.path.join(d, "out")
         for argv, text in (
                 (["--export-plcopen", out_dir], "needs --for"),
-                (["--export-plcopen", out_dir, "--for", "codesys", "--with-main"], "--with-main goes with"),
-                (["--export-plcopen", out_dir, "--for", "generic", "--codesys-plc", "x"], "go with --for codesys"),
+                (["--export-plcopen", out_dir, "--for", "codesys"], "CODESYS runs the CANopen master itself"),
+                (["--export-plcopen", out_dir, "--for", "generic", "--codesys-plc", "x"],
+                 "--codesys-plc needs --export-codesys"),
                 (["--check", "--for", "generic"], "--for needs --export-plcopen"),
                 (["--export-plcopen", out_dir, "--for", "trust"], "one request each way")):
             with self.subTest(argv):
@@ -389,68 +368,6 @@ class Cli(unittest.TestCase):
         self.assertIn("CO_SDO_READ", [p.get("name") for p in root.findall(".//p:pou", NS)])
         code, out, err = self.run_cli("library", "--list", "--format", "plcopen")
         self.assertIn("writes the library with --out DIR", err)
-
-
-class CodesysScript(unittest.TestCase):
-    def folder(self, **kw):
-        d = tmpdir(self)
-        plcopen_targets.write(d, export(self, "codesys", library=False, **kw))
-        return d
-
-    def project(self, w, tasks=(("MainTask", ["PLC_PRG"]),)):
-        proj = w.project_with_plc(os.path.join(tmpdir(self), "x.project"))
-        plc = proj.find("PLC")[0]
-        w.add_application(proj, plc)
-        for name, pous in tasks:
-            w.add_task(plc, name, pous)
-        return proj, plc
-
-    def test_first_run_and_again(self):
-        d = self.folder()
-        w = fake_codesys.World()
-        proj, plc = self.project(w)
-        report = w.run(d, proj, "import_canworks_modbus.py")
-        self.assertTrue(report.startswith("result: ok"), report)
-        self.assertIn("imported canworks.xml into Application", report)
-        self.assertIn("set      Modbus TCP Slave canworks_bridge: IP address = 192.168.10.5", report)
-        self.assertIn("by hand  Modbus TCP Slave canworks_bridge: channel Read Input Registers (function 4), "
-                      "cyclic every 200 ms, offset 0, length 105, mapped to canworks.in_w[0..104]", report)
-        self.assertIn("set      task MainTask: canworks_in, PLC_PRG, canworks_out", report)
-        slave = plc.find("canworks_bridge", True)[0]
-        self.assertEqual([fake_codesys.param(slave, i).value for i in (1, 2, 3)], ["192.168.10.5", "1502", "1"])
-        self.assertFalse(proj.saved)
-        report = w.run(d, proj, "import_canworks_modbus.py")
-        self.assertTrue(report.startswith("result: ok"), report)
-        self.assertIn("kept     Modbus TCP Slave: canworks_bridge", report)
-        self.assertEqual(len(plc.find("canworks_bridge", True)), 1)
-        self.assertEqual(plc.find("MainTask", True)[0].pous, ["canworks_in", "PLC_PRG", "canworks_out"])
-        self.assertEqual(sum(1 for e in w.log if e[0] == "import_xml"), 2)
-
-    def test_several_tasks(self):
-        d = self.folder()
-        w = fake_codesys.World()
-        proj, plc = self.project(w, (("Fast", ["Motion"]), ("Slow", ["Logging"])))
-        report = w.run(d, proj, "import_canworks_modbus.py")
-        self.assertIn("by hand  task: 2 tasks (Fast, Slow): add canworks_in as the first", report)
-        self.assertEqual(plc.find("Fast", True)[0].pous, ["Motion"])
-
-    def test_named_plc_and_no_project(self):
-        d = self.folder(codesys_plc="Other")
-        w = fake_codesys.World()
-        proj, _ = self.project(w)
-        report = w.run(d, proj, "import_canworks_modbus.py")
-        self.assertIn("no device named Other", report)
-        report = w.run(d, None, "import_canworks_modbus.py")
-        self.assertIn("open the PLC project in CODESYS first", report)
-
-    def test_missing_devices(self):
-        d = self.folder()
-        w = fake_codesys.World()
-        w.repo.names = {}
-        proj, _ = self.project(w)
-        report = w.run(d, proj, "import_canworks_modbus.py")
-        self.assertIn("this CODESYS has no ethernet device installed", report)
-        self.assertIn("set      task MainTask", report)
 
 
 @unittest.skipUnless(os.environ.get("CANWORKS_TRUST"), "CANWORKS_TRUST names the truST CLI "

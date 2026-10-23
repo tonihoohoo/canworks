@@ -15,7 +15,7 @@ from canworks.bustrace import formats
 from canworks.bustrace.model import Frame
 
 from .fake_diag import TOKEN, FakePlugin
-from .helpers import PINGPONG, editor_project_action, browse_eds, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
+from .helpers import with_openplc, PINGPONG, editor_project_action, browse_eds, node_tab, tree_entry, tree_node, tree_view, new_config, header_action, tool_tab, add_node
 from .test_bustrace import sample_trace, written
 from .test_configurator_layout import Layout, audit, load
 from .test_configurator_online_page import OnlineBase
@@ -703,9 +703,8 @@ class CleanProject(OnlineBase):
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
-        # New editor project is for OpenPLC through Modbus.
-        cfg = load(self.config_path)
-        cfg.setdefault("bridge", {})["openplc"] = {}
+        # New editor project is for a config with an OpenPLC connection.
+        cfg = with_openplc(load(self.config_path))
         with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         pg.goto(self.server.url)

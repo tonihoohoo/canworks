@@ -37,7 +37,7 @@ The configurator and the bridge refuse the same configs: `tools/deploy/tests/tes
 
 Python versions: the deploy tool also runs on the Linux device (EDS lint, the remote link), on Python 3.11 there, so the package needs 3.11 or newer and may not use anything newer. CI runs the jobs that test code the device runs (engine, vcan, tools) on 3.11 and the PC-only jobs (configurator pages, browser run, local runtime, PC tools on Windows and macOS) on 3.14, the one-line installer's Python.
 
-OpenPLC through Modbus end to end, the pinned upstream runtime's own Modbus master against `canworks-bridge` (needs the runtime's `pymodbus`):
+The OpenPLC connection end to end, the pinned upstream runtime's own Modbus master against `canworks-bridge` (needs the runtime's `pymodbus`):
 
 ```sh
 git clone -b $(cat docker/local-runtime/runtime-version) https://github.com/Autonomy-Logic/openplc-runtime ../openplc-runtime
@@ -101,7 +101,7 @@ test/local-runtime/run.sh --image canworks-bridge:dev --strucpp "$(scripts/fetch
 test/virtual-example/run.sh --image canworks-bridge:dev --strucpp "$(scripts/fetch-strucpp.sh)"
 ```
 
-`.github/workflows/runtime-watch.yml` compares upstream's newest runtime and editor releases with the pinned ones, and the files the OpenPLC through Modbus target follows, once a month; when upstream is newer it keeps one open `runtime-update` issue.
+`.github/workflows/runtime-watch.yml` compares upstream's newest runtime and editor releases with the pinned ones, and the files the OpenPLC connection follows, once a month; when upstream is newer it keeps one open `runtime-update` issue.
 
 ## Repository layout
 
@@ -121,7 +121,7 @@ schema/            the config contract (JSON Schema 2020-12): canworks.v1.schema
                    canworks-sim.v1/v2.schema.json for the simulation file (v2: a section per network)
 examples/          virtual-plant/: the fully virtual example project of docs/tour.md (four simulated
                    networks, an OpenPLC Editor project with a demo program, a simulation file with
-                   test scenarios); openplc-modbus/: a small OpenPLC through Modbus config; j1939/: a J1939
+                   test scenarios); openplc-modbus/: a small config with an OpenPLC connection; j1939/: a J1939
                    ECU config and its DBC file (docs/j1939.md); raw-can/: a plain CAN network with
                    its DBC file and simulated devices (docs/raw-can.md); modbus-bridge/: a bridge
                    config with simulated devices (docs/modbus-bridge.md); pdo-link/: two nodes
@@ -139,7 +139,7 @@ tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks
                    canworks-j1939-sim (the J1939 ECU simulator)
 docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
 docker/local-runtime/ the pinned upstream runtime and bootloader releases (the local runtime,
-                   scripts/install-bridge.sh --with-openplc and the OpenPLC through Modbus tests use them)
+                   scripts/install-bridge.sh --with-openplc and the OpenPLC tests use them)
 library/           the canworks function block library (docs/plc-library.md): modbus/ the blocks
                    over the bridge, canworks/ the ST helpers; build.sh builds the .stlib the deploy
                    tool carries

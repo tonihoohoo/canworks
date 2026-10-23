@@ -1,6 +1,6 @@
 # Local runtime: `canworks-local-runtime`
 
-The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program, with no Modbus master to reach canworks. The local runtime takes its place on the engineering PC: upstream's OpenPLC Runtime v4 at the pinned version, unchanged, and canworks-bridge next to it, in two containers on Windows, macOS or Linux, with every network running simulated. An [OpenPLC project](modbus-bridge.md#openplc-through-modbus) with CANopen nodes then runs on the PC with no Linux device, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
+The OpenPLC Editor's own **OpenPLC Simulator** emulates a small microcontroller board and runs only the PLC program, with no Modbus master to reach canworks. The local runtime takes its place on the engineering PC: upstream's OpenPLC Runtime v4 at the pinned version, unchanged, and canworks-bridge next to it, in two containers on Windows, macOS or Linux, with every network running simulated. An [OpenPLC project](modbus-bridge.md#openplc) with CANopen nodes then runs on the PC with no Linux device, no CAN adapter and no devices: upload it from the editor, watch it in the editor's debugger, and use the configurator's online, trace and simulation views against it.
 
 `canworks-local-runtime` comes with the PC tools ([install-pc.md](install-pc.md)). It needs a container engine; Docker Desktop is not needed.
 

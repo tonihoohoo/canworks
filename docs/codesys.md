@@ -2,11 +2,11 @@
 
 A canworks config can be built into a CODESYS project, so a CODESYS controller or display with a CAN interface runs the same bus with CODESYS's own CANopen Manager: the nodes, their PDOs, COB-IDs, transmission types and timers, heartbeat, startup SDOs and a variable name on every mapped I/O channel. canworks keeps doing what it does around the bus: the configurator, checks, bus trace and commissioning.
 
-The other route keeps canworks on the bus: `canworks-bridge` runs the CAN networks on a Linux device and CODESYS is a Modbus TCP client of it, with the canworks variables, copy programs and function blocks imported from PLCopen XML ([plcopen.md](plcopen.md#codesys)). Pick this page's route when the CODESYS controller has the CAN interface and should be the CANopen master; pick the bridge when the CAN interface is on the Linux device, or for J1939 and raw CAN, which only the bridge runs.
+CODESYS is not a Modbus client of canworks-bridge: when the CAN interface is on a Linux device, or for J1939 and raw CAN, which only the bridge runs, pick the Modbus bridge target with a PLC that is one of its [connections](modbus-bridge.md#connections) instead.
 
 ## CODESYS as the project target
 
-CODESYS is one of the three project targets, next to OpenPLC and the Modbus bridge ([configurator.md](configurator.md#project-target)). A config whose target is CODESYS has a top-level `codesys` object ([config.md](config.md#codesys-target)):
+CODESYS is one of the two project targets, next to the Modbus bridge ([configurator.md](configurator.md#project-target)). A config whose target is CODESYS has a top-level `codesys` object ([config.md](config.md#codesys-target)):
 
 ```json
 {
@@ -23,7 +23,7 @@ CODESYS is one of the three project targets, next to OpenPLC and the Modbus brid
 - Slave, J1939 and plain CAN networks stay with canworks; the configurator offers only CANopen master networks.
 - `canworks-bridge` refuses a CODESYS config, and `canworks-deploy --bridge` stops before uploading it.
 
-In the configurator, switch the **Project target** on the Bus page to CODESYS. Every PDO entry gets its current generated name written in, so the channel names stay what they were, and the dialog removes the settings CODESYS does not use (or keeps them, marked). Switching back to OpenPLC or the Modbus bridge gives every entry a location again. The **CODESYS** page in the tree has the project file, the device that gets the bus, the PLC device for a new project (picked from the PLCs installed in CODESYS; **Browse…** picks or names the project file) and whether the channels are named; each network's Bus page has its network number and CAN interface object.
+In the configurator, switch the **Project target** on the Project page to CODESYS. Every PDO entry gets its current generated name written in, so the channel names stay what they were, and the settings CODESYS does not use are removed, with the bridge's connections. Switching back to the Modbus bridge gives every entry a location again. The **CODESYS** page in the tree has the project file, the device that gets the bus, the PLC device for a new project (picked from the PLCs installed in CODESYS; **Browse…** picks or names the project file) and whether the channels are named; each network's Bus page has its network number and CAN interface object.
 
 **Build into CODESYS project…** in the header saves nothing by itself: it builds the saved config into the project with CODESYS on this PC, headless, and shows CODESYS's report. Close the project in the CODESYS window first; a build into a project that is open there fails, and the report says so. On a PC without CODESYS, **Download for CODESYS** gives the export folder below as a zip to run in CODESYS elsewhere.
 
@@ -42,7 +42,7 @@ The script uses the project's active device (the one whose application is the ac
 
 Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
 
-Get the folder from the configurator (**Export → Download for CODESYS** or the CODESYS page in a CODESYS project, a zip) or from the command line, for a config of any target:
+Get the folder from the configurator (**Download for CODESYS** in the Export menu or on the CODESYS page of a CODESYS project, a zip) or from the command line, for a config of any target:
 
 ```sh
 canworks-deploy --config canworks.json --export-codesys codesys/

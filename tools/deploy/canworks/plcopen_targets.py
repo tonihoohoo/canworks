@@ -1,42 +1,40 @@
-"""`canworks-deploy --export-plcopen OUT --for codesys|trust|generic`: the
-program side of a PLC link config for a Modbus PLC other than OpenPLC, as
-one PLCopen XML file plus the per-PLC transport (plcopen-export spec).
+"""`canworks-deploy --export-plcopen OUT --for trust|generic`: the program
+side of a PLC link config for a Modbus PLC other than OpenPLC, as one
+PLCopen XML file plus the per-PLC transport (plcopen-export spec). The
+truST and Other PLC connections download the same folder as a zip
+(modbus-connections).
 
 The boundary is change 3's channel arrays: input register k is in
 `canworks.in_w[k]`, holding register k is taken from `canworks.out_w[k]`.
 canworks_in and canworks_out are the same copy code `--export-modbus-map
 OUT.st` writes; each target only moves registers in and out of the arrays:
 
-    codesys   canworks.xml, canworks-codesys-modbus.json (the plan) and
-              import_canworks_modbus.py for CODESYS's script engine, which
-              imports the XML and adds the Modbus TCP client devices
     trust     canworks.xml with byte arrays at %IB0/%QB0 that canworks_in
               and canworks_out copy, and io.toml.part: truST's modbus-tcp
               driver reads the input registers into %IB0.. and writes %QB0..
               into the holding registers, one request each way
     generic   canworks.xml in standard TC6 form and the register map as CSV
+
+CODESYS is not a Modbus client of the bridge: a CODESYS PLC runs the CANopen
+master itself (the CODESYS target, --export-codesys).
 """
 
 import ipaddress
-import json
 import os
 
 from . import __version__, bridgecheck, modbusmap, openplcmodbus, plclibrary, plcopen
 
-TARGETS = ("codesys", "trust", "generic")
+TARGETS = ("trust", "generic")
+CODESYS_REFUSED = ("CODESYS is not a Modbus client of canworks-bridge: CODESYS runs the CANopen master itself as the "
+                   "CODESYS target (canworks-deploy --codesys-import)")
 XML_NAME = "canworks.xml"
 README_NAME = "README.txt"
-CODESYS_PLAN = "canworks-codesys-modbus.json"
-CODESYS_SCRIPT = "import_canworks_modbus.py"
-CODESYS_HELPER = "import_canworks.py"
-CODESYS_FORMAT = 1
 TRUST_IO = "io.toml.part"
 TRUST_IO_ST = "canworks_io.st"
 GENERIC_CSV = "canworks-modbus-map.csv"
 LIBRARY_XML_NAME = "canworks-library.xml"
 TASK = "canworks_task"
 MAIN = "main"
-_SCRIPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codesys", "script")
 _WILDCARD = ("", "0.0.0.0", "::", "[::]", "*")
 _LOOPBACK = ("localhost", "::1", "[::1]")
 
@@ -79,30 +77,13 @@ def writer_covers(cfg, address):
     return False
 
 
-def problems(cfg):
-    """Problems-pane warnings of a bridge config whose PLC link serves
-    another PLC: a loopback `listen` only a program on the bridge's own
-    device can reach."""
-    b = cfg.get("bridge") if isinstance(cfg, dict) else None
-    if not isinstance(b, dict) or not b.get("plc_link") or isinstance(b.get("openplc"), dict):
-        return []
-    listen = b.get("listen")
-    if not isinstance(listen, str) or not is_loopback(listen_host(cfg).strip("[]")):
-        return []
-    return [{"level": "warning", "message": "bridge: 'listen' is %s: only a PLC on the bridge's own device can reach "
-             "it; listen on 0.0.0.0 or the device's address for a PLC elsewhere" % listen,
-             "paths": ["bridge.listen"]}]
-
-
 def default_host(cfg, target):
     """The bridge address the PLC uses when none is given: `listen`'s host
     unless that is a wildcard; truST on the bridge's own device may use
-    loopback, CODESYS never runs there."""
+    loopback."""
     host = listen_host(cfg)
     if host in _WILDCARD:
         return "127.0.0.1" if target == "trust" else None
-    if target == "codesys" and is_loopback(host):
-        return None
     return host.strip("[]")
 
 
@@ -120,8 +101,10 @@ TRUST_MIN_WATCHDOG_MS = 500
 
 def check(cfg, target):
     """Problems that stop an export, as texts."""
+    if target == "codesys":
+        return [CODESYS_REFUSED]
     if target not in TARGETS:
-        return ["unknown PLC %r (codesys, trust or generic)" % target]
+        return ["unknown PLC %r (trust or generic)" % target]
     if not modbusmap.is_bridge_config(cfg):
         return ["not a Modbus bridge config: it has no \"bridge\" object"]
     if not modbusmap.has_plc_link(cfg):
@@ -243,23 +226,6 @@ def channels(cfg):
     return out
 
 
-def codesys_plan(cfg, host, config_name="", plc=None, ethernet=None):
-    s = openplcmodbus.settings(cfg)
-    return {
-        "format": CODESYS_FORMAT,
-        "tool": "canworks-deploy %s" % __version__,
-        "config": config_name,
-        "xml": XML_NAME,
-        "plc": plc or "",
-        "ethernet": ethernet or "",
-        "bridge": {"host": host, "port": s["port"], "unit_id": s["unit_id"]},
-        "cycle_ms": task_interval_ms(cfg),
-        "channels": channels(cfg),
-        "programs": {"first": openplcmodbus.IN_PROGRAM, "last": openplcmodbus.OUT_PROGRAM},
-        "map_hash": "16#%08X" % modbusmap.map_hash(cfg),
-    }
-
-
 def trust_io(cfg, host):
     s = openplcmodbus.settings(cfg)
     n = openplcmodbus.channel_sizes(cfg)
@@ -286,8 +252,7 @@ def trust_io(cfg, host):
 def _readme(target, cfg, host, interval, with_main):
     s = openplcmodbus.settings(cfg)
     writers = (cfg.get("bridge") or {}).get("writers") or []
-    lines = ["canworks for %s (canworks-deploy %s)" % ({"codesys": "CODESYS", "trust": "truST",
-                                                       "generic": "a PLC that imports PLCopen XML"}[target],
+    lines = ["canworks for %s (canworks-deploy %s)" % ({"trust": "truST", "generic": "a PLC that imports PLCopen XML"}[target],
                                                       __version__),
              "",
              "%s holds the canworks list (canworks.ok, the typed values, canworks.link and the channel arrays "
@@ -298,18 +263,7 @@ def _readme(target, cfg, host, interval, with_main):
     if writers:
         lines += ["The bridge takes writes only from %s: the PLC's address must be one of them." % ", ".join(writers),
                   ""]
-    if target == "codesys":
-        lines += ["CODESYS is a Modbus TCP client of canworks-bridge here; canworks-bridge still runs the CAN "
-                  "networks. To let CODESYS run the CANopen master itself, use canworks-deploy --export-codesys.",
-                  "",
-                  "1. Open the PLC project in CODESYS.",
-                  "2. Tools > Scripting > Execute Script File..., pick %s in this folder." % CODESYS_SCRIPT,
-                  "   It imports %s, adds the Modbus TCP client devices for the bridge, puts canworks_in first "
-                  "and canworks_out last in the task, and writes import_report.txt here." % XML_NAME,
-                  "3. Read import_report.txt: what it lists as 'by hand' is for you to do in CODESYS.",
-                  "4. Use canworks.ok and canworks.<value> in your program; the canworks blocks take "
-                  "LINK := canworks.link."]
-    elif target == "trust":
+    if target == "trust":
         lines += ["1. Import the file into the truST project:",
                   "     trust-runtime plcopen import --input %s --project <project folder>" % XML_NAME,
                   "   (or in VS Code: truST: Import PLCopen XML).",
@@ -342,9 +296,10 @@ def _readme(target, cfg, host, interval, with_main):
     return "\n".join(lines)
 
 
-def files(cfg, decls, target, host=None, library=True, with_main=False, config_name="", codesys_plc=None,
-          codesys_ethernet=None, created=None):
+def files(cfg, decls, target, host=None, library=True, with_main=False, created=None):
     """{file name: text} of the export folder."""
+    if target not in TARGETS:
+        raise ExportError("; ".join(check(cfg, target)))
     if host is None:
         host = default_host(cfg, target)
     if not host and target != "generic":
@@ -353,13 +308,7 @@ def files(cfg, decls, target, host=None, library=True, with_main=False, config_n
     out = {XML_NAME: xml_text(cfg, decls, target, library, with_main, created)}
     interval = task_interval_ms(cfg)
     out[README_NAME] = _readme(target, cfg, host, interval, with_main)
-    if target == "codesys":
-        out[CODESYS_PLAN] = json.dumps(codesys_plan(cfg, host, config_name, codesys_plc, codesys_ethernet),
-                                       indent=2) + "\n"
-        for name in (CODESYS_SCRIPT, CODESYS_HELPER):
-            with open(os.path.join(_SCRIPT_DIR, name), encoding="utf-8") as f:
-                out[name] = f.read()
-    elif target == "trust":
+    if target == "trust":
         out[TRUST_IO] = trust_io(cfg, host)
         out[TRUST_IO_ST] = trust_io_st(cfg)
     else:

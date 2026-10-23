@@ -228,7 +228,7 @@ wheels = [
 
 [[package]]
 name = "canworks"
-version = "0.122.1"
+version = "0.123.0"
 source = { editable = "." }
 dependencies = [
     { name = "can-j1939" },
