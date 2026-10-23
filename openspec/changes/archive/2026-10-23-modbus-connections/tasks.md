@@ -46,8 +46,10 @@
 
 ## 8. Hardware and desktop
 
-- [ ] 8.1 Pi: a converted OpenPLC project with the OpenPLC connection runs against node 23 (values both ways, status at %IB4)
-- [ ] 8.2 Mac and Windows: New config, add each connection kind, Download, out-of-date after a change, Export ▾
+- [x] 8.1 Pi: a converted OpenPLC project with the OpenPLC connection runs against node 23 (values both ways, status at %IB4)
+  - 2026-10-23, tools and bridge 0.124.0: canopen-node23-modbus converted with Add connection → OpenPLC, rebuilt and uploaded; `canworks.ok` TRUE, status block at %IB4 (link ok, counter moving), map hash 0xbbb64e18, SDO 0x1018:1 and 0x1008 reads, a forced output reached node 23 (0x217 toggling) and the heartbeat stayed operational. Found: the old `bridge.openplc` stayed after Add connection and blocked Save (fixed: Add connection → OpenPLC drops it and keeps its settings). The project's own `main.st` needed the 0.122.0 pin renames (`ALL_IDS`, `RECEIVED`).
+- [x] 8.2 Mac and Windows: New config, add each connection kind, Download, out-of-date after a change, Export ▾
+  - 2026-10-23, tools 0.124.0, both passed: two New config choices (bridge preselected); all five kinds added; each Download equals the command line's file (PLCopen XML apart from its creation time); a moved PDO entry turned the rows Out of date with one Problems warning each, Download again cleared them; Export ▾ holds network files only. Windows: LF line endings, folders with spaces fine. Found and fixed: the New config tooltip still named OpenPLC, and a config name with spaces stayed in Download names. Open: a config with OpenPLC and truST passes the check although the truST Download is refused (map size, 50 ms watchdog).
 
 ## 9. Archive
 

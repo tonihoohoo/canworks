@@ -306,6 +306,24 @@ class Connections(Base):
         self.assertEqual(item["paths"], ["bridge.connections[0]"])
         self.assertIn("Panel", item["message"])
 
+    def test_openplc_connection_replaces_the_removed_field(self):
+        # A config of the removed OpenPLC target: Add connection → OpenPLC takes
+        # its settings and drops `bridge.openplc`, so the refusal goes.
+        self.open()
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["openplc"] = {"poll_ms": 20}
+        self.assertTrue(any("field 'openplc' was removed" in m for m in self.errors(cfg)))
+        cfg = self.add(cfg, kind="openplc")
+        self.assertNotIn("openplc", cfg["bridge"])
+        [conn] = cfg["bridge"]["connections"]
+        self.assertEqual((conn["kind"], conn["poll_ms"]), ("openplc", 20))
+        self.assertFalse(any("was removed" in m for m in self.errors(cfg)))
+
+    def test_file_names(self):
+        # Both parts of a Download's name are safe file name characters.
+        self.assertEqual(connections.file_stem("bridge cfg", {"kind": "plc", "name": "line PLC"}), "bridge-cfg-line-PLC")
+        self.assertEqual(connections.file_stem("", {"kind": "hmi"}), "canworks-hmi")
+
     def test_connections_reach_the_bridge(self):
         self.open()
         self.cfg["bridge"]["listen"] = "127.0.0.1:1502"
