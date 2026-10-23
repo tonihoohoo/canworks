@@ -459,6 +459,7 @@ function connectionState(c) {
     return o && o.outdated && o.outdated.length ? { key: "out_of_date", text: "Out of date: Save" } : { key: "in_sync", text: "In sync" };
   }
   if (!c.map_hash) return { key: "not_downloaded", text: "Not downloaded yet" };
+  if (c.stale) return { key: "out_of_date", text: "Out of date" };
   const now = S.bridgeMap && S.bridgeMap.map_hash;
   return !now || now === c.map_hash ? { key: "up_to_date", text: "In sync" } : { key: "out_of_date", text: "Out of date" };
 }
@@ -540,6 +541,21 @@ function connectionRow(c, i) {
   return [row, el("tr", { class: "conn-settings", dataset: { connSettings: String(i) } }, el("td", { colspan: "6" }, settings))];
 }
 
+// inputs_on_loss (modbus-connections "PLC inputs while the bridge is
+// lost"). A downloaded file was made with the old choice: the row says it
+// is out of date until the next Download.
+function inputsOnLossField(c, path) {
+  return choice("Inputs when the bridge is lost", path + ".inputs_on_loss", [
+    { value: undefined, label: "Keep last values", help: "While canworks.ok is FALSE the values keep what the bridge last sent; status, state and timeout inputs read 0." },
+    { value: "zero", label: "Set to 0", help: "While canworks.ok is FALSE every value reads 0." },
+  ], { onChange: (v) => {
+    // One undo step: the stale mark goes in with the choice.
+    if (c.kind !== "openplc" && c.map_hash) c.stale = true;
+    setPath(path + ".inputs_on_loss", v);
+    render();
+  } });
+}
+
 // The kind's own settings, folded under the row.
 function connectionSettings(c, i) {
   const path = `bridge.connections[${i}]`;
@@ -566,6 +582,7 @@ function connectionSettings(c, i) {
   if (kind === "trust" || kind === "plc" || kind === "hmi") {
     fields.push(choice("Format", path + ".format", CONNECTION_FORMATS[kind]));
   }
+  if (kind === "openplc" || kind === "trust" || kind === "plc") fields.push(inputsOnLossField(c, path));
   if (kind === "trust" || kind === "plc") {
     const listen = bridgeSplitListen(getPath("bridge.listen") || "")[0];
     fields.push(field("Bridge address the PLC uses", path + ".bridge_host", "text",
@@ -732,8 +749,9 @@ async function connectionDownload(i) {
   }
   if (r.errors) { exportStopped(c.name || CONNECTION_TITLE[c.kind], r, cfg); return; }
   downloadBase64(r.data, r.name, r.content_type);
-  if (r.map_hash && c.map_hash !== r.map_hash) {
-    c.map_hash = r.map_hash;
+  if ((r.map_hash && c.map_hash !== r.map_hash) || c.stale) {
+    c.map_hash = r.map_hash || c.map_hash;
+    delete c.stale;
     changed(true, `bridge.connections[${i}].map_hash`);
   }
   const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");

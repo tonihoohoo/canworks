@@ -56,9 +56,12 @@ With the bridge's blocks in the config, **canworks in** also carries:
 | `bridge.state` | `running`, `watchdog` (outputs off by the watchdog), `idle`, `map mismatch` or `plc stopped` |
 | `bridge.clients` | connected Modbus clients |
 | `bridge.command` | `{counter, result, text}` of the last NMT command |
+| `bridge.bus_ok` | `false` while a CAN network of the bridge has its bus down, missing or bus-off (status byte 7 bit 1), and while the bridge is not reachable |
 | `<network>.node<N>.operational` | from the live list, per configured node |
 | `<network>.bus_state`, `.bus_load`, `.tx_errors`, `.rx_errors`, `.bus_offs` | from the network info block (mailboxes), unless the map has a value of that name |
 | `<network>.claim`, `.address`, `.name`, `.ecus` | the same, for a J1939 network |
+
+When the connection to the bridge is lost, **canworks in** sends 0 (or `false`) for the status, state and timeout values, every `.operational` and `bridge.bus_ok`; the other values keep their last ones until the bridge answers again ([When the bridge fails](modbus-bridge.md#what-the-nodes-do)).
 
 Every canworks node shows the connection as its status: connected, connecting, reconnecting, or **writes refused** when the bridge's `writers` lacks Node-RED's address.
 

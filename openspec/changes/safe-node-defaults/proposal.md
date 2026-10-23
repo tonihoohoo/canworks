@@ -39,7 +39,7 @@ All deltas are ADDED requirements:
 
 - `canopen-node-supervision`: Nodes not protected against a bridge stop (bridge log, deploy check).
 - `canopen-configurator`: Safe settings for new nodes and adapters; Problems for unprotected nodes and bus-off without restart.
-- `modbus-bridge`: Bus flag in the status block.
+- `modbus-bridge`: Status block (byte 7 bit 1, the bus flag).
 - `modbus-connections` (created by `modbus-connections`): PLC inputs while the bridge is lost; Bus state for the PLC.
 
 ## Impact

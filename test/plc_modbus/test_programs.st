@@ -73,6 +73,74 @@ TEST 'canworks.ok needs the map hash and a moving counter'
   ASSERT_FALSE(cin.canworks.ok);
 END_TEST
 
+TEST 'while canworks.ok is FALSE the status inputs read 0 and the others hold'
+  VAR
+    cin : canworks_in_fb;
+  END_VAR
+  cin.i0 := 16#EC2C;
+  cin.i1 := 16#168F;
+  cin.i3 := 1;
+  cin.i6 := 16#0300;
+  cin.i8 := 16#FFFE;
+  cin();
+  ASSERT_TRUE(cin.canworks.ok);
+  ASSERT_TRUE(cin.canworks.bus_ok);
+  ASSERT_TRUE(cin.canworks.cab_In_status);
+  ASSERT_TRUE(cin.canworks.cab_In_flag);
+  ASSERT_EQ(cin.canworks.cab_In_word, -2);
+  (* The counter stops: the bridge is lost. *)
+  cin();
+  ADVANCE_TIME(T#400ms);
+  cin();
+  ASSERT_FALSE(cin.canworks.ok);
+  ASSERT_FALSE(cin.canworks.bus_ok);
+  ASSERT_FALSE(cin.canworks.cab_In_status);
+  ASSERT_TRUE(cin.canworks.cab_In_flag);
+  ASSERT_EQ(cin.canworks.cab_In_word, -2);
+END_TEST
+
+TEST 'inputs_on_loss zero sets every input to 0 while canworks.ok is FALSE'
+  VAR
+    cin : canworks_in_zero_fb;
+  END_VAR
+  cin.i0 := 16#EC2C;
+  cin.i1 := 16#168F;
+  cin.i3 := 1;
+  cin.i6 := 16#0300;
+  cin.i8 := 16#FFFE;
+  cin.i11 := 16#0000;
+  cin.i12 := 16#3FC0;
+  cin();
+  ASSERT_TRUE(cin.canworks.cab_In_flag);
+  ASSERT_EQ(cin.canworks.cab_In_word, -2);
+  ASSERT_NEAR(cin.canworks.cab_In_real, 1.5, 0.0);
+  cin();
+  ADVANCE_TIME(T#400ms);
+  cin();
+  ASSERT_FALSE(cin.canworks.ok);
+  ASSERT_FALSE(cin.canworks.cab_In_status);
+  ASSERT_FALSE(cin.canworks.cab_In_flag);
+  ASSERT_EQ(cin.canworks.cab_In_word, 0);
+  ASSERT_NEAR(cin.canworks.cab_In_real, 0.0, 0.0);
+END_TEST
+
+TEST 'canworks.bus_ok follows status byte 7 bit 1'
+  VAR
+    cin : canworks_in_fb;
+  END_VAR
+  cin.i0 := 16#EC2C;
+  cin.i1 := 16#168F;
+  cin.i3 := 1;
+  cin.i5 := 16#0002;
+  cin();
+  ASSERT_TRUE(cin.canworks.ok);
+  ASSERT_FALSE(cin.canworks.bus_ok);
+  cin.i3 := 2;
+  cin.i5 := 16#0001;
+  cin();
+  ASSERT_TRUE(cin.canworks.bus_ok);
+END_TEST
+
 TEST 'canworks_out writes the holding registers and the header last'
   VAR
     cout : canworks_out_fb;

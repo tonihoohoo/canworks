@@ -287,7 +287,7 @@ At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive 
 ]
 ```
 
-Every connection has `kind`, a unique `name` (1-64 characters), `address` (the client's IP address), `writes` and, once downloaded, `map_hash`. The kinds and their own fields:
+Every connection has `kind`, a unique `name` (1-64 characters), `address` (the client's IP address), `writes` and, once downloaded, `map_hash`. `openplc`, `trust` and `plc` also take `inputs_on_loss`: `hold` (the default) keeps the typed inputs at their last values while `canworks.ok` is FALSE, `zero` sets them to 0; status, state and timeout values read 0 either way ([plc-library.md](plc-library.md#when-the-bridge-is-lost)). The kinds and their own fields:
 
 | Kind | Fields | What it gets |
 | --- | --- | --- |
@@ -297,7 +297,7 @@ Every connection has `kind`, a unique `name` (1-64 characters), `address` (the c
 | `nodered` | `period_ms` (10-60000), `bridge_host` | The Node-RED flow ([node-red.md](node-red.md)). |
 | `hmi` | `format` (`csv`, `json` or `st`) | The register map or the ST variable list. |
 
-A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, the row says **Out of date** and Problems warns until the next download.
+A connection's **Download** gives the same file as the command line (`--export-modbus-map`, `--export-nodered`, `--export-plcopen`) and stores the map hash in `map_hash`; when the map changes, or a setting that goes into the file (`inputs_on_loss`) changes, which the configurator marks with `"stale": true`, the row says **Out of date** and Problems warns until the next download.
 
 The writers follow the connections: while there are connections, `writers` is the sorted addresses of those with `writes` true, and the check warns when they differ. A connection on the network while `listen` is a loopback address is an error naming it. With the PLC link, only the PLC writes outputs and mailboxes: a Node-RED or HMI connection that writes gets a warning.
 

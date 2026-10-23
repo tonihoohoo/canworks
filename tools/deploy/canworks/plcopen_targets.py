@@ -146,8 +146,10 @@ def global_list(cfg, decls):
         "Update declarations rewrites it", "export again after a config change"))
 
 
-def _programs(cfg, decls, target):
-    in_st, out_st = openplcmodbus.programs(cfg, decls, other=True)
+def _programs(cfg, decls, target, on_loss=None):
+    kinds = ("trust",) if target == "trust" else ("plc",)
+    in_st, out_st = openplcmodbus.programs(cfg, decls, other=True,
+                                           on_loss=on_loss or openplcmodbus.inputs_on_loss(cfg, kinds))
     pin, = plcopen.parse_st(in_st)
     pout, = plcopen.parse_st(out_st)
     if target == "trust":
@@ -180,14 +182,14 @@ def _main_stub():
                                              "the canworks blocks LINK := canworks.link. *)\n")
 
 
-def xml_text(cfg, decls, target, library=True, with_main=False, created=None):
+def xml_text(cfg, decls, target, library=True, with_main=False, created=None, on_loss=None):
     """The PLCopen XML text for `target`."""
     problems = check(cfg, target)
     if problems:
         raise ExportError("; ".join(problems))
     dialect = target
     pous = library_pous() if library else []
-    pous += _programs(cfg, decls, target)
+    pous += _programs(cfg, decls, target, on_loss)
     programs = [openplcmodbus.IN_PROGRAM, openplcmodbus.OUT_PROGRAM]
     if with_main:
         pous.append(_main_stub())
@@ -296,7 +298,7 @@ def _readme(target, cfg, host, interval, with_main):
     return "\n".join(lines)
 
 
-def files(cfg, decls, target, host=None, library=True, with_main=False, created=None):
+def files(cfg, decls, target, host=None, library=True, with_main=False, created=None, on_loss=None):
     """{file name: text} of the export folder."""
     if target not in TARGETS:
         raise ExportError("; ".join(check(cfg, target)))
@@ -305,7 +307,7 @@ def files(cfg, decls, target, host=None, library=True, with_main=False, created=
     if not host and target != "generic":
         raise ExportError("give the bridge's address as the PLC sees it (the bridge listens on %r)"
                           % (bridgecheck.link_settings(cfg)["listen"] or "the default address"))
-    out = {XML_NAME: xml_text(cfg, decls, target, library, with_main, created)}
+    out = {XML_NAME: xml_text(cfg, decls, target, library, with_main, created, on_loss)}
     interval = task_interval_ms(cfg)
     out[README_NAME] = _readme(target, cfg, host, interval, with_main)
     if target == "trust":

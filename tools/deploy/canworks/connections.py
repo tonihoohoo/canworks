@@ -176,7 +176,7 @@ def download(cfg, conn, decls, config_name):
         if kind in ("trust", "plc") and fmt == "plcopen":
             target = "trust" if kind == "trust" else "generic"
             files = plcopen_targets.files(cfg, decls, target, host=bridge_host(cfg, conn),
-                                          library=conn.get("library") is not False)
+                                          library=conn.get("library") is not False, on_loss=_on_loss(conn))
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
                 for n in sorted(files):
@@ -186,7 +186,7 @@ def download(cfg, conn, decls, config_name):
             raise DownloadError("format %r is not one of csv, json and st" % fmt)
         rows = modbusmap.register_map(cfg)
         if fmt == "st" and modbusmap.has_plc_link(cfg):
-            text = openplcmodbus.other_plc_st(cfg, decls)
+            text = openplcmodbus.other_plc_st(cfg, decls, on_loss=_on_loss(conn))
         else:
             text = modbusmap.to_csv(rows) if fmt == "csv" else modbusmap.to_json(cfg, rows) if fmt == "json" \
                 else modbusmap.to_st(cfg, rows)
@@ -195,6 +195,10 @@ def download(cfg, conn, decls, config_name):
         raise DownloadError(str(e), e.problems)
     except (nodered.FlowError, plcopen_targets.ExportError, plcopen.PlcopenError, openplcmodbus.OpenplcError) as e:
         raise DownloadError(str(e))
+
+
+def _on_loss(conn):
+    return conn["inputs_on_loss"] if conn.get("inputs_on_loss") in openplcmodbus.ON_LOSS else "hold"
 
 
 def encode(data):
@@ -208,6 +212,8 @@ def state(cfg, conn, current=None):
         return None
     if not conn.get("map_hash"):
         return "not_downloaded"
+    if conn.get("stale") is True:
+        return "out_of_date"
     current = current or map_hash_text(cfg)
     return "up_to_date" if current is None or conn["map_hash"] == current else "out_of_date"
 
@@ -224,7 +230,10 @@ def problems(cfg):
             continue
         path = "bridge.connections[%d]" % i
         label = c.get("name") or TITLES[c["kind"]]
-        if state(cfg, c, current) == "out_of_date":
+        if state(cfg, c, current) == "out_of_date" and c.get("stale") is True and c["map_hash"] == current:
+            out.append({"level": "warning", "paths": [path], "message": (
+                "%s: its downloaded file was made with other settings: Download again" % label)})
+        elif state(cfg, c, current) == "out_of_date":
             out.append({"level": "warning", "paths": [path], "message": (
                 "%s: its downloaded file was made for another map (%s, now %s): Download again"
                 % (label, c["map_hash"], current))})

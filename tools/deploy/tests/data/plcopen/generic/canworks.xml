@@ -14,6 +14,10 @@
               <type><BOOL/></type>
               <documentation><xhtml xmlns="http://www.w3.org/1999/xhtml">canworks-bridge answers and serves this program's map</xhtml></documentation>
             </variable>
+            <variable name="bus_ok">
+              <type><BOOL/></type>
+              <documentation><xhtml xmlns="http://www.w3.org/1999/xhtml">ok, and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear)</xhtml></documentation>
+            </variable>
             <variable name="link">
               <type><array><dimension lower="0" upper="1279"/><baseType><WORD/></baseType></array></type>
               <documentation><xhtml xmlns="http://www.w3.org/1999/xhtml">the bridge's control, SDO, live list and mailbox words: the canworks blocks' LINK</xhtml></documentation>
@@ -138,6 +142,7 @@ moved := canworks.in_w[3] &lt;&gt; last_counter;
 last_counter := canworks.in_w[3];
 stale(IN := NOT moved, PT := T#3000ms);
 canworks.ok := canworks.in_w[0] = WORD#16#8BFA AND canworks.in_w[1] = WORD#16#51BC AND NOT stale.Q;
+canworks.bus_ok := canworks.ok AND (canworks.in_w[5] AND WORD#16#0002) = WORD#0;
 canworks.link[21] := WORD#16#0106 OR SEL(canworks.ok, WORD#0, WORD#1);
 canworks.link[0] := canworks.in_w[2];
 canworks.link[1] := canworks.in_w[3];
@@ -387,19 +392,19 @@ canworks.link[1118] := canworks.in_w[257];
 canworks.link[1119] := canworks.in_w[258];
 canworks.link[1120] := canworks.in_w[259];
 link_service(LINK := canworks.link);
-canworks.can_bus_state := WORD_TO_USINT((canworks.in_w[13] AND WORD#16#00FF));
-canworks.can_master_state := WORD_TO_USINT(SHR(canworks.in_w[13], 8));
-canworks.rtd_ok := (canworks.in_w[14] AND WORD#16#0100) &lt;&gt; WORD#0;
-canworks.rtd_state := WORD_TO_USINT((canworks.in_w[14] AND WORD#16#00FF));
-canworks.rtd_emcy := canworks.in_w[16];
-canworks.rtd_tpdo1_timeout := (canworks.in_w[14] AND WORD#16#0400) &lt;&gt; WORD#0;
+canworks.can_bus_state := SEL(canworks.ok, USINT#0, WORD_TO_USINT((canworks.in_w[13] AND WORD#16#00FF)));
+canworks.can_master_state := SEL(canworks.ok, USINT#0, WORD_TO_USINT(SHR(canworks.in_w[13], 8)));
+canworks.rtd_ok := SEL(canworks.ok, FALSE, (canworks.in_w[14] AND WORD#16#0100) &lt;&gt; WORD#0);
+canworks.rtd_state := SEL(canworks.ok, USINT#0, WORD_TO_USINT((canworks.in_w[14] AND WORD#16#00FF)));
+canworks.rtd_emcy := SEL(canworks.ok, WORD#0, canworks.in_w[16]);
+canworks.rtd_tpdo1_timeout := SEL(canworks.ok, FALSE, (canworks.in_w[14] AND WORD#16#0400) &lt;&gt; WORD#0);
 canworks.rtd_AI0_Input_PV := WORD_TO_INT(canworks.in_w[6]);
 canworks.rtd_AI1_Input_PV := WORD_TO_INT(canworks.in_w[7]);
 canworks.rtd_AI2_Input_PV := WORD_TO_INT(canworks.in_w[8]);
 canworks.rtd_AI3_Input_PV := WORD_TO_INT(canworks.in_w[9]);
-canworks.dio_ok := (canworks.in_w[14] AND WORD#16#0200) &lt;&gt; WORD#0;
-canworks.dio_state := WORD_TO_USINT(SHR(canworks.in_w[15], 8));
-canworks.dio_emcy := canworks.in_w[17];
+canworks.dio_ok := SEL(canworks.ok, FALSE, (canworks.in_w[14] AND WORD#16#0200) &lt;&gt; WORD#0);
+canworks.dio_state := SEL(canworks.ok, USINT#0, WORD_TO_USINT(SHR(canworks.in_w[15], 8)));
+canworks.dio_emcy := SEL(canworks.ok, WORD#0, canworks.in_w[17]);
 canworks.dio_Read_input_8_bit_1 := WORD_TO_USINT(SHR(canworks.in_w[10], 8));
 canworks.dio_Read_input_8_bit_2 := WORD_TO_USINT((canworks.in_w[10] AND WORD#16#00FF));
 canworks.dio_Read_analogue_input_1 := WORD_TO_INT(canworks.in_w[11]);

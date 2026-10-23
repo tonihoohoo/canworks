@@ -215,6 +215,30 @@ class Connections(Base):
         again = self.add(cfg, kind="hmi", name="Line HMI", address="192.168.10.21")
         self.assertEqual(again["bridge"]["connections"][1]["name"], "Line HMI 2")
 
+    def test_inputs_on_loss(self):
+        # safe-node-defaults: the PLC link file follows the connection's choice,
+        # and a download made before a change is out of date until the next.
+        self.open()
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["plc_link"] = True
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        cfg = self.add(cfg, kind="plc", name="Line PLC", address="192.168.10.40", format="st")
+        hold = base64.b64decode(self.download(cfg, 0)["data"]).decode()
+        self.assertIn("canworks.bus_ok := canworks.ok AND", hold)
+        c = cfg["bridge"]["connections"][0]
+        c["inputs_on_loss"] = "zero"
+        self.assertEqual(self.errors(cfg), [])
+        zero = base64.b64decode(self.download(cfg, 0)["data"]).decode()
+        self.assertGreater(zero.count("SEL(canworks.ok, "), hold.count("SEL(canworks.ok, "))
+        c["map_hash"] = "0x%08x" % modbusmap.map_hash(cfg)
+        self.assertEqual(connections.state(cfg, c), "up_to_date")
+        c["stale"] = True
+        self.assertEqual(connections.state(cfg, c), "out_of_date")
+        [p] = [i for i in connections.problems(cfg) if "Download again" in i["message"]]
+        self.assertIn("made with other settings", p["message"])
+        c["inputs_on_loss"] = "drop"
+        self.assertTrue(any("'inputs_on_loss' must be" in e for e in self.errors(cfg)))
+
     def test_writers_follow_the_connections(self):
         self.open()
         cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20", writes=True)
