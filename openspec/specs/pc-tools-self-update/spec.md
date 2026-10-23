@@ -7,15 +7,21 @@ The PC tools check for a newer release and update themselves from inside the con
 
 ### Requirement: Update check
 
-The configurator SHALL find the newest PC tools release from the GitHub `releases/latest` redirect, without the GitHub API or a token, at most once per 24 hours unless the user asks. The check SHALL run in the background without delaying the page, and SHALL send nothing but the request with a `canworks-config/<version>` User-Agent. A failed check SHALL show nothing and log one line.
+The configurator SHALL find the newest PC tools release from the GitHub `releases/latest` redirect, without the GitHub API or a token. The check SHALL run in the background without delaying the page, and SHALL send nothing but the request with a `canworks-config/<version>` User-Agent. A failed check SHALL show nothing and log one line.
+
+It SHALL check at start when the stored result is older than 1 hour, and otherwise at most once per 24 hours unless the user asks. A stored newest version that is not newer than the installed version SHALL NOT be offered.
 
 #### Scenario: Newer release found
-- **WHEN** the configurator 0.101.0 starts, the last check is older than 24 hours, and `releases/latest` redirects to `deploy-v0.102.0`
+- **WHEN** the configurator 0.101.0 starts, the last check is older than 1 hour, and `releases/latest` redirects to `deploy-v0.102.0`
 - **THEN** the page shows a badge "0.102.0 available" next to the version, with a "What's new" link to that release and an Update action, and no dialog opens
 
 #### Scenario: Checked recently
-- **WHEN** the configurator starts a second time within 24 hours of a check
+- **WHEN** the configurator starts a second time within 1 hour of a check
 - **THEN** no request is sent and the stored result is used
+
+#### Scenario: Stored result outdated
+- **WHEN** `update.json` holds 0.124.0 from a check 8 hours ago, the configurator starts, and `releases/latest` now redirects to `deploy-v0.128.3`
+- **THEN** the page offers 0.128.3, not 0.124.0
 
 #### Scenario: Offline
 - **WHEN** the check cannot reach github.com
@@ -47,15 +53,21 @@ The Update action SHALL be offered only for a uv tool install (uv's `uv-receipt.
 
 ### Requirement: Update from the configurator
 
-Update now SHALL install the newest release and restart the configurator in its new version on every system, without a terminal or admin rights. The configurator SHALL stop before anything is installed. An updater on the tools' base interpreter, importing nothing of the tools, SHALL call uv with the installers' `uv tool install` arguments, refresh the macOS and Linux shortcut, log to `update.log` and start the new configurator, never running an install script.
+Update now SHALL install the newest release and restart the configurator in its new version on every system, without a terminal or admin rights. Right before it starts, it SHALL ask `releases/latest` again and update to the version found then. When that differs from the offered one, the page SHALL name the version it updates to. When GitHub cannot be reached, nothing SHALL stop and the page SHALL say so.
+
+The configurator SHALL stop before anything is installed. An updater on the tools' base interpreter, importing nothing of the tools, SHALL first download the release's wheel and constraints file. It SHALL then call uv with the installers' `uv tool install` arguments on the downloaded wheel, refresh the macOS and Linux shortcut, log to `update.log` and start the new configurator. It SHALL never run an install script.
 
 #### Scenario: Update succeeds
 - **WHEN** the configurator 0.101.0 with no unsaved changes and nothing online has Update pressed, and 0.102.0 is the newest release
 - **THEN** the page says it is updating, the 0.101.0 process ends, `uv tool list` shows canworks v0.102.0, the shortcut still starts the configurator, and the same tab shows the configurator 0.102.0 with "Updated to 0.102.0"
 
+#### Scenario: Offered release is gone
+- **WHEN** the page offers 0.124.0 from an earlier check, that release has been deleted, 0.128.3 is the newest release, and Update is pressed
+- **THEN** the page says 0.128.3 is the newest release now, and the configurator updates to 0.128.3
+
 #### Scenario: No script runs
 - **WHEN** an update runs on Windows
-- **THEN** no PowerShell process is started and no file other than the wheel and its dependencies (fetched by uv) is downloaded
+- **THEN** no PowerShell process is started and no file other than the wheel, its constraints file and its dependencies (fetched by uv) is downloaded
 
 ### Requirement: The open tab comes back
 
@@ -79,19 +91,29 @@ The updater's `uv tool install` arguments SHALL stay the same as those of `insta
 
 ### Requirement: Update never leaves a broken install
 
-When an update cannot be done, the user SHALL keep a working configurator of the old version and be told why. On Windows the updater SHALL check before uv runs that no process uses the tools' environment, and stop with a message naming other canworks windows when one does. When uv fails after changing the environment, the updater SHALL reinstall the old version from its release, and when that fails too, show a system message window with the install command.
+When an update cannot be done, the user SHALL keep a working install of the version installed before and be told why. The update SHALL NOT need any older release on GitHub.
+- The updater SHALL read the installed version before it changes anything. It SHALL never install a version older than or equal to it.
+- On Windows it SHALL check before uv runs that no process uses the tools' environment, and stop with a message naming other canworks windows when one does.
+- A download that fails SHALL end with nothing changed.
+- Before uv runs, the updater SHALL keep the tools' environment as a local copy next to it, and put that copy back when the install fails.
+
+The result SHALL say the install is broken, and show a system message window with the install command, only when the installed tools do not run after that.
 
 #### Scenario: Another tool still running on Windows
 - **WHEN** Update is pressed on Windows while `canworks-diag` from the same install still runs in a terminal
 - **THEN** nothing is installed, the configurator of the old version starts again, and its page says to close canworks-diag and other canworks windows and press Update again
 
 #### Scenario: Release without its wheel yet
-- **WHEN** the newest release has no wheel yet and Update is pressed
-- **THEN** the old install is unchanged, the old configurator starts again, and the message says to try again in a few minutes
+- **WHEN** the newest release has no wheel yet (its download answers 404) and Update is pressed
+- **THEN** the install is unchanged, the configurator starts again, and the message says the update could not be downloaded, nothing was changed, and to try again in a few minutes
 
 #### Scenario: Install fails partway
-- **WHEN** uv fails after it removed part of the old environment
-- **THEN** the updater installs the old version from its release, the old configurator starts, and the message bar says the update failed with the reason and that `update.log` has the details
+- **WHEN** uv fails after it removed part of the environment, and the old version's release no longer exists on GitHub
+- **THEN** the updater puts the saved environment back, the configurator of the version installed before starts, and the message bar says the update failed with the reason, the version still installed, and that `update.log` has the details
+
+#### Scenario: Newer version already installed
+- **WHEN** a configurator 0.122.0 started before the tools were reinstalled as 0.128.3 from the command line, and it updates to 0.124.0
+- **THEN** nothing is installed or removed, 0.128.3 stays installed, the configurator 0.128.3 starts in the same tab, and the message says "Already on 0.128.3"
 
 ### Requirement: Update when I quit
 
@@ -107,7 +129,7 @@ Update SHALL be refused, with the reason, while the configurator has unsaved cha
 
 ### Requirement: Update from the command line
 
-`canworks-config --update` SHALL print the running and newest versions and, when a newer one exists and the tools are a uv tool install, update them after a yes (or at once with `--yes`). When a configurator runs, it SHALL ask that configurator to update, which applies the same guard; otherwise it SHALL run the updater without starting a configurator: in the terminal on macOS and Linux, in the background on Windows. It SHALL exit non-zero when it cannot update.
+`canworks-config --update` SHALL print the installed and newest versions. When a newer one exists and the tools are a uv tool install, it SHALL update them after a yes (or at once with `--yes`). When a configurator runs, it SHALL ask that configurator to update, which applies the same guard. Otherwise it SHALL run the updater without starting a configurator: in the terminal on macOS and Linux, in the background on Windows. It SHALL exit non-zero when it cannot update.
 
 #### Scenario: Headless update
 - **WHEN** `canworks-config --update --yes` runs on a Linux machine with no configurator running and a newer release exists
@@ -116,3 +138,11 @@ Update SHALL be refused, with the reason, while the configurator has unsaved cha
 #### Scenario: Already newest
 - **WHEN** `canworks-config --update` runs and the newest release is installed
 - **THEN** it prints that the newest version is installed and exits 0 without asking
+
+### Requirement: Restart into the installed version
+
+When the installed tools are newer than the running configurator (they were reinstalled while it ran), the page SHALL say "<version> is installed; restart to use it" with a Restart action instead of an update offer. Restart SHALL apply the update guard and bring the open tab back in the installed version, without installing anything.
+
+#### Scenario: Reinstalled while running
+- **WHEN** the configurator 0.122.0 runs and the tools are reinstalled as 0.128.3 from the command line
+- **THEN** the page shows "0.128.3 is installed; restart to use it", and Restart brings the same tab back in the configurator 0.128.3 with nothing installed
