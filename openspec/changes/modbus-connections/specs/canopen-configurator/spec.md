@@ -189,6 +189,38 @@ Copy as ST call (object dictionary entry, NMT command, CAN message, J1939 PGN) S
 - **WHEN** the user opens a node's object dictionary in Commission on a CODESYS config
 - **THEN** no entry offers ST, and NMT offers no Copy as ST call
 
+### Requirement: Old located variables in an OpenPLC project's main
+For an OpenPLC project (a config with an OpenPLC connection, inside an editor project) the configurator SHALL find, in `pous/programs/main.st`, the located declarations whose names are members of the `canworks` variable list. When there are any, the Project page SHALL show a warning that `main` still declares that many canworks values at their old plugin locations, which read nothing now, naming the first locations, with the button **Use canworks.\* in main**; Problems SHALL list the same as a warning that opens the Project page; and the message after **Use with canworks-bridge** SHALL mention it.
+
+The button SHALL first copy `main.st` to `canworks/main-before-move.st`, then remove those declarations and the generated comment `(* CANopen I/O declared from canworks/canworks.json *)`, keep the `VAR` block even when it is left empty (as the editor writes an empty program), and replace each use of a removed name in the program's code with `canworks.<name>`, matching names without regard to case, and leaving comments, strings and names after a `.` unchanged. A name that `main` also declares without a location SHALL be neither removed nor replaced. The message SHALL give the number of declarations and uses moved, name any names left, say where the copy is, and say that an OpenPLC Editor with the project open must reopen it before Build. Located declarations of other names, other POUs and the config SHALL NOT change.
+
+#### Scenario: Switched plugin project
+- **WHEN** a plugin project whose `main` declares `rtd_ok : BOOL AT %IX10.0;` and uses `IF rtd_ok THEN` gets Use with canworks-bridge and is saved
+- **THEN** the Project page warns that `main` declares 1 canworks value at its old plugin location `%IX10.0`, and Problems lists the warning
+
+#### Scenario: Move
+- **WHEN** the user presses **Use canworks.\* in main** on that project
+- **THEN** `main.st` has no `rtd_ok` declaration, its code reads `IF canworks.rtd_ok THEN`, `canworks/main-before-move.st` holds the old text, and the warning is gone
+
+#### Scenario: User's own I/O and comments kept
+- **WHEN** `main` also declares `start_button : BOOL AT %IX0.0;` and has the comment `(* rtd_ok is the sensor *)`
+- **THEN** after the move `start_button` is still declared at `%IX0.0` and the comment still reads `rtd_ok`
+
+### Requirement: Out-of-date OpenPLC editor files
+For an OpenPLC project (a config with an OpenPLC connection, inside an editor project) the configurator SHALL compare the editor files Save writes for the saved config (the remote device file and the `canworks_in` and `canworks_out` programs) with the files on disk. A file SHALL count as out of date when canworks wrote it last and it is missing now or Save would now write a different text; in a project canworks never wrote into, nothing SHALL count. `project.json` SHALL count as out of date when its `canworks` variable list has other member names or types than Save writes, or when it does not enable the `canworks` library; the library entry's version SHALL NOT count, since Save installs the configurator's own library into the editor. A file changed since canworks wrote it SHALL NOT count as out of date; Save keeps asking before writing it. When anything is out of date, the Project page SHALL list it under the editor files, Problems SHALL list one warning that opens the Project page, and Save SHALL be enabled with the title "The editor files are from an older canworks; Save writes them again". Saving then SHALL write the editor files as a normal save does and SHALL leave `canworks.json` unchanged.
+
+#### Scenario: Tools update changes canworks_in
+- **WHEN** a project saved with an older canworks is opened in a configurator whose `canworks_in` code differs, and the user has made no change
+- **THEN** the Project page lists `pous/programs/canworks_in.st` as out of date, Save is enabled, and pressing it rewrites `canworks_in.st` without changing `canworks.json`
+
+#### Scenario: Nothing new
+- **WHEN** the editor files on disk are what Save would write and the project enables the library
+- **THEN** nothing is listed and Save reads "Saved"
+
+#### Scenario: Edited in the editor
+- **WHEN** the user changed `canworks_in.st` in OpenPLC Editor and the config is unchanged
+- **THEN** the file is not listed as out of date and Save stays disabled; a later save asks before writing it, as today
+
 ## ADDED Requirements
 
 ### Requirement: Plugin configs

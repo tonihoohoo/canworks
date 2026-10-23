@@ -263,12 +263,12 @@ function openplcFacts() {
 function editorProjectSection() {
   const box = el("fieldset", { dataset: { editorProject: S.state.mode === "project" ? "project" : "none" } }, el("legend", null, "Editor project"));
   if (S.state.mode === "project" && !hasOpenplc()) {
-    box.append(el("table", { class: "od" }, el("tbody", null,
-      el("tr", null, el("th", null, "Project"), el("td", null, S.state.name)),
-      el("tr", null, el("th", null, "Folder"), el("td", { class: "mono" }, S.state.folder || "")))),
-    notice("info", "This config has no OpenPLC connection, so Save writes no editor files. Use with this OpenPLC project adds the connection: OpenPLC's Modbus master then reads and writes the bridge on 127.0.0.1.",
+    box.append(notice("info", "This config has no OpenPLC connection, so Save writes no editor files. Use with this OpenPLC project adds the connection: OpenPLC's Modbus master then reads and writes the bridge on 127.0.0.1.",
       { live: false, dataset: { useWithProject: "1" }, actions: [el("button", { type: "button", class: "primary", dataset: { useWithProject: "1" },
-        onclick: () => addConnectionOf("openplc") }, "Use with this OpenPLC project")] }));
+        onclick: () => addConnectionOf("openplc") }, "Use with this OpenPLC project")] }),
+    el("table", { class: "od" }, el("tbody", null,
+      el("tr", null, el("th", null, "Project"), el("td", null, S.state.name)),
+      el("tr", null, el("th", null, "Folder"), el("td", { class: "mono" }, S.state.folder || "")))));
     return box;
   }
   if (S.state.mode === "project") {

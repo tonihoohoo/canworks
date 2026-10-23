@@ -66,7 +66,7 @@ A connection whose address is not loopback while `listen` is a loopback address 
 - **THEN** Problems shows the error naming the HMI, and Listen on all addresses sets `listen` to `0.0.0.0:1502`
 
 ### Requirement: OpenPLC connection bridge settings
-Adding an OpenPLC connection SHALL, in one undo step, set `plc_link` true, `word_order` `low_first`, `listen` `127.0.0.1:1502` when unset, `watchdog_ms` 5 × `poll_ms` (at least 50) when unset, turn the mailboxes on, add a live list for every CANopen master network and repack. With an OpenPLC connection the check SHALL refuse `plc_link` false and `word_order` `high_first`.
+Adding an OpenPLC connection SHALL, in one undo step, set `plc_link` true, `word_order` `low_first`, `listen` `127.0.0.1:1502` when unset or when no other connection is on an address other than loopback, `watchdog_ms` 5 × `poll_ms` (at least 50) when unset, turn the mailboxes on, add a live list for every CANopen master network and repack. With an OpenPLC connection the check SHALL refuse `plc_link` false and `word_order` `high_first`.
 
 #### Scenario: Add OpenPLC to a new bridge config
 - **WHEN** the user adds an OpenPLC connection to a new Modbus bridge config with one network
