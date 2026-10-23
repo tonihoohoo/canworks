@@ -512,7 +512,8 @@ class Service(unittest.TestCase):
             adv = f.read()
         for t in ("kind=adapter", "adapter=socketcan:can0", "bitrate=500", "v=1"):
             self.assertIn("<txt-record>%s</txt-record>" % t, adv)
-        self.assertEqual(self.systemctl(), ["daemon-reload", "enable --now canworks-adapter-can0.service"])
+        self.assertEqual(self.systemctl(), ["daemon-reload", "enable canworks-adapter-can0.service",
+                                            "restart canworks-adapter-can0.service"])
         # --status names the service.
         st = io.StringIO()
         serve.show_status(self.args("--status"), st, self.units)
@@ -534,6 +535,59 @@ class Service(unittest.TestCase):
                 serve.install_service(self.args("--adapter", "socketcan:can0", "--bitrate", "250"), out,
                                       self.units, self.avahi)
         self.assertIn("with sudo", str(e.exception))
+
+    def test_root_install_for_a_user_with_a_verifier(self):
+        # The Devices job: root, no SUDO_USER, the verifier made on the PC.
+        verifier = diag.token_verifier("pc-made-token")
+        vfile = os.path.join(self.dir, "verifier")
+        with open(vfile, "w") as f:
+            f.write(verifier + "\n")
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"SUDO_USER": ""}):
+            serve.install_service(self.args("--adapter", "socketcan:can0", "--bitrate", "500", "--install-service",
+                                            "--service-user", "devuser", "--token-verifier-file", vfile),
+                                  out, self.units, self.avahi)
+        self.assertNotIn("token: ", out.getvalue())
+        self.assertEqual(serve.load_verifier(7536, self.home), verifier)
+        with open(os.path.join(self.units, "canworks-adapter-can0.service")) as f:
+            text = f.read()
+        self.assertIn("User=devuser", text)
+        self.assertNotIn("verifier", text)
+        # A reinstall without a token option keeps the verifier.
+        serve.install_service(self.args("--adapter", "socketcan:can0", "--bitrate", "250", "--install-service",
+                                        "--service-user", "devuser"), io.StringIO(), self.units, self.avahi)
+        self.assertEqual(serve.load_verifier(7536, self.home), verifier)
+
+    def test_reinstall_without_discovery(self):
+        os.makedirs(self.avahi)
+        base = ("--adapter", "socketcan:can0", "--bitrate", "500", "--install-service")
+        serve.install_service(self.args(*base, "--allow-changes"), io.StringIO(), self.units, self.avahi)
+        verifier = serve.load_verifier(7536, self.home)
+        self.assertEqual(os.listdir(self.avahi), ["canworks-adapter-can0.service"])
+        out = io.StringIO()
+        serve.install_service(self.args(*base, "--without-discovery"), out, self.units, self.avahi)
+        self.assertEqual(os.listdir(self.avahi), [])
+        self.assertIn("not advertised", out.getvalue())
+        self.assertEqual(serve.load_verifier(7536, self.home), verifier)
+        with open(os.path.join(self.units, "canworks-adapter-can0.service")) as f:
+            self.assertNotIn("--allow-changes", f.read())
+        self.assertEqual(self.systemctl()[-1], "restart canworks-adapter-can0.service")
+
+    def test_root_service_user_refused(self):
+        with self.assertRaises(serve.ServeError) as e:
+            serve.install_service(self.args("--adapter", "socketcan:can0", "--bitrate", "500", "--install-service",
+                                            "--service-user", "root"), io.StringIO(), self.units, self.avahi)
+        self.assertIn("not root", str(e.exception))
+
+    def test_bad_verifier_file(self):
+        vfile = os.path.join(self.dir, "verifier")
+        with open(vfile, "w") as f:
+            f.write("plain-token\n")
+        with self.assertRaises(serve.ServeError) as e:
+            serve.install_service(self.args("--adapter", "socketcan:can0", "--bitrate", "500", "--install-service",
+                                            "--token-verifier-file", vfile), io.StringIO(), self.units, self.avahi)
+        self.assertIn("does not hold a token verifier", str(e.exception))
+        self.assertEqual(os.listdir(self.units), [])
 
 
 class Discovery(unittest.TestCase):

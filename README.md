@@ -146,7 +146,7 @@ Five commands in one package, for Windows, macOS and Linux ([docs/install-pc.md]
 - **slcan** adapters (such as a CANable) on every system.
 - **gs_usb / candleLight** adapters on Windows with nothing else to install (the tools bring the driver and libusb), and on macOS after `brew install libusb`.
 - **SocketCAN** interfaces on Linux.
-- **An adapter on another machine:** `canworks-diag adapter-serve` on a Linux machine at the bus serves its adapter, with a token and encryption, to the configurator and `canworks-diag --adapter remote:HOST` on your PC ([docs/pc-adapter.md](docs/pc-adapter.md#an-adapter-on-another-machine)).
+- **An adapter on another machine:** `canworks-diag adapter-serve` on a Linux machine at the bus serves its adapter, with a token and encryption, to the configurator and `canworks-diag --adapter remote:HOST` on your PC ([docs/pc-adapter.md](docs/pc-adapter.md#an-adapter-on-another-machine)); the configurator's Devices workspace turns it on over SSH with **Remote CAN adapter** ([docs/devices.md](docs/devices.md#remote-can-adapter)).
 
 The configurator says when a newer release is out and updates itself with one click (**Update now**, or **Update when I quit**), putting the old version back if the install fails; `canworks-config --update` does the same from a terminal, and Settings turns the daily check off ([docs/install-pc.md](docs/install-pc.md#from-the-configurator)).
 

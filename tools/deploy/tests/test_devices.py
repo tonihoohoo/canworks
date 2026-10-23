@@ -51,7 +51,7 @@ class Plan(unittest.TestCase):
             for over in ({}, {"runtime": old}, {"runtime": old, "bridge": self.current()}):
                 with self.subTest(target=target, over=over):
                     p = plan.plan(probe(**over), target, "0.98.0", instance="line3", config_sha256="aa")
-                    self.assertEqual([r["part"] for r in p["rows"]], ["bridge", "link", "discovery", "can"])
+                    self.assertEqual([r["part"] for r in p["rows"]], ["bridge", "link", "discovery", "can", "adapter"])
                     self.assertNotIn("roles", p)
                     if p["main"]:
                         self.assertIn(p["main"]["action"], ("install_bridge", "bridge_config"))
@@ -229,6 +229,93 @@ class PlanWithoutConfig(unittest.TestCase):
         self.assertIn("github.com", plan.plan(probe(internet=False), None, "0.110.0")["blocked"])
 
 
+class AdapterRow(unittest.TestCase):
+    """add-devices-adapter-server: the Remote CAN adapter row from the probe."""
+    can0 = [{"ifname": "can0", "flags": ["UP"], "linkinfo": {"info_kind": "can",
+                                                           "info_data": {"bittiming": {"bitrate": 500000}}}}]
+
+    def server(self, **over):
+        out = {"unit": "canworks-adapter-can0.service", "state": "active", "adapter": "socketcan:can0",
+               "bitrate_kbit": 500, "port": 7536, "allow_changes": True, "discovery": True, "user": "pi", "pcs": 1}
+        out.update(over)
+        return out
+
+    def acts(self, p):
+        return [a["action"] for a in row(p, "adapter").get("actions") or []]
+
+    def test_off_with_no_config_and_no_bridge(self):
+        p = plan.plan(probe(can=self.can0), None, "0.131.0")
+        r = row(p, "adapter")
+        self.assertEqual((r["label"], r["have"], r["state"]), ("Remote CAN adapter", "off", "off"))
+        on = r["actions"][0]
+        self.assertEqual((on["action"], on["button"], on["port"]), ("adapter_on", "Turn on…", 7536))
+        self.assertEqual(on["choices"][0]["adapter"], "socketcan:can0")
+        self.assertEqual(on["choices"][0]["bitrate_kbit"], 500)  # the interface is up at it
+        self.assertFalse(on["choices"][0]["locked"])
+        self.assertEqual(p["main"]["action"], "install_bridge")  # the row's switch is not the main action
+        # Nothing to serve: no switch.
+        self.assertNotIn("actions", row(plan.plan(probe(), None, "0.131.0"), "adapter"))
+
+    def test_running_server(self):
+        p = plan.plan(probe(can=self.can0, adapters=[self.server()]), None, "0.131.0")
+        r = row(p, "adapter")
+        self.assertEqual(r["have"], "can0 · 500 kbit/s · running · changes allowed · 1 PC connected")
+        self.assertEqual(r["state"], "ok")
+        self.assertEqual(self.acts(p), ["adapter_connect", "adapter_token", "adapter_change", "adapter_off"])
+        token = r["actions"][1]
+        self.assertEqual(token["confirm"], [plan.NEW_TOKEN])
+        change = r["actions"][2]
+        self.assertEqual(change["current"], {"adapter": "socketcan:can0", "port": 7536, "bitrate_kbit": 500,
+                                             "allow_changes": True, "discovery": True})
+        # This PC has the token: Copy token instead of New token.
+        p = plan.plan(probe(can=self.can0, adapters=[self.server()]), None, "0.131.0", tokens={7536})
+        self.assertEqual(self.acts(p), ["adapter_connect", "adapter_copy_token", "adapter_change", "adapter_off"])
+        self.assertTrue(row(p, "adapter")["actions"][1]["local"])
+
+    def test_second_interface_gets_the_next_port(self):
+        can = self.can0 + [{"ifname": "can1", "flags": [], "linkinfo": {"info_kind": "can"}}]
+        p = plan.plan(probe(can=can, adapters=[self.server(state="failed", allow_changes=False)]), None, "0.131.0")
+        r = row(p, "adapter")
+        self.assertEqual(r["have"], "can0 · 500 kbit/s · failed · read-only")
+        self.assertEqual(r["state"], "warn")
+        add = r["actions"][-1]
+        self.assertEqual((add["action"], add["button"], add["port"]), ("adapter_on", "Add…", 7537))
+        self.assertEqual([c["adapter"] for c in add["choices"]], ["socketcan:can1"])
+        self.assertIsNone(add["choices"][0]["bitrate_kbit"])  # down, no config: never guessed
+
+    def test_next_to_this_projects_bridge(self):
+        b = {"version": "0.131.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "line3", "state": "active", "sha256": "aa"}]}
+        nets = [{"interface": "can0", "bitrate_kbit": 250, "device": None}]
+        p = plan.plan(probe(can=self.can0, bridge=b), "bridge", "0.131.0", instance="line3", config_sha256="aa",
+                      networks=nets)
+        c = row(p, "adapter")["actions"][0]["choices"][0]
+        self.assertEqual((c["bitrate_kbit"], c["locked"]), (250, True))
+        self.assertIn("The bridge line3 is the master on can0", c["note"])
+        # No config: the running bridges are named, the rate stays the interface's.
+        c = row(plan.plan(probe(can=self.can0, bridge=b), None, "0.131.0"), "adapter")["actions"][0]["choices"][0]
+        self.assertEqual((c["bitrate_kbit"], c["locked"]), (500, False))
+        self.assertIn("A bridge runs on this device (line3)", c["note"])
+
+    def test_serial_used_by_the_bridge(self):
+        b = {"version": "0.131.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "line3", "state": "active"}]}
+        nets = [{"interface": "slcan0", "bitrate_kbit": 250, "device": "/dev/serial/by-id/usb-canable"}]
+        p = plan.plan(probe(serial=["usb-canable"], bridge=b), "bridge", "0.131.0", instance="line3", networks=nets)
+        c = row(p, "adapter")["actions"][0]["choices"][0]
+        self.assertEqual(c["adapter"], "slcan:/dev/serial/by-id/usb-canable")
+        self.assertIn("one user at a time", c["refused"])
+
+    def test_codesys_and_blocked(self):
+        r = row(plan.plan(probe(can=self.can0), "codesys", "0.131.0"), "adapter")
+        self.assertFalse(r["used"])
+        self.assertNotIn("actions", r)
+        # Connect and Copy token are this PC's: a device that cannot run jobs does not block them.
+        p = plan.plan(probe(can=self.can0, adapters=[self.server()], internet=False), None, "0.131.0", tokens={7536})
+        self.assertIn("github.com", p["blocked"])
+        self.assertTrue(all(a.get("local") for a in row(p, "adapter")["actions"][:2]))
+
+
 class Store(unittest.TestCase):
     def test_no_secrets(self):
         d = tmpdir(self)
@@ -312,6 +399,29 @@ class Jobs(unittest.TestCase):
                 args = dict(link_config="/etc/canworks-bridge/cell/canworks.json", runtime_port="8443")
                 args.update(bad)
                 jobs.commands("link_on", "0.98.0", self.paths, **args)
+
+    def test_adapter_commands(self):
+        sh = ("curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.131.0/scripts/"
+              "install-adapter.sh | bash -s -- --version 0.131.0")
+        up = "/tmp/canworks-bridge-upload.abc"
+        on = jobs.commands("adapter_on", "0.131.0", self.paths, upload=up, adapter="socketcan:can0", bitrate_kbit=500,
+                           port=7536, allow_changes=True, user="pi")
+        self.assertEqual(on, [sh + " --adapter socketcan:can0 --bitrate 500 --port 7536 --user pi --allow-changes "
+                                   "--verifier-file /tmp/canworks-bridge-upload.abc/verifier", "rm -rf " + up])
+        change = jobs.commands("adapter_change", "0.131.0", self.paths, discovery=False, adapter="socketcan:can0",
+                               bitrate_kbit=250, port=7537, allow_changes=False, user="pi")
+        self.assertEqual(change, [sh + " --adapter socketcan:can0 --bitrate 250 --port 7537 --user pi "
+                                       "--without-discovery"])
+        self.assertEqual(jobs.commands("adapter_off", "0.131.0", self.paths, adapter="slcan:/dev/ttyACM0"),
+                         [sh + " --uninstall --adapter slcan:/dev/ttyACM0"])
+        self.assertEqual(jobs.commands("remove_all", "0.131.0", self.paths, adapters=True)[0], sh + " --uninstall")
+        good = dict(adapter="socketcan:can0", bitrate_kbit=500, port=7536, user="pi")
+        for bad in (dict(adapter="socketcan:can0; reboot"), dict(adapter="remote:x"), dict(bitrate_kbit=333),
+                    dict(port=22), dict(user="root"), dict(user="a b")):
+            with self.subTest(bad=bad), self.assertRaises(jobs.JobError):
+                jobs.commands("adapter_change", "0.131.0", self.paths, **dict(good, **bad))
+        with self.assertRaises(jobs.JobError):  # the token's verifier is needed
+            jobs.commands("adapter_on", "0.131.0", self.paths, **good)
 
     def test_bridge_config_needs_the_service(self):
         lines = jobs.commands("bridge_config", "0.98.0", self.paths, instance="line3",
@@ -463,6 +573,26 @@ class Probe(unittest.TestCase):
         self.assertEqual(len(b["instances"][0]["sha256"] or "x" * 64), 64)
         self.assertEqual(p["install_job"], {"id": "20261021T100000Z-bbbb", "state": "inactive", "result": "success",
                                             "exit": 0, "step": "2/5 Building @2", "log_size": 70})
+
+    def test_adapter_servers(self):
+        # add-devices-adapter-server: the units, their options and the connected PCs, without sudo.
+        self.assertEqual(self.run_probe()["adapters"], [])
+        self.write("etc/passwd", "root:x:0:0::/root:/bin/sh\nbench:x:1000:1000::/home/bench:/bin/bash\n")
+        self.write("etc/systemd/system/canworks-adapter-can0.service",
+                   "[Service]\nUser=bench\nExecStart=/opt/canworks-adapter/venv/bin/canworks-diag adapter-serve "
+                   "--adapter socketcan:can0 --bitrate 500 --port 7536 --allow-changes\n")
+        self.write("etc/avahi/services/canworks-adapter-can0.service", "")
+        self.write("etc/systemd/system/canworks-adapter-dev-ttyACM0.service",
+                   "[Service]\nUser=bench\nExecStart=/x/canworks-diag adapter-serve --adapter slcan:/dev/ttyACM0 "
+                   "--bitrate 250 --port 7537\n")
+        self.write("home/bench/.config/canworks/adapter-serve-7536.status.json",
+                   json.dumps({"pid": 1, "port": 7536, "pcs": [{"address": "192.0.2.5", "connections": 2}]}))
+        a = self.run_probe()["adapters"]
+        self.assertEqual(a[0], {"unit": "canworks-adapter-can0.service", "state": "active",
+                                "adapter": "socketcan:can0", "bitrate_kbit": 500, "port": 7536, "allow_changes": True,
+                                "discovery": True, "user": "bench", "pcs": 1})
+        self.assertEqual((a[1]["adapter"], a[1]["port"], a[1]["allow_changes"], a[1]["discovery"], a[1]["pcs"]),
+                         ("slcan:/dev/ttyACM0", 7537, False, False, None))
 
     def test_shellcheck(self):
         if not shutil.which("shellcheck"):

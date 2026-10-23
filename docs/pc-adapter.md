@@ -120,6 +120,10 @@ sudo canworks-diag adapter-serve --adapter socketcan:can0 --bitrate 500 --instal
 
 This makes the token first (as your user, printed once), writes `/etc/systemd/system/canworks-adapter-can0.service` running the same command as the user who ran sudo, with only the capability to bring the SocketCAN interface up at the bit rate (`CAP_NET_ADMIN`) and restarted on failure, and starts it. When Avahi is installed it also writes `/etc/avahi/services/canworks-adapter-can0.service`, so PCs on the local network find the server (`_canworks._tcp`, TXT `kind=adapter` with the machine's name, the adapter and the bit rate). When it stops, the server logs one last line, `stopped (SIGTERM), N PCs were connected` (`stopped (Ctrl-C)` in a terminal), so `journalctl -u canworks-adapter-can0` shows a `systemctl stop`. `canworks-diag adapter-serve --status` says whether the service runs and which PCs are connected; `sudo canworks-diag adapter-serve --remove-service` stops it and removes both files. An slcan adapter's serial port needs the user in the `dialout` group, as on a PC.
 
+Run as root without sudo (a script, or the configurator's Devices jobs), `--service-user USER` names the user the service runs as; `--token-verifier-file FILE` keeps a token verifier made elsewhere (`SCRAM-SHA-256$...`), so the token itself never comes to the machine; `--without-discovery` leaves the Avahi file out. A reinstall without a token option keeps the token and restarts the service with the new options.
+
+The configurator's [Devices workspace](devices.md#remote-can-adapter) does all of this over SSH: **Remote CAN adapter** › **Turn on…** on the device's page installs the PC tools there when needed (`scripts/install-adapter.sh`), keeps the token on your PC, and **Connect from this PC** connects to it.
+
 ### From another network
 
 Discovery stays on the local network, and the remote link is for runtimes. From another network, forward the port over SSH and connect to the forward:

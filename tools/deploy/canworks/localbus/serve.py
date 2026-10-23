@@ -17,7 +17,10 @@ settings folder, mode 0600). Changes need --allow-changes here and the
 PC's own allow-changes for its session (the "session" request).
 
 --install-service writes a systemd unit (and an Avahi service file, TXT
-kind=adapter) that runs the same command as the user who ran sudo.
+kind=adapter) that runs the same command as the user who ran sudo, or as
+--service-user when root runs it (the configurator's Devices jobs, through
+scripts/install-adapter.sh, which also passes --token-verifier-file so the
+plain token never reaches this machine).
 """
 
 import base64
@@ -130,10 +133,25 @@ def read_token_file(path):
     return token
 
 
-def prepare_token(port, new=False, token_file=None, folder=None, owner=None, out=sys.stdout):
+def read_verifier_file(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            verifier = f.read().strip()
+    except OSError as e:
+        raise ServeError("cannot read the token verifier file %s: %s" % (path, e.strerror or e))
+    if not diag.parse_verifier(verifier):
+        raise ServeError("the file %s does not hold a token verifier (SCRAM-SHA-256$...)" % path)
+    return verifier
+
+
+def prepare_token(port, new=False, token_file=None, folder=None, owner=None, out=sys.stdout, verifier_file=None):
     """The verifier the server checks logins against: the stored one, or a
-    new one from --token-file or a new token, printed once. The plain token
-    is never written here."""
+    new one from --token-verifier-file, --token-file or a new token, printed
+    once. The plain token is never written here."""
+    if verifier_file:
+        verifier = read_verifier_file(verifier_file)
+        store_verifier(port, verifier, folder, owner)
+        return verifier
     if token_file:
         verifier = diag.token_verifier(read_token_file(token_file))
         store_verifier(port, verifier, folder, owner)
@@ -557,7 +575,8 @@ def serve(args, out=sys.stdout):
         return service_command(args, out)
     spec, bitrate = _spec_and_bitrate(args)
     try:
-        verifier = prepare_token(args.port, args.new_token, getattr(args, "serve_token_file", None), out=out)
+        verifier = prepare_token(args.port, args.new_token, getattr(args, "serve_token_file", None), out=out,
+                                 verifier_file=getattr(args, "verifier_file", None))
         srv = AdapterServer(spec, bitrate, verifier, args.bind or "", args.port, args.allow_changes, args.check_node,
                             status_path=status_path(args.port))
     except (ServeError, OSError) as e:
@@ -684,18 +703,24 @@ def install_service(args, out=sys.stdout, unit_dir=UNIT_DIR, avahi_dir=AVAHI_DIR
     spec, bitrate = _spec_and_bitrate(args)
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         raise ServeError("--install-service writes a systemd unit: run it with sudo")
-    user = os.environ.get("SUDO_USER")
+    user = getattr(args, "service_user", None) or os.environ.get("SUDO_USER")
     if not user or user == "root":
-        raise ServeError("run --install-service with sudo from the user the server runs as (not as root)")
+        raise ServeError("run --install-service with sudo from the user the server runs as, or give "
+                         "--service-user USER (not root)")
     name = unit_name(spec)
     # The token, as the user's, before the unit starts.
     prepare_token(args.port, args.new_token, getattr(args, "serve_token_file", None), folder=_user_config_dir(user),
-                  owner=_owner(user), out=out)
+                  owner=_owner(user), out=out, verifier_file=getattr(args, "verifier_file", None))
     unit = os.path.join(unit_dir, name)
     with open(unit, "w", encoding="utf-8") as f:
         f.write(unit_text(spec, user, _command() + ["adapter-serve"] + serve_options(args)))
     out.write("wrote %s\n" % unit)
-    if os.path.isdir(avahi_dir):
+    if getattr(args, "without_discovery", False):
+        path = os.path.join(avahi_dir, name)
+        if os.path.exists(path):
+            os.remove(path)
+        out.write("not advertised on the local network: PCs connect by host name or address\n")
+    elif os.path.isdir(avahi_dir):
         from ..link import discovery
         path = os.path.join(avahi_dir, name)
         with open(path, "w", encoding="utf-8") as f:
@@ -703,7 +728,8 @@ def install_service(args, out=sys.stdout, unit_dir=UNIT_DIR, avahi_dir=AVAHI_DIR
         out.write("wrote %s (PCs on the local network find the server)\n" % path)
     else:
         out.write("Avahi is not installed: PCs connect by host name or address (no discovery)\n")
-    for cmd in (("daemon-reload",), ("enable", "--now", name)):
+    # restart, not start: a reinstall with other options (or a new token) runs them now.
+    for cmd in (("daemon-reload",), ("enable", name), ("restart", name)):
         r = _systemctl(*cmd)
         if r.returncode != 0:
             raise ServeError("systemctl %s failed: %s" % (" ".join(cmd), (r.stderr or r.stdout).strip()))

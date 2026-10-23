@@ -27,7 +27,7 @@ A connection stays open for two minutes after its last use, so checking a device
 Picking a device checks it again (**Check again** does too). The check is a read-only script, `device-probe.sh` from the PC tools, run on the device through the SSH connection; it needs neither root nor canworks on the device, changes nothing, and reads canworks' own parts only (no OpenPLC runtime, no Docker). The page shows:
 
 - a header line: system, architecture, free disk, internet access to github.com, and when the device was checked;
-- one row per canworks part: **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) and **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
+- one row per canworks part: **Modbus bridge** (version and its running bridges), **Remote link** (and which config it serves), **Found on the local network** (the Avahi advertisement) **CAN interfaces** (with bit rate, up or down, virtual interfaces and serial adapters) and **Remote CAN adapter** ([below](#remote-can-adapter)), each with what the device has and what this project needs. Parts the project's target does not use are greyed and have no action;
 - one main action, or **Up to date**;
 - a running or last install job ([Install jobs](#install-jobs)).
 
@@ -45,11 +45,21 @@ X is the newest `deploy-v` release, looked up on github.com from this PC (or fro
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-The bridge has **Uninstall…** (`install-bridge.sh --uninstall`). The **Actions** menu has **Remove everything…** (the bridge with `--purge`, its configs and the remote link) and **Remove device**, which only forgets the device on this PC (for every project). Nothing that is not canworks is removed.
+The bridge has **Uninstall…** (`install-bridge.sh --uninstall`). The **Actions** menu has **Remove everything…** (the bridge with `--purge`, its configs, the remote link and the remote CAN adapter) and **Remove device**, which only forgets the device on this PC (for every project). Nothing that is not canworks is removed.
 
 ### Remote link and discovery
 
 Once the bridge is on the device, the **Remote link** row has **Turn on…** or **Turn off…** (and **Start** when the link is installed but stopped), and **Found on the local network** has **Turn on…** or **Turn off…**. Each runs as a job with the release's `install-link.sh` ([remote-access.md](remote-access.md)), with and without a config open. The link serves the open project's bridge or the only bridge on the device; with several bridges and none of these, the dialog asks which one. Turning the link off keeps its key and paired PCs on the device, so turning it on again keeps the pairings, and the advertisement stays (without the link) when discovery is on. **Remove everything…** removes the key and paired PCs too. The CAN interfaces row is only shown: the bridge sets the interfaces up from the config.
+
+### Remote CAN adapter
+
+The **Remote CAN adapter** row turns the device's CAN adapter into an [adapter on another machine](pc-adapter.md#an-adapter-on-another-machine): PCs on the local network commission through it as through a USB adapter, with no bridge and no config needed. It is there with and without a config open, also on a device without the bridge, and lists each adapter server with its interface, bit rate, port, whether it runs, whether it allows changes and the PCs connected (`can0 · 500 kbit/s · running · changes allowed · 1 PC connected`), or **off**.
+
+- **Turn on…** (**Add…** for another interface) asks in one dialog for the interface, the bit rate (required and never guessed: this project's bridge's on that interface, and then fixed, else the interface's own rate when it is up, else the config's), **Allow changes from PCs** (on: each PC still connects read-only and unlocks changes for its own session, as with a USB adapter; off: no PC can make changes) and **Advertise on the local network**. The job runs the release's `install-adapter.sh`: it installs the PC tools in `/opt/canworks-adapter` when that version is not there yet, and `canworks-diag adapter-serve` as a service of the SSH user (a root login is refused; log in as a user with sudo). The first server uses port 7536, another interface the next free port.
+- The token is made on this PC and kept in its settings for that server, as **Adapter on another machine** keeps it; only its verifier goes to the device, so the token is in no file or log there. **Copy token** gives it to another PC; a PC without it has **New token…**, after which every other PC must enter the new one.
+- **Connect from this PC** (also in the notice after the job) opens the connect panel on **Adapter on another machine** with the device filled in; with no config open it opens **Commission a CANopen device** first. One **Connect** then runs the bit rate check.
+- **Change…** runs the server with other settings and the same token; **Turn off…** removes it and frees the interface.
+- Next to this project's bridge on the same interface, the dialog says that the bridge is the master there: a PC with this project's config connects through the bridge, and a PC's changes through the adapter need force while the bridge runs. A serial adapter that this project's bridge uses cannot be served: a serial port has one user at a time.
 
 In **Add device…** a wrong host, user or port is said under its field. A device that does not answer reads **Not reached**, with one sentence ("Can't reach 192.0.2.10 on SSH port 22.") and what to check: SSH on the device, the same network, the address and the port.
 

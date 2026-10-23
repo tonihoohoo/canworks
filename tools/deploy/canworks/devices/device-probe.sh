@@ -93,6 +93,33 @@ if [ -f "$R/etc/systemd/system/canworks-link.service" ]; then
 fi
 discovery=0; [ -f "$R/etc/avahi/services/canworks.service" ] && discovery=1
 
+# Adapter servers (canworks-diag adapter-serve --install-service): one unit
+# each, its options from ExecStart, its connected PCs from the status file of
+# the user it runs as when this user can read it.
+opt() { printf '%s\n' "$1" | sed -n "s/.* $2 \([^ ]*\).*/\1/p" | head -n 1; }
+adapters=""
+for f in "$R"/etc/systemd/system/canworks-adapter-*.service; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    exec_line=$(sed -n 's/^ExecStart=//p' "$f" | head -n 1)
+    user=$(sed -n 's/^User=//p' "$f" | head -n 1)
+    a_state=$("$SYSTEMCTL" is-active "$name" 2>/dev/null)
+    a_adapter=$(opt "$exec_line" --adapter)
+    a_rate=$(opt "$exec_line" --bitrate)
+    a_port=$(opt "$exec_line" --port); [ -n "$a_port" ] || a_port=7536
+    a_changes=0; case "$exec_line " in *" --allow-changes "*) a_changes=1 ;; esac
+    a_adv=0; [ -f "$R/etc/avahi/services/$name" ] && a_adv=1
+    pcs=""
+    home=$(awk -F: -v u="$user" '$1 == u { print $6; exit }' "$R/etc/passwd" 2>/dev/null)
+    st="$R$home/.config/canworks/adapter-serve-$a_port.status.json"
+    if [ "$a_state" = active ] && [ -n "$home" ] && [ -r "$st" ]; then
+        pcs=$(grep -c '"address"' "$st" 2>/dev/null)
+    fi
+    adapters="$adapters${adapters:+, }$(printf '{"unit": %s, "state": %s, "adapter": %s, "bitrate_kbit": %s, "port": %s, "allow_changes": %s, "discovery": %s, "user": %s, "pcs": %s}' \
+        "$(js "$name")" "$(js "$a_state")" "$(js "$a_adapter")" "$(jn "$a_rate")" "$(jn "$a_port")" "$(jb "$a_changes")" \
+        "$(jb "$a_adv")" "$(js "$user")" "$(jn "$pcs")")"
+done
+
 # ip's own JSON, passed through as it is (the configurator reads it).
 can=null vcan=null
 if have "$IP" && "$IP" -j link show >/dev/null 2>&1; then
@@ -125,7 +152,7 @@ fi
 printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "mem_mb": %s, ' \
     "$(js "$os")" "$(js "$arch")" "$(jb "$systemd")" "$(jn "$disk")" "$(jn "$mem")"
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
-printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, ' \
-    "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")"
+printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, "adapters": [%s], ' \
+    "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")" "$adapters"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"
