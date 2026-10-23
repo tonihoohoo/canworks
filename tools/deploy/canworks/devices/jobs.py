@@ -16,7 +16,13 @@ import time
 from .ssh import SshError, quote
 
 RAW = "https://raw.githubusercontent.com/tonihoohoo/canworks"
-ACTIONS = ("install_bridge", "bridge_config", "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
+ACTIONS = ("install_bridge", "bridge_config", "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off",
+           "adapter_on", "adapter_change", "adapter_token", "adapter_off")
+# The remote CAN adapter's switches (add-devices-adapter-server).
+ADAPTER_ACTIONS = ("adapter_on", "adapter_change", "adapter_token", "adapter_off")
+_ADAPTER = re.compile(r"^(socketcan:[A-Za-z0-9_.:-]{1,15}|slcan:/dev/[A-Za-z0-9_./:+-]{1,200}|gs_usb:\d{1,2})$")
+BITRATES = (10, 20, 50, 100, 125, 250, 500, 800, 1000)
+_USER = re.compile(r"^[a-z_][a-z0-9_.-]{0,31}$")
 # The actions that start the open project's bridge with its saved config.
 BRIDGE_ACTIONS = ("install_bridge", "bridge_config")
 _CONFIG = re.compile(r"^/etc/canworks-bridge/[A-Za-z0-9_-]{1,64}/canworks\.json$")
@@ -78,10 +84,39 @@ def _fetch(paths, script, version):
     return "curl -LsSf %s | bash -s --" % quote("%s/deploy-v%s/scripts/%s" % (paths.raw, version, script))
 
 
+def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, port=None, allow_changes=False,
+                     discovery=True, user=None, upload=None):
+    """The root shell lines of a remote CAN adapter action: the release's
+    install-adapter.sh. The token's verifier (adapter_on, adapter_token)
+    is the file `verifier` in the upload folder, removed after."""
+    if not isinstance(adapter, str) or not _ADAPTER.match(adapter):
+        raise JobError("not an adapter to serve: %r" % (adapter,))
+    sh = _fetch(paths, "install-adapter.sh", version) + " --version " + quote(version)
+    if action == "adapter_off":
+        return [sh + " --uninstall --adapter " + quote(adapter)]
+    if bitrate_kbit not in BITRATES or isinstance(bitrate_kbit, bool):
+        raise JobError("not a bit rate: %r" % (bitrate_kbit,))
+    if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+        raise JobError("not a port: %r" % (port,))
+    if not isinstance(user, str) or not _USER.match(user) or user == "root":
+        raise JobError("The remote CAN adapter runs as the SSH user, never as root: log in as a user with sudo rights.")
+    line = sh + " --adapter %s --bitrate %d --port %d --user %s" % (quote(adapter), bitrate_kbit, port, quote(user))
+    if allow_changes:
+        line += " --allow-changes"
+    if not discovery:
+        line += " --without-discovery"
+    if action in ("adapter_on", "adapter_token"):
+        if upload is None:
+            raise JobError("the token's verifier was not uploaded")
+        line += " --verifier-file %s" % quote(posixpath.join(upload, "verifier"))
+        return [line, "rm -rf %s" % quote(upload)]
+    return [line]
+
+
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None, link_config=None, runtime_port=None):
+             bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, **adapter):
     """The root shell lines of one action, each running the release's
-    install-bridge.sh or install-link.sh."""
+    install-bridge.sh, install-link.sh or install-adapter.sh."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
     if not isinstance(version, str) or not _VERSION.match(version):
@@ -94,6 +129,8 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         raise JobError("not a deployed config: %r" % (link_config,))
     if runtime_port not in (None, "none", "8443"):
         raise JobError("not a runtime port: %r" % (runtime_port,))
+    if action in ADAPTER_ACTIONS:
+        return adapter_commands(action, version, paths, discovery=discovery, upload=upload, **adapter)
     v = quote(version)
     # The remote link and the advertisement (device-link-switches).
     link_sh = _fetch(paths, "install-link.sh", version)
@@ -140,8 +177,9 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
                 'echo "==> Started %s"' % unit.strip("'")]
     if action == "uninstall_bridge":
         return [bridge + " --uninstall" + (" --purge" if purge else "")]
-    # remove_all: the bridge, its configs and the remote link; nothing that is not canworks.
-    return [bridge + " --uninstall --purge"]
+    # remove_all: the bridge, its configs, the remote link and the adapter servers; nothing that is not canworks.
+    adapters_off = [_fetch(paths, "install-adapter.sh", version) + " --version " + v + " --uninstall"] if adapters else []
+    return adapters_off + [bridge + " --uninstall --purge"]
 
 
 def job_script(job_id, action, lines, paths):

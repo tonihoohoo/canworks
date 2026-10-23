@@ -1219,9 +1219,16 @@ def _serve_parser(sub):
     a.add_argument("--new-token", action="store_true", help="make a new token (the old one stops working)")
     a.add_argument("--token-file", dest="serve_token_file", metavar="FILE",
                    help="use the token in this file instead of making one")
+    a.add_argument("--token-verifier-file", dest="verifier_file", metavar="FILE",
+                   help="keep the token verifier in this file (made where the token is kept, so the token never "
+                        "comes here)")
     a.add_argument("--install-service", action="store_true",
                    help="with sudo: run the server as a systemd service with these options, as the user who ran "
                         "sudo, and advertise it on the local network")
+    a.add_argument("--without-discovery", action="store_true",
+                   help="with --install-service: do not advertise the server on the local network")
+    a.add_argument("--service-user", metavar="USER",
+                   help="with --install-service run as root: the user the service runs as (not root)")
     a.add_argument("--remove-service", action="store_true", help="with sudo: stop and remove the service")
     a.add_argument("--status", action="store_true", help="whether the service runs and which PCs are connected")
 

@@ -68,6 +68,37 @@ esac
 """
 
 
+# The release's install-adapter.sh: the unit the probe reads, and the verifier
+# it was given (add-devices-adapter-server).
+ADAPTER_SCRIPT = r"""#!/bin/bash
+echo "args: $*"
+mkdir -p "$FAKE_FS/etc/systemd/system"
+unit="$FAKE_FS/etc/systemd/system/canworks-adapter-can0.service"
+case " $* " in
+    *" --uninstall "*) rm -f "$unit" "$FAKE_UNITS/canworks-adapter-can0.service"; exit 0 ;;
+esac
+echo "::canworks-step 1/2 Installing the PC tools"
+echo "::canworks-step 2/2 Starting the adapter server on can0"
+user=""; rate=""; port=""; changes=""; verifier=""
+while [ $# -gt 0 ]; do
+    case $1 in
+        --user) user=$2; shift ;;
+        --bitrate) rate=$2; shift ;;
+        --port) port=$2; shift ;;
+        --allow-changes) changes=" --allow-changes" ;;
+        --verifier-file) verifier=$2; shift ;;
+    esac
+    shift
+done
+[ -z "$verifier" ] || cp "$verifier" "$FAKE_FS/verifier-seen"
+printf '[Service]
+User=%s
+ExecStart=/opt/canworks-adapter/venv/bin/canworks-diag adapter-serve --adapter socketcan:can0 --bitrate %s --port %s%s
+'     "$user" "$rate" "$port" "$changes" > "$unit"
+echo active > "$FAKE_UNITS/canworks-adapter-can0.service"
+"""
+
+
 @unittest.skipUnless(paramiko is not None and sys.platform != "win32" and shutil.which("flock")
                      and shutil.which("setsid"), "needs paramiko, sh, flock and setsid")
 class DevicesPage(OnlineBase):
@@ -89,6 +120,7 @@ class DevicesPage(OnlineBase):
         raw = os.path.join(self.device.root, "raw")
         self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-bridge.sh"), BRIDGE_SCRIPT)
         self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-link.sh"), LINK_SCRIPT)
+        self.put_file(os.path.join(raw, "deploy-v0.98.0", "scripts", "install-adapter.sh"), ADAPTER_SCRIPT)
         paths = self.device.paths(self.fs)
         paths.raw = "file://" + raw
         stub = os.path.join(self.device.bin, "curl-ok")
@@ -148,7 +180,7 @@ class DevicesPage(OnlineBase):
         rows = pg.eval_on_selector_all("[data-devices=rows] tbody tr", "rs => rs.map((r) => [r.dataset.part, "
                                        "r.cells[1].innerText, r.cells[2].innerText, r.classList.contains('muted-row')])")
         # canworks parts only: no OpenPLC runtime row, though the device has one.
-        self.assertEqual([r[0] for r in rows], ["bridge", "link", "discovery", "can"])
+        self.assertEqual([r[0] for r in rows], ["bridge", "link", "discovery", "can", "adapter"])
         self.assertEqual(rows[0][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
@@ -306,6 +338,59 @@ class DevicesPage(OnlineBase):
         pg.click(".devices-list [data-device]")
         pg.wait_for_selector("[data-devices=rows]")
         self.assertEqual(pg.eval_on_selector_all("[data-devices=rows] thead th", "ts => ts.length"), 4)
+
+    def test_remote_can_adapter(self):
+        # add-devices-adapter-server: turned on with no config, the token made on
+        # this PC and only its verifier on the device, Change… keeping it, and
+        # Connect from this PC opening the connect panel on the device.
+        pg = self.page
+        ip = os.path.join(self.device.bin, "ip-can0")
+        self.put_file(ip, '#!/bin/sh\ncase "$*" in *"type can"*) echo \'[{"ifname":"can0","flags":["UP"],"linkinfo":'
+                          '{"info_kind":"can","info_data":{"bittiming":{"bitrate":500000}}}}]\' ;; *) echo "[]" ;; esac\n', 0o755)
+        self.server.devices.probe_env["CANWORKS_PROBE_IP"] = ip
+        pg.set_viewport_size({"width": 1280, "height": 900})
+        pg.goto(self.server.url)
+        pg.click("#start-devices")
+        self.add_device(config=False)
+        self.answer("cancel")  # no key login
+        row = "[data-devices=rows] tr[data-part=adapter]"
+        pg.wait_for_selector(row + " [data-devices-action=adapter_on]")
+        self.assertIn("Remote CAN adapter", pg.inner_text(row))
+        self.assertIn("off", pg.inner_text(row))
+        pg.click(row + " [data-devices-action=adapter_on]")
+        pg.wait_for_selector("#modal[open] [data-devices=adapter-form]")
+        self.assertEqual(pg.input_value("[data-devices=adapter-bitrate]"), "500")  # can0 is up at it
+        self.assertTrue(pg.is_checked("[data-devices=adapter-allow]"))
+        self.answer("go", {"[data-devices=sudo]": SUDO_PW})
+        pg.wait_for_selector("[data-devices=done]", timeout=20000)
+        self.assertIn("The remote CAN adapter is on", pg.inner_text("[data-devices=done]"))
+        pg.wait_for_selector(row + ":has-text('can0 · 500 kbit/s · running · changes allowed')")
+        # The token is this PC's; the device got its verifier only, and no log has it.
+        with open(os.path.join(self.cfg_dir, "online.json")) as f:
+            token = json.load(f)["adapter_tokens"]["127.0.0.1"]
+        with open(os.path.join(self.fs, "verifier-seen")) as f:
+            self.assertTrue(diag.token_matches(token, f.read().strip()))
+        for folder, _, files in os.walk(self.device.root):
+            for name in files:
+                with open(os.path.join(folder, name), "rb") as f:
+                    self.assertNotIn(token.encode(), f.read(), os.path.join(folder, name))
+        self.assertEqual(pg.locator(row + " [data-devices-action=adapter_copy_token]").count(), 1)
+        self.assertEqual(pg.locator(row + " [data-devices-action=adapter_token]").count(), 0)
+        # Change…: read-only for every PC, same token.
+        pg.click(row + " [data-devices-action=adapter_change]")
+        pg.wait_for_selector("#modal[open] [data-devices=adapter-form]")
+        self.assertEqual(pg.input_value("[data-devices=adapter-bitrate]"), "500")
+        pg.uncheck("[data-devices=adapter-allow]")
+        self.answer("go", {"[data-devices=sudo]": SUDO_PW})
+        pg.wait_for_selector(row + ":has-text('read-only')", timeout=20000)
+        with open(os.path.join(self.cfg_dir, "online.json")) as f:
+            self.assertEqual(json.load(f)["adapter_tokens"]["127.0.0.1"], token)
+        # Connect from this PC: Commission a CANopen device, the panel on this adapter.
+        pg.click(row + " [data-devices-action=adapter_connect]")
+        pg.wait_for_selector("#conn-dialog[open] [data-online=remote-box]")
+        self.assertEqual(pg.input_value("[data-online=remote-host]"), "127.0.0.1")
+        self.assertEqual(pg.get_attribute("[data-online=remote-token]", "placeholder"), "kept on this PC")
+        self.assertFalse(pg.is_checked("[data-online=adapter-allow]"))  # each connection starts read-only
 
     def test_link_and_discovery_switches(self):
         # device-link-switches: the remote link and the advertisement turned

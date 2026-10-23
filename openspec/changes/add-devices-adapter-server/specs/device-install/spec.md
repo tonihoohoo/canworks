@@ -15,7 +15,7 @@ The device page SHALL have a row **Remote CAN adapter**, also with no config and
 - **THEN** the service restarts read-only, the row says `read-only`, and this PC connects with the token it already had
 
 ### Requirement: Remote CAN adapter job
-Each adapter action SHALL run as an install job with the release's `install-adapter.sh` at the newest release X, which installs the PC tools in `/opt/canworks/venv` when `canworks-diag` is not there and installs the server as a service of the SSH user. A root SSH login SHALL be refused with one sentence to log in as a user with sudo. The first server SHALL use port 7536, a server on another interface the next free port from 7537.
+Each adapter action SHALL run as an install job with the release's `install-adapter.sh` at the newest release X, which installs the release's PC tools in `/opt/canworks-adapter/venv` when they are not there and installs the server as a service of the SSH user. A root SSH login SHALL be refused with one sentence to log in as a user with sudo. The first server SHALL use port 7536, a server on another interface the next free port from 7537.
 
 #### Scenario: Turn on with no config
 - **WHEN** no config is open, the device has can0 up at 500 kbit/s and no bridge, and the user turns the remote CAN adapter on with the defaults
@@ -43,7 +43,7 @@ On a PC without the token of a running server the row SHALL offer **New token…
 - **THEN** the PC connects to the server without asking for a token, read-only, and the connection bar shows `socketcan:can0 on HOST`
 
 ### Requirement: Remote CAN adapter next to the bridge
-The dialog SHALL let a SocketCAN interface that a bridge instance uses be served, with the bit rate locked to this project's bridge's when it is on that interface, and one line: "The bridge NAME is the master on IF: PCs with this project's config connect through the bridge; a PC's changes on this adapter need force while the bridge runs." A serial adapter that a running bridge instance or another adapter server uses SHALL be refused with one sentence why.
+The dialog SHALL let a SocketCAN interface that a bridge instance uses be served, with the bit rate locked to this project's bridge's when it is on that interface, and one line: "The bridge NAME is the master on IF: PCs with this project's config connect through the bridge; a PC's changes on this adapter need force while the bridge runs." A serial adapter that this project's running bridge uses SHALL be refused with one sentence why, and a served one SHALL NOT be offered again.
 
 #### Scenario: Shared can0
 - **WHEN** this project's bridge runs on can0 at 250 kbit/s and the user turns the remote CAN adapter on for can0

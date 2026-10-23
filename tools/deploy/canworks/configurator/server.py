@@ -378,6 +378,20 @@ def version2(cfg):
     return dict({"$schema": out.pop("$schema")} if "$schema" in out else {}, schema_version=2, networks=[net], **out)
 
 
+def device_networks(cfg):
+    """The open config's networks for the Devices page's remote CAN adapter
+    (devices.plan.adapter_row): interface, bit rate in kbit/s and serial device."""
+    out = []
+    for net in contract.networks(cfg or {}):
+        a = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
+        try:
+            kbit = int(str(a.get("bitrate")), 0) // 1000 if a.get("bitrate") is not None else None
+        except ValueError:
+            kbit = None
+        out.append({"interface": a.get("interface"), "bitrate_kbit": kbit, "device": a.get("device")})
+    return out
+
+
 def device_target(cfg):
     """The project's kind for the Devices page (devices.plan): "codesys",
     "openplc_modbus" for a bridge config with an OpenPLC connection (the
@@ -3309,6 +3323,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         target = device_target(cfg) if project else None
         instance = djobs.instance_name(os.path.basename(os.path.normpath(project))) if project else None
         saved = config_path if config_path and os.path.isfile(config_path) else None
+        networks = device_networks(cfg) if project else None
+        from ..localbus import remote as remote_mod
+        settings = online.Settings(config_dir())
+        # The remote CAN adapter's token is this PC's, as for Adapter on another machine.
+        dev.has_token = lambda host, port: bool(settings.adapter_token(remote_mod.host_key(host, port or 7536)))
         did = body.get("device")
         if did is not None and not isinstance(did, str):
             raise ApiError(400, "device must be a device id")
@@ -3317,7 +3336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else None
         try:
             if route == ("GET", "/api/devices"):
-                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project)),
+                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks),
                         "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
                 known = {d["host"] for d in dev.store.devices()}
@@ -3343,7 +3362,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {"forgotten": dev.forget_key(did)}
             if route == ("POST", "/api/devices/probe"):
                 return dev.probe(did, target, instance, saved, __version__, password=password, trust=trust,
-                                 refresh=body.get("refresh") is True)
+                                 refresh=body.get("refresh") is True, networks=networks)
+            if route == ("POST", "/api/devices/adapter_token"):
+                # Copy token: the one answer that carries an adapter server's token, on request.
+                port = body.get("port")
+                if isinstance(port, bool) or not isinstance(port, int):
+                    raise ApiError(400, "port must be the adapter server's port")
+                token = settings.adapter_token(remote_mod.host_key(dev.store.get(did)["host"], port))
+                if not token:
+                    raise ApiError(404, "this PC has no token for that adapter server: use New token…")
+                return {"token": token}
             if route == ("POST", "/api/devices/key_login"):
                 dev.key_login(did)
                 return {}
@@ -3359,8 +3387,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             raise ApiError(409, "save the config first: the bridge starts with the saved config",
                                            unsaved=True)
                         s.need_no_errors()
-                job = dev.start(did, action, body.get("options") if isinstance(body.get("options"), dict)
-                                else {}, sudo, instance=instance, config_dir=folder if project else None)
+                options = body.get("options") if isinstance(body.get("options"), dict) else {}
+                verifier = token = key = None
+                if action in ("adapter_on", "adapter_token"):
+                    # The token is made here and kept on this PC; only its verifier goes to the device.
+                    probe = dev.store.get(did).get("probe") or {}
+                    port = options.get("port") if action == "adapter_on" else next(
+                        (a.get("port") for a in probe.get("adapters") or []
+                         if isinstance(a, dict) and a.get("adapter") == options.get("adapter")), None)
+                    if isinstance(port, bool) or not isinstance(port, int):
+                        raise ApiError(400, "port must be the adapter server's port")
+                    token = diag.new_token()
+                    verifier = diag.token_verifier(token)
+                    key = remote_mod.host_key(dev.store.get(did)["host"], port)
+                job = dev.start(did, action, options, sudo, instance=instance, config_dir=folder if project else None,
+                                verifier=verifier)
+                if token:
+                    # Kept once the job runs: a job that fails leaves a token the next Turn on… replaces.
+                    settings.set_adapter_token(key, token)
                 return {"job": job}
             if route == ("POST", "/api/devices/job"):
                 job = body.get("job")

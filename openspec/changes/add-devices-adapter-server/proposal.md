@@ -23,13 +23,13 @@ Toni (2026-10-23, after the explore): "explore enable remote can adapter from ca
   - A PC that has no token for a server it finds running gets **New token…**. It makes a new token, and every other PC must then enter it again.
   - **Copy token** shows the token to give to another PC.
 - **Connect from this PC.** After the job, and on the row while the server runs, this opens the connect panel on **Adapter on another machine** with the host filled in and the token kept, so one press of **Connect** runs the bit rate check. With no config open, it opens **Commission a CANopen device** first. Read-only and **Allow changes** work as for a USB adapter.
-- **Sharing the interface with the bridge.** A SocketCAN interface that a bridge instance on the device uses can be served. The bit rate is locked to the bridge's, and the dialog says in one line that the bridge is the master there. A PC with the config should connect through the bridge, and a PC's changes then need force, as with any other master. A serial (slcan) adapter cannot be shared: the dialog refuses it while a bridge instance or another server uses that port.
+- **Sharing the interface with the bridge.** A SocketCAN interface that a bridge instance on the device uses can be served. The bit rate is locked to the bridge's, and the dialog says in one line that the bridge is the master there. A PC with the config should connect through the bridge, and a PC's changes then need force, as with any other master. A serial (slcan) adapter cannot be shared: the dialog refuses one that this project's bridge uses, and a served one is not offered again.
 - **`scripts/install-adapter.sh`** is a new release script for these jobs.
-  - If `/opt/canworks/venv` has no `canworks-diag`, it makes that venv and installs the PC tools with their locked dependencies. It needs no Lely and no build.
+  - Unless the release's PC tools are already in `/opt/canworks-adapter/venv`, it makes that venv and installs them from the release's wheel with its locked dependencies. It needs no Lely and no build, and it never touches the bridge's own venv.
   - It then runs `canworks-diag adapter-serve --install-service` for the SSH user with the uploaded verifier.
-  - `--uninstall --interface IF` removes one server.
+  - `--uninstall --adapter TYPE:CHANNEL` removes one server, and `--uninstall` alone removes them all.
   - It puts the user in `dialout` for a serial adapter.
-- **`adapter-serve` options for these jobs.** `--service-user USER` runs the service as USER when root installs it (today the user must come from `sudo`). `--token-verifier-file FILE` stores a verifier made elsewhere.
+- **`adapter-serve` options for these jobs.** `--service-user USER` runs the service as USER when root installs it (today the user must come from `sudo`). `--token-verifier-file FILE` stores a verifier made elsewhere. `--without-discovery` leaves the Avahi file out. A reinstall restarts the service, so new options take effect at once.
 - **The probe reads adapter servers.** It reads `/etc/systemd/system/canworks-adapter-*.service`: the unit, whether it is active, and its adapter, bit rate, port and `--allow-changes` from `ExecStart`. It also reads the connected PCs from the service user's status file when the SSH user can read it.
 - **Remove everything** also removes the adapter servers.
 - README, `docs/pc-adapter.md` and `docs/configurator.md` say how to turn the adapter server on from Devices.

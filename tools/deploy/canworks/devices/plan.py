@@ -68,7 +68,114 @@ def link_serves(probe, instance=None):
 NO_CONFIG_HINT = "The bridge starts with a config when that config's Devices page installs it here."
 
 
-def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None):
+ADAPTER_PORT = 7536
+NEW_TOKEN = "Every other PC must enter the new token."
+
+
+def _ifname(adapter):
+    return (adapter or "").split(":", 1)[1] if ":" in (adapter or "") else (adapter or "")
+
+
+def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None):
+    """The Remote CAN adapter row (add-devices-adapter-server): the adapter
+    servers on the device and their switches. `networks` are the open
+    config's ({"interface", "bitrate_kbit", "device"}), `tokens` the ports
+    of the servers this PC has a token for."""
+    servers = [a for a in probe.get("adapters") or [] if isinstance(a, dict) and a.get("adapter")]
+    tokens = set(tokens or ())
+    networks = [n for n in networks or [] if isinstance(n, dict)]
+    instances = ((probe.get("bridge") or {}).get("instances") or [])
+    mine_runs = any(i.get("name") == instance and i.get("state") == "active" for i in instances) if instance else False
+    running = [i["name"] for i in instances if i.get("state") == "active" and i.get("name")]
+    served = {a["adapter"] for a in servers}
+    choices = []
+    for item in (probe.get("can") or []) + (probe.get("vcan") or []):
+        if not isinstance(item, dict) or not item.get("ifname"):
+            continue
+        name = item["ifname"]
+        info = item.get("linkinfo") or {}
+        data = info.get("info_data") or {}
+        rate = (data.get("bittiming") or {}).get("bitrate") or data.get("bittiming_bitrate")
+        up = "UP" in (item.get("flags") or [])
+        choice = {"adapter": "socketcan:" + name, "label": name, "bitrate_kbit": None, "locked": False,
+                  "note": None, "refused": None}
+        net = next((n for n in networks if n.get("interface") == name), None)
+        if net and mine_runs and net.get("bitrate_kbit"):
+            choice.update(bitrate_kbit=net["bitrate_kbit"], locked=True,
+                          note="The bridge %s is the master on %s: PCs with this project's config connect through "
+                               "the bridge; a PC's changes on this adapter need force while the bridge runs."
+                               % (instance, name))
+        elif up and rate:
+            choice["bitrate_kbit"] = rate // 1000
+        elif net and net.get("bitrate_kbit"):
+            choice["bitrate_kbit"] = net["bitrate_kbit"]
+        if not choice["note"] and running and info.get("info_kind") != "vcan":
+            choice["note"] = ("A bridge runs on this device (%s): when it uses %s, it is the master there and a PC's "
+                              "changes on this adapter need force." % (", ".join(running), name))
+        choices.append(choice)
+    for s in probe.get("serial") or []:
+        path = "/dev/serial/by-id/" + s
+        choice = {"adapter": "slcan:" + path, "label": "serial " + s, "bitrate_kbit": None, "locked": False,
+                  "note": None, "refused": None}
+        net = next((n for n in networks if n.get("device") == path), None)
+        if net and mine_runs:
+            choice["refused"] = "The bridge %s uses this serial adapter: a serial port has one user at a time." % instance
+        elif net and net.get("bitrate_kbit"):
+            choice["bitrate_kbit"] = net["bitrate_kbit"]
+        choices.append(choice)
+    free = [c for c in choices if c["adapter"] not in served]
+    ports = {a.get("port") for a in servers}
+    port = next(p for p in range(ADAPTER_PORT, ADAPTER_PORT + 100) if p not in ports)
+
+    texts = []
+    for a in servers:
+        t = [_ifname(a["adapter"])]
+        if a.get("bitrate_kbit"):
+            t.append("%d kbit/s" % a["bitrate_kbit"])
+        if a.get("port") and a["port"] != ADAPTER_PORT:
+            t.append("port %d" % a["port"])
+        t.append("running" if a.get("state") == "active" else (a.get("state") or "stopped"))
+        t.append("changes allowed" if a.get("allow_changes") else "read-only")
+        if a.get("state") == "active" and isinstance(a.get("pcs"), int):
+            t.append("%d PC%s connected" % (a["pcs"], "" if a["pcs"] == 1 else "s"))
+        texts.append(" · ".join(t))
+    bad = any(a.get("state") != "active" for a in servers)
+    out = {"part": "adapter", "label": "Remote CAN adapter", "have": "; ".join(texts) or "off",
+           "state": "warn" if bad else "ok" if servers else "off", "needs": "", "used": target != "codesys"}
+    if target == "codesys":
+        return out
+    acts = []
+    many = len(servers) > 1
+    for a in servers:
+        name = _ifname(a["adapter"])
+        on = (" " + name) if many else ""
+        same = {"adapter": a["adapter"], "port": a.get("port") or ADAPTER_PORT}
+        current = dict(same, bitrate_kbit=a.get("bitrate_kbit"), allow_changes=bool(a.get("allow_changes")),
+                       discovery=bool(a.get("discovery")))
+        if a.get("state") == "active":
+            acts.append(_main("adapter_connect", "Connect from this PC", latest, [], button="Connect from this PC%s" % on,
+                              local=True, **same))
+        if same["port"] in tokens:
+            acts.append(_main("adapter_copy_token", "Copy token", latest, [], button="Copy token%s" % on, local=True,
+                              **same))
+        else:
+            acts.append(_main("adapter_token", "New token for the remote CAN adapter%s" % on, latest, [NEW_TOKEN],
+                              button="New token%s…" % on, **same))
+        acts.append(_main("adapter_change", "Change the remote CAN adapter%s" % on, latest, [], button="Change%s…" % on,
+                          dialog=True, current=current,
+                          choices=[c for c in choices if c["adapter"] == a["adapter"]], **same))
+        acts.append(_main("adapter_off", "Turn off the remote CAN adapter%s" % on, latest,
+                          ["PCs connected to it lose the connection; %s is free on the device again." % name],
+                          button="Turn off%s…" % on, **same))
+    if free:
+        acts.append(_main("adapter_on", "Turn on the remote CAN adapter", latest, [],
+                          button="Add…" if servers else "Turn on…", dialog=True, choices=free, port=port))
+    if acts:
+        out["actions"] = acts
+    return out
+
+
+def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None, networks=None, tokens=None):
     """The page's view of one device. `target` is the project's
     ("openplc_modbus", "bridge", "codesys"), or None with no config open:
     then the bridge on the device picks the main action, and a device without
@@ -177,11 +284,13 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     rows.append({"part": "can", "label": "CAN interfaces",
                  "have": " · ".join(can + ["serial %s" % s for s in serial]) or "none found",
                  "state": "ok" if can or serial else "off", "needs": "", "used": target != "codesys"})
+    rows.append(adapter_row(probe, target, latest, networks, tokens, instance))
 
     if free and not bridge:
         # No bridge here yet and no config: the bridge alone, started later by a config.
         main = _main("install_bridge", with_latest("Install the bridge"), latest, hint=NO_CONFIG_HINT)
-    reason = blocked(probe, latest) if main or any(r.get("actions") for r in rows) else None
+    reason = blocked(probe, latest) if main or any(a for r in rows for a in r.get("actions") or []
+                                                   if not a.get("local")) else None
     pc = version_tuple(pc_version)
     here = version_tuple((bridge or {}).get("version"))
     # Only a newer major or minor on the device is worth a word: patch

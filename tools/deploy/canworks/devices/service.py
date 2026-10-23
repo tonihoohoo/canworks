@@ -6,6 +6,8 @@ every password used in the one call that gets it."""
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 import threading
 import time
 
@@ -64,6 +66,14 @@ class Devices:
         self.conns = {}
         self.lock = threading.Lock()
         self.running = {}  # device -> job id seen running by this configurator
+        # Whether this PC keeps the token of the adapter server at (host, port):
+        # the configurator's online.json (set by the server).
+        self.has_token = lambda host, port: False
+
+    def tokens(self, host, probe):
+        """The ports of the device's adapter servers this PC has a token for."""
+        return {a.get("port") for a in (probe or {}).get("adapters") or []
+                if isinstance(a, dict) and self.has_token(host, a.get("port"))}
 
     # -- connections ------------------------------------------------------
     def connection(self, did, password=None, trust=None):
@@ -106,7 +116,7 @@ class Devices:
             v = release.latest_on_device(conn)
         return v
 
-    def view(self, target, instance, config_path, pc_version, own_host=None):
+    def view(self, target, instance, config_path, pc_version, own_host=None, networks=None):
         """The device list: every device of this PC, each with one line on
         its bridge instances from its last probe (`summary`), the open
         project's own devices first (its runtime host `own_host`, its bridge
@@ -118,7 +128,8 @@ class Devices:
             item = {"id": did, "host": d["host"], "port": d.get("port") or 22, "user": d.get("user") or "",
                     "probe_at": d.get("probe_at"), "job": d.get("job"), "job_seconds": d.get("job_seconds")}
             if d.get("probe"):
-                item["plan"] = plan_mod.plan(d["probe"], target, d.get("latest"), pc_version, instance, sha)
+                item["plan"] = plan_mod.plan(d["probe"], target, d.get("latest"), pc_version, instance, sha,
+                                             networks, self.tokens(d["host"], d["probe"]))
                 item["latest"] = d.get("latest")
             found = [i for i in ((d.get("probe") or {}).get("bridge") or {}).get("instances") or []
                      if isinstance(i, dict) and i.get("name")]
@@ -145,7 +156,7 @@ class Devices:
         return ssh.forget_host_key(self.store, dev["host"], dev.get("port") or 22)
 
     def probe(self, did, target, instance, config_path, pc_version, password=None, trust=None,
-              refresh=False):
+              refresh=False, networks=None):
         conn, by_password = self.connection(did, password=password, trust=trust)
         env = "".join("%s=%s " % (k, ssh.quote(v)) for k, v in sorted(self.probe_env.items()))
         try:
@@ -171,7 +182,8 @@ class Devices:
             self.running[key] = job.get("id")
         sha = file_sha256(config_path) if config_path else None
         out = {"probe": probe, "latest": latest,
-               "plan": plan_mod.plan(probe, target, latest, pc_version, instance, sha),
+               "plan": plan_mod.plan(probe, target, latest, pc_version, instance, sha, networks,
+                                     self.tokens(self.store.get(did)["host"], probe)),
                "offer_key_login": by_password}
         return out
 
@@ -180,7 +192,30 @@ class Devices:
         ssh.add_key_login(conn, ssh.own_public_key(self.store))
 
     # -- jobs -------------------------------------------------------------
-    def start(self, did, action, options, sudo_password, instance=None, config_dir=None):
+    def adapter_options(self, dev, probe, action, options):
+        """The remote CAN adapter job's settings: the dialog's (adapter_on,
+        adapter_change) or the server's own as the probe read them."""
+        if action in ("adapter_on", "adapter_change"):
+            out = {k: options.get(k) for k in ("adapter", "bitrate_kbit", "port")}
+            out["allow_changes"] = options.get("allow_changes") is not False
+            out["discovery"] = options.get("discovery") is not False
+        else:
+            a = next((x for x in probe.get("adapters") or [] if isinstance(x, dict)
+                      and x.get("adapter") == options.get("adapter")), None)
+            if not a:
+                raise SshError("the device has no remote CAN adapter on %s: check it again" % options.get("adapter"))
+            out = {"adapter": a["adapter"], "bitrate_kbit": a.get("bitrate_kbit"), "port": a.get("port"),
+                   "allow_changes": bool(a.get("allow_changes")), "discovery": bool(a.get("discovery"))}
+        if action == "adapter_on" and any(x.get("adapter") == out["adapter"]
+                                          for x in probe.get("adapters") or [] if isinstance(x, dict)):
+            raise SshError("%s is served already: use Change…" % out["adapter"])
+        out["user"] = dev.get("user") or ""
+        if action != "adapter_off" and (probe.get("sudo") == "none" or out["user"] in ("", "root")):
+            raise SshError("The remote CAN adapter runs as the SSH user, never as root: log in as a user with "
+                           "sudo rights.")
+        return out
+
+    def start(self, did, action, options, sudo_password, instance=None, config_dir=None, verifier=None):
         dev = self.store.get(did)
         probe = dev.get("probe") or {}
         version = dev.get("latest")
@@ -194,13 +229,31 @@ class Devices:
             why = plan_mod.blocked(probe, version)
             if why:
                 raise SshError(why)
+        options = options or {}
+        adapter = {}
+        if action in jobs.ADAPTER_ACTIONS:
+            adapter = self.adapter_options(dev, probe, action, options)
+            if action in ("adapter_on", "adapter_token") and not verifier:
+                raise SshError("the token's verifier is missing")
+            # Checked before anything goes to the device.
+            jobs.adapter_commands(action, version, self.paths, upload="/tmp/canworks-bridge-upload.check", **adapter)
         conn, _ = self.connection(did)
         upload = None
+        if action in ("adapter_on", "adapter_token"):
+            # Only the verifier goes to the device; the token stays on this PC.
+            tmp = tempfile.mkdtemp(prefix="canworks-verifier-")
+            try:
+                path = os.path.join(tmp, "verifier")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(verifier + "\n")
+                upload = jobs.make_upload_dir(conn)
+                conn.put_files(upload, [path])
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
         if action in jobs.BRIDGE_ACTIONS and config_dir:
             files = config_files(config_dir)
             upload = jobs.make_upload_dir(conn)
             conn.put_files(upload, files)
-        options = options or {}
         link = options.get("link") is not False
         if action == "install_bridge" and probe.get("link") is not None \
                 and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
@@ -218,8 +271,11 @@ class Devices:
                 raise SshError("which bridge config should the link serve?" if serves.get("choose")
                                else "the device has no config for the link to serve: install the bridge first")
             link_config, runtime_port = serves.get("config"), serves.get("runtime_port")
+        if action in jobs.ADAPTER_ACTIONS:
+            discovery = adapter.pop("discovery")
         lines = jobs.commands(action, version, self.paths, link=link,
                               discovery=discovery, purge=options.get("purge") is True,
+                              adapters=bool(probe.get("adapters")), **adapter,
                               link_config=link_config, runtime_port=runtime_port,
                               instance=instance if action in jobs.BRIDGE_ACTIONS else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))

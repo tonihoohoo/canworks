@@ -33,14 +33,21 @@ const DEV_ACTION_DONE = {
   link_start: "The remote link was started.",
   discovery_on: "The device is advertised on the local network again.",
   discovery_off: "The device is no longer advertised on the local network; typing its address still works.",
+  adapter_on: "The remote CAN adapter is on. This PC keeps its token: Connect from this PC connects in one click.",
+  adapter_change: "The remote CAN adapter runs with the new settings and the same token.",
+  adapter_token: "The remote CAN adapter has a new token, kept on this PC. Other PCs must enter it again (Copy token).",
+  adapter_off: "The remote CAN adapter is off; the interface is free on the device again.",
 };
 const DEV_ACTION_NAME = {
   install_bridge: "Install the bridge",
   bridge_config: "Start this project's bridge", uninstall_bridge: "Uninstall the bridge",
   remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
   link_start: "Start the remote link", discovery_on: "Advertise on the local network",
-  discovery_off: "Stop advertising on the local network",
+  discovery_off: "Stop advertising on the local network", adapter_on: "Turn on the remote CAN adapter",
+  adapter_change: "Change the remote CAN adapter", adapter_token: "New token for the remote CAN adapter",
+  adapter_off: "Turn off the remote CAN adapter",
 };
+const DEV_BITRATES = [10, 20, 50, 100, 125, 250, 500, 800, 1000];
 
 // The host key file's name part of an SSH key type (ssh-ed25519 -> ed25519).
 function devKeyFile(type) {
@@ -172,7 +179,7 @@ async function devCall(path, body) {
 function renderDevices(view) {
   view.append(el("h2", null, "Devices"),
     el("p", { class: "muted" }, (DEV.ctx ? "Install this project's Modbus bridge on a Linux device over SSH, from the newest release. "
-      : "Install the Modbus bridge, its remote link and local network discovery on a Linux device over SSH, from the newest release. ") +
+      : "Install the Modbus bridge, its remote link and local network discovery on a Linux device over SSH, from the newest release, or turn on its remote CAN adapter. ") +
       "Passwords are asked when needed and never kept. Devices added here are listed for every project on this PC."));
   const slot = noticeSlot({ dataset: { devices: "bars" } });
   view.append(slot);
@@ -295,9 +302,14 @@ function devRows(d, plan, job) {
         disabled: running ? "An install is running." : null,
         onclick: () => devStart(d.id, "uninstall_bridge") }, "Uninstall…")
         : (r.actions || []).map((a) => el("button", { type: "button", class: "small",
-          dataset: Object.assign({ devicesAction: a.action }, a.action.startsWith("install") ? { devicesInstall: r.part } : {}),
-          disabled: running || plan.blocked ? (plan.blocked || "An install is running.") : null, title: plan.blocked || null,
-          onclick: () => devStart(d.id, a.action) }, a.button)))))));
+          dataset: Object.assign({ devicesAction: a.action }, a.action.startsWith("install") ? { devicesInstall: r.part } : {},
+            a.adapter ? { devicesAdapter: a.adapter } : {}),
+          // Connect and Copy token run on this PC: neither a job nor a blocked device stops them.
+          disabled: a.local ? null : running || plan.blocked ? (plan.blocked || "An install is running.") : null,
+          title: a.local ? null : plan.blocked || null,
+          onclick: (e) => a.action === "adapter_connect" ? devAdapterConnect(d, a.port)
+            : a.action === "adapter_copy_token" ? busy(e.currentTarget, "Copying…", () => devAdapterCopyToken(d, a.port))
+              : devStart(d.id, a.action, a) }, a.button)))))));
 }
 
 function devMain(d, plan) {
@@ -437,16 +449,18 @@ function devConfirmText(d, action) {
   const main = devActionOf(d.id, plan, action);
   if (main) return main.confirm || [];
   if (action === "uninstall_bridge") return ["The bridges on this device stop and the bridge is removed; their configs stay in /etc/canworks-bridge."];
-  if (action === "remove_all") return ["The bridge, its configs, the remote link and their settings are removed from the device. Nothing else on it changes."];
+  if (action === "remove_all") return ["The bridge, its configs, the remote link, the remote CAN adapter and their settings are removed from the device. Nothing else on it changes."];
   return [];
 }
 
-async function devStart(id, action) {
+async function devStart(id, action, act) {
   const d = devItem(id);
   const plan = (DEV.probes[id] || {}).plan || {};
-  const effects = devConfirmText(d, action);
+  const main = act || devActionOf(id, plan, action);
+  const effects = act ? act.confirm || [] : devConfirmText(d, action);
   const sudo = plan.sudo === "password";
-  const main = devActionOf(id, plan, action);
+  // The remote CAN adapter's settings, in the same dialog as the sudo password.
+  const form = main && main.dialog ? devAdapterForm(main) : null;
   const title = main ? main.label : DEV_ACTION_NAME[action];
   // Several bridge configs and nothing saying which: the link serves the picked one.
   const choose = main && main.choose;
@@ -455,23 +469,25 @@ async function devStart(id, action) {
   let pw = null;
   let wrong = false;
   for (;;) {
-    if (effects.length || sudo || choose) {
+    if (effects.length || sudo || choose || form) {
       const field = sudo ? el("input", { type: "password", autocomplete: "off", dataset: { devices: "sudo" }, "aria-label": `sudo password of ${d.user || "the SSH user"}` }) : null;
       const err = msgBar({ devices: "sudo-error" }, wrong ? "sudo on the device did not accept the password." : "");
-      const extra = el("div", null, err, effects.map((t) => el("p", { dataset: { devices: "effect" } }, t)),
+      const extra = el("div", null, err, form ? form.el : null, effects.map((t) => el("p", { dataset: { devices: "effect" } }, t)),
         choose ? el("label", null, "The bridge config the link serves", pickField) : null,
         sudo ? el("label", null, `sudo password of ${d.user || "the SSH user"} on the device`, field,
           hint("Used to start this job only; not kept.")) : null);
-      const danger = action.startsWith("uninstall") || action === "remove_all";
+      const danger = action.startsWith("uninstall") || action === "remove_all" || action === "adapter_off";
       const v = await modal(`${title} on ${d.id}?`, [["cancel", "Cancel"], ["go", danger ? DEV_ACTION_NAME[action].replace("…", "") : "Start", danger ? { danger: true } : true]], extra);
       if (v !== "go") return;
       pw = field ? field.value : null;
+      if (form && form.error()) { wrong = false; continue; }
     }
     try {
-      const options = Object.assign({}, DEV.options || {}, pickField ? { link_instance: pickField.value } : {});
+      const options = Object.assign({}, DEV.options || {}, pickField ? { link_instance: pickField.value } : {},
+        main && main.adapter ? { adapter: main.adapter, port: main.port } : {}, form ? form.values() : {});
       const r = await devCall("/api/devices/start", { device: id, action, options, sudo_password: pw || undefined });
       if (!r) return;
-      devFollowStart(id, r.job, action);
+      devFollowStart(id, r.job, action, options.adapter ? { adapter: options.adapter, port: options.port } : null);
       render();
       return;
     } catch (e) {
@@ -493,10 +509,10 @@ async function devStart(id, action) {
 
 // -- following a job -------------------------------------------------------------------
 
-function devFollowStart(id, jobId, action) {
+function devFollowStart(id, jobId, action, served) {
   const old = DEV.jobs[id];
   if (old && old.timer) clearTimeout(old.timer);
-  DEV.jobs[id] = { id: jobId, action, offset: 0, steps: [], lines: [], exit: null, state: "active", done: false, started: null, failure: null };
+  DEV.jobs[id] = { id: jobId, action, served: served || null, offset: 0, steps: [], lines: [], exit: null, state: "active", done: false, started: null, failure: null };
   if (typeof jobsKick === "function") jobsKick();
   devFollow(id);
 }
@@ -582,7 +598,9 @@ function devJobView(d, j) {
       if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
       else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;
       const open = projectBridge
-        ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission") : null;
+        ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission")
+        : j.served && ["adapter_on", "adapter_change", "adapter_token"].includes(j.action)
+          ? el("button", { type: "button", dataset: { devices: "adapter-connect" }, onclick: () => devAdapterConnect(d, j.served.port) }, "Connect from this PC") : null;
       box.append(notice("done", text, { live: true, actions: [open], dataset: { devices: "done" } }));
     } else {
       const stopped = j.exit === null;
@@ -615,6 +633,89 @@ async function devStop(id, button) {
     try { await devCall("/api/devices/stop", { device: id, job: j.id, sudo_password: field ? field.value : undefined }); }
     catch (e) { banner(e.message, true); }
   });
+}
+
+// -- the remote CAN adapter (add-devices-adapter-server) -----------------------------------
+
+// The Turn on… / Change… fields: interface, bit rate (never guessed),
+// Allow changes from PCs and Advertise. values() is the job's options;
+// error() says what is missing under the field and is true then.
+function devAdapterForm(act) {
+  const choices = act.choices || [];
+  const cur = act.current || null;
+  const pick = el("select", { dataset: { devices: "adapter-interface" }, "aria-label": "Interface", disabled: cur ? true : null },
+    choices.map((c) => el("option", { value: c.adapter, disabled: c.refused ? true : null }, c.refused ? `${c.label} (in use)` : c.label)));
+  const first = choices.find((c) => !c.refused);
+  if (first) pick.value = first.adapter;
+  const rate = el("select", { dataset: { devices: "adapter-bitrate" }, "aria-label": "Bit rate" },
+    el("option", { value: "" }, "Pick the bus's bit rate"), DEV_BITRATES.map((k) => el("option", { value: String(k) }, `${k} kbit/s`)));
+  const rateMsg = el("span", { class: "field-msg", dataset: { devicesMsg: "adapter-bitrate" } });
+  const note = el("div", { class: "muted", dataset: { devices: "adapter-note" }, "aria-live": "polite" });
+  const allow = el("input", { type: "checkbox", dataset: { devices: "adapter-allow" } });
+  allow.checked = cur ? !!cur.allow_changes : true;
+  const adv = el("input", { type: "checkbox", dataset: { devices: "adapter-discovery" } });
+  adv.checked = cur ? !!cur.discovery : true;
+  const chosen = () => choices.find((c) => c.adapter === pick.value) || null;
+  const show = () => {
+    const c = chosen();
+    if (cur && cur.bitrate_kbit && !(c && c.locked)) rate.value = String(cur.bitrate_kbit);
+    else if (c && c.bitrate_kbit) rate.value = String(c.bitrate_kbit);
+    rate.disabled = !!(c && c.locked);
+    note.textContent = c ? (c.refused || c.note || "") : "";
+  };
+  pick.addEventListener("change", show);
+  show();
+  // Interface and bit rate side by side, the switches under them.
+  const box = el("div", { dataset: { devices: "adapter-form" } }, el("div", { class: "grid" },
+    choices.length > 1 || !cur ? el("label", null, "Interface", pick) : el("p", null, `Interface: ${(choices[0] || {}).label || ""}`),
+    el("label", null, "Bit rate", rate, rateMsg, hint("The bus's bit rate: the server checks it when the first PC connects and never guesses it."))),
+    note,
+    el("div", { class: "check-field" }, el("label", { class: "check" }, allow, " Allow changes from PCs"),
+      hint("Each PC still connects read-only and allows changes for its own session, as with a USB adapter. Off: no PC can make changes.")),
+    el("div", { class: "check-field" }, el("label", { class: "check" }, adv, " Advertise on the local network"),
+      hint("The connect panel then lists this adapter.")));
+  return {
+    el: box,
+    values: () => ({ adapter: cur ? act.adapter : pick.value, port: act.port, bitrate_kbit: Number(rate.value) || null,
+      allow_changes: allow.checked, discovery: adv.checked }),
+    error: () => {
+      const c = chosen();
+      const why = !cur && (!c || c.refused) ? "Pick an interface that is free." : !rate.value ? "Pick the bus's bit rate: it is never guessed." : "";
+      rateMsg.textContent = why;
+      rate.setAttribute("aria-invalid", String(!!why));
+      return !!why;
+    },
+  };
+}
+
+// HOST or HOST:PORT for the connect panel (port 7536 when not given).
+function devAdapterAddress(host, port) {
+  const h = host.includes(":") ? `[${host}]` : host;
+  return port && port !== 7536 ? `${h}:${port}` : h;
+}
+
+// Connect from this PC: the connect panel on Adapter on another machine with
+// the device filled in (Commission a CANopen device with no config open).
+async function devAdapterConnect(d, port) {
+  if (S.devicesOnly) {
+    S.devicesOnly = false;
+    document.body.classList.remove("devices-only");
+    await commissionDevice();
+  } else if (!(S.state && S.state.commission) && workspace() !== "commission") {
+    switchWorkspace("commission");
+  }
+  if (!(await saveOnline({ remote_adapter: true, remote_host: devAdapterAddress(d.host, port) }))) return;
+  CONN.target = "remote";
+  openConnect();
+}
+
+async function devAdapterCopyToken(d, port) {
+  let r;
+  try { r = await devCall("/api/devices/adapter_token", { device: d.id, port }); }
+  catch (e) { banner(e.message, true); return; }
+  if (!r) return;
+  try { await navigator.clipboard.writeText(r.token); banner("Copied the remote CAN adapter's token. Give it only to people who may use the bus."); }
+  catch (e) { await modal("The remote CAN adapter's token:", [["ok", "Close", true]], el("code", { dataset: { devices: "adapter-token" } }, r.token)); }
 }
 
 // -- entry points ------------------------------------------------------------------------
