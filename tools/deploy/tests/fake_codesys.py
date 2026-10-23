@@ -112,15 +112,25 @@ class Obj:
             raise Exception(self.world.fail_add[type])
         if self.accepts is not None and type not in self.accepts and (type, id) not in self.accepts:
             raise Exception("Exception was raised: The device cannot be added or inserted here.")
+        top = self
+        while top.parent is not None and top.parent.parent is not None:
+            top = top.parent
+        clash = [] if top.parent is None else [c for c in [top] + top.get_children(True)
+                                               if c.get_name().lower() == name.lower()]
+        if clash:
+            # CODESYS wants names unique in the whole tree of a top-level device.
+            raise Exception("The name conflicts with the existing object '%s'" % clash[0].get_name())
         child = self.world.make(name, DeviceId(type, id, version))
-        if any(c.get_name() == child.get_name() for c in self.children):
-            child._name += "_1"
         child.parent = self
         self.children.append(child)
         self.world.log.append(("add", self.get_name(), child.get_name(), type, id, version))
 
     def rename(self, name):
-        if name in self.world.names_taken:
+        top = self
+        while top.parent is not None and top.parent.parent is not None:
+            top = top.parent
+        used = [c for c in [top] + top.get_children(True) if c is not self and c.get_name().lower() == name.lower()]
+        if name in self.world.names_taken or (top.parent is not None and used):
             raise Exception("the name %s is used already" % name)
         self._name = name
 
@@ -312,7 +322,10 @@ class World:
                   Param(2, "General Options", elements=[("FLAG_DCF_Write", "FALSE"), ("FLAG_CreateAllSDOs", "FALSE"),
                                                         ("FLAG_Optional", "FALSE"), ("FLAG_NotInitialize", "FALSE"),
                                                         ("FLAG_ResetNode", "FALSE")]),
-                  Param(17, "SDO Timeout", "1000000")]
+                  Param(17, "SDO Timeout", "1000000"),
+                  # CODESYS takes the producer time from a configured value
+                  # (ParameterValue) only, not from the EDS default.
+                  Param(0x01017000, "Heartbeat-Producer Time", str(int(dcf["1017"].get("ParameterValue", "0"), 0) if dcf.has_section("1017") else 0))]
         for base in list(range(0x1600, 0x1800)) + list(range(0x1A00, 0x1C00)):
             count = _value(dcf, "%Xsub0" % base)
             for sub in range(1, (count or 0) + 1):

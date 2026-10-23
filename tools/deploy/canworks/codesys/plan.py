@@ -45,6 +45,8 @@ DEV_NODE_ID = (1, "Node-ID")
 DEV_OPTIONS = (2, "General Options")
 DEV_SDO_TIMEOUT = (17, "SDO Timeout")
 DEV_RESET_SUB = (16846848, "SubIndex for reset node")
+# 0x1017 as a CODESYS communication-object parameter (index << 12).
+DEV_HEARTBEAT = (0x01017000, "Heartbeat-Producer Time")
 
 
 
@@ -141,6 +143,11 @@ def node_params(node, master):
     if restore:
         out.append(_param(DEV_OPTIONS, "TRUE", "restore before configuring (0x1011)", "FLAG_ResetNode"))
         out.append(_param(DEV_RESET_SUB, str(restore), "0x1011 sub-index"))
+    hb = _int(node.get("heartbeat_ms"), 0)
+    if hb:
+        # Also when it equals the EDS default: CODESYS takes the producer
+        # time from configured values only, and the DCF writes none then.
+        out.append(_param(DEV_HEARTBEAT, str(hb), "heartbeat producer time (ms)"))
     sdo = _int(master.get("sdo_timeout_ms"))
     if sdo:
         out.append(_param(DEV_SDO_TIMEOUT, str(sdo * 1000), "SDO timeout (us)"))

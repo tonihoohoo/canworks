@@ -403,6 +403,29 @@ class Script(unittest.TestCase):
         self.assertEqual(fake_codesys.channels_of(conveyor)[0x11A00010], "motion_conveyor_speed_actual")
         self.assertEqual([e[1] for e in w.log if e[0] == "import"],
                          ["node_5.dcf", "node_6.dcf", "node_7.dcf", "node_4.dcf", "node_20.dcf"])
+        # CODESYS wants names unique in the device's whole tree (codesys-export: Unique object names).
+        self.assertEqual([b.get_children()[0].get_name() for b in buses],
+                         ["CANopen_Manager", "CANopen_Manager_2", "CANopen_Manager_3"])
+        # The heartbeat equals the EDS default (50 ms): the DCF writes nothing, the plan sets it.
+        self.assertEqual(fake_codesys.param(conveyor, 0x01017000).value, "50")
+
+    def test_node_name_taken_in_another_network(self):
+        cfg = load(PLANT)
+        cfg["networks"][1]["nodes"][0]["name"] = "rtd"
+        work = tmpdir(self)
+        path = os.path.join(work, "canworks.json")
+        for f in os.listdir(os.path.dirname(PLANT)):
+            if f.endswith(".eds"):
+                shutil.copy(os.path.join(os.path.dirname(PLANT), f), work)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        folder, _ = export(self, path)
+        w = fake_codesys.World()
+        proj = self.project(w)
+        report = w.run(folder, primary=proj)
+        self.assertTrue(report.startswith("result: ok"), report)
+        mgr = proj.find("PLC")[0].find("CANbus_2")[0].get_children()[0]
+        self.assertEqual([c.get_name() for c in mgr.get_children()], ["rtd_2"])
 
     def test_no_project_open(self):
         folder, _ = export(self, MOTION)

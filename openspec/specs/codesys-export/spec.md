@@ -34,7 +34,7 @@ The plan SHALL hold, per exported network, its name, CODESYS network number, bit
 - **THEN** the plan's `field` entry has those values and bit rate 250
 
 ### Requirement: Plan settings per node
-The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, its CODESYS device settings (node ID, optional or mandatory, do not initialize, restore before configuring, SDO timeout) and its PDO channels with PDO mapping object, index, sub-index and variable name. A channel SHALL be planned for every mapped PDO entry, with or without an IEC location. Variable names SHALL be the names the editor declarations give the same entries, using the entry's `name` when it has one.
+The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 identifier, its DCF path, its CODESYS device settings (node ID, optional or mandatory, do not initialize, restore before configuring, SDO timeout, and the heartbeat producer time when the node has `heartbeat_ms`) and its PDO channels with PDO mapping object, index, sub-index and variable name. The heartbeat producer time SHALL be planned even when it equals the EDS default. A channel SHALL be planned for every mapped PDO entry, with or without an IEC location. Variable names SHALL be the names the editor declarations give the same entries, using the entry's `name` when it has one.
 
 #### Scenario: Variable names match the editor
 - **WHEN** node `dio` maps 0x6000 sub 1 to `%IB8` and the editor declarations name that location `dio_Read_input_8_bit_1`
@@ -43,6 +43,10 @@ The plan SHALL hold, per node, its node ID, a name that is a valid IEC 61131-3 i
 #### Scenario: Entry without a location
 - **WHEN** a CODESYS config's node `dio` maps 0x6000 sub 1 with `name` `door_open` and no `iec_location`
 - **THEN** the plan has a channel for input 0x6000 sub 1 of `dio` named `dio_door_open`
+
+#### Scenario: Heartbeat equal to the EDS default
+- **WHEN** node `conveyor` has `heartbeat_ms` 50 and its EDS default for 0x1017 is 50
+- **THEN** the plan's device settings for `conveyor` set the heartbeat producer to 50 ms, and the CODESYS device shows 50 ms after the build
 
 ### Requirement: CODESYS network number
 A network's CODESYS network number SHALL come from the user's override for that network when given, else the network's `codesys.net_id`, else the interface's trailing number, else 0 with a `not_carried` note.
@@ -230,3 +234,14 @@ Every set config value that the relevance table of `canopen-config-contract` mar
 #### Scenario: Bridge-only status location
 - **WHEN** node `rtd` has `emcy_code_location` `%IW20`
 - **THEN** `not_carried` lists `emcy_code_location` for `field/rtd` with the reason the check gives for it
+
+### Requirement: Unique object names
+Every CANbus, CANopen Manager and node object the script adds SHALL get a name that no other object under the same top-level device uses, adding `_2`, `_3`, ... to the base name when it is taken anywhere in that device's tree, because CODESYS refuses a name used elsewhere in it. Other top-level devices of the project MAY use the same names.
+
+#### Scenario: Three networks
+- **WHEN** a config with networks `io`, `motion` and `host` is built into a new project with one PLC
+- **THEN** all three networks are added, their managers are named `CANopen_Manager`, `CANopen_Manager_2` and `CANopen_Manager_3`, and the report has no error
+
+#### Scenario: Node name taken in another network
+- **WHEN** two networks each have a node named `drive`
+- **THEN** the second CODESYS device is named `drive_2` and the build has no error
