@@ -16,4 +16,5 @@
 
 ## 4. Hardware
 
-- [ ] 4.1 Mac: the OpenPLC + truST config from the 8.2 run shows the warnings, the two fixes make the truST Download work
+- [x] 4.1 Mac: the OpenPLC + truST config from the 8.2 run shows the warnings, the two fixes make the truST Download work
+  - 2026-10-23, main 0e9cb97, 8.2 config copy (map 271/95, watchdog 50 ms): `--check` printed both "truST: Download refused" warnings, the map-size one naming the OpenPLC blocks; the truST row read "Cannot download" with the reason as title; Set the watchdog to 500 ms and Trim the mailboxes for truST cleared both (map hash 0x33ca8214 -> 0xdb78d780); the row read "Not downloaded yet", and Download gave cfg-truST.zip (README.txt, canworks.xml, canworks_io.st, io.toml.part), after which the row read "In sync".
