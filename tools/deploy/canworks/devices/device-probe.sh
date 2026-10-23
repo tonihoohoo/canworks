@@ -104,8 +104,8 @@ fi
 # --- The bridge -------------------------------------------------------------------------
 
 bridge=null
-for b in "$R/opt/canworks"; do
-    [ -x "$b/bin/canworks-bridge" ] || continue
+b="$R/opt/canworks"
+if [ -x "$b/bin/canworks-bridge" ]; then
     unit=0; [ -f "$R/etc/systemd/system/canworks-bridge@.service" ] && unit=1
     b_version=$(first_line "$b/VERSION")
     if [ -z "$b_version" ]; then
@@ -125,8 +125,7 @@ for b in "$R/opt/canworks"; do
     # Without its template unit no instance can start (a partial install).
     bridge=$(printf '{"version": %s, "prefix": %s, "unit": %s, "instances": [%s]}' \
         "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$(jb "$unit")" "$instances")
-    break
-done
+fi
 
 # --- Remote access, CAN, the last install job ----------------------------------------------
 
