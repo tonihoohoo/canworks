@@ -138,8 +138,8 @@ tools/deploy/      the PC tools (Python, one package): canworks-deploy, canworks
                    (the configurator), canworks-diag (online diagnostics, parameters, trace),
                    canworks-j1939-sim (the J1939 ECU simulator)
 docker/bridge/     the canworks-bridge image (docs/modbus-bridge.md)
-docker/local-runtime/ the pinned upstream runtime and bootloader releases (the local runtime,
-                   scripts/install-bridge.sh --with-openplc and the OpenPLC tests use them)
+docker/local-runtime/ the pinned upstream runtime and bootloader releases (the local runtime
+                   and the OpenPLC tests use them)
 library/           the canworks function block library (docs/plc-library.md): modbus/ the blocks
                    over the bridge, canworks/ the ST helpers; build.sh builds the .stlib the deploy
                    tool carries

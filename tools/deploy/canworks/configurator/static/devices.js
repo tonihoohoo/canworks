@@ -11,7 +11,6 @@
 const DEV = {
   ctx: undefined,     // the open config's folder the list was read for; null with no config
   list: null,         // /api/devices: { devices, target, instance, pc_version, jobs }
-  role: {},           // device id -> the role picked for a device with nothing of canworks (no config)
   sel: null,          // the selected device's id
   probes: {},         // device id -> the last probe answer of this page ({ probe, plan, latest })
   errors: {},         // device id -> the last connection error
@@ -25,8 +24,6 @@ const DEV_POLL_MS = 1500;
 const DEV_PART_ICON = { ok: "operational", warn: "warning", off: "unknown" };
 const DEV_ACTION_DONE = {
   install_bridge: "The bridge runs this project's saved config.",
-  install_openplc_bridge: "The OpenPLC Runtime and the bridge are installed. Build and upload the editor project to start the PLC.",
-  switch_runtime: "The runtime is on the version canworks is tested with. Build and upload the editor project again.",
   install_bridge_only: "The bridge is installed. It starts with a config when that config's Devices page installs it here.",
   bridge_config: "The bridge runs this project's saved config.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
@@ -38,8 +35,7 @@ const DEV_ACTION_DONE = {
   discovery_off: "The device is no longer advertised on the local network; typing its address still works.",
 };
 const DEV_ACTION_NAME = {
-  install_openplc_bridge: "Install OpenPLC Runtime and the bridge", install_bridge: "Install the bridge",
-  switch_runtime: "Switch the runtime version",
+  install_bridge: "Install the bridge",
   bridge_config: "Start this project's bridge", uninstall_bridge: "Uninstall the bridge",
   remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
   link_start: "Start the remote link", discovery_on: "Advertise on the local network",
@@ -62,17 +58,9 @@ function devContext(key) {
   DEV.found = null;
 }
 
-// The main action shown: the plan's, or with no config the picked role's.
-function devMainOf(id, plan) {
-  if (!plan) return null;
-  if (!plan.roles) return plan.main;
-  const pick = plan.roles.find((r) => r.role === DEV.role[id]) || plan.roles[0];
-  return pick.main;
-}
-
 // The main action or a part's own Install (no config) that starts `action`.
 function devActionOf(id, plan, action) {
-  const main = devMainOf(id, plan);
+  const main = plan ? plan.main : null;
   if (main && main.action === action) return main;
   return ((plan && plan.rows) || []).flatMap((r) => r.actions || []).find((m) => m.action === action) || null;
 }
@@ -183,8 +171,8 @@ async function devCall(path, body) {
 
 function renderDevices(view) {
   view.append(el("h2", null, "Devices"),
-    el("p", { class: "muted" }, (DEV.ctx ? "Install canworks on a Linux device over SSH: what this project needs, from the newest release. "
-      : "Install the OpenPLC Runtime, canworks or the Modbus bridge on a Linux device over SSH, from the newest release. ") +
+    el("p", { class: "muted" }, (DEV.ctx ? "Install this project's Modbus bridge on a Linux device over SSH, from the newest release. "
+      : "Install the Modbus bridge, its remote link and local network discovery on a Linux device over SSH, from the newest release. ") +
       "Passwords are asked when needed and never kept. Devices added here are listed for every project on this PC."));
   const slot = noticeSlot({ dataset: { devices: "bars" } });
   view.append(slot);
@@ -206,7 +194,7 @@ function devListPane() {
     const job = DEV.jobs[d.id];
     const state = job && !job.done ? "busy" : DEV.errors[d.id] ? "error" : !p ? "unknown" : p.plan.main ? "warning" : "operational";
     const sub = job && !job.done ? "Install running" : DEV.errors[d.id] ? "Not reached" : !p ? "Not checked yet"
-      : p.plan.roles ? "Nothing installed yet" : p.plan.main ? p.plan.main.label : DEV.list.target === "codesys" ? "Nothing to install" : "Up to date";
+      : p.plan.main && p.plan.main.hint ? "Nothing installed yet" : p.plan.main ? p.plan.main.label : DEV.list.target === "codesys" ? "Nothing to install" : "Up to date";
     // With a config open, the other projects' devices are listed after its own, muted.
     const other = DEV.ctx && !d.mine;
     const cls = [d.id === DEV.sel ? "active" : null, other ? "devices-other" : null].filter(Boolean).join(" ") || null;
@@ -215,7 +203,7 @@ function devListPane() {
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); devSelect(d.id); } } },
     Icons.stateIcon(state === "busy" ? "busy" : state, { label: false, spinning: state === "busy" }),
     el("span", { class: "devices-name" }, devLabel(d)), el("span", { class: "muted" }, sub),
-    (d.tags || []).length ? el("span", { class: "muted devices-tags", dataset: { devices: "tags" } }, d.tags.join(" · ")) : null);
+    d.summary ? el("span", { class: "muted devices-summary", dataset: { devices: "summary" } }, d.summary) : null);
   }));
   const pane = el("section", { class: "devices-pane", "aria-label": "Device list" }, el("div", { class: "toolbar" }, add),
     items.length ? list : el("p", { class: "muted", dataset: { devices: "empty" } }, "No devices yet. Add the device by its host name or address."));
@@ -314,19 +302,7 @@ function devRows(d, plan, job) {
 
 function devMain(d, plan) {
   const box = el("div", { class: "devices-main", dataset: { devices: "main" } });
-  if (plan.roles) {
-    // Nothing of canworks on the device and no config to say what it needs: the user picks.
-    const picked = (plan.roles.find((r) => r.role === DEV.role[d.id]) || plan.roles[0]).role;
-    box.append(el("fieldset", { class: "devices-roles", dataset: { devices: "roles" } },
-      el("legend", null, "What should this device run?"),
-      plan.roles.map((r) => {
-        const radio = el("input", { type: "radio", name: "devices-role", value: r.role, dataset: { devicesRole: r.role } });
-        radio.checked = r.role === picked;
-        radio.onchange = () => { DEV.role[d.id] = r.role; render(); const back = document.querySelector(`[data-devices-role="${r.role}"]`); if (back) back.focus(); };
-        return el("label", { class: "choice" }, radio, el("strong", null, r.label), el("span", null, r.text));
-      })));
-  }
-  const m = devMainOf(d.id, plan);
+  const m = plan.main;
   if (!m) {
     if (plan.up_to_date) box.append(notice("done", "Up to date.", { live: false, dataset: { devices: "up-to-date" } }));
     return box;
@@ -334,10 +310,10 @@ function devMain(d, plan) {
   const go = el("button", { type: "button", class: "primary", dataset: { devices: "start", action: m.action }, disabled: plan.blocked || null,
     onclick: () => devStart(d.id, m.action) }, m.label);
   box.append(el("div", { class: "toolbar" }, go, plan.blocked ? el("span", { class: "field-msg warning", dataset: { devices: "blocked" } }, plan.blocked) : null));
+  if (m.hint) box.append(el("p", { class: "muted", dataset: { devices: "main-hint" } }, m.hint));
   // The options, folded: the remote link and discovery are on unless switched off.
   // A bridge installed with no config has no instance to link or announce: no options.
-  if (m.action !== "bridge_config" && m.action !== "switch_runtime"
-      && !(["install_bridge", "install_openplc_bridge"].includes(m.action) && !DEV.list.instance)) {
+  if (m.action !== "bridge_config" && !(m.action === "install_bridge" && !DEV.list.instance)) {
     const o = DEV.options || (DEV.options = { link: true, discovery: true });
     const box2 = el("details", { class: "devices-options", dataset: { devices: "options" } }, el("summary", null, "Options"));
     const opt = (key, label, help) => {
@@ -461,7 +437,7 @@ function devConfirmText(d, action) {
   const main = devActionOf(d.id, plan, action);
   if (main) return main.confirm || [];
   if (action === "uninstall_bridge") return ["The bridges on this device stop and the bridge is removed; their configs stay in /etc/canworks-bridge."];
-  if (action === "remove_all") return ["The bridge, its configs, the remote link and their settings are removed from the device. The OpenPLC runtime stays."];
+  if (action === "remove_all") return ["The bridge, its configs, the remote link and their settings are removed from the device. Nothing else on it changes."];
   return [];
 }
 
@@ -561,7 +537,6 @@ async function devJobEnded(id, j) {
   // A finished job may have made the device the project's runtime host (Online access).
   if (j.exit === 0 && S.state && S.state.mode) await loadOnlineSettings();
   await devProbe(id);
-  if (j.exit === 0 && j.action === "install_openplc_bridge") devFirstUser(id);
 }
 
 // Redraws the job box only (the log keeps its scroll and fold).
@@ -603,9 +578,8 @@ function devJobView(d, j) {
   if (j.done) {
     if (!failed && j.exit === 0) {
       let text = DEV_ACTION_DONE[j.action] || "The job ended.";
-      const projectBridge = ["install_bridge", "bridge_config", "install_openplc_bridge"].includes(j.action) && DEV.list.instance;
-      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.` +
-        (j.action === "install_openplc_bridge" ? " Build and upload the editor project to start the PLC." : "");
+      const projectBridge = ["install_bridge", "bridge_config"].includes(j.action) && DEV.list.instance;
+      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
       else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;
       const open = projectBridge
         ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission") : null;
@@ -641,32 +615,6 @@ async function devStop(id, button) {
     try { await devCall("/api/devices/stop", { device: id, job: j.id, sudo_password: field ? field.value : undefined }); }
     catch (e) { banner(e.message, true); }
   });
-}
-
-// After Install OpenPLC Runtime and canworks: the runtime's first user.
-async function devFirstUser(id) {
-  const d = devItem(id);
-  const name = el("input", { type: "text", spellcheck: "false", autocomplete: "off", dataset: { devices: "runtime-user" } });
-  name.value = "admin";
-  const pw = el("input", { type: "password", autocomplete: "new-password", dataset: { devices: "runtime-password" } });
-  const pw2 = el("input", { type: "password", autocomplete: "new-password", dataset: { devices: "runtime-password2" } });
-  const err = msgBar({ devices: "runtime-user-error" });
-  const form = el("div", { class: "grid" }, err, el("label", null, "User name", name),
-    el("label", null, "Password", pw, hint("At least 8 characters.")), el("label", null, "Password again", pw2));
-  for (;;) {
-    const v = await modal(`The OpenPLC runtime on ${d.id} has no user yet. Create the first one: the editor and canworks-deploy log in with it. The password is not kept on this PC.`,
-      [["cancel", "Later"], ["create", "Create user", true]], form);
-    if (v !== "create") return;
-    if (pw.value !== pw2.value) { err.say("The two passwords differ."); continue; }
-    try {
-      if (!await devCall("/api/devices/runtime_user", { device: id, user: name.value.trim(), user_password: pw.value })) return;
-      banner(`The runtime on ${d.id} has the user ${name.value.trim()}.`);
-      return;
-    } catch (e) {
-      if (/already has a user/.test(e.message)) { banner(e.message, "info"); return; }
-      err.say(e.message);
-    }
-  }
 }
 
 // -- entry points ------------------------------------------------------------------------

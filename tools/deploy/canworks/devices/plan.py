@@ -6,14 +6,6 @@ open) and the newest release, so every case is tested without a device."""
 import re
 
 MIN_FREE_MB = 2048
-DOCKER_STOP = "The PLC stops and comes back without a program; upload it again afterwards."
-OPENPLC_INSTALLER = "https://runtime.getedge.me"
-# The OpenPLC runtime release canworks is pinned to: CI tests it, the runtime
-# installs and Switch runtime put devices on it, and the upstream bootloader
-# pinned with it (docker/local-runtime/runtime-version and bootloader-version;
-# a test keeps them the same).
-TESTED_RUNTIME = "v4.3.1"
-PINNED_BOOTLOADER = "bootloader-v1.1.0"
 
 
 def version_tuple(text):
@@ -21,10 +13,6 @@ def version_tuple(text):
     (a git describe of a development build, "unknown")."""
     m = re.match(r"^(?:deploy-)?v?(\d+)\.(\d+)\.(\d+)$", (text or "").strip())
     return tuple(int(x) for x in m.groups()) if m else None
-
-
-def _plain(v):
-    return (v or "").strip().lstrip("v")
 
 
 def blocked(probe, latest):
@@ -44,44 +32,6 @@ def blocked(probe, latest):
     if not latest:
         return "The newest canworks release could not be found from this PC. Check its internet access."
     return None
-
-
-def _runtime_text(rt):
-    kind = rt.get("kind")
-    if kind in (None, "none"):
-        return "not installed"
-    where = {"native": "native", "docker-managed": "Docker", "docker-other": "own Docker container"}.get(kind, kind)
-    parts = [p for p in (rt.get("version"), where) if p]
-    if rt.get("answers") is True:
-        parts.append("answers")
-    elif rt.get("answers") is False:
-        parts.append("not answering")
-    return " · ".join(parts)
-
-
-def untested_runtime(rt):
-    """A note when the device runs another runtime than the pinned one, newer
-    or older; None for the pinned one or an unknown version."""
-    have, tested = version_tuple(rt.get("version")), version_tuple(TESTED_RUNTIME)
-    if have and tested and have != tested:
-        return "canworks runs on runtime %s; this device runs %s." % (TESTED_RUNTIME, rt["version"].strip())
-    return None
-
-
-def runtime_off_pin(rt):
-    """The managed Docker runtime's version when it is not the pinned one (the
-    main action then puts it back); None otherwise."""
-    have = version_tuple(rt.get("version"))
-    if rt.get("kind") == "docker-managed" and have and have != version_tuple(TESTED_RUNTIME):
-        return rt["version"].strip()
-    return None
-
-
-def switch_text(off_pin):
-    """The confirmation line of a job that puts the runtime back on the pin."""
-    if not off_pin:
-        return ""
-    return "The runtime goes from %s back to %s, the version canworks is tested with." % (off_pin, TESTED_RUNTIME)
 
 
 def _main(action, label, version, confirm=(), **extra):
@@ -115,43 +65,28 @@ def link_serves(probe, instance=None):
     return {"choose": names} if names else None
 
 
-ROLES = (("openplc", "OpenPLC PLC with canworks",
-          "Installs the OpenPLC Runtime when there is none, and the bridge next to it. Build and upload the "
-          "editor project afterwards."),
-         ("bridge", "Modbus bridge",
-          "For Node-RED, an HMI or SCADA. It starts with a config when that config's Devices page installs it here."))
+NO_CONFIG_HINT = "The bridge starts with a config when that config's Devices page installs it here."
 
 
 def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None):
     """The page's view of one device. `target` is the project's
     ("openplc_modbus", "bridge", "codesys"), or None with no config open:
     then the bridge on the device picks the main action, and a device without
-    it gets `roles`, one main action per role for the page to choose from.
+    it gets **Install the bridge X**. Only canworks parts are rows: the
+    OpenPLC runtime and other programs are not the configurator's.
     `latest` is the newest release ("0.98.0") or None, `instance` the bridge
     instance name of this project and `config_sha256` its saved
     canworks.json's."""
     probe = probe or {}
-    rt = probe.get("runtime") or {}
     bridge = probe.get("bridge")
-    no_runtime = rt.get("kind") in (None, "none")
     new = version_tuple(latest)
     rows, notes, main = [], [], None
     free = target is None
-    openplc = target == "openplc_modbus"
     unused = "" if free else "not used by this project"
     with_latest = (lambda text: "%s %s" % (text, latest) if latest else text)
-    runtime_install = ["This runs the OpenPLC Runtime installer from %s, which installs Docker and OpenPLC "
-                       "runtime %s, the version canworks is tested with." % (OPENPLC_INSTALLER, TESTED_RUNTIME)]
 
     if target == "codesys":
         notes.append("CODESYS installs its runtime itself; there is nothing for canworks to install here.")
-
-    # OpenPLC runtime
-    rows.append({"part": "runtime", "label": "OpenPLC Runtime", "have": _runtime_text(rt),
-                 "state": ("ok" if not no_runtime else ("warn" if openplc else "off")),
-                 "needs": "needed" if openplc else unused, "used": openplc or free,
-                 "hint": untested_runtime(rt)})
-    off_pin = runtime_off_pin(rt)
 
     # Modbus bridge
     need_bridge = target in ("bridge", "openplc_modbus")
@@ -183,17 +118,10 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         # A link that serves another config (or one whose place is unknown) stays as it is.
         lc = probe.get("link_config") or ""
         kept = {"link_kept": True} if probe.get("link") is not None and not lc.startswith(BRIDGE_CONFIGS) else {}
-        if openplc and no_runtime:
-            main = _main("install_openplc_bridge", with_latest("Install OpenPLC Runtime and the bridge"), latest,
-                         runtime_install, **kept)
-        elif not bridge or bridge.get("unit") is False:
-            main = _main("install_bridge", with_latest("Install the bridge") if openplc
-                         else "Install and start this project's bridge", latest, **kept)
+        if not bridge or bridge.get("unit") is False:
+            main = _main("install_bridge", "Install and start this project's bridge", latest, **kept)
         elif older:
             main = _main("install_bridge", "Update %s → %s" % (bridge.get("version"), latest), latest, [restart], **kept)
-        elif openplc and off_pin:
-            main = _main("switch_runtime", "Switch runtime to %s" % TESTED_RUNTIME, latest,
-                         [switch_text(off_pin), DOCKER_STOP])
         elif not current_cfg or not mine or mine.get("state") != "active":
             main = _main("bridge_config", "Start this project's bridge", latest,
                          ["The bridge %s restarts with this project's saved config." % instance
@@ -250,16 +178,10 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
                  "have": " · ".join(can + ["serial %s" % s for s in serial]) or "none found",
                  "state": "ok" if can or serial else "off", "needs": "", "used": target != "codesys"})
 
-    roles = None
     if free and not bridge:
-        # No bridge here yet: the page asks what the device should run, the PLC
-        # side first.
-        bridge_main = _main("install_bridge", with_latest("Install the bridge"), latest)
-        main = (_main("install_openplc_bridge", with_latest("Install OpenPLC Runtime and the bridge"), latest,
-                      runtime_install) if no_runtime else bridge_main)
-        roles = [{"role": r, "label": label, "text": text, "main": main if r == "openplc" else bridge_main}
-                 for r, label, text in ROLES]
-    reason = blocked(probe, latest) if main or roles or any(r.get("actions") for r in rows) else None
+        # No bridge here yet and no config: the bridge alone, started later by a config.
+        main = _main("install_bridge", with_latest("Install the bridge"), latest, hint=NO_CONFIG_HINT)
+    reason = blocked(probe, latest) if main or any(r.get("actions") for r in rows) else None
     pc = version_tuple(pc_version)
     here = version_tuple((bridge or {}).get("version"))
     # Only a newer major or minor on the device is worth a word: patch
@@ -268,8 +190,8 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     if pc and here and pc[:2] < here[:2]:
         pc_older = {"pc": pc_version, "device": ".".join(map(str, here))}
     job = probe.get("install_job")
-    return {"rows": rows, "main": main, "roles": roles, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
-            "up_to_date": main is None and not roles and target != "codesys",
+    return {"rows": rows, "main": main, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
+            "up_to_date": main is None and target != "codesys",
             "sudo": probe.get("sudo"), "header": header(probe)}
 
 

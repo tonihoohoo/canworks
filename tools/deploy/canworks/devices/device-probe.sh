@@ -3,15 +3,15 @@
 # (device-install: the configurator's Devices workspace runs it over SSH,
 # from its standard input: `sh -s < device-probe.sh`). It changes nothing and
 # needs neither root nor canworks on the device; what it cannot read is null.
+# It reads canworks' own parts only, never the OpenPLC runtime or Docker.
 #
 # For the tests: CANWORKS_PROBE_ROOT puts every file path under another folder,
-# CANWORKS_PROBE_SYSTEMCTL, _DOCKER, _IP, _SUDO and _CURL replace those
+# CANWORKS_PROBE_SYSTEMCTL, _IP, _SUDO and _CURL replace those
 # commands, CANWORKS_PROBE_URL is the release host checked for internet access
 # and CANWORKS_PROBE_UID the user id.
 
 R=${CANWORKS_PROBE_ROOT:-}
 SYSTEMCTL=${CANWORKS_PROBE_SYSTEMCTL:-systemctl}
-DOCKER=${CANWORKS_PROBE_DOCKER:-docker}
 IP=${CANWORKS_PROBE_IP:-ip}
 SUDO=${CANWORKS_PROBE_SUDO:-sudo}
 CURL=${CANWORKS_PROBE_CURL:-curl}
@@ -54,53 +54,6 @@ else
     sudo_mode=unavailable
 fi
 
-# --- The OpenPLC runtime ------------------------------------------------------------
-
-SERVICE_FILE="$R/etc/systemd/system/openplc-runtime.service"
-BOOT="$R/var/lib/openplc-bootloader"
-SPEC="$BOOT/runtime-spec.json"
-# The bootloader's folder can be root's only and Docker the docker group's:
-# with password-less sudo the probe reads both through it (read-only).
-spec=""
-if [ -r "$SPEC" ]; then
-    spec=$(cat "$SPEC" 2>/dev/null)
-elif [ "$sudo_mode" = nopasswd ]; then
-    spec=$("$SUDO" -n cat "$SPEC" 2>/dev/null)
-fi
-containers=""
-if have "$DOCKER"; then
-    containers=$("$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null)
-    if [ -z "$containers" ] && [ "$sudo_mode" = nopasswd ]; then
-        containers=$("$SUDO" -n "$DOCKER" ps -a --format '{{.Names}}' 2>/dev/null)
-    fi
-fi
-has_container() { printf '%s\n' "$containers" | grep -qx "$1"; }
-native_active=0
-if [ -f "$SERVICE_FILE" ] && [ "$("$SYSTEMCTL" is-active openplc-runtime.service 2>/dev/null)" = active ]; then
-    native_active=1
-fi
-rt_kind=none rt_version="" rt_dir="" rt_commit=""
-# An installed native unit that is not running is weaker evidence than the
-# managed runtime's folder or containers (a device moved from native to Docker).
-if [ -n "$spec" ] || { [ "$native_active" = 0 ] && { [ -d "$BOOT" ] || has_container openplc-bootloader; }; }; then
-    rt_kind=docker-managed
-    rt_version=$(printf '%s\n' "$spec" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)
-elif [ "$native_active" = 1 ] || { [ -f "$SERVICE_FILE" ] && ! has_container openplc-runtime; }; then
-    rt_kind=native
-    rt_dir=$(sed -n 's/^WorkingDirectory=//p' "$SERVICE_FILE" | head -n 1)
-    if [ -n "$rt_dir" ] && have git; then
-        rt_version=$(git -C "$R$rt_dir" describe --tags --always 2>/dev/null)
-        rt_commit=$(git -C "$R$rt_dir" rev-parse HEAD 2>/dev/null)
-    fi
-elif has_container openplc-runtime; then
-    rt_kind=docker-other
-fi
-rt_answers=""
-if [ "$rt_kind" != none ] && have "$CURL"; then
-    code=$("$CURL" -ks --max-time 3 -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/ 2>/dev/null)
-    if [ -n "$code" ] && [ "$code" != 000 ]; then rt_answers=true; else rt_answers=false; fi
-fi
-
 # --- The bridge -------------------------------------------------------------------------
 
 bridge=null
@@ -115,6 +68,9 @@ if [ -x "$b/bin/canworks-bridge" ]; then
     for d in "$R"/etc/canworks-bridge/*/; do
         [ -f "${d}canworks.json" ] || continue
         name=$(basename "$d")
+        # Only names install-bridge.sh --instance takes: copies such as
+        # line1.bak-271 are not instances.
+        case $name in *[!A-Za-z0-9_-]*) continue ;; esac
         state=$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)
         enabled=$("$SYSTEMCTL" is-enabled "canworks-bridge@$name.service" 2>/dev/null)
         sum=""
@@ -169,8 +125,6 @@ fi
 printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "mem_mb": %s, ' \
     "$(js "$os")" "$(js "$arch")" "$(jb "$systemd")" "$(jn "$disk")" "$(jn "$mem")"
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
-printf '"runtime": {"kind": %s, "version": %s, "commit": %s, "answers": %s}, ' \
-    "$(js "$rt_kind")" "$(js "$rt_version")" "$(js "$rt_commit")" "${rt_answers:-null}"
 printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, ' \
     "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \

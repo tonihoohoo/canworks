@@ -3,7 +3,7 @@ schema: spec-driven
 context: |
   Project: canworks, a CAN toolkit (CANopen master and slave, J1939, plain CAN) with PC tools.
   Engine: canworks-bridge on a Linux device with SocketCAN (Lely stack); it serves its byte image over Modbus TCP to OpenPLC Runtime v4 (through the runtime's own Modbus master), another PLC, an HMI or a script. CODESYS and Node-RED are other project targets.
-  No OpenPLC plugin, runtime fork or runtime headers: an unmodified upstream runtime runs next to the bridge (install-bridge.sh --with-openplc).
+  No OpenPLC plugin, runtime fork or runtime headers: an unmodified upstream runtime runs next to the bridge (installed with upstream's installer).
   Specs describe observable behavior (network bring-up, node configuration, PDO and Modbus mapping, error handling, PC tools).
 
 # Project context (optional)

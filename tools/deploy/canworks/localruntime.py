@@ -31,7 +31,6 @@ import tempfile
 import time
 
 from . import __version__, runtime
-from .devices import plan
 from .userdirs import config_dir, replace_file
 
 PROG = "canworks-local-runtime"
@@ -62,6 +61,13 @@ ENGINES = {
     "wsl-podman": ["wsl", "-e", "podman"],
 }
 
+# The OpenPLC runtime release canworks is pinned to: CI tests it and the local
+# runtime runs it, with the upstream bootloader pinned with it
+# (docker/local-runtime/runtime-version and bootloader-version; a test keeps
+# them the same).
+TESTED_RUNTIME = "v4.3.1"
+PINNED_BOOTLOADER = "bootloader-v1.1.0"
+
 DOCS = "docs/local-runtime.md (https://github.com/tonihoohoo/canworks/blob/main/docs/local-runtime.md)"
 
 
@@ -75,8 +81,8 @@ def default_image():
 
 
 def runtime_image():
-    """Upstream's runtime image at the pinned version (plan.TESTED_RUNTIME)."""
-    return "%s:%s" % (RUNTIME_IMAGE_REPO, plan.TESTED_RUNTIME)
+    """Upstream's runtime image at the pinned version (TESTED_RUNTIME)."""
+    return "%s:%s" % (RUNTIME_IMAGE_REPO, TESTED_RUNTIME)
 
 
 # --- Settings ----------------------------------------------------------------

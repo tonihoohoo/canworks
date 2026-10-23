@@ -1057,12 +1057,6 @@ pre.codesys-report { max-height: 50vh; overflow: auto; white-space: pre-wrap; fo
 .devices-list li.active { box-shadow: inset 3px 0 0 var(--accent); }
 .devices-list li.devices-other:not(.active) .devices-name { color: var(--muted); }
 .devices-found { margin-top: 12px; }
-.devices-roles { border: 0; padding: 0; margin: 4px 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.devices-roles legend { font-weight: 600; padding: 0; margin-bottom: 6px; }
-.devices-roles label.choice { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; padding: 10px 12px; }
-.devices-roles label.choice:has(input:checked) { outline: 2px solid var(--accent); }
-.devices-roles label.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.devices-roles input { position: absolute; opacity: 0; pointer-events: none; }
 .devices-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .devices-head h3 { margin: 0; overflow-wrap: anywhere; }
 table.devices-rows { margin: 8px 0 12px; }

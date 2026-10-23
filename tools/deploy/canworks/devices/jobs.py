@@ -16,11 +16,9 @@ import time
 from .ssh import SshError, quote
 
 RAW = "https://raw.githubusercontent.com/tonihoohoo/canworks"
-ACTIONS = ("install_openplc_bridge", "install_bridge", "bridge_config", "switch_runtime", "uninstall_bridge",
-           "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
-# The actions that start the open project's bridge with its saved config:
-# the bridge alone, or (an OpenPLC project) the runtime and the bridge.
-BRIDGE_ACTIONS = ("install_bridge", "bridge_config", "install_openplc_bridge")
+ACTIONS = ("install_bridge", "bridge_config", "uninstall_bridge", "remove_all", "link_on", "link_off", "link_start", "discovery_on", "discovery_off")
+# The actions that start the open project's bridge with its saved config.
+BRIDGE_ACTIONS = ("install_bridge", "bridge_config")
 _CONFIG = re.compile(r"^/etc/canworks-bridge/[A-Za-z0-9_-]{1,64}/canworks\.json$")
 MAX_CHUNK = 256 * 1024
 _ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4}$")
@@ -113,11 +111,8 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
     if action == "discovery_off":
         return [link_sh + " --remove-discovery"]
     bridge = _fetch(paths, "install-bridge.sh", version) + " --version " + v
-    if action == "switch_runtime":
-        return [bridge + " --pinned-runtime"]
-    if action in ("install_bridge", "install_openplc_bridge"):
-        # An OpenPLC project or role: the runtime at the pin when there is none.
-        line = bridge + (" --with-openplc --pinned-runtime" if action == "install_openplc_bridge" else "")
+    if action == "install_bridge":
+        line = bridge
         if instance and upload:
             line += " --instance %s --config %s --remove-config-dir" % (quote(instance), quote(upload))
         if link and instance:
@@ -145,7 +140,7 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
                 'echo "==> Started %s"' % unit.strip("'")]
     if action == "uninstall_bridge":
         return [bridge + " --uninstall" + (" --purge" if purge else "")]
-    # remove_all: the bridge, its configs and the remote link; the OpenPLC runtime stays.
+    # remove_all: the bridge, its configs and the remote link; nothing that is not canworks.
     return [bridge + " --uninstall --purge"]
 
 
@@ -305,15 +300,9 @@ HINTS = (
      "2 GB) and start again."),
     (re.compile(r"Could not get lock|dpkg was interrupted|is held by process"), "Another program is installing "
      "packages on the device (apt is locked): wait until it ends and start again."),
-    (re.compile(r"cannot download OpenPLC runtime"), "The device could not download the OpenPLC runtime image "
-     "(ghcr.io): check its network and start again. Nothing was changed."),
     (re.compile(r"could not reach|could not download|cannot download|Could not resolve host|"
                 r"Temporary failure (in name resolution|resolving)"), "The device lost its connection to github.com "
      "during the install: check its network and start again."),
-    (re.compile(r"OpenPLC runtime install failed"), "Upstream's OpenPLC Runtime installer failed (its output is in "
-     "the log); the bridge was not installed. Fix what it names and start again."),
-    (re.compile(r"OpenPLC runtime did not answer"), "The OpenPLC runtime does not answer: check again; the bridge "
-     "was not installed."),
 )
 
 
@@ -344,32 +333,3 @@ def stop(conn, sudo_mode, password, job_id, paths):
     if status != 0:
         raise JobError("could not stop the install job: %s" % err.strip())
 
-
-def runtime_has_users(conn, url="https://127.0.0.1:8443"):
-    status, out, _ = conn.run("curl -ks --max-time 10 -o /dev/null -w '%%{http_code}' %s" %
-                              quote(url + "/api/get-users-info"))
-    code = out.strip()
-    if code == "404":
-        return False
-    if code == "200":
-        return True
-    raise JobError("the OpenPLC runtime on the device does not answer (HTTP %s)" % (code or "none"))
-
-
-def create_runtime_user(conn, user, password, url="https://127.0.0.1:8443"):
-    """Creates the runtime's first user on the device itself (its own
-    localhost: no certificate to trust from the PC); the password travels on
-    standard input and is not kept."""
-    import json
-    if not re.match(r"^[A-Za-z0-9_.@-]{1,64}$", user or ""):
-        raise JobError("the user name may have letters, digits, _ . @ and - only")
-    if not isinstance(password, str) or len(password) < 8:
-        raise JobError("give a password of at least 8 characters")
-    if runtime_has_users(conn, url):
-        raise JobError("the runtime already has a user; it was left as it is")
-    body = json.dumps({"username": user, "password": password}).encode("utf-8")
-    status, out, _ = conn.run("curl -ks --max-time 20 -o /dev/null -w '%%{http_code}' -X POST "
-                              "-H 'Content-Type: application/json' --data-binary @- %s" %
-                              quote(url + "/api/create-user"), stdin=body)
-    if out.strip() not in ("200", "201"):
-        raise JobError("the runtime refused to create the user (HTTP %s)" % (out.strip() or "none"))

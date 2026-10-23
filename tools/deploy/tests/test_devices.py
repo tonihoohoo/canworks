@@ -18,10 +18,9 @@ HAVE_SH = sys.platform != "win32" and shutil.which("sh") is not None
 
 
 def probe(**over):
-    """A probe result: a Linux device with the managed Docker runtime and nothing of canworks."""
+    """A probe result: a Linux device with nothing of canworks."""
     out = {"probe": 1, "os": "Debian GNU/Linux 12 (bookworm)", "arch": "aarch64", "systemd": True,
            "disk_free_mb": 20000, "mem_mb": 8000, "internet": True, "sudo": "password",
-           "runtime": {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True},
            "bridge": None, "link": None, "discovery": False, "can": [], "vcan": [],
            "serial": [], "j1939_module": False, "install_job": None}
     out.update(over)
@@ -37,23 +36,25 @@ class Plan(unittest.TestCase):
         return {"version": version, "prefix": "/opt/canworks", "unit": True,
                 "instances": [{"name": "line3", "state": "active", "sha256": sha}]}
 
-    def test_no_runtime(self):
-        p = plan.plan(probe(runtime={"kind": "none"}), "openplc_modbus", "0.98.0", instance="line3")
-        self.assertEqual(p["main"]["action"], "install_openplc_bridge")
-        self.assertEqual(p["main"]["label"], "Install OpenPLC Runtime and the bridge 0.98.0")
-        self.assertIn(plan.OPENPLC_INSTALLER, p["main"]["confirm"][0])
-        self.assertEqual(row(p, "runtime")["have"], "not installed")
-        self.assertTrue(row(p, "runtime")["used"])
-        self.assertEqual(row(p, "runtime")["needs"], "needed")
-        self.assertTrue(row(p, "bridge")["used"])
-        self.assertNotIn("plugin", [r["part"] for r in p["rows"]])
-
-    def test_runtime_without_the_bridge(self):
-        # A device that had the old plugin looks like this: nothing about it.
+    def test_openplc_project_on_a_fresh_device(self):
         p = plan.plan(probe(), "openplc_modbus", "0.98.0", instance="line3")
-        self.assertEqual((p["main"]["action"], p["main"]["label"]), ("install_bridge", "Install the bridge 0.98.0"))
+        self.assertEqual((p["main"]["action"], p["main"]["label"]),
+                         ("install_bridge", "Install and start this project's bridge"))
         self.assertEqual(p["main"]["confirm"], [])
         self.assertEqual(p["notes"], [])
+        self.assertTrue(row(p, "bridge")["used"])
+
+    def test_canworks_parts_only(self):
+        # device-install: no OpenPLC runtime row or action, whatever the probe says.
+        old = {"kind": "docker-managed", "version": "v4.3.2", "commit": None, "answers": True}
+        for target in (None, "bridge", "openplc_modbus", "codesys"):
+            for over in ({}, {"runtime": old}, {"runtime": old, "bridge": self.current()}):
+                with self.subTest(target=target, over=over):
+                    p = plan.plan(probe(**over), target, "0.98.0", instance="line3", config_sha256="aa")
+                    self.assertEqual([r["part"] for r in p["rows"]], ["bridge", "link", "discovery", "can"])
+                    self.assertNotIn("roles", p)
+                    if p["main"]:
+                        self.assertIn(p["main"]["action"], ("install_bridge", "bridge_config"))
 
     def test_can_bit_rates(self):
         can = [{"ifname": "can0", "flags": ["UP"], "linkinfo": {"info_kind": "can",
@@ -86,52 +87,13 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["main"]["action"], "install_bridge")
         self.assertEqual(p["main"]["label"], "Update deploy-v0.32.0-192-g0bd645be → 0.98.2")
 
-    def test_native_runtime_moved_on(self):
-        # Spec scenario "Runtime moved on": a note, no rebuild.
-        p = plan.plan(probe(runtime={"kind": "native", "version": "v4.3.2", "commit": "def"}, bridge=self.current()),
+    def test_runtime_moved_on(self):
+        # A stored probe of the old shape: its runtime is not read.
+        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.3.2"}, bridge=self.current()),
                       "openplc_modbus", "0.98.0", instance="line3", config_sha256="aa")
-        self.assertIn("this device runs v4.3.2", row(p, "runtime")["hint"])
         self.assertIsNone(p["main"])
+        self.assertTrue(p["up_to_date"])
         self.assertEqual(row(p, "bridge")["state"], "ok")
-
-    # freeze-openplc-runtime: a managed Docker runtime off the pin goes back to it.
-    def test_runtime_moved_on_from_the_editor(self):
-        major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
-        newer = "v%d.%d.%d" % (major, minor, patch + 1)
-        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": newer}, bridge=self.current()),
-                      "openplc_modbus", "0.98.0", instance="line3", config_sha256="aa")
-        self.assertEqual(row(p, "runtime")["hint"],
-                         "canworks runs on runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, newer))
-        self.assertEqual(p["main"]["label"], "Switch runtime to %s" % plan.TESTED_RUNTIME)
-        self.assertEqual(p["main"]["action"], "switch_runtime")
-        self.assertEqual(p["main"]["confirm"], [
-            "The runtime goes from %s back to %s, the version canworks is tested with." % (newer, plan.TESTED_RUNTIME),
-            plan.DOCKER_STOP])
-        # A bridge project leaves the runtime alone.
-        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": newer}, bridge=self.current()),
-                      "bridge", "0.98.0", instance="line3", config_sha256="aa")
-        self.assertIsNone(p["main"])
-
-    def test_update_first_on_a_runtime_off_the_pin(self):
-        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": "v4.2.4"}, bridge=self.current("0.97.0")),
-                      "openplc_modbus", "0.98.0", instance="line3", config_sha256="aa")
-        self.assertEqual((p["main"]["action"], p["main"]["label"]), ("install_bridge", "Update 0.97.0 → 0.98.0"))
-
-    def test_other_runtime_note(self):
-        major, minor, patch = plan.version_tuple(plan.TESTED_RUNTIME)
-        older = "v%d.%d.0" % (major, minor - 1) if minor else "v0.0.1"
-        p = plan.plan(probe(runtime={"kind": "docker-managed", "version": older}), "openplc_modbus", "0.98.0")
-        self.assertEqual(row(p, "runtime")["hint"],
-                         "canworks runs on runtime %s; this device runs %s." % (plan.TESTED_RUNTIME, older))
-        for version in (plan.TESTED_RUNTIME, None, "development"):
-            p = plan.plan(probe(runtime={"kind": "docker-managed", "version": version}), "openplc_modbus", "0.98.0")
-            self.assertIsNone(row(p, "runtime")["hint"], version)
-
-    def test_runtime_install_names_the_pin(self):
-        p = plan.plan(probe(runtime={"kind": "none"}), "openplc_modbus", "0.98.0")
-        self.assertEqual(p["main"]["action"], "install_openplc_bridge")
-        self.assertIn("installs Docker and OpenPLC runtime %s, the version canworks is tested with" % plan.TESTED_RUNTIME,
-                      p["main"]["confirm"][0])
 
     def test_up_to_date(self):
         p = plan.plan(probe(bridge=self.current()), "openplc_modbus", "0.98.0", instance="line3", config_sha256="aa")
@@ -165,10 +127,9 @@ class Plan(unittest.TestCase):
         self.assertIn("could not be found", plan.plan(probe(), "openplc_modbus", None)["blocked"])
 
     def test_bridge_project(self):
-        p = plan.plan(probe(runtime={"kind": "none"}), "bridge", "0.98.0", instance="line3")
+        p = plan.plan(probe(), "bridge", "0.98.0", instance="line3")
         self.assertEqual(p["main"]["action"], "install_bridge")
         self.assertEqual(p["main"]["label"], "Install and start this project's bridge")
-        self.assertFalse(row(p, "runtime")["used"])
 
         running = self.current("0.97.0")
         p = plan.plan(probe(bridge=running), "bridge", "0.98.0", instance="line3", config_sha256="aa")
@@ -209,31 +170,25 @@ class PlanWithoutConfig(unittest.TestCase):
     """devices-without-config: no target; the bridge on the device, or the
     role the page picks, gives the main action."""
 
-    def test_fresh_device_asks_what_it_runs(self):
-        p = plan.plan(probe(runtime={"kind": "none"}), None, "0.120.0")
-        self.assertEqual([r["role"] for r in p["roles"]], ["openplc", "bridge"])
-        self.assertEqual((p["roles"][0]["main"]["action"], p["roles"][0]["main"]["label"]),
-                         ("install_openplc_bridge", "Install OpenPLC Runtime and the bridge 0.120.0"))
-        self.assertEqual((p["roles"][1]["main"]["action"], p["roles"][1]["main"]["label"]),
-                         ("install_bridge", "Install the bridge 0.120.0"))
-        self.assertEqual(p["main"], p["roles"][0]["main"])
-        self.assertFalse(p["up_to_date"])
-        self.assertTrue(all(r["used"] and r["needs"] == "" for r in p["rows"]))
-
-    def test_runtime_without_the_bridge(self):
-        p = plan.plan(probe(), None, "0.120.0")
-        self.assertEqual([r["main"]["label"] for r in p["roles"]],
-                         ["Install the bridge 0.120.0", "Install the bridge 0.120.0"])
+    def test_fresh_device_installs_the_bridge(self):
+        # No question about what the device runs: canworks installs the bridge only.
+        for over in ({}, {"runtime": {"kind": "docker-managed", "version": "v4.3.1"}}):
+            p = plan.plan(probe(**over), None, "0.120.0")
+            self.assertEqual((p["main"]["action"], p["main"]["label"]), ("install_bridge", "Install the bridge 0.120.0"))
+            self.assertEqual(p["main"]["hint"], plan.NO_CONFIG_HINT)
+            self.assertEqual(p["main"]["confirm"], [])
+            self.assertNotIn("roles", p)
+            self.assertFalse(p["up_to_date"])
+            self.assertTrue(all(r["used"] and r["needs"] == "" for r in p["rows"]))
 
     def test_installed_bridge_picks_the_action(self):
         # Spec scenario "Old plugin with no config": the bridge on the device decides.
         b = {"version": "0.115.0", "prefix": "/opt/canworks",
              "instances": [{"name": "packer", "state": "active", "sha256": "aa"}]}
         p = plan.plan(probe(bridge=b), None, "0.120.0")
-        self.assertIsNone(p["roles"])
         self.assertEqual((p["main"]["action"], p["main"]["label"]), ("install_bridge", "Update 0.115.0 → 0.120.0"))
         self.assertEqual(p["main"]["confirm"], ["Running bridges restart."])
-        p = plan.plan(probe(runtime={"kind": "none"}, bridge=dict(b, version="0.120.0")), None, "0.120.0")
+        p = plan.plan(probe(bridge=dict(b, version="0.120.0")), None, "0.120.0")
         self.assertIsNone(p["main"])
         self.assertTrue(p["up_to_date"])
 
@@ -267,10 +222,10 @@ class PlanWithoutConfig(unittest.TestCase):
         self.assertEqual(plan.link_serves(probe(bridge=two, link="active", link_config="/srv/x/canworks.json"))["text"],
                          "another config")
         self.assertIsNone(plan.link_serves(probe(bridge=dict(two, instances=[]))))
-        p = plan.plan(probe(runtime={"kind": "none"}, bridge=two), None, "0.110.0")
+        p = plan.plan(probe(bridge=two), None, "0.110.0")
         self.assertEqual(row(p, "link")["actions"][0]["choose"], ["packer", "line2"])
 
-    def test_blocked_applies_to_the_roles(self):
+    def test_blocked_applies_without_a_config(self):
         self.assertIn("github.com", plan.plan(probe(internet=False), None, "0.110.0")["blocked"])
 
 
@@ -318,22 +273,16 @@ class Jobs(unittest.TestCase):
         bridge = ("curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.98.0/scripts/"
                   "install-bridge.sh | bash -s -- --version 0.98.0")
         self.assertEqual(jobs.commands("install_bridge", "0.98.0", self.paths), [bridge])
-        self.assertEqual(jobs.commands("install_openplc_bridge", "0.98.0", self.paths, discovery=False),
-                         [bridge + " --with-openplc --pinned-runtime --without-discovery"])
-        self.assertEqual(jobs.commands("switch_runtime", "0.98.0", self.paths), [bridge + " --pinned-runtime"])
+        self.assertEqual(jobs.commands("install_bridge", "0.98.0", self.paths, discovery=False),
+                         [bridge + " --without-discovery"])
         line = jobs.commands("install_bridge", "0.98.0", self.paths, instance="line3",
                              upload="/tmp/canworks-bridge-upload.abc")[0]
         self.assertIn("install-bridge.sh | bash -s -- --version 0.98.0 --instance line3 --config "
                       "/tmp/canworks-bridge-upload.abc --remove-config-dir --with-link line3", line)
-        line = jobs.commands("install_openplc_bridge", "0.98.0", self.paths, instance="line3",
-                             upload="/tmp/canworks-bridge-upload.abc")[0]
-        self.assertIn("install-bridge.sh | bash -s -- --version 0.98.0 --with-openplc --pinned-runtime "
-                      "--instance line3 --config /tmp/canworks-bridge-upload.abc --remove-config-dir --with-link line3",
-                      line)
         self.assertTrue(jobs.commands("uninstall_bridge", "0.98.0", self.paths, purge=True)[0].endswith(
             "--uninstall --purge"))
         self.assertEqual(jobs.commands("remove_all", "0.98.0", self.paths), [bridge + " --uninstall --purge"])
-        for gone in ("install_plugin", "install_openplc", "uninstall_plugin"):
+        for gone in ("install_plugin", "install_openplc", "uninstall_plugin", "install_openplc_bridge", "switch_runtime"):
             with self.subTest(gone=gone), self.assertRaises(jobs.JobError):
                 jobs.commands(gone, "0.98.0", self.paths)
         for bad in (dict(version="0.98.0; rm -rf /"), dict(instance="a b"), dict(upload="/etc")):
@@ -395,8 +344,6 @@ class Jobs(unittest.TestCase):
         self.assertIn("disk is full", jobs.hint(["cp: write error: No space left on device"]))
         self.assertIn("apt is locked", jobs.hint(["E: Could not get lock /var/lib/dpkg/lock-frontend"]))
         self.assertIn("github.com", jobs.hint(["curl: (6) Could not resolve host: github.com"]))
-        self.assertIn("OpenPLC runtime image", jobs.hint(["error: the device cannot download OpenPLC runtime v4.3.1 "
-                                                          "(ghcr.io/x:v4.3.1); nothing was changed"]))
         self.assertIsNone(jobs.hint(["something else"]))
 
 
@@ -444,7 +391,7 @@ class Probe(unittest.TestCase):
     def run_probe(self, **extra):
         env = dict(os.environ, CANWORKS_PROBE_ROOT=self.root,
                    **{"CANWORKS_PROBE_" + n.upper(): os.path.join(self.bin, n)
-                      for n in ("systemctl", "docker", "ip", "curl")}, **extra)
+                      for n in ("systemctl", "ip", "curl", "sudo")}, **extra)
         with open(PROBE, "rb") as f:
             out = subprocess.run(["sh", "-s"], input=f.read(), stdout=subprocess.PIPE, env=env, check=True).stdout
         return json.loads(out)
@@ -457,45 +404,34 @@ class Probe(unittest.TestCase):
         self.assertTrue(p["systemd"])
         self.assertTrue(p["internet"])
         self.assertIn(p["sudo"], ("none", "nopasswd", "password", "unavailable"))
-        self.assertEqual(p["runtime"], {"kind": "none", "version": None, "commit": None, "answers": None})
+        self.assertNotIn("runtime", p)
         self.assertNotIn("plugin", p)
         self.assertIsNone(p["bridge"])
         self.assertIsNone(p["install_job"])
         self.assertEqual(p["can"][0]["ifname"], "can0")
         self.assertEqual(p["vcan"], [])
 
-    def test_docker_layout(self):
-        self.write("var/lib/openplc-bootloader/runtime-spec.json", '{\n  "image": "x",\n  "version": "v4.3.1"\n}\n')
+    def test_link_and_discovery(self):
         self.write("etc/systemd/system/canworks-link.service", "")
         self.write("etc/canworks-link/link.json", '{"config": "/etc/canworks-bridge/cell/canworks.json", "peers": []}\n')
         self.write("etc/avahi/services/canworks.service", "")
         p = self.run_probe()
         self.assertEqual(p["link_config"], "/etc/canworks-bridge/cell/canworks.json")
-        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True})
         self.assertEqual(p["link"], "active")
         self.assertTrue(p["discovery"])
 
-    def test_root_only_spec_and_a_stopped_native_unit(self):
-        # A device moved from native to managed Docker: the old unit stays,
-        # stopped; the bootloader's folder is root's and docker the docker group's.
+    def test_openplc_runtime_not_read(self):
+        # device-install: the probe reads canworks only; no docker or sudo runs.
         self.write("etc/systemd/system/openplc-runtime.service", "[Service]\nWorkingDirectory=/home/pi/rt\n")
-        os.makedirs(os.path.join(self.root, "var", "lib", "openplc-bootloader"))
-        self.stub("systemctl", 'case $1 in is-active) echo inactive ;; esac')
-        self.stub("sudo", '[ "$1 $2" = "-n true" ] && exit 0\n'
-                          '[ "$2" = cat ] && { echo \'{"version": "v4.3.1"}\'; exit 0; }\nexit 1')
-        sudo = {"CANWORKS_PROBE_SUDO": os.path.join(self.bin, "sudo"), "CANWORKS_PROBE_UID": "1000"}
-        p = self.run_probe(**sudo)
-        self.assertEqual(p["sudo"], "nopasswd")
-        self.assertEqual(p["runtime"], {"kind": "docker-managed", "version": "v4.3.1", "commit": None, "answers": True})
-        # sudo needs a password: still managed Docker, its version unknown.
-        self.stub("sudo", "exit 1")
-        p = self.run_probe(**sudo)
-        self.assertEqual((p["runtime"]["kind"], p["runtime"]["version"]), ("docker-managed", None))
-
-    def test_native_runtime(self):
-        self.write("etc/systemd/system/openplc-runtime.service", "[Service]\nWorkingDirectory=/home/pi/rt\n")
-        p = self.run_probe()
-        self.assertEqual(p["runtime"]["kind"], "native")
+        self.write("var/lib/openplc-bootloader/runtime-spec.json", '{"version": "v4.3.1"}\n')
+        log = os.path.join(self.root, "called")
+        for name in ("docker", "sudo"):
+            self.stub(name, 'echo "%s $*" >> %s\nexit 0' % (name, log))
+        p = self.run_probe(CANWORKS_PROBE_UID="1000", PATH=self.bin + os.pathsep + os.environ.get("PATH", ""))
+        self.assertNotIn("runtime", p)
+        called = open(log).read() if os.path.exists(log) else ""
+        self.assertNotIn("docker", called)
+        self.assertNotIn("sudo -n cat", called)
 
     def test_bridge_version(self):
         self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.32.0\n", 0o755)
@@ -512,6 +448,10 @@ class Probe(unittest.TestCase):
         self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.97.0\n", 0o755)
         self.write("etc/canworks-bridge/line3/canworks.json", "{}")
         self.write("etc/canworks-bridge/line4/canworks.json", "{\"x\": 1}")
+        # Copies made by hand are not instances (install-bridge.sh --instance takes [A-Za-z0-9_-] only).
+        self.write("etc/canworks-bridge/line3.bak-271/canworks.json", "{}")
+        self.write("etc/canworks-bridge/line3.trimmed/canworks.json", "{}")
+        self.write("etc/canworks-bridge/no-config/README", "")
         self.write("var/log/canworks-install/20261020T100000Z-aaaa.log", "old\n")
         self.write("var/log/canworks-install/20261021T100000Z-bbbb.log",
                    "::canworks-job x @1\n::canworks-step 2/5 Building @2\n::canworks-exit 0\n")
