@@ -105,7 +105,7 @@ import sys
 import tempfile
 import time
 
-from . import (__version__, bundle, contract, dbcexport, dcfexport, diag, docexport, editorproject,
+from . import (__version__, bundle, connections, contract, dbcexport, dcfexport, diag, docexport, editorproject,
                localruntime, modbusmap, nodered, notes, openplcmodbus, plcopen, plcopen_targets, project, plclibrary,
                simfile, slaveeds, targets)
 from .userdirs import replace_file
@@ -608,6 +608,8 @@ def run(args, out=print, err=None, confirm_source=None):
         err("warning: " + w)
     if not result.ok:
         raise Failure("\n".join(result.errors))
+    for w in connections.download_problems(cfg):
+        err("warning: " + w["message"])
     out("ok: %s passes the schema and EDS checks" % args.config)
     if targets.target(cfg) == targets.CODESYS and (into or new_project or bridge_target):
         raise Failure("%s is a CODESYS config (it has a 'codesys' object): CODESYS runs it, not canworks-bridge; "

@@ -8,7 +8,7 @@ For each truST and Other PLC connection, the check SHALL warn about every reason
 - **THEN** Problems shows a map-size warning and a watchdog warning before any Download, and the truST row reads "Cannot download"
 
 ### Requirement: Fixes for a truST connection
-Problems SHALL offer **Set the watchdog to 500 ms** on the watchdog warning and **Trim the mailboxes for truST** on the map-size warning, each one undo step; the trim SHALL keep one request mailbox and nothing else and repack, and its title SHALL name the blocks an OpenPLC connection of the same config loses.
+Problems SHALL offer **Set the watchdog to 500 ms** on the watchdog warning and **Trim the mailboxes for truST** on the map-size warning, each one undo step; the trim SHALL keep one request mailbox and nothing else and repack, and its title, like the map-size warning's text, SHALL name the blocks an OpenPLC connection of the same config loses.
 
 #### Scenario: Fixed
 - **WHEN** the user presses Trim the mailboxes for truST and Set the watchdog to 500 ms
