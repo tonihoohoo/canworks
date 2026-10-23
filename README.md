@@ -34,7 +34,7 @@ The programs and tools that use the registers are the config's **connections**, 
 
 ### CODESYS
 
-canworks puts the CANopen master networks of a config into a CODESYS project: **Build into CODESYS project…** runs CODESYS headless on the PC, and **Download for CODESYS** gives the DCFs and an import script ([docs/codesys.md](docs/codesys.md)). Slave, gateway, J1939 and plain CAN networks need the bridge.
+canworks puts the CANopen master networks of a config into a CODESYS project: **Build into CODESYS project…** runs CODESYS headless on the PC and changes only what was edited, and **Download for CODESYS** gives the DCFs and an import script. **Import from CODESYS…** goes the other way, from a CODESYS project or its PLCopenXML export, so a config moves back and forth ([docs/codesys.md](docs/codesys.md)). Slave, gateway, J1939 and plain CAN networks need the bridge.
 
 ## Bridge or native CAN
 

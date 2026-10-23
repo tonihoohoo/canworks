@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 2,
   "tool": "canworks-deploy",
   "config": "canworks.json",
   "project": null,
@@ -96,6 +96,20 @@
               "element": "FLAG_Optional"
             },
             {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
+            },
+            {
               "id": 16871424,
               "name": "Heartbeat-Producer Time",
               "value": "100",
@@ -131,6 +145,89 @@
               "sub": 4,
               "variable": "rtd_AI3_Input_PV"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 3,
+              "comm": 6146,
+              "cob_id": "$NODEID+16#80000380",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 4,
+              "comm": 6147,
+              "cob_id": "$NODEID+16#80000480",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 500,
+              "event": 0
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                28976,
+                1,
+                16
+              ],
+              [
+                28976,
+                2,
+                16
+              ],
+              [
+                28976,
+                3,
+                16
+              ],
+              [
+                28976,
+                4,
+                16
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         },
         {
@@ -150,6 +247,20 @@
               "value": "TRUE",
               "what": "optional device",
               "element": "FLAG_Optional"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "do not initialize",
+              "element": "FLAG_NotInitialize"
+            },
+            {
+              "id": 2,
+              "name": "General Options",
+              "value": "FALSE",
+              "what": "restore before configuring (0x1011)",
+              "element": "FLAG_ResetNode"
             },
             {
               "id": 16871424,
@@ -215,9 +326,126 @@
               "sub": 2,
               "variable": "dio_Write_analogue_output_2"
             }
+          ],
+          "pdos": [
+            {
+              "dir": "tx",
+              "number": 1,
+              "comm": 6144,
+              "cob_id": "$NODEID+16#180",
+              "enabled": true,
+              "transmission": 1,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "tx",
+              "number": 2,
+              "comm": 6145,
+              "cob_id": "$NODEID+16#80000280",
+              "enabled": false,
+              "transmission": 255,
+              "inhibit": 100,
+              "event": 0
+            },
+            {
+              "dir": "rx",
+              "number": 1,
+              "comm": 5120,
+              "cob_id": "$NODEID+16#200",
+              "enabled": true,
+              "transmission": 1
+            },
+            {
+              "dir": "rx",
+              "number": 2,
+              "comm": 5121,
+              "cob_id": "$NODEID+16#80000300",
+              "enabled": false,
+              "transmission": 255
+            }
+          ],
+          "mapping": {
+            "1A00": [
+              [
+                24576,
+                1,
+                8
+              ],
+              [
+                24576,
+                2,
+                8
+              ],
+              [
+                25601,
+                1,
+                16
+              ],
+              [
+                25601,
+                2,
+                16
+              ]
+            ],
+            "1600": [
+              [
+                25088,
+                1,
+                8
+              ],
+              [
+                25088,
+                2,
+                8
+              ],
+              [
+                25617,
+                1,
+                16
+              ],
+              [
+                25617,
+                2,
+                16
+              ]
+            ]
+          },
+          "sdo": [],
+          "state_params": [
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "1",
+              "what": "heartbeat consumer 1 node",
+              "element": "HeartbeatConsumingNodeID"
+            },
+            {
+              "id": 285302800,
+              "name": "Heartbeat-Consuming1",
+              "value": "300",
+              "what": "heartbeat consumer 1 time",
+              "element": "HeartbeatTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "guard time",
+              "element": "GuardTime"
+            },
+            {
+              "id": 16826368,
+              "name": "Nodeguarding",
+              "value": "0",
+              "what": "life time factor",
+              "element": "LifeTimeFactor"
+            }
           ]
         }
-      ]
+      ],
+      "remove": [],
+      "time_producer": false
     }
   ],
   "notes": [
@@ -310,11 +538,6 @@
       "where": "config",
       "setting": "bridge",
       "note": "stays with canworks"
-    },
-    {
-      "where": "every node",
-      "setting": "identity check",
-      "note": "the script cannot tick a device's startup checks (vendor ID, product code, revision); set them on each device in CODESYS if wanted"
     }
   ]
 }

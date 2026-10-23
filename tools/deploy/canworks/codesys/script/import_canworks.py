@@ -24,7 +24,7 @@ import traceback
 
 PLAN_NAME = "canworks-codesys.json"
 REPORT_NAME = "import_report.txt"
-FORMAT = 1
+FORMAT = 2
 # The CANopen EDS/DCF converter of CODESYS's device repository.
 EDS_CONVERTER = "{1ce4a9c1-37d3-496c-9e80-cd99ad3807ee}"
 CANBUS_TYPE, CANBUS_ID = 15, "181015"
@@ -32,6 +32,12 @@ MANAGER_TYPE, MANAGER_ID = 16, "181016"
 LOCAL_DEVICE_TYPE = 17
 CANBUS_NET_ID = 2
 DEVICE_NODE_ID = 1
+SDO_LIST = 0x20001000
+# The identity checks: the download flag of the expected 0x1018 values.
+CHECKS = (("vendor", 0x11018010), ("product", 0x11018020), ("revision", 0x11018030))
+CHECK_LABELS = {"vendor": "vendor ID", "product": "product code", "revision": "revision number"}
+# The manager's TIME producer: on when its COB-ID and period are downloaded.
+TIME_PARAMS = (290, 291)
 
 
 class Stop(Exception):
@@ -160,38 +166,261 @@ def _add(parent, name, dtype, did, version):
     return new[0]
 
 
-def apply_params(obj, params, report, where):
+def _norm(value):
+    """A parameter value for comparing: a number when it reads as one
+    (16#1A, 26, TRUE), else the text without quotes and spaces."""
+    text = (u"%s" % value).strip().strip("'").replace(" ", "")
+    if text.upper() in ("TRUE", "FALSE"):
+        return text.upper() == "TRUE"
+    try:
+        return _number(text)
+    except ValueError:
+        return text.upper()
+
+
+def _write(target, value, report, label, write):
+    """Sets target.value when it differs: True when it differed."""
+    if _norm(target.value) == _norm(value):
+        return False
+    if write:
+        target.value = value
+        report.add("set", "%s = %s" % (label, value))
+    return True
+
+
+def _elements(p):
+    try:
+        return dict((s.identifier, s) for s in p)
+    except Exception:
+        return {}
+
+
+def apply_params(obj, params, report, where, write=True):
+    """Sets each plan parameter whose value differs; returns the labels of
+    the ones that differed (with write False: that differ)."""
+    changed = []
     for spec in params:
         p = _param(obj, spec["id"])
         label = "%s: %s" % (where, spec.get("what") or spec.get("name"))
         if p is None:
-            report.add("warning", "%s not set: this CODESYS has no parameter %s (%s)"
-                       % (label, spec["id"], spec.get("name")))
+            if write:
+                report.add("warning", "%s not set: this CODESYS has no parameter %s (%s)"
+                           % (label, spec["id"], spec.get("name")))
             continue
         try:
             if spec.get("element"):
-                subs = [s for s in p if s.identifier == spec["element"]]
-                if not subs:
-                    report.add("warning", "%s not set: %s has no %s" % (label, p.name, spec["element"]))
+                sub = _elements(p).get(spec["element"])
+                if sub is None:
+                    if write:
+                        report.add("warning", "%s not set: %s has no %s" % (label, p.name, spec["element"]))
                     continue
-                subs[0].value = spec["value"]
+                differs = _write(sub, spec["value"], report, label, write)
             else:
-                p.value = spec["value"]
+                differs = _write(p, spec["value"], report, label, write)
         except Exception as e:
             report.add("warning", "%s not set: %s" % (label, e))
             continue
-        report.add("set", "%s = %s" % (label, spec["value"]))
-        if spec.get("name") and (u"%s" % p.name).lower() != spec["name"].lower():
-            report.add("note", "%s: parameter %s is called %r here (expected %r)"
-                       % (where, spec["id"], p.name, spec["name"]))
+        if differs:
+            changed.append(label)
+            if write and spec.get("name") and (u"%s" % p.name).lower() != spec["name"].lower():
+                report.add("note", "%s: parameter %s is called %r here (expected %r)"
+                           % (where, spec["id"], p.name, spec["name"]))
+    return changed
 
 
-def name_channels(dev, channels, report, where):
+def _mapping_of(params, map_index):
+    """[[index, sub-index, length]] of a mapping object as the device has it."""
+    base = 0x10000000 | (map_index << 12)
+    out = []
+    for pid in sorted(params):
+        if base <= pid < base + 0x1000 and (pid & 0xF) == 0:
+            el = _elements(params[pid])
+            try:
+                out.append([_number(el["Index"].value), _number(el["SubIndex"].value),
+                            _number(el["ObjectLength"].value)])
+            except (KeyError, ValueError):
+                continue
+    return out
+
+
+def _sdo_rows(dev):
+    """The rows of the device's SDO list that come from the DCF or the user
+    (objects from 0x2000), as element dicts: CODESYS makes the rows for
+    0x1000-0x1FFF itself from the communication settings."""
+    p = _param(dev, SDO_LIST)
+    out = []
+    try:
+        rows = list(p) if p is not None else []
+    except Exception:
+        rows = []
+    for row in rows:
+        el = _elements(row)
+        try:
+            if _number(el["Index"].value) >= 0x2000:
+                out.append(el)
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
+def structural_difference(dev, node):
+    """Why the device cannot be updated in place (a PDO switched on or off,
+    another mapping, another startup SDO list), or None."""
+    params = dict((p.id, p) for p in _params(dev))
+    for pdo in node.get("pdos") or []:
+        label = "%sPDO%d" % ("T" if pdo["dir"] == "tx" else "R", pdo["number"])
+        p = params.get(pdo["comm"] << 12)
+        if p is None:
+            return "%s is not in the CODESYS device" % label
+        try:
+            on = not _number(_elements(p)["COBID"].value) & 0x80000000
+        except (KeyError, ValueError):
+            return "%s has no COB-ID here" % label
+        if on != pdo["enabled"]:
+            return "%s switched %s" % (label, "on" if pdo["enabled"] else "off")
+        if on:
+            map_index = pdo["comm"] + 0x200
+            want = (node.get("mapping") or {}).get("%04X" % map_index)
+            if want is not None and _mapping_of(params, map_index) != want:
+                return "PDO mapping changed (%s)" % label
+    have = [(_number(r["Index"].value), _number(r["Subindex"].value), _number(r["Size"].value))
+            for r in _sdo_rows(dev)]
+    want = [(r["index"], r["sub"], r["size"]) for r in node.get("sdo") or []]
+    if "sdo" in node and have != want:
+        return "startup SDO list changed"
+    return None
+
+
+def update_device(dev, node, report, where, write=True):
+    """Brings the device to the plan's values in place; returns the labels
+    of what differed. With write False only compares (the read-back)."""
+    changed = []
+    if dev.get_name() != node["name"]:
+        if write:
+            try:
+                dev.rename(node["name"])
+                report.add("set", "%s: name = %s" % (where, node["name"]))
+            except Exception as e:
+                report.add("warning", "%s: kept the name %s (%s)" % (where, dev.get_name(), e))
+        changed.append("%s: name" % where)
+    changed += apply_params(dev, (node.get("params") or []) + (node.get("state_params") or []), report, where, write)
+    params = dict((p.id, p) for p in _params(dev))
+    for pdo in node.get("pdos") or []:
+        label = "%s: %sPDO%d" % (where, "T" if pdo["dir"] == "tx" else "R", pdo["number"])
+        base = pdo["comm"] << 12
+        if base not in params:
+            continue
+        generic = params.get(base + 1)
+        if generic is not None and _norm(generic.value) != _norm(pdo["cob_id"]):
+            # A COB-ID written to the struct of a PDO that is on is ignored:
+            # the generic setting is what CODESYS follows.
+            if write:
+                generic.value = "'%s'" % pdo["cob_id"]
+                report.add("set", "%s COB-ID = %s" % (label, pdo["cob_id"]))
+            changed.append(label + " COB-ID")
+        el = _elements(params[base])
+        for key, element in (("transmission", "TransmissionType"), ("inhibit", "InhibitTime"), ("event", "EventTimer")):
+            if key in pdo and element in el and pdo["enabled"]:
+                if _write(el[element], str(pdo[key]), report, "%s %s" % (label, element), write):
+                    changed.append("%s %s" % (label, element))
+        if "by_manager" in pdo and params.get(base + 2) is not None:
+            if _write(params[base + 2], "TRUE" if pdo["by_manager"] else "FALSE", report,
+                      label + " processed by the manager", write):
+                changed.append(label + " processed by the manager")
+    for row, want in zip(_sdo_rows(dev), node.get("sdo") or []):
+        label = "%s: SDO 0x%04X:%d" % (where, want["index"], want["sub"])
+        if _write(row["Value"], "16#%X" % (want["value"] & 0xFFFFFFFFFFFFFFFF), report, label, write):
+            changed.append(label)
+        if want.get("abort") and "AbortIfError" in row:
+            if _write(row["AbortIfError"], "TRUE", report, label + " abort on error", write):
+                changed.append(label + " abort on error")
+        if want.get("jump") is not None and "JumpToLine" in row:
+            if _write(row["JumpToLine"], "TRUE", report, label + " jump to line", write):
+                changed.append(label + " jump to line")
+            if "Line" in row and _write(row["Line"], str(want["jump"]), report, label + " line", write):
+                changed.append(label + " line")
+    changed += name_channels(dev, node.get("channels") or [], report, where, write)
+    return changed
+
+
+def _set_download(obj, values):
+    """Sets the download flag of parameters {id: bool} through CODESYS's
+    internal parameter set (no script API has it): raises when this CODESYS
+    does not have it."""
+    import clr
+    clr.AddReference("DeviceObject")
+    from System import Action, Array
+    from System.Reflection import BindingFlags
+    import _3S.CoDeSys.DeviceObject as DO
+    flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+    for con in obj.connectors:
+        ids = set(p.id for p in con.host_parameters)
+        mine = dict((k, v) for k, v in values.items() if k in ids)
+        if not mine:
+            continue
+        hp = con.host_parameters
+        hp.GetType().GetMethod("PerformWithWriteableCopy", flags).Invoke(
+            hp, Array[object]([Action[DO.IParameterSet](_downloads(mine))]))
+
+
+def _downloads(values):
+    def fn(ps):
+        for pid, on in values.items():
+            ps.GetParameter(pid).SetDownload(on)
+    return fn
+
+
+def _downloaded(obj, pid):
+    p = _param(obj, pid)
+    try:
+        return None if p is None else bool(p.downloaded_with_ioconfig)
+    except Exception:
+        return None
+
+
+def set_checks(dev, wanted, report, where):
+    """The identity checks CODESYS makes at startup (General tab ticks)."""
+    values = {}
+    for name, pid in CHECKS:
+        have = _downloaded(dev, pid)
+        if have is not None and have != (name in wanted):
+            values[pid] = name in wanted
+    if not values:
+        return []
+    names = [n for n, pid in CHECKS if pid in values]
+    try:
+        _set_download(dev, values)
+    except Exception:
+        report.add("not set", "%s: identity checks: tick %s in CODESYS by hand (this CODESYS does not let the "
+                   "script set them)" % (where, ", ".join(
+                       "%s %s" % ("on" if values[pid] else "off", CHECK_LABELS[n]) for n, pid in CHECKS if pid in values)))
+        return []
+    report.add("set", "%s: identity checks = %s" % (where, ", ".join(CHECK_LABELS[n] for n in wanted) or "none"))
+    return ["%s: identity checks %s" % (where, ", ".join(names))]
+
+
+def time_producer(mgr, report, where):
+    """Switches the manager's TIME producer on (its COB-ID and period
+    downloaded)."""
+    values = dict((pid, True) for pid in TIME_PARAMS if _downloaded(mgr, pid) is False)
+    if not values:
+        return
+    try:
+        _set_download(mgr, values)
+        report.add("set", "%s: TIME producer on" % where)
+    except Exception:
+        report.add("not set", "%s: TIME producer: the COB-ID and period are set; switch TIME producing on in the "
+                   "manager in CODESYS" % where)
+
+
+def name_channels(dev, channels, report, where, write=True):
     """A mapped object is a parameter with id 0x1MMMMEE0 (mapping object
     0xMMMM, entry EE) holding Index, SubIndex and ObjectLength; its I/O
-    channel is the parameter with the next id."""
+    channel is the parameter with the next id. Sets each channel's variable
+    and fixed address where they differ; returns what differed."""
     params = dict((p.id, p) for p in _params(dev))
     maps = {}
+    changed = []
     for pid, p in params.items():
         if (pid & 0xF0000000) == 0x10000000 and (pid & 0xF) == 0:
             try:
@@ -206,29 +435,61 @@ def name_channels(dev, channels, report, where):
         p = maps.get((ch["mapping"], ch["index"], ch["sub"]))
         what = "%s: 0x%04X:%d (PDO mapping 0x%04X)" % (where, ch["index"], ch["sub"], ch["mapping"])
         if p is None or p.io_mapping is None:
-            report.add("warning", "%s has no I/O channel in CODESYS, so %s is not mapped" % (what, ch["variable"]))
+            if write:
+                report.add("warning", "%s has no I/O channel in CODESYS, so %s is not mapped" % (what, ch["variable"]))
             continue
         # CODESYS refuses a variable on an output bit while its channel has
         # one (overlapping output mappings): an output with bits maps the bits only.
         if ch.get("dir") == "out" and ch.get("bits"):
-            report.add("not set", "%s: %s left unmapped, the output goes through its bits" % (what, ch["variable"]))
-        else:
-            try:
-                p.io_mapping.variable = ch["variable"]
-                report.add("set", "%s -> %s" % (what, ch["variable"]))
-            except Exception as e:
-                report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
+            if write and p.io_mapping.variable != ch["variable"]:
+                report.add("not set", "%s: %s left unmapped, the output goes through its bits" % (what, ch["variable"]))
+        elif (p.io_mapping.variable or "") != ch["variable"]:
+            changed.append(what)
+            if write:
+                try:
+                    p.io_mapping.variable = ch["variable"]
+                    report.add("set", "%s -> %s" % (what, ch["variable"]))
+                except Exception as e:
+                    report.add("warning", "%s: variable %s not set: %s" % (what, ch["variable"], e))
+        if ch.get("address") and _address(p.io_mapping) != ch["address"].upper():
+            changed.append(what + " address")
+            if write:
+                try:
+                    # CODESYS takes a manual address set while the automatic one is on.
+                    p.io_mapping.automatic_iec_address = True
+                    p.io_mapping.manual_iec_address = ch["address"]
+                    p.io_mapping.automatic_iec_address = False
+                    report.add("set", "%s address = %s" % (what, ch["address"]))
+                except Exception as e:
+                    report.add("warning", "%s: address %s not set: %s" % (what, ch["address"], e))
         for b in ch.get("bits") or []:
             el = _bit_element(p, b["bit"])
             if el is None or getattr(el, "io_mapping", None) is None:
-                report.add("warning", "%s bit %d has no bit channel here: map %s to it by hand"
-                           % (what, b["bit"], b["variable"]))
+                if write:
+                    report.add("warning", "%s bit %d has no bit channel here: map %s to it by hand"
+                               % (what, b["bit"], b["variable"]))
+                continue
+            if (el.io_mapping.variable or "") == b["variable"]:
+                continue
+            changed.append("%s bit %d" % (what, b["bit"]))
+            if not write:
                 continue
             try:
                 el.io_mapping.variable = b["variable"]
                 report.add("set", "%s bit %d -> %s" % (what, b["bit"], b["variable"]))
             except Exception as e:
                 report.add("warning", "%s bit %d: variable %s not set: %s" % (what, b["bit"], b["variable"], e))
+    return changed
+
+
+def _address(io_mapping):
+    """The channel's manual IEC address, or None while it is automatic."""
+    try:
+        if io_mapping.automatic_iec_address:
+            return None
+        return (u"%s" % io_mapping.manual_iec_address).strip().upper() or None
+    except Exception:
+        return None
 
 
 def _bit_element(channel, bit):
@@ -568,16 +829,33 @@ def build_network(proj, plc, net, base, repo, guid, report):
             pass
     planned = set(n["node_id"] for n in net["nodes"])
     for nid in sorted(existing):
-        if nid not in planned:
+        if nid in planned:
+            continue
+        if nid in (net.get("remove") or []):
+            name = existing[nid].get_name()
+            existing[nid].remove()
+            report.add("removed", "%s: %s (node %d) is no longer in the canworks config" % (where, name, nid))
+        else:
             report.add("kept", "%s: %s (node %d) is not in the canworks config and stays as it is"
                        % (where, existing[nid].get_name(), nid))
+    if net.get("time_producer"):
+        time_producer(mgr, report, where + " manager")
     for node in net["nodes"]:
         nwhere = "%s node %d (%s)" % (where, node["node_id"], node["name"])
         old = existing.get(node["node_id"])
         if old is not None:
+            why = structural_difference(old, node)
+            if why is None:
+                changed = update_device(old, node, report, nwhere) + set_checks(old, node.get("checks"), report, nwhere) \
+                    if node.get("checks") is not None else update_device(old, node, report, nwhere)
+                report.add("updated" if changed else "current", "%s: %s" % (
+                    nwhere, "%d setting%s changed in place" % (len(changed), "" if len(changed) == 1 else "s")
+                    if changed else "up to date"))
+                read_back(old, node, report, nwhere)
+                continue
             old_name = old.get_name()
             old.remove()
-            report.add("replaced", "%s: removed %s, added again from the DCF" % (nwhere, old_name))
+            report.add("replaced", "%s: %s; removed %s, added again from the DCF" % (nwhere, why, old_name))
         path = os.path.join(base, *node["dcf"].split("/"))
         try:
             did = repo.import_device(path, repo.sources[0], guid, True)
@@ -589,14 +867,18 @@ def build_network(proj, plc, net, base, repo, guid, report):
         except Exception as e:
             report.add("error", "%s: cannot add the device: %s" % (nwhere, e))
             continue
-        if dev.get_name() != node["name"]:
-            try:
-                dev.rename(node["name"])
-            except Exception as e:
-                report.add("warning", "%s: kept the name %s (%s)" % (nwhere, dev.get_name(), e))
-        report.add("created", "%s: device %s from %s" % (nwhere, dev.get_name(), node["dcf"]))
-        apply_params(dev, node["params"], report, nwhere)
-        name_channels(dev, node["channels"], report, nwhere)
+        if old is None:
+            report.add("created", "%s: device %s from %s" % (nwhere, dev.get_name(), node["dcf"]))
+        update_device(dev, node, report, nwhere)
+        if node.get("checks") is not None:
+            set_checks(dev, node["checks"], report, nwhere)
+        read_back(dev, node, report, nwhere)
+
+
+def read_back(dev, node, report, where):
+    """What CODESYS did not take: compares the device with the plan again."""
+    for label in update_device(dev, node, report, where, write=False):
+        report.add("warning", "%s: CODESYS did not take the value (read back after writing)" % label)
 
 
 def build_project(proj, report):

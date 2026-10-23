@@ -97,6 +97,59 @@ def run_codesys(exe, profile, folder, timeout=1800, runner=None):
                                                                                     exe))
 
 
+EXPORT_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script", "export_canworks_xml.py")
+IN_USE = ("the project is open in CODESYS: close it there, or export it in CODESYS (Project > Export PLCopenXML, "
+          "the device with the CANopen Manager) and import that .xml file")
+
+
+def export_project(project, device=None, exe=None, profile=None, folder=None, timeout=600, runner=None):
+    """Exports a CODESYS project headless for Import from CODESYS: (the
+    devices that have a CANopen Manager [{name, buses, nodes, active}], the
+    PLCopenXML path or None when there are several devices and none was
+    named). Never changes the project."""
+    exe = exe or find_codesys()
+    if not exe:
+        raise CodesysError("CODESYS is not installed on this PC: export the project in CODESYS (Project > Export "
+                           "PLCopenXML) and import that .xml file")
+    profile = profile or find_profile(exe)
+    if not profile:
+        raise CodesysError("no CODESYS profile found next to %s" % exe)
+    folder = folder or tempfile.mkdtemp(prefix="canworks-codesys-import-")
+    with open(EXPORT_SCRIPT, encoding="utf-8") as f:
+        script = f.read()
+    with open(os.path.join(folder, "export_canworks_xml.py"), "w", encoding="utf-8", newline="") as f:
+        f.write(script)
+    with open(os.path.join(folder, "canworks-export.json"), "w", encoding="utf-8", newline="") as f:
+        json.dump({"project": os.path.abspath(project), "device": device}, f)
+    for name in ("export_report.txt", "devices.json", "canworks-export.xml"):
+        if os.path.exists(os.path.join(folder, name)):
+            os.remove(os.path.join(folder, name))
+    line = command_line(exe, profile, os.path.join(folder, "export_canworks_xml.py"))
+    try:
+        if runner is not None:
+            runner(line)
+        elif sys.platform == "win32":
+            subprocess.run(line, timeout=timeout, check=False)
+        else:
+            raise CodesysError("CODESYS runs on Windows")
+    except (OSError, subprocess.SubprocessError) as e:
+        raise CodesysError("CODESYS did not run: %s" % e)
+    try:
+        with open(os.path.join(folder, "export_report.txt"), encoding="utf-8") as f:
+            report = f.read()
+    except OSError:
+        raise CodesysError("CODESYS wrote no export_report.txt: check that the profile %r fits %s" % (profile, exe))
+    if not report_ok(report):
+        detail = report.split("\n", 1)[1].strip() if "\n" in report else report
+        if "in use" in detail:
+            raise CodesysError(IN_USE)
+        raise CodesysError("the CODESYS export failed: %s" % detail.replace("error: ", "", 1))
+    with open(os.path.join(folder, "devices.json"), encoding="utf-8") as f:
+        found = json.load(f)
+    xml = os.path.join(folder, "canworks-export.xml")
+    return found, xml if os.path.isfile(xml) else None
+
+
 def report_ok(text):
     return text.startswith("result: ok")
 
