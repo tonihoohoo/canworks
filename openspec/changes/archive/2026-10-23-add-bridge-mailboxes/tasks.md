@@ -57,7 +57,7 @@
 
 ## 7. Archive
 
-- [ ] 7.1 OpenSpec archive on the branch once CI is green (open hardware tasks listed in the PR)
+- [x] 7.1 OpenSpec archive on the branch once CI is green (open hardware tasks listed in the PR)
 
 ## 8. Hardware (Linux device with the real node)
 
