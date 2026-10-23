@@ -124,7 +124,7 @@ END_TEST
 
 TEST 'a request the restarted bridge did not run ends with 8'
   VAR
-    link : ARRAY[0..88] OF WORD;
+    link : ARRAY[0..1279] OF WORD;
     bridge : BridgeModel;
     rd : CO_SDO_READ;
     nmt : CO_NMT;
