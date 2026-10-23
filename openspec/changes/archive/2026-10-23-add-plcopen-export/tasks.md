@@ -49,7 +49,7 @@
 
 - [ ] 7.1 CODESYS on the Windows PC (CODESYS Control Win in trial mode): run the script on a new project, build without errors, connect to the bridge on the Linux device with node 23; `canworks.ok` TRUE, a PDO value both ways, `CO_SDO_READ` of 0x1018:1
 - [ ] 7.2 Same: change the config, re-export, run the script again; channels replaced, user POUs kept; a stale program (old hash) leaves outputs off
-- [ ] 7.3 truST on the Linux device: import, merge `io.toml.part`, run against the local bridge; values both ways and `CO_SDO_READ` (with the trimmed mailboxes of 3.9), PLC stop leaves outputs per `on_client_loss`
+- [x] 7.3 truST on the Linux device: import, merge `io.toml.part`, run against the local bridge; values both ways and `CO_SDO_READ` (with the trimmed mailboxes of 3.9), PLC stop leaves outputs per `on_client_loss` (2026-10-23, with node 23: import full, build clean, canworks.ok and the live bit TRUE, `CO_SDO_READ` 0x1018:1 and `CO_SDO_READ_STRING` 0x1008 about 170 each without faults, outputs off by the watchdog when truST stopped; the OpenPLC default watchdog of 50 ms flapped the outputs every scan (scan about 125 ms), followed up in trust-watchdog-floor)
 
 ## 8. One library for strict compilers (Toni 2026-10-23)
 

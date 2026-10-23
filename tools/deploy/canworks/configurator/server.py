@@ -2051,7 +2051,8 @@ class Session:
         except (AttributeError, KeyError, TypeError, ValueError, OSError):
             pass
         if not items:
-            items = [{"level": "error", "message": m, "paths": []} for m in problems]
+            items = [{"level": "error", "message": m,
+                      "paths": ["bridge.watchdog_ms"] if '"watchdog_ms"' in m else []} for m in problems]
         return {"items": items, "errors": len(items)}
 
     # -- OpenPLC through Modbus (canopen-configurator "OpenPLC remote device on save") --

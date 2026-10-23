@@ -290,6 +290,27 @@ class Targets(unittest.TestCase):
         self.assertIn("cw_out AT %QB0 : ARRAY[0..175] OF BYTE;", files[plcopen_targets.TRUST_IO_ST])
         self.assertIn("link_service(LINK := canworks.link);", files[plcopen_targets.XML_NAME])
 
+    def test_trust_watchdog_floor(self):
+        d = tmpdir(self)
+        _, cfg = link_config(d, mailboxes=False)
+        b = cfg["bridge"]
+        for wd, refused in ((None, False), (0, False), (500, False), (499, True), (50, True)):
+            with self.subTest(watchdog_ms=wd):
+                b.pop("watchdog_ms", None)
+                if wd is not None:
+                    b["watchdog_ms"] = wd
+                problems = [p for p in plcopen_targets.check(cfg, "trust") if "watchdog" in p]
+                self.assertEqual(bool(problems), refused, problems)
+                if refused:
+                    self.assertIn('"watchdog_ms": 500 or more', problems[0])
+                for target in ("codesys", "generic"):
+                    self.assertEqual([p for p in plcopen_targets.check(cfg, target) if "watchdog" in p], [])
+        # OpenPLC's default watchdog: five polls of 10 ms.
+        b.pop("watchdog_ms", None)
+        del b["plc_link"]
+        b["openplc"] = {}
+        self.assertTrue([p for p in plcopen_targets.check(cfg, "trust") if "watchdog of 50 ms" in p])
+
     def test_refusals(self):
         d = tmpdir(self)
         path, cfg = link_config(d)

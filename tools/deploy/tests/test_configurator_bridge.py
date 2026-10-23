@@ -259,6 +259,12 @@ class Plcopen(Base):
         self.assertEqual(status, 400)
         r = self.ok("/api/export_plcopen", {"config": self.linked(), "target": "codesys"})
         self.assertIn("bridge's address as the PLC sees it", r["items"][0]["message"])
+        cfg = self.linked()
+        cfg["bridge"]["watchdog_ms"] = 100
+        r = self.ok("/api/export_plcopen", {"config": cfg, "target": "trust"})
+        self.assertIn((["bridge.watchdog_ms"], True),
+                      [(i["paths"], '"watchdog_ms": 500 or more' in i["message"]) for i in r["items"]])
+        self.assertNotIn("data", r)
 
     def test_loopback_listen_warning(self):
         self.open()
