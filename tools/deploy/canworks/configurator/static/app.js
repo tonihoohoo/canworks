@@ -622,6 +622,7 @@ function getPath(path) {
 const UNDO_MAX = 50;
 function changed(rerender, path) {
   const now = Date.now();
+  if (S.lastClean) firstOutputs(S.lastClean.model, S.model);
   if (S.lastClean) {
     const same = path && S.undoPath === path && now - S.undoAt < 1000 && S.undo.length;
     if (!same) {
@@ -642,6 +643,41 @@ function changed(rerender, path) {
   }
   scheduleCheck();
 }
+
+// Whether a node has output entries: RPDO entries with a PLC location (or a
+// variable name on a target without locations), or the RPDO of a PDO link.
+function hasOutputs(net, n) {
+  if ((n.rx_pdos || []).some((p) => (p.entries || []).some((e) => e.iec_location !== undefined || e.name !== undefined))) return true;
+  return (net.links || []).some((l) => (l.to || []).some((c) => num(c.node) === num(n.node_id)));
+}
+
+// A node gets its first output entries in this edit: it watches the
+// master's heartbeat from now on (spec "Safe settings for new nodes and
+// adapters"), in the same undo step. Never on a node whose setting the user
+// chose, nor on one that had outputs before.
+function firstOutputs(before, after) {
+  (after.networks || []).forEach((net, k) => {
+    const old = ((before.networks || [])[k] || {}).nodes || [];
+    for (const n of net.nodes || []) {
+      const was = old.find((o) => num(o.node_id) === num(n.node_id));
+      if (was && hasOutputs(before.networks[k], was)) continue;
+      if (hasOutputs(net, n)) protectOutputs(net, n, true);
+    }
+  });
+}
+
+// heartbeat_consumer on a node with outputs whose EDS has a writable 0x1016,
+// unless set already; the master then sends its heartbeat (100 ms when it
+// sent none). `checkOutputs` false: the caller knows it has outputs or not.
+function protectOutputs(net, n, checkOutputs) {
+  if (n.heartbeat_consumer !== undefined || (!checkOutputs && !hasOutputs(net, n))) return;
+  const eds = edsFor(n);
+  if (!eds || !eds.objects || !edsHasHeartbeatConsumer(eds)) return;
+  n.heartbeat_consumer = true;
+  net.master = net.master || newMaster();
+  if (!num(net.master.heartbeat_ms)) net.master.heartbeat_ms = MASTER_HEARTBEAT_MS;
+}
+const MASTER_HEARTBEAT_MS = 100;
 
 // Whether there is something to save: the draft differs from the file as
 // loaded (a field typed back to its value is clean again), or a file built
@@ -956,8 +992,8 @@ async function addNetwork() {
   // No interface: the user picks it (each network needs its own). The rate
   // is the protocol's default, not another network's.
   S.model.networks.push(protocol === "j1939" ? newJ1939Network()
-    : protocol === "none" ? { protocol: "none", adapter: { type: "socketcan", bitrate: DEFAULT_BITRATE.none } }
-    : { adapter: { type: "socketcan", bitrate: DEFAULT_BITRATE.canopen }, master: newMaster(), nodes: [] });
+    : protocol === "none" ? { protocol: "none", adapter: newAdapter(DEFAULT_BITRATE.none) }
+    : { adapter: newAdapter(DEFAULT_BITRATE.canopen), master: newMaster(), nodes: [] });
   openNet(S.model.networks.length - 1);
   S.onlineNet = null;
   S.view = "bus";
@@ -1623,8 +1659,14 @@ function switchAdapterType(type) {
   const ad = S.config.adapter || (S.config.adapter = {});
   for (const [t, keys] of Object.entries(ADAPTER_ONLY)) if (t !== type) for (const k of keys) delete ad[k];
   ad.type = type;
+  if (type === "socketcan" && ad.configure_link !== false && ad.restart_ms === undefined) ad.restart_ms = BUS_OFF_RESTART_MS;
   changed(true);
 }
+
+// A new SocketCAN adapter restarts itself after a bus-off (spec "Safe
+// settings for new nodes and adapters"); the user can clear it.
+const BUS_OFF_RESTART_MS = 100;
+function newAdapter(bitrate) { return { type: "socketcan", bitrate, restart_ms: BUS_OFF_RESTART_MS }; }
 
 // ---------------------------------------------------------------------------
 // What is simulated (docs/simulator.md, "Two switches"): the network
@@ -2743,10 +2785,7 @@ function lssFields(i, eds) {
 function configCheckField(i, eds) {
   const base = `nodes[${i}]`;
   const on = getPath(base + ".config_check") === true;
-  const subs = [1, 2].map((s) => objectInfo(eds, "0x1020", s));
-  let why = null;
-  if (subs.every((o) => !o)) why = "The EDS has no 0x1020 (configuration date and time), so the device cannot keep the stamp.";
-  else if (subs.some((o) => !o || !o.writable)) why = "The EDS has no writable 0x1020 sub 1 and sub 2, so the device cannot keep the stamp.";
+  const why = configCheckWhy(eds);
   const input = el("input", { type: "checkbox", dataset: { path: base + ".config_check" } });
   input.checked = on;
   Icons.setDisabled(input, !on && why);
@@ -2760,6 +2799,14 @@ function configCheckField(i, eds) {
     why ? edsLimit(why, on) : hint("After a download the master writes a stamp of this node's configuration to 0x1020, and at later boots " +
       "skips the download when the node still has it. Default: off."),
     el("span", { class: "field-msg", dataset: { for: base + ".config_check" } }));
+}
+
+// Why the EDS cannot take the config_check stamp (0x1020 sub 1 and 2), or null.
+function configCheckWhy(eds) {
+  const subs = [1, 2].map((s) => objectInfo(eds, "0x1020", s));
+  if (subs.every((o) => !o)) return "The EDS has no 0x1020 (configuration date and time), so the device cannot keep the stamp.";
+  if (subs.some((o) => !o || !o.writable)) return "The EDS has no writable 0x1020 sub 1 and sub 2, so the device cannot keep the stamp.";
+  return null;
 }
 
 // store_configuration: "No" or a writable 0x1010 sub-index of the EDS; it
@@ -7212,9 +7259,11 @@ async function addNode(edsName, id, name, map, report, closeFirst) {
   S.config.nodes = S.config.nodes || [];
   const node = { node_id: id, name, eds: edsName };
   superviseNewNode(node, eds, S.net);
+  if (configCheckWhy(eds) === null) node.config_check = true;
   S.config.nodes.push(node);
   const i = S.config.nodes.length - 1;
   const { count: mapped, eventDriven } = map ? await mapDefaultPdos(i, eds) : { count: 0, eventDriven: [] };
+  protectOutputs(S.config, node, false);
   S.view = "node:" + i;
   S.nodeTab = mapped ? "pdos" : "general";
   if (!mapped) S.focusName = i;
@@ -7868,6 +7917,10 @@ function problemText(it, w) {
     const text = "has no heartbeat or guarding, so its loss would never be detected. Set the heartbeat period on Supervision.";
     return where.length ? `${where.join(", ")} ${text}` : upperFirst(text);
   }
+  if (NOT_PROTECTED.test(it.message)) {
+    const text = "keeps its last outputs when the bridge crashes or loses power. Let it watch the master heartbeat (it then reacts per its error behavior, 0x1029), or give an RPDO an event timer.";
+    return where.length ? `${where.join(", ")} ${text}` : upperFirst(text);
+  }
   let text = readable(it.message);
   if (!where.length) return text;
   const obj = /^(0x[0-9A-Fa-f]+:\d+): /.exec(text);
@@ -7878,11 +7931,19 @@ function problemText(it, w) {
   return `${where.join(", ")}: ${text}`;
 }
 
+// The bridge's warning for a node that keeps its outputs when the bridge
+// crashes (contract.stop_protection_message), and the page's for an adapter
+// without a bus-off restart (server.BUS_OFF_TEXT).
+const NOT_PROTECTED = /keeps its last outputs when the bridge stops without a clean stop/;
+const NO_BUS_OFF_RESTART = /restart_ms is not set: after a bus-off/;
+
 // The buttons that fix a problem in one step (spec "Quick fixes in
 // Problems"): each is one undo step.
 function problemFixes(it, w) {
   const bridgeFix = bridgeProblemFixes(it);
   if (bridgeFix.length) return bridgeFix;
+  if (w && NOT_PROTECTED.test(it.message)) return protectionFixes(w);
+  if (w && NO_BUS_OFF_RESTART.test(it.message)) return busOffFixes(w);
   if (!w || !NO_SUPERVISION.test(it.message)) return [];
   const m = /^nodes\[(\d+)\]/.exec(w.path || "");
   if (!m) return [];
@@ -7930,6 +7991,42 @@ function bridgeProblemFixes(it) {
     return [fix("Download again", "download", (e) => busy(e.currentTarget, "Downloading…", () => connectionDownload(i)))];
   }
   return [];
+}
+
+// Watch the master heartbeat, for a node with outputs that keeps them when
+// the bridge crashes: heartbeat_consumer, and a master heartbeat when the
+// master sends none. Offered when the EDS has a writable 0x1016.
+function protectionFixes(w) {
+  const m = /^nodes\[(\d+)\]/.exec(w.path || "");
+  if (!m) return [];
+  const k = w.net === null || w.net === undefined ? S.net : w.net;
+  const i = Number(m[1]);
+  const n = ((S.model.networks[k] || {}).nodes || [])[i];
+  const eds = n && edsFor(n);
+  if (!eds || !eds.objects || !edsHasHeartbeatConsumer(eds)) return [];
+  return [el("button", { type: "button", class: "small", dataset: { problemFix: "heartbeat-consumer" }, onclick: () => {
+    const net = S.model.networks[k];
+    const t = net && (net.nodes || [])[i];
+    if (!t) return;
+    if (k !== S.net) openNet(k);
+    t.heartbeat_consumer = true;
+    net.master = net.master || newMaster();
+    if (!num(net.master.heartbeat_ms)) net.master.heartbeat_ms = MASTER_HEARTBEAT_MS;
+    changed(true);
+  } }, "Watch the master heartbeat")];
+}
+
+// Restart after bus-off (100 ms), for a SocketCAN adapter without restart_ms.
+function busOffFixes(w) {
+  if (!(w.path || "").startsWith("adapter")) return [];
+  const k = w.net === null || w.net === undefined ? S.net : w.net;
+  return [el("button", { type: "button", class: "small", dataset: { problemFix: "restart-ms" }, onclick: () => {
+    const net = S.model.networks[k];
+    if (!net || !net.adapter) return;
+    if (k !== S.net) openNet(k);
+    net.adapter.restart_ms = BUS_OFF_RESTART_MS;
+    changed(true);
+  } }, `Restart after bus-off (${BUS_OFF_RESTART_MS} ms)`)];
 }
 
 // A new node whose EDS heartbeat default is 0 would be unsupervised: it

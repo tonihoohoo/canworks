@@ -18,7 +18,7 @@ When the user adds a node, the configurator SHALL save it with `"config_check": 
 ### Requirement: Problems for bridge stop and bus-off
 Problems SHALL show, as warnings that do not block saving or the hand-off steps:
 - every node that canopen-node-supervision "Nodes not protected against a bridge stop" names, with the message that it keeps its last outputs when the bridge crashes or loses power and a **Watch the master heartbeat** button, offered when the EDS has a writable 0x1016, that sets `heartbeat_consumer` true (and `master.heartbeat_ms` 100 when it is 0) in one undo step;
-- every `socketcan` adapter with `configure_link` on and no `restart_ms`, with the message that a bus-off then lasts until the interface is restarted and a **Restart after bus-off (100 ms)** button.
+- every `socketcan` adapter with `configure_link` on and no `restart_ms` (not a simulated bus or a `vcan` interface, which have no bus-off), with the message that a bus-off then lasts until the interface is restarted and a **Restart after bus-off (100 ms)** button.
 
 #### Scenario: Fix from Problems
 - **WHEN** a loaded config has node 23 with RPDO entries and no protection, and the user presses Watch the master heartbeat

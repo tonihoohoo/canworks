@@ -312,8 +312,36 @@ NO_NODES = re.compile(r"field 'nodes' lists no slave nodes")
 def empty_config():
     """A new config before its target's marker (switch_target adds it)."""
     return {"schema_version": 2,
-            "networks": [{"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000},
+            "networks": [{"adapter": {"type": "socketcan", "interface": "can0", "bitrate": 500000, "restart_ms": 100},
                           "master": {"node_id": 1}, "nodes": []}]}
+
+
+# A SocketCAN adapter the bridge sets up without a bus-off restart (Problems
+# for bridge stop and bus-off); the page offers the 100 ms fix.
+BUS_OFF_TEXT = "restart_ms is not set: after a bus-off the interface stays off until it is restarted by hand"
+
+
+def bus_off_problems(cfg):
+    """Problems-pane warnings for every SocketCAN adapter the bridge
+    configures (configure_link on) without restart_ms; a simulated bus and
+    a vcan interface have no bus-off."""
+    if not isinstance(cfg, dict):
+        return []
+    v2 = isinstance(cfg.get("networks"), list)
+    out = []
+    for k, net in enumerate(cfg["networks"] if v2 else [cfg]):
+        a = net.get("adapter") if isinstance(net, dict) else None
+        if not isinstance(a, dict) or a.get("type", "socketcan") != "socketcan" or a.get("simulate") is True:
+            continue
+        iface = a.get("interface")
+        if isinstance(iface, str) and iface.startswith("vcan"):
+            continue
+        if a.get("configure_link") is False or "restart_ms" in a:
+            continue
+        at = ("networks[%d]." % k if v2 else "") + "adapter.restart_ms"
+        out.append({"level": "warning", "message": ("networks[%d]: " % k if v2 else "") + "adapter: " + BUS_OFF_TEXT,
+                    "paths": [at]})
+    return out
 
 
 SCHEMA_FILE = "canworks.v%d.schema.json"
@@ -1398,6 +1426,7 @@ class Session:
             items += self.openplc_items(cfg)
         if tgt == targets.BRIDGE:
             items += connections.problems(cfg)
+        items += bus_off_problems(cfg)
         if self.mode == "project":
             items += layout.macro_problems(self.uses)
         decls = []

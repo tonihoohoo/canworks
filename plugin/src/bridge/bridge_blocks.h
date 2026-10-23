@@ -118,6 +118,7 @@ class ControlBlock {
 // Status block byte 7.
 enum StatusFlag : uint8_t {
   kStatusUncleanStart = 0x01,  // the previous run of this config did not stop cleanly
+  kStatusBusNotOk = 0x02,      // a CAN network's interface is down or missing, or its controller bus-off
 };
 
 // Status block: state, clients, 100 ms heartbeat, control echo and result,

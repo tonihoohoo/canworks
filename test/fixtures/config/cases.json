@@ -4,7 +4,7 @@
     "Each case patches 'base' (set or delete at a /-separated path) and states the expected verdicts:",
     "'schema' is the JSON Schema verdict (valid/invalid); 'verdict' is what both the plugin (parse and EDS checks)",
     "and the deploy tool's checks must decide (accept/reject). 'messages' must appear in both outputs,",
-    "'plugin_messages' / 'tool_messages' only in one. 'warnings' must appear in the plugin's and the tool's warnings.",
+    "'plugin_messages' / 'tool_messages' only in one. 'warnings' must appear in the plugin's and the tool's warnings, 'absent_warnings' in neither.",
     "EDS paths are relative to test/fixtures/eds/, where the config is treated as living."
   ],
   "base": {
@@ -1922,6 +1922,67 @@
       "schema": "valid",
       "verdict": "reject",
       "messages": [ "node 2 (pingpong), object 0x4001:0: bits need an integer entry, not REAL32" ]
+    },
+    {
+      "name": "output node not protected against a bridge stop",
+      "patch": [],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [ "node 2 (pingpong) keeps its last outputs when the bridge stops without a clean stop (crash, kill, power loss); set \"heartbeat_consumer\": true" ]
+    },
+    {
+      "name": "heartbeat_consumer protects an output node",
+      "patch": [
+        [ "set", "networks/0/master/heartbeat_ms", 100 ],
+        [ "set", "networks/0/nodes/0/heartbeat_consumer", true ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "absent_warnings": [ "keeps its last outputs when the bridge stops without a clean stop" ]
+    },
+    {
+      "name": "RPDO event timer protects an output node",
+      "patch": [
+        [ "set", "networks/0/nodes/0/eds", "pdo-comm.eds" ],
+        [ "set", "networks/0/nodes/0/rx_pdos/0/event_timer_ms", 500 ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "absent_warnings": [ "keeps its last outputs when the bridge stops without a clean stop" ]
+    },
+    {
+      "name": "EDS 0x1016 entry for the master protects an output node",
+      "patch": [
+        [ "set", "networks/0/master/heartbeat_ms", 100 ],
+        [ "set", "networks/0/nodes/0/eds", "node-options.eds" ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "absent_warnings": [ "keeps its last outputs when the bridge stops without a clean stop" ]
+    },
+    {
+      "name": "EDS 0x1016 entry without a master heartbeat does not protect",
+      "patch": [ [ "set", "networks/0/nodes/0/eds", "node-options.eds" ] ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [ "node 2 (pingpong) keeps its last outputs when the bridge stops without a clean stop" ]
+    },
+    {
+      "name": "node without outputs needs no protection",
+      "patch": [ [ "delete", "networks/0/nodes/0/rx_pdos" ] ],
+      "schema": "valid",
+      "verdict": "accept",
+      "absent_warnings": [ "keeps its last outputs when the bridge stops without a clean stop" ]
+    },
+    {
+      "name": "heartbeat_consumer false is not protected",
+      "patch": [
+        [ "set", "networks/0/master/heartbeat_ms", 100 ],
+        [ "set", "networks/0/nodes/0/heartbeat_consumer", false ]
+      ],
+      "schema": "valid",
+      "verdict": "accept",
+      "warnings": [ "node 2 (pingpong) keeps its last outputs when the bridge stops without a clean stop" ]
     }
   ]
 }

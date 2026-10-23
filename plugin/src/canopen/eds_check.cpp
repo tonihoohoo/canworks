@@ -1177,6 +1177,51 @@ static void check_eds_emcy_cob_ids(const Config& cfg, std::vector<std::string>& 
   }
 }
 
+// Nodes that keep their last outputs when the bridge stops without a clean
+// stop (canopen-node-supervision "Nodes not protected against a bridge
+// stop"): a node with output entries (RPDO entries with a location, or a
+// PDO link consumer RPDO) that watches no master heartbeat (heartbeat_consumer,
+// or an EDS 0x1016 entry for the master the config does not clear) and has
+// no deadline on any of those RPDOs (event_timer_ms, config or EDS). One
+// warning each; nothing is written that the config does not set.
+void check_stop_protection(Config& cfg, const std::map<unsigned, co_dev_t*>& devs) {
+  for (const auto& n : cfg.nodes) {
+    const co_dev_t* dev = dev_of(devs, n.node_id);
+    if (!dev) continue;  // the EDS problem is reported
+    // The output RPDOs, each with the event timer the config gives (-1: none).
+    std::map<unsigned, long> rpdos;
+    for (const auto& p : n.rx_pdos)
+      for (const auto& e : p.entries)
+        if (e.has_location) rpdos[p.number] = p.has_event_timer ? static_cast<long>(p.event_timer_ms) : -1;
+    for (const auto& l : cfg.links)
+      for (const auto& c : l.consumers)
+        if (c.node == n.node_id && c.node != l.producer)
+          rpdos[c.rpdo] = c.has_event_timer ? static_cast<long>(c.event_timer_ms) : -1;
+    if (rpdos.empty()) continue;
+    if (n.has_heartbeat_consumer && n.heartbeat_consumer) continue;
+    bool watched = false;
+    if (!n.has_heartbeat_consumer && cfg.master.heartbeat_ms)
+      if (const co_obj_t* obj = co_dev_find_obj(dev, 0x1016))
+        for (unsigned k = 1; k <= 0xFF && !watched; ++k) {
+          const co_sub_t* sub = co_obj_find_sub(obj, static_cast<co_unsigned8_t>(k));
+          uint64_t v = 0;
+          watched = sub && sub_value(sub, v) && ((v >> 16) & 0xFF) == cfg.master.node_id && (v & 0xFFFF);
+        }
+    if (watched) continue;
+    bool deadline = false;
+    for (const auto& r : rpdos) {
+      uint64_t t = r.second < 0 ? 0 : static_cast<uint64_t>(r.second);
+      if (r.second < 0) {
+        const co_sub_t* sub = co_dev_find_sub(dev, static_cast<co_unsigned16_t>(0x1400 + r.first - 1), 5);
+        if (!sub || !sub_value(sub, t)) t = 0;
+      }
+      if (t) deadline = true;
+    }
+    if (deadline) continue;
+    cfg.warnings.push_back(stop_protection_message(n));
+  }
+}
+
 bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
   size_t before = errors.size();
   if (cfg.is_slave()) {
@@ -1245,6 +1290,7 @@ bool check_eds_files(Config& cfg, std::vector<std::string>& errors) {
   check_lss_addresses(cfg, errors);
   check_heartbeat_watch(cfg, devs, errors);
   check_links(cfg, devs, errors);
+  check_stop_protection(cfg, devs);
   for (auto& d : devs) co_dev_destroy(d.second);
   return errors.size() == before;
 }

@@ -75,6 +75,8 @@ class SharedFixtures(unittest.TestCase):
                     self.assertIn(m, text)
                 for m in case.get("warnings", []):
                     self.assertIn(m, "\n".join(r.warnings))
+                for m in case.get("absent_warnings", []):
+                    self.assertNotIn(m, "\n".join(r.warnings))
                 if case["verdict"] == "accept":
                     self.assertTrue(schema_valid, "the bridge accepts it, so the schema must too")
 
@@ -220,6 +222,8 @@ class EmcyCobIds(unittest.TestCase):
     def config(self, emcy=None, sdo=None, second_emcy=None):
         cfg = load_cases()["base"]
         cfg["networks"][0]["nodes"][0]["eds"] = "emcy-slave.eds"  # EMCY fields need 0x1014 in the EDS
+        cfg["networks"][0]["master"]["heartbeat_ms"] = 100  # the outputs react to a bridge stop: no warning
+        cfg["networks"][0]["nodes"][0]["heartbeat_consumer"] = True
         second = copy.deepcopy(cfg["networks"][0]["nodes"][0])
         second.update(node_id=3, name="second", status_location="%IX10.1")
         second["tx_pdos"][0]["entries"][0]["iec_location"] = "%ID104"

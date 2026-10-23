@@ -897,9 +897,9 @@ int run_fixture_file(const std::string& file) {
       }
       warnings.insert(warnings.end(), cfg.warnings.begin(), cfg.warnings.end());
     }
+    size_t set_warned = set.warnings.size();
     if (ok) ok = check_gateway_eds(set, errors);
-    warnings.insert(warnings.end(), set.warnings.begin() + static_cast<long>(std::min(warnings.size(), set.warnings.size())),
-                    set.warnings.end());
+    warnings.insert(warnings.end(), set.warnings.begin() + static_cast<long>(set_warned), set.warnings.end());
     std::free(text);
     cJSON_Delete(cfg_json);
     bool want = std::string(cJSON_GetObjectItemCaseSensitive(c, "verdict")->valuestring) == "accept";
@@ -927,6 +927,8 @@ int run_fixture_file(const std::string& file) {
     for (const char* key : {"messages", "plugin_messages"})
       for (const auto& m : strings(c, key)) CHECK_MSG(has_error(errors, m), name + ": " + m + join(errors));
     for (const auto& m : strings(c, "warnings")) CHECK_MSG(has_error(warnings, m), name + ": " + m + join(warnings));
+    for (const auto& m : strings(c, "absent_warnings"))
+      CHECK_MSG(!has_error(warnings, m), name + ": unexpected " + m + join(warnings));
     ++count;
   }
   set_log_sink(nullptr);

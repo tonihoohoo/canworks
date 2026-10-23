@@ -16,6 +16,7 @@
 #include <cerrno>
 
 #include "cJSON.h"
+#include "can_plc_api.h"
 #include "image_io.h"
 #include "log.h"
 #include "outputs_gate.h"
@@ -609,6 +610,25 @@ void BridgeHost::take_baselines(const uint8_t* out, bool wrote_control, bool wro
   }
 }
 
+void BridgeHost::read_bus_states(Clock::time_point now) {
+  if (now < next_bus_read_) return;
+  next_bus_read_ = now + std::chrono::milliseconds(100);
+  auto* api = static_cast<const canworks_can_api_v1*>(canworks_can_api_table(1));
+  std::vector<std::string> down;
+  const auto& nets = engine_->set().networks;
+  for (unsigned n = 0; api && n < nets.size(); ++n) {
+    canworks_can_bus_info b{};
+    uint16_t err = 0;
+    // 3 bus-off, 4 interface down or missing; error-warning and
+    // error-passive still carry frames.
+    if (api->bus_info(static_cast<uint8_t>(n), &b, &err) == 0 && b.state >= 3)
+      down.push_back(nets[n].network.empty() ? std::to_string(n) : nets[n].network);
+  }
+  bus_not_ok_ = !down.empty();
+  std::lock_guard<std::mutex> lock(bus_mu_);
+  bus_down_.swap(down);
+}
+
 void BridgeHost::write_blocks(Clock::time_point now) {
   std::vector<uint8_t>& in = g_image->in;
   if (cfg_.plc_link && in.size() >= canopen_plugin::kOpenplcHashBytes) {
@@ -618,7 +638,8 @@ void BridgeHost::write_blocks(Clock::time_point now) {
   if (cfg_.has_status) {
     auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(now - started_).count() / 100;
     encode_status(&in[cfg_.status_location.index], supervisor_->state(), server_.clients(),
-                  static_cast<uint16_t>(ticks), control_, unclean_start_ ? kStatusUncleanStart : 0);
+                  static_cast<uint16_t>(ticks), control_,
+                  static_cast<uint8_t>((unclean_start_ ? kStatusUncleanStart : 0) | (bus_not_ok_ ? kStatusBusNotOk : 0)));
   }
 #if CANWORKS_WITH_CANOPEN
   for (const auto& l : cfg_.live_lists)
@@ -638,6 +659,7 @@ void BridgeHost::loop() {
       std::lock_guard<std::mutex> lock(exchange_mu_);
       Clock::time_point now = Clock::now();
       engine_->cycle_start(*g_image);
+      read_bus_states(now);
       if (supervisor_->tick(now)) enter_off(OutputState::kWatchdog, now);
       if (zero_pending_ && now >= zero_until_) {
         zero_pending_ = false;
@@ -700,6 +722,11 @@ cJSON* BridgeHost::status_json() const {
   cJSON_AddNumberToObject(b, "output_bytes", static_cast<double>(image_.output_size()));
   cJSON_AddNumberToObject(b, "watchdog_ms", cfg_.watchdog_ms);
   cJSON_AddStringToObject(b, "last_stop", last_stop_.empty() ? "unknown" : last_stop_.c_str());
+  {
+    std::lock_guard<std::mutex> bl(bus_mu_);
+    cJSON* down = cJSON_AddArrayToObject(b, "bus_not_ok");
+    for (const auto& n : bus_down_) cJSON_AddItemToArray(down, cJSON_CreateString(n.c_str()));
+  }
   cJSON* clients = cJSON_AddArrayToObject(b, "clients");
   for (const ClientInfo& c : server_.client_list()) {
     cJSON* o = cJSON_CreateObject();

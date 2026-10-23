@@ -382,6 +382,21 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 The systemd unit is `Type=notify`: `systemctl start` returns once the Modbus port answers. It restarts the bridge after every exit it did not ask for (`Restart=always`, `RestartSec=1`) and never gives up (`StartLimitIntervalSec=0`), so a port held by another program or a full disk delays the bridge instead of leaving the unit failed. The bridge feeds systemd's watchdog (`WatchdogSec=20s`) only while its loop, its Modbus server and every network's bus thread make progress.
 
+### What the nodes do
+
+A node keeps whatever its RPDOs last set until something tells it otherwise. After a clean stop that is the NMT command from `master.on_plc_stop`. After a crash, a kill or a power loss nothing is sent, so a node with outputs needs one of these to react:
+
+| Setting | What the node does when the bridge is gone | After the restart |
+|---|---|---|
+| none (the EDS defaults) | keeps its last outputs and stays operational | boots again (without `config_check` the whole configuration is downloaded again) |
+| `"heartbeat_consumer": true` (needs `master.heartbeat_ms`) | misses the master's heartbeat after `master.heartbeat_ms` × `master.heartbeat_multiplier` and reacts as its error behavior (0x1029 sub 1) says: pre-operational by default, stopped or no change on some devices | boots again and is operational |
+| an RPDO `event_timer_ms` | misses the RPDO after that time and reacts as its device profile says (usually an EMCY, and on many I/O modules the outputs go to their error values) | the RPDO comes again |
+| `"config_check": true` | as above | skips the download when the node still has this configuration, so the restart is quicker |
+
+Check what a device does in its manual or its EDS 0x1029 (`error_behavior` sets it) before you rely on it: "no change" there means it keeps its outputs even with the heartbeat watch. A node with outputs that has neither setting gets one warning at load (`node 6 (valves) keeps its last outputs when the bridge stops without a clean stop ...`), from the bridge and from `canworks-deploy --check`; the configurator shows it in Problems with a **Watch the master heartbeat** button. The configurator sets `heartbeat_consumer` (and a 100 ms master heartbeat) on a node when it gets its first output entry, and `config_check` on every new node whose EDS can keep the stamp; a file you load is not changed.
+
+The status block's byte 7 bit 1 is set while a network's bus is not usable (its interface down or missing, or bus-off), and `canworks-diag status` names those networks (`bus_not_ok`). A SocketCAN adapter that the bridge sets up should have `restart_ms` so the kernel restarts it after a bus-off; the configurator gives new adapters 100 ms and offers **Restart after bus-off (100 ms)** in Problems for one without it.
+
 After a start that follows an unclean stop the log has `the previous run of this config did not stop cleanly`, the status block's byte 7 has bit 0 set until the bridge stops, and `canworks-diag status` says `last stop unclean`. The bridge keeps a small marker file (`.canworks/running` next to the config) for this; it is written once per start.
 
 ## Clients

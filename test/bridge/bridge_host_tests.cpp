@@ -207,6 +207,32 @@ TEST(unclean_start_flag) {
   again.stop();
 }
 
+// Spec "Bus flag in the status block": bit 1 while a network's interface is
+// down or missing; never on a simulated network.
+TEST(bus_flag) {
+  {
+    Host h;
+    EXPECT(h.ok);
+    if (!h.ok) return;
+    Client c(h.port());
+    EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+    EXPECT((reg(c, kStatusReg + 3) & kStatusBusNotOk) == 0);
+  }
+  Host missing([](cJSON* r) {
+    cJSON* adapter = cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "networks"), 0), "adapter");
+    cJSON_DeleteItemFromObject(adapter, "simulate");
+    set_string(adapter, "interface", "cwnone0");
+  });
+  EXPECT(missing.ok);
+  if (!missing.ok) return;
+  Client c(missing.port());
+  EXPECT(wait_for([&] { return (reg(c, kStatusReg + 3) & kStatusBusNotOk) != 0; }, 3000));
+  cJSON* st = missing.host.status_json();
+  cJSON* down = cJSON_GetObjectItem(st, "bus_not_ok");
+  EXPECT(cJSON_GetArraySize(down) == 1 && std::string(cJSON_GetArrayItem(down, 0)->valuestring) == "field");
+  cJSON_Delete(st);
+}
+
 TEST(watchdog_stop_keeps_inputs) {
   Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 300); });
   EXPECT(h.ok);

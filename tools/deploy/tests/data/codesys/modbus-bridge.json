@@ -266,6 +266,11 @@
     },
     {
       "where": "field/dio",
+      "setting": "config_check",
+      "note": "configuration check: CODESYS downloads the configuration at every boot"
+    },
+    {
+      "where": "field/dio",
       "setting": "heartbeat_timeout_ms",
       "note": "CODESYS supervises the node's heartbeat with its own consumer time"
     },

@@ -107,6 +107,9 @@ class BridgeHost {
   // output snapshot `out` was taken.
   void take_baselines(const uint8_t* out, bool wrote_control, bool wrote_sdo);
   void write_blocks(Clock::time_point now);
+  // Every 100 ms: which CAN networks have their interface down or missing,
+  // or their controller bus-off (status block byte 7 bit 1).
+  void read_bus_states(Clock::time_point now);
   unsigned put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why);
   std::string staged_path(const std::string& name) const;
 
@@ -149,6 +152,10 @@ class BridgeHost {
   void write_marker();
   std::string last_stop_;
   bool unclean_start_ = false;
+  bool bus_not_ok_ = false;
+  Clock::time_point next_bus_read_{};
+  mutable std::mutex bus_mu_;
+  std::vector<std::string> bus_down_;  // names of the networks whose bus is not ok
 
   std::string config_path_, version_;
   mutable std::mutex upload_mu_;
