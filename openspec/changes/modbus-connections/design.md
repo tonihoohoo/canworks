@@ -62,7 +62,7 @@ The check makes an OpenPLC connection an error when `plc_link` is not true or `w
 
 ### Writers follow the connections
 
-`bridge.writers` stays the bridge's allowlist. The configurator rewrites it to the sorted, de-duplicated addresses of the connections with `writes` true, as part of the same undo step as any connection change. The bridge page no longer has a Writers field; it shows "Who may write" from the connections.
+`bridge.writers` stays the bridge's allowlist. The configurator rewrites it to the sorted, de-duplicated addresses of the connections with `writes` true, as part of the same undo step as any connection change. The bridge page no longer has a Writers field; it shows "Who may write" from the connections. With `plc_link` the PLC owns the outputs and mailboxes, so a Node-RED or HMI connection that writes gets a Problems warning; the `add-nodered-blocks` flow stays read-only there.
 
 - A config edited by hand whose `writers` differ from the connections gets a warning with **Use the connections' addresses**.
 - A config without connections keeps `writers` as it is. A new bridge config has none, so it starts with `writers` [] and a hint to add a connection.

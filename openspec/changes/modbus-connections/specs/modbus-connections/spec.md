@@ -48,8 +48,15 @@ A Download SHALL store the current map hash in the connection's `map_hash`. A co
 When connections change, the configurator SHALL set `bridge.writers` to the sorted addresses of the connections with `writes` true, in the same undo step, and the page SHALL show them as "Who may write" instead of a Writers field. A config whose `writers` differ from its connections SHALL get a warning with **Use the connections' addresses**. A config without connections SHALL keep its `writers`.
 
 #### Scenario: Node-RED writes
-- **WHEN** the user ticks Writes on a Node-RED connection at 192.168.10.30 next to an OpenPLC connection
-- **THEN** `bridge.writers` is `["127.0.0.1", "192.168.10.30"]`, and one Undo restores the previous list
+- **WHEN** a config without `plc_link` has an HMI connection at 192.168.10.20 with Writes on, and the user ticks Writes on a Node-RED connection at 192.168.10.30
+- **THEN** `bridge.writers` is `["192.168.10.20", "192.168.10.30"]`, and one Undo restores the previous list
+
+### Requirement: Only the PLC writes with a PLC link
+With `plc_link` true the PLC owns the outputs and the mailboxes, whose owner words and tickets assume one client. A `nodered` or `hmi` connection with `writes` true SHALL then get a Problems warning naming it.
+
+#### Scenario: Writer next to a PLC link
+- **WHEN** a config has an OpenPLC connection and the user ticks Writes on a Node-RED connection
+- **THEN** Problems warns that with the PLC link only the PLC writes outputs and mailboxes, naming the Node-RED connection
 
 ### Requirement: Connections reach the bridge
 A connection whose address is not loopback while `listen` is a loopback address SHALL be an error naming the connection, with **Listen on all addresses**, which keeps the port and sets the address to `0.0.0.0`.
