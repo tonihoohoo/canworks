@@ -1,7 +1,7 @@
 ## 1. Detection
 
-- [x] 1.1 `openplcmodbus.outdated_files`: own files missing, or stamped by canworks and different from what Save would write now; a file changed by someone else is not "outdated" (it stays with `changed_files`)
-- [x] 1.2 `project.json` counts as outdated when its `canworks` list members or types differ from Save's, or its library entry is older; Save then writes the current library version
+- [x] 1.1 `openplcmodbus.outdated_files`: own files stamped by canworks and now missing or different from what Save would write now; a file changed by someone else is not "outdated" (it stays with `changed_files`)
+- [x] 1.2 `project.json` counts as outdated when its `canworks` list members or types differ from Save's, or it does not enable the library (the entry's version does not count: Save installs the current library into the editor)
 - [x] 1.3 Unit tests: unchanged, new tools text, missing file, hand-edited file, older library
 
 ## 2. Configurator

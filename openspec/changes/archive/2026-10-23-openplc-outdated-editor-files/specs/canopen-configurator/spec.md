@@ -18,14 +18,14 @@ Save, every export, Move into project, New editor project and Add node from EDS 
 ## ADDED Requirements
 
 ### Requirement: Out-of-date OpenPLC editor files
-For an OpenPLC project (target OpenPLC through Modbus, inside an editor project) the configurator SHALL compare the editor files Save writes for the saved config (the remote device file and the `canworks_in` and `canworks_out` programs) with the files on disk. A file SHALL count as out of date when it is missing, or when canworks wrote it last and Save would now write a different text. `project.json` SHALL count as out of date when its `canworks` variable list has other member names or types than Save writes, or when it enables the `canworks` library at an older version than the configurator's own; Save then names the configurator's version in the library entry. A file changed since canworks wrote it SHALL NOT count as out of date; Save keeps asking before writing it. When anything is out of date, the Project page SHALL list it under the editor files, Problems SHALL list one warning that opens the Project page, and Save SHALL be enabled with the title "The editor files are from an older canworks; Save writes them again". Saving then SHALL write the editor files and the library entry as a normal save does and SHALL leave `canworks.json` unchanged.
+For an OpenPLC project (target OpenPLC through Modbus, inside an editor project) the configurator SHALL compare the editor files Save writes for the saved config (the remote device file and the `canworks_in` and `canworks_out` programs) with the files on disk. A file SHALL count as out of date when canworks wrote it last and it is missing now or Save would now write a different text; in a project canworks never wrote into, nothing SHALL count. `project.json` SHALL count as out of date when its `canworks` variable list has other member names or types than Save writes, or when it does not enable the `canworks` library; the library entry's version SHALL NOT count, since Save installs the configurator's own library into the editor. A file changed since canworks wrote it SHALL NOT count as out of date; Save keeps asking before writing it. When anything is out of date, the Project page SHALL list it under the editor files, Problems SHALL list one warning that opens the Project page, and Save SHALL be enabled with the title "The editor files are from an older canworks; Save writes them again". Saving then SHALL write the editor files as a normal save does and SHALL leave `canworks.json` unchanged.
 
 #### Scenario: Tools update changes canworks_in
 - **WHEN** a project saved with an older canworks is opened in a configurator whose `canworks_in` code differs, and the user has made no change
 - **THEN** the Project page lists `pous/programs/canworks_in.st` as out of date, Save is enabled, and pressing it rewrites `canworks_in.st` without changing `canworks.json`
 
 #### Scenario: Nothing new
-- **WHEN** the editor files on disk are what Save would write and the library version is current
+- **WHEN** the editor files on disk are what Save would write and the project enables the library
 - **THEN** nothing is listed and Save reads "Saved"
 
 #### Scenario: Edited in the editor

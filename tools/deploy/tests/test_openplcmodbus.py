@@ -383,8 +383,7 @@ class SyncProject(unittest.TestCase):
     def test_outdated_files(self):
         # Spec canopen-configurator "Out-of-date OpenPLC editor files".
         outdated = lambda: openplcmodbus.outdated_files(self.project, self.cfg, self.decls)
-        self.assertEqual(outdated(), ["devices/remote/canworks.json", "pous/programs/canworks_in.st",
-                                      "pous/programs/canworks_out.st", "project.json"])  # never saved
+        self.assertEqual(outdated(), [])  # never saved: the first Save writes them
         openplcmodbus.sync_project(self.project, self.cfg, self.decls)
         self.assertEqual(outdated(), [])
         # a newer canworks writes canworks_in differently
@@ -405,16 +404,19 @@ class SyncProject(unittest.TestCase):
         pj = os.path.join(self.project, "project.json")
         with open(pj, encoding="utf-8") as f:
             doc = json.load(f)
-        lib = [l for l in doc["data"]["libraries"] if l["name"] == "canworks"][0]
+        # an older version in the entry is fine: Save installs this one into the editor
+        [lib] = [l for l in doc["data"]["libraries"] if l["name"] == "canworks"]
         lib["version"] = "0.1.0"
+        with open(pj, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), [])
+        # the library not enabled, or an older link size in the list
+        doc["data"]["libraries"] = []
         with open(pj, "w", encoding="utf-8") as f:
             json.dump(doc, f)
         self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), ["project.json"])
         openplcmodbus.sync_project(self.project, self.cfg, self.decls)
-        libs = [l for l in self.data()["libraries"] if l["name"] == "canworks"]
-        self.assertEqual(libs, [{"name": "canworks", "version": openplcmodbus.plclibrary.__version__}])
         self.assertEqual(openplcmodbus.outdated_files(self.project, self.cfg, self.decls), [])
-        # an older link size in the list
         with open(pj, encoding="utf-8") as f:
             doc = json.load(f)
         link = [v for v in doc["data"]["globalVariableLists"][0]["variables"] if v["name"] == "link"][0]

@@ -661,14 +661,6 @@ def own_texts(cfg, decls, uses=()):
     return base, {rel[0]: remote_device_text(cfg, decls, base), rel[1]: in_st, rel[2]: out_st}
 
 
-def _older(have, want):
-    """True when version text `have` is older than `want` ("0.118.0" < "0.119.1")."""
-    try:
-        return tuple(int(p) for p in str(have).split(".")) < tuple(int(p) for p in str(want).split("."))
-    except ValueError:
-        return False
-
-
 def _list_shape(lst):
     """A `canworks` list as [(name, type)], what the program sees of it; the
     editor may store the rest in its own way."""
@@ -681,21 +673,25 @@ def _list_shape(lst):
 
 def outdated_files(project_dir, cfg, decls, uses=()):
     """What Save would write again although the config did not change: own
-    files that are missing or that canworks wrote and would now write
+    files canworks wrote that are missing now or that it would now write
     differently (a newer canworks), and "project.json" when its `canworks`
-    list differs from what Save writes or its canworks library entry is
-    older than this canworks. Files someone else changed are left to
+    list differs from what Save writes or it does not enable the canworks
+    library. Files someone else changed are left to
     changed_files."""
-    _, texts = own_texts(cfg, decls, uses)
     stamps = _stamps(project_dir)
+    if not stamps:
+        return []  # canworks never wrote into this project: its first Save does
+    _, texts = own_texts(cfg, decls, uses)
     out = []
     for rel in own_files(cfg):
         path = os.path.join(project_dir, *rel.split("/"))
+        if rel not in stamps:
+            continue
         if not os.path.isfile(path):
             out.append(rel)
             continue
         sha = _sha(path)
-        if sha == stamps.get(rel) and sha != hashlib.sha256(texts[rel].encode("utf-8")).hexdigest():
+        if sha == stamps[rel] and sha != hashlib.sha256(texts[rel].encode("utf-8")).hexdigest():
             out.append(rel)
     try:
         with open(os.path.join(project_dir, "project.json"), encoding="utf-8") as f:
@@ -704,8 +700,9 @@ def outdated_files(project_dir, cfg, decls, uses=()):
         return out
     lists = [l for l in data.get("globalVariableLists") or [] if isinstance(l, dict) and l.get("name") == LIST_NAME]
     libs = [l for l in data.get("libraries") or [] if isinstance(l, dict) and l.get("name") == plclibrary.NAME]
-    if ([_list_shape(l) for l in lists] != [_list_shape(global_list(decls))] or not libs
-            or any(_older(l.get("version"), plclibrary.__version__) for l in libs)):
+    # The library's version is not checked: Save installs this canworks'
+    # library into the editor whatever the entry names.
+    if [_list_shape(l) for l in lists] != [_list_shape(global_list(decls))] or not libs:
         out.append("project.json")
     return out
 
@@ -759,16 +756,11 @@ def instances(resource):
 def project_data(data, decls):
     """project.json `data` with the canworks list and instances in place,
     and the canworks library enabled (canworks_in and canworks_out call its
-    functions); an entry the project already has is kept, with this
-    canworks' version when it named an older one."""
+    functions); an entry the project already has is kept."""
     data = dict(data)
     libs = [l for l in data.get("libraries") or [] if isinstance(l, dict)]
     if not any(l.get("name") == plclibrary.NAME for l in libs):
-        libs = libs + [{"name": plclibrary.NAME, "version": plclibrary.__version__}]
-    # An entry of an older canworks names this one's version, which Save installs.
-    data["libraries"] = [dict(l, version=plclibrary.__version__)
-                         if l.get("name") == plclibrary.NAME and _older(l.get("version"), plclibrary.__version__)
-                         else l for l in libs]
+        data["libraries"] = libs + [{"name": plclibrary.NAME, "version": plclibrary.__version__}]
     lists = [l for l in data.get("globalVariableLists") or []
              if not (isinstance(l, dict) and l.get("name") == LIST_NAME)]
     data["globalVariableLists"] = lists + [global_list(decls)]
