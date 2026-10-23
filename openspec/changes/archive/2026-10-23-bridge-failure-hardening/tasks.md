@@ -1,8 +1,8 @@
 ## 0. Order
 
-- [ ] 0.1 Apply only after `modbus-connections` is merged and archived (both edit `bridge_host.cpp`; that change also fixes the restart replay for PLC-link clients, which this change leaves out). Rebase on main and re-validate.
-- [ ] 0.2 Independent of `faster-mailboxes`, `add-nodered-blocks` and `mailboxes-on-demand`: rebase over whichever of them lands first. When `mailboxes-on-demand` has merged, put `last_stop` next to its `bridge.mailboxes` status part.
-- [ ] 0.3 `safe-node-defaults` takes status byte 7 bit 1 after this change; keep bits 1-7 at 0 here.
+- [x] 0.1 Apply only after `modbus-connections` is merged and archived (both edit `bridge_host.cpp`; that change also fixes the restart replay for PLC-link clients, which this change leaves out). Rebase on main and re-validate.
+- [x] 0.2 Independent of `faster-mailboxes`, `add-nodered-blocks` and `mailboxes-on-demand`: rebase over whichever of them lands first. When `mailboxes-on-demand` has merged, put `last_stop` next to its `bridge.mailboxes` status part. (Rebased over `faster-mailboxes`; `mailboxes-on-demand` had not merged.)
+- [x] 0.3 `safe-node-defaults` takes status byte 7 bit 1 after this change; keep bits 1-7 at 0 here.
 
 ## 1. Supervisor and systemd
 
