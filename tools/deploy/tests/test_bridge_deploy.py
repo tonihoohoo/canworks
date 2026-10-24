@@ -7,8 +7,10 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from canworks import cli, diag
 
@@ -71,6 +73,70 @@ class BridgeDeploy(unittest.TestCase):
         code, out, err = run_cli("--check", "--config", EXAMPLE, "--token", "x")
         self.assertNotEqual(code, 0)
         self.assertIn("--token and --token-file go with --bridge", err)
+
+
+class UploadReadback(unittest.TestCase):
+    """After the upload canworks-deploy reads back whether the bridge started
+    on it: a bridge with several networks answers status for one network."""
+
+    def run_upload(self, networks):
+        asked = []
+
+        class FakeClient:
+            def __init__(self, *a, **kw):
+                self.where = "127.0.0.1"
+
+            def connect(self):
+                self.info = {"host": "bridge", "allow_config_upload": True, "networks": networks}
+                return self.info
+
+            @property
+            def networks(self):
+                return networks
+
+            def several(self):
+                return len(networks) > 1
+
+            def put_config(self, files):
+                return {"restarting": True, "upload": 4}
+
+            def status(self):
+                return self.request("status")
+
+            def request(self, op, **fields):
+                asked.append(fields)
+                if self.several() and "network" not in fields:
+                    raise diag.DiagError("refused", "network required (can0, sim)")
+                return {"bridge": {"last_upload": {"number": 4, "result": "started"}}}
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = os.path.join(tmp, "cfg")
+            shutil.copytree(os.path.dirname(EXAMPLE), folder)
+            path = os.path.join(folder, "canworks.json")
+            with open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            cfg["diagnostics"] = {"token_verifier": "SCRAM-SHA-256$4096:b3BlbnBsYy1jYW5vcGVuLQ==$SCwajLpaZodu1wAN8vyPszAhAZJB4cXO6Rk+MpacSlQ=:7p7OTxtK+R6omxv8Fdz+xdCpEf4bc82kbkxCL8w33kg="}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+            with mock.patch.object(cli.diag, "Client", FakeClient), \
+                    mock.patch.object(cli.time, "sleep", lambda s: None):
+                result = run_cli("--bridge", "127.0.0.1", "--config", path, "--token", "x", "--yes")
+        return result, asked
+
+    def test_one_network(self):
+        (code, out, err), asked = self.run_upload([])
+        self.assertEqual(code, 0, err)
+        self.assertIn("ok: canworks-bridge runs the new config", out)
+        self.assertEqual(asked, [{}])
+
+    def test_several_networks(self):
+        (code, out, err), asked = self.run_upload([{"name": "can0"}, {"name": "sim"}])
+        self.assertEqual(code, 0, err)
+        self.assertIn("ok: canworks-bridge runs the new config", out)
+        self.assertEqual(asked, [{"network": "can0"}])
 
 
 class BridgeStatusLine(unittest.TestCase):
