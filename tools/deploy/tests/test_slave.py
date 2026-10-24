@@ -649,7 +649,7 @@ class Deploy(unittest.TestCase):
         code, _, err = deploy("--config", config, "--check")
         self.assertEqual(code, 1)
         self.assertIn("the master writes 0x2000:1 (AccessType rww), so it needs an %I location, not %QW310", err)
-        self.assertIn("nothing was uploaded", err)
+        self.assertNotIn("nothing was uploaded", err)  # --check never uploads
         os.remove(os.path.join(d, "openplc-slave.eds"))
         code, _, err = deploy("--config", config, "--check")
         self.assertIn("slave: EDS file %s not found" % os.path.join(d, "openplc-slave.eds"), err)

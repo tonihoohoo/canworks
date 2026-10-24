@@ -225,6 +225,50 @@ class Programs(unittest.TestCase):
         self.assertTrue(all(i["task"] == "main_task" for i in openplcmodbus.instances(resource)))
 
 
+class BitChannels(unittest.TestCase):
+    """canopen-pdo-io "Bit channels in the generated programs on the
+    bridge": each bit channel of an entry is a BOOL at the bit its map row
+    shows; canworks_in reads it, canworks_out ORs it into the entry's word."""
+
+    def setUp(self):
+        self.cfg = plain()
+        dio = self.cfg["networks"][0]["nodes"][1]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "first_bit"}, {"bit": 3}]
+        dio["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 2, "name": "lamp"}]
+        self.cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 9, "name": "hi"}]
+        self.decls = decls(self.cfg)
+
+    def test_declared_at_the_map_rows(self):
+        rows = {r["name"]: r["location"] for r in modbusmap.register_map(self.cfg) if r["type"] == "BOOLEAN"}
+        bits = {d["name"]: d["location"] for d in self.decls if d.get("bit") is not None}
+        self.assertEqual(bits, {"dio_first_bit": "%IX20.0", "dio_Read_input_8_bit_1_bit3": "%IX20.3",
+                                "dio_lamp": "%QX6.2", "rtd_hi": "%IX12.1"})
+        self.assertEqual(sorted(bits.values()), sorted(rows.values()))
+        self.assertTrue(all(d["type"] == "BOOL" for d in self.decls if d.get("bit") is not None))
+        names = [v["name"] for v in openplcmodbus.global_list(self.decls)["variables"]]
+        self.assertIn("dio_first_bit", names)
+
+    def test_programs(self):
+        in_st, out_st = openplcmodbus.programs(self.cfg, self.decls)
+        self.assertIn("canworks.dio_first_bit := (i10 AND WORD#16#0100) <> WORD#0;", in_st)
+        self.assertIn("canworks.dio_Read_input_8_bit_1_bit3 := (i10 AND WORD#16#0800) <> WORD#0;", in_st)
+        self.assertIn("canworks.rtd_hi := (i6 AND WORD#16#0200) <> WORD#0;", in_st)
+        self.assertIn("q3 := SHL((USINT_TO_WORD(canworks.dio_Write_output_8_bit_1) AND WORD#16#00FF), 8) OR "
+                      "SEL(canworks.dio_lamp, WORD#0, WORD#16#0400) OR "
+                      "(USINT_TO_WORD(canworks.dio_Write_output_8_bit_2) AND WORD#16#00FF);", out_st)
+        # The map hash does not change: bits are part of their entry.
+        self.assertEqual(modbusmap.map_hash(self.cfg), modbusmap.map_hash(plain()))
+
+    def test_other_plc(self):
+        cfg = copy.deepcopy(self.cfg)
+        b = cfg["bridge"]
+        del b["connections"]
+        b["plc_link"] = True
+        text = openplcmodbus.other_plc_st(cfg, decls(cfg))
+        self.assertIn("dio_lamp : BOOL", text)
+        self.assertIn("SEL(canworks.dio_lamp, WORD#0, WORD#16#0400)", text)
+
+
 class Mailboxes(unittest.TestCase):
     """The example's mailboxes (add-bridge-mailboxes): one request mailbox,
     the receive mailbox, one network's info and 4 cyclic jobs, inputs from

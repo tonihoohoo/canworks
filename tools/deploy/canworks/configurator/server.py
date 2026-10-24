@@ -2250,19 +2250,25 @@ class Session:
         config's mailboxes (canopen-configurator "Mailbox blocks the OpenPLC
         program declares", "Mailboxes nobody needs"): an error per block
         whose part is off, with the mailboxes that add what the program
-        uses, or a warning when nothing uses the config's mailboxes."""
+        uses, or a warning when neither the program nor a connection's
+        canworks blocks choice uses the config's mailboxes (modbus-connections
+        "Mailbox warning counts the connections")."""
         found = mailboxuse.scan_project(self.folder) if self.folder else {}
         mb = (cfg.get("bridge") or {}).get("mailboxes")
         need = mailboxuse.parts_needed(found)
         items = []
         add = mailboxuse.mailboxes_for(need, mb)
+        used = dict(need)
+        for c in (cfg.get("bridge") or {}).get("connections") or []:
+            if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered") and isinstance(c.get("blocks"), str):
+                used.update(mailboxuse.choice_parts(c.get("blocks")))
         for block in sorted(found):
             gone = mailboxuse.missing(mb, mailboxuse.parts_needed({block: found[block]}))
             if gone:
                 items.append({"level": "error", "paths": ["bridge.mailboxes"], "mailbox_fix": add,
                               "message": "%s: Turn on what the program uses on the Modbus bridge page"
                               % mailboxuse.describe(block, found[block], gone)})
-        if isinstance(mb, dict) and not need:
+        if isinstance(mb, dict) and not used:
             saved = self.mailbox_requests(cfg)
             items.append({"level": "warning", "paths": ["bridge.mailboxes"], "mailbox_fix": "off",
                           "message": "The program declares no mailbox block, but the mailboxes take %s: "

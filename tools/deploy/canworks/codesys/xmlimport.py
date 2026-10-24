@@ -54,6 +54,8 @@ _SIZE_TYPES = {1: "BOOLEAN", 8: "UNSIGNED8", 16: "UNSIGNED16", 24: "UNSIGNED24",
                64: "UNSIGNED64"}
 _SIGNED_BITS = {"INTEGER8": 8, "INTEGER16": 16, "INTEGER24": 24, "INTEGER32": 32, "INTEGER64": 64}
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
+# The names CODESYS gives a new CAN bus object (CANbus, CANbus_2, ...).
+_DEFAULT_BUS = re.compile(r"^CANbus(?:_\d+)?$", re.I)
 
 
 class ImportError_(Exception):
@@ -676,9 +678,16 @@ def convert(choice, find_eds, project=None):
     several = len(plan) > 1
     for bus, mgr, named in plan:
         net_id = _value(bus, BUS_NET_ID) or 0
-        prefix = _network_prefix(mgr, named)
-        base = prefix or (declare.identifier(bus.name)[:16] if _NAME.match(declare.identifier(bus.name)[:16] or "")
-                          else "can%d" % net_id)
+        # The bus object's name (the build names it after the network), else
+        # the channels' network prefix, else the interface (codesys-import
+        # "Network name from the bus object").
+        own = declare.identifier(bus.name)
+        if own.lower().endswith("_bus") and own[:-4].lower() in {n.lower() for _, n in named}:
+            own = own[:-4]  # the build's name for a network named like one of its nodes
+        own = own[:16]
+        if _DEFAULT_BUS.match(bus.name or "") or not _NAME.match(own):
+            own = None
+        base = own or _network_prefix(mgr, named) or "can%d" % net_id
         name = _unique(base, net_names, 16)
         where = "network %s" % name
         master = _master(mgr, res, where)

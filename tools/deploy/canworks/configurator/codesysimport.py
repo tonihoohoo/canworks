@@ -185,14 +185,19 @@ def _clashes(old, net):
 
 def conflicts(imp, cfg):
     """The imported networks whose name or CODESYS network number the
-    config uses already: [{name, net_id, with}]."""
+    config uses already: [{name, net_id, with, reason ("name" or "net_id"),
+    with_net_id, with_role ("master" or "slave")}] (codesys-import "Clash
+    reason in the import"; the imported networks are masters)."""
     have = [n for n in (cfg.get("networks") or []) if isinstance(n, dict)]
     out = []
     for net in imp.result.cfg["networks"]:
         for k, old in enumerate(have):
             if _clashes(old, net):
                 out.append({"name": net["name"], "net_id": net["codesys"]["net_id"],
-                            "with": old.get("name") or "network %d" % (k + 1)})
+                            "with": old.get("name") or "network %d" % (k + 1),
+                            "reason": "name" if _key(old.get("name")) == _key(net["name"]) else "net_id",
+                            "with_net_id": _net_id(old),
+                            "with_role": "slave" if old.get("role") == "slave" else "master"})
                 break
     return out
 

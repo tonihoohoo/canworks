@@ -780,7 +780,8 @@ def build_network(proj, plc, net, base, repo, guid, report):
         tried = []
         for like, why in cands:
             try:
-                bus = _add(host, _unique_name(host, "CANbus"), like.type, like.id, like.version)
+                bus = _add(host, _unique_name(host, net.get("bus_name") or "CANbus"), like.type, like.id,
+                           like.version)
                 break
             except Exception as e:
                 tried.append("%s %s: %s" % (like.id, like.version, _first_sentence(e)))

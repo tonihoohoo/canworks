@@ -82,6 +82,17 @@ class Plan(unittest.TestCase):
             cplan.build(load(MOTION), MOTION, overrides={"drives": 1})
         self.assertIn("drives", str(e.exception))
 
+    def test_bus_named_after_the_network(self):
+        # codesys-export "CAN bus object named after the network"; a node of
+        # the same name keeps its own (one CODESYS namespace per device).
+        plan, _ = cplan.build(load(BRIDGE), BRIDGE)
+        self.assertEqual(plan["networks"][0]["bus_name"], "field")
+        cfg = load(BRIDGE)
+        cfg["networks"][0]["nodes"][0]["name"] = "Field"
+        plan, _ = cplan.build(cfg, BRIDGE, variables=False)
+        self.assertEqual((plan["networks"][0]["nodes"][0]["name"], plan["networks"][0]["bus_name"]),
+                         ("Field", "field_bus"))
+
     def test_channels_use_the_editor_names(self):
         plan, _ = cplan.build(load(BRIDGE), BRIDGE)
         dio = [n for n in plan["networks"][0]["nodes"] if n["name"] == "dio"][0]
@@ -367,7 +378,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         plc = proj.find("PLC")[0]
-        bus = plc.find("CANbus")[0]
+        bus = plc.find("motion")[0]
         self.assertEqual((fake_codesys.param(bus, 2).value, fake_codesys.param(bus, 0).value), ("1", "500"))
         mgr = bus.find("CANopen_Manager")[0]
         self.assertEqual(fake_codesys.param(mgr, 288).value, "1")
@@ -394,7 +405,7 @@ class Script(unittest.TestCase):
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("built    0 errors, 0 warnings", report)
         plc = proj.find("PLC")[0]
-        buses = [plc.find(name)[0] for name in ("CANbus", "CANbus_2", "CANbus_3")]
+        buses = [plc.find(name)[0] for name in ("io", "motion", "host")]
         self.assertEqual([(fake_codesys.param(b, 2).value, fake_codesys.param(b, 0).value) for b in buses],
                          [("0", "250"), ("1", "500"), ("2", "250")])
         self.assertEqual([[c.get_name() for c in b.get_children()[0].get_children()] for b in buses],
@@ -424,7 +435,7 @@ class Script(unittest.TestCase):
         proj = self.project(w)
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
-        mgr = proj.find("PLC")[0].find("CANbus_2")[0].get_children()[0]
+        mgr = proj.find("PLC")[0].find("motion")[0].get_children()[0]
         self.assertEqual([c.get_name() for c in mgr.get_children()], ["rtd_2"])
 
     def test_no_project_open(self):
@@ -468,7 +479,7 @@ class Script(unittest.TestCase):
         self.assertTrue(report.startswith("result: ok"), report)
         proj = w.stored[new]
         self.assertTrue(proj.saved)
-        self.assertEqual([c.get_name() for c in proj.find("PLC")[0].find("CANbus")[0].get_children()],
+        self.assertEqual([c.get_name() for c in proj.find("PLC")[0].find("field")[0].get_children()],
                          ["CANopen_Manager"])
 
     def test_device_with_its_own_can_interfaces(self):
@@ -493,7 +504,7 @@ class Script(unittest.TestCase):
         proj = self.project(w)
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
-        bus = proj.find("PLC")[0].find("CANbus")[0]
+        bus = proj.find("PLC")[0].find("field")[0]
         self.assertEqual((bus.ident.version, bus.get_children()[0].ident.version), ("4.10.0.0", "4.5.0.0"))
 
     def test_rerun_updates_managed_nodes_and_keeps_others(self):
@@ -501,12 +512,12 @@ class Script(unittest.TestCase):
         w = fake_codesys.World()
         proj = self.project(w)
         w.run(folder, primary=proj)
-        mgr = proj.find("PLC")[0].find("CANbus")[0].get_children()[0]
+        mgr = proj.find("PLC")[0].find("field")[0].get_children()[0]
         mgr.add("by_hand", 18, w.repo.devices[-1].id, w.repo.devices[-1].version)
         fake_codesys.param(mgr.find("by_hand")[0], 1).value = "20"
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
-        bus = proj.find("PLC")[0].find("CANbus")
+        bus = proj.find("PLC")[0].find("field")
         self.assertEqual(len(bus), 1)
         self.assertEqual(len(bus[0].get_children()), 1)
         self.assertEqual(sorted(c.get_name() for c in mgr.get_children()), ["by_hand", "dio", "rtd"])
@@ -525,7 +536,7 @@ class Script(unittest.TestCase):
         return report, w.log[start:]
 
     def field(self, proj):
-        return proj.find("PLC")[0].find("CANbus")[0].get_children()[0]
+        return proj.find("PLC")[0].find("field")[0].get_children()[0]
 
     def test_event_timer_changed_in_place(self):
         w = fake_codesys.World()
@@ -713,8 +724,8 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("device   HMI (active application)", report)
-        self.assertEqual(len(hmi.find("CANbus")), 1)
-        self.assertEqual(plc.find("CANbus"), [])
+        self.assertEqual(len(hmi.find("field")), 1)
+        self.assertEqual(plc.find("field"), [])
 
     def test_named_device_differs_from_active(self):
         folder, _ = export(self, BRIDGE)
@@ -725,7 +736,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertIn("device   PLC (named in canworks-codesys.json)", report)
         self.assertIn("the active application is on HMI, so the build checks HMI, not PLC", report)
-        self.assertEqual(len(plc.find("CANbus")), 1)
+        self.assertEqual(len(plc.find("field")), 1)
 
     def test_nested_active_device(self):
         folder, _ = export(self, BRIDGE)
@@ -737,7 +748,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("device   Controller (active application)", report)
-        self.assertEqual(len(inner.find("CANbus")), 1)
+        self.assertEqual(len(inner.find("field")), 1)
 
     def test_only_device_without_application(self):
         folder, _ = export(self, BRIDGE)
@@ -755,8 +766,8 @@ class Script(unittest.TestCase):
         w.add_application(proj, hmi)
         report = w.run(folder, primary=proj)
         self.assertIn("device PLC also has a CANopen Manager on network number 0", report)
-        self.assertEqual(len(plc.find("CANbus")[0].get_children()[0].get_children()), 2)  # PLC kept its nodes
-        self.assertEqual(len(hmi.find("CANbus")), 1)
+        self.assertEqual(len(plc.find("field")[0].get_children()[0].get_children()), 2)  # PLC kept its nodes
+        self.assertEqual(len(hmi.find("field")), 1)
 
     def display(self, w, accepts_canbus=True, names=("CAN",)):
         """A device whose description brings Communication > CAN and refuses a CANbus at its root."""
@@ -775,7 +786,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("under PLC/Communication/CAN, network number 0", report)
-        bus = can.find("CANbus")[0]
+        bus = can.find("field")[0]
         self.assertEqual(len(bus.find("CANopen_Manager")), 1)
         report = w.run(folder, primary=proj)  # re-run reuses it
         self.assertTrue(report.startswith("result: ok"), report)
@@ -814,7 +825,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertEqual(can0.get_children(), [])
-        self.assertEqual(len(can1.find("CANbus")), 1)
+        self.assertEqual(len(can1.find("motion")), 1)
 
     def test_several_can_interfaces_without_a_match(self):
         folder, _ = export(self, MOTION)
@@ -827,7 +838,7 @@ class Script(unittest.TestCase):
             os.path.join(folder, cplan.PLAN_NAME))["networks"]])
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
-        self.assertEqual(len(cans[1].find("CANbus")), 1)
+        self.assertEqual(len(cans[1].find("motion")), 1)
 
     def test_nowhere_to_add_the_bus(self):
         folder, _ = export(self, BRIDGE)
@@ -863,7 +874,7 @@ class Script(unittest.TestCase):
         report = w.run(folder, primary=proj)
         self.assertTrue(report.startswith("result: ok"), report)
         self.assertIn("(vendor_bus 2.1.0.0, as on device TemplateDevice) under ExampleApp/Communication/CAN", report)
-        bus = can.find("CANbus")[0]
+        bus = can.find("field")[0]
         self.assertEqual(bus.get_device_identification().id, "vendor_bus")
         mgr = bus.find("CANopen_Manager")[0]
         self.assertEqual(mgr.get_device_identification().id, "vendor_mgr")

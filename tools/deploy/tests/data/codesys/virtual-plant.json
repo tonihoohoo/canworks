@@ -12,6 +12,7 @@
       "folder": "io",
       "net_id": 0,
       "bitrate_kbit": 250,
+      "bus_name": "io",
       "canbus": [
         {
           "id": 0,
@@ -633,6 +634,7 @@
       "folder": "motion",
       "net_id": 1,
       "bitrate_kbit": 500,
+      "bus_name": "motion",
       "canbus": [
         {
           "id": 0,
@@ -942,6 +944,7 @@
       "folder": "host",
       "net_id": 2,
       "bitrate_kbit": 250,
+      "bus_name": "host",
       "canbus": [
         {
           "id": 0,

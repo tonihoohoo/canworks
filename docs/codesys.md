@@ -34,7 +34,7 @@ In the configurator, switch the **Project target** on the Project page to CODESY
 - a CODESYS `.project`, on a PC with CODESYS: canworks runs CODESYS headless to export it (a minute or two) and does not change the project. Close the project in the CODESYS window first.
 - a PLCopenXML `.xml`, on any PC (a Mac too): in CODESYS, select the device with the CANopen Manager and use **Project > Export PLCopenXML**.
 
-A file with several devices that have a CANopen Manager (a display project with one device per variant) shows them with their CANbuses and node counts; the device of the project's active application is selected. The preview then lists each network (named after its variables' prefix, else its CANbus) and node with where its EDS comes from:
+A file with several devices that have a CANopen Manager (a display project with one device per variant) shows them with their CANbuses and node counts; the device of the project's active application is selected. The preview then lists each network (named after its CANbus, which a canworks build names after the network; when the CANbus has CODESYS's default name, `CANbus` or `CANbus_2`, after its variables' prefix, else its interface `canN`) and node with where its EDS comes from:
 
 | EDS state | Where from |
 |---|---|
@@ -73,7 +73,7 @@ The export is a folder:
 | `import_canworks.py` | The script CODESYS runs. It is the same file for every config. |
 | `README.txt` | How to run it. |
 
-The script uses the project's active device (the one whose application is the active application), finds or adds a CANbus with the network's number and a CANopen Manager under it (a new object gets a name nothing else in the device uses, such as `CANopen_Manager_2` for the second network, because CODESYS wants names unique in the whole device), installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
+The script uses the project's active device (the one whose application is the active application), finds or adds a CANbus with the network's number and a CANopen Manager under it (a new CANbus is named after the network, `field`, or `field_bus` when a node is named `field`; a new object gets a name nothing else in the device uses, such as `CANopen_Manager_2` for the second network, because CODESYS wants names unique in the whole device), installs each node's DCF into the device repository and adds the node straight away, sets the settings, names each I/O channel and builds the project. It writes `import_report.txt` next to itself and prints the same report in CODESYS's message view.
 
 Numbers in the config are read as the checks read them, so a node ID or PDO number written as a string (`"node_id": "0x02"`, `"number": "1"`) gives the same export as the plain number. When the I/O channels cannot be named, the export stops with an error (naming the field of the node and PDO when the config is at fault) rather than leaving the channels out.
 

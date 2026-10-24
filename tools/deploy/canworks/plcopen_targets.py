@@ -19,6 +19,7 @@ CODESYS is not a Modbus client of the bridge: a CODESYS PLC runs the CANopen
 master itself (the CODESYS target, --export-codesys).
 """
 
+import copy
 import ipaddress
 import os
 
@@ -112,12 +113,25 @@ def check(cfg, target):
     out = []
     if target == "trust":
         n = openplcmodbus.channel_sizes(cfg)
-        if n["I"] > modbusmap.MAX_READ_REGISTERS or n["Q"] > modbusmap.MAX_WRITE_REGISTERS:
-            hint = ("trim the mailboxes to \"requests\": 1, \"receive\": false, \"network_info\": false, "
-                    "\"cyclic_jobs\": 0 (the SDO, NMT and CAN_SEND blocks still work; CAN_RECEIVE, "
-                    "J1939_RECEIVE and CO_RECV_EMCY need the receive mailbox) or leave them out, then run "
-                    "Pack for Modbus" if (cfg.get("bridge") or {}).get("mailboxes") else
-                    "locate fewer values, then run Pack for Modbus")
+        if not _fits(n):
+            hint = "locate fewer values, then run Pack for Modbus"
+            if (cfg.get("bridge") or {}).get("mailboxes") is not None:
+                # Offer the trim only when the trimmed, packed map fits
+                # (plcopen-export "truST trim offered only when it fits").
+                trimmed = _trimmed_sizes(cfg)
+                if trimmed is None or _fits(trimmed):
+                    hint = ("trim the mailboxes to \"requests\": 1, \"receive\": false, \"network_info\": false, "
+                            "\"cyclic_jobs\": 0 (the SDO, NMT and CAN_SEND blocks still work; CAN_RECEIVE, "
+                            "J1939_RECEIVE and CO_RECV_EMCY need the receive mailbox) or leave them out, then run "
+                            "Pack for Modbus")
+                else:
+                    over = [("%d input registers, more than %d" % (trimmed["I"], modbusmap.MAX_READ_REGISTERS))
+                            if trimmed["I"] > modbusmap.MAX_READ_REGISTERS else None,
+                            ("%d holding registers, more than %d" % (trimmed["Q"], modbusmap.MAX_WRITE_REGISTERS))
+                            if trimmed["Q"] > modbusmap.MAX_WRITE_REGISTERS else None]
+                    hint = ("with a request mailbox this map needs %s: leave the mailboxes out (canworks blocks "
+                            "None on the connection) or locate fewer values, then run Pack for Modbus"
+                            % " and ".join(o for o in over if o))
             out.append("truST's Modbus driver moves one request each way (at most %d input and %d holding "
                        "registers); this map uses %d and %d: %s"
                        % (modbusmap.MAX_READ_REGISTERS, modbusmap.MAX_WRITE_REGISTERS, n["I"], n["Q"], hint))
@@ -127,6 +141,25 @@ def check(cfg, target):
                        "would switch the outputs off and on every scan: set \"watchdog_ms\": %d or more in "
                        "\"bridge\"" % (wd, TRUST_MIN_WATCHDOG_MS))
     return out
+
+
+def _fits(n):
+    return n["I"] <= modbusmap.MAX_READ_REGISTERS and n["Q"] <= modbusmap.MAX_WRITE_REGISTERS
+
+
+def _trimmed_sizes(cfg):
+    """channel_sizes() of `cfg` with the mailboxes trimmed to one request
+    mailbox and packed, as Problems' "Trim the mailboxes for truST" does;
+    None when that map cannot be laid out."""
+    trimmed = copy.deepcopy(cfg)
+    mb = dict(trimmed["bridge"].get("mailboxes") or {})
+    mb.update({"requests": 1, "receive": False, "network_info": False, "cyclic_jobs": 0})
+    mb.pop("receive_blocks", None)
+    trimmed["bridge"]["mailboxes"] = mb
+    try:
+        return openplcmodbus.channel_sizes(modbusmap.pack(trimmed))
+    except (modbusmap.MapError, openplcmodbus.OpenplcError, KeyError, TypeError, ValueError, AttributeError):
+        return None
 
 
 def global_list(cfg, decls):
@@ -143,7 +176,7 @@ def global_list(cfg, decls):
             variables.append(plcopen.Var("out_w", "ARRAY[0..%d] OF WORD" % (n["Q"] - 1),
                                          doc="holding registers 0..%d, written with function 16" % (n["Q"] - 1)))
     return plcopen.GlobalList(openplcmodbus.LIST_NAME, variables, doc=lst["documentation"].replace(
-        "Update declarations rewrites it", "export again after a config change"))
+        "Save rewrites it", "export again after a config change"))
 
 
 def _programs(cfg, decls, target, on_loss=None):
@@ -152,6 +185,8 @@ def _programs(cfg, decls, target, on_loss=None):
                                            on_loss=on_loss or openplcmodbus.inputs_on_loss(cfg, kinds))
     pin, = plcopen.parse_st(in_st)
     pout, = plcopen.parse_st(out_st)
+    for pou in (pin, pout):
+        pou.sections.insert(0, _external())
     if target == "trust":
         n = openplcmodbus.channel_sizes(cfg)
         pin.sections.insert(0, plcopen.Section("VAR", variables=[plcopen.Var("k", "INT")]))
@@ -176,8 +211,16 @@ def trust_io_st(cfg):
             "END_VAR\n" % (2 * n["I"] - 1, n["I"] - 1, 2 * n["Q"] - 1, n["Q"] - 1))
 
 
+def _external():
+    """VAR_EXTERNAL canworks: IEC 61131-3 wants it in every program that
+    uses the resource global (plcopen-export "Standard globals in the
+    generic dialect")."""
+    return plcopen.Section("VAR_EXTERNAL", variables=[plcopen.Var(openplcmodbus.LIST_NAME, plcopen.struct_name(
+        plcopen.GlobalList(openplcmodbus.LIST_NAME, [])))])
+
+
 def _main_stub():
-    return plcopen.Pou("program", MAIN, body="(* Your program: canworks_in runs before it and canworks_out after it "
+    return plcopen.Pou("program", MAIN, sections=[_external()], body="(* Your program: canworks_in runs before it and canworks_out after it "
                                              "in canworks_task. Use canworks.ok and canworks.<value>, and give "
                                              "the canworks blocks LINK := canworks.link. *)\n")
 

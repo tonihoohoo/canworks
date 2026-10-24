@@ -298,7 +298,7 @@ class RoundTrip(unittest.TestCase):
         report = self.build(w, proj, original, plant)
         self.assertTrue(report.startswith("result: ok"), report)
         devices, xml = self.export(w, proj)
-        self.assertEqual(devices, [{"name": "PLC", "buses": ["CANbus", "CANbus_2", "CANbus_3"], "nodes": 5,
+        self.assertEqual(devices, [{"name": "PLC", "buses": ["io", "motion", "host"], "nodes": 5,
                                     "active": False}])
         res = run(xml)
         expected = expected_from_example()
@@ -326,6 +326,33 @@ class RoundTrip(unittest.TestCase):
         for name in ("rtd", "dio", "new_io", "conveyor", "cell"):
             self.assertRegex(report, r"current  network \w+ node \d+ \(%s\): up to date" % name)
 
+    def test_one_network_keeps_its_name(self):
+        # codesys-export "CAN bus object named after the network", codesys-import
+        # "Network name from the bus object".
+        from . import fake_codesys
+        w = fake_codesys.World()
+        proj = w.project_with_plc(os.path.join(tmpdir(self), "one.project"))
+        bridge = os.path.join(REPO, "examples", "modbus-bridge", "canworks.json")
+        with open(bridge, encoding="utf-8") as f:
+            cfg = json.load(f)
+        report = self.build(w, proj, cfg, bridge)
+        self.assertTrue(report.startswith("result: ok"), report)
+        devices, xml = self.export(w, proj)
+        self.assertEqual(devices[0]["buses"], ["field"])
+        res = run(xml)
+        self.assertEqual([n["name"] for n in res.cfg["networks"]], ["field"])
+        # Built again from the import: the bus is reused, nothing renamed.
+        start = len(w.log)
+        report = self.build(w, proj, res.cfg, bridge)
+        self.assertTrue(report.startswith("result: ok"), report)
+        self.assertEqual([e for e in w.log[start:] if e[0] in ("rename", "add", "remove")], [])
+        # A bus with CODESYS's default name (an older build): the network is
+        # named after its interface.
+        proj.find("PLC")[0].find("field")[0].rename("CANbus")
+        devices, xml = self.export(w, proj)
+        res = run(xml)
+        self.assertEqual([(n["name"], n["adapter"]["interface"]) for n in res.cfg["networks"]], [("can0", "can0")])
+
     def test_several_devices_listed(self):
         from . import fake_codesys
         w = fake_codesys.World()
@@ -344,7 +371,27 @@ class RoundTrip(unittest.TestCase):
         self.assertIsNone(xml)
         devices, xml = self.export(w, proj, device="HMI")
         self.assertEqual(x.choices(x.read(xml))[0]["name"], "HMI")
-        self.assertTrue(hmi.find("CANbus"))
+        self.assertTrue(hmi.find("field"))
+
+
+class Conflicts(unittest.TestCase):
+    """codesys-import "Clash reason in the import": why an imported
+    network clashes with one of the open config, for the dialog."""
+
+    def test_reason_and_roles(self):
+        import types
+        from canworks.configurator import codesysimport
+        host = {"name": "host", "codesys": {"net_id": 2}, "adapter": {"interface": "can2"}, "nodes": []}
+        imp = types.SimpleNamespace(result=types.SimpleNamespace(cfg={"networks": [host]}))
+        cfg = {"networks": [{"name": "io", "adapter": {"interface": "can0"}},
+                            {"name": "cell", "role": "slave", "adapter": {"interface": "can2"}}]}
+        self.assertEqual(codesysimport.conflicts(imp, cfg), [
+            {"name": "host", "net_id": 2, "with": "cell", "reason": "net_id", "with_net_id": 2,
+             "with_role": "slave"}])
+        cfg = {"networks": [{"name": "Host", "adapter": {"interface": "can1"}}]}
+        self.assertEqual(codesysimport.conflicts(imp, cfg), [
+            {"name": "host", "net_id": 2, "with": "Host", "reason": "name", "with_net_id": 1,
+             "with_role": "master"}])
 
 
 class CommandLine(unittest.TestCase):

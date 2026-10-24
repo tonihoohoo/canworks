@@ -539,6 +539,9 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
             plan_nodes.append(plan_node)
         gone = removals(cfg).get(net["name"], [])
         plan_net = {"name": net["name"], "folder": folder, "net_id": number, "bitrate_kbit": bitrate,
+                    # a new CANbus object is named after the network (codesys-export
+                    # "CAN bus object named after the network")
+                    "bus_name": declare.identifier(folder),
                     "canbus": [_param(CANBUS_BAUDRATE, str(bitrate), "bit rate (kbit/s)")],
                     "manager": manager_params(master), "nodes": plan_nodes,
                     "remove": gone if remove_nodes else [],
@@ -550,6 +553,10 @@ def build(cfg, config_path, eds_paths=None, overrides=None, plc=None, variables=
         if interfaces.get(net["name"]):
             plan_net["interface"] = interfaces[net["name"]]
         plan_nets.append(plan_net)
+    for plan_net in plan_nets:
+        # (CODESYS names are one namespace per device: a node keeps its name)
+        if plan_net["bus_name"].lower() in device_names:
+            plan_net["bus_name"] += "_bus"
     if problems:
         raise ExportFailed(problems)
     if channels_failed is not None:
