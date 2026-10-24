@@ -73,10 +73,16 @@ if [ -x "$b/bin/canworks-bridge" ]; then
         case $name in *[!A-Za-z0-9_-]*) continue ;; esac
         state=$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)
         enabled=$("$SYSTEMCTL" is-enabled "canworks-bridge@$name.service" 2>/dev/null)
-        sum=""
+        sum="" files=""
         have sha256sum && sum=$(sha256sum "${d}canworks.json" 2>/dev/null | cut -d' ' -f1)
-        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s}' \
-            "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")")"
+        # "name sha256" of every file: the configurator compares them with the files a job uploads.
+        for f in "$d"*; do
+            { [ -f "$f" ] && have sha256sum; } || continue
+            fsum=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+            [ -z "$fsum" ] || files="$files${files:+, }$(js "$(basename "$f") $fsum")"
+        done
+        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s, "files": [%s]}' \
+            "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")" "$files")"
     done
     # Without its template unit no instance can start (a partial install).
     bridge=$(printf '{"version": %s, "prefix": %s, "unit": %s, "instances": [%s]}' \
@@ -142,8 +148,9 @@ if [ -n "$last" ]; then
     id=$(basename "$last" .log)
     state=$("$SYSTEMCTL" show -p ActiveState --value "canworks-install-$id.service" 2>/dev/null)
     result=$("$SYSTEMCTL" show -p Result --value "canworks-install-$id.service" 2>/dev/null)
-    status=$(sed -n 's/^::canworks-exit //p' "$last" | tail -n 1)
-    step=$(grep '^::canworks-step ' "$last" | tail -n 1 | sed 's/^::canworks-step //')
+    # The job appends " @<epoch>" to these lines: the status alone, the step without it.
+    status=$(sed -n 's/^::canworks-exit \([0-9]*\).*/\1/p' "$last" | tail -n 1)
+    step=$(grep '^::canworks-step ' "$last" | tail -n 1 | sed 's/^::canworks-step //; s/ @[0-9]*$//')
     size=$(wc -c < "$last" | tr -d ' ')
     job=$(printf '{"id": %s, "state": %s, "result": %s, "exit": %s, "step": %s, "log_size": %s}' \
         "$(js "$id")" "$(js "$state")" "$(js "$result")" "$(jn "$status")" "$(js "$step")" "$(jn "$size")")

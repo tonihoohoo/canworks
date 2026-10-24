@@ -61,6 +61,18 @@ check '[ ! -e "$T/opt" ] && [ ! -e "$T/units/canworks-link.service" ]' "--withou
 check '! grep -q "runtime=" "$T/avahi/services/canworks.service" && ! grep -q "id=" "$T/avahi/services/canworks.service"' \
     "the advertisement has no runtime port or link ID"
 
+# The advertised diagnostics port is the config's, unless --diag-port names one.
+printf '{"diagnostics": {"port": 7541}, "modbus": {"port": 1502}}\n' > "$T/c7541.json"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --discovery-only --runtime-port none --config "$T/c7541.json" > "$T/out"
+check 'grep -q "<port>7541</port>" "$T/avahi/services/canworks.service" && grep -q "<txt-record>diag=7541</txt-record>" "$T/avahi/services/canworks.service"' \
+    "the advertisement carries the config's diagnostics port"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --discovery-only --runtime-port none --config "$T/c7541.json" \
+    --diag-port 7600 > "$T/out"
+check 'grep -q "<txt-record>diag=7600</txt-record>" "$T/avahi/services/canworks.service"' "--diag-port wins over the config"
+"$REPO/scripts/install-link.sh" --prefix "$T/opt" --discovery-only --runtime-port none --config /x.json > "$T/out"
+check 'grep -q "<txt-record>diag=7531</txt-record>" "$T/avahi/services/canworks.service"' \
+    "a config that cannot be read gives the default port"
+
 # device-link-switches: discovery next to an installed link keeps its ID,
 # link off with --keep-discovery, discovery off, link without discovery.
 rm -f "$T/avahi/services/canworks.service"

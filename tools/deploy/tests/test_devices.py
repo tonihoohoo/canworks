@@ -146,6 +146,32 @@ class Plan(unittest.TestCase):
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "bridge")["state"], "ok")
 
+    def test_current_config_over_every_uploaded_file(self):
+        # The config is current only when every file the job uploads matches (an edited EDS does not).
+        b = self.current()
+        b["instances"][0]["files"] = ["canworks.json aa", "dio16.eds e1", "old.eds 00"]
+        saved = ["canworks.json aa", "dio16.eds e1"]
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.0", instance="line3", config_sha256=saved)
+        self.assertIsNone(p["main"])  # a file left on the device from before does not matter
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.0", instance="line3",
+                      config_sha256=["canworks.json aa", "dio16.eds e2"])
+        self.assertEqual((p["main"]["action"], p["main"]["label"]), ("bridge_config", "Start this project's bridge"))
+        self.assertEqual(row(p, "bridge")["state"], "warn")
+        # A probe from before the file list: canworks.json's own hash.
+        p = plan.plan(probe(bridge=self.current()), "bridge", "0.98.0", instance="line3", config_sha256=saved)
+        self.assertIsNone(p["main"])
+
+    def test_config_hashes(self):
+        d = tmpdir(self)
+        for name, text in (("canworks.json", "{}"), ("dio16.eds", "[x]"), (".hidden", "")):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        os.makedirs(os.path.join(d, "sub"))
+        self.assertEqual(service.config_hashes(os.path.join(d, "canworks.json")),
+                         ["canworks.json " + service.file_sha256(os.path.join(d, "canworks.json")),
+                          "dio16.eds " + service.file_sha256(os.path.join(d, "dio16.eds"))])
+        self.assertIsNone(service.config_hashes(None))
+
     def test_codesys(self):
         p = plan.plan(probe(), "codesys", "0.98.0")
         self.assertIsNone(p["main"])
@@ -358,14 +384,14 @@ class Jobs(unittest.TestCase):
     paths = jobs.Paths()
 
     def test_commands(self):
-        bridge = ("curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.98.0/scripts/"
-                  "install-bridge.sh | bash -s -- --version 0.98.0")
+        bridge = ("release_script https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.98.0/scripts/"
+                  "install-bridge.sh --version 0.98.0")
         self.assertEqual(jobs.commands("install_bridge", "0.98.0", self.paths), [bridge])
         self.assertEqual(jobs.commands("install_bridge", "0.98.0", self.paths, discovery=False),
                          [bridge + " --without-discovery"])
         line = jobs.commands("install_bridge", "0.98.0", self.paths, instance="line3",
                              upload="/tmp/canworks-bridge-upload.abc")[0]
-        self.assertIn("install-bridge.sh | bash -s -- --version 0.98.0 --instance line3 --config "
+        self.assertIn("install-bridge.sh --version 0.98.0 --instance line3 --config "
                       "/tmp/canworks-bridge-upload.abc --remove-config-dir --with-link line3", line)
         self.assertTrue(jobs.commands("uninstall_bridge", "0.98.0", self.paths, purge=True)[0].endswith(
             "--uninstall --purge"))
@@ -381,7 +407,7 @@ class Jobs(unittest.TestCase):
                               upload=args["upload"])
 
     def test_link_commands(self):
-        sh = "install-link.sh | bash -s -- "
+        sh = "install-link.sh "
         on = jobs.commands("link_on", "0.98.0", self.paths, discovery=False,
                            link_config="/etc/canworks-bridge/cell/canworks.json", runtime_port="8443")[0]
         self.assertTrue(on.endswith(sh + "--version 0.98.0 --config /etc/canworks-bridge/cell/canworks.json "
@@ -402,8 +428,8 @@ class Jobs(unittest.TestCase):
                 jobs.commands("link_on", "0.98.0", self.paths, **args)
 
     def test_adapter_commands(self):
-        sh = ("curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.131.0/scripts/"
-              "install-adapter.sh | bash -s -- --version 0.131.0")
+        sh = ("release_script https://raw.githubusercontent.com/tonihoohoo/canworks/deploy-v0.131.0/scripts/"
+              "install-adapter.sh --version 0.131.0")
         up = "/tmp/canworks-bridge-upload.abc"
         on = jobs.commands("adapter_on", "0.131.0", self.paths, upload=up, adapter="socketcan:can0", bitrate_kbit=500,
                            port=7536, allow_changes=True, user="pi")
@@ -450,6 +476,48 @@ class Jobs(unittest.TestCase):
             jobs.check_id("../x")
         self.assertEqual(jobs.instance_name("Line 3 (hall)"), "Line-3-hall")
         self.assertEqual(jobs.instance_name("..."), "canworks")
+
+    @unittest.skipUnless(HAVE_SH and shutil.which("flock") and shutil.which("bash"), "needs sh, flock and bash")
+    def test_failed_download_fails_the_job(self):
+        # A release script that cannot be downloaded (the tag is gone: curl -f exits 22) ends the job failed.
+        d = tmpdir(self)
+        bin_ = os.path.join(d, "bin")
+        os.makedirs(bin_)
+        with open(os.path.join(bin_, "curl"), "w") as f:
+            f.write("#!/bin/sh\necho 'curl: (22) The requested URL returned error: 404' >&2\nexit 22\n")
+        os.chmod(os.path.join(bin_, "curl"), 0o755)
+        paths = jobs.Paths(log_dir=os.path.join(d, "log"), state_dir=os.path.join(d, "state"),
+                           lock=os.path.join(d, "lock"))
+        os.makedirs(paths.log_dir)
+        job = "20261024T000000Z-abcd"
+        for action in ("uninstall_bridge", "link_off"):
+            with self.subTest(action=action):
+                script = os.path.join(d, action + ".sh")
+                with open(script, "w") as f:
+                    f.write(jobs.job_script(job, action, jobs.commands(action, "0.98.0", paths) + ["echo after"],
+                                            paths))
+                if os.path.exists(paths.log(job)):
+                    os.remove(paths.log(job))
+                subprocess.run(["sh", script], env=dict(os.environ, PATH=bin_ + os.pathsep + os.environ["PATH"]),
+                               check=True)
+                with open(paths.log(job)) as f:
+                    out = jobs.parse(f.read())
+                self.assertEqual(out["exit"], 22)
+                name = "install-bridge.sh" if action == "uninstall_bridge" else "install-link.sh"
+                self.assertTrue(any(l.startswith("could not download %s 0.98.0" % name) for l in out["lines"]),
+                                out["lines"])
+                self.assertNotIn("after", out["lines"])
+                self.assertIn("not on GitHub", jobs.hint(out["lines"]))
+        # A downloaded script runs with the line's arguments.
+        with open(os.path.join(bin_, "curl"), "w") as f:
+            f.write('#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\necho \'echo "ran $*"\' > "$2"\n')
+        os.remove(paths.log(job))
+        with open(script, "w") as f:
+            f.write(jobs.job_script(job, "link_off", jobs.commands("link_off", "0.98.0", paths), paths))
+        subprocess.run(["sh", script], env=dict(os.environ, PATH=bin_ + os.pathsep + os.environ["PATH"]), check=True)
+        with open(paths.log(job)) as f:
+            out = jobs.parse(f.read())
+        self.assertEqual((out["exit"], out["lines"]), (0, ["ran --uninstall --keep-discovery"]))
 
     def test_hints(self):
         self.assertIn("disk is full", jobs.hint(["cp: write error: No space left on device"]))
@@ -565,15 +633,19 @@ class Probe(unittest.TestCase):
         self.write("etc/canworks-bridge/no-config/README", "")
         self.write("var/log/canworks-install/20261020T100000Z-aaaa.log", "old\n")
         self.write("var/log/canworks-install/20261021T100000Z-bbbb.log",
-                   "::canworks-job x @1\n::canworks-step 2/5 Building @2\n::canworks-exit 0\n")
+                   "::canworks-job x @1\n::canworks-step 2/5 Building @2\n::canworks-exit 0 @3\n")
         p = self.run_probe()
         b = p["bridge"]
         self.assertEqual((b["version"], b["prefix"]), ("0.97.0", "/opt/canworks"))
         self.assertEqual([i["name"] for i in b["instances"]], ["line3", "line4"])
         self.assertEqual(b["instances"][0]["state"], "active")
         self.assertEqual(len(b["instances"][0]["sha256"] or "x" * 64), 64)
+        if shutil.which("sha256sum"):
+            # Every file of the instance, as the plan compares them with the files a job uploads.
+            self.assertEqual(b["instances"][1]["files"], ["canworks.json " + service.file_sha256(
+                os.path.join(self.root, "etc/canworks-bridge/line4/canworks.json"))])
         self.assertEqual(p["install_job"], {"id": "20261021T100000Z-bbbb", "state": "inactive", "result": "success",
-                                            "exit": 0, "step": "2/5 Building @2", "log_size": 70})
+                                            "exit": 0, "step": "2/5 Building", "log_size": 73})
 
     def test_adapter_servers(self):
         # add-devices-adapter-server: the units, their options and the connected PCs, without sudo.

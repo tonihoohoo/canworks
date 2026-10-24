@@ -54,13 +54,13 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 5. Installers and updates
 
-- [ ] 5.1 INSTALLERS-1: download job scripts to a file and run it, also in `install-bridge.sh --ssh` and `install-bridge.ps1`; test with a 404 curl stand-in (job ends failed with the download message).
-- [ ] 5.2 INSTALLERS-2: job options from the probe (link installed, its instance, discovery advertised); Options box shown open when they differ; tests.
-- [ ] 5.3 INSTALLERS-3: `install-link.sh` reads `diagnostics.port` from `--config`; test with port 7541.
-- [ ] 5.4 INSTALLERS-4: `remove()` forgets the running job; probe clears inactive jobs; test.
-- [ ] 5.5 INSTALLERS-5: the re-check waits for a running check; test.
-- [ ] 5.6 INSTALLERS-6: probe and plan compare `name sha256` of every uploaded file; test with an edited EDS.
-- [ ] 5.7 INSTALLERS-7: probe exit and step parsed as numbers; test.
+- [x] 5.1 INSTALLERS-1: download job scripts to a file and run it, also in `install-bridge.sh --ssh` and `install-bridge.ps1`; test with a 404 curl stand-in (job ends failed with the download message).
+- [x] 5.2 INSTALLERS-2: job options from the probe (link installed, its instance, discovery advertised); Options box shown open when they differ; tests.
+- [x] 5.3 INSTALLERS-3: `install-link.sh` reads `diagnostics.port` from `--config`; test with port 7541.
+- [x] 5.4 INSTALLERS-4: `remove()` forgets the running job; probe clears inactive jobs; test.
+- [x] 5.5 INSTALLERS-5: the re-check waits for a running check; test.
+- [x] 5.6 INSTALLERS-6: probe and plan compare `name sha256` of every uploaded file; test with an edited EDS.
+- [x] 5.7 INSTALLERS-7: probe exit and step parsed as numbers; test.
 
 ## 6. Docs and specs
 

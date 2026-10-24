@@ -323,11 +323,16 @@ function devMain(d, plan) {
     onclick: () => devStart(d.id, m.action) }, m.label);
   box.append(el("div", { class: "toolbar" }, go, plan.blocked ? el("span", { class: "field-msg warning", dataset: { devices: "blocked" } }, plan.blocked) : null));
   if (m.hint) box.append(el("p", { class: "muted", dataset: { devices: "main-hint" } }, m.hint));
-  // The options, folded: the remote link and discovery are on unless switched off.
+  // The options start as the device has them (a new install: the remote link and
+  // discovery on), shown unfolded when one is off.
   // A bridge installed with no config has no instance to link or announce: no options.
   if (m.action !== "bridge_config" && !(m.action === "install_bridge" && !DEV.list.instance)) {
-    const o = DEV.options || (DEV.options = { link: true, discovery: true });
-    const box2 = el("details", { class: "devices-options", dataset: { devices: "options" } }, el("summary", null, "Options"));
+    const base = plan.options || { link: true, discovery: true };
+    const key = `${d.id} ${JSON.stringify(base)}`;
+    if (DEV.optionsKey !== key) { DEV.options = Object.assign({}, base); DEV.optionsKey = key; }
+    const o = DEV.options;
+    const box2 = el("details", { class: "devices-options", dataset: { devices: "options" },
+      open: !m.link_kept && base.link === false || base.discovery === false }, el("summary", null, "Options"));
     const opt = (key, label, help) => {
       const c = el("input", { type: "checkbox", dataset: { devicesOption: key } });
       c.checked = o[key] !== false;

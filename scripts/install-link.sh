@@ -6,14 +6,15 @@
 # discovery on and off.
 #
 #   sudo scripts/install-link.sh --config FILE [--runtime-port 8443|none]
-#                                [--diag-port 7531] [--prefix /opt/canworks-link]
+#                                [--diag-port PORT] [--prefix /opt/canworks-link]
 #                                [--without-discovery] [--version X] [--dry-run]
 #   sudo scripts/install-link.sh --discovery-only --config FILE [--runtime-port ...]
 #   sudo scripts/install-link.sh --remove-discovery
 #   sudo scripts/install-link.sh --uninstall [--keep-discovery] [--purge] [--prefix ...]
 #
 # --config is the deployed canworks.json the bridge runs
-# (/etc/canworks-bridge/NAME/canworks.json).
+# (/etc/canworks-bridge/NAME/canworks.json). The advertisement carries its
+# diagnostics.port (7531 when it has none) unless --diag-port names another.
 # The link service reads its token_verifier for pairing and its
 # diagnostics.remote_link for internet access, and follows changes to it.
 #
@@ -41,7 +42,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 PREFIX=/opt/canworks-link
 CONFIG=""
 RUNTIME_PORT=8443
-DIAG_PORT=7531
+DIAG_PORT=""
 LINK_PORT=7533
 WITH_LINK=1
 UNINSTALL=0
@@ -230,7 +231,14 @@ EOF
 fi
 
 # The advertisement: a static Avahi service, so the device is listed even
-# while the PLC is stopped.
+# while the PLC is stopped. Its port is the one the bridge listens on: the
+# config's diagnostics.port.
+if [ -z "$DIAG_PORT" ] && command -v python3 >/dev/null 2>&1; then
+    DIAG_PORT=$(python3 -c 'import json, sys
+p = (json.load(open(sys.argv[1])).get("diagnostics") or {}).get("port")
+print(p if type(p) is int and 0 < p < 65536 else "")' "$CONFIG" 2>/dev/null) || DIAG_PORT=""
+fi
+case "$DIAG_PORT" in ''|*[!0-9]*) DIAG_PORT=7531 ;; esac
 if [ "$WITH_DISCOVERY" -eq 0 ]; then
     if [ -f "$AVAHI_FILE" ]; then
         rm -f "$AVAHI_FILE"
