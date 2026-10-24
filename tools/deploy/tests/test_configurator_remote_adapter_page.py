@@ -159,6 +159,18 @@ class RemoteWords(RemotePage):
         self.assertNotIn("USB adapter", text)
         self.assertNotIn("USB adapter", pg.evaluate("NO_CHANGES"))
 
+    def test_read_only_server_offers_no_unlock(self):
+        pg = self.page
+        self.srv.allow_changes = False
+        self.device(7, heartbeat_s=0.05)
+        self.commission()
+        self.connect_remote()
+        pg.wait_for_selector('#conn-bar [data-conn="allow"]:has-text("Read-only (adapter server)")')
+        note = '[data-online="lss-no-changes"]'
+        pg.wait_for_selector(note + ':has-text("started without --allow-changes")')
+        self.assertEqual(pg.locator(note + " button[data-unlock]").count(), 0)
+        self.assertIn("Change… on the Devices page", pg.inner_text(note))
+
     def test_trace_drops_are_the_adapter_machines(self):
         pg = self.page
         self.device(7, heartbeat_s=0.05)
