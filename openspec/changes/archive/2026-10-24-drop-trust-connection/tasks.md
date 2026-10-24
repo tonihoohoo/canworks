@@ -21,7 +21,7 @@
 
 - [x] 4.1 `test_plcopen.py`: remove the truST cases and goldens (`tests/data/plcopen/trust/`), `--for trust` usage error test, `TrustImport` imports and builds the generic export with all mailboxes (no `canworks_io.st`)
 - [x] 4.2 `test_configurator_bridge.py`, `test_configurator_bridge_page.py`, other page tests: truST cases out or moved to Other PLC; a `kind: trust` config fails the check
-- [ ] 4.3 CI step name, `ci_changes.py`, `plcopen-paths.txt` and `test_changes.py` wording ("compile check"); CI time: wall and summed job time against the main baseline, in the PR description
+- [x] 4.3 CI step name, `ci_changes.py`, `plcopen-paths.txt` and `test_changes.py` wording ("compile check"); CI time: wall and summed job time against the main baseline, in the PR description. 212 s wall / 1510 s summed vs 226 s / 1641 s on main (#302)
 
 ## 5. Docs and version
 
@@ -33,4 +33,4 @@
 
 None: no bridge, device or runtime behaviour changes. A desktop check of Add connection and an Other PLC Download on Mac is enough (6.1).
 
-- [ ] 6.1 Mac configurator: Add connection lists no truST; an Other PLC PLCopen Download gives the zip; an old config with `kind: trust` shows the check error in Problems
+- [x] 6.1 Mac configurator: Add connection lists no truST; an Other PLC PLCopen Download gives the zip; an old config with `kind: trust` shows the check error in Problems. Passed 2026-10-24 (tools 0.135.0 from source): `--check` refuses `kind` "trust" listing openplc, plc, nodered, hmi; `--for trust` is an invalid choice; `--for generic` writes 3 files; Add connection lists OpenPLC, Other PLC, Node-RED and HMI; the Other PLC Download zip holds README.txt, canworks-modbus-map.csv and canworks.xml
