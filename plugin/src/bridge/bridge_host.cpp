@@ -373,6 +373,13 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   zero_settle_ = std::max(std::chrono::milliseconds(100), std::chrono::milliseconds(2 * max_sync_us / 1000));
 
   server_.on_write = [this] { on_write(); };
+  {
+    // Read Device Identification (modbus-bridge "Device identification
+    // with the map hash"): a client checks the map without the PLC link.
+    char hash[16];
+    std::snprintf(hash, sizeof(hash), "%08X", map_hash_);
+    server_.identity = DeviceIdentity{"canworks", "canworks-bridge", version ? version : "", hash};
+  }
   server_.log = [](const std::string& line) { log_info("%s", line.c_str()); };
 
   Clock::time_point now = Clock::now();

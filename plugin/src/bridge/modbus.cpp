@@ -68,13 +68,56 @@ void write_coil(ByteImage::Access& a, unsigned bit, bool on) {
   }
 }
 
+// Read Device Identification (function 43, MEI type 14): read code 1 basic
+// (objects 0-2), 2 regular (no regular objects of its own: the basic ones),
+// 3 extended (also 0x80), each as a stream from the object asked for (one
+// not in the stream restarts it at 0), and 4 one object. Conformity level
+// 0x83: extended, stream and individual access. Every answer fits one PDU.
+bool read_device_id(const DeviceIdentity& id, const uint8_t* pdu, size_t n, std::vector<uint8_t>& resp) {
+  const uint8_t f = kEncapsulatedInterface;
+  if (n != 4) {
+    exception_pdu(f, kIllegalDataValue, resp);
+    return false;
+  }
+  const uint8_t code = pdu[2], first = pdu[3];
+  const std::pair<uint8_t, const std::string*> objects[] = {
+      {0, &id.vendor}, {1, &id.product}, {2, &id.version}, {kDeviceIdMapHash, &id.map_hash}};
+  std::vector<std::pair<uint8_t, const std::string*>> pick;
+  if (code >= 1 && code <= 3) {
+    size_t count = code == 3 ? 4 : 3;
+    size_t from = 0;
+    for (size_t i = 0; i < count; ++i)
+      if (objects[i].first == first) from = i;
+    pick.assign(objects + from, objects + count);
+  } else if (code == 4) {
+    for (const auto& o : objects)
+      if (o.first == first) pick.push_back(o);
+    if (pick.empty()) {
+      exception_pdu(f, kIllegalDataAddress, resp);
+      return false;
+    }
+  } else {
+    exception_pdu(f, kIllegalDataValue, resp);
+    return false;
+  }
+  resp.assign({f, kMeiReadDeviceId, code, 0x83, 0x00, 0x00, static_cast<uint8_t>(pick.size())});
+  for (const auto& o : pick) {
+    size_t len = std::min<size_t>(o.second->size(), 64);
+    resp.push_back(o.first);
+    resp.push_back(static_cast<uint8_t>(len));
+    resp.insert(resp.end(), o.second->begin(), o.second->begin() + static_cast<std::ptrdiff_t>(len));
+  }
+  return false;
+}
+
 }  // namespace
 
 void exception_pdu(uint8_t function, uint8_t code, std::vector<uint8_t>& resp) {
   resp.assign({static_cast<uint8_t>(function | 0x80), code});
 }
 
-bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, std::vector<uint8_t>& resp) {
+bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, std::vector<uint8_t>& resp,
+                const DeviceIdentity* identity) {
   resp.clear();
   if (n < 1) return false;
   uint8_t f = pdu[0];
@@ -84,6 +127,10 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
   };
   auto u16 = [&](size_t at) { return get_be16(pdu + at); };
 
+  if (f == kEncapsulatedInterface) {
+    if (!identity || n < 2 || pdu[1] != kMeiReadDeviceId) return fail(kIllegalFunction);
+    return read_device_id(*identity, pdu, n, resp);
+  }
   switch (f) {
     case kReadCoils:
     case kReadDiscreteInputs:

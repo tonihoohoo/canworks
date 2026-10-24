@@ -166,7 +166,18 @@ Values are stored most significant byte first. A 32-bit value at `%ID4` is input
 
 An entry's [bit channels](config.md#bit-channels) name bits of the entry's own location: they have no location of their own in a bridge config, and the register map lists each as the discrete input or coil that holds it, named `<node>.<name>` (`dio.jog_x_plus`) or `<entry>.bit<n>`. With `0x6041` at `%IW10` (bytes 10 and 11), statusword bit 3 is discrete input 91 (byte 11, the low byte) and bit 9 is discrete input 81. Writing a coil of an output entry changes only that bit.
 
-The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write) and 8 (loopback). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection that sent no complete request for 60 s is closed, and so is one that holds an incomplete request for 5 s. Every connection uses TCP keepalive (5 s idle, 2 s interval, 3 probes), so one whose peer lost power or its network is closed within about 11 s. Each connection may have at most 8 KB of replies it has not read: while it is over that, the bridge reads no more requests from it, and after 10 s over it the connection is closed (`closing ADDRESS: replies not read`). Requests a client sends ahead wait in its own connection: the bridge reads more only once less than one request is waiting.
+The bridge supports functions 1, 2, 3, 4 (read coils, discrete inputs, holding and input registers), 5, 6, 15, 16 (write), 23 (read and write), 8 (loopback) and 43 with MEI type 14 ([device identification](#device-identification)). Addresses outside the image get exception 0x02, more than 125 registers read, 123 registers written or 2000 bits get 0x03. A connection that sent no complete request for 60 s is closed, and so is one that holds an incomplete request for 5 s. Every connection uses TCP keepalive (5 s idle, 2 s interval, 3 probes), so one whose peer lost power or its network is closed within about 11 s. Each connection may have at most 8 KB of replies it has not read: while it is over that, the bridge reads no more requests from it, and after 10 s over it the connection is closed (`closing ADDRESS: replies not read`). Requests a client sends ahead wait in its own connection: the bridge reads more only once less than one request is waiting.
+
+<a id="device-identification"></a>**Device identification.** Function 43 with MEI type 14 (Read Device Identification) answers every client, also one that may not write, for every config, with or without the PLC link. It is how a client checks that it was made for the map the bridge serves (the Node-RED package does it at connect):
+
+| Object | Value |
+| --- | --- |
+| 0x00 VendorName | `canworks` |
+| 0x01 ProductCode | `canworks-bridge` |
+| 0x02 MajorMinorRevision | the bridge version, as `canworks-bridge --version` prints it |
+| 0x80 (private) | the map hash as 8 upper-case hex digits (`1234ABCD`), the `map hash 0x1234abcd` of the log and `canworks-diag status` |
+
+The request is `2B 0E <read code> <object id>`. Read code 1 (basic) and 2 (regular, which has no objects of its own) give objects 0x00-0x02, 3 (extended) objects 0x00-0x02 and 0x80, each from the object asked for (an object that is not in that list starts the list at 0x00); 4 gives the one object asked for, and an object other than these four gets exception 0x02. The answer is `2B 0E <read code> 83 00 00 <number of objects>`, then per object its id, its length in bytes and its ASCII text: conformity level 0x83 (extended, stream and individual access), no more to follow, every answer in one response. For example `2B 0E 04 80` gets `2B 0E 04 83 00 00 01 80 08 31 32 33 34 41 42 43 44`. Read code 0 or above 4, or a request that is not 4 bytes long, gets exception 0x03; function 43 with any other MEI type gets exception 0x01, which is also what a bridge from before this function answers.
 
 Every read is answered from one snapshot of the inputs, and every write is applied as one snapshot of the outputs, so a value over several registers never mixes two bus updates when the client reads or writes it in one request.
 
@@ -227,7 +238,7 @@ A PLC writes its whole output image every poll, so after a bridge restart the PL
 
 ## Function block mailboxes
 
-`bridge.mailboxes` gives the [function blocks](plc-library.md#the-mailboxes) (long SDO transfers, CAN frames, J1939 messages and trouble codes, EMCY) their registers. Any Modbus client can use them; the library's blocks do it for a PLC program. A config without `mailboxes` has none, and that is the default: every client polls them on every cycle, so they are on only when a program uses them ([plc-library.md](plc-library.md#with-or-without-the-mailboxes)). With mailboxes, the status answer has `bridge.mailboxes` with `operations` and `receivers_opened` since the start, which `canworks-diag status` prints.
+`bridge.mailboxes` gives the [function blocks](plc-library.md#the-mailboxes) (long SDO transfers, CAN frames, J1939 messages and trouble codes, EMCY) their registers. Any Modbus client can use them; the library's blocks do it for a PLC program. A config without `mailboxes` has none, and that is the default: every client polls them on every cycle, so they are on only when a program uses them ([plc-library.md](plc-library.md#with-or-without-the-mailboxes)). With mailboxes, the status answer has `bridge.mailboxes` with `operations` and `receivers_opened` since the start, and `info_reads` (reads of the network info blocks and the cyclic job table, which blocks like `CAN_BUS_INFO` use without a request), which `canworks-diag status` prints.
 
 ```json
 "mailboxes": { "requests": 1, "receive": true, "cyclic_jobs": 4, "network_info": true,
@@ -236,7 +247,7 @@ A PLC writes its whole output image every poll, so after a bridge restart the PL
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `requests` | 1 | Request mailboxes, 0 to 4: operations that run at the same time. |
+| `requests` | 1 | Request mailboxes, 0 to 4: operations that run at the same time. Opening a receiver or a cyclic job takes one, so 0 is refused while `receive` is on or `cyclic_jobs` is above 0. |
 | `receive` | true | The receive mailbox for CAN, J1939 and EMCY receivers. |
 | `receive_blocks` | 1 | Receive mailbox blocks of 120 registers, 1 or 2. Two carry more than twice the records per batch, for one more Modbus request per poll ([throughput](#receive-throughput)). |
 | `cyclic_jobs` | 4 | Cyclic frame jobs, 0 to 16. |
@@ -273,7 +284,9 @@ At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive 
 
 **Cyclic jobs.** The table shows each job's state, ERROR_ID, generation and frame count. A job whose keepalive register has not changed for 1 s is stopped, so a client that went away does not leave a frame running.
 
-**When the link stops.** When the PLC link header says stopped or another map, or the watchdog fires, the bridge cancels every running operation, stops every cyclic job, closes every receiver and empties the receive mailbox; a network restart does the same for that network. One log line says how many it ended.
+**When the link stops.** When the PLC link header says stopped or another map, the watchdog fires, or the control block sets idle, the bridge cancels every running operation, stops every cyclic job, closes every receiver and empties the receive mailbox; a CANopen session restart (its interface went down and up) does the same for that network only. One log line says how many it ended and why (`idle`, `the watchdog`, ...). Cancelled (ERROR_ID 8) means the result is discarded: an SDO transfer or a frame still waiting in its queue (behind another transfer to the same node, say) is dropped and never sent, but one already on the bus finishes and may have reached the device.
+
+**After a bridge restart.** A PLC rewrites its last request with every poll, so the first request words a mailbox gets from a client after the bridge starts only set its counter: they end with ERROR_ID 8 and are not run, and the client's next counter runs. Until a client has written a mailbox's request words, the mailbox answers nothing.
 
 ## Connections
 
@@ -375,7 +388,7 @@ The tool checks the config, sends it with its EDS files and simulation file over
 
 | What happens | What the bridge does | What the PLC sees | What the nodes see |
 |---|---|---|---|
-| Clean stop (`systemctl stop`, an update) | sends every node `master.on_plc_stop` (pre-operational by default), then closes the network | no answers; `canworks.ok` FALSE after the stale time | the NMT command, then no SYNC or heartbeat |
+| Clean stop (`systemctl stop`, an update) | every CANopen master network sends its nodes `master.on_plc_stop` (pre-operational by default), then closes; the bridge exits 0 whatever the number of networks | no answers; `canworks.ok` FALSE after the stale time | the NMT command, then no SYNC or heartbeat |
 | Crash, kill, out of memory | nothing: the process is gone. systemd starts it again 1 s later | as above; after the restart the status counter starts from 0 and byte 7 bit 0 is set | SYNC and the master heartbeat stop; RPDO values stay unless the node watches the master's heartbeat (`heartbeat_consumer`) or has an RPDO deadline (`event_timer_ms`) |
 | Hang (a thread makes no progress for 10 s) | logs which thread and aborts; systemd or the container restarts it. systemd's watchdog (20 s) is the backstop | connections are accepted but not answered; `canworks.ok` FALSE | as for a crash |
 | Power loss | as for a crash; the next start logs that the previous run did not stop cleanly | as for a crash | as for a crash |

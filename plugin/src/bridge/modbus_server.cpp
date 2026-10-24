@@ -173,7 +173,7 @@ void ModbusServer::run() {
         size_t n = len - 1u;
         if (unit != cfg_.unit_id && unit != 0 && unit != 255) {
           exception_pdu(pdu[0], kGatewayTargetFailed, resp);
-        } else if (handle_pdu(image_, pdu, n, c.may_write, resp) && on_write) {
+        } else if (handle_pdu(image_, pdu, n, c.may_write, resp, identity.vendor.empty() ? nullptr : &identity) && on_write) {
           on_write();
         }
         uint8_t head[kMbapSize] = {f[0], f[1], 0, 0, 0, 0, unit};

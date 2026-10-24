@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -851,6 +852,25 @@ TEST(plc_link_refusals) {
       },
       OPENPLC_EXAMPLE_DIR);
   EXPECT(BridgeHost::check(path));
+}
+
+// Read Device Identification names the map hash for every config, also
+// without the PLC link (modbus-bridge "Device identification with the map
+// hash"): what the Node-RED package checks at connect.
+TEST(device_identification_names_the_map_hash) {
+  Host h;
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  cJSON* st = h.host.status_json();
+  std::string hash = cJSON_GetStringValue(cJSON_GetObjectItem(st, "map_hash"));  // "0x...", lower case
+  cJSON_Delete(st);
+  for (auto& ch : hash) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+  Client c(h.port());
+  Bytes r = c.request({43, 14, 4, 0x80});
+  EXPECT(r.size() == 17 && r[0] == 43 && r[1] == 14 && r[6] == 1 && r[7] == 0x80 && r[8] == 8);
+  EXPECT(r.size() == 17 && std::string(r.begin() + 9, r.end()) == hash.substr(2));
+  r = c.request({43, 14, 1, 0});
+  EXPECT(r.size() > 7 && r[6] == 3);
 }
 
 TEST(map_hash_vectors) {

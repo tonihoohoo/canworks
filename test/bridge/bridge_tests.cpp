@@ -62,6 +62,7 @@ struct Fixture {
     image.resize(in, out);
     cfg.listen = "127.0.0.1:0";
     server.on_write = [this] { ++writes; };
+    server.identity = DeviceIdentity{"canworks", "canworks-bridge", "9.9.9", "1234ABCD"};
     server.log = [this](const std::string& s) {
       std::lock_guard<std::mutex> l(log_mu);
       logs.push_back(s);
@@ -173,6 +174,44 @@ TEST(loopback_and_unknown_functions) {
   EXPECT(r == exc(43, kIllegalFunction));
   r = c.request({7});
   EXPECT(r == exc(7, kIllegalFunction));
+}
+
+// Function 43 / MEI 14, Read Device Identification (modbus-bridge "Device
+// identification with the map hash"): basic objects 0-2, the private object
+// 0x80 with the map hash in the extended stream and by itself.
+TEST(read_device_identification) {
+  Fixture fx;
+  Client c(fx.server.port());
+  auto obj = [](uint8_t id, const std::string& v) {
+    Bytes b{id, static_cast<uint8_t>(v.size())};
+    b.insert(b.end(), v.begin(), v.end());
+    return b;
+  };
+  auto answer = [&](uint8_t code, std::vector<Bytes> objs) {
+    Bytes b{43, 14, code, 0x83, 0, 0, static_cast<uint8_t>(objs.size())};
+    for (const Bytes& o : objs) b.insert(b.end(), o.begin(), o.end());
+    return b;
+  };
+  const Bytes vendor = obj(0, "canworks"), product = obj(1, "canworks-bridge"), version = obj(2, "9.9.9"),
+              hash = obj(0x80, "1234ABCD");
+  EXPECT(c.request({43, 14, 1, 0}) == answer(1, {vendor, product, version}));
+  EXPECT(c.request({43, 14, 1, 2}) == answer(1, {version}));
+  EXPECT(c.request({43, 14, 1, 0x80}) == answer(1, {vendor, product, version}));  // not basic: from 0
+  EXPECT(c.request({43, 14, 2, 0}) == answer(2, {vendor, product, version}));
+  EXPECT(c.request({43, 14, 3, 0}) == answer(3, {vendor, product, version, hash}));
+  EXPECT(c.request({43, 14, 3, 0x80}) == answer(3, {hash}));
+  EXPECT(c.request({43, 14, 4, 0x80}) == answer(4, {hash}));
+  EXPECT(c.request({43, 14, 4, 1}) == answer(4, {product}));
+  EXPECT(c.request({43, 14, 4, 5}) == exc(43, kIllegalDataAddress));
+  EXPECT(c.request({43, 14, 0, 0}) == exc(43, kIllegalDataValue));
+  EXPECT(c.request({43, 14, 5, 0}) == exc(43, kIllegalDataValue));
+  EXPECT(c.request({43, 14, 1}) == exc(43, kIllegalDataValue));
+  EXPECT(c.request({43, 13, 0, 0}) == exc(43, kIllegalFunction));  // other MEI types
+  // A reader that may not write gets it too.
+  ServerConfig ro;
+  Fixture fx2(ro);
+  Client c2(fx2.server.port());
+  EXPECT(c2.request({43, 14, 4, 0x80}) == answer(4, {hash}));
 }
 
 TEST(addresses_and_limits) {
