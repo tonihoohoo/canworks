@@ -40,21 +40,18 @@ OPENPLC_REMOVED = ("field 'openplc' was removed: OpenPLC is a connection on the 
 
 # bridge.connections (modbus-connections): the configurator's clients. Each
 # kind's own fields.
-CONNECTION_KINDS = ("openplc", "trust", "plc", "nodered", "hmi")
-CONNECTION_TITLES = {"openplc": "OpenPLC", "trust": "truST", "plc": "Other PLC", "nodered": "Node-RED",
+CONNECTION_KINDS = ("openplc", "plc", "nodered", "hmi")
+CONNECTION_TITLES = {"openplc": "OpenPLC", "plc": "Other PLC", "nodered": "Node-RED",
                      "hmi": "HMI, SCADA or script"}
 CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash", "stale")
 CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base", "inputs_on_loss"),
-                     "trust": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
                      "plc": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
                      "nodered": ("period_ms", "bridge_host", "blocks"),
                      "hmi": ("format",)}
-CONNECTION_FORMATS = {"trust": ("plcopen",), "plc": ("plcopen", "st"), "hmi": ("csv", "json", "st")}
+CONNECTION_FORMATS = {"plc": ("plcopen", "st"), "hmi": ("csv", "json", "st")}
 # The canworks blocks choice (mailboxes-on-demand): the parts of
-# bridge.mailboxes a connection's program uses. truST moves one request each
-# way, which holds one request mailbox and nothing more.
+# bridge.mailboxes a connection's program uses.
 CONNECTION_BLOCKS = ("none", "sdo_send", "receive", "all")
-CONNECTION_BLOCKS_TRUST = ("none", "sdo_send")
 BLOCKS_TITLES = {"none": "None", "sdo_send": "SDO and send", "receive": "SDO, send and receive", "all": "All"}
 
 # Every address may write: the explicit form `writers` needs for that.
@@ -231,9 +228,6 @@ def _connections(b, w, err, warn, link):
         if "blocks" in c:
             if c["blocks"] not in CONNECTION_BLOCKS:
                 err(cw, "field 'blocks' must be %s" % ", ".join('"%s"' % k for k in CONNECTION_BLOCKS), [cw + ".blocks"])
-            elif kind == "trust" and c["blocks"] not in CONNECTION_BLOCKS_TRUST:
-                err(cw, "%s: truST moves one request each way, so only canworks blocks None or SDO and send fit"
-                    % label, [cw + ".blocks"])
             elif kind == "nodered" and link and c["blocks"] != "none":
                 err(cw, "%s: with the PLC link the flow is read-only, so its block nodes cannot use the mailboxes: "
                         "set canworks blocks to None" % label, [cw + ".blocks"])
@@ -264,10 +258,10 @@ def _connections(b, w, err, warn, link):
                 err(w, "field 'word_order' must be \"low_first\" with an OpenPLC connection: OpenPLC's Modbus master "
                        "reads 32- and 64-bit values lowest word first", [w + ".word_order"])
     # With the PLC link one PLC writes the whole output image and the header:
-    # the OpenPLC connection, else the first truST or Other PLC that writes.
+    # the OpenPLC connection, else the first Other PLC that writes.
     # Every other writer gets the warning, whatever its kind.
     if link and writers:
-        plc = [x for x in writers if x[2] == "openplc"] or [x for x in writers if x[2] in ("trust", "plc")]
+        plc = [x for x in writers if x[2] == "openplc"] or [x for x in writers if x[2] == "plc"]
         first = plc[0] if plc else None
         for i, label, kind in writers:
             if first is not None and i == first[0]:

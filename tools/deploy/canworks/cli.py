@@ -66,13 +66,13 @@ a PLCopenXML export, or the .project itself on a Windows PC with CODESYS.
 Each node's EDS comes from --eds-dir (default: the configurator's EDS
 library) or CODESYS's device repository.
 
-  canworks-deploy --config canworks.json --export-plcopen <dir> --for trust|generic [--bridge-host HOST]
+  canworks-deploy --config canworks.json --export-plcopen <dir> --for generic [--bridge-host HOST]
 
 writes the program side of a bridge config with the PLC link ("plc_link":
 true) for a PLC other than OpenPLC: canworks.xml (PLCopen XML with the
 canworks list, canworks_in, canworks_out and the library) and the Modbus
-client setup of that PLC: a CODESYS script, truST's io.toml driver, or the
-register map (docs/plcopen.md).
+client setup of that PLC: the channels and the register map
+(docs/plcopen.md).
 
 A simulation file (simulation.json next to the config, or --sim FILE) is
 checked and travels with the config (docs/simulator.md). A config that
@@ -211,17 +211,17 @@ def parser():
                         "several networks: export "
                         "only this network (default: every network, DCFs in a folder per network, a DBC file per "
                         "network, one HTML document)")
-    p.add_argument("--for", dest="plcopen_for", choices=("trust", "generic", "codesys"),
-                   help="with --export-plcopen: the PLC: trust (truST: io.toml driver and I/O image) or generic "
-                        "(standard PLCopen XML and the register map); CODESYS runs the CANopen master itself "
+    p.add_argument("--for", dest="plcopen_for", choices=("generic", "codesys"),
+                   help="with --export-plcopen: the PLC: generic (standard PLCopen XML and the register map, for "
+                        "any PLC that imports PLCopen XML); CODESYS runs the CANopen master itself "
                         "(--codesys-import)")
     p.add_argument("--bridge-host", metavar="HOST",
                    help="with --export-plcopen: the bridge's address as the PLC sees it (default: the bridge's "
-                        "listen address; truST also takes 127.0.0.1 when the bridge listens on every address)")
+                        "listen address)")
     p.add_argument("--no-library", action="store_true",
                    help="with --export-plcopen: leave the canworks library out (the project has it already)")
     p.add_argument("--with-main", action="store_true",
-                   help="with --export-plcopen --for trust or generic: add an empty program main to the task, "
+                   help="with --export-plcopen --for generic: add an empty program main to the task, "
                         "between canworks_in and canworks_out")
     p.add_argument("--codesys-net", metavar="NAME=N", action="append",
                    help="with --export-codesys or --codesys-import: the CODESYS network number of network NAME "
@@ -315,7 +315,7 @@ def _export_modbus_map(config, path, out):
 def _export_plcopen(args, out_dir, out):
     target = args.plcopen_for
     if not target:
-        raise Failure("--export-plcopen needs --for trust or generic")
+        raise Failure("--export-plcopen needs --for generic")
     if target == "codesys":
         raise Failure(plcopen_targets.CODESYS_REFUSED)
     try:
@@ -845,7 +845,7 @@ def library_parser():
                         % (plclibrary.FILE_NAME, plcopen_targets.LIBRARY_XML_NAME))
     p.add_argument("--format", choices=("stlib", "st", "plcopen"), default="stlib",
                    help="with --out: stlib (default) the editor's library file, st one .st file per block and "
-                        "function, plcopen one PLCopen XML file, for another IEC 61131-3 PLC tool (CODESYS, truST "
+                        "function, plcopen one PLCopen XML file, for another IEC 61131-3 PLC tool (CODESYS "
                         "and others) over the Modbus bridge (docs/plcopen.md)")
     p.add_argument("--install", action="store_true",
                    help="install the library into OpenPLC Editor on this computer, as its Library Manager does "

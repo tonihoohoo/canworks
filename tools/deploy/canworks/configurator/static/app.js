@@ -1306,7 +1306,7 @@ async function newConfig(folder) {
     el("div", { class: "target-choices" },
       pick("bridge", "Modbus bridge", "canworks-bridge runs the networks and serves the values as Modbus TCP registers.",
         el("span", { class: "muted", dataset: { newWorksWith: "1" } },
-          "Works with OpenPLC, truST, other PLCs, Node-RED, and HMI, SCADA or scripts: add them as connections on the Modbus bridge page.")),
+          "Works with OpenPLC, other PLCs, Node-RED, and HMI, SCADA or scripts: add them as connections on the Modbus bridge page.")),
       pick("codesys", "CODESYS", "A CODESYS PLC runs the CANopen master; canworks builds it into your CODESYS project.")));
   const [start, startName] = folder ? splitPath(folder) : [S.lastFolder || S.state.home, ""];
   const name = el("input", { type: "text", spellcheck: "false", "aria-label": "Name", dataset: { newConfig: "name" }, placeholder: "new-machine" });
@@ -7971,23 +7971,6 @@ function bridgeProblemFixes(it) {
       b.listen = `0.0.0.0:${port}`;
       changed(true);
     })];
-  }
-  // A truST Download refused (modbus-connections "Fixes for a truST connection").
-  if (/Download refused: .*"watchdog_ms": \d+ or more/.test(it.message)) {
-    return [fix("Set the watchdog to 500 ms", "watchdog-trust", () => { b.watchdog_ms = 500; changed(true); })];
-  }
-  if (/Download refused: .*trim the mailboxes/.test(it.message)) {
-    const lost = hasOpenplc() ? " OpenPLC's CAN_RECEIVE, J1939_RECEIVE, CO_RECV_EMCY, CAN_SEND_CYCLIC, CAN_BUS_INFO and J1939_ECU_INFO stop working too." : "";
-    const button = fix("Trim the mailboxes for truST", "trim-trust", (e) => busy(e.currentTarget, "Trimming…", trimMailboxesForTrust));
-    button.title = "One request mailbox and nothing else, then Pack for Modbus." + lost;
-    return [button];
-  }
-  // Even trimmed the map is too big for truST (EXPORTS-2): its canworks blocks to None, without the mailboxes.
-  const ci = (it.paths || []).map((p) => /^bridge\.connections\[(\d+)\]$/.exec(p)).find(Boolean);
-  if (ci && /Download refused: .*leave the mailboxes out \(canworks blocks None/.test(it.message)) {
-    const button = fix("Set canworks blocks to None", "trust-blocks-none", (e) => busy(e.currentTarget, "Packing…", () => noMailboxesForTrust(Number(ci[1]))));
-    button.title = "The connection's canworks blocks to None and, when nothing else needs them, the mailboxes off, then Pack for Modbus.";
-    return [button];
   }
   const m = /^bridge\.connections\[(\d+)\]$/.exec(((it.paths || [])[0]) || "");
   if (m && /Download again$/.test(it.message)) {

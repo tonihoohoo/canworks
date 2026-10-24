@@ -214,8 +214,9 @@ class Page(unittest.TestCase):
         self.assertTrue(pg.is_checked('[data-new-target="bridge"]'))
         self.assertIn("What runs the CAN networks?", pg.inner_text("[data-new-config=form]"))
         works = pg.inner_text("[data-new-works-with]")
-        for kind in ("OpenPLC", "truST", "other PLCs", "Node-RED", "HMI, SCADA or scripts"):
+        for kind in ("OpenPLC", "other PLCs", "Node-RED", "HMI, SCADA or scripts"):
             self.assertIn(kind, works)
+        self.assertNotIn("truST", works)
         pg.fill("[data-new-config=location]", self.dir)
         pg.fill("[data-new-config=name]", name)
         pg.click("#modal-buttons button[data-value=create]")

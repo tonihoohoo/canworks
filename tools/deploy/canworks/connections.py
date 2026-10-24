@@ -23,8 +23,6 @@ TITLES = bridgecheck.CONNECTION_TITLES
 GETS = {
     "openplc": "OpenPLC Runtime on the bridge's device: Save keeps the editor's remote device and the canworks "
                "programs in sync.",
-    "trust": "A truST runtime: the canworks variables, copy programs and function blocks as PLCopen XML, with its "
-             "Modbus driver settings.",
     "plc": "Another PLC that imports PLCopen XML or ST: the canworks variables, copy programs and client channels.",
     "nodered": "A Node-RED flow that reads and writes every value by name.",
     "hmi": "An HMI, SCADA or script: the register map as CSV, JSON or an ST variable list.",
@@ -62,8 +60,8 @@ def new(kind, cfg, name=None, address=None):
         out.update({"address": bridgecheck.OPENPLC_ADDRESS, "writes": True})
     else:
         # Next to a PLC link one PLC writes already: a new one starts read-only (UI-2).
-        out.update({"address": address or "", "writes": kind in ("trust", "plc") and not modbusmap.has_plc_link(cfg)})
-    if kind in ("trust", "plc"):
+        out.update({"address": address or "", "writes": kind == "plc" and not modbusmap.has_plc_link(cfg)})
+    if kind == "plc":
         out["format"] = "plcopen"
     elif kind == "hmi":
         out["format"] = "csv"
@@ -173,15 +171,14 @@ def download(cfg, conn, decls, config_name):
             nodes, notes, _ = nodered.flow(cfg, stem, host=host, poll_ms=period if isinstance(period, int) else None,
                                            readonly=nodered.read_only(cfg) or conn.get("writes") is not True)
             return stem + ".json", MIME["json"], nodered.to_json(nodes).encode("utf-8"), notes
-        fmt = conn.get("format") or ("plcopen" if kind in ("trust", "plc") else "csv")
-        if kind in ("trust", "plc") and fmt == "plcopen":
-            target = "trust" if kind == "trust" else "generic"
+        fmt = conn.get("format") or ("plcopen" if kind == "plc" else "csv")
+        if kind == "plc" and fmt == "plcopen":
             host = bridge_host(cfg, conn)
             if host is None and not plcopen_targets.is_loopback(conn.get("address") or ""):
                 # A PLC on another machine never reaches the bridge at loopback (UI-3):
-                # the README asks for the bridge's address, and truST refuses without it.
+                # the README asks for the bridge's address.
                 host = ""
-            files = plcopen_targets.files(cfg, decls, target, host=host,
+            files = plcopen_targets.files(cfg, decls, "generic", host=host,
                                           library=conn.get("library") is not False, on_loss=_on_loss(conn))
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -224,15 +221,12 @@ def state(cfg, conn, current=None):
     return "up_to_date" if current is None or conn["map_hash"] == current else "out_of_date"
 
 
-# The blocks an OpenPLC program loses when the mailboxes are trimmed for truST.
-OPENPLC_TRIM_LOSES = "CAN_RECEIVE, J1939_RECEIVE, CO_RECV_EMCY, CAN_SEND_CYCLIC, CAN_BUS_INFO and J1939_ECU_INFO"
-
 # The PLCopen export each PLC connection's Download makes.
-DOWNLOAD_TARGETS = {"trust": "trust", "plc": "generic"}
+DOWNLOAD_TARGETS = {"plc": "generic"}
 
 
 def download_problems(cfg):
-    """Warnings for each reason a truST or Other PLC connection's Download
+    """Warnings for each reason an Other PLC connection's Download
     would be refused (modbus-connections "Connections that cannot be
     downloaded"): the export's own texts, pointing at the field to change.
     One warning per text, for the first connection of the kind."""
@@ -251,12 +245,7 @@ def download_problems(cfg):
         except (AttributeError, KeyError, TypeError, ValueError, modbusmap.MapError):
             continue  # the config's own check says what is wrong
         for text in texts:
-            if "trim the mailboxes" in text and any(isinstance(x, dict) and x.get("kind") == "openplc" for x in items):
-                text += ("; the OpenPLC program shares these mailboxes, so its " + OPENPLC_TRIM_LOSES
-                         + " blocks stop working too")
-            paths = (["bridge.watchdog_ms", path] if '"watchdog_ms"' in text
-                     else ["bridge.mailboxes", path] if "trim the mailboxes" in text else [path])
-            out.append({"level": "warning", "paths": paths, "message": "%s: Download refused: %s" % (label, text)})
+            out.append({"level": "warning", "paths": [path], "message": "%s: Download refused: %s" % (label, text)})
     return out
 
 
@@ -289,7 +278,7 @@ def mailbox_problems(cfg):
     out = []
     users = 0
     for i, c in enumerate(items):
-        if not isinstance(c, dict) or c.get("kind") not in ("trust", "plc", "nodered"):
+        if not isinstance(c, dict) or c.get("kind") not in ("plc", "nodered"):
             continue
         choice = c.get("blocks")
         if choice not in bridgecheck.CONNECTION_BLOCKS or choice == "none":
@@ -335,7 +324,7 @@ def problems(cfg):
             out.append({"level": "warning", "paths": [path], "message": (
                 "%s: its downloaded file was made for another map (%s, now %s): Download again"
                 % (label, c["map_hash"], current))})
-        if c["kind"] in ("trust", "plc") and not bridge_host(cfg, c):
+        if c["kind"] == "plc" and not bridge_host(cfg, c):
             out.append({"level": "warning", "paths": [path + ".bridge_host"], "message": (
                 "%s: the PLC needs the bridge's address: give it in the connection's settings" % label)})
     return out + mailbox_problems(cfg)

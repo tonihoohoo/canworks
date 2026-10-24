@@ -274,7 +274,7 @@ def _raw(area, reg):
 
 
 def _hex(v):
-    """A WORD literal: typed, as strict IEC checkers (CODESYS, truST) want."""
+    """A WORD literal: typed, as strict IEC checkers want."""
     return "WORD#16#%04X" % v
 
 
@@ -313,7 +313,7 @@ def _out_parts(d, loc, iec, temps):
     high = loc.index % 2 == 0
     if loc.size == "X":
         bit = loc.bit + (8 if high else 0)
-        # SEL, not BOOL_TO_WORD: truST has no BOOL to WORD conversion.
+        # SEL, not BOOL_TO_WORD: some strict compilers have no BOOL to WORD conversion.
         return [(reg, "SEL(%s, WORD#0, %s)" % (v, _hex(1 << bit)))]
     if loc.size == "B":
         word = v if t == "WORD" else "%s_TO_WORD(%s)" % (t, v)

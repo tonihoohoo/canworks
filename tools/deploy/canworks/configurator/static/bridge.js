@@ -115,8 +115,7 @@ function bridgeServerFields() {
           : bridgeListField("Writers", "bridge.writers", "The addresses or prefixes (192.168.10.20, 192.168.10.0/24) allowed to write; no other client can. Empty: nobody writes. To let every host write, give 0.0.0.0/0, ::/0.", "nobody writes", []),
         bridgeListField("Readers", "bridge.readers", "Addresses or prefixes allowed to connect. Empty: every client."),
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: openplc ? "5 polls, at least 50" : "1000",
-          hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." +
-            (conns.some((c) => c && c.kind === "trust") ? " A truST connection needs 500 or more: a truST scan takes about 100-125 ms." : "") }),
+          hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
         bridgeLossChoice())),
   ];
 }
@@ -243,7 +242,7 @@ const BRIDGE_MAILBOX_NEEDS = [
 const BRIDGE_WITHOUT_MAILBOXES = "Without mailboxes: the config's values, CO_NMT, CO_NODE_LIVE, and CO_SDO_READ and CO_SDO_WRITE up to 4 bytes.";
 
 // A connection's canworks blocks choice (mailboxes-on-demand): the parts
-// it needs, as mailboxuse.CHOICE_PARTS. truST only None or SDO and send.
+// it needs, as mailboxuse.CHOICE_PARTS.
 const CONNECTION_BLOCKS = [
   { value: undefined, label: "None", parts: [], help: "The program uses the values and the blocks over the bridge only (CO_NMT, CO_NODE_LIVE, CO_SDO_READ and CO_SDO_WRITE up to 4 bytes)." },
   { value: "sdo_send", label: "SDO and send", parts: ["request"], help: "Also long SDOs, CAN_SEND and the J1939 requests: 1 request mailbox." },
@@ -275,8 +274,7 @@ function mailboxesWith(current, parts) {
 // The choice in a connection's Settings: the parts go into bridge.mailboxes
 // in the same undo step, placed; a downloaded file is then out of date.
 function connectionBlocksField(c, path) {
-  const list = c.kind === "trust" ? CONNECTION_BLOCKS.slice(0, 2) : CONNECTION_BLOCKS;
-  return choice("canworks blocks", path + ".blocks", list, { onChange: async (v) => {
+  return choice("canworks blocks", path + ".blocks", CONNECTION_BLOCKS, { onChange: async (v) => {
     const b = S.model.top.bridge;
     if (v === undefined) delete c.blocks;
     else c.blocks = v;
@@ -504,8 +502,6 @@ async function bridgePack() {
 const CONNECTION_KINDS = [
   { kind: "openplc", title: "OpenPLC",
     gets: "OpenPLC Runtime on the bridge's device: Save keeps the editor's remote device and the canworks programs in sync." },
-  { kind: "trust", title: "truST",
-    gets: "A truST runtime: the canworks variables, copy programs and function blocks as PLCopen XML, with its Modbus driver settings." },
   { kind: "plc", title: "Other PLC",
     gets: "Another PLC that imports PLCopen XML or ST: the canworks variables, copy programs and client channels." },
   { kind: "nodered", title: "Node-RED", gets: "A Node-RED flow that reads and writes every value by name." },
@@ -513,7 +509,6 @@ const CONNECTION_KINDS = [
 ];
 const CONNECTION_TITLE = Object.fromEntries(CONNECTION_KINDS.map((k) => [k.kind, k.title]));
 const CONNECTION_FORMATS = {
-  trust: [{ value: undefined, literal: "plcopen", label: "PLCopen XML", help: "The --export-plcopen folder for truST, as one zip." }],
   plc: [{ value: undefined, literal: "plcopen", label: "PLCopen XML", help: "The --export-plcopen folder for a PLC that imports PLCopen XML, as one zip." },
     { value: "st", label: "ST", help: "The PLC link file as ST: the canworks variable list, its client channels and the copy programs." }],
   hmi: [{ value: undefined, literal: "csv", label: "CSV", help: "The register map as CSV: Modbus table, address, size, type, name and source of every value." },
@@ -606,7 +601,7 @@ function bridgeConnections() {
       el("thead", null, el("tr", null, thCells(["Name", "Kind", "Address", "Writes", "State", ""]))),
       el("tbody", null, rows.flat()))
       : el("p", { class: "muted", dataset: { connectionsEmpty: "1" } },
-        "Programs, HMIs and Node-RED connect here: OpenPLC, truST or another PLC, a Node-RED flow, or an HMI, SCADA or script. Each connection gets its files with Download."),
+        "Programs, HMIs and Node-RED connect here: OpenPLC or another PLC, a Node-RED flow, or an HMI, SCADA or script. Each connection gets its files with Download."),
     el("div", { class: "toolbar" }, add));
 }
 
@@ -694,17 +689,17 @@ function connectionSettings(c, i) {
       field("First editor location", path + ".iec_base", "int", { placeholder: "first free from 100",
         hint: "The register groups get %IW and %QW from this word number on in the editor project. Empty: the first number from 100 that the project does not use." }));
   }
-  if (kind === "trust" || kind === "plc" || kind === "hmi") {
+  if (kind === "plc" || kind === "hmi") {
     fields.push(choice("Format", path + ".format", CONNECTION_FORMATS[kind]));
   }
-  if (kind === "openplc" || kind === "trust" || kind === "plc") fields.push(inputsOnLossField(c, path));
-  if (kind === "trust" || kind === "plc") {
+  if (kind === "openplc" || kind === "plc") fields.push(inputsOnLossField(c, path));
+  if (kind === "plc") {
     const listen = bridgeSplitListen(getPath("bridge.listen") || "")[0];
     fields.push(field("Bridge address the PLC uses", path + ".bridge_host", "text",
       { placeholder: PLCOPEN_WILDCARD.includes(listen) || isLoopback(listen) ? "the bridge's address as the PLC sees it" : listen,
         hint: "Empty: the listen address, when it is neither a wildcard nor loopback." }));
     if ((c.format || "plcopen") === "plcopen") fields.push(checkbox("Include the canworks library", path + ".library", true));
-    if (kind === "plc") notes.push(el("p", { class: "hint", dataset: { connCodesys: "1" } }, "CODESYS is not a Modbus client of the bridge: for CODESYS pick the CODESYS target, where CODESYS runs the CANopen master."));
+    notes.push(el("p", { class: "hint", dataset: { connCodesys: "1" } }, "CODESYS is not a Modbus client of the bridge: for CODESYS pick the CODESYS target, where CODESYS runs the CANopen master."));
     if (getPath("bridge.plc_link") !== true) {
       rowNotes.push(notice("info", "This PLC needs the bridge's PLC link: the bridge then puts its map hash at input registers 0-1 and takes a header at holding registers 0-2, so a program built for another map leaves the outputs off.",
         { live: false, dataset: { connPlcLink: String(i) }, actions: [el("button", { type: "button", class: "primary", dataset: { plcLinkOn: "1" },
@@ -717,7 +712,7 @@ function connectionSettings(c, i) {
       field("Bridge address", path + ".bridge_host", "text", { placeholder: "127.0.0.1", hint: "The bridge's address as Node-RED sees it. Empty: 127.0.0.1." }));
   }
   // With the PLC link the flow is read-only: its block nodes cannot use the mailboxes.
-  if (kind === "trust" || kind === "plc" || (kind === "nodered" && (getPath("bridge.plc_link") !== true || c.blocks)))
+  if (kind === "plc" || (kind === "nodered" && (getPath("bridge.plc_link") !== true || c.blocks)))
     fields.push(connectionBlocksField(c, path));
   if (!fields.length && !notes.length) return rowNotes;
   const open = S.connOpen === i;
@@ -725,42 +720,6 @@ function connectionSettings(c, i) {
     ...notes, fields.length ? el("div", { class: "grid" }, fields.map(bound)) : null);
   box.addEventListener("toggle", () => { S.connOpen = box.open ? i : (S.connOpen === i ? null : S.connOpen); });
   return rowNotes.concat([box]);
-}
-
-// One request mailbox and nothing else, packed: what truST's one request
-// each way holds (Problems "Trim the mailboxes for truST"), one undo step.
-async function trimMailboxesForTrust() {
-  const cfg = fileConfig();
-  cfg.bridge.mailboxes = Object.assign({}, cfg.bridge.mailboxes, { requests: 1, receive: false, network_info: false, cyclic_jobs: 0 });
-  delete cfg.bridge.mailboxes.receive_blocks;
-  try {
-    const r = await api("POST", "/api/bridge/pack", { config: cfg });
-    bridgeReplaceDraft(r.config);
-    changed(true);
-    banner("The mailboxes keep one request mailbox, and every location is packed. Undo takes both back.");
-  } catch (e) {
-    banner(`Pack for Modbus failed: ${e.message}`, true);
-  }
-}
-
-// Problems' Set canworks blocks to None for a truST connection whose map is
-// too big even with one request mailbox: its blocks go, and the mailboxes too
-// when neither OpenPLC nor another connection uses them; packed, one undo step.
-async function noMailboxesForTrust(i) {
-  const cfg = fileConfig();
-  const list = cfg.bridge.connections || [];
-  if (list[i]) delete list[i].blocks;
-  const others = list.some((c, k) => k !== i && c && c.blocks && c.blocks !== "none") || list.some((c) => c && c.kind === "openplc");
-  if (!others) delete cfg.bridge.mailboxes;
-  try {
-    const r = await api("POST", "/api/bridge/pack", { config: cfg });
-    bridgeReplaceDraft(r.config);
-    changed(true);
-    banner((others ? "The connection's canworks blocks are None" : "The connection's canworks blocks are None and the mailboxes are off") +
-      ", and every location is packed. Undo takes it back.");
-  } catch (e) {
-    banner(`Pack for Modbus failed: ${e.message}`, true);
-  }
 }
 
 async function plcLinkOn() {
@@ -778,7 +737,7 @@ async function plcLinkOn() {
   }
 }
 
-// Add connection: the five kinds, each with what it gets, then its name,
+// Add connection: the four kinds, each with what it gets, then its name,
 // address and Writes. OpenPLC on a standalone config also offers New editor
 // project… and Move into project…, which add the connection on the way.
 async function addConnection() {
@@ -818,7 +777,7 @@ async function addConnection() {
     const k = kindOf();
     other.hidden = k === "openplc";
     openplcNote.hidden = k !== "openplc";
-    writes.checked = (k === "trust" || k === "plc") && !link;
+    writes.checked = k === "plc" && !link;
     if (address.value.trim() === prefilled) {
       prefilled = k === "nodered" || k === "hmi" ? "127.0.0.1" : "";
       address.value = prefilled;

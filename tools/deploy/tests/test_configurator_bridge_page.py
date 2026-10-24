@@ -4,7 +4,7 @@ another PLC", "Reachability warnings for other PLCs"; modbus-connections):
 the example as a plain bridge project, packed, a live list added and
 suggested, the map filtered, Connections with their Downloads (the files
 canworks-deploy writes), out-of-date rows, the writers following the
-connections, a truST connection with the PLC link offer and the loopback
+connections, an Other PLC connection with the PLC link offer and the loopback
 error, the plc_cycle problem, and an OpenPLC connection added as one undo
 step. Needs Playwright, like test_configurator_page.py."""
 
@@ -207,15 +207,23 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page")
 
-    def test_trust_connection(self):
-        """A truST connection (plcopen-export): the PLC link offered on its row
-        as one undo step, its settings, the zip canworks-deploy
-        --export-plcopen --for trust writes, the missing bridge address and
-        the loopback error with Listen on all addresses."""
+    def test_plcopen_connection(self):
+        """An Other PLC connection with PLCopen XML (plcopen-export): Cannot
+        download and the PLC link offered on its row as one undo step, its
+        settings, the zip canworks-deploy --export-plcopen --for generic
+        writes, the missing bridge address and the loopback error with Listen
+        on all addresses. Add connection has no truST kind (drop-trust-connection)."""
         pg = self.page
         self.to_bridge()
-        add_connection(pg, "trust", name="Cell PLC", address="192.168.10.7")
+        tree_view(pg, "bridge")
+        pg.click("[data-conn-add]")
+        pg.wait_for_selector("[data-conn-dialog]")
+        self.assertEqual(pg.eval_on_selector_all("[data-conn-kind]", "xs => xs.map(x => x.value)"),
+                         ["openplc", "plc", "nodered", "hmi"])
+        pg.click("#modal-buttons button[data-value=cancel]")
+        add_connection(pg, "plc", name="Cell PLC", address="192.168.10.7")
         pg.wait_for_selector('[data-connection="Cell PLC"]')
+        pg.wait_for_selector('[data-connection="Cell PLC"] [data-conn-state="cannot_download"]')
         self.assertTrue(pg.is_checked('input[data-path="bridge.connections[0].writes"]'))
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.writers"), ["192.168.10.7"])
         self.assertNotIn("plc_link", pg.evaluate("() => S.model.top.bridge"))
@@ -231,12 +239,12 @@ class BridgePage(OnlineBase):
         pg.wait_for_function("() => !('plc_link' in S.model.top.bridge)")
         pg.keyboard.press("Control+Shift+z")
         pg.wait_for_function("() => S.model.top.bridge.plc_link === true")
-        # canworks blocks (mailboxes-on-demand): truST offers None and SDO and
-        # send, which turns on one request mailbox, placed, in one undo step.
+        # canworks blocks (mailboxes-on-demand): every choice; SDO and send
+        # turns on one request mailbox, placed, in one undo step.
         self.open_settings(0)
         sel = 'select[data-path="bridge.connections[0].blocks"]'
         self.assertEqual(pg.eval_on_selector_all(sel + " option", "os => os.map(o => o.textContent)"),
-                         ["None", "SDO and send"])
+                         ["None", "SDO and send", "SDO, send and receive", "All"])
         pg.select_option(sel, "sdo_send")
         pg.wait_for_function("() => !!(S.model.top.bridge.mailboxes || {}).output_location")
         mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
@@ -257,17 +265,17 @@ class BridgePage(OnlineBase):
         pg.fill('input[data-path="bridge.connections[0].bridge_host"]', "192.168.10.5")
         self.checked()
         self.assertNotIn("needs the bridge's address", pg.inner_text("#problem-list"))
-        audit(pg, "truST connection")
+        audit(pg, "Other PLC connection")
         cfg = pg.evaluate("() => fileConfig()")
         got = self.download(0)
         self.assertEqual(got.suggested_filename, "rtd-monitor-Cell-PLC.zip")
         decls = editorproject.declarations(cfg, self.config_path)
-        files = plcopen_targets.files(cfg, decls, "trust", host="192.168.10.5", library=True)
+        files = plcopen_targets.files(cfg, decls, "generic", host="192.168.10.5", library=True)
         with zipfile.ZipFile(got.path()) as z:
             self.assertEqual(sorted(z.namelist()), sorted(files))
             for n in files:
                 self.assertEqual(z.read(n).decode("utf-8"), files[n], n)
-        # A loopback listen: the truST connection cannot reach it; one click listens everywhere.
+        # A loopback listen: the PLC cannot reach it; one click listens everywhere.
         tree_view(pg, "bridge")
         pg.fill('input[data-path="bridge.listen"]', "127.0.0.1")
         self.checked()
@@ -275,81 +283,6 @@ class BridgePage(OnlineBase):
                       pg.inner_text("#problem-list"))
         pg.click('#problem-list [data-problem-fix="listen-all"]')
         pg.wait_for_function("() => S.model.top.bridge.listen === '0.0.0.0:502'")
-
-    def test_trust_cannot_download(self):
-        """A truST connection whose Download would be refused
-        (trust-connection-check): Cannot download on its row with the
-        reason, and the two Problems fixes, the trim one undo step."""
-        pg = self.page
-        ses = srv.Session()
-        cfg = ses.add_connection(self.cfg, {"kind": "trust", "name": "Cell PLC", "address": "192.168.10.7",
-                                            "bridge_host": "192.168.10.5"})["config"]
-        cfg["bridge"].update(plc_link=True, watchdog_ms=100,
-                             mailboxes={"input_location": "%IB0", "output_location": "%QB0"})
-        self.cfg = ses.bridge_pack(cfg)["config"]
-        self.write_config()
-        self.to_bridge()
-        tree_view(pg, "bridge")
-        pg.wait_for_selector('[data-connection="Cell PLC"] [data-conn-state="cannot_download"]')
-        self.assertIn("truST's Modbus driver moves one request each way",
-                      pg.get_attribute('[data-connection="Cell PLC"] [data-conn-state]', "title"))
-        problems = pg.inner_text("#problem-list")
-        self.assertIn("Cell PLC: Download refused: ", problems)
-        pg.click('#problem-list [data-problem-fix="watchdog-trust"]')
-        pg.wait_for_function("() => S.model.top.bridge.watchdog_ms === 500")
-        self.checked()
-        pg.click('#problem-list [data-problem-fix="trim-trust"]')
-        pg.wait_for_function("() => S.model.top.bridge.mailboxes.receive === false")
-        self.checked()
-        pg.wait_for_function("() => !document.querySelector('#problem-list').textContent.includes('Download refused')")
-        mb = pg.evaluate("() => S.model.top.bridge.mailboxes")
-        self.assertEqual((mb["requests"], mb["network_info"], mb["cyclic_jobs"]), (1, False, 0))
-        tree_view(pg, "bridge")
-        pg.wait_for_selector('[data-connection="Cell PLC"] [data-conn-state="not_downloaded"]')
-        # The trim and its repack were one step.
-        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
-        pg.keyboard.press("Control+z")
-        pg.wait_for_function("() => S.model.top.bridge.mailboxes.receive !== false")
-        self.assertEqual(pg.evaluate("() => S.model.top.bridge.watchdog_ms"), 500)
-
-    def test_trust_too_big_even_trimmed(self):
-        """EXPORTS-2 (page side): when even the trimmed map does not fit
-        truST, Problems offers Set canworks blocks to None, one undo step."""
-        pg = self.page
-        ses = srv.Session()
-        cfg = ses.add_connection(self.cfg, {"kind": "trust", "name": "Cell PLC", "address": "192.168.10.7",
-                                            "bridge_host": "192.168.10.5"})["config"]
-        cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"
-        cfg["bridge"].update(plc_link=True, watchdog_ms=500,
-                             mailboxes={"requests": 1, "receive": False, "network_info": False, "cyclic_jobs": 0,
-                                        "input_location": "%IB0", "output_location": "%QB0"})
-        self.cfg = ses.bridge_pack(cfg)["config"]
-        self.write_config()
-        message = ("Cell PLC: Download refused: truST's Modbus driver moves one request each way (at most 125 input "
-                   "and 123 holding registers); this map uses 144 and 80: with a request mailbox this map needs 144 "
-                   "input registers, more than 125: leave the mailboxes out (canworks blocks None on the connection) "
-                   "or locate fewer values, then run Pack for Modbus")
-
-        def check(route):
-            r = route.fetch()
-            body = r.json()
-            if "Cell PLC" in json.dumps(route.request.post_data_json.get("config", {}).get("bridge", {}).get("connections", [])) \
-                    and (route.request.post_data_json["config"]["bridge"]["connections"][0].get("blocks")):
-                body["items"].append({"level": "warning", "message": message,
-                                      "paths": ["bridge.mailboxes", "bridge.connections[0]"]})
-            route.fulfill(response=r, body=json.dumps(body))
-
-        pg.route("**/api/check", check)
-        self.to_bridge()
-        pg.wait_for_selector('#problem-list [data-problem-fix="trust-blocks-none"]')
-        self.assertEqual(pg.locator('#problem-list [data-problem-fix="trim-trust"]').count(), 0)
-        pg.click('#problem-list [data-problem-fix="trust-blocks-none"]')
-        pg.wait_for_function("() => !S.model.top.bridge.mailboxes && !S.model.top.bridge.connections[0].blocks")
-        self.checked()
-        pg.wait_for_selector('#problem-list [data-problem-fix="trust-blocks-none"]', state="detached")
-        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
-        pg.keyboard.press("Control+z")
-        pg.wait_for_function("() => !!S.model.top.bridge.mailboxes && S.model.top.bridge.connections[0].blocks === 'sdo_send'")
 
     def test_other_plc_formats(self):
         """An Other PLC connection: PLCopen XML or ST, no CODESYS choice, and
@@ -420,11 +353,11 @@ class BridgePage(OnlineBase):
         banner = pg.inner_text("#banner")
         self.assertIn("The PLC link, low word first and the live lists are on", banner)
         self.assertIn("The mailboxes stay off until the program declares a mailbox block", banner)
-        # truST next to the PLC link: Writes off; ticked, Problems names it.
+        # Another PLC next to the PLC link: Writes off; ticked, Problems names it.
         tree_view(pg, "bridge")
         pg.click("[data-conn-add]")
         pg.wait_for_selector("[data-conn-dialog]")
-        pg.click('label:has([data-conn-kind="trust"])')
+        pg.click('label:has([data-conn-kind="plc"])')
         self.assertFalse(pg.is_checked("[data-conn-writes]"))
         pg.fill("[data-conn-name]", "Line")
         pg.fill("[data-conn-address]", "192.168.1.50")

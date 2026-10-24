@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetches the truST runtime CLI (trust-platform, open source) at the pinned
 # release, for the PLCopen export's import-and-build check
-# (tools/deploy/tests/test_plcopen.py, class TrustImport; docs/plcopen.md).
+# (tools/deploy/tests/test_plcopen.py, class TrustImport; docs/development.md).
 # Nothing is committed; the binary is cached in <dir>. Linux x64 only.
 #
 #   test/plcopen/fetch-trust.sh [--dir ~/.cache/canworks/trust]

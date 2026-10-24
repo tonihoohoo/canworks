@@ -1,11 +1,6 @@
 # PLCopen XML for other PLCs
 
-`canworks-bridge` runs the CAN networks and serves their values as Modbus TCP registers. OpenPLC gets its program side written by Save in the configurator. For other PLCs that import PLCopen XML (TC6 2.01), `canworks-deploy --export-plcopen` writes the same program side as one file, plus a small part per PLC that connects it to the bridge. In the configurator it is the **Download** of a truST or Other PLC [connection](configurator.md#connections) on the Modbus bridge page, as a zip named `<config>-<connection>.zip`.
-
-| PLC | `--for` | What connects the program to the bridge |
-| --- | --- | --- |
-| truST | `trust` | `canworks_io.st` and an `io.toml` part for truST's `modbus-tcp` driver |
-| Any other tool with PLCopen XML import | `generic` | The register map as CSV and the channels to set up by hand |
+`canworks-bridge` runs the CAN networks and serves their values as Modbus TCP registers. OpenPLC gets its program side written by Save in the configurator. For other PLCs that import PLCopen XML (TC6 2.01), `canworks-deploy --export-plcopen --for generic` writes the same program side as one file, plus the register map as CSV and the Modbus client channels to set up in the PLC. In the configurator it is the **Download** of an Other PLC [connection](configurator.md#connections) with format PLCopen XML on the Modbus bridge page, as a zip named `<config>-<connection>.zip`.
 
 CODESYS is not a Modbus client of the bridge: `--for codesys` is refused. To build the networks into CODESYS, CODESYS runs the CANopen master itself as [the CODESYS target](codesys.md) (`canworks-deploy --codesys-import`).
 
@@ -30,48 +25,20 @@ The export needs the bridge's PLC link: `"plc_link": true` in the `bridge` objec
 ## Export
 
 ```sh
-canworks-deploy --config canworks.json --export-plcopen out --for trust --bridge-host 192.168.10.5 --with-main
-canworks-deploy --config canworks.json --export-plcopen out --for generic
+canworks-deploy --config canworks.json --export-plcopen out --for generic --bridge-host 192.168.10.5 --with-main
 ```
 
-- `--bridge-host` is the bridge's address as the PLC sees it. Without it, the export uses `listen` when that is a real address. For truST on the bridge's own Linux device a wildcard `listen` gives 127.0.0.1. A connection's **Bridge address the PLC uses** setting is this value.
+- `--bridge-host` is the bridge's address as the PLC sees it. Without it, the export uses `listen` when that is a real address. A connection's **Bridge address the PLC uses** setting is this value.
 - `--with-main` adds an empty program `main` to the task between `canworks_in` and `canworks_out`.
 
-Every folder has a `README.txt` with the next steps for that PLC. The bridge takes writes only from the addresses in `writers`, so the PLC's address must be one of them.
+The folder's `README.txt` has the next steps. The bridge takes writes only from the addresses in `writers`, so the PLC's address must be one of them.
 
-## truST
+## The file's form
 
-truST's PLCopen import drops AT addresses, so the located I/O image comes as its own file. Its `modbus-tcp` driver reads the whole `%I` image with one request and writes the whole `%Q` image with one request every cycle, at most 125 input and 123 holding registers. A map that needs more is refused for truST, with the way to trim it. The configurator says so before the Download: the connection's row reads **Cannot download** and Problems has **Trim the mailboxes for truST** and **Set the watchdog to 500 ms** ([modbus-bridge.md](modbus-bridge.md#connections)). The trim is offered only when the map with one request mailbox, packed, fits; otherwise the refusal says how many registers that map needs, and the ways left are canworks blocks **None** on the connection (no mailboxes) or fewer located values.
-
-What works on truST:
-
-| Works | How |
-| --- | --- |
-| The typed values, `canworks.ok`, the status block, live lists and the control word | Always, as on every PLC |
-| `CO_SDO_READ`, `CO_SDO_WRITE`, `CO_NMT`, `CO_NODE_LIVE` | Through the bridge's SDO and control registers, without mailboxes |
-| `CO_SDO_READ_BYTES`, `_STRING`, `_REAL` and their write blocks, `CAN_SEND`, `J1939_SEND`, `J1939_REQUEST` | With one request mailbox and nothing else of the mailboxes: `"mailboxes": {"requests": 1, "receive": false, "network_info": false, "cyclic_jobs": 0}`, then Pack for Modbus. The example config then needs 105 input and 88 holding registers. |
-| `CAN_RECEIVE`, `J1939_RECEIVE`, `CO_RECV_EMCY`, `CAN_SEND_CYCLIC`, `CAN_BUS_INFO`, `J1939_ECU_INFO` | Not on truST: the receive mailbox alone is 120 registers, and the network info and cyclic job blocks don't fit next to the rest. They build, and end with `ERROR_ID` 22 (the config has no part of the mailboxes this block needs). |
-
-1. Import the file into the project:
-   ```sh
-   trust-runtime plcopen import --input canworks.xml --project <project folder>
-   ```
-   (or in VS Code: **truST: Import PLCopen XML**).
-2. Copy `canworks_io.st` into the project's `src` folder.
-3. Replace the `[io]` tables of the project's `io.toml` with `io.toml.part`, and set `[resource] name` in `runtime.toml` to `canworks_res`, the imported resource.
-4. Write your program into `main` (with `--with-main`), or add it to `canworks_task` in the imported configuration.
-5. `trust-runtime build --project <project folder>`, then run it.
-
-A truST scan with the copy programs and the library takes about 100–125 ms on a Pi 5, whatever the task interval, so the bridge's watchdog must be at least 500 ms (or 0, off): the export refuses a shorter one, including OpenPLC's default of five polls (50 ms), and names `"watchdog_ms": 500`. The PLC link's default of 1000 ms passes. The task runs every fifth of the bridge's watchdog time (at least 10 ms). The driver writes the outputs every cycle, which keeps the bridge's watchdog fed. When the bridge stops answering, `canworks.ok` goes FALSE and the PLC keeps running (`on_error = "warn"`).
-
-CI imports and builds the truST export, with the whole library, against a pinned truST release (`test/plcopen/fetch-trust.sh`).
-
-## Other PLCs
-
-`--for generic` writes standard TC6 2.01 (namespace `tc6_0201`) without vendor parts: the values as a structure `canworks_values` with one resource global `canworks`, which `canworks_in`, `canworks_out` and `main` declare as `VAR_EXTERNAL`, as strict IEC importers want, and a configuration with the task `canworks_task`. The truST file has the same form. `canworks-modbus-map.csv` has every register, and `README.txt` lists the client channels to set up. Run `canworks_in` first and `canworks_out` last in the task that uses the values.
+`--for generic` writes standard TC6 2.01 (namespace `tc6_0201`) without vendor parts: the values as a structure `canworks_values` with one resource global `canworks`, which `canworks_in`, `canworks_out` and `main` declare as `VAR_EXTERNAL`, as strict IEC importers want, and a configuration with the task `canworks_task`, which runs every fifth of the bridge's watchdog time (at least 10 ms). `canworks-modbus-map.csv` has every register, and `README.txt` lists the client channels to set up. Run `canworks_in` first and `canworks_out` last in the task that uses the values.
 
 ## Limits
 
 - Each channel is one Modbus request, and a value never spans two channels, so a value is consistent; values in different channels may come from different bridge polls.
-- The library's blocks are plain IEC 61131-3 ST with strict typing, so they build on truST, CODESYS and STruC++ alike.
+- The library's blocks are plain IEC 61131-3 ST with strict typing, so they build on CODESYS, STruC++ and other strict compilers alike.
 - TwinCAT, importing PLCopen XML into canworks, and graphical languages are not supported.

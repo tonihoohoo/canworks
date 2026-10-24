@@ -1,4 +1,4 @@
-# Path rules of the truST import check (.github/scripts/ci_changes.py prints
+# Path rules of the truST compile check (.github/scripts/ci_changes.py prints
 # plcopen=true when a changed path matches one): the PLCopen writer and
 # targets, the copy programs and the library they carry, the PLCopen tests
 # and their data, the truST pin and the shared CI files. One fnmatch

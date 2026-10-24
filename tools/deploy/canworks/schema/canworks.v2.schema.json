@@ -157,25 +157,25 @@
           "type": "boolean"
         },
         "connections": {
-          "description": "The programs and tools that use the registers (docs/modbus-bridge.md#connections), written by the configurator: each has kind (openplc, trust, plc, nodered or hmi), a unique name, address, writes, the kind's own fields and map_hash, the map hash of its last download. canworks-bridge doesn't read them; the PC check does.",
+          "description": "The programs and tools that use the registers (docs/modbus-bridge.md#connections), written by the configurator: each has kind (openplc, plc, nodered or hmi), a unique name, address, writes, the kind's own fields and map_hash, the map hash of its last download. canworks-bridge doesn't read them; the PC check does.",
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "kind": { "enum": [ "openplc", "trust", "plc", "nodered", "hmi" ] },
+              "kind": { "enum": [ "openplc", "plc", "nodered", "hmi" ] },
               "name": { "type": "string", "minLength": 1, "maxLength": 64 },
               "address": { "description": "The client's IP address (127.0.0.1 for openplc).", "type": "string", "minLength": 1 },
               "writes": { "description": "Whether the client writes outputs; bridge.writers follows the connections that do.", "type": "boolean" },
               "map_hash": { "description": "Map hash of the last download, such as 0x1234abcd.", "type": "string", "pattern": "^0x[0-9a-f]{8}$" },
               "stale": { "description": "Set by the configurator when a setting that goes into the downloaded file changed after the last download; the download clears it.", "type": "boolean" },
-              "inputs_on_loss": { "description": "openplc, trust and plc: what the typed inputs read while canworks.ok is FALSE: hold (default) keeps their last values, zero sets them to 0. Status, state and timeout inputs read 0 either way.", "enum": [ "hold", "zero" ] },
+              "inputs_on_loss": { "description": "openplc and plc: what the typed inputs read while canworks.ok is FALSE: hold (default) keeps their last values, zero sets them to 0. Status, state and timeout inputs read 0 either way.", "enum": [ "hold", "zero" ] },
               "poll_ms": { "description": "openplc: poll period of OpenPLC's Modbus master (default 10).", "type": "integer", "minimum": 5, "maximum": 1000 },
               "remote_device": { "description": "openplc: the editor's remote device file name, devices/remote/<name>.json (default canworks).", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
               "iec_base": { "description": "openplc: first %IW and %QW index of the remote device's points (default: the lowest free run from 100).", "type": "integer", "minimum": 0, "maximum": 65535 },
-              "format": { "description": "trust and plc: plcopen or st (st for plc only); hmi: csv, json or st.", "enum": [ "plcopen", "st", "csv", "json" ] },
-              "library": { "description": "trust and plc with plcopen: include the canworks ST library (default true).", "type": "boolean" },
-              "bridge_host": { "description": "trust, plc and nodered: the bridge's address as the client reaches it.", "type": "string" },
-              "blocks": { "description": "trust, plc and nodered: which canworks mailbox blocks the client's program uses; the configurator turns on the parts of bridge.mailboxes they need. none (default), sdo_send (one request mailbox), receive (also the receive mailbox) or all (also 4 cyclic jobs and network info); trust only none or sdo_send. At most one connection, and none next to an openplc connection.", "enum": [ "none", "sdo_send", "receive", "all" ] },
+              "format": { "description": "plc: plcopen or st; hmi: csv, json or st.", "enum": [ "plcopen", "st", "csv", "json" ] },
+              "library": { "description": "plc with plcopen: include the canworks ST library (default true).", "type": "boolean" },
+              "bridge_host": { "description": "plc and nodered: the bridge's address as the client reaches it.", "type": "string" },
+              "blocks": { "description": "plc and nodered: which canworks mailbox blocks the client's program uses; the configurator turns on the parts of bridge.mailboxes they need. none (default), sdo_send (one request mailbox), receive (also the receive mailbox) or all (also 4 cyclic jobs and network info). At most one connection, and none next to an openplc connection.", "enum": [ "none", "sdo_send", "receive", "all" ] },
               "period_ms": { "description": "nodered: poll period of the flow (default 100).", "type": "integer", "minimum": 10, "maximum": 60000 }
             },
             "required": [ "kind", "name" ],
