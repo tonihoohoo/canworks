@@ -1153,10 +1153,12 @@ body.header-tight header .top-row .sim-what { display: none; }
   header .top-row { flex-wrap: nowrap; }
   header .top-row > * { flex-shrink: 0; }
   header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
-  /* The project name stays (UI-13): the word "project" goes, and the target shrinks far faster than the name. */
+  /* The project name stays (UI-13): the word "project" goes, and the target shrinks far faster than the name.
+     The target's link shrinks with it, so what shows of it stays clickable. */
   #mode .mode-name { flex: 0 0 auto; min-width: 0; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; }
   #mode .unsaved-mark { flex: none; white-space: pre; }
-  #mode .target-mark { flex: 0 10000 auto; min-width: 1.5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  #mode .target-mark { flex: 0 10000 auto; min-width: 5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; display: inline-flex; }
+  #mode .target-mark > button { min-width: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #mode .mode-kind { display: none; }
 }
 /* Wider, a header that would still wrap (a wide font, the simulation chip) does the same. */
@@ -1166,7 +1168,10 @@ body.header-tight header .top-row .sim-what { display: none; }
   body.header-tight header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
   body.header-tight #mode .mode-name { flex: 0 0 auto; min-width: 0; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; }
   body.header-tight #mode .unsaved-mark { flex: none; white-space: pre; }
-  body.header-tight #mode .target-mark { flex: 0 10000 auto; min-width: 1.5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  body.header-tight #mode .target-mark { flex: 0 10000 auto; min-width: 5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; display: inline-flex; }
+  body.header-tight #mode .target-mark > button { min-width: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A tight header shows only the unsaved dot, so the target keeps its room. */
+  body.header-tight #mode .unsaved-word { display: none; }
   body.header-tight #mode .mode-kind { display: none; }
 }
 /* A Commission node's one-line header (commission-master-detail): back to Nodes, the node, its live state. */
