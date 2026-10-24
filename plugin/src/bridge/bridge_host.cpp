@@ -410,6 +410,11 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
              ml.info_networks, ml.cyclic_jobs,
              ml.input_bytes(), ml.output_bytes());
   }
+  sessions_ended_.assign(s.networks.size(), 0);
+#if CANWORKS_WITH_CANOPEN
+  for (unsigned n = 0; n < s.networks.size(); ++n)
+    sessions_ended_[n] = canopen_plugin::HostRequests::instance().sessions_ended(n);
+#endif
   first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
@@ -695,6 +700,19 @@ void BridgeHost::loop() {
           log_warn("bridge receive mailbox: receivers 0x%08x closed: their records were not taken within 1 s (a "
                    "block that is no longer called, or a program that does not read them)",
                    stalled);
+#if CANWORKS_WITH_CANOPEN
+        // A CANopen session restart ends that network's resources (the
+        // CAN receivers on its port would stay open across it).
+        for (unsigned n = 0; n < sessions_ended_.size(); ++n) {
+          uint32_t ended = canopen_plugin::HostRequests::instance().sessions_ended(n);
+          if (ended == sessions_ended_[n]) continue;
+          sessions_ended_[n] = ended;
+          if (unsigned k = mailboxes_->end_network(n))
+            log_info("bridge mailboxes: %u operation(s), receiver(s) and cyclic job(s) of network %u ended (its "
+                     "CANopen session restarted)",
+                     k, n);
+        }
+#endif
         if (unsigned f = mailboxes_->take_forgotten())
           log_warn("bridge cyclic jobs: %u job(s) stopped: their block stopped calling (no keepalive for 1 s)", f);
       }

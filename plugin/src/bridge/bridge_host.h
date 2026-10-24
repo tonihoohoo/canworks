@@ -130,6 +130,7 @@ class BridgeHost {
   std::unique_ptr<SdoBridgeRegisters> sdo_;
   std::unique_ptr<EngineMailboxBackend> mailbox_backend_;
   std::unique_ptr<Mailboxes> mailboxes_;
+  std::vector<uint32_t> sessions_ended_;  // per network, as last seen (end_network)
   uint32_t mb_written_ = 0;  // request mailboxes whose words a client wrote (Mailboxes::service)
   uint64_t first_out_version_ = 0;  // the output version before any client wrote
   // Whether the control block / SDO request counters are known: at once,

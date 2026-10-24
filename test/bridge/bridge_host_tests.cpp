@@ -1062,4 +1062,87 @@ TEST(cancel_drops_a_queued_sdo_write) {
   EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[8] == 0);
 }
 
+// A CANopen session restart (the interface went down and up) ends that
+// network's receivers, jobs and operations, and leaves the other network's
+// running (modbus-bridge-mailboxes "Network restart ends its resources").
+// CANWORKS_TEST_IFACE_DOWN takes the simulated interface down.
+TEST(session_restart_ends_the_network_resources) {
+  char tmpl[] = "/tmp/canworks-ifdown-XXXXXX";
+  std::string down = std::string(mkdtemp(tmpl)) + "/down";
+  setenv("CANWORKS_TEST_IFACE_DOWN", down.c_str(), 1);
+  Host h([](cJSON* r) {
+    add_mailboxes(r);
+    // A second network, sim1, with the rtd node and no located values.
+    cJSON* nets = cJSON_GetObjectItem(r, "networks");
+    cJSON* second = cJSON_Duplicate(cJSON_GetArrayItem(nets, 0), true);
+    set_string(second, "name", "field2");
+    set_string(cJSON_GetObjectItem(second, "adapter"), "interface", "sim1");
+    cJSON* m = cJSON_GetObjectItem(second, "master");
+    cJSON_DeleteItemFromObject(m, "state_location");
+    cJSON_DeleteItemFromObject(m, "bus_state_location");
+    cJSON* nodes = cJSON_CreateArray();
+    cJSON* node = cJSON_CreateObject();
+    cJSON_AddNumberToObject(node, "node_id", 5);
+    cJSON_AddStringToObject(node, "name", "rtd2");
+    cJSON_AddStringToObject(node, "eds", "rtd8.eds");
+    cJSON_AddNumberToObject(node, "heartbeat_ms", 100);
+    cJSON_AddNumberToObject(node, "heartbeat_timeout_ms", 300);
+    cJSON_AddItemToArray(nodes, node);
+    cJSON_ReplaceItemInObject(second, "nodes", nodes);
+    cJSON_AddItemToArray(nets, second);
+  });
+  EXPECT(h.ok);
+  if (!h.ok) {
+    unsetenv("CANWORKS_TEST_IFACE_DOWN");
+    return;
+  }
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // Receiver 0 on network 0, receiver 1 on network 1: every standard frame.
+  std::vector<uint16_t> r = mb_call(c, 1, kOpRxOpen, {kRxCan << 8, 32, 0, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[2] == 0);
+  std::vector<uint16_t> w(8, 0);
+  w[0] = 2;
+  w[1] = static_cast<uint16_t>(kOpRxOpen << 8 | 1);
+  w[2] = kRxCan << 8;
+  w[3] = 32;
+  EXPECT(write(c, kMbReqReg, w));
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kMbRspReg, 4);
+    return r.size() == 4 && r[0] == 2 && (r[1] >> 8) == kMbDone;
+  }, 3000));
+  EXPECT(r.size() == 4 && r[2] == 1);
+  // Acknowledges every batch; whether receiver 1 had records.
+  bool second_delivers = false;
+  auto ack_batches = [&](int ms) {
+    for (int i = 0; i < ms / 20; ++i) {
+      auto head = regs(c, kReadInputRegisters, kRxReg, 3);
+      if (head.size() == 3) {
+        if (head[2] & 0x2) second_delivers = true;
+        write(c, kAckReg, {head[0], 0, 0});
+      }
+      usleep(20000);
+    }
+  };
+  auto gens = [&] { return reg(c, kRxReg + 5); };  // receiver 0 high byte, receiver 1 low byte
+  ack_batches(500);
+  EXPECT((gens() >> 8) != 0 && (gens() & 0xFF) != 0);
+  write_file(down, "sim0\n");
+  EXPECT(wait_for([&] {
+    ack_batches(100);
+    return logged("CAN interface sim0 went down");
+  }, 5000));
+  ack_batches(500);
+  ::unlink(down.c_str());
+  EXPECT((gens() >> 8) == 0);
+  EXPECT((gens() & 0xFF) != 0);
+  second_delivers = false;
+  ack_batches(500);
+  EXPECT(second_delivers);
+  EXPECT(logged("of network 0 ended (its CANopen session restarted)"));
+  unsetenv("CANWORKS_TEST_IFACE_DOWN");
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }
