@@ -126,6 +126,10 @@ class Parts(unittest.TestCase):
         self.assertEqual(mailboxuse.mailboxes_for(need), {"requests": 1, "receive": True, "cyclic_jobs": 0,
                                                           "network_info": False})
 
+    def test_opening_needs_a_request_mailbox(self):
+        self.assertEqual(mailboxuse.mailboxes_for({"receive": 1}, {"requests": 0, "receive": False})["requests"], 1)
+        self.assertEqual(mailboxuse.mailboxes_for({"cyclic": 4})["requests"], 1)
+
     def test_choices(self):
         self.assertEqual(mailboxuse.choice_parts("none"), {})
         self.assertEqual(mailboxuse.choice_parts("sdo_send"), {"request": 1})

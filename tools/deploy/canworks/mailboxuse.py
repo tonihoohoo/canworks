@@ -301,8 +301,13 @@ def mailboxes_for(need, current=None):
             mb["cyclic_jobs"] = need["cyclic"]
         if "info" in need and not current.get("network_info", True):
             mb["network_info"] = True
+        # Opening a receiver or a cyclic job needs a request mailbox.
+        t = mailboxlayout.settings(mb, 1)
+        if t["requests"] < 1 and (t["receive"] or t["cyclic_jobs"]):
+            mb["requests"] = 1
         return mb
-    return {"requests": 1 if "request" in need else 0, "receive": "receive" in need,
+    opens = "receive" in need or need.get("cyclic", 0)
+    return {"requests": 1 if "request" in need or opens else 0, "receive": "receive" in need,
             "cyclic_jobs": need.get("cyclic", 0), "network_info": "info" in need}
 
 
