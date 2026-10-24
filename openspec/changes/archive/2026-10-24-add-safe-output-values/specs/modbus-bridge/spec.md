@@ -53,7 +53,7 @@ With `"safe"`, entering outputs off for any reason (the watchdog, the control bl
 - **THEN** the bridge starts with a warning that the safe values are not used with `stop`
 
 ### Requirement: Safe values at start and clean stop
-With `"safe"`, the bridge SHALL put the safe image in place at start, so the outputs are sent with their safe values from the moment each network runs until the first accepted write ends outputs off. On a clean stop the bridge SHALL write the safe image, wait one SYNC period of each CANopen master network (at least 20 ms, at most 200 ms) while it is sent, send each periodic J1939 and raw transmit message once with it, and then send `master.on_plc_stop` as before.
+With `"safe"`, the bridge SHALL put the safe image in place at start, so the outputs are sent with their safe values from the moment each network runs until the first accepted write ends outputs off. On a clean stop the bridge SHALL write the safe image, wait one SYNC period of the CANopen master networks (the longest, at least 20 ms, at most 200 ms) while RPDOs, periodic J1939 and raw messages and on-change messages carry it, and then send `master.on_plc_stop` as before.
 
 #### Scenario: Start before the PLC
 - **WHEN** a bridge with `"safe"` and `"%QW10": 500` starts and no client has written yet

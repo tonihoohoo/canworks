@@ -117,7 +117,8 @@ function bridgeServerFields() {
         field("Watchdog (ms)", "bridge.watchdog_ms", "int", { placeholder: openplc ? "5 polls, at least 50" : "1000",
           hint: "Outputs go off when no writer wrote for this long. 0: no watchdog." }),
         bridgeLossChoice())),
-  ];
+    bridgeSafeSection(),
+  ].filter(Boolean);
 }
 
 function bridgeLossChoice() {
@@ -126,7 +127,148 @@ function bridgeLossChoice() {
     { value: "zero", label: "Zero", help: "Every output is set to 0 and sent once, then outputs stop." },
     { value: "hold", label: "Hold", help: "Outputs keep being sent with their last values." },
     { value: "preop", label: "Pre-operational", help: "Every node of the CANopen master networks is put pre-operational, so it applies its own communication-loss behaviour; outputs stop." },
-  ]);
+    { value: "safe", label: "Safe values", help: "Every output is set to its safe value (below; blank is 0) and kept sent. The bridge also sends them from its start until the first write, and before a clean stop." },
+  ], { onChange: (v) => {
+    const b = S.model.top.bridge;
+    if (v === undefined) delete b.on_client_loss;
+    else b.on_client_loss = v;
+    bridgeMarkStale();
+    changed(true);
+  } });
+}
+
+// The connections whose Download carries the register map with its safe
+// value column: out of date after a change of the safe values.
+function bridgeMarkStale() {
+  for (const c of S.model.top.bridge.connections || []) {
+    if (c && c.kind !== "openplc" && c.map_hash) c.stale = true;
+  }
+}
+
+// Safe values (modbus-bridge "Safe values"; canopen-configurator "Safe
+// values on the Modbus bridge page"): every output of the register map that
+// takes one, a bit channel under its entry. Keys are locations, so the
+// fields write bridge.safe_values directly (a bit's key has a dot).
+function bridgeSafeSection() {
+  if (S.model.top.bridge.on_client_loss !== "safe") return null;
+  return el("fieldset", { dataset: { bridge: "safe" } }, el("legend", null, "Safe values"),
+    el("p", { class: "muted" }, "What each output is set to while no writer writes. Blank is 0. Check each value against the device's manual: it is what the machine does when the PLC is gone."),
+    el("div", { id: "bridge-safe" }, el("p", { class: "muted" }, "Loading the outputs…")));
+}
+
+function bridgeSafeRows(r) {
+  const safe = r.safe || {};
+  const outs = r.rows.filter((row) => row.direction === "output" && row.type !== "BLOCK");
+  const whole = outs.filter((row) => row.table === "holding register" && safe[row.location]);
+  const bits = outs.filter((row) => row.table === "coil");
+  const spans = whole.map((row) => [row.byte, row.byte + row.count * 2 - (row.byte_in_register ? 1 : 0)]);
+  const list = [];
+  const used = new Set();
+  whole.forEach((row, i) => {
+    list.push({ row, info: safe[row.location], bit: false });
+    for (const b of bits) {
+      if (!used.has(b) && b.byte >= spans[i][0] && b.byte < spans[i][1]) {
+        used.add(b);
+        list.push({ row: b, info: safe[b.location] || { kind: "bit" }, bit: true, under: true });
+      }
+    }
+  });
+  for (const b of bits) if (!used.has(b) && safe[b.location]) list.push({ row: b, info: safe[b.location], bit: true });
+  return list;
+}
+
+function bridgeSafeLimits(info) {
+  const out = [];
+  if (info.kind === "bit") out.push("on or off");
+  else if (info.range) out.push(`${info.range[0]} to ${info.range[1]}`);
+  else out.push("a number");
+  const ref = info.ref;
+  const n = ref && ((S.model.networks[ref.network] || {}).nodes || [])[ref.node];
+  const o = n ? objectInfo(edsFor(n), ref.index, ref.subindex) : null;
+  const eds = o ? odLimitText(o) : "";
+  if (eds) out.push(eds);
+  return out.join("; ");
+}
+
+function bridgeSafeParse(t, info) {
+  if (info.kind === "bit") return t === "true" || t === "1" ? true : t === "false" || t === "0" ? false : t;
+  if (info.kind === "int") {
+    if (!/^-?[0-9]+$/.test(t)) return t;
+    const n = Number(t);
+    return Math.abs(n) <= 2 ** 53 ? n : t;
+  }
+  const x = Number(t);
+  return t !== "" && Number.isFinite(x) ? x : t;
+}
+
+function bridgeSafeSet(key, value) {
+  const b = S.model.top.bridge;
+  const sv = b.safe_values && typeof b.safe_values === "object" ? b.safe_values : {};
+  if (value === undefined) delete sv[key];
+  else sv[key] = value;
+  if (Object.keys(sv).length) b.safe_values = sv;
+  else delete b.safe_values;
+  bridgeMarkStale();
+  changed(false, `bridge.safe_values.${key}`);
+}
+
+function bridgeSafeField(key, info, name) {
+  const path = `bridge.safe_values.${key}`;
+  const sv = S.model.top.bridge.safe_values || {};
+  const value = sv[key];
+  if (info.kind === "bit") {
+    const sel = el("select", { dataset: { path, bridgeSafe: key }, "aria-label": `Safe value of ${name}` },
+      el("option", { value: "" }, "Off"), el("option", { value: "true" }, "On"));
+    sel.value = value === true || value === 1 ? "true" : "";
+    if (value !== undefined && value !== true && value !== false && value !== 0 && value !== 1) {
+      sel.append(el("option", { value: "file" }, `${String(value)} (as in the file)`));
+      sel.value = "file";
+    }
+    sel.addEventListener("change", () => {
+      if (sel.value !== "file") bridgeSafeSet(key, sel.value === "true" ? true : value === undefined ? undefined : false);
+    });
+    return [sel, el("span", { class: "field-msg", dataset: { for: path } })];
+  }
+  const input = el("input", { type: "text", spellcheck: "false", inputmode: "decimal", placeholder: "0",
+    dataset: { path, bridgeSafe: key }, "aria-label": `Safe value of ${name}` });
+  input.value = value === undefined || value === null ? "" : String(value);
+  input.addEventListener("input", () => {
+    const t = input.value.trim();
+    bridgeSafeSet(key, t === "" ? undefined : bridgeSafeParse(t, info));
+  });
+  return [input, el("span", { class: "field-msg", dataset: { for: path } })];
+}
+
+function bridgeFillSafe(r) {
+  const host = $("#bridge-safe");
+  if (!host) return;
+  if (r.problem) {
+    host.replaceChildren(el("p", { class: "muted" }, "The outputs show once the register map can be laid out."));
+    return;
+  }
+  const list = bridgeSafeRows(r);
+  if (!list.length) {
+    host.replaceChildren(el("p", { class: "muted", dataset: { bridgeSafeEmpty: "1" } }, "No output takes a safe value yet: map an RPDO entry or a J1939 or raw transmit signal to a %Q location."));
+    return;
+  }
+  // A refill while a value is typed keeps its field focused.
+  const active = document.activeElement && host.contains(document.activeElement) ? document.activeElement.dataset.bridgeSafe : null;
+  const at = active && document.activeElement.selectionStart;
+  const body = el("tbody", null, list.map(({ row, info, under }) => {
+    const unit = row.unit ? `, ${row.unit}` : "";
+    return el("tr", { class: under ? "sub" : null, dataset: { bridgeSafeRow: row.location } },
+      el("td", null, under ? `↳ ${row.name}` : row.name), el("td", { class: "mono" }, row.location),
+      el("td", null, row.type + unit), el("td", null, bridgeSafeLimits(info)),
+      el("td", null, ...bridgeSafeField(row.location, info, row.name)));
+  }));
+  host.replaceChildren(el("div", { class: "objects bridge-map", role: "region", tabindex: "0", "aria-label": "Safe values" },
+    el("table", { class: "od", dataset: { bridge: "safe-table" } },
+      el("thead", null, el("tr", null, thCells(["Name", "Location", "Type", "Limits", "Safe value"]))), body)));
+  if (active) {
+    const f = host.querySelector(`[data-bridge-safe="${CSS.escape(active)}"]`);
+    if (f) { f.focus(); if (f.setSelectionRange && at !== null && at !== undefined) f.setSelectionRange(at, at); }
+  }
+  if (S.check) applyCheck();
 }
 
 function renderBridge(view) {
@@ -442,6 +584,7 @@ function bridgeFillMap() {
   // A refresh while the filter is being typed in keeps it focused.
   const old = host.querySelector('[data-bridge="filter"]');
   const typing = old && document.activeElement === old ? old.selectionStart : null;
+  bridgeFillSafe(r);
   if (r.problem) {
     host.replaceChildren(notice("warning", `No register map: ${r.problem}. Pack for Modbus or move the locations (see Problems).`,
       { live: false, dataset: { bridge: "map-problem" } }));
@@ -454,7 +597,7 @@ function bridgeFillMap() {
   const count = el("span", { class: "muted", "aria-live": "polite" });
   const fill = () => {
     const rows = r.rows.filter((row) => bridgeMatches(row, S.bridgeFilter));
-    body.replaceChildren(...(rows.length ? rows.map(bridgeRow) : [el("tr", null, el("td", { colspan: "7", class: "muted" },
+    body.replaceChildren(...(rows.length ? rows.map(bridgeRow) : [el("tr", null, el("td", { colspan: r.rows.some((row) => row.safe_value !== undefined) ? "8" : "7", class: "muted" },
       r.rows.length ? "No entry matches the filter." : "No located values yet. The register map lists every PLC location the config uses; map a PDO entry or SDO variable first."))]));
     count.textContent = rows.length === r.rows.length ? `${r.rows.length} entries` : `${rows.length} of ${r.rows.length} entries`;
   };
@@ -465,7 +608,8 @@ function bridgeFillMap() {
     el("p", { class: "muted", dataset: { bridge: "sizes" } }, `Inputs ${regs(r.input_bytes)}, outputs ${regs(r.output_bytes)}.`),
     el("div", { class: "toolbar" }, filter, count),
     el("div", { class: "objects bridge-map", dataset: { box: "bridge_map", boxLabel: "the register map" }, tabindex: "0", role: "region", "aria-label": "Register map" }, el("table", { class: "od" },
-      el("thead", null, el("tr", null, thCells(["Table", "Address", "Size", "Type", "Name", "Source", "Location"]))), body)),
+      el("thead", null, el("tr", null, thCells(["Table", "Address", "Size", "Type", "Name", "Source", "Location"]
+        .concat(r.rows.some((row) => row.safe_value !== undefined) ? ["Safe value"] : [])))), body)),
     el("h3", null, "Suggested client channels"),
     el("p", { class: "muted" }, "Requests that cover every used register within the Modbus limits (125 registers per read, 123 per write). Bits are read in the registers they live in."),
     el("table", { class: "od bridge-channels", dataset: { bridge: "channels" } },
@@ -486,7 +630,8 @@ function bridgeRow(row) {
   return el("tr", { dataset: { bridgeRow: row.name } },
     el("td", null, BRIDGE_TABLES[row.table] || row.table), el("td", { class: "mono" }, address), el("td", null, size),
     el("td", null, row.type + (row.word_order ? `, ${row.word_order === "low_first" ? "low" : "high"} word first` : "")),
-    el("td", null, row.name), el("td", null, source), el("td", { class: "mono" }, row.location));
+    el("td", null, row.name), el("td", null, source), el("td", { class: "mono" }, row.location),
+    row.safe_value !== undefined ? el("td", { class: "num", dataset: { bridgeSafeValue: row.location } }, String(row.safe_value)) : null);
 }
 
 async function bridgePack() {

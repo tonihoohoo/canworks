@@ -812,6 +812,7 @@ class Parser {
     prefix_.clear();
     if (cJSON_GetObjectItemCaseSensitive(root, "bridge")) parse_bridge(root, set);
     check_networks(set);
+    if (set.bridge.enabled) parse_safe_values(cJSON_GetObjectItemCaseSensitive(root, "bridge"), set);
     check_raw_ownership(set);
     parse_gateway(root, set);
     report_unlocated(set);
@@ -3406,7 +3407,8 @@ class Parser {
     check_known(b, w, {"listen", "unit_id", "word_order", "max_clients", "max_clients_per_address", "writers",
                        "readers", "watchdog_ms",
                        "on_client_loss", "status_location", "control_location", "live_lists",
-                       "sdo_bridge_location", "sdo_bridge_write", "plc_link", "mailboxes", "connections"});
+                       "sdo_bridge_location", "sdo_bridge_write", "plc_link", "mailboxes", "connections",
+                       "safe_values"});
     // bridge.openplc was removed (modbus-connections): OpenPLC is a connection.
     if (cJSON_GetObjectItemCaseSensitive(b, "openplc"))
       error(w, "field 'openplc' was removed: OpenPLC is a connection on the Modbus bridge page; open the config in "
@@ -3474,8 +3476,10 @@ class Parser {
         c.on_client_loss = BridgeConfig::Loss::Hold;
       else if (loss == "preop")
         c.on_client_loss = BridgeConfig::Loss::Preop;
+      else if (loss == "safe")
+        c.on_client_loss = BridgeConfig::Loss::Safe;
       else if (loss != "stop")
-        error(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\" or \"preop\"");
+        error(w, "field 'on_client_loss' must be \"stop\", \"zero\", \"hold\", \"preop\" or \"safe\"");
     }
     c.has_status = block_location(b, "status_location", w, IecArea::Input, kBridgeStatusBytes, c.status_location);
     if (c.plc_link) {
@@ -3544,6 +3548,262 @@ class Parser {
     get_bool(b, "sdo_bridge_write", w, c.sdo_bridge_write);
     if (c.sdo_bridge_write && !sdo) warning(w, "'sdo_bridge_write' has no effect without 'sdo_bridge_location'");
     parse_mailboxes(b, w, set, c);
+  }
+
+  // What an output location can take as a safe value (modbus-bridge "Safe
+  // values"): an integer of `bits` bits, a REAL, a bit, or nothing (`refuse`
+  // says what it is).
+  struct SafeTarget {
+    IecLocation loc;
+    enum Kind { Int, Real32, Real64, Bit, Refused } kind = Int;
+    unsigned bits = 0;
+    bool is_signed = false;
+    std::string who, refuse;
+  };
+
+  static SafeTarget co_target(const IecLocation& loc, CoType t, const std::string& who) {
+    SafeTarget g;
+    g.loc = loc;
+    g.who = who;
+    if (loc.size == IecSize::X || t == CoType::BOOLEAN) {
+      g.kind = SafeTarget::Bit;
+    } else if (t == CoType::REAL32) {
+      g.kind = SafeTarget::Real32;
+    } else if (t == CoType::REAL64) {
+      g.kind = SafeTarget::Real64;
+    } else {
+      g.bits = co_type_bits(t);
+      g.is_signed = t == CoType::INTEGER8 || t == CoType::INTEGER16 || t == CoType::INTEGER32 || t == CoType::INTEGER64;
+    }
+    return g;
+  }
+
+  static SafeTarget signal_target(const IecLocation& loc, unsigned length, bool is_signed, const std::string& who) {
+    SafeTarget g;
+    g.loc = loc;
+    g.who = who;
+    g.kind = loc.size == IecSize::X ? SafeTarget::Bit : SafeTarget::Int;
+    g.bits = length;
+    g.is_signed = is_signed;
+    return g;
+  }
+
+  static SafeTarget refused(const IecLocation& loc, const std::string& who, const std::string& what) {
+    SafeTarget g;
+    g.loc = loc;
+    g.who = who;
+    g.kind = SafeTarget::Refused;
+    g.refuse = what;
+    return g;
+  }
+
+  // Every output location of the config with what it takes.
+  static void safe_targets(const ConfigSet& set, std::vector<SafeTarget>& out) {
+    for (const auto& cfg : set.networks) {
+      std::string p = "networks[" + std::to_string(cfg.network_index) + "]";
+      if (!cfg.network.empty()) p += " (" + cfg.network + ")";
+      p += " ";
+      for (const auto& m : cfg.raw.tx) {
+        if (m.trigger.set) out.push_back(refused(m.trigger.loc, m.path + ".trigger_location", "a raw message's trigger bit"));
+        if (m.enable.set) out.push_back(refused(m.enable.loc, m.path + ".enable_location", "a raw message's enable bit"));
+        if (m.data.set) out.push_back(signal_target(m.data.loc, iec_size_bits(m.data.loc.size), false, m.path + ".data_location"));
+        for (size_t k = 0; k < m.signals.size(); ++k)
+          if (m.signals[k].has_loc)
+            out.push_back(signal_target(m.signals[k].loc, m.signals[k].length, m.signals[k].is_signed,
+                                        m.path + ".signals[" + std::to_string(k) + "] (" + m.signals[k].name + ")"));
+      }
+      if (cfg.is_plain()) continue;
+      if (cfg.is_j1939()) {
+        for (const auto& t : cfg.j1939.tx)
+          for (const auto& sg : t.signals)
+            if (sg.has_location)
+              out.push_back(signal_target(sg.location, sg.length, sg.is_signed,
+                                          p + "PGN " + std::to_string(t.pgn) + " signal " + sg.name));
+        for (const auto& c : cfg.j1939.diagnostics.dtcs) {
+          SafeTarget g;
+          g.loc = c.active_location;
+          g.kind = SafeTarget::Bit;
+          g.who = p + "diagnostics SPN " + std::to_string(c.spn) + " FMI " + std::to_string(c.fmi) + " active_location";
+          out.push_back(g);
+        }
+        continue;
+      }
+      if (cfg.is_slave()) {
+        for (const auto& o : cfg.slave.objects)
+          if (o.location.area == IecArea::Output) out.push_back(co_target(o.location, o.type, p + "slave " + o.label()));
+        continue;
+      }
+      for (const auto& n : cfg.nodes) {
+        const std::string nl = p + n.label();
+        if (n.has_nmt_command_location)
+          out.push_back(refused(n.nmt_command_location, nl + " nmt_command_location", "an NMT command byte"));
+        for (const auto& sv : n.sdo_variables) {
+          if (sv.location.area == IecArea::Output)
+            out.push_back(refused(sv.location, nl + " " + sv.label(), "an SDO variable"));
+          if (sv.has_trigger)
+            out.push_back(refused(sv.trigger_location, nl + " " + sv.label() + " trigger_location",
+                                  "an SDO variable's trigger bit"));
+        }
+        for (const auto& pdo : n.rx_pdos)
+          for (const auto& e : pdo.entries) {
+            if (!e.has_location) continue;
+            char obj[64];
+            std::snprintf(obj, sizeof(obj), " RPDO %u object 0x%04X:%u", pdo.number, e.index, e.subindex);
+            out.push_back(co_target(e.location, e.type, nl + obj));
+          }
+      }
+    }
+    std::vector<Use> blocks;
+    bridge_uses(set.bridge, blocks);
+    for (const auto& u : blocks)
+      if (u.loc.area == IecArea::Output) {
+        SafeTarget g = refused(u.loc, u.who, "the bridge's own block");
+        g.bits = (u.nbytes ? u.nbytes : location_bytes(u.loc)) * 8;  // its extent
+        out.push_back(g);
+      }
+  }
+
+  static unsigned target_bytes(const SafeTarget& g) {
+    if (g.kind == SafeTarget::Refused && g.bits) return g.bits / 8;
+    return location_bytes(g.loc);
+  }
+
+  // bridge.safe_values, checked against the output bindings.
+  void parse_safe_values(const cJSON* b, ConfigSet& set) {
+    BridgeConfig& c = set.bridge;
+    const cJSON* sv = cJSON_GetObjectItemCaseSensitive(b, "safe_values");
+    if (!sv) return;
+    const std::string w = "bridge.safe_values";
+    if (!cJSON_IsObject(sv)) {
+      error("bridge", "field 'safe_values' must be an object from %Q locations to values");
+      return;
+    }
+    std::vector<SafeTarget> targets;
+    safe_targets(set, targets);
+    std::vector<BridgeConfig::SafeValue> whole, bits;
+    const cJSON* it;
+    cJSON_ArrayForEach(it, sv) {
+      const std::string key = it->string ? it->string : "";
+      IecLocation loc;
+      std::string why;
+      if (!parse_iec_location(key, loc, why)) {
+        error(w, "\"" + key + "\" is not a location: " + why);
+        continue;
+      }
+      if (loc.area != IecArea::Output) {
+        error(w, key + " is an input location; safe values are for outputs (%Q)");
+        continue;
+      }
+      // The binding at exactly this location, or the whole value a bit lies in.
+      const SafeTarget* exact = nullptr;
+      const SafeTarget* around = nullptr;
+      for (const auto& g : targets) {
+        unsigned n = target_bytes(g);
+        bool same = g.loc.index == loc.index && g.loc.size == loc.size && (loc.size != IecSize::X || g.loc.bit == loc.bit);
+        if (same && g.kind != SafeTarget::Refused) exact = &g;
+        else if (loc.index >= g.loc.index && loc.index < g.loc.index + n && g.loc.size != IecSize::X)
+          around = &g;
+        else if (same) around = &g;
+      }
+      if (!exact && around && around->kind == SafeTarget::Refused) {
+        error(w, key + " is " + around->refuse + " (" + around->who + "): safe values cannot be set on " +
+                     around->refuse);
+        continue;
+      }
+      if (!exact && loc.size == IecSize::X && around && around->kind != SafeTarget::Bit) {
+        // A bit of a bound byte or word (a bit channel): only that bit.
+      } else if (!exact) {
+        error(w, key + " has no output bound to it; safe values go on RPDO entries and J1939 or raw transmit signals");
+        continue;
+      }
+      const SafeTarget& g = exact ? *exact : *around;
+      BridgeConfig::SafeValue v;
+      v.loc = loc;
+      v.who = g.who;
+      if (loc.size == IecSize::X) {
+        bool on = false;
+        if (cJSON_IsBool(it)) on = cJSON_IsTrue(it);
+        else if (cJSON_IsNumber(it) && (it->valuedouble == 0 || it->valuedouble == 1)) on = it->valuedouble == 1;
+        else {
+          error(w, key + " (" + g.who + ") is a bit: its safe value must be true, false, 0 or 1");
+          continue;
+        }
+        v.raw = on;
+        bits.push_back(v);
+        continue;
+      }
+      v.nbytes = location_bytes(loc);
+      if (g.kind == SafeTarget::Bit) {
+        error(w, key + " (" + g.who + ") is a bit: name it as a bit location");
+        continue;
+      }
+      if (g.kind == SafeTarget::Real32 || g.kind == SafeTarget::Real64) {
+        if (!cJSON_IsNumber(it) || !std::isfinite(it->valuedouble)) {
+          error(w, key + " (" + g.who + ") is a REAL: its safe value must be a finite number");
+          continue;
+        }
+        if (g.kind == SafeTarget::Real32) {
+          float f = (float)it->valuedouble;
+          if (!std::isfinite(f)) {
+            error(w, key + " (" + g.who + "): " + std::to_string(it->valuedouble) + " does not fit a REAL32");
+            continue;
+          }
+          uint32_t u;
+          std::memcpy(&u, &f, 4);
+          v.raw = u;
+        } else {
+          double d = it->valuedouble;
+          std::memcpy(&v.raw, &d, 8);
+        }
+        whole.push_back(v);
+        continue;
+      }
+      // An integer of g.bits bits, as a JSON integer or a decimal string.
+      bool neg = false;
+      uint64_t mag = 0;
+      bool ok = false;
+      if (cJSON_IsNumber(it)) {
+        double d = it->valuedouble;
+        if (d == std::floor(d) && std::fabs(d) <= 9007199254740992.0) {
+          neg = d < 0;
+          mag = (uint64_t)std::fabs(d);
+          ok = true;
+        }
+      } else if (cJSON_IsString(it)) {
+        std::string t = it->valuestring;
+        size_t i = 0;
+        if (!t.empty() && t[0] == '-') neg = true, i = 1;
+        ok = i < t.size();
+        for (; ok && i < t.size(); ++i) {
+          if (!std::isdigit((unsigned char)t[i]) || mag > (UINT64_MAX - 9) / 10) ok = false;
+          else mag = mag * 10 + (t[i] - '0');
+        }
+      }
+      unsigned nb = g.bits ? (g.bits > 64 ? 64 : g.bits) : 64;
+      uint64_t umax = nb == 64 ? UINT64_MAX : ((uint64_t(1) << nb) - 1);
+      uint64_t smax = nb == 64 ? uint64_t(INT64_MAX) : ((uint64_t(1) << (nb - 1)) - 1);
+      std::string range = g.is_signed ? (nb == 64 ? std::string("-9223372036854775808-9223372036854775807")
+                                                  : "-" + std::to_string(smax + 1) + "-" + std::to_string(smax))
+                                      : "0-" + std::to_string(umax);
+      if (!ok) {
+        error(w, key + " (" + g.who + ") is an integer: its safe value must be a whole number (a decimal string "
+                       "beyond 2^53), in " + range);
+        continue;
+      }
+      bool fits = g.is_signed ? (neg ? mag <= smax + 1 : mag <= smax) : (!neg && mag <= umax);
+      if (!fits) {
+        error(w, key + " (" + g.who + "): " + (neg ? "-" : "") + std::to_string(mag) + " is out of range " + range);
+        continue;
+      }
+      uint64_t r = neg ? (~mag + 1) : mag;
+      if (v.nbytes < 8) r &= (uint64_t(1) << (8 * v.nbytes)) - 1;
+      v.raw = r;
+      whole.push_back(v);
+    }
+    c.safe_values = whole;
+    c.safe_values.insert(c.safe_values.end(), bits.begin(), bits.end());
+    if (!c.safe_values.empty() && c.on_client_loss != BridgeConfig::Loss::Safe)
+      warning("bridge", "'safe_values' are used only with \"on_client_loss\": \"safe\"; they are not used now");
   }
 
   // Every IEC location of one network; `p` goes in front of each name.

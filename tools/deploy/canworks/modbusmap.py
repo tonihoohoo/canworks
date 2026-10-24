@@ -384,6 +384,84 @@ def _bit_items(it, word_order):
     return out
 
 
+def _store(buf, start, nbytes, raw, word_order):
+    """`raw` as `nbytes` bytes from `start`, most significant byte first in
+    each word, words in `word_order` (store_value in byte_image.cpp)."""
+    data = (raw & ((1 << (8 * nbytes)) - 1)).to_bytes(nbytes, "big")
+    if word_order == "low_first" and nbytes >= 4:
+        words = [data[i:i + 2] for i in range(0, nbytes, 2)]
+        data = b"".join(reversed(words))
+    buf[start:start + nbytes] = data
+
+
+def _load(buf, start, nbytes, word_order):
+    data = bytes(buf[start:start + nbytes])
+    if word_order == "low_first" and nbytes >= 4:
+        data = b"".join(reversed([data[i:i + 2] for i in range(0, nbytes, 2)]))
+    return int.from_bytes(data, "big")
+
+
+def _safe_raw(value, co_type, nbytes):
+    import struct
+    if co_type == "REAL32":
+        return int.from_bytes(struct.pack(">f", float(value)), "big")
+    if co_type == "REAL64":
+        return int.from_bytes(struct.pack(">d", float(value)), "big")
+    v = int(value)
+    return v & ((1 << (8 * nbytes)) - 1)
+
+
+def _safe_values(cfg, rows, word_order):
+    """With on_client_loss "safe": each output row's safe value as the bridge
+    sends it (safe_values, 0 for the others, bits after whole values)."""
+    b = cfg.get("bridge") or {}
+    if b.get("on_client_loss") != "safe":
+        return
+    sv = b.get("safe_values") if isinstance(b.get("safe_values"), dict) else {}
+    buf = bytearray(bridgecheck.IMAGE_BYTES + 8)
+    out = [r for r in rows if r["direction"] == "output" and r["type"] != "BLOCK"]
+    keys = [(parse_location(k), v) for k, v in sv.items()]
+    keys = [(loc, v) for loc, v in keys if loc is not None and loc.area == "Q"]
+    locs = {id(r): parse_location(r["location"]) for r in out}
+    by_loc = {(locs[id(r)].index, locs[id(r)].size): r for r in out if locs[id(r)] and locs[id(r)].size != "X"}
+    for loc, v in keys:
+        r = by_loc.get((loc.index, loc.size))
+        if r is None or isinstance(v, bool):
+            continue
+        n = bridgecheck.SIZE_BYTES[loc.size]
+        try:
+            _store(buf, loc.index, n, _safe_raw(v, r["type"], n), word_order)
+        except (TypeError, ValueError, OverflowError):
+            continue
+    for loc, v in keys:
+        if loc.size == "X":
+            if v in (True, 1):
+                buf[loc.index] |= 1 << loc.bit
+            elif v in (False, 0):
+                buf[loc.index] &= ~(1 << loc.bit) & 0xFF
+    import struct
+    for r in out:
+        loc = locs[id(r)]
+        if loc is None:
+            continue
+        if loc.size == "X":
+            r["safe_value"] = bool(buf[loc.index] >> loc.bit & 1)
+            continue
+        n = bridgecheck.SIZE_BYTES[loc.size]
+        raw = _load(buf, r["byte"], n, word_order)
+        t = r["type"]
+        if t == "REAL32":
+            r["safe_value"] = struct.unpack(">f", (raw & 0xFFFFFFFF).to_bytes(4, "big"))[0]
+        elif t == "REAL64":
+            r["safe_value"] = struct.unpack(">d", raw.to_bytes(8, "big"))[0]
+        elif t.startswith("INTEGER"):
+            bits = int(t[7:]) if t[7:].isdigit() else 8 * n
+            raw &= (1 << bits) - 1
+            r["safe_value"] = raw - (1 << bits) if raw >> (bits - 1) else raw
+        else:
+            r["safe_value"] = raw
+
+
 def register_map(cfg):
     """The register map rows of a bridge config, sorted by table and address.
     Raises MapError when the config breaks the byte rules."""
@@ -398,6 +476,7 @@ def register_map(cfg):
     rows = [_row(it, word_order) for it in items]
     rows += [_row(bit, word_order) for it in items for bit in _bit_items(it, word_order)]
     rows.sort(key=lambda r: (order[r["table"]], r["address"], r["name"]))
+    _safe_values(cfg, rows, word_order)
     return rows
 
 
@@ -462,7 +541,8 @@ CSV_FIELDS = ("name", "network", "source", "object", "direction", "location", "t
 
 def to_csv(rows):
     buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=CSV_FIELDS, extrasaction="ignore", lineterminator="\n")
+    fields = CSV_FIELDS + (("safe_value",) if any("safe_value" in r for r in rows) else ())
+    w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
     w.writeheader()
     for r in rows:
         w.writerow(r)
@@ -530,6 +610,9 @@ def to_st(cfg, rows):
             notes.append(str(r["unit"]))
         if r["scale"] != "":
             notes.append("scale %s" % r["scale"])
+        if "safe_value" in r:
+            notes.append("safe value %s" % (str(r["safe_value"]).upper() if isinstance(r["safe_value"], bool)
+                                            else r["safe_value"]))
         lines.append("    %s : %s; (* %s *)" % (name, iec, ", ".join(notes)))
     lines.append("END_VAR")
     lines.append("")

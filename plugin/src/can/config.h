@@ -618,8 +618,19 @@ struct BridgeConfig {
   // writers is required in the file; an empty list lets nobody write.
   std::vector<std::string> writers, readers;
   unsigned watchdog_ms = 1000;  // 0: no watchdog
-  enum class Loss { Stop, Zero, Hold, Preop };
+  enum class Loss { Stop, Zero, Hold, Preop, Safe };
   Loss on_client_loss = Loss::Stop;
+  // "safe_values" (modbus-bridge "Safe values"): output locations and the
+  // values the "safe" action sends. `raw` is the value's bits as the image
+  // holds them in `nbytes` (two's complement, IEEE bits for REAL); a bit
+  // location has nbytes 0 and raw 0 or 1. Whole values come first, bits last.
+  struct SafeValue {
+    IecLocation loc;
+    unsigned nbytes = 0;
+    uint64_t raw = 0;
+    std::string who;
+  };
+  std::vector<SafeValue> safe_values;
   bool has_status = false;
   IecLocation status_location;  // %IBn, 8 bytes
   bool has_control = false;

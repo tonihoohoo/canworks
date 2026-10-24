@@ -117,6 +117,7 @@ const char* loss_name(BridgeConfig::Loss l) {
     case BridgeConfig::Loss::Zero: return "zero";
     case BridgeConfig::Loss::Hold: return "hold";
     case BridgeConfig::Loss::Preop: return "preop";
+    case BridgeConfig::Loss::Safe: return "safe";
     default: return "stop";
   }
 }
@@ -371,6 +372,19 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     if (master) max_sync_us = std::max(max_sync_us, n.master.sync_period_us);
   }
   zero_settle_ = std::max(std::chrono::milliseconds(100), std::chrono::milliseconds(2 * max_sync_us / 1000));
+  safe_stop_wait_ = std::min(std::chrono::milliseconds(200),
+                             std::max(std::chrono::milliseconds(20), std::chrono::milliseconds(max_sync_us / 1000)));
+  safe_out_.assign(image_.output_size(), 0);
+  for (const auto& v : cfg_.safe_values) {
+    if (v.loc.index >= safe_out_.size()) continue;
+    if (v.nbytes) {
+      if (v.loc.index + v.nbytes <= safe_out_.size()) store_value(&safe_out_[v.loc.index], v.raw, v.nbytes, cfg_.low_first);
+    } else if (v.raw) {
+      safe_out_[v.loc.index] = static_cast<uint8_t>(safe_out_[v.loc.index] | (1u << v.loc.bit));
+    } else {
+      safe_out_[v.loc.index] = static_cast<uint8_t>(safe_out_[v.loc.index] & ~(1u << v.loc.bit));
+    }
+  }
 
   server_.on_write = [this] { on_write(); };
   {
@@ -422,10 +436,14 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   for (unsigned n = 0; n < s.networks.size(); ++n)
     sessions_ended_[n] = canopen_plugin::HostRequests::instance().sessions_ended(n);
 #endif
+  // Outputs are off until the first write: with "safe" they are the safe
+  // values from the start (modbus-bridge "Safe values at start and clean
+  // stop"); the loop's first push sends them.
+  if (cfg_.on_client_loss == BridgeConfig::Loss::Safe) write_safe_outputs();
   first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
-  canopen_plugin::set_outputs_enabled(!cfg_.plc_link);
+  canopen_plugin::set_outputs_enabled(!cfg_.plc_link || cfg_.on_client_loss == BridgeConfig::Loss::Safe);
 
   engine_->start();
   if (!server_.start(sc, err)) {
@@ -457,6 +475,17 @@ void BridgeHost::write_marker() {
 
 void BridgeHost::stop() {
   if (!running_) return;
+  if (cfg_.on_client_loss == BridgeConfig::Loss::Safe) {
+    {
+      std::lock_guard<std::mutex> lock(exchange_mu_);
+      write_safe_outputs();
+      canopen_plugin::set_outputs_enabled(true);
+      push_outputs();
+    }
+    log_info("canworks-bridge: stopping; outputs at their safe values for %lld ms first (on_client_loss safe)",
+             static_cast<long long>(safe_stop_wait_.count()));
+    std::this_thread::sleep_for(safe_stop_wait_);
+  }
   stop_ = true;
   if (thread_.joinable()) thread_.join();
   mailboxes_.reset();
@@ -537,6 +566,15 @@ void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
       zero_until_ = now + zero_settle_;
       return;
     }
+    case BridgeConfig::Loss::Safe: {
+      log_warn("outputs off by %s: outputs set to their safe values (%zu set, the others 0) and kept sent "
+               "(on_client_loss safe)",
+               reason, cfg_.safe_values.size());
+      write_safe_outputs();
+      canopen_plugin::set_outputs_enabled(true);
+      push_outputs();
+      return;
+    }
     case BridgeConfig::Loss::Preop: {
       log_warn("outputs off by %s: RPDOs and transmit messages stopped, output image cleared, nodes sent to "
                "pre-operational (on_client_loss preop)",
@@ -564,6 +602,11 @@ void BridgeHost::clear_outputs() {
     if (zeros.size() < u.nbytes) zeros.resize(u.nbytes, 0);
     image_.write_outputs(u.loc.index, zeros.data(), u.nbytes);
   }
+}
+
+void BridgeHost::write_safe_outputs() {
+  for (const ImageUse& u : data_outputs_)
+    if (u.loc.index + u.nbytes <= safe_out_.size()) image_.write_outputs(u.loc.index, &safe_out_[u.loc.index], u.nbytes);
 }
 
 void BridgeHost::leave_off(const char* why) {

@@ -1419,6 +1419,8 @@ def _check_v2(r, cfg, schema_errors, err, warn, args):
                 [prefix + ".adapter.interface"])
     bridge_uses = bridgecheck.check_bridge(cfg, networks(cfg), err, warn) if "bridge" in cfg else None
     _check_across_networks(r, cfg, err, bridge_uses, locations=not codesys)
+    if bridge_uses is not None:
+        bridgecheck.check_safe_values(cfg, networks(cfg), bridge_uses, err, warn)
     # Sent raw messages on identifiers the protocol uses (after the checks
     # across networks, as in the bridge).
     for n in networks(cfg):

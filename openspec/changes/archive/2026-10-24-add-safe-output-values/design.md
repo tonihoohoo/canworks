@@ -26,7 +26,7 @@ Bindings that can sit on an output location: RPDO entries (with bit channels), J
 
 **4. Safe values from the start.** Outputs are off from the bridge's start until the first writer's write (or the first running header with the PLC link). With `"safe"` the safe image is in place and sent from the start. This is the behaviour the action promises, and it also covers a PLC that never comes up. Alternative considered: send nothing until the first write, then use safe values only after a loss. Rejected because a PLC that crashed before the bridge restarted would then leave the outputs to the devices again.
 
-**5. Clean stop sends them once more.** With `"safe"`, a clean stop writes the safe image and waits one SYNC period of each CANopen master network (at least 20 ms, at most 200 ms) so the RPDOs carry it, sends safe periodic J1939 and raw messages once, then runs `master.on_plc_stop`. A crash sends nothing. That is unchanged and documented with the node settings that cover it.
+**5. Clean stop sends them once more.** With `"safe"`, a clean stop writes the safe image and waits one SYNC period (the longest of the CANopen master networks, at least 20 ms, at most 200 ms) so the RPDOs and the messages sent on change or on their period carry it, then runs `master.on_plc_stop`. A crash sends nothing. That is unchanged and documented with the node settings that cover it.
 
 **6. The next write starts from the safe values.** Like `stop`'s cleared image, the safe image stays in the output image after outputs on again, so a client that writes one coil after a loss sends that coil and the safe values for the rest. The docs keep the advice that a reconnecting controller writes all its outputs at once.
 

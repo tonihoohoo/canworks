@@ -93,6 +93,47 @@ class RegisterRule(unittest.TestCase):
             modbusmap.register_map(cfg)
 
 
+EXAMPLE = os.path.join(REPO, "examples", "modbus-bridge", "canworks.json")
+
+
+class SafeValues(unittest.TestCase):
+    """modbus-bridge-map "Safe values in the map" (add-safe-output-values)."""
+
+    def cfg(self, values, action="safe"):
+        cfg = load(EXAMPLE)
+        cfg["bridge"]["on_client_loss"] = action
+        cfg["bridge"]["safe_values"] = values
+        return cfg
+
+    def test_column(self):
+        rows = by_name(modbusmap.register_map(self.cfg({"%QB0": 2, "%QW2": -5})))
+        self.assertEqual(rows["dio.0x6200:1"]["safe_value"], 2)
+        self.assertEqual(rows["dio.0x6411:1"]["safe_value"], -5)
+        self.assertEqual(rows["dio.0x6411:2"]["safe_value"], 0)  # not set: 0
+        text = modbusmap.to_csv(list(rows.values()))
+        self.assertIn("safe_value", text.splitlines()[0])
+
+    def test_no_column_without_safe(self):
+        rows = modbusmap.register_map(self.cfg({"%QB0": 2}, action="hold"))
+        self.assertFalse(any("safe_value" in r for r in rows))
+        self.assertNotIn("safe_value", modbusmap.to_csv(rows).splitlines()[0])
+
+    def test_bit_over_its_word(self):
+        cfg = self.cfg({"%QW2": 4, "%QX3.0": True})
+        cfg["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][2]["bits"] = [{"bit": 0, "name": "b0"}]
+        rows = by_name(modbusmap.register_map(cfg))
+        self.assertEqual(rows["dio.0x6411:1"]["safe_value"], 5)  # bits after whole values
+        self.assertIs(rows["dio.b0"]["safe_value"], True)
+
+    def test_safe_table(self):
+        from canworks import bridgecheck, contract
+        cfg = self.cfg({})
+        table = bridgecheck.safe_table(cfg, contract.networks(cfg))
+        self.assertEqual(table["%QB0"]["range"], [0, 255])
+        self.assertEqual(table["%QW2"]["range"], [-32768, 32767])
+        self.assertEqual(table["%QW2"]["ref"], {"network": 0, "node": 1, "index": 0x6411, "subindex": 1})
+
+
 class ByteChecks(unittest.TestCase):
     def test_odd_word(self):
         cfg = load()

@@ -113,7 +113,13 @@
         "writers": { "description": "Required. Addresses or prefixes allowed to write; [] lets nobody write, [\"0.0.0.0/0\", \"::/0\"] every address.", "type": "array", "items": { "type": "string" } },
         "readers": { "description": "Addresses or prefixes allowed to connect (default: every client).", "type": "array", "items": { "type": "string" } },
         "watchdog_ms": { "description": "Outputs off when no write came from a writer for this long (default 1000; 0: no watchdog).", "type": "integer", "minimum": 0, "maximum": 60000 },
-        "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop), hold (keep sending) or preop (stop, and every node of every CANopen master network to pre-operational; NMT start when outputs come back).", "enum": [ "stop", "zero", "hold", "preop" ] },
+        "on_client_loss": { "description": "Outputs off: stop (default, no RPDOs or transmit messages), zero (send 0 once, then stop), hold (keep sending), preop (stop, and every node of every CANopen master network to pre-operational; NMT start when outputs come back) or safe (send the safe values of safe_values, 0 for the others, and keep sending them).", "enum": [ "stop", "zero", "hold", "preop", "safe" ] },
+        "safe_values": {
+          "description": "With on_client_loss safe: the value each output location gets while outputs are off. Keys are %Q locations of RPDO entries and J1939 or raw transmit signals; a bit location inside a bound byte or word sets that bit only. Values: true/false or 0/1 for bits, numbers, or decimal strings for 64-bit integers beyond 2^53.",
+          "type": "object",
+          "propertyNames": { "pattern": "^%[Qq]([Xx][0-9]+\\.[0-7]|[BbWwDdLl][0-9]+)$" },
+          "additionalProperties": { "type": [ "boolean", "number", "string" ] }
+        },
         "status_location": { "description": "Start of the 8-byte status block.", "$ref": "canworks.v1.schema.json#/$defs/input_byte" },
         "control_location": { "description": "Start of the 6-byte control block.", "type": "string", "pattern": "^%[Qq][Bb][0-9]+$" },
         "live_lists": {
