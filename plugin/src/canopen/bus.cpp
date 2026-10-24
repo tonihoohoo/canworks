@@ -55,6 +55,20 @@ IfaceState iface_state(const std::string& name) {
   return (flags & IFF_UP) ? IfaceState::Up : IfaceState::Down;
 }
 
+namespace {
+// Tests: a simulated network's interface counts as down while it is a line
+// of the file CANWORKS_TEST_IFACE_DOWN names (a simulated bus has no link).
+bool test_iface_down(const std::string& name) {
+  const char* path = std::getenv("CANWORKS_TEST_IFACE_DOWN");
+  if (!path || !*path) return false;
+  std::ifstream in(path);
+  std::string line;
+  while (std::getline(in, line))
+    if (line == name) return true;
+  return false;
+}
+}  // namespace
+
 Bus::Bus(const Config& cfg, const GeneratedConfig& gen, ProcessImage& image, DiagHub* hub,
          std::shared_ptr<const SimSetup> sim, GatewayLink* gw, RunState* run)
     : cfg_(cfg), gen_(gen), image_(image), hub_(hub), sim_(std::move(sim)), gw_(gw), run_(run),
@@ -164,7 +178,9 @@ void Bus::run_session() {
       chan.reset(c);
       c->open(*ctrl);
     }
-    auto iface_down = [&]() { return !virt && iface_state(cfg_.adapter.interface) != IfaceState::Up; };
+    auto iface_down = [&]() {
+      return virt ? test_iface_down(cfg_.adapter.interface) : iface_state(cfg_.adapter.interface) != IfaceState::Up;
+    };
 
     bool iface_lost = false;
     bool shut_down = false;
