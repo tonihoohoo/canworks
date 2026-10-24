@@ -166,6 +166,14 @@ jobs:
           PYTHONPATH=wheel python3 -m canworks --export-nodered-package dist
           test -f "dist/node-red-canworks-${{ steps.version.outputs.version }}.tgz"
 
+      - name: The adapter server file (canworks-adapter-<version>.pyz, from the wheel and the locked versions)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          v=${{ steps.version.outputs.version }}
+          python3 scripts/build-adapter-pyz.py --wheel "dist/canworks-$v-py3-none-any.whl" \
+            --constraints "dist/canworks-$v-constraints.txt" --out "dist/canworks-adapter-$v.pyz"
+          test "$(python3 -I -S "dist/canworks-adapter-$v.pyz" --version)" = "canworks-diag $v"
+
       - name: Create the release
         if: steps.gate.outputs.go == 'true'
         env:
@@ -179,9 +187,10 @@ jobs:
           # The install scripts too: the documented one-line installers fetch
           # them from releases/latest/download/, so users run released code.
           cp scripts/install-pc.sh scripts/install-pc.ps1 \
-             scripts/install-bridge.sh scripts/install-bridge.ps1 tools/deploy/canworks/devices/device-probe.sh dist/
+             scripts/install-bridge.sh scripts/install-bridge.ps1 scripts/install-adapter.sh \
+             tools/deploy/canworks/devices/device-probe.sh dist/
           gh release create "$TAG" dist/*.whl dist/canworks.stlib dist/canworks-$VERSION-constraints.txt \
-            dist/node-red-canworks-$VERSION.tgz \
+            dist/node-red-canworks-$VERSION.tgz dist/canworks-adapter-$VERSION.pyz dist/install-adapter.sh \
             dist/install-pc.sh dist/install-pc.ps1 \
             dist/install-bridge.sh dist/install-bridge.ps1 dist/device-probe.sh \
             --target "$SHA" \

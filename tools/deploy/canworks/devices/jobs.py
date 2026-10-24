@@ -88,15 +88,26 @@ def _fetch(paths, script, version):
 
 
 def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, port=None, allow_changes=False,
-                     discovery=True, user=None, upload=None):
+                     discovery=True, user=None, upload=None, uploaded=False):
     """The root shell lines of a remote CAN adapter action: the release's
-    install-adapter.sh. The token's verifier (adapter_on, adapter_token)
-    is the file `verifier` in the upload folder, removed after."""
+    install-adapter.sh. With `uploaded` the PC put the script and the
+    adapter server file in the upload folder (add-adapter-server-file), so
+    nothing is downloaded on the device; else the job downloads them. The
+    token's verifier (adapter_on, adapter_token) is the file `verifier` in
+    the upload folder. The upload folder is removed after."""
     if not isinstance(adapter, str) or not _ADAPTER.match(adapter):
         raise JobError("not an adapter to serve: %r" % (adapter,))
-    sh = _fetch(paths, "install-adapter.sh", version) + " --version " + quote(version)
+    if uploaded and upload is None:
+        raise JobError("the adapter server was not uploaded")
+    if uploaded:
+        up = posixpath.join(upload, "")
+        sh = "bash %s --version %s --file %s" % (quote(up + "install-adapter.sh"), quote(version),
+                                                 quote(up + "canworks-adapter-%s.pyz" % version))
+    else:
+        sh = _fetch(paths, "install-adapter.sh", version) + " --version " + quote(version)
+    done = ["rm -rf %s" % quote(upload)] if upload is not None else []
     if action == "adapter_off":
-        return [sh + " --uninstall --adapter " + quote(adapter)]
+        return [sh + " --uninstall --adapter " + quote(adapter)] + done
     if bitrate_kbit not in BITRATES or isinstance(bitrate_kbit, bool):
         raise JobError("not a bit rate: %r" % (bitrate_kbit,))
     if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
@@ -112,13 +123,12 @@ def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, po
         if upload is None:
             raise JobError("the token's verifier was not uploaded")
         line += " --verifier-file %s" % quote(posixpath.join(upload, "verifier"))
-        return [line, "rm -rf %s" % quote(upload)]
-    return [line]
+    return [line] + done
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
              bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, link_instance=None, stop=None,
-             **adapter):
+             uploaded=False, **adapter):
     """The root shell lines of one action, each running the release's
     install-bridge.sh, install-link.sh or install-adapter.sh. An
     install_bridge's link serves `link_instance` (the bridge instance it
@@ -142,7 +152,8 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         raise JobError("not bridge instances to stop: %r" % (stop,))
     stops = ["systemctl disable --now %s" % quote("canworks-bridge@%s.service" % n) for n in stop or ()]
     if action in ADAPTER_ACTIONS:
-        return adapter_commands(action, version, paths, discovery=discovery, upload=upload, **adapter)
+        return adapter_commands(action, version, paths, discovery=discovery, upload=upload, uploaded=uploaded,
+                                **adapter)
     v = quote(version)
     # The remote link and the advertisement (device-link-switches).
     link_sh = _fetch(paths, "install-link.sh", version)

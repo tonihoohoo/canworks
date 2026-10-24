@@ -981,7 +981,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.132.0"
+  "version": "0.133.0"
  },
  "warnings": []
 }

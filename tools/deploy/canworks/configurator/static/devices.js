@@ -312,8 +312,9 @@ function devRows(d, plan, job) {
           dataset: Object.assign({ devicesAction: a.action }, a.action.startsWith("install") ? { devicesInstall: r.part } : {},
             a.adapter ? { devicesAdapter: a.adapter } : {}),
           // Connect and Copy token run on this PC: neither a job nor a blocked device stops them.
-          disabled: a.local ? null : running || plan.blocked ? (plan.blocked || "An install is running.") : null,
-          title: a.local ? null : plan.blocked || null,
+          // The remote CAN adapter's actions carry their own reason (no internet needed on the device).
+          disabled: a.local ? null : running ? "An install is running." : ("blocked" in a ? a.blocked : plan.blocked) || null,
+          title: a.local ? null : ("blocked" in a ? a.blocked : plan.blocked) || null,
           onclick: (e) => a.action === "adapter_connect" ? devAdapterConnect(d, a.port)
             : a.action === "adapter_copy_token" ? busy(e.currentTarget, "Copying…", () => devAdapterCopyToken(d, a.port))
               : devStart(d.id, a.action, a) }, a.button)))))));

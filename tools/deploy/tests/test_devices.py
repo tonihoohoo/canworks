@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import unittest
+import unittest.mock
 
 from canworks.devices import jobs, plan, release, service, store
 
@@ -333,6 +334,35 @@ class AdapterRow(unittest.TestCase):
         self.assertEqual(self.acts(p), ["adapter_connect", "adapter_copy_token", "adapter_change", "adapter_off"])
         self.assertTrue(row(p, "adapter")["actions"][1]["local"])
 
+    def test_device_without_internet(self):
+        # add-adapter-server-file: the PC uploads the file, so the adapter needs no internet on the device.
+        p = plan.plan(probe(can=self.can0, internet=False), None, "0.133.0")
+        self.assertIn("github.com", p["blocked"])  # the bridge install still downloads there
+        on = row(p, "adapter")["actions"][0]
+        self.assertEqual(on["action"], "adapter_on")
+        self.assertIsNone(on["blocked"])
+        self.assertIsNone(plan.blocked(probe(internet=False, disk_free_mb=100), "0.133.0", adapter=True))
+        self.assertIn("2 GB", plan.blocked(probe(disk_free_mb=100), "0.133.0"))
+        self.assertIn("systemd", plan.blocked(probe(systemd=False), "0.133.0", adapter=True))
+
+    def test_python_or_openssl_missing(self):
+        p = plan.plan(probe(can=self.can0, python3="3.9.2", openssl=True), None, "0.133.0")
+        r = row(p, "adapter")
+        self.assertEqual(r["hint"], "The remote CAN adapter needs Python 3.11 or newer on the device (it has 3.9.2).")
+        self.assertNotIn("actions", r)
+        p = plan.plan(probe(can=self.can0, python3=None, openssl=True), None, "0.133.0")
+        self.assertEqual(row(p, "adapter")["hint"], "The remote CAN adapter needs Python 3.11 or newer on the device.")
+        p = plan.plan(probe(can=self.can0, adapters=[self.server()], python3="3.13.5", openssl=False), None,
+                      "0.133.0")
+        r = row(p, "adapter")
+        self.assertIn("openssl command", r["hint"])
+        self.assertEqual(self.acts(p), ["adapter_connect", "adapter_off"])  # no Change… or New token…
+        p = plan.plan(probe(can=self.can0, python3="3.11.2", openssl=True), None, "0.133.0")
+        self.assertNotIn("hint", row(p, "adapter"))
+        self.assertEqual(self.acts(p), ["adapter_on"])
+        # A probe from before the check: nothing is assumed missing.
+        self.assertEqual(self.acts(plan.plan(probe(can=self.can0), None, "0.133.0")), ["adapter_on"])
+
     def test_second_interface_gets_the_next_port(self):
         can = self.can0 + [{"ifname": "can1", "flags": [], "linkinfo": {"info_kind": "can"}}]
         p = plan.plan(probe(can=can, adapters=[self.server(state="failed", allow_changes=False)]), None, "0.131.0")
@@ -518,6 +548,25 @@ class Jobs(unittest.TestCase):
         with self.assertRaises(jobs.JobError):  # the token's verifier is needed
             jobs.commands("adapter_on", "0.131.0", self.paths, **good)
 
+    def test_adapter_commands_with_the_uploaded_file(self):
+        # add-adapter-server-file: the PC uploaded the script and the file, so nothing is downloaded.
+        up = "/tmp/canworks-bridge-upload.abc"
+        sh = ("bash /tmp/canworks-bridge-upload.abc/install-adapter.sh --version 0.133.0 "
+              "--file /tmp/canworks-bridge-upload.abc/canworks-adapter-0.133.0.pyz")
+        on = jobs.commands("adapter_on", "0.133.0", self.paths, upload=up, uploaded=True, adapter="socketcan:can0",
+                           bitrate_kbit=500, port=7536, allow_changes=True, user="pi")
+        self.assertEqual(on, [sh + " --adapter socketcan:can0 --bitrate 500 --port 7536 --user pi --allow-changes "
+                                   "--verifier-file /tmp/canworks-bridge-upload.abc/verifier", "rm -rf " + up])
+        self.assertNotIn("release_script", " ".join(on))
+        change = jobs.commands("adapter_change", "0.133.0", self.paths, upload=up, uploaded=True,
+                               adapter="socketcan:can0", bitrate_kbit=250, port=7536, user="pi")
+        self.assertEqual(change, [sh + " --adapter socketcan:can0 --bitrate 250 --port 7536 --user pi",
+                                  "rm -rf " + up])
+        off = jobs.commands("adapter_off", "0.133.0", self.paths, upload=up, uploaded=True, adapter="socketcan:can0")
+        self.assertEqual(off, [sh + " --uninstall --adapter socketcan:can0", "rm -rf " + up])
+        with self.assertRaises(jobs.JobError):  # uploaded needs the upload folder
+            jobs.commands("adapter_off", "0.133.0", self.paths, uploaded=True, adapter="socketcan:can0")
+
     def test_bridge_config_needs_the_service(self):
         lines = jobs.commands("bridge_config", "0.98.0", self.paths, instance="line3",
                               upload="/tmp/canworks-bridge-upload.abc", bridge_prefix="/opt/canworks")
@@ -595,6 +644,23 @@ class Jobs(unittest.TestCase):
 
 
 class Release(unittest.TestCase):
+    def test_adapter_files(self):
+        # add-adapter-server-file: the script and the file of a release, downloaded once on this PC.
+        rel = os.path.join(tmpdir(self), "rel")
+        os.makedirs(os.path.join(rel, "deploy-v0.133.0"))
+        for name, text in (("install-adapter.sh", "#!/bin/bash\n"), ("canworks-adapter-0.133.0.pyz", "PK")):
+            with open(os.path.join(rel, "deploy-v0.133.0", name), "w") as f:
+                f.write(text)
+        cache = os.path.join(tmpdir(self), "cache")
+        with unittest.mock.patch.dict(os.environ, {"CANWORKS_RELEASES_DOWNLOAD": "file://" + rel}):
+            got = release.adapter_files("0.133.0", cache)
+            self.assertEqual([os.path.basename(p) for p in got], ["install-adapter.sh", "canworks-adapter-0.133.0.pyz"])
+            with open(got[1]) as f:
+                self.assertEqual(f.read(), "PK")
+            self.assertIsNone(release.adapter_files("0.134.0", cache))  # no such release
+        shutil.rmtree(rel)
+        self.assertEqual(release.adapter_files("0.133.0", cache), got)  # kept: no second download
+
     def test_from_url(self):
         self.assertEqual(release.from_url("https://github.com/tonihoohoo/canworks/releases/tag/deploy-v0.98.0"),
                          "0.98.0")
@@ -657,6 +723,16 @@ class Probe(unittest.TestCase):
         self.assertIsNone(p["install_job"])
         self.assertEqual(p["can"][0]["ifname"], "can0")
         self.assertEqual(p["vcan"], [])
+
+    def test_python_and_openssl(self):
+        # What the adapter server file needs (add-adapter-server-file).
+        self.stub("python3", 'echo 3.11.2')
+        self.stub("openssl", 'exit 0')
+        p = self.run_probe(CANWORKS_PROBE_PYTHON=os.path.join(self.bin, "python3"),
+                           CANWORKS_PROBE_OPENSSL=os.path.join(self.bin, "openssl"))
+        self.assertEqual((p["python3"], p["openssl"]), ("3.11.2", True))
+        p = self.run_probe(CANWORKS_PROBE_PYTHON="/nonexistent/python3", CANWORKS_PROBE_OPENSSL="/nonexistent/openssl")
+        self.assertEqual((p["python3"], p["openssl"]), (None, False))
 
     def test_link_and_discovery(self):
         self.write("etc/systemd/system/canworks-link.service", "")

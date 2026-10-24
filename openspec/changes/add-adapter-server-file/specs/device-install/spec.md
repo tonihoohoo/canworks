@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Probe reads Python and openssl
-The device probe SHALL report the version of `python3` on PATH (or null) and whether the `openssl` command is there. The **Remote CAN adapter** row SHALL then offer no **Turn on…**, **Add…** or **Change…** and say in one sentence what the device is missing: Python 3.11 or newer, or the `openssl` command.
+The device probe SHALL report the version of `python3` on PATH (or null) and whether the `openssl` command is there. The **Remote CAN adapter** row SHALL then offer no **Turn on…**, **Add…**, **Change…** or **New token…** and say in one sentence what the device is missing: Python 3.11 or newer, or the `openssl` command.
 
 #### Scenario: Old Python on the device
 - **WHEN** the probe reports `python3` 3.9
