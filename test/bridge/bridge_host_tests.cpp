@@ -1004,15 +1004,33 @@ TEST(modbus_trace_ops_and_client_status) {
   for (int i = 0; i < 5; ++i) EXPECT(c.request(read_req(kReadHoldingRegisters, 0, 1)).size() == 4);
   EXPECT(c.request({kWriteSingleRegister, 0, 9, 0, 7}).size() == 5);
   std::string fetch = R"({"op":"modbus_trace_fetch","after":)" + std::to_string(static_cast<long long>(next)) + "}";
-  a = op(fetch.c_str());
-  EXPECT(a && result(a) && cJSON_GetNumberValue(cJSON_GetObjectItem(result(a), "count")) == 2);
-  EXPECT(a && result(a) && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(result(a), "records"))).size() > 40);
-  cJSON_Delete(a);
-  cJSON* st = h.host.status_json();
+  // The server records a request and counts it after its answer is queued:
+  // the client may read the answer first.
+  auto text = [](cJSON* item) {
+    const char* v = cJSON_GetStringValue(item);
+    return std::string(v ? v : "");
+  };
+  double count = 0;
+  std::string records;
+  EXPECT(wait_for([&] {
+    cJSON* f = op(fetch.c_str());
+    count = f && result(f) ? cJSON_GetNumberValue(cJSON_GetObjectItem(result(f), "count")) : 0;
+    records = f && result(f) ? text(cJSON_GetObjectItem(result(f), "records")) : "";
+    cJSON_Delete(f);
+    return count == 2;
+  }));
+  EXPECT(records.size() > 40);
+  cJSON* st = nullptr;
+  EXPECT(wait_for([&] {
+    cJSON_Delete(st);
+    st = h.host.status_json();
+    cJSON* cl = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "clients"), 0);
+    return cl && cJSON_GetObjectItem(cl, "last_write") && !cJSON_IsNull(cJSON_GetObjectItem(cl, "last_write"));
+  }));
   cJSON* cl = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "clients"), 0);
   EXPECT(cl && cJSON_GetNumberValue(cJSON_GetObjectItem(cJSON_GetObjectItem(cl, "functions"), "3")) == 5);
   cJSON* lw = cJSON_GetObjectItem(cl, "last_write");
-  EXPECT(lw && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(lw, "table"))) == "holding register" &&
+  EXPECT(lw && text(cJSON_GetObjectItem(lw, "table")) == "holding register" &&
          cJSON_GetNumberValue(cJSON_GetObjectItem(lw, "start")) == 9);
   EXPECT(cJSON_GetNumberValue(cJSON_GetObjectItem(st, "modbus_traces")) == 1);
   EXPECT(cJSON_IsArray(cJSON_GetObjectItem(st, "closed_clients")));
