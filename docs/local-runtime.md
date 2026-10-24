@@ -55,7 +55,7 @@ The password is printed only by `canworks-local-runtime status --show-password`.
 
 The saved certificate fingerprint changes only when `start` or `update` has just created the container itself. At any other time, a runtime that answers on the port with another certificate is refused before the password is sent: `start` and `status` stop and say the certificate changed. Another program may be holding the port; when you recreated the container yourself, `canworks-local-runtime remove` and `start` pin the new certificate (the data volume, user and password stay).
 
-The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the bridge's diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets `master.diagnostics.port` (in a version 2 file, the top-level `diagnostics.port`) to 7532.
+The container restarts with the engine (unless stopped) and listens only on this PC (`127.0.0.1`): the runtime on port 8443 and the bridge's diagnostics on port 7531. `--port` and `--diag-port` choose others; the diagnostics port is published as the same number inside the container, so a config for `--diag-port 7532` sets the top-level `diagnostics.port` to 7532.
 
 ## Use it
 

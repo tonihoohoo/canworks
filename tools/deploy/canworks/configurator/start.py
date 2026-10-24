@@ -27,7 +27,7 @@ SHORTCUT = "--from-shortcut"
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-config",
-        description="Edit the CANopen config of an OpenPLC editor project (or a standalone config folder) in a "
+        description="Edit a canworks config (an OpenPLC Editor project's, or a standalone config folder) in a "
                     "local web page. It runs in the background and stops when its last browser tab is closed; "
                     "started again, it opens a tab on the running one.")
     p.add_argument("path", nargs="?", help="editor project folder, or standalone config folder, to open directly")

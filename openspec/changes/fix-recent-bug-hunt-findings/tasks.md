@@ -64,14 +64,14 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 6. Docs and specs
 
-- [ ] 6.1 DOCS-2: docs/plc-library.md and specs wording (MODIFIED deltas in this change).
-- [ ] 6.2 DOCS-3: remove `drive-input` from docs/diagnostics.md, docs/simulator.md and docs/configurator.md.
-- [ ] 6.3 DOCS-4, DOCS-5, DOCS-6: README runtime and Devices text, release-notes template, tools/deploy/README.md, docs/install-pc.md.
-- [ ] 6.4 DOCS-7: canworks-diag help and docs/local-runtime.md say top-level `diagnostics`.
-- [ ] 6.5 DOCS-9, DOCS-10: j1939.md anchor and duplicate paragraph; examples/pdo-link/README.md command.
-- [ ] 6.6 DOCS-11: SECURITY.md, schema v2 descriptions (both copies), canworks-config help, `_lely_dcf/README.md`, declare.py comment, docs/simulator.md expression example.
+- [x] 6.1 DOCS-2: docs/plc-library.md and specs wording (MODIFIED deltas in this change).
+- [x] 6.2 DOCS-3: remove `drive-input` from docs/diagnostics.md, docs/simulator.md and docs/configurator.md.
+- [x] 6.3 DOCS-4, DOCS-5, DOCS-6: README runtime and Devices text, release-notes template, tools/deploy/README.md, docs/install-pc.md.
+- [x] 6.4 DOCS-7: canworks-diag help and docs/local-runtime.md say top-level `diagnostics`.
+- [x] 6.5 DOCS-9, DOCS-10: j1939.md anchor and duplicate paragraph; examples/pdo-link/README.md command.
+- [x] 6.6 DOCS-11: SECURITY.md, schema v2 descriptions (both copies), canworks-config help, `_lely_dcf/README.md`, declare.py comment, docs/simulator.md expression example.
 - [ ] 6.7 DOCS-8, DOCS-12: spec scenarios without `--runtime` and `--host` (MODIFIED deltas in this change).
-- [ ] 6.8 DOCS-13: extend `test_doc_references` with anchors and per-subcommand options over every doc page, SECURITY.md, tools/deploy/README.md, the release notes template and example and config READMEs.
+- [x] 6.8 DOCS-13: extend `test_doc_references` with anchors and per-subcommand options over every doc page, SECURITY.md, tools/deploy/README.md, the release notes template and example and config READMEs.
 - [ ] 6.9 README.md and docs/modbus-bridge.md, docs/node-red.md, docs/devices.md for the behaviour changes above.
 
 ## 7. CI

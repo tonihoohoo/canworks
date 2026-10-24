@@ -80,7 +80,7 @@ The bridge has one SDO request block and one control block, so instances take tu
 
 ## The mailboxes
 
-The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). They are off until a program needs them ([below](#with-or-without-the-mailboxes)); the configurator's defaults when they are turned on are one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
+The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). They are off until a program needs them ([below](#with-or-without-the-mailboxes)); the configurator's defaults when they are turned on are one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; after a change there, Save the editor project (or run `canworks-deploy --into-project`) and Build again ([configurator.md](configurator.md#modbus-bridge)).
 
 | Block | Needs | Round trips |
 |---|---|---|

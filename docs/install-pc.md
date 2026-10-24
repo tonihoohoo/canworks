@@ -2,7 +2,7 @@
 
 `canworks-config`, `canworks-deploy`, `canworks-diag`, `canworks-local-runtime` and `canworks-j1939-sim` run on the engineering PC (Windows, macOS or Linux). They come as one package. `canworks-local-runtime` runs a [local runtime](local-runtime.md) in a container and needs a container engine (Docker Engine, Podman or Colima); the other four need nothing else. `canworks-j1939-sim` simulates a J1939 ECU from a DBC file ([j1939.md](j1939.md#simulator)). The recommended way installs them with [uv](https://docs.astral.sh/uv/), which brings its own Python: nothing else needs to be on the PC, and no admin rights are needed. Installing with pip into a Python you already have also works: see [With pip or pipx](#with-pip-or-pipx).
 
-The tools call the editor's `openplc-cli` for **Build only** and **New editor project**; it comes with the OpenPLC Editor (`openplc-cli install-cli`, or set `OPENPLC_CLI` to it).
+The tools call the editor's `openplc-cli` for **New editor project**; it comes with the OpenPLC Editor (`openplc-cli install-cli`, or set `OPENPLC_CLI` to it).
 
 ## One line: install or update
 
@@ -119,7 +119,7 @@ The configurator's own settings (theme, online access, the update check, its log
 
 ## The editor on Linux
 
-The OpenPLC Editor comes for Linux as an AppImage (x64 and ARM64) on its releases page. Make it executable (`chmod +x`) and start it once: like on Windows and macOS, the first run puts the `openplc-cli` command on PATH, here as a shim in `~/.local/bin` that points at the AppImage file. Keep the AppImage where it is, or after moving it run `./OpenPLC.Editor-<version>.AppImage --cli install-cli` to point the shim at the new place. The same command installs the shim on a machine without a desktop (over SSH, a server, WSL without a GUI); `openplc-cli` then runs headless, so New editor project and Build only work there too. The AppImage needs FUSE 2: if it does not start, install it (`sudo apt install libfuse2t64`, or `libfuse2` on older releases) or run it with `--appimage-extract-and-run`. The tools then find `openplc-cli` on PATH; `OPENPLC_CLI` overrides it. The `canworks` editor library goes into the editor's settings folder, `~/.config/open-plc-editor` (or under `$XDG_CONFIG_HOME`).
+The OpenPLC Editor comes for Linux as an AppImage (x64 and ARM64) on its releases page. Make it executable (`chmod +x`) and start it once: like on Windows and macOS, the first run puts the `openplc-cli` command on PATH, here as a shim in `~/.local/bin` that points at the AppImage file. Keep the AppImage where it is, or after moving it run `./OpenPLC.Editor-<version>.AppImage --cli install-cli` to point the shim at the new place. The same command installs the shim on a machine without a desktop (over SSH, a server, WSL without a GUI); `openplc-cli` then runs headless, so New editor project works there too. The AppImage needs FUSE 2: if it does not start, install it (`sudo apt install libfuse2t64`, or `libfuse2` on older releases) or run it with `--appimage-extract-and-run`. The tools then find `openplc-cli` on PATH; `OPENPLC_CLI` overrides it. The `canworks` editor library goes into the editor's settings folder, `~/.config/open-plc-editor` (or under `$XDG_CONFIG_HOME`).
 
 ## CAN adapters
 

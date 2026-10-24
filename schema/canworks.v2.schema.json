@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
   "title": "OpenPLC CANopen configuration, schema_version 2 (several networks, slave networks, gateway)",
-  "description": "The CANopen bridge's JSON config with a list of networks (docs/config.md#several-networks): master networks, one CANopen master per CAN interface, and slave networks, where OpenPLC is one CANopen device under another master (docs/slave.md), with an optional gateway between them (docs/gateway.md). A master network's adapter, master and nodes are the version 1 definitions, referenced from canworks.v1.schema.json, except that a PDO entry may leave out iec_location: the bridge allows that only for an entry a gateway route uses. Unknown fields are allowed: the bridge and the deploy tool ignore them with a warning. Checks this schema cannot express (unique names, interfaces and serial devices, IEC locations across networks, slave bindings and gateway routes against the EDS files) are listed in docs/config.md, docs/slave.md and docs/gateway.md.",
+  "description": "The CANopen bridge's JSON config with a list of networks (docs/config.md#several-networks): master networks, one CANopen master per CAN interface, and slave networks, where canworks-bridge is one CANopen device under another master (docs/slave.md), with an optional gateway between them (docs/gateway.md). A master network's adapter, master and nodes are the version 1 definitions, referenced from canworks.v1.schema.json, except that a PDO entry may leave out iec_location: the bridge allows that only for an entry a gateway route uses. Unknown fields are allowed: the bridge and the deploy tool ignore them with a warning. Checks this schema cannot express (unique names, interfaces and serial devices, IEC locations across networks, slave bindings and gateway routes against the EDS files) are listed in docs/config.md, docs/slave.md and docs/gateway.md.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -198,7 +198,7 @@
           "enum": [ "canopen", "j1939", "none" ]
         },
         "role": {
-          "description": "\"master\" (default): OpenPLC is the network's NMT master, with 'master' and 'nodes'. \"slave\": OpenPLC is one CANopen device under another master, with 'slave' instead (docs/slave.md).",
+          "description": "\"master\" (default): canworks-bridge is the network's NMT master, with 'master' and 'nodes'. \"slave\": canworks-bridge is one CANopen device under another master, with 'slave' instead (docs/slave.md).",
           "enum": [ "master", "slave" ]
         },
         "adapter": { "$ref": "canworks.v1.schema.json#/$defs/adapter" },
@@ -574,7 +574,7 @@
       "properties": { "iec_location": { "$ref": "canworks.v1.schema.json#/$defs/output_location" } }
     },
     "slave": {
-      "description": "OpenPLC as one CANopen device on a slave network (docs/slave.md). Everything except the node ID and the PLC bindings comes from the EDS.",
+      "description": "canworks-bridge as one CANopen device on a slave network (docs/slave.md). Everything except the node ID and the PLC bindings comes from the EDS.",
       "type": "object",
       "properties": {
         "node_id": {
@@ -641,7 +641,7 @@
       "required": [ "index", "subindex", "iec_location" ]
     },
     "gateway": {
-      "description": "OpenPLC as a gateway (docs/gateway.md): a slave on the upper network and the master of the other networks, with routes the bridge copies between them without the PLC program.",
+      "description": "canworks-bridge as a gateway (docs/gateway.md): a slave on the upper network and the master of the other networks, with routes the bridge copies between them without the PLC program.",
       "type": "object",
       "properties": {
         "upper": {

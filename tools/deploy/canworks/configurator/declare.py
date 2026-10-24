@@ -380,7 +380,7 @@ def editor_block(decls, indent="  "):
         for d in decls:
             if d.get("location"):
                 line = "%s  %s : %s AT %s;" % (indent, d["name"].ljust(width), d["type"], d["location"])
-            else:  # a plain variable (a CiA 402 axis and its bridge)
+            else:  # a plain variable (a PDO entry or bit channel without a location)
                 line = "%s  %s : %s;" % (indent, d["name"].ljust(width), d["type"])
             text = comment_text(d.get("description"))
             if text:
