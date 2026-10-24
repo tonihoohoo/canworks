@@ -57,10 +57,10 @@ class ModbusTrace {
               size_t resp_n, bool refused, uint64_t time_us);
   // A connection closed: its change filter goes.
   void forget(uint32_t conn);
-  // Registers the change filter leaves out (modbus-bridge "Modbus trace
-  // recorder"): words the mailboxes change on their own, the keepalive
-  // holding registers and the input clock words.
-  void set_ignored(std::vector<uint16_t> holding, std::vector<uint16_t> input);
+  // Image bytes the change filter leaves out (modbus-bridge "Modbus trace
+  // recorder"): the words the bridge and the mailboxes change on their own,
+  // output bytes (keepalives) and input bytes (clocks and counters).
+  void set_ignored(std::vector<uint32_t> out_bytes, std::vector<uint32_t> in_bytes);
 
   // Sessions, by the diagnostics client's number. start() returns the
   // sequence number to fetch after.
@@ -107,7 +107,7 @@ class ModbusTrace {
   uint64_t seq_ = 0;        // the last record's number
   std::map<uint64_t, Session> sessions_;
   std::unordered_map<uint32_t, std::unordered_map<uint64_t, Kind>> kinds_;
-  std::vector<uint16_t> ignored_holding_, ignored_input_;  // sorted
+  std::vector<uint32_t> ignored_out_, ignored_in_;  // image bytes, sorted
 };
 
 std::string base64(const std::string& data);

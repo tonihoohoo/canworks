@@ -12,4 +12,5 @@
 
 ## 3. Hardware check
 
-- [ ] 3.1 Pi with node 23 and the OpenPLC program with cyclic jobs: 60 s Modbus trace with Only changes; the writes of the mailbox group are counted, not recorded, while nothing changes, and a forced valve output is still recorded each time it changes
+- [x] 3.1 Pi with node 23 and the OpenPLC program with cyclic jobs: 60 s Modbus trace with Only changes; the writes of the mailbox group are counted, not recorded, while nothing changes, and a forced valve output is still recorded each time it changes. Result (bridge 0.139.0, `blink_en` forced for 42 s): HR 3-94 writes went from 2998 records to 77 (the first plus one per valve change, 76), write to RPDO 0.34 / 5.37 / 10.23 ms; 6655 records in 60 s instead of 15529. Reads were still recorded every poll: IR 236-270 5956 times (the network info update counter counts every bridge cycle, which this change had kept as real data) and IR 0-5 600 times (the status block's heartbeat); both left out in 0.139.1
+- [ ] 3.2 Same bench on 0.139.1: the reads of the status block, network info and cyclic job table are counted, not recorded, while nothing changes

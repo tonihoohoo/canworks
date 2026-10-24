@@ -1076,7 +1076,7 @@ TEST(modbus_trace_changes_only_leaves_out_mailbox_words) {
   // Spec "Keepalive alone does not make a record", "Mailbox clock alone
   // does not make a record".
   ModbusTrace trace;
-  trace.set_ignored({2}, {1});  // a keepalive in HR 2, a clock in IR 1
+  trace.set_ignored({4, 5}, {2, 3});  // a keepalive in HR 2, a clock in IR 1
   Fixture fx(open_config(), 40, 16, &trace);
   Client c(fx.server.port());
   uint64_t next = trace.start(7, true, AddressList(), ModbusTrace::Clock::now());
