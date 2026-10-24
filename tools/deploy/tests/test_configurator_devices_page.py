@@ -98,7 +98,10 @@ printf '[Service]
 User=%s
 ExecStart=/usr/bin/python3 /opt/canworks-adapter/canworks-adapter.pyz adapter-serve --adapter socketcan:can0 --bitrate %s --port %s%s
 '     "$user" "$rate" "$port" "$changes" > "$unit"
-echo active > "$FAKE_UNITS/canworks-adapter-can0.service"
+# The service is still starting when the job ends (as on a slow device): the
+# page reads the device again until it runs.
+echo activating > "$FAKE_UNITS/canworks-adapter-can0.service"
+(sleep 2; echo active > "$FAKE_UNITS/canworks-adapter-can0.service") >/dev/null 2>&1 &
 """
 
 
@@ -407,6 +410,8 @@ class DevicesPage(OnlineBase):
         self.assertEqual(pg.input_value("[data-online=remote-host]"), "127.0.0.1")
         self.assertEqual(pg.get_attribute("[data-online=remote-token]", "placeholder"), "kept on this PC")
         self.assertFalse(pg.is_checked("[data-online=adapter-allow]"))  # each connection starts read-only
+        # One click: the kept token connects at once (no server here, so it says why).
+        pg.wait_for_selector("#conn-dialog[open] [data-online=connect-msg]:not(:empty)", timeout=10000)
 
     def test_link_and_discovery_switches(self):
         # device-link-switches: the remote link and the advertisement turned
