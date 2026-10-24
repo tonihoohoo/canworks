@@ -115,6 +115,8 @@ class Network : public lely::canopen::BasicMaster {
     unsigned timeout_ms = 0;   // 0: not monitored
     bool zero = false;         // on_timeout "zero"
     int bit = -1;              // ProcessImage::timeout_bits() index
+    int counter = -1;          // ProcessImage::counters() index
+    uint16_t frames = 0;       // its frame counter
     std::vector<size_t> bindings;  // its ProcessImage input bindings
     unsigned map_bytes = 0;    // bytes its mapping needs (0: unknown)
     bool timed_out = false;
@@ -374,6 +376,7 @@ class Network : public lely::canopen::BasicMaster {
   void HandleRpdoTimeout(unsigned num);
   void HandleRpdoBack(unsigned num);
   void HandleRpdoShort(unsigned num);
+  void HandleRpdoCount(unsigned num);
   void PdoTimedOut(InputPdo& p, clock::time_point now);
   void ArmTick();
   void OnTick();

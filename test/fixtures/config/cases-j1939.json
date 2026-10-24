@@ -199,6 +199,9 @@
       "verdict": "reject",
       "messages": [ "networks[1]: j1939: ecu: state_location %QB200 must be a byte input (%IB)" ]
     },
+    { "name": "j1939: rx message counter", "patch": [["set", "networks/1/j1939/rx/0/counter_location", "%IW212"]], "schema": "valid", "verdict": "accept" },
+    { "name": "j1939: rx message counter not a word", "patch": [["set", "networks/1/j1939/rx/0/counter_location", "%IX202.2"]], "schema": "invalid", "verdict": "reject", "messages": ["networks[1]: j1939: rx[0]: counter_location %IX202.2 must be a word input (%IW)"] },
+    { "name": "j1939: rx message counter clash", "patch": [["set", "networks/1/j1939/rx/0/counter_location", "%IW210"]], "schema": "valid", "verdict": "reject", "messages": ["PGN 65280 counter_location (%IW210)"] },
     {
       "name": "j1939: PGN out of range",
       "patch": [ [ "set", "networks/1/j1939/rx/0/pgn", 262144 ] ],

@@ -501,6 +501,10 @@ def _pdos(n, eds, norm, cfg, names, nt=None):
                         "entries": entries})
             if timeout:
                 out[-1]["timeout"] = timeout
+            if tx and p.get("counter_location"):
+                loc = parse_location(p["counter_location"])
+                text = str(loc) if loc else p["counter_location"]
+                out[-1]["counter"] = {"location": text, "variables": _plc_names(names, text)}
     return out
 
 
@@ -1191,6 +1195,10 @@ def _j1939_network(net, config_path, names, several, warnings):
         if rx and entry["status_location"] is not None:
             loc = str(entry["status_location"])
             status = {"location": loc, "variables": _plc_names(names, loc)}
+        counter = None
+        if rx and entry.get("counter_location") is not None:
+            loc = str(entry["counter_location"])
+            counter = {"location": loc, "variables": _plc_names(names, loc)}
         dsig = {s["name"]: s for s in (d["signals"] if d else [])}
         signals = []
         for sg in entry["signals"]:
@@ -1208,6 +1216,8 @@ def _j1939_network(net, config_path, names, several, warnings):
             "length": length, "period_ms": None if rx else entry["period_ms"],
             "timeout_ms": entry["timeout_ms"] if rx else None, "min_gap_ms": None if rx else entry["min_gap_ms"],
             "trigger": trigger, "status": status, "comment": d["comment"] if d else "", "signals": signals})
+        if counter:
+            messages[-1]["counter"] = counter
         frames.append({"cob_id": msg.cob_id, "name": mname, "kind": key, "producer": producer,
                        "consumers": consumers, "dlc": min(length, 8), "bits": bits, "trigger": trigger,
                        "rate_cyclic": round(cyc, 4), "rate_worst": round(worst, 4),

@@ -64,9 +64,21 @@ class J1939Page(OnlineBase):
         pg.fill('input[data-path="j1939.ecu.address"]', "128")
         pg.wait_for_function("() => document.body.dataset.checking === '0'")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        # A message counter (j1939-ecu "Receive counter"): a free word input, and a bit is refused.
+        pg.click('button[data-suggest="j1939.rx[0].counter_location"]')
+        pg.wait_for_function("""() => /^%IW\\d+$/.test(document.querySelector(
+            'input[data-path="j1939.rx[0].counter_location"]').value)""")
+        counter = pg.input_value('input[data-path="j1939.rx[0].counter_location"]')
+        pg.fill('input[data-path="j1939.rx[0].counter_location"]', "%IX300.0")
+        pg.wait_for_selector('input[data-path="j1939.rx[0].counter_location"].invalid')
+        self.assertIn("must be a word input (%IW)", pg.inner_text("#problem-list"))
+        pg.fill('input[data-path="j1939.rx[0].counter_location"]', counter)
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         pg.click("#btn-save")
         pg.wait_for_selector("#banner:has-text('Saved')")
         saved = load(self.config_path)
+        self.assertEqual(saved["networks"][0]["j1939"]["rx"][0]["counter_location"], counter)
         self.assertEqual(saved["schema_version"], 2)
         net = saved["networks"][0]
         self.assertEqual(len(saved["networks"]), 1)

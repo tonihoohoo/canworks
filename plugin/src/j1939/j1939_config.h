@@ -79,6 +79,8 @@ struct J1939Rx {
   unsigned timeout_ms = 0;  // 0: no supervision
   bool has_status_location = false;
   IecLocation status_location;  // %IX
+  bool has_counter_location = false;
+  IecLocation counter_location;  // %IW, messages taken, wrapping at 65535
   std::vector<J1939Signal> signals;
   canworks_can::MuxLayout layout;  // built by check_j1939
 };

@@ -240,6 +240,16 @@ class Declarations(unittest.TestCase):
         self.assertIn("rtd_x7130_1_bit15", names)
         self.assertNotIn("rtd_x7130_1", names)
 
+    def test_frame_counter(self):
+        cfg = rtd_config()
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["counter_location"] = "%IW30"
+        decls = declare.declarations(cfg, lambda *a: None, {})
+        d = next(d for d in decls if d["location"] == "%IW30")
+        self.assertEqual((d["name"], d["type"]), ("rtd_tpdo1_count", "UINT"))
+        self.assertTrue(d["description"].endswith("TPDO 1 frames received"), d["description"])
+        uses = {path: str(loc) for path, loc in layout.canopen_uses(cfg)}
+        self.assertEqual(uses["networks[0].nodes[0].tx_pdos[0].counter_location"], "%IW30")
+
     def test_state_byte(self):
         cfg = rtd_config()
         cfg["networks"][0]["nodes"][0]["state_location"] = "%IB20"

@@ -269,6 +269,18 @@ class Model(unittest.TestCase):
         [net] = build(cfg)["networks"]
         self.assertNotIn("timeout", pdo(net["nodes"][0], "TPDO", 1))
 
+    def test_frame_counter(self):
+        cfg = base_config()
+        cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["counter_location"] = "%IW40"
+        doc = build(cfg)
+        [net] = doc["networks"]
+        self.assertEqual(pdo(net["nodes"][0], "TPDO", 1)["counter"], {"location": "%IW40", "variables": []})
+        self.assertIn("%IW40", [u["location"] for u in doc["io"]])
+        self.assertIn("Frame counter <code>%IW40</code>", docwriter.write(doc))
+        del cfg["networks"][0]["nodes"][0]["tx_pdos"][0]["counter_location"]
+        [net] = build(cfg)["networks"]
+        self.assertNotIn("counter", pdo(net["nodes"][0], "TPDO", 1))
+
     def test_plc_variable_names_from_project(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
@@ -443,6 +455,13 @@ class J1939Networks(unittest.TestCase):
         self.assertGreater(frame(net, "ComponentInfo")["bits"], docexport.frame_bits_ext(8) * 5)  # 34 bytes
         self.assertEqual(net["bus_load"]["notes"], [])
         self.assertIn("%IW210", [r["location"] for r in m["io"]])
+        self.assertNotIn("counter", p)
+        cfg["networks"][0]["j1939"]["rx"][0]["counter_location"] = "%IW350"
+        m = build(cfg, path)
+        p = next(x for x in m["networks"][0]["messages"] if x["direction"] == "rx" and x["pgn"] == 65280)
+        self.assertEqual(p["counter"], {"location": "%IW350", "variables": []})
+        self.assertIn("%IW350", [r["location"] for r in m["io"]])
+        self.assertIn("Message counter <code>%IW350</code>", docwriter.write(m))
 
     def test_received_message_without_a_rate(self):
         cfg, path = example("j1939")

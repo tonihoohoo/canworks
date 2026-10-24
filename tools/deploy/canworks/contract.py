@@ -484,8 +484,9 @@ FIELD_NAMES = {
     "inhibit_time_us": "inhibit time", "sync_start": "SYNC start value", "timeout_ms": "timeout",
     "interface": "CAN interface", "bitrate": "bit rate", "device": "serial device", "serial_baudrate": "serial speed",
     "restart_ms": "restart time", "type": "type", "eds": "EDS file", "iec_location": "PLC location",
-    "status_location": "status bit", "timeout_location": "timeout bit", "trigger_location": "trigger bit",
-    "valid_location": "valid bit", "comm_ok_location": "communication OK bit", "port": "port", "bind": "address",
+    "status_location": "status bit", "timeout_location": "timeout bit", "counter_location": "frame counter",
+    "trigger_location": "trigger bit", "valid_location": "valid bit", "comm_ok_location": "communication OK bit",
+    "port": "port", "bind": "address",
     "name": "name", "entries": "mapped objects", "nodes": "nodes", "networks": "networks",
     "scale_numerator": "scale numerator", "scale_denominator": "scale denominator", "scale_factor": "scale factor",
     "sdo_timeout_ms": "SDO timeout", "time_period_ms": "TIME period", "boot_time_ms": "boot time",
@@ -767,8 +768,8 @@ def _pdo_schema_message(cfg, path, e):
     kind = "TPDO" if key == "tx_pdos" else "RPDO"
     where = "nodes[%d]: %s[%d]" % (i, key, j)
     if len(path) == 4 and e.validator == "not" and key == "rx_pdos":
-        field = next(f for f in ("inhibit_time_us", "sync_start", "timeout_ms", "on_timeout", "timeout_location")
-                     if f in p)
+        field = next(f for f in ("inhibit_time_us", "sync_start", "timeout_ms", "on_timeout", "timeout_location",
+                                 "counter_location") if f in p)
         return where, "%s %d: field '%s' is only for tx_pdos (PDOs the node sends)" % (kind, number, field)
     if len(path) == 4 and e.validator == "dependentRequired":
         field = next(f for f in ("on_timeout", "timeout_location") if f in p)
@@ -783,6 +784,11 @@ def _pdo_schema_message(cfg, path, e):
         loc = parse_location(p["timeout_location"])
         if loc is not None:
             return where, "%s %d: field 'timeout_location' must be an input bit (%%IX...), not %s" % (
+                kind, number, loc)
+    if len(path) == 5 and path[4] == "counter_location" and e.validator == "pattern":
+        loc = parse_location(p["counter_location"])
+        if loc is not None:
+            return where, "%s %d: field 'counter_location' must be an input word (%%IW...), not %s" % (
                 kind, number, loc)
     if len(path) == 5 and path[4] == "inhibit_time_us" and e.validator == "multipleOf":
         return where, "%s %d: field 'inhibit_time_us' must be a multiple of 100" % (kind, number)
@@ -1598,9 +1604,10 @@ def location_uses(net, prefix=""):
                 if key in v:
                     add(v[key], who + " " + key, vw + "." + key)
         for j, p in enumerate(n.get("tx_pdos", [])):
-            if "timeout_location" in p:
-                add(p["timeout_location"], "%s TPDO %s timeout_location" % (label, _uint(p.get("number", j + 1))),
-                    "%s.tx_pdos[%d].timeout_location" % (w, j))
+            for key in ("timeout_location", "counter_location"):
+                if key in p:
+                    add(p[key], "%s TPDO %s %s" % (label, _uint(p.get("number", j + 1)), key),
+                        "%s.tx_pdos[%d].%s" % (w, j, key))
         for key, kind in (("tx_pdos", "TPDO"), ("rx_pdos", "RPDO")):
             for j, p in enumerate(n.get(key, [])):
                 number = _uint(p.get("number", j + 1))
@@ -1628,8 +1635,9 @@ def _j1939_location_uses(j, add):
                 continue
             pgn = _uint(m.get("pgn"))
             who, at = "PGN %s" % pgn, "j1939.%s[%d]" % (key, i)
-            if key == "rx" and "status_location" in m:
-                add(m["status_location"], who + " status_location", at + ".status_location")
+            for loc_key in ("status_location", "counter_location"):
+                if key == "rx" and loc_key in m:
+                    add(m[loc_key], who + " " + loc_key, at + "." + loc_key)
             for k, s in enumerate(m.get("signals") if isinstance(m.get("signals"), list) else []):
                 if not isinstance(s, dict):
                     continue
@@ -2949,6 +2957,7 @@ class _J1939Parser:
         if v is not None:
             r["timeout_ms"] = v
         r["status_location"] = self.fixed_location(m, "status_location", w, p, "I", "X", "a bit input (%IX)")
+        r["counter_location"] = self.fixed_location(m, "counter_location", w, p, "I", "W", "a word input (%IW)")
         r["signals"], r["layout"] = self.signals(m, w, p, True)
         return r
 

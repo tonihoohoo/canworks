@@ -2938,7 +2938,8 @@ function renderPdos(i, key, dir, title, eds) {
         cobIdField(pb, n, dir, p, j),
         transmissionField(pb, dir, p, eds)),
       timingLine(pb, dir, p, eds),
-      dir === "input" ? timeoutLine(i, pb, p, eds) : null),
+      dir === "input" ? timeoutLine(i, pb, p, eds) : null,
+      dir === "input" && usedBy("nodes.tx_pdos.counter_location") ? counterLine(i, pb) : null),
       mappingLine(i, key, dir, p, j, eds));
     const rows = (p.entries || []).map((e, k) => {
       const ep = `${pb}.entries[${k}]`;
@@ -3178,7 +3179,7 @@ function bitTable(i, dir, ep, e, info, eds) {
 // A PDO's communication settings under one summary line ("COB-ID 0x185 ·
 // on change · event 100 ms · timeout 500 ms"), closed until opened, or
 // until one of them has a problem; the user's choice stays for the node.
-const PDO_SETTING_KEYS = /^\.(number|cob_id|transmission|inhibit_time_us|event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location)/;
+const PDO_SETTING_KEYS = /^\.(number|cob_id|transmission|inhibit_time_us|event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location|counter_location)/;
 function pdoSettings(pb, dir, p, j, eds, ...body) {
   S.pdoOpen = S.pdoOpen || {};
   const key = `${S.net}|${pb}`;
@@ -3473,6 +3474,23 @@ function timeoutLine(i, pb, p, eds) {
   }
   return el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Timeout"),
     el("div", { class: "pdo-grid" }, ...fields));
+}
+
+// The frame counter of a TPDO (canopen-pdo-io "Receive counter of an input
+// PDO"): an optional %IW that grows by one per received frame.
+function counterLine(i, pb) {
+  const locPath = pb + ".counter_location";
+  const loc = field("", locPath, "text", { placeholder: "%IW…" }).querySelector("input");
+  const suggest = el("button", { type: "button", dataset: { suggest: "counter" },
+    onclick: async () => {
+      const r = await api("POST", "/api/place", { config: fileConfig(), network: S.net, node: i, direction: "counter" });
+      setPath(locPath, r.location);
+      render();
+    } }, "Suggest");
+  return el("div", { class: "pdo-row" }, el("span", { class: "row-head" }, "Counter"),
+    el("div", { class: "pdo-grid" }, el("label", null, "Frame counter", el("span", { class: "row" }, loc, suggest),
+      hint("Optional word input: grows by one per received PDO (wraps at 65535), so the program sees frames that came within one poll. Empty: none."),
+      el("span", { class: "field-msg", dataset: { for: locPath } }))));
 }
 
 // A sub-object's DefaultValue in the EDS as a number (null if absent or

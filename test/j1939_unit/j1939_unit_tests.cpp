@@ -491,6 +491,34 @@ TEST(j1939_engine_receives) {
   CHECK(r.img.bool_in[10][1] == 0);
 }
 
+// j1939-ecu "Receive counter": one per message the entry takes, after its
+// source filter; a 20-byte (transport protocol) message counts once.
+TEST(j1939_engine_counts_messages) {
+  Config cfg = engine_config();
+  cfg.j1939.rx[0].has_counter_location = true;
+  cfg.j1939.rx[0].counter_location = loc("%IW40");
+  cfg.j1939.rx[1].has_counter_location = true;
+  cfg.j1939.rx[1].counter_location = loc("%IW42");
+  Rig r(cfg);
+  r.claim();
+  for (int k = 0; k < 5; ++k) r.message(0xFF00, 0x10, 255, {1, 0, 2, 0, 0, 0, 0, 0}, 510 + k);
+  r.message(0xFF00, 0x10, 255, std::vector<uint8_t>(20, 0), 516);
+  r.engine.tick(r.at(517));
+  r.image.copy_to_plc(r.rt);
+  CHECK_MSG(r.img.int_in[40] == 6, std::to_string(r.img.int_in[40]));
+  // Another source, or not to us: not taken, not counted.
+  r.message(0xEF00, 0x31, 128, {8}, 520);
+  r.message(0xEF00, 0x30, 0x40, {7}, 521);
+  r.message(0xEF00, 0x30, 128, {9}, 522);
+  r.engine.tick(r.at(523));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.int_in[42] == 1 && r.img.byte_in[5] == 9);
+  // A receive timeout does not reset it.
+  r.engine.tick(r.at(900));
+  r.image.copy_to_plc(r.rt);
+  CHECK(r.img.bool_in[10][1] == 0 && r.img.int_in[40] == 6);
+}
+
 TEST(j1939_engine_sends) {
   Rig r;
   r.claim();
