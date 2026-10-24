@@ -8,7 +8,7 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 - [x] 1.2 BRIDGE-2: request mailbox baseline after `client_wrote()` of the request words; test with a client rewriting counter 7 across a restart (ERROR_ID 8, no SDO), then counter 8 runs.
 - [x] 1.3 BRIDGE-4: idle ends receivers, cyclic jobs and mailbox operations with ERROR_ID 8 and log reason "idle"; test with keepalives written during idle, no "stopped calling" line.
 - [x] 1.4 BRIDGE-6: queued SDO and CAN send operations dropped on cancel; test with a queued SDO write and the watchdog; docs/modbus-bridge.md says what cancelled means.
-- [ ] 1.5 BRIDGE-7: `receive`/`cyclic_jobs` without a request mailbox refused in `config.cpp` and `bridgecheck.py`; parity corpus entry; the Function blocks controls keep requests ≥ 1 while either is on.
+- [x] 1.5 BRIDGE-7: `receive`/`cyclic_jobs` without a request mailbox refused in `config.cpp` and `bridgecheck.py`; parity corpus entry; the Function blocks controls keep requests ≥ 1 while either is on.
 - [x] 1.6 BRIDGE-5: count reads of the network info and cyclic table areas as mailbox use; diag text; test.
 - [x] 1.7 BRIDGE-9: call `end_network` on a CANopen session restart; test with an interface bounce and receivers on two networks.
 - [x] 1.8 NODERED-7 (bridge side): function 43/14 Read Device Identification with objects 0, 1, 2 and 0x80 (map hash); other MEI types exception 1; test; docs/modbus-bridge.md function list.
@@ -50,7 +50,7 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 - [x] 4.11 UI-13: header chip shortens the target before the project name; layout test.
 - [x] 4.12 UI-14: a 403 session answer shows the restarted notice and stops polling; page test.
 - [x] 4.13 UI-15 (rest): mailboxes "Off by default" sentence, "in Commission" Problems line.
-- [ ] 4.14 DOCS-1: Add OpenPLC dialog and banner texts; DOCS-2: "Update declarations" replaced by Save in the bridge page notice and the generated file headers.
+- [x] 4.14 DOCS-1: Add OpenPLC dialog and banner texts; DOCS-2: "Update declarations" replaced by Save in the bridge page notice and the generated file headers.
 
 ## 5. Installers and updates
 
@@ -70,9 +70,9 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 - [x] 6.4 DOCS-7: canworks-diag help and docs/local-runtime.md say top-level `diagnostics`.
 - [x] 6.5 DOCS-9, DOCS-10: j1939.md anchor and duplicate paragraph; examples/pdo-link/README.md command.
 - [x] 6.6 DOCS-11: SECURITY.md, schema v2 descriptions (both copies), canworks-config help, `_lely_dcf/README.md`, declare.py comment, docs/simulator.md expression example.
-- [ ] 6.7 DOCS-8, DOCS-12: spec scenarios without `--runtime` and `--host` (MODIFIED deltas in this change).
+- [x] 6.7 DOCS-8, DOCS-12: spec scenarios without `--runtime` and `--host` (MODIFIED deltas in this change).
 - [x] 6.8 DOCS-13: extend `test_doc_references` with anchors and per-subcommand options over every doc page, SECURITY.md, tools/deploy/README.md, the release notes template and example and config READMEs.
-- [ ] 6.9 README.md and docs/modbus-bridge.md, docs/node-red.md, docs/devices.md for the behaviour changes above.
+- [x] 6.9 README.md and docs/modbus-bridge.md, docs/node-red.md, docs/devices.md for the behaviour changes above.
 
 ## 7. CI
 
