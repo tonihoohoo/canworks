@@ -83,6 +83,54 @@ if [ -x "$b/bin/canworks-bridge" ]; then
         "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$(jb "$unit")" "$instances")
 fi
 
+# What each running bridge instance listens on and drives (the Devices page
+# warns before a second one starts on the same port or interface): the Modbus
+# listen address, the diagnostics port and the CAN interfaces of networks
+# that are not simulated. Only these fields, never the config itself (it can
+# hold a token verifier); null without python3.
+bridge_uses=null
+if [ "$bridge" != null ] && have python3; then
+    active=""
+    for d in "$R"/etc/canworks-bridge/*/; do
+        [ -f "${d}canworks.json" ] || continue
+        name=$(basename "$d")
+        case $name in *[!A-Za-z0-9_-]*) continue ;; esac
+        [ "$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)" = active ] && active="$active $d"
+    done
+    # shellcheck disable=SC2086 # one folder per word
+    bridge_uses=$(python3 -c '
+import json, os, sys
+out = {}
+for d in sys.argv[1:]:
+    try:
+        with open(os.path.join(d, "canworks.json")) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        continue
+    if not isinstance(cfg, dict):
+        continue
+    b = cfg.get("bridge") if isinstance(cfg.get("bridge"), dict) else {}
+    g = cfg.get("diagnostics")
+    nets = cfg.get("networks") if isinstance(cfg.get("networks"), list) else [cfg]
+    ifs = []
+    for n in nets:
+        a = n.get("adapter") if isinstance(n, dict) and isinstance(n.get("adapter"), dict) else {}
+        if isinstance(n, dict) and not a and isinstance(n.get("interface"), str):
+            a = {"interface": n["interface"]}
+        if a.get("simulate") is True:
+            continue
+        for k in ("interface", "device"):
+            if isinstance(a.get(k), str) and a[k] and a[k] not in ifs:
+                ifs.append(a[k])
+    port = g.get("port", 7531) if isinstance(g, dict) else None
+    out[os.path.basename(os.path.normpath(d))] = {
+        "listen": b.get("listen") if isinstance(b.get("listen"), str) else None,
+        "diag_port": port if isinstance(port, int) else None, "interfaces": ifs}
+print(json.dumps(out))
+' $active 2>/dev/null) || bridge_uses=null
+    [ -n "$bridge_uses" ] || bridge_uses=null
+fi
+
 # --- Remote access, CAN, the last install job ----------------------------------------------
 
 link=null link_config=""
@@ -154,5 +202,6 @@ printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "m
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
 printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, "adapters": [%s], ' \
     "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")" "$adapters"
+printf '"bridge_uses": %s, ' "$bridge_uses"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

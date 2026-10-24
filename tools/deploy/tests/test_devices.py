@@ -146,6 +146,40 @@ class Plan(unittest.TestCase):
         self.assertIsNone(p["main"])
         self.assertEqual(row(p, "bridge")["state"], "ok")
 
+    def test_remote_link_says_why_it_has_no_switch(self):
+        # UI-15: no bridge config on the device yet.
+        self.assertEqual(row(plan.plan(probe(), "bridge", "0.98.0", instance="line3"), "link")["hint"],
+                         "Turns on once a bridge config runs here.")
+        self.assertNotIn("hint", row(plan.plan(probe(bridge=self.current()), "bridge", "0.98.0", instance="line3"),
+                                     "link"))
+
+    def test_another_instance_runs(self):
+        # UI-4: the confirmation names the running vp2, warns about what both use and offers to stop it.
+        b = {"version": "0.98.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "vp2", "state": "active", "sha256": "aa"}]}
+        mine = plan.networks_uses({"bridge": {"listen": "127.0.0.1:1502"}, "diagnostics": {},
+                                   "networks": [{"adapter": {"interface": "can0"}},
+                                                {"adapter": {"interface": "can1", "simulate": True}}]})
+        self.assertEqual(mine, {"listen": "127.0.0.1:1502", "diag_port": 7531, "interfaces": ["can0"]})
+        uses = {"vp2": {"listen": "0.0.0.0:1502", "diag_port": 7531, "interfaces": ["can0", "can1"]}}
+        p = plan.plan(probe(bridge=b, bridge_uses=uses), "openplc_modbus", "0.98.0", instance="om2", uses=mine)
+        m = p["main"]
+        self.assertEqual((m["action"], m["stop_others"]), ("bridge_config", ["vp2"]))
+        self.assertEqual((m["stop_label"], m["next_label"]), ("Stop vp2 and start om2", "Start next to vp2"))
+        self.assertIn("The bridge vp2 runs on this device", " ".join(m["confirm"]))
+        self.assertEqual(m["warnings"], ["vp2 listens on port 1502 too: the second bridge cannot open it.",
+                                         "vp2 uses the diagnostics port 7531 too.",
+                                         "vp2 drives can0 too: two masters on one bus."])
+        # Nothing in common, or a probe without bridge_uses: named, no warnings.
+        other = {"listen": "127.0.0.1:1503", "diag_port": None, "interfaces": ["can2"]}
+        p = plan.plan(probe(bridge=b, bridge_uses={"vp2": other}), "bridge", "0.98.0", instance="om2", uses=mine)
+        self.assertEqual(p["main"]["warnings"], [])
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.0", instance="om2", uses=mine)
+        self.assertEqual((p["main"]["warnings"], p["main"]["stop_others"]), ([], ["vp2"]))
+        # The project's own instance alone: nothing to name.
+        p = plan.plan(probe(bridge=b), "bridge", "0.98.0", instance="vp2", config_sha256="bb", uses=mine)
+        self.assertNotIn("stop_others", p["main"])
+
     def test_codesys(self):
         p = plan.plan(probe(), "codesys", "0.98.0")
         self.assertIsNone(p["main"])
@@ -298,6 +332,23 @@ class AdapterRow(unittest.TestCase):
         self.assertEqual((c["bitrate_kbit"], c["locked"]), (500, False))
         self.assertIn("A bridge runs on this device (line3)", c["note"])
 
+    def test_simulated_network_is_left_out(self):
+        # UI-1: a simulated network keeps its adapter can0 at 250 kbit/s; the bridge never opens it.
+        from canworks.configurator.server import device_networks
+        b = {"version": "0.131.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "vp", "state": "active", "sha256": "aa"}]}
+        cfg = {"schema_version": 2, "networks": [
+            {"name": "io", "adapter": {"interface": "can0", "bitrate": 250000, "simulate": True}, "nodes": []}]}
+        p = plan.plan(probe(can=self.can0, bridge=b), "bridge", "0.131.0", instance="vp", config_sha256="aa",
+                      networks=device_networks(cfg))
+        c = row(p, "adapter")["actions"][0]["choices"][0]
+        self.assertEqual((c["bitrate_kbit"], c["locked"]), (500, False))
+        self.assertNotIn("is the master on can0", c["note"] or "")
+        serial = [{"interface": "slcan0", "bitrate_kbit": 250, "device": "/dev/serial/by-id/usb-canable",
+                   "simulate": True}]
+        p = plan.plan(probe(serial=["usb-canable"], bridge=b), "bridge", "0.131.0", instance="vp", networks=serial)
+        self.assertIsNone(row(p, "adapter")["actions"][0]["choices"][0]["refused"])
+
     def test_serial_used_by_the_bridge(self):
         b = {"version": "0.131.0", "prefix": "/opt/canworks", "unit": True,
              "instances": [{"name": "line3", "state": "active"}]}
@@ -379,6 +430,23 @@ class Jobs(unittest.TestCase):
                 args.update(bad)
                 jobs.commands("install_bridge", args["version"], self.paths, instance=args["instance"],
                               upload=args["upload"])
+
+    def test_stop_other_bridges_first(self):
+        # UI-4: Stop A and start B stops and disables A before B starts.
+        up = "/tmp/canworks-bridge-upload.abc"
+        lines = jobs.commands("bridge_config", "0.98.0", self.paths, instance="om2", upload=up,
+                              bridge_prefix="/opt/canworks", stop=["vp2"])
+        stop = lines.index("systemctl disable --now canworks-bridge@vp2.service")
+        self.assertLess(stop, next(i for i, l in enumerate(lines) if l.startswith("systemctl restart")))
+        self.assertGreater(stop, next(i for i, l in enumerate(lines) if "--check-only" in l))
+        lines = jobs.commands("install_bridge", "0.98.0", self.paths, instance="om2", upload=up, stop=["vp2"])
+        self.assertEqual(lines[0], "systemctl disable --now canworks-bridge@vp2.service")
+        for bad in (["a b"], "vp2", [1]):
+            with self.subTest(bad=bad), self.assertRaises(jobs.JobError):
+                jobs.commands("bridge_config", "0.98.0", self.paths, instance="om2", upload=up,
+                              bridge_prefix="/opt/canworks", stop=bad)
+        with self.assertRaises(jobs.JobError):
+            jobs.commands("link_off", "0.98.0", self.paths, stop=["vp2"])
 
     def test_link_commands(self):
         sh = "install-link.sh | bash -s -- "
@@ -574,6 +642,23 @@ class Probe(unittest.TestCase):
         self.assertEqual(len(b["instances"][0]["sha256"] or "x" * 64), 64)
         self.assertEqual(p["install_job"], {"id": "20261021T100000Z-bbbb", "state": "inactive", "result": "success",
                                             "exit": 0, "step": "2/5 Building @2", "log_size": 70})
+
+    def test_what_running_bridges_use(self):
+        # UI-4: the listen address, diagnostics port and real interfaces of each active instance, nothing else.
+        self.write("opt/canworks/bin/canworks-bridge", "#!/bin/sh\necho canworks-bridge 0.97.0\n", 0o755)
+        self.write("etc/canworks-bridge/vp2/canworks.json", json.dumps({
+            "version": 2, "bridge": {"listen": "127.0.0.1:1502"},
+            "diagnostics": {"token_verifier": "SCRAM-SHA-256$secret"},
+            "networks": [{"name": "io", "adapter": {"interface": "can0"}},
+                         {"name": "sim", "adapter": {"interface": "can1", "simulate": True}},
+                         {"name": "usb", "adapter": {"type": "slcan", "device": "/dev/ttyACM0"}}]}))
+        self.write("etc/canworks-bridge/old/canworks.json", "{}")
+        self.stub("systemctl", 'case $1 in is-active) case "$2" in *vp2*) echo active ;; *) echo inactive ;; esac ;; '
+                               'is-enabled) echo enabled ;; show) echo inactive ;; esac')
+        p = self.run_probe()
+        self.assertEqual(p["bridge_uses"], {"vp2": {"listen": "127.0.0.1:1502", "diag_port": 7531,
+                                                    "interfaces": ["can0", "/dev/ttyACM0"]}})
+        self.assertNotIn("secret", json.dumps(p))
 
     def test_adapter_servers(self):
         # add-devices-adapter-server: the units, their options and the connected PCs, without sudo.

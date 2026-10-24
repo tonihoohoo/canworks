@@ -114,9 +114,10 @@ def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, po
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, **adapter):
+             bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, stop=None, **adapter):
     """The root shell lines of one action, each running the release's
-    install-bridge.sh, install-link.sh or install-adapter.sh."""
+    install-bridge.sh, install-link.sh or install-adapter.sh. `stop`: the
+    other bridge instances a bridge action stops (and disables) first."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
     if not isinstance(version, str) or not _VERSION.match(version):
@@ -129,6 +130,10 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         raise JobError("not a deployed config: %r" % (link_config,))
     if runtime_port not in (None, "none", "8443"):
         raise JobError("not a runtime port: %r" % (runtime_port,))
+    if stop is not None and (action not in BRIDGE_ACTIONS or not isinstance(stop, (list, tuple))
+                             or not all(isinstance(n, str) and _INSTANCE.match(n) for n in stop)):
+        raise JobError("not bridge instances to stop: %r" % (stop,))
+    stops = ["systemctl disable --now %s" % quote("canworks-bridge@%s.service" % n) for n in stop or ()]
     if action in ADAPTER_ACTIONS:
         return adapter_commands(action, version, paths, discovery=discovery, upload=upload, **adapter)
     v = quote(version)
@@ -156,7 +161,7 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
             line += " --with-link " + quote(instance)
         if not discovery:
             line += " --without-discovery"
-        return [line]
+        return stops + [line]
     if action == "bridge_config":
         if not (instance and upload and bridge_prefix):
             raise JobError("starting a bridge needs its instance, config and installed bridge")
@@ -167,7 +172,7 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         return ["[ -f /etc/systemd/system/canworks-bridge@.service ] || { echo 'The bridge service is not "
                 "installed on this device (no canworks-bridge@.service): install the bridge first.'; exit 3; }",
                 'echo "::canworks-step 1/2 Checking the config"',
-                "%s --config %s/canworks.json --check-only" % (b, up),
+                "%s --config %s/canworks.json --check-only" % (b, up)] + stops + [
                 'echo "::canworks-step 2/2 Starting the bridge %s"' % instance,
                 "mkdir -p %s" % dest,
                 "for f in %s/*; do [ -f \"$f\" ] && install -m 0644 \"$f\" %s/; done" % (up, dest),

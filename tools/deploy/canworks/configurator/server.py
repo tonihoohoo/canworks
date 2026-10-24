@@ -380,7 +380,8 @@ def version2(cfg):
 
 def device_networks(cfg):
     """The open config's networks for the Devices page's remote CAN adapter
-    (devices.plan.adapter_row): interface, bit rate in kbit/s and serial device."""
+    (devices.plan.adapter_row): interface, bit rate in kbit/s, serial device
+    and whether the network is simulated (its adapter is kept, never opened)."""
     out = []
     for net in contract.networks(cfg or {}):
         a = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
@@ -388,7 +389,8 @@ def device_networks(cfg):
             kbit = int(str(a.get("bitrate")), 0) // 1000 if a.get("bitrate") is not None else None
         except ValueError:
             kbit = None
-        out.append({"interface": a.get("interface"), "bitrate_kbit": kbit, "device": a.get("device")})
+        out.append({"interface": a.get("interface"), "bitrate_kbit": kbit, "device": a.get("device"),
+                    "simulate": a.get("simulate") is True})
     return out
 
 
@@ -3487,6 +3489,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         instance = djobs.instance_name(os.path.basename(os.path.normpath(project))) if project else None
         saved = config_path if config_path and os.path.isfile(config_path) else None
         networks = device_networks(cfg) if project else None
+        from ..devices import plan as dplan
+        uses = dplan.networks_uses(cfg) if project and target in ("bridge", "openplc_modbus") else None
         from ..localbus import remote as remote_mod
         settings = online.Settings(config_dir())
         # The remote CAN adapter's token is this PC's, as for Adapter on another machine.
@@ -3499,7 +3503,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else None
         try:
             if route == ("GET", "/api/devices"):
-                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks),
+                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks,
+                                            uses=uses),
                         "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
                 found = devices_service.not_saved([r for r in online.runtimes_list().get("discovered") or []
@@ -3524,7 +3529,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {"forgotten": dev.forget_key(did)}
             if route == ("POST", "/api/devices/probe"):
                 return dev.probe(did, target, instance, saved, __version__, password=password, trust=trust,
-                                 refresh=body.get("refresh") is True, networks=networks)
+                                 refresh=body.get("refresh") is True, networks=networks, uses=uses)
             if route == ("POST", "/api/devices/adapter_token"):
                 # Copy token: the one answer that carries an adapter server's token, on request.
                 port = body.get("port")

@@ -83,7 +83,8 @@ def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None
     of the servers this PC has a token for."""
     servers = [a for a in probe.get("adapters") or [] if isinstance(a, dict) and a.get("adapter")]
     tokens = set(tokens or ())
-    networks = [n for n in networks or [] if isinstance(n, dict)]
+    # A simulated network keeps its adapter for switching back; the bridge never opens it.
+    networks = [n for n in networks or [] if isinstance(n, dict) and not n.get("simulate")]
     instances = ((probe.get("bridge") or {}).get("instances") or [])
     mine_runs = any(i.get("name") == instance and i.get("state") == "active" for i in instances) if instance else False
     running = [i["name"] for i in instances if i.get("state") == "active" and i.get("name")]
@@ -175,15 +176,43 @@ def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None
     return out
 
 
-def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None, networks=None, tokens=None):
+def _port(listen):
+    try:
+        return int(str(listen).rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def clashes(mine, other, name):
+    """The warnings for starting a bridge that uses `mine` next to the running
+    instance `name` that uses `other` (device-probe.sh's bridge_uses, or
+    networks_uses of the open config): the same Modbus port, diagnostics
+    port or CAN interface."""
+    if not isinstance(mine, dict) or not isinstance(other, dict):
+        return []
+    out = []
+    port = _port(mine.get("listen"))
+    if port and port == _port(other.get("listen")):
+        out.append("%s listens on port %d too: the second bridge cannot open it." % (name, port))
+    if mine.get("diag_port") and mine.get("diag_port") == other.get("diag_port"):
+        out.append("%s uses the diagnostics port %d too." % (name, mine["diag_port"]))
+    both = [i for i in mine.get("interfaces") or [] if i in (other.get("interfaces") or [])]
+    if both:
+        out.append("%s drives %s too: two masters on one bus." % (name, ", ".join(both)))
+    return out
+
+
+def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None, networks=None, tokens=None,
+         uses=None):
     """The page's view of one device. `target` is the project's
     ("openplc_modbus", "bridge", "codesys"), or None with no config open:
     then the bridge on the device picks the main action, and a device without
     it gets **Install the bridge X**. Only canworks parts are rows: the
     OpenPLC runtime and other programs are not the configurator's.
     `latest` is the newest release ("0.98.0") or None, `instance` the bridge
-    instance name of this project and `config_sha256` its saved
-    canworks.json's."""
+    instance name of this project, `config_sha256` its saved
+    canworks.json's and `uses` what its saved config listens on and drives
+    (clashes())."""
     probe = probe or {}
     bridge = probe.get("bridge")
     new = version_tuple(latest)
@@ -233,6 +262,16 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
             main = _main("bridge_config", "Start this project's bridge", latest,
                          ["The bridge %s restarts with this project's saved config." % instance
                           if mine and mine.get("state") == "active" else ""])
+        others = [n for n in running if n != instance]
+        if main and others:
+            # Another project's bridge runs here: named, with Stop A and start B as the main choice.
+            names = ", ".join(others)
+            main["confirm"].append("The bridge %s runs on this device and keeps running unless it is stopped." % names)
+            all_uses = probe.get("bridge_uses") if isinstance(probe.get("bridge_uses"), dict) else {}
+            main["warnings"] = [w for n in others for w in clashes(uses, all_uses.get(n), n)]
+            main["stop_others"] = others
+            main["stop_label"] = "Stop %s and start %s" % (names, instance)
+            main["next_label"] = "Start next to %s" % names
     elif free and bridge:
         # No config: the bridge alone is updated (its configs stay as they run).
         if bridge.get("unit") is False:
@@ -263,6 +302,9 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         disc_row["actions"] = [_main("discovery_off", "Stop advertising on the local network", latest, [],
                                      button="Turn off…") if found else
                                _main("discovery_on", "Advertise on the local network", latest, [], button="Turn on…")]
+    elif target != "codesys":
+        # No switch yet: why, instead of an empty cell.
+        link_row["hint"] = "Turns on once a bridge config runs here."
     rows += [link_row, disc_row]
     can = []
     for item in (probe.get("can") or []) + (probe.get("vcan") or []):
@@ -302,6 +344,28 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     return {"rows": rows, "main": main, "blocked": reason, "notes": notes, "pc_older": pc_older, "job": job,
             "up_to_date": main is None and target != "codesys",
             "sudo": probe.get("sudo"), "header": header(probe)}
+
+
+def networks_uses(cfg):
+    """What a bridge config listens on and drives, as device-probe.sh gives it
+    for the running instances: {"listen", "diag_port", "interfaces"}."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    b = cfg.get("bridge") if isinstance(cfg.get("bridge"), dict) else {}
+    g = cfg.get("diagnostics")
+    nets = cfg.get("networks") if isinstance(cfg.get("networks"), list) else [cfg]
+    ifs = []
+    for n in nets:
+        a = n.get("adapter") if isinstance(n, dict) and isinstance(n.get("adapter"), dict) else {}
+        if isinstance(n, dict) and not a and isinstance(n.get("interface"), str):
+            a = {"interface": n["interface"]}
+        if a.get("simulate") is True:
+            continue
+        for k in ("interface", "device"):
+            if isinstance(a.get(k), str) and a[k] and a[k] not in ifs:
+                ifs.append(a[k])
+    port = g.get("port", 7531) if isinstance(g, dict) else None
+    return {"listen": b.get("listen") if isinstance(b.get("listen"), str) else None,
+            "diag_port": port if isinstance(port, int) else None, "interfaces": ifs}
 
 
 def header(probe):
