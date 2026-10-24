@@ -825,9 +825,8 @@ def editor_lines(synced):
     a config with an OpenPLC connection (editorproject.write_editor_files)."""
     if not synced:
         return []
-    out = ["wrote the editor's remote device, canworks_in, canworks_out and the canworks variable list (%d Modbus "
-           "request%s per poll, I/O from %%IW%d/%%QW%d)" % (synced["requests"], "" if synced["requests"] == 1 else "s",
-                                                           synced["iec_base"], synced["iec_base"])]
+    out = ["wrote the editor's remote device, canworks_in, canworks_out and the canworks variable list (%s, "
+           "I/O from %%IW%d/%%QW%d)" % (synced["requests_text"], synced["iec_base"], synced["iec_base"])]
     if synced.get("warning"):
         out.append("warning: " + synced["warning"])
     return out

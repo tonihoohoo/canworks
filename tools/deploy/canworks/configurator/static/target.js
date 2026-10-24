@@ -246,7 +246,7 @@ function openplcFacts() {
   if (!o) return el("p", { class: "muted", dataset: { openplcFacts: "none" } }, "The editor files are made once the config has no errors. See Problems.");
   const rows = [
     ["Remote device", `${o.remote_device}, 127.0.0.1:${o.port}`],
-    ["Poll", `every ${o.poll_ms} ms, ${o.requests} Modbus request${o.requests === 1 ? "" : "s"} per poll`],
+    ["Poll", o.requests_text || `every ${o.poll_ms} ms, ${o.requests} Modbus request${o.requests === 1 ? "" : "s"} per poll`],
     ["Writer lost after", `${o.watchdog_ms} ms`],
     ["Map hash", o.map_hash],
   ];

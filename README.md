@@ -46,12 +46,12 @@ A PLC with its own CAN interface (such as the CODESYS target) runs the bus insid
 | Values from the same moment | Yes, SYNC follows the PLC cycle | Not always: two PDOs can come from different polls, and SYNC runs on the bridge's own timer |
 | Configured messages (PDOs, CAN and J1939 messages) | The latest value at each PLC cycle | The latest value at each poll |
 | Can a CAN message go unseen? | Only when a newer frame of the same message comes within one PLC cycle | Only when a newer frame of the same message comes within one poll. A lone frame is always seen: its value stays until the next one. CAN messages can count their frames (`counter_location`); PDOs and J1939 PGNs can't |
-| Receiving any CAN frame in the program | Every frame | Every frame, queued, at up to about 450 frames/s, about 1050 with two receive blocks (needs mailboxes). A full queue drops frames and says so (`DROPPED`, `OVERFLOW`) |
-| Sending from the program | Every cycle | Configured messages on change, on a trigger bit or periodic; free frames about 50/s per request mailbox, up to 4 (needs mailboxes) |
-| SDO from the program | The bus round trip | Plus about two polls (20–30 ms); over 4 bytes needs mailboxes |
+| Receiving any CAN frame in the program | Every frame | Every frame, queued, at about 90 frames/s at OpenPLC's default 50 ms mailbox poll, up to about 450 at 10 ms (about 1050 with two receive blocks) (needs mailboxes). A full queue drops frames and says so (`DROPPED`, `OVERFLOW`) |
+| Sending from the program | Every cycle | Configured messages on change, on a trigger bit or periodic; free frames about 10/s per request mailbox at the default mailbox poll, 50/s at 10 ms, up to 4 mailboxes (needs mailboxes) |
+| SDO from the program | The bus round trip | Plus about two polls (20–30 ms); over 4 bytes needs mailboxes, about two mailbox polls (100–150 ms at OpenPLC's default) |
 | Node supervision, NMT, live list | In the PLC | In the bridge; the program reads the live list and status and sends NMT commands |
 | PLC stops or the network drops | Outputs follow the PLC | The bridge's watchdog stops, zeroes or holds the outputs after a set time |
-| Extra load on the PLC | None | A few Modbus requests every poll (about 5 for a small map, 2 more with mailboxes) |
+| Extra load on the PLC | None | A few Modbus requests every poll (about 5 for a small map); mailboxes add 2-4 more every mailbox poll (50 ms by default for OpenPLC) |
 
 The bridge's mailboxes carry what the program decides at run time. They are off unless the program uses a block that needs them, which the configurator also finds inside arrays and the program's own function blocks:
 

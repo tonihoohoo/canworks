@@ -114,12 +114,15 @@ class FlowShape(unittest.TestCase):
         self.assertEqual(mb["cyclic"], {"table": 628, "keepalive": 358, "jobs": 2})
         # Every block is inside a read or write channel.
         def covered(byte, n, channels):
-            return any(s * 2 <= byte and byte + n <= (s + c) * 2 for s, c in channels)
+            return any(s * 2 <= byte and byte + n <= (s + c) * 2 for s, c, *_ in channels)
         for m in mb["requests"]:
             self.assertTrue(covered(m["resp"], 144, lay["read"]))
             self.assertTrue(covered(m["req"], 144, lay["write"]))
         self.assertTrue(covered(mb["receive"]["block"], 240, lay["read"]))
         self.assertTrue(covered(mb["cyclic"]["keepalive"], 4, lay["write"]))
+        # The mailbox parts are channels of their own (mailbox-poll); network info is read every poll.
+        parts = {(s, c): p for s, c, *p in lay["read"] if p}
+        self.assertEqual(parts, {(32, 72): ["requests"], (104, 72): ["requests"], (176, 120): ["receive"], (314, 9): ["cyclic"]})
 
     def test_read_only(self):
         cfg = load(EXAMPLE)

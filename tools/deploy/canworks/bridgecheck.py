@@ -44,7 +44,7 @@ CONNECTION_KINDS = ("openplc", "trust", "plc", "nodered", "hmi")
 CONNECTION_TITLES = {"openplc": "OpenPLC", "trust": "truST", "plc": "Other PLC", "nodered": "Node-RED",
                      "hmi": "HMI, SCADA or script"}
 CONNECTION_COMMON = ("kind", "name", "address", "writes", "map_hash", "stale")
-CONNECTION_FIELDS = {"openplc": ("poll_ms", "remote_device", "iec_base", "inputs_on_loss"),
+CONNECTION_FIELDS = {"openplc": ("poll_ms", "mailbox_poll_ms", "remote_device", "iec_base", "inputs_on_loss"),
                      "trust": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
                      "plc": ("format", "library", "bridge_host", "inputs_on_loss", "blocks"),
                      "nodered": ("period_ms", "bridge_host", "blocks"),
@@ -53,6 +53,12 @@ CONNECTION_FORMATS = {"trust": ("plcopen",), "plc": ("plcopen", "st"), "hmi": ("
 # The canworks blocks choice (mailboxes-on-demand): the parts of
 # bridge.mailboxes a connection's program uses. truST moves one request each
 # way, which holds one request mailbox and nothing more.
+# OpenPLC polls the mailbox blocks in groups of their own every
+# mailbox_poll_ms, a multiple of poll_ms (the master runs on the greatest
+# common divisor of the cycle times). 250 ms keeps four writes within the
+# bridge's 1 s acknowledgement and keepalive limits.
+MAILBOX_POLL_DEFAULT_MS = 50
+MAILBOX_POLL_MAX_MS = 250
 CONNECTION_BLOCKS = ("none", "sdo_send", "receive", "all")
 CONNECTION_BLOCKS_TRUST = ("none", "sdo_send")
 BLOCKS_TITLES = {"none": "None", "sdo_send": "SDO and send", "receive": "SDO, send and receive", "all": "All"}
@@ -98,7 +104,7 @@ def link_settings(cfg):
     b = cfg.get("bridge") or {}
     listen = b.get("listen") if isinstance(b.get("listen"), str) else ""
     wd = _uint(b.get("watchdog_ms"))
-    return {"poll_ms": None, "remote_device": None, "iec_base": None, "listen": listen,
+    return {"poll_ms": None, "mailbox_poll_ms": None, "remote_device": None, "iec_base": None, "listen": listen,
             "port": int(listen.rsplit(":", 1)[1]) if _valid_listen(listen) else 502,
             "watchdog_ms": 1000 if wd is None else wd}
 
@@ -111,14 +117,24 @@ def openplc_settings(cfg):
     poll = OPENPLC_POLL_MS if poll is None else max(5, min(poll, 1000))
     listen = b.get("listen") if isinstance(b.get("listen"), str) else OPENPLC_LISTEN
     wd = _uint(b.get("watchdog_ms"))
+    mpoll = _uint(o.get("mailbox_poll_ms"))
+    if mpoll is None or mpoll < poll or mpoll % poll or mpoll > MAILBOX_POLL_MAX_MS:
+        mpoll = default_mailbox_poll(poll)
     return {
         "poll_ms": poll,
+        "mailbox_poll_ms": mpoll,
         "remote_device": o.get("remote_device") if isinstance(o.get("remote_device"), str) else "canworks",
         "iec_base": _uint(o.get("iec_base")),
         "listen": listen,
         "port": int(listen.rsplit(":", 1)[1]) if _valid_listen(listen) else 1502,
         "watchdog_ms": 1000 if wd is None else wd,
     }
+
+
+def default_mailbox_poll(poll_ms):
+    """The mailbox poll of an OpenPLC connection without one: the smallest
+    multiple of the poll that is at least 50 ms (mailbox-poll)."""
+    return max(poll_ms, -(-MAILBOX_POLL_DEFAULT_MS // poll_ms) * poll_ms)
 
 
 def openplc_watchdog(poll_ms):
@@ -247,6 +263,12 @@ def _connections(b, w, err, warn, link):
             v = _get_uint(c, "poll_ms", cw, 1000, err)
             if v is not None and v < 5:
                 err(cw, "field 'poll_ms' must be 5-1000", [cw + ".poll_ms"])
+            mp = _get_uint(c, "mailbox_poll_ms", cw, 65535, err)
+            if mp is not None:
+                p = v if v is not None and v >= 5 else OPENPLC_POLL_MS
+                if mp < p or mp % p or mp > MAILBOX_POLL_MAX_MS:
+                    err(cw, "field 'mailbox_poll_ms' must be a multiple of the poll (%d ms) and at most %d ms: %d"
+                        % (p, MAILBOX_POLL_MAX_MS, mp), [cw + ".mailbox_poll_ms"])
             if "remote_device" in c:
                 rd = c["remote_device"]
                 if (not isinstance(rd, str) or not 1 <= len(rd) <= 64
