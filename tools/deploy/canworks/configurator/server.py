@@ -1969,6 +1969,11 @@ class Session:
                "channels": [{"function": f, "start": st, "count": c, "direction": d} for f, st, c, d in channels],
                "requests": len(channels), "request_budget": openplcmodbus.REQUEST_BUDGET,
                "map_hash": connections.map_hash_text(cfg)}
+        try:
+            # The Safe values table's types and ranges (add-safe-output-values).
+            out["safe"] = bridgecheck.safe_table(cfg, contract.networks(cfg))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            out["safe"] = {}
         if modbusmap.is_openplc(cfg):
             try:
                 groups = openplcmodbus.layout(cfg, [], 0)[0]

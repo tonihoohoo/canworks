@@ -501,6 +501,53 @@ class BridgePage(OnlineBase):
         self.assertTrue(os.path.isfile(os.path.join(self.project, "devices", "remote", "canworks.json")))
 
 
+    def test_safe_values_table(self):
+        """canopen-configurator "Safe values on the Modbus bridge page"."""
+        pg = self.page
+        self.to_bridge()
+        tree_view(pg, "bridge")
+        pg.wait_for_selector("h2:has-text('Modbus bridge')")
+        self.assertEqual(pg.query_selector_all("[data-bridge=safe]"), [])
+        loss = 'select[data-path="bridge.on_client_loss"]'
+        pg.select_option(loss, "safe")
+        self.assertIn("kept sent", pg.inner_text('label:has(%s)' % loss))
+        pg.wait_for_selector("[data-bridge=safe-table]")
+        rows = pg.eval_on_selector_all("[data-bridge-safe-row]", "rs => rs.map(r => r.dataset.bridgeSafeRow)")
+        self.assertEqual(rows[:4], ["%QB0", "%QB1", "%QW2", "%QW4"])
+        self.assertIn("0 to 255", pg.inner_text('tr[data-bridge-safe-row="%QB0"]'))
+        self.assertIn("-32768 to 32767", pg.inner_text('tr[data-bridge-safe-row="%QW2"]'))
+        # Out of range: the field says the range until it is fixed.
+        field = '[data-bridge-safe="%QB0"]'
+        pg.fill(field, "300")
+        self.checked()
+        pg.wait_for_function("() => (document.querySelector('.field-msg[data-for=\"bridge.safe_values.%QB0\"]') || {}).textContent?.includes('0-255')")
+        self.assertIn("out of range 0-255", pg.text_content("#problem-list"))
+        pg.fill(field, "200")
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.safe_values"), {"%QB0": 200})
+        pg.wait_for_selector('td[data-bridge-safe-value="%QB0"]:has-text("200")')
+        self.assertEqual(pg.text_content('td[data-bridge-safe-value="%QW2"]'), "0")
+        # The typing is one undo step.
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => S.model.top.bridge.safe_values === undefined && S.model.top.bridge.on_client_loss === 'safe'")
+        pg.keyboard.press("Control+Shift+z")
+        pg.wait_for_function("() => (S.model.top.bridge.safe_values || {})['%QB0'] === 200")
+        # Safe values left behind: Problems warns, Use safe values switches back.
+        pg.select_option(loss, "")
+        self.checked()
+        self.assertIn("they are not used now", pg.text_content("#problem-list"))
+        pg.click("[data-problem-fix=use-safe]")
+        pg.wait_for_function("() => S.model.top.bridge.on_client_loss === 'safe'")
+        self.checked()
+        self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
+        pg.click("#btn-save")
+        pg.wait_for_selector("#banner:has-text('Saved')")
+        b = load(self.config_path)["bridge"]
+        self.assertEqual((b["on_client_loss"], b["safe_values"]), ("safe", {"%QB0": 200}))
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

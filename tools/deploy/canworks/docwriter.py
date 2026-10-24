@@ -584,7 +584,9 @@ def _modbus(model):
     if not m:
         return ""
     loss = {"stop": "outputs stop (no RPDOs or transmit messages; SYNC and inputs go on)",
-            "zero": "outputs are sent as 0 once, then stop", "hold": "outputs keep their last values"}
+            "zero": "outputs are sent as 0 once, then stop", "hold": "outputs keep their last values",
+            "preop": "outputs stop and the nodes go to pre-operational",
+            "safe": "outputs are sent with their safe values (the Safe value column) until a client writes"}
     settings = [
         {"label": "Listens on", "value": m["listen"]},
         {"label": "Unit ID", "value": str(m["unit_id"])},
@@ -598,10 +600,18 @@ def _modbus(model):
         {"label": "SDO writes through the registers", "value": "allowed" if m["sdo_bridge_write"] else "refused"},
         {"label": "Image", "value": "%d input bytes, %d output bytes" % (m["input_bytes"], m["output_bytes"])},
     ]
+    safe = m["on_client_loss"] == "safe"
+
+    def safe_cell(r):
+        if "safe_value" not in r:
+            return "–"
+        v = r["safe_value"]
+        return E("TRUE" if v is True else "FALSE" if v is False else str(v))
+
     rows = [[E(r["table"]), '<span class="num">%d</span>' % r["address"], '<span class="num">%d</span>' % r["count"],
              _loc(r["location"]), E(r["name"]), E(r["network"] or "–"), E(r["type"]),
              E(" ".join(str(x) for x in (r["scale"] and "× %s" % r["scale"], r["offset"] and "+ %s" % r["offset"],
-                                         r["unit"]) if x))]
+                                         r["unit"]) if x))] + ([safe_cell(r)] if safe else [])
             for r in m["registers"]]
     channels = [[E(FUNCTIONS.get(c["function"], str(c["function"]))), str(c["start"]), str(c["count"]),
                  E(c["direction"])] for c in m["channels"]]
@@ -610,7 +620,8 @@ def _modbus(model):
             'input n×8+b; outputs map to holding registers and coils the same way.</p>%s<h3>Registers</h3>%s'
             '<div id="modbus-t">%s</div><h3>Suggested client channels</h3>%s</section>' % (
                 _kv(settings), _filter("modbus-t"),
-                _table(["Table", "Address", "Registers", "PLC address", "Name", "Network", "Type", "Scaling"], rows,
+                _table(["Table", "Address", "Registers", "PLC address", "Name", "Network", "Type", "Scaling"]
+                       + (["Safe value"] if safe else []), rows,
                        "sortable", empty="No registers."),
                 _table(["Function", "Start", "Count", "Direction"], channels, empty="No channels.")))
 

@@ -95,6 +95,8 @@ class BridgeHost {
   void end_program_resources(const char* why);
   // Every data output location of the image to 0 (the blocks keep theirs).
   void clear_outputs();
+  // on_client_loss "safe": the data outputs from safe_out_.
+  void write_safe_outputs();
   void leave_off(const char* why);
   // plc_link: the PLC link header turned outputs off (PLC stopped or mismatch).
   void link_off(OutputState why, Clock::time_point now);
@@ -144,6 +146,8 @@ class BridgeHost {
   std::chrono::milliseconds zero_settle_{100};
   uint64_t outputs_seen_ = ~0ull;
   std::vector<uint8_t> out_copy_;
+  std::vector<uint8_t> safe_out_;  // the output image of the safe values
+  std::chrono::milliseconds safe_stop_wait_{20};  // a clean stop's last SYNC with the safe values
   uint32_t map_hash_ = 0;
   bool mismatch_logged_ = false;
   uint32_t mismatch_seen_ = 0;

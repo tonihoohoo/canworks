@@ -7972,6 +7972,9 @@ function bridgeProblemFixes(it) {
       changed(true);
     })];
   }
+  if (/'safe_values' are used only with "on_client_loss": "safe"/.test(it.message)) {
+    return [fix("Use safe values", "use-safe", () => { b.on_client_loss = "safe"; bridgeMarkStale(); changed(true); })];
+  }
   const m = /^bridge\.connections\[(\d+)\]$/.exec(((it.paths || [])[0]) || "");
   if (m && /Download again$/.test(it.message)) {
     const i = Number(m[1]);

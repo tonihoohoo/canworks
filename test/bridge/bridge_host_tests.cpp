@@ -315,6 +315,38 @@ TEST(watchdog_hold) {
   EXPECT(reg(c, 5) == 777);
 }
 
+// Spec "Safe values": the safe values from the start, after a loss, and as
+// the base of the next write; a bit inside a bound byte sets only that bit.
+TEST(watchdog_safe) {
+  Host h([](cJSON* r) {
+    set_number(bridge_of(r), "watchdog_ms", 300);
+    set_string(bridge_of(r), "on_client_loss", "safe");
+    cJSON* sv = cJSON_CreateObject();
+    cJSON_AddNumberToObject(sv, "%QW2", 4321);
+    cJSON_AddTrueToObject(sv, "%QX0.1");
+    cJSON_AddItemToObject(bridge_of(r), "safe_values", sv);
+  });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  // Before any write: %QB0 = 0x02, %QB1 = 0, %QW2 = 4321 reach the device.
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0200 && reg(c, 5) == 4321; }, 3000));
+  EXPECT(write(c, 0, {0x0102, 1234}));
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0102 && reg(c, 5) == 1234; }));
+  EXPECT(wait_for([&] { return state(c) == 2; }, 3000));
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0200 && reg(c, 5) == 4321; }, 3000));
+  EXPECT(logged("outputs set to their safe values (2 set, the others 0) and kept sent (on_client_loss safe)"));
+  auto q = regs(c, kReadHoldingRegisters, 0, 2);
+  EXPECT(q.size() == 2 && q[0] == 0x0200 && q[1] == 4321);
+  // One coil after the loss: the others keep their safe values. Coil 0 is %QX0.0.
+  EXPECT(c.request({kWriteSingleCoil, 0, 0, 0xFF, 0x00}) == Bytes({kWriteSingleCoil, 0, 0, 0xFF, 0x00}));
+  EXPECT(wait_for([&] { return state(c) == 1; }));
+  EXPECT(wait_for([&] { return reg(c, 4) == 0x0300 && reg(c, 5) == 4321; }));
+  h.host.stop();
+  EXPECT(logged("outputs at their safe values for 20 ms first (on_client_loss safe)"));
+}
+
 TEST(control_block_nmt_and_idle) {
   Host h([](cJSON* r) { set_number(bridge_of(r), "watchdog_ms", 0); });
   EXPECT(h.ok);
@@ -649,6 +681,36 @@ TEST(openplc_stop_round_holds_real_values) {
   EXPECT(header(c, 1, hash));
   EXPECT(write(c, kOOutReg, {778}));
   EXPECT(wait_for([&] { return ostate(c) == 1 && reg(c, kOLoopReg) == 778; }));
+}
+
+// Spec "Safe values", scenario PLC stops: the safe values at once, and from
+// the start while the PLC has not run yet.
+TEST(openplc_stop_sends_safe_values) {
+  Host h(
+      [](cJSON* r) {
+        set_number(bridge_of(r), "watchdog_ms", 0);
+        set_string(bridge_of(r), "on_client_loss", "safe");
+        cJSON* sv = cJSON_CreateObject();
+        cJSON_AddNumberToObject(sv, "%QW8", 4242);
+        cJSON_AddItemToObject(bridge_of(r), "safe_values", sv);
+      },
+      OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  EXPECT(wait_for([&] { return reg(c, kOLoopReg) == 4242; }, 3000));
+  EXPECT(ostate(c) == 5);
+  uint32_t hash = served_hash(c);
+  EXPECT(header(c, 1, hash));
+  EXPECT(write(c, kOOutReg, {777}));
+  EXPECT(wait_for([&] { return reg(c, kOLoopReg) == 777; }));
+  // The runtime's stop round: the header first, then zeros.
+  EXPECT(header(c, 0, 0));
+  EXPECT(write(c, kOOutReg, {0}));
+  EXPECT(wait_for([&] { return ostate(c) == 5 && reg(c, kOLoopReg) == 4242; }));
+  usleep(300000);
+  EXPECT(reg(c, kOLoopReg) == 4242);
 }
 
 TEST(openplc_other_map_leaves_outputs_off) {

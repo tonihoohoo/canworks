@@ -131,7 +131,8 @@ canworks-bridge --config examples/modbus-bridge/canworks.json
 | `writers` | required | Addresses or prefixes allowed to write. A write from another client gets exception 0x01 and changes nothing, and does not feed the watchdog. `[]` makes the bridge read-only; `["0.0.0.0/0", "::/0"]` lets every address write. |
 | `readers` | every client | Addresses or prefixes allowed to connect at all. An entry of `readers` or `writers` that is not an address or prefix stops the bridge from starting. |
 | `watchdog_ms` | 1000 | Outputs off when no write came from a writer for this long; 0 turns the watchdog off. Up to 60000. |
-| `on_client_loss` | `stop` | What outputs off means: `stop`, `zero`, `hold` or `preop` ([below](#outputs-the-watchdog-and-client-loss)). |
+| `on_client_loss` | `stop` | What outputs off means: `stop`, `zero`, `hold`, `preop` or `safe` ([below](#outputs-the-watchdog-and-client-loss)). |
+| `safe_values` | none | With `"safe"`: the value each output location takes while outputs are off, `{ "%QW10": 500, "%QX3.0": true }`; every other output is 0 ([below](#safe-values)). |
 | `status_location` | none | Start of the 8-byte status block (`%IB...`). |
 | `control_location` | none | Start of the 6-byte control block (`%QB...`). |
 | `live_lists` | none | 16-byte live lists of CANopen master networks (`%IB...`). |
@@ -194,8 +195,25 @@ Every accepted write from a writer feeds the watchdog. When none came for `watch
 - `"zero"`: every output location is set to 0 and sent once, then outputs stop as with `"stop"`. The difference to `"stop"` is only that the zeros reach the devices; after both, outputs restart from zeros.
 - `"hold"`: outputs keep being sent with their last values.
 - `"preop"`: outputs stop as with `"stop"`, and every configured node of every CANopen master network is sent NMT enter pre-operational, one command per node (not node 0, so devices canworks does not manage are left alone), and each applies its own communication-loss behaviour. Outputs on again sends NMT start the same way. The log names the client loss as the cause.
+- `"safe"`: every output is set to its safe value from `safe_values` (0 where none is given) and kept sent, like `"hold"` with chosen values, so RPDO event timers stay fed and the devices hold a known state.
 
-Inputs, heartbeats, node supervision, the diagnostics channel and J1939 address claim keep running. The next write from a writer ends outputs off. The log names each change (`outputs off by the watchdog (no write from a writer client)`, `outputs on again: a client wrote`). Before the first client writes, the watchdog runs from the bridge's start, so outputs stay off until a writer is there.
+| Action | What is sent while outputs are off | Next write starts from |
+|---|---|---|
+| `stop` | nothing | zeros |
+| `zero` | zeros once, then nothing | zeros |
+| `hold` | the last values, on every SYNC or change | the last values |
+| `preop` | nothing; each node is put pre-operational | zeros |
+| `safe` | the safe values, on every SYNC or change | the safe values |
+
+Inputs, heartbeats, node supervision, the diagnostics channel and J1939 address claim keep running. The next write from a writer ends outputs off. The log names each change (`outputs off by the watchdog (no write from a writer client)`, `outputs on again: a client wrote`). Before the first client writes, the watchdog runs from the bridge's start, so outputs stay off until a writer is there. With `"safe"`, outputs off sends the safe values, so they are on the bus from the bridge's start until the first write.
+
+### Safe values
+
+`safe_values` maps output locations to values: a number for an integer or REAL entry, `true` or `false` (or 1, 0) for a bit, and a decimal string for a 64-bit integer beyond 2^53. Each key must be an output bound to an RPDO entry, a J1939 or raw transmit signal (or a raw message's data), a slave's output object or a J1939 DTC's active bit, and the value must fit that binding's type: the bridge refuses the config otherwise, with the location, what it is bound to and the range (for example `bridge.safe_values: %QB0 (... RPDO 1 object 0x6200:1): 300 is out of range 0-255`). A bit inside a bound word (a bit channel) takes its own value, applied after the whole values. NMT command bytes, SDO variables and their triggers, raw trigger and enable bits and the bridge's own blocks cannot take safe values. `safe_values` with another action is a warning, as they are not used.
+
+The values are written to the output image in the bus's byte order and the map's word order (`word_order`), as a client writing them would. The map exports (CSV, JSON, ST comments, HTML) show each output's safe value while the action is `"safe"`. The map hash does not include them: changing a safe value does not stop a PLC that uses the PLC link.
+
+On a clean stop (`systemctl stop`, SIGTERM) the bridge first writes the safe values and waits one SYNC period (20 to 200 ms) so synchronous RPDOs and messages sent on change carry them, then stops the nodes as `on_plc_stop` says. A crash or a power loss sends nothing: the devices' own communication-loss settings cover that. Check each safe value against the device's manual: it is what the machine does when the PLC is gone.
 
 ## Status, control, live lists and SDO registers
 

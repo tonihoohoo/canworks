@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canworks"
-version = "0.135.0"
+version = "0.136.0"
 description = "Configures CANopen, J1939 and CAN networks (canworks-config), puts them on canworks-bridge and exports them for PLCs (canworks-deploy), and reads the live network (canworks-diag)"
 readme = "README.md"
 requires-python = ">=3.11"
