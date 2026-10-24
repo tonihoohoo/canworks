@@ -10,6 +10,8 @@ const L = require("../lib/layout");
 
 // The ERROR_IDs after which a receiver opens again (the ST blocks' RETRY).
 const RETRY = { can: [1, 8, 20], j1939: [1, 8, 9, 20], emcy: [4, 8, 20] };
+// "No free receiver": tried once more after the bridge node closed the receivers no node owns.
+const FULL = { can: 5, j1939: 9, emcy: 5 };
 
 function plainObject(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v) && !Buffer.isBuffer(v);
@@ -52,6 +54,7 @@ module.exports = function (RED) {
         for (const u of node.users) u.cwBridgeState(s);
       });
       node.bridge.on("error", () => {});
+      node.bridge.on("warning", (t) => node.warn(t));
     }
 
     node.use = function (user) {
@@ -64,9 +67,10 @@ module.exports = function (RED) {
     node.release = function (user) {
       node.users.delete(user);
     };
+    // A Deploy closes the other nodes at the same time: stop() lets their receiver closes and cyclic stops out first.
     node.on("close", (done) => {
-      if (node.bridge) node.bridge.stop();
-      done();
+      if (node.bridge) node.bridge.stop().then(() => done(), () => done());
+      else done();
     });
   }
   RED.nodes.registerType("canworks-bridge", BridgeNode);
@@ -155,7 +159,9 @@ module.exports = function (RED) {
   const RENAMED = { can_id: "id", datatype: "type", ecu_name: "name" };
 
   // The node's settings: form fields, then msg.payload's fields of the same
-  // name; a payload that is not an object sets the node's `primary` field.
+  // name; a payload that is not an object sets the node's `primary` field
+  // when the form leaves it empty (the form wins: an inject's timestamp
+  // must not become an SDO value).
   function settings(config, fields, primary, msg) {
     const p = {};
     for (const f of fields) if (config[f] !== undefined && config[f] !== "") p[RENAMED[f] || f] = config[f];
@@ -166,7 +172,7 @@ module.exports = function (RED) {
         if (pl[f] !== undefined) p[key] = pl[f];
         else if (key !== f && pl[key] !== undefined) p[key] = pl[key];
       }
-    } else if (primary && primary.accepts(pl, p)) p[primary.field] = pl;
+    } else if (primary && p[primary.field] === undefined && primary.accepts(pl, p)) p[primary.field] = pl;
     return p;
   }
 
@@ -229,7 +235,7 @@ module.exports = function (RED) {
   }
 
   const isData = { accepts: (v) => typeof v === "string" || Array.isArray(v) || Buffer.isBuffer(v) };
-  // A bare payload is the value of a write only: an inject's timestamp must not become one.
+  // A bare payload is the value of a write only.
   const isValue = { accepts: (v, p) => p.action === "write" && v !== undefined && v !== null && !plainObject(v) };
 
   jobNode("canworks-nmt", "sdo", ["network", "node", "command", "timeout"],
@@ -331,7 +337,7 @@ module.exports = function (RED) {
       if (!b) return;
       let s;
       try {
-        s = Object.assign(spec(b, config), { kind, retry: RETRY[kind] });
+        s = Object.assign(spec(b, config), { kind, retry: RETRY[kind], full: FULL[kind] });
       } catch (e) {
         const x = jobs.inFamily(family, e);
         node.cwShow(errorStatus(x));
@@ -378,7 +384,7 @@ module.exports = function (RED) {
       flags: (truthy(c.all_pgns) ? L.rxOpenFlags.j1939_all_pgns : 0) | (truthy(c.all_destinations) ? L.rxOpenFlags.j1939_all_destinations : 0),
       depth: jobs.int(c.depth, "depth", 0, 255, "j1939", 0),
       id: truthy(c.all_pgns) ? 0 : jobs.int(c.pgn, "pgn", 0, 0x3ffff, "j1939"),
-      mask: filter ? jobs.int(c.source, "source", 0, 254, "j1939") : 255,
+      mask: filter ? jobs.int(c.source, "source", 0, 253, "j1939") : 255,
     };
   }, (rec) => ({ pgn: rec.pgn, source: rec.source, destination: rec.destination, priority: rec.priority, data: rec.data, time: time(rec) }));
 

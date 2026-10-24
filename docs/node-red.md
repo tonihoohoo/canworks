@@ -42,12 +42,12 @@ canworks-deploy --config canworks.json --export-nodered line1_node-red.json --no
 | `--nodered-host HOST[:PORT]` | the bridge's `listen` address, `127.0.0.1` when it listens on all addresses | Where Node-RED connects. |
 | `--nodered-poll-ms N` | 10 | How often the bridge node reads and writes; kept between 10 ms and a third of `watchdog_ms`. |
 
-In Node-RED: Menu > Import, pick the file, Import. The flow is one tab, `canworks line1` (named after the file, without `_node-red`), with a **canworks in**, a **canworks out** and the **canworks bridge** config node `canworks line1`. That config node holds the bridge's address and poll period and the config's layout: the register map, the bridge's blocks and mailboxes and the networks. Every canworks node on any tab uses it, over **one** Modbus TCP connection. Its node ids depend on the name, so importing a newer export of the same config offers to replace the nodes instead of adding a second copy. Export again whenever the config's locations change; the bridge node's edit dialog shows the layout's version and map hash.
+In Node-RED: Menu > Import, pick the file, Import. The flow is one tab, `canworks line1` (named after the file, without `_node-red`), with a **canworks in**, a **canworks out** and the **canworks bridge** config node `canworks line1`. That config node holds the bridge's address and poll period and the config's layout: the register map, the bridge's blocks and mailboxes and the networks. Every canworks node on any tab uses it, over **one** Modbus TCP connection. Its node ids depend on the name, so importing a newer export of the same config offers to replace the nodes instead of adding a second copy. Export again whenever the config's locations change; the bridge node's edit dialog shows the layout's version and map hash. At every connect the bridge node reads the bridge's map hash by Modbus Read Device Identification (function 43/14, object 0x80, [modbus-bridge.md](modbus-bridge.md)). When it differs from the flow's, the flow is out of date: every node shows **map mismatch: export the flow again**, **canworks out** writes nothing and block nodes end each job with ERROR_ID 22 (**canworks in** still sends values, which may sit at other registers now). A bridge that does not answer device identification (older than this package) gives a warning in the debug sidebar and the flow runs unchecked.
 
 ## Values in and out
 
 - **canworks in**: one message per changed value, `msg.topic` its name and `msg.payload` the value. Every value is sent once after the first read. Names are the register map's: the PDO entry's `name` when it has one, else `<node>.<index>:<sub>` such as `dio.0x6000:1`, and status values such as `rtd.state` or `field.bus_state`. Bits are `true`/`false`, REAL objects are numbers, 64-bit integers beyond 2^53 come as decimal strings. J1939 and raw signals with `scale`/`offset` arrive scaled, with `msg.unit`. **Topics** limits one node to some names: exact names or a prefix ending in `*`, separated by commas.
-- **canworks out**: send `{topic: "dio.0x6411:1", payload: -1234}` (or set **Output** on the node) to set that output. The value is checked against the type's range (a warning and nothing written when it does not fit) and goes to the bridge with the next poll. A string is accepted for 64-bit values.
+- **canworks out**: send `{topic: "dio.0x6411:1", payload: -1234}` (or set **Output** on the node) to set that output. The value is checked against the type's range (a warning and nothing written when it does not fit; REAL outputs refuse `NaN` and infinity) and goes to the bridge with the next poll. A string is accepted for 64-bit values. A value counts as written once the bridge confirmed the write: one set while the connection was dead but not yet noticed is written again after the reconnect.
 
 With the bridge's blocks in the config, **canworks in** also carries:
 
@@ -63,7 +63,7 @@ With the bridge's blocks in the config, **canworks in** also carries:
 
 When the connection to the bridge is lost, **canworks in** sends 0 (or `false`) for the status, state and timeout values, every `.operational` and `bridge.bus_ok`; the other values keep their last ones until the bridge answers again ([When the bridge fails](modbus-bridge.md#what-the-nodes-do)).
 
-Every canworks node shows the connection as its status: connected, connecting, reconnecting, or **writes refused** when the bridge's `writers` lacks Node-RED's address.
+Every canworks node shows the connection as its status: connected, connecting, reconnecting, **map mismatch**, or **writes refused** when the bridge's `writers` lacks Node-RED's address. While writes are refused, block nodes end each job at once with ERROR_ID 21 and that text.
 
 ## Block nodes
 
@@ -71,7 +71,7 @@ Each block node runs one job per message and sends exactly one message when it e
 
 | Node | PLC blocks | Fields | `msg.payload` when done |
 | --- | --- | --- | --- |
-| **nmt** | `CO_NMT` | `command` (`start`, `stop`, `preop`, `reset`, `reset_comm`, `run`, `idle`), `node` (0: every node) | `true` |
+| **nmt** | `CO_NMT` | `command` (`start`, `stop`, `preop`, `reset`, `reset_comm`, `run`, `idle`; **msg.payload** in the form: from the message), `node` (0: every node) | `true` |
 | **sdo** | `CO_SDO_READ`, `CO_SDO_WRITE` and their `_BYTES`, `_STRING`, `_REAL` forms | `node`, `index`, `subindex`, `action` (`read`, `write`), `datatype` (`unsigned`, `signed`, `real`, `bytes`, `string`), `size` (1, 2, 4, 8), `value`, `timeout` | the value read (number, string or Buffer), `true` for a write |
 | **can send** | `CAN_SEND` | `can_id`, `extended`, `rtr`, `dlc`, `data`, `timeout` | `true` |
 | **can cyclic** | `CAN_SEND_CYCLIC` | `can_id`, `extended`, `dlc`, `data`, `period`, `action` (`start` also changes a running frame, `stop`) | `true` |
@@ -80,7 +80,7 @@ Each block node runs one job per message and sends exactly one message when it e
 | **j1939 dm** | `J1939_DM_READ`, `J1939_DM_CLEAR` | `action` (`read`, `clear`), `address`, `previous` (DM2/DM3 instead of DM1/DM11), `timeout` | read: `[{spn, fmi, oc, cm}]` with `lamps`, `flash`, `count`, `ageMs` in `msg.canworks`; clear: `true` |
 | **find ecu** | `J1939_FIND_ECU` | `ecu_name` (64-bit NAME, decimal or `0x`), `mask` (empty: every bit) | the address, or `null`; `msg.canworks.ecu` the NAME's fields |
 
-A payload that is not an object sets the node's main field: `data` of the send nodes and **can cyclic** (a Buffer, an array of bytes or a hex string such as `"01 02 0a"`), `value` of an **sdo** write, `command` of **nmt**. The form names `can_id`, `datatype` and `ecu_name` differ from the PLC blocks' because Node-RED keeps `id`, `type` and `name` for itself; `msg.payload` may use either.
+A payload that is not an object sets the node's main field when the form leaves it empty: `data` of the send nodes and **can cyclic** (a Buffer, an array of bytes or a hex string such as `"01 02 0a"`), `value` of an **sdo** write, `command` of **nmt**. A value in the form wins, so an inject node's default timestamp does not become an SDO value. The form names `can_id`, `datatype` and `ecu_name` differ from the PLC blocks' because Node-RED keeps `id`, `type` and `name` for itself; `msg.payload` may use either.
 
 The message keeps `msg.topic`, and `msg.canworks` says how the job ended: `{status: "done" | "error", errorId, abortCode, abortText, text, request}`. `errorId` is the PLC block's ERROR_ID, with the same numbers ([plc-library.md](plc-library.md), [raw-can.md](raw-can.md), [j1939.md](j1939.md)), and `text` says it in words; `msg.payload` is `null` on an error. Every family shares:
 
@@ -88,13 +88,16 @@ The message keeps `msg.topic`, and `msg.canworks` says how the job ended: `{stat
 | --- | --- |
 | 8 | Cancelled: the link stopped, the network restarted or the bridge restarted. |
 | 20 | The bridge is not reachable (or the connection dropped during the job). |
-| 22 | The config has no part of the bridge this node needs (the node's status says which, for example **nmt** without a status block), or the flow is read-only. |
+| 21 | Writes refused: the bridge's `writers` lacks Node-RED's address. |
+| 22 | The config has no part of the bridge this node needs (the node's status says which, for example **nmt** without a status block), the flow is read-only, or its map hash differs from the bridge's. |
 
-Numbers up to 4 bytes go through the SDO registers when the config has them; everything else through a request mailbox, with the long transfers staged and fetched in 128-byte steps. Jobs queue in the order they arrive: each takes the first free request mailbox and keeps it for its whole transfer, short SDO jobs share the SDO registers and NMT commands the control block. Waiting does not count against a job's timeout (5 s when empty). At most 64 jobs wait per bridge node; one more ends with the family's "no free slot" ERROR_ID (5, or 9 for J1939). The node's status shows busy, done or the last ERROR_ID.
+A J1939 node in a config with no J1939 network ends with ERROR_ID 10, a CANopen node with no CANopen master network with 4.
+
+Numbers up to 4 bytes go through the SDO registers when the config has them; everything else through a request mailbox, with the long transfers staged and fetched in 128-byte steps. Jobs queue in the order they arrive: each takes the first free request mailbox and keeps it for its whole transfer, short SDO jobs share the SDO registers and NMT commands the control block. Waiting does not count against a job's timeout (when empty: 5 s, for **sdo** the network's `sdo_timeout_ms`). The fetch of a long received J1939 message goes ahead of the waiting jobs, so the bridge does not close the receivers for a stalled batch. At most 64 jobs wait per bridge node; one more ends with the family's "no free slot" ERROR_ID (5, or 9 for J1939). The node's status shows busy, done or the last ERROR_ID.
 
 ## Receivers
 
-**can receive** (`CAN_RECEIVE`: `can_id`, `mask`, `extended`, `all_ids`, `depth`), **j1939 receive** (`J1939_RECEIVE`: `pgn`, `all_pgns`, `source` (empty: any), `all_destinations`, `depth`) and **emcy** (`CO_RECV_EMCY`: `node` (0: every node), `skip_old`) each hold one of the bridge's receivers while they are deployed. They have no input: each received frame or message is one message, in the order the bridge received them:
+**can receive** (`CAN_RECEIVE`: `can_id`, `mask`, `extended`, `all_ids`, `depth`), **j1939 receive** (`J1939_RECEIVE`: `pgn`, `all_pgns`, `source` (0-253, empty: any), `all_destinations`, `depth`) and **emcy** (`CO_RECV_EMCY`: `node` (0: every node), `skip_old`) each hold one of the bridge's receivers while they are deployed. They have no input: each received frame or message is one message, in the order the bridge received them:
 
 | Node | `msg.payload` |
 | --- | --- |
@@ -102,12 +105,13 @@ Numbers up to 4 bytes go through the SDO registers when the config has them; eve
 | **j1939 receive** | `{pgn, source, destination, priority, data, time}`; long messages are fetched whole |
 | **emcy** | `{node, code, register, data, time}` |
 
-`time` is when the bridge received it: for **emcy** the record's own time, for **can receive** and **j1939 receive** the receive time of the batch's first record, shared by the batch (accurate to about one poll; use a [bus trace](trace.md) for frame-to-frame timing). With `receive_blocks` 2 a batch carries 21 CAN frames instead of 9 ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). `msg.canworks` has `queued`, `dropped` and `overflow` from the bridge's queue. When the bridge closes the receiver (link stop, network restart) or the connection drops, the node sends one message with `msg.canworks.status` `error` and ERROR_ID 8 or 20, and opens the receiver again. More receivers than the bridge has end with the family's "no free receiver" ERROR_ID in the node's status.
+`time` is when the bridge received it: for **emcy** the record's own time, for **can receive** and **j1939 receive** the receive time of the batch's first record, shared by the batch (accurate to about one poll; use a [bus trace](trace.md) for frame-to-frame timing). With `receive_blocks` 2 a batch carries 21 CAN frames instead of 9 ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). `msg.canworks` has `queued`, `dropped` and `overflow` from the bridge's queue. When the bridge closes the receiver (link stop, network restart) or the connection drops, the node sends one message with `msg.canworks.status` `error` and ERROR_ID 8 or 20, and opens the receiver again. More receivers than the bridge has end with the family's "no free receiver" ERROR_ID in the node's status. The bridge node closes every open receiver that no node owns, such as one of an earlier connection or Deploy, also when it gets no records; a receiver that found no free one tries once more after that.
 
 ## Restart, link loss and watchdog
 
 - **Outputs are not zeroed by a restart.** After every connect the bridge node reads the outputs, the control block, the SDO request, every request mailbox and the receive acknowledgement back from the bridge and writes them unchanged before anything else. Values sent to **canworks out** before that are held (the last value per name wins). After a bridge restart, these first words are its baseline, so nothing left in the registers runs again.
-- **Link loss**: the nodes show reconnecting, and the bridge node tries again after 0.5 s, then up to every 5 s. Jobs that were running end with ERROR_ID 20; nothing is repeated by itself. When the bridge is back, values flow again, the receivers open again and a running **can cyclic** is set up again (it says so with one ERROR_ID message), without a redeploy.
+- **Link loss**: the nodes show reconnecting, and the bridge node tries again after 0.5 s, then up to every 5 s. Jobs that were running end with ERROR_ID 20; nothing is repeated by itself. When the bridge is back, values flow again, the receivers open again and a running **can cyclic** is set up again (it says so with one ERROR_ID message), without a redeploy: it takes over its job when the bridge still runs it, so the frame never goes out twice.
+- **Deploy**: closing a **can cyclic** stops its job on the bridge; on a full Deploy the bridge node waits up to 0.5 s for the receivers' closes and the cyclic stops before it disconnects.
 - **Watchdog**: the outputs are rewritten at least every third of `watchdog_ms`, so the bridge keeps them on while Node-RED runs and applies `on_client_loss` when it stops. The cyclic frames' keepalives are written every poll, so the bridge stops them within 1 s after Node-RED stops. With `watchdog_ms` 0 nothing is rewritten.
 
 The bridge node writes whole write channels, so it expects to be the bridge's only writer.

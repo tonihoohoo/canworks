@@ -2,7 +2,8 @@
 // package tests: the client side of lib/modbus.js on two word tables, and
 // the bridge side of the control block, SDO registers, request mailboxes,
 // receive mailbox and cyclic jobs as the bridge answers them
-// (plugin/src/bridge/mailboxes.h). Tests script the answers per operation.
+// (plugin/src/bridge/mailboxes.h), and Read Device Identification (43/14)
+// with the map hash as object 0x80. Tests script the answers per operation.
 "use strict";
 
 const { EventEmitter } = require("events");
@@ -43,6 +44,12 @@ class FakeBridge {
     this.acked = 0;
     this.jobs = new Map(); // slot -> {gen, count, state}
     this.jobGen = 0;
+    // Device identification objects; deviceIdException 1 is an older bridge (illegal function).
+    const hash = typeof layout.mapHash === "number" ? (layout.mapHash >>> 0).toString(16).toUpperCase().padStart(8, "0") : "";
+    this.deviceId = { 0: "canworks", 1: "canworks-bridge", 2: "0.0.0", 0x80: hash };
+    this.deviceIdException = 0;
+    this.idReads = [];
+    this.stalled = false; // requests get no answer until the connection closes
     this.restart();
   }
 
@@ -286,6 +293,7 @@ class FakeBridge {
       const model = this;
       const c = new EventEmitter();
       c.connected = false;
+      c.hung = [];
       c.connect = async () => {
         if (model.down) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
         model.connects++;
@@ -295,18 +303,31 @@ class FakeBridge {
       c.close = () => {
         if (!c.connected) return;
         c.connected = false;
+        for (const reject of c.hung.splice(0)) reject(Object.assign(new Error("closed"), { code: "closed" }));
         model.clients = model.clients.filter((x) => x !== c);
         setImmediate(() => c.emit("close", new Error("closed")));
       };
-      const live = () => {
+      const live = async () => {
         if (!c.connected || model.down) throw Object.assign(new Error("not connected"), { code: "ECONNRESET" });
+        // A stalled bridge: the request waits until the client gives up and closes.
+        if (model.stalled) await new Promise((resolve, reject) => c.hung.push(reject));
+      };
+      c.readDeviceId = async (code, id) => {
+        await live();
+        model.idReads.push([code, id]);
+        if (model.deviceIdException) throw Object.assign(new Error("exception " + model.deviceIdException), { code: "exception" + model.deviceIdException });
+        const ids = code === 4 ? [id] : Object.keys(model.deviceId).map(Number).filter((k) => k >= id);
+        if (code === 4 && model.deviceId[id] === undefined) throw Object.assign(new Error("exception 2"), { code: "exception2" });
+        const objects = {};
+        for (const k of ids) objects[k] = Buffer.from(model.deviceId[k], "latin1");
+        return { code, conformity: 0x83, more: false, next: 0, objects };
       };
       c.readHolding = async (s, n) => {
-        live();
+        await live();
         return Array.from(model.hold.subarray(s, s + n));
       };
       c.readInput = async (s, n) => {
-        live();
+        await live();
         model.reads++;
         model._cyclicTable();
         // The receive block's tick is the bridge's time now, every cycle.
@@ -315,7 +336,7 @@ class FakeBridge {
         return Array.from(model.inp.subarray(s, s + n));
       };
       c.writeMultiple = async (s, words) => {
-        live();
+        await live();
         if (model.refuseWrites) throw Object.assign(new Error("exception 1"), { code: "exception1" });
         model.writes.push([s, words.slice()]);
         for (let i = 0; i < words.length; i++) model.hold[s + i] = words[i];

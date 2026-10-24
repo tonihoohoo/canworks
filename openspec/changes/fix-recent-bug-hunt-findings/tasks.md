@@ -16,14 +16,14 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 2. Node-RED package
 
-- [ ] 2.1 NODERED-1: close orphaned receiver slots after `_seed` and on Deploy (`stop()` waits up to 500 ms for queued closes); retry ERROR_ID 5 once after the cleanup; tests with 16 reconnects and repeated Deploys against the fake bridge and `test/nodered/run.py`.
-- [ ] 2.2 NODERED-2: form value wins over `msg.payload` for every job node; test with an inject timestamp on SDO write (2, 4 and 8 bytes).
-- [ ] 2.3 NODERED-3: `Cyclic.close` sends the stop for the captured slot; a reconnect takes the old slot over or stops it first; ERROR_ID 5 retried; test with `cyclic_jobs: 1`.
-- [ ] 2.4 NODERED-4: outputs set since the last confirmed write are written again after `_seed`; test with a stalled bridge.
-- [ ] 2.5 NODERED-5: `_guard` ends jobs at once with ERROR_ID 21 while writes are refused; test.
-- [ ] 2.6 NODERED-6: receive fetches at the head of the mailbox wait queue; test with a busy single mailbox.
-- [ ] 2.7 NODERED-7: read device identification at connect, refuse writes and jobs on a map hash mismatch with the node status; warning only when the bridge answers exception 1; test.
-- [ ] 2.8 NODERED-8..10: ERROR_ID 10 with no J1939 network (4 for CANopen); J1939 source 0-253; default port 502; receiver-specific error list in the emcy help; `isFinite` for REAL; use `sdoTimeoutMs` in mailbox SDO jobs; tests; docs/node-red.md.
+- [x] 2.1 NODERED-1: close orphaned receiver slots after `_seed` and on Deploy (`stop()` waits up to 500 ms for queued closes); retry ERROR_ID 5 once after the cleanup; tests with 16 reconnects and repeated Deploys against the fake bridge and `test/nodered/run.py`.
+- [x] 2.2 NODERED-2: form value wins over `msg.payload` for every job node; test with an inject timestamp on SDO write (2, 4 and 8 bytes).
+- [x] 2.3 NODERED-3: `Cyclic.close` sends the stop for the captured slot; a reconnect takes the old slot over or stops it first; ERROR_ID 5 retried; test with `cyclic_jobs: 1`.
+- [x] 2.4 NODERED-4: outputs set since the last confirmed write are written again after `_seed`; test with a stalled bridge.
+- [x] 2.5 NODERED-5: `_guard` ends jobs at once with ERROR_ID 21 while writes are refused; test.
+- [x] 2.6 NODERED-6: receive fetches at the head of the mailbox wait queue; test with a busy single mailbox.
+- [x] 2.7 NODERED-7: read device identification at connect, refuse writes and jobs on a map hash mismatch with the node status; warning only when the bridge answers exception 1; test.
+- [x] 2.8 NODERED-8..10: ERROR_ID 10 with no J1939 network (4 for CANopen); J1939 source 0-253; default port 502; receiver-specific error list in the emcy help; `isFinite` for REAL; use `sdoTimeoutMs` in mailbox SDO jobs; tests; docs/node-red.md.
 
 ## 3. PLC programs and exports
 
