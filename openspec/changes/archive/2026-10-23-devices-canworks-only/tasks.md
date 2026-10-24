@@ -33,6 +33,8 @@
 
 ## 6. Hardware (Pi, through Remote Control)
 
-- [ ] 6.1 Devices from the Mac with no config: the Pi's card reads "<instance> running" with no backup or Runtime of entries; four rows; up to date
+- [x] 6.1 Devices from the Mac with no config: the Pi's card reads "<instance> running" with no backup or Runtime of entries; four rows; up to date
+  - Passed 2026-10-24 with PC tools 0.131.1 on the Mac: the device has its one instance and eight hand-made backup folders; the probe and the card list only the instance ("<instance> running"), no `runtime` key, no runtime row. The rows are bridge, remote link, discovery and CAN, plus the remote CAN adapter row added since by `add-devices-adapter-server`. The main action was **Update 0.128.3 → 0.131.1** because the device's bridge is older than the release, not "Up to date"; nothing was clicked.
 - [ ] 6.2 Same from Windows
-- [ ] 6.3 Pi's OpenPLC Runtime and its project unchanged after **Check again** (probe ran no `docker`/`sudo`)
+- [x] 6.3 Pi's OpenPLC Runtime and its project unchanged after **Check again** (probe ran no `docker`/`sudo`)
+  - Passed 2026-10-24: the runtime and bootloader containers, their images and the bridge instance were the same before and after the probe and the page's check (only the uptime moved). The probe's only `sudo` call is `sudo -n true` to find the sudo mode; it reads nothing of the runtime.
