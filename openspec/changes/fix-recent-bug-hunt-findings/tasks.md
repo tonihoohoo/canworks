@@ -4,15 +4,15 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 1. Bridge
 
-- [ ] 1.1 BRIDGE-1: no-op SIGUSR1 handler in `bridge_main.cpp` and `test/canopen_host` before any network starts; `upload_test.py` case with two CANopen networks: SIGTERM exit 0, both stop NMTs, no run marker; upload applied, no `.canworks-upload` left; a case with the first network's interface lost and a later write.
-- [ ] 1.2 BRIDGE-2: request mailbox baseline after `client_wrote()` of the request words; test with a client rewriting counter 7 across a restart (ERROR_ID 8, no SDO), then counter 8 runs.
-- [ ] 1.3 BRIDGE-4: idle ends receivers, cyclic jobs and mailbox operations with ERROR_ID 8 and log reason "idle"; test with keepalives written during idle, no "stopped calling" line.
-- [ ] 1.4 BRIDGE-6: queued SDO and CAN send operations dropped on cancel; test with a queued SDO write and the watchdog; docs/modbus-bridge.md says what cancelled means.
+- [x] 1.1 BRIDGE-1: no-op SIGUSR1 handler in `bridge_main.cpp` and `test/canopen_host` before any network starts; `upload_test.py` case with two CANopen networks: SIGTERM exit 0, both stop NMTs, no run marker; upload applied, no `.canworks-upload` left; a case with the first network's interface lost and a later write.
+- [x] 1.2 BRIDGE-2: request mailbox baseline after `client_wrote()` of the request words; test with a client rewriting counter 7 across a restart (ERROR_ID 8, no SDO), then counter 8 runs.
+- [x] 1.3 BRIDGE-4: idle ends receivers, cyclic jobs and mailbox operations with ERROR_ID 8 and log reason "idle"; test with keepalives written during idle, no "stopped calling" line.
+- [x] 1.4 BRIDGE-6: queued SDO and CAN send operations dropped on cancel; test with a queued SDO write and the watchdog; docs/modbus-bridge.md says what cancelled means.
 - [ ] 1.5 BRIDGE-7: `receive`/`cyclic_jobs` without a request mailbox refused in `config.cpp` and `bridgecheck.py`; parity corpus entry; the Function blocks controls keep requests ≥ 1 while either is on.
-- [ ] 1.6 BRIDGE-5: count reads of the network info and cyclic table areas as mailbox use; diag text; test.
-- [ ] 1.7 BRIDGE-9: call `end_network` on a CANopen session restart; test with an interface bounce and receivers on two networks.
-- [ ] 1.8 NODERED-7 (bridge side): function 43/14 Read Device Identification with objects 0, 1, 2 and 0x80 (map hash); other MEI types exception 1; test; docs/modbus-bridge.md function list.
-- [ ] 1.9 BRIDGE-8: delete `tools/deploy/OUT.csv`; ignore `OUT.*` in tools/deploy.
+- [x] 1.6 BRIDGE-5: count reads of the network info and cyclic table areas as mailbox use; diag text; test.
+- [x] 1.7 BRIDGE-9: call `end_network` on a CANopen session restart; test with an interface bounce and receivers on two networks.
+- [x] 1.8 NODERED-7 (bridge side): function 43/14 Read Device Identification with objects 0, 1, 2 and 0x80 (map hash); other MEI types exception 1; test; docs/modbus-bridge.md function list.
+- [x] 1.9 BRIDGE-8: delete `tools/deploy/OUT.csv`; ignore `OUT.*` in tools/deploy.
 
 ## 2. Node-RED package
 

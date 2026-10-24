@@ -197,6 +197,31 @@ TEST(send_times_out_without_echo) {
   CHECK(api()->tx_send(0, &f, 0, &err) == 0 && err == CANWORKS_CAN_ERR_FULL);
 }
 
+// The bridge's mailboxes cancel a send (modbus-bridge-mailboxes "Cancel
+// drops queued work"): a queued frame never goes out and its slot frees; a
+// written one finishes with its confirmation discarded.
+TEST(send_cancelled) {
+  Net n;
+  uint16_t err = 0;
+  canworks_can_frame f = frame(0x512, {7});
+  uint32_t h = api()->tx_send(0, &f, 0, &err);
+  CHECK(h != 0);
+  api()->tx_cancel(h);
+  CHECK(api()->tx_poll(h, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  canworks_can_frame out{};
+  uint32_t tag = 0;
+  CHECK(!n.port.next_tx(out, tag));
+  h = api()->tx_send(0, &f, 0, &err);
+  CHECK(n.port.next_tx(out, tag));
+  n.port.tx_written(tag, false);
+  api()->tx_cancel(h);
+  n.port.own_echo(frame(0x512, {7}));  // the late echo frees the slot
+  CHECK(api()->tx_poll(h, &err) == 2 && err == CANWORKS_CAN_ERR_CANCELLED);
+  // Every slot can be used again.
+  n.port.expire_echoes(monotonic_us() + 10000000u, 1000000u);
+  for (unsigned i = 0; i < CANWORKS_CAN_TX_QUEUE; ++i) CHECK(api()->tx_send(0, &f, 0, &err) != 0);
+}
+
 TEST(send_written_without_echo_support) {
   Net n;
   uint16_t err = 0;

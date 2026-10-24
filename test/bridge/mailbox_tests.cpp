@@ -135,9 +135,10 @@ struct Rig {
     mb.reset(new Mailboxes(layout, backend));
     step();
   }
+  uint32_t written = ~0u;  // request mailboxes the client has written
   void step(int ms = 1) {
     now += std::chrono::milliseconds(ms);
-    mb->service(out.data(), in.data(), now);
+    mb->service(out.data(), in.data(), now, written);
   }
   uint16_t req_word(unsigned m, unsigned w) { return get_be16(&out[layout.request(m) + 2 * w]); }
   void set_req(unsigned m, unsigned w, uint16_t v) { put_be16(&out[layout.request(m) + 2 * w], v); }
@@ -240,6 +241,26 @@ TEST(restart_does_not_replay_the_last_request) {
   r.call(0, kOpCanSend, 0, {0, 0x511, 2, 100}, {3, 4});
   EXPECT(r.wait(0));
   EXPECT(r.state(0) == kMbDone && r.backend.calls.size() == 2);
+}
+
+// The baseline is the client's first words, not the zeroed image before it
+// wrote them: its stale counter 7 after a restart is not run, 8 is.
+TEST(baseline_waits_for_the_client_words) {
+  Rig r;
+  r.written = 0;
+  r.mb.reset(new Mailboxes(r.layout, r.backend));
+  for (int i = 0; i < 5; ++i) r.step();
+  r.counter[0] = 6;
+  r.call(0, kOpSdoRead, 0, {5 << 8 | 0, 0x1018, 3 << 8, 500});
+  r.step();
+  EXPECT(r.rsp(0, 0) == 0 && r.state(0) == kMbIdle);  // not written yet: nothing taken
+  r.written = 1;
+  for (int i = 0; i < 5; ++i) r.step();
+  EXPECT(r.backend.calls.empty());
+  EXPECT(r.rsp(0, 0) == 7 && r.state(0) == kMbError && r.error(0) == 8);
+  r.call(0, kOpSdoRead, 0, {5 << 8 | 0, 0x1018, 3 << 8, 500});
+  EXPECT(r.wait(0));
+  EXPECT(r.rsp(0, 0) == 8 && r.state(0) == kMbDone && r.backend.calls.size() == 1);
 }
 
 TEST(operation_none_does_nothing) {

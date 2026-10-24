@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -68,11 +69,21 @@ std::string read_file(const std::string& p) {
 void write_file(const std::string& p, const std::string& text) { std::ofstream(p) << text; }
 
 // A copy of the example in a fresh directory, the config edited by `edit`.
-std::string example_copy(const std::function<void(cJSON*)>& edit, const char* example = EXAMPLE_DIR) {
+// `sim_edit` edits the simulation file.
+std::string example_copy(const std::function<void(cJSON*)>& edit, const char* example = EXAMPLE_DIR,
+                         const std::function<void(cJSON*)>& sim_edit = nullptr) {
   char tmpl[] = "/tmp/canworks-bridge-XXXXXX";
   std::string dir = mkdtemp(tmpl);
   for (const char* f : {"simulation.json", "rtd8.eds", "dio16.eds"})
     write_file(dir + "/" + f, read_file(std::string(example) + "/" + f));
+  if (sim_edit) {
+    cJSON* sim = cJSON_Parse(read_file(dir + "/simulation.json").c_str());
+    sim_edit(sim);
+    char* text = cJSON_Print(sim);
+    write_file(dir + "/simulation.json", text);
+    cJSON_free(text);
+    cJSON_Delete(sim);
+  }
   cJSON* root = cJSON_Parse(read_file(std::string(example) + "/canworks.json").c_str());
   // The tests' clients connect from the loopback address.
   cJSON* writers = cJSON_CreateArray();
@@ -130,7 +141,8 @@ bool both_operational(Client& c) { return (reg(c, kLiveListReg) >> 8) == 0x60; }
 struct Host {
   BridgeHost host;
   bool ok = false;
-  explicit Host(const std::function<void(cJSON*)>& edit = nullptr, const char* example = EXAMPLE_DIR) {
+  explicit Host(const std::function<void(cJSON*)>& edit = nullptr, const char* example = EXAMPLE_DIR,
+                const std::function<void(cJSON*)>& sim_edit = nullptr) {
     canopen_plugin::set_log_sink(capture);
     canopen_plugin::canopen_init_logging();
     host.listen_override = "127.0.0.1:0";
@@ -142,7 +154,7 @@ struct Host {
                       cJSON_DeleteItemFromObject(bridge_of(r), "writers");
                       cJSON_AddItemToObject(bridge_of(r), "writers", w);
                       if (edit) edit(r);
-                    }, example),
+                    }, example, sim_edit),
                     "test");
     if (!ok) {
       std::lock_guard<std::mutex> l(g_log_mu);
@@ -794,6 +806,34 @@ TEST(plc_link_restart_does_not_replay) {
   EXPECT(ooperational(c));  // the last NMT STOP was not replayed
 }
 
+// A PLC rewrites its whole output image every poll: after a bridge restart
+// the request mailbox's first words are its last request again, written
+// together with the header (modbus-bridge-mailboxes "Request baseline from
+// the client's words"). Counter 7 ends cancelled and sends nothing; 8 runs.
+TEST(plc_link_mailbox_restart_does_not_replay) {
+  Host h(plc_link_only, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kReq = 16, kRsp = 33;  // %QB32, %IB66
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  // SDO_READ 0x1018:1 of node 6, raw bytes, 1 s: the request group, then the
+  // header group, every 10 ms, as the PLC's poll.
+  for (int i = 0; i < 30; ++i) {
+    EXPECT(write(c, kReq, {7, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 1000, 0, 0}));
+    EXPECT(header(c, 1, hash));
+    usleep(10000);
+  }
+  auto r = regs(c, kReadInputRegisters, kRsp, 4);
+  EXPECT(r.size() == 4 && r[0] == 7 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8);
+  EXPECT(write(c, kReq, {8, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 1000, 0, 0}));
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp, 4);
+    return r.size() == 4 && r[0] == 8 && (r[1] >> 8) == kMbDone && r[3] == 4;
+  }, 3000));
+}
+
 TEST(plc_link_refusals) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy(
@@ -812,6 +852,25 @@ TEST(plc_link_refusals) {
       },
       OPENPLC_EXAMPLE_DIR);
   EXPECT(BridgeHost::check(path));
+}
+
+// Read Device Identification names the map hash for every config, also
+// without the PLC link (modbus-bridge "Device identification with the map
+// hash"): what the Node-RED package checks at connect.
+TEST(device_identification_names_the_map_hash) {
+  Host h;
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  cJSON* st = h.host.status_json();
+  std::string hash = cJSON_GetStringValue(cJSON_GetObjectItem(st, "map_hash"));  // "0x...", lower case
+  cJSON_Delete(st);
+  for (auto& ch : hash) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+  Client c(h.port());
+  Bytes r = c.request({43, 14, 4, 0x80});
+  EXPECT(r.size() == 17 && r[0] == 43 && r[1] == 14 && r[6] == 1 && r[7] == 0x80 && r[8] == 8);
+  EXPECT(r.size() == 17 && std::string(r.begin() + 9, r.end()) == hash.substr(2));
+  r = c.request({43, 14, 1, 0});
+  EXPECT(r.size() > 7 && r[6] == 3);
 }
 
 TEST(map_hash_vectors) {
@@ -899,6 +958,211 @@ TEST(mailboxes_on_the_simulated_bus) {
   // Network info of network 0: error active, frames received.
   std::vector<uint16_t> info = regs(c, kReadInputRegisters, kInfoReg, 18);
   EXPECT(info.size() == 18 && (info[0] >> 8) == 0 && (uint32_t(info[5]) << 16 | info[6]) > 0);
+}
+
+// CAN_BUS_INFO only reads the network info block: those reads count as
+// mailbox use in the status (modbus-bridge-mailboxes "Info reads count as
+// mailbox use"), so diag does not advise turning the mailboxes off.
+TEST(info_reads_count_as_mailbox_use) {
+  Host h(add_mailboxes);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  auto info_reads = [&] {
+    cJSON* st = h.host.status_json();
+    cJSON* n = cJSON_GetObjectItem(cJSON_GetObjectItem(st, "mailboxes"), "info_reads");
+    double v = cJSON_IsNumber(n) ? n->valuedouble : -1;
+    cJSON_Delete(st);
+    return v;
+  };
+  EXPECT(info_reads() == 0);
+  regs(c, kReadInputRegisters, 0, 8);  // the data registers: not mailbox use
+  EXPECT(info_reads() == 0);
+  for (int i = 0; i < 3; ++i) regs(c, kReadInputRegisters, kInfoReg, 18);
+  regs(c, kReadInputRegisters, kInfoReg + 18, 4);  // the cyclic job table
+  EXPECT(info_reads() == 4);
+}
+
+// Idle (control command 2) turns the outputs off, and a mailbox frame is an
+// output: the program's receivers, cyclic jobs and operations end with the
+// log reason "idle", never as a block that stopped calling while the client
+// kept writing keepalives (modbus-bridge-mailboxes "Idle ends the program's
+// resources").
+TEST(idle_ends_the_program_resources) {
+  Host h(add_mailboxes);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kKeepaliveReg = 88;  // %QB176
+  constexpr uint16_t kJobTableReg = 242;  // %IB484
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  std::vector<uint16_t> r = mb_call(c, 1, kOpRxOpen, {kRxCan << 8, 32, 0, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[2] == 0);
+  r = mb_call(c, 2, kOpCyclicSet, {0xFFFF, 0, 0x300, 2, 20}, {0x0102, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone);
+  uint16_t job = r.size() == 12 ? r[2] : 0;
+  auto job_gen = [&] { return reg(c, static_cast<uint16_t>(kJobTableReg + 1 + job * 4 + 1)); };
+  auto rx_gen = [&] { return static_cast<uint16_t>(reg(c, kRxReg + 5) >> 8); };  // receiver 0
+  EXPECT(job_gen() != 0 && rx_gen() != 0);
+  // Idle; the client keeps writing keepalives and acknowledging batches.
+  EXPECT(write(c, kControlReg, {4, 2 << 8, 0}));
+  EXPECT(wait_for([&] { return state(c) == 3; }));
+  for (uint16_t i = 1; i <= 15; ++i) {
+    EXPECT(write(c, static_cast<uint16_t>(kKeepaliveReg + job), {i}));
+    EXPECT(write(c, kAckReg, {reg(c, kRxReg), 0, 0}));
+    usleep(100000);
+  }
+  EXPECT(job_gen() == 0 && rx_gen() == 0);
+  EXPECT(logged("of the program ended (idle)"));
+  EXPECT(!logged("stopped calling"));
+  EXPECT(!logged("were not taken within 1 s"));
+  EXPECT(write(c, kControlReg, {5, 1 << 8, 0}));
+  EXPECT(wait_for([&] { return state(c) == 1; }));
+}
+
+// An SDO write that waits behind another transfer to the same node when the
+// watchdog fires ends with ERROR_ID 8 and never goes out (modbus-bridge-
+// mailboxes "Cancel drops queued work"); the transfer on the bus finishes
+// with its result discarded.
+TEST(cancel_drops_a_queued_sdo_write) {
+  Host h(
+      [](cJSON* r) {
+        add_mailboxes(r);
+        cJSON* m = cJSON_GetObjectItem(bridge_of(r), "mailboxes");
+        set_number(m, "requests", 2);
+        set_number(bridge_of(r), "watchdog_ms", 300);
+        // Hold keeps the outputs, and with them the SDO writes, going.
+        set_string(bridge_of(r), "on_client_loss", "hold");
+        cJSON_ReplaceItemInObject(bridge_of(r), "sdo_bridge_write", cJSON_CreateBool(true));
+      },
+      EXAMPLE_DIR,
+      [](cJSON* sim) {
+        // Node 6 answers 0x1018:1 1.5 s late.
+        cJSON* node = cJSON_CreateObject();
+        cJSON* faults = cJSON_AddArrayToObject(node, "faults");
+        cJSON* f = cJSON_CreateObject();
+        cJSON* d = cJSON_AddObjectToObject(f, "sdo_delay");
+        cJSON_AddNumberToObject(d, "ms", 1500);
+        cJSON_AddStringToObject(d, "object", "0x1018:1");
+        cJSON_AddItemToArray(faults, f);
+        cJSON_AddItemToObject(cJSON_GetObjectItem(cJSON_GetObjectItem(cJSON_GetObjectItem(sim, "networks"), "field"),
+                                                  "nodes"),
+                              "6", node);
+      });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kReq1 = kMbReqReg + 72, kRsp1 = kMbRspReg + 72;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  EXPECT(write(c, kReq1, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // Mailbox 0: the slow read; mailbox 1: 0x100C (guard time, unused) = 777 behind it.
+  EXPECT(write(c, kMbReqReg, {1, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 3000, 0, 0}));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT(write(c, kReq1, {1, kOpSdoWrite << 8, (6 << 8) | 0, 0x100C, (3 << 8) | 2, 3000, 2, 0, 0x0903}));
+  auto r = regs(c, kReadInputRegisters, kRsp1, 2);
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp1, 2);
+    return r.size() == 2 && r[0] == 1;
+  }, 100));
+  EXPECT(r.size() == 2 && (r[1] >> 8) == kMbBusy);
+  // No more writes: the watchdog ends both.
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp1, 2);
+    return r.size() == 2 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8;
+  }, 2000));
+  r = regs(c, kReadInputRegisters, kMbRspReg, 2);
+  EXPECT(r.size() == 2 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  // 0x100C still holds 0.
+  r = mb_call(c, 2, kOpSdoRead, {(6 << 8) | 0, 0x100C, (3 << 8) | 2, 1000});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[8] == 0);
+}
+
+// A CANopen session restart (the interface went down and up) ends that
+// network's receivers, jobs and operations, and leaves the other network's
+// running (modbus-bridge-mailboxes "Network restart ends its resources").
+// CANWORKS_TEST_IFACE_DOWN takes the simulated interface down.
+TEST(session_restart_ends_the_network_resources) {
+  char tmpl[] = "/tmp/canworks-ifdown-XXXXXX";
+  std::string down = std::string(mkdtemp(tmpl)) + "/down";
+  setenv("CANWORKS_TEST_IFACE_DOWN", down.c_str(), 1);
+  Host h([](cJSON* r) {
+    add_mailboxes(r);
+    // A second network, sim1, with the rtd node and no located values.
+    cJSON* nets = cJSON_GetObjectItem(r, "networks");
+    cJSON* second = cJSON_Duplicate(cJSON_GetArrayItem(nets, 0), true);
+    set_string(second, "name", "field2");
+    set_string(cJSON_GetObjectItem(second, "adapter"), "interface", "sim1");
+    cJSON* m = cJSON_GetObjectItem(second, "master");
+    cJSON_DeleteItemFromObject(m, "state_location");
+    cJSON_DeleteItemFromObject(m, "bus_state_location");
+    cJSON* nodes = cJSON_CreateArray();
+    cJSON* node = cJSON_CreateObject();
+    cJSON_AddNumberToObject(node, "node_id", 5);
+    cJSON_AddStringToObject(node, "name", "rtd2");
+    cJSON_AddStringToObject(node, "eds", "rtd8.eds");
+    cJSON_AddNumberToObject(node, "heartbeat_ms", 100);
+    cJSON_AddNumberToObject(node, "heartbeat_timeout_ms", 300);
+    cJSON_AddItemToArray(nodes, node);
+    cJSON_ReplaceItemInObject(second, "nodes", nodes);
+    cJSON_AddItemToArray(nets, second);
+  });
+  EXPECT(h.ok);
+  if (!h.ok) {
+    unsetenv("CANWORKS_TEST_IFACE_DOWN");
+    return;
+  }
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // Receiver 0 on network 0, receiver 1 on network 1: every standard frame.
+  std::vector<uint16_t> r = mb_call(c, 1, kOpRxOpen, {kRxCan << 8, 32, 0, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[2] == 0);
+  std::vector<uint16_t> w(8, 0);
+  w[0] = 2;
+  w[1] = static_cast<uint16_t>(kOpRxOpen << 8 | 1);
+  w[2] = kRxCan << 8;
+  w[3] = 32;
+  EXPECT(write(c, kMbReqReg, w));
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kMbRspReg, 4);
+    return r.size() == 4 && r[0] == 2 && (r[1] >> 8) == kMbDone;
+  }, 3000));
+  EXPECT(r.size() == 4 && r[2] == 1);
+  // Acknowledges every batch; whether receiver 1 had records.
+  bool second_delivers = false;
+  auto ack_batches = [&](int ms) {
+    for (int i = 0; i < ms / 20; ++i) {
+      auto head = regs(c, kReadInputRegisters, kRxReg, 3);
+      if (head.size() == 3) {
+        if (head[2] & 0x2) second_delivers = true;
+        write(c, kAckReg, {head[0], 0, 0});
+      }
+      usleep(20000);
+    }
+  };
+  auto gens = [&] { return reg(c, kRxReg + 5); };  // receiver 0 high byte, receiver 1 low byte
+  ack_batches(500);
+  EXPECT((gens() >> 8) != 0 && (gens() & 0xFF) != 0);
+  write_file(down, "sim0\n");
+  EXPECT(wait_for([&] {
+    ack_batches(100);
+    return logged("CAN interface sim0 went down");
+  }, 5000));
+  ack_batches(500);
+  ::unlink(down.c_str());
+  EXPECT((gens() >> 8) == 0);
+  EXPECT((gens() & 0xFF) != 0);
+  second_delivers = false;
+  ack_batches(500);
+  EXPECT(second_delivers);
+  EXPECT(logged("of network 0 ended (its CANopen session restarted)"));
+  unsetenv("CANWORKS_TEST_IFACE_DOWN");
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

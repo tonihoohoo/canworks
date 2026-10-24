@@ -107,6 +107,11 @@ void Network::ServiceProgram(clock::time_point now) {
     // End what cannot run; leave the first runnable request at the front.
     while (!q.empty()) {
       ProgJob& p = q.front();
+      // Cancelled while it waited (the bridge's mailboxes): never sent.
+      if (!api.wanted(p.job.handle)) {
+        q.pop_front();
+        continue;
+      }
       if (!p.resolved) {
         if (uint16_t err = ResolveWrite(id, p)) {
           EndProgram(id, p.job.handle, err, 0, nullptr, 0);
@@ -162,7 +167,11 @@ void Network::ServiceProgram(clock::time_point now) {
 
 void Network::StartProgram(unsigned id, NodeState* n, clock::time_point now) {
   auto qit = prog_.find(id);
-  if (qit == prog_.end() || qit->second.empty()) return;
+  if (qit == prog_.end()) return;
+  // A request cancelled since the last service round is dropped, not sent.
+  while (!qit->second.empty() && !PlcRequests::instance().wanted(qit->second.front().job.handle))
+    qit->second.pop_front();
+  if (qit->second.empty()) return;
   PlcRequests::Job job = std::move(qit->second.front().job);
   qit->second.pop_front();
   const canopen_plc_request& r = job.req;

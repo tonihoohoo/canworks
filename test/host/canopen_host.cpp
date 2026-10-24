@@ -230,6 +230,13 @@ int main(int argc, char** argv) {
   int16_t rtd_first = 0;
   signal(SIGINT, on_signal);
   signal(SIGTERM, on_signal);
+  // As canworks-bridge: one no-op SIGUSR1 handler before any network starts,
+  // so a Lely poll that ends never puts the default action back while the
+  // other networks still wake each other with it.
+  struct sigaction wake;
+  std::memset(&wake, 0, sizeof(wake));
+  wake.sa_handler = [](int) {};
+  sigaction(SIGUSR1, &wake, nullptr);
 
   canopen_plugin::canopen_init_logging();
   ProgramBlocks blocks;

@@ -147,10 +147,11 @@ uint16_t Mailboxes::tick(Clock::time_point now) const {
   return static_cast<uint16_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - started_).count());
 }
 
-void Mailboxes::service(const uint8_t* out, uint8_t* in, Clock::time_point now) {
+void Mailboxes::service(const uint8_t* out, uint8_t* in, Clock::time_point now, uint32_t written) {
   tick_ = tick(now);
   if (out) {
-    for (unsigned m = 0; m < layout_.requests; ++m) serve_request(m, out + layout_.request(m), now);
+    for (unsigned m = 0; m < layout_.requests; ++m)
+      serve_request(m, out + layout_.request(m), now, (written >> m & 1u) != 0);
     if (layout_.receive) serve_receive(out, now);
     serve_jobs(out, now);
   } else {
@@ -166,7 +167,7 @@ void Mailboxes::service(const uint8_t* out, uint8_t* in, Clock::time_point now) 
 
 // ---- request mailboxes ----
 
-void Mailboxes::serve_request(unsigned m, const uint8_t* req, Clock::time_point now) {
+void Mailboxes::serve_request(unsigned m, const uint8_t* req, Clock::time_point now, bool written) {
   Request& r = *requests_[m];
   if (r.busy) {
     MbAnswer a;
@@ -181,8 +182,10 @@ void Mailboxes::serve_request(unsigned m, const uint8_t* req, Clock::time_point 
   // The first request words after a start may be an earlier run's: their
   // counter becomes the baseline and they are not run, so a bridge restart
   // never repeats a send or an SDO write. A request really meant now ends
-  // with ERROR_ID 8 (cancelled).
+  // with ERROR_ID 8 (cancelled). The baseline is the client's own words,
+  // never the zeroed image before its first write of them.
   if (!r.known) {
+    if (!written) return;
     r.known = true;
     r.counter = counter;
     if (req[2] != kOpNone) {

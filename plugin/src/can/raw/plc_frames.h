@@ -112,6 +112,7 @@ class PlcPort {
   void rx_close(uint32_t handle);
   uint32_t tx_send(const canworks_can_frame* frame, uint32_t timeout_ms, uint16_t* error_id);
   int tx_poll(uint32_t handle, uint16_t* error_id);
+  void tx_cancel(uint32_t handle);
   uint32_t cyc_start(const canworks_can_frame* frame, uint32_t period_us, uint16_t* error_id);
   int cyc_update(uint32_t handle, const canworks_can_frame* frame, uint32_t period_us, uint32_t* count,
                  uint16_t* error_id);

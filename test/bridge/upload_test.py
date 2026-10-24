@@ -4,9 +4,12 @@ pass its checks, and goes back to the previous files when the new config
 does not start. The files are replaced atomically: one that cannot be
 written puts the others back. The status says how the previous run ended
 (modbus-bridge "Unclean stop reported"), and a full config folder is named
-as such ("Full or read-only config folder").
+as such ("Full or read-only config folder"). With several CANopen networks
+(PLANT_DIR, the virtual plant) a stop is clean, every network sends its stop
+NMT, an upload is applied, and a network whose interface drops does not end
+the process (modbus-bridge "Clean stop with several networks").
 
-usage: upload_test.py CANWORKS_BRIDGE EXAMPLE_DIR
+usage: upload_test.py CANWORKS_BRIDGE EXAMPLE_DIR [PLANT_DIR]
 Needs the deploy tool's package on PYTHONPATH (stdlib only here).
 """
 
@@ -14,6 +17,7 @@ import json
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -46,11 +50,11 @@ def files_of(folder, cfg):
     return out
 
 
-def connect(port, token, wait=15.0):
+def connect(port, token, wait=15.0, network=None):
     end = time.monotonic() + wait
     while True:
         try:
-            c = diag.Client("127.0.0.1", port, token, timeout=5.0)
+            c = diag.Client("127.0.0.1", port, token, timeout=5.0, network=network)
             c.connect()
             return c
         except diag.DiagError:
@@ -59,12 +63,12 @@ def connect(port, token, wait=15.0):
             time.sleep(0.3)
 
 
-def wait_upload(port, token, number, wait=30.0):
+def wait_upload(port, token, number, wait=30.0, network=None):
     end = time.monotonic() + wait
     while time.monotonic() < end:
         time.sleep(0.5)
         try:
-            c = connect(port, token, 2.0)
+            c = connect(port, token, 2.0, network)
             up = (c.status().get("bridge") or {}).get("last_upload") or {}
             c.close()
         except diag.DiagError:
@@ -74,8 +78,8 @@ def wait_upload(port, token, number, wait=30.0):
     return {}
 
 
-def status(port, token):
-    c = connect(port, token)
+def status(port, token, network=None):
+    c = connect(port, token, network=network)
     st = c.status().get("bridge") or {}
     c.close()
     return st
@@ -86,6 +90,130 @@ def start(bridge, work, extra_env=None):
     env = dict(os.environ, **(extra_env or {}))
     return subprocess.Popen([bridge, "--config", os.path.join(work, "canworks.json")], stdout=log,
                             stderr=subprocess.STDOUT, env=env)
+
+
+def modbus(port, pdu):
+    """One Modbus TCP request (unit 1); the answer's PDU."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        s.sendall(struct.pack(">HHHB", 1, 0, len(pdu) + 1, 1) + pdu)
+        head = b""
+        while len(head) < 7:
+            head += s.recv(7 - len(head))
+        n = struct.unpack(">H", head[4:6])[0] - 1
+        body = b""
+        while len(body) < n:
+            body += s.recv(n - len(body))
+        return body
+
+
+def write_regs(port, addr, words):
+    return modbus(port, struct.pack(">BHHB", 16, addr, len(words), 2 * len(words)) +
+                  b"".join(struct.pack(">H", w) for w in words))[:1] == b"\x10"
+
+
+def read_regs(port, function, addr, n):
+    r = modbus(port, struct.pack(">BHH", function, addr, n))
+    return list(struct.unpack(">%dH" % n, r[2:])) if r[:1] == bytes([function]) else []
+
+
+def multi_network_checks(bridge, plant):
+    """The virtual plant (CANopen networks io, motion and host, and a slave):
+    SIGTERM exits 0 after every master network's stop NMT; an upload is
+    applied; the first network's interface going down (the tests' stand-in
+    for a simulated interface, CANWORKS_TEST_IFACE_DOWN) leaves the bridge
+    running and a write to the second network applied."""
+    work = tempfile.mkdtemp(prefix="canworks-plant-")
+    proc = None
+    try:
+        for name in os.listdir(plant):
+            if not name.startswith("."):
+                shutil.copy(os.path.join(plant, name), work)
+        token = diag.new_token()
+        dport, mport = free_port(), free_port()
+        cfg_path = os.path.join(work, "canworks.json")
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        cfg["diagnostics"] = {"token_verifier": diag.token_verifier(token), "port": dport, "bind": "127.0.0.1",
+                              "allow_changes": True, "allow_config_upload": True}
+        cfg["bridge"]["listen"] = "127.0.0.1:%d" % mport
+        cfg["bridge"]["watchdog_ms"] = 0
+        with open(cfg_path, "w") as f:
+            json.dump(cfg, f, indent=2)
+        down = os.path.join(work, "iface-down")
+        env = {"CANWORKS_FORCE_SIMULATE": "1", "CANWORKS_TEST_IFACE_DOWN": down}
+        log_path = os.path.join(work, "bridge.log")
+        masters = [n["name"] for n in cfg["networks"] if n.get("role") != "slave" and n.get("nodes")]
+
+        def stop_lines():
+            text = open(log_path).read()
+            return [m for m in masters if "%s: PLC stop: NMT" % m in text]
+
+        net = cfg["networks"][0]["name"]
+        proc = start(bridge, work, env)
+        status(dport, token, net)
+        time.sleep(3)  # every network's session runs
+        proc.terminate()
+        rc = proc.wait(20)
+        proc = None
+        check(rc == 0, "a bridge with %d CANopen networks stops with exit 0 (exit status %s)" % (len(masters), rc))
+        check(stop_lines() == masters, "every network sends its stop NMT (%s of %s)" % (stop_lines(), masters))
+        check(not os.path.exists(os.path.join(work, ".canworks", "running")), "the run marker is removed")
+
+        # An upload: applied on the restart, nothing staged left behind.
+        proc = start(bridge, work, env)
+        check(status(dport, token, net).get("last_stop") == "clean", "the next start says clean")
+        time.sleep(2)
+        new = json.loads(json.dumps(cfg))
+        new["bridge"]["unit_id"] = 1
+        new["bridge"]["max_clients"] = 9
+        files = {}
+        for name in os.listdir(work):
+            path = os.path.join(work, name)
+            if os.path.isfile(path) and name not in ("bridge.log", "iface-down"):
+                with open(path, "rb") as f:
+                    files[name] = f.read()
+        files["canworks.json"] = json.dumps(new, indent=2).encode()
+        c = connect(dport, token, network=net)
+        res = c.put_config(files)
+        c.close()
+        up = wait_upload(dport, token, res.get("upload"), network=net)
+        check(up.get("result") == "started", "the upload with several networks is applied (%s)" % up)
+        check(proc.poll() is None, "the bridge runs after the upload (exit status %s)" % proc.poll())
+        with open(cfg_path) as f:
+            check(json.load(f)["bridge"].get("max_clients") == 9, "the uploaded config file is in place")
+        check(not os.path.exists(os.path.join(work, ".canworks-upload")), "no staged upload is left")
+
+        # The first network's interface goes down; a write to the second.
+        if proc.poll() is not None:
+            return
+        first = cfg["networks"][0]
+        with open(down, "w") as f:
+            f.write(first["adapter"]["interface"] + "\n")
+        end = time.monotonic() + 10
+        while "went down" not in open(log_path).read() and time.monotonic() < end:
+            time.sleep(0.1)
+        check("CAN interface %s went down" % first["adapter"]["interface"] in open(log_path).read(),
+              "network %s reports its interface lost" % first["name"])
+        hash_words = read_regs(mport, 4, 0, 2)
+        ok = len(hash_words) == 2
+        for i in range(20):  # 2 s of writes while the first network's session restarts
+            ok = write_regs(mport, 0, [1] + hash_words) and write_regs(mport, 7, [1234 + i]) and ok
+            time.sleep(0.1)
+        check(proc.poll() is None, "the bridge keeps running after an interface drops (exit status %s)" % proc.poll())
+        check(ok and read_regs(mport, 3, 7, 1) == [1253], "the write to the second network is applied")
+        os.unlink(down)
+        proc.terminate()
+        rc = proc.wait(20)
+        proc = None
+        check(rc == 0, "and stops with exit 0 (exit status %s)" % rc)
+    finally:
+        if proc:
+            proc.kill()
+            proc.wait(10)
+        if FAILURES:
+            with open(os.path.join(work, "bridge.log")) as f:
+                print(f.read()[-6000:])
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def disk_checks(bridge, example):
@@ -255,6 +383,8 @@ def main():
                 print(f.read()[-6000:])
         shutil.rmtree(work, ignore_errors=True)
     disk_checks(bridge, example)
+    if len(sys.argv) > 3:
+        multi_network_checks(bridge, sys.argv[3])
     print("%d failure(s)" % len(FAILURES))
     return 1 if FAILURES else 0
 

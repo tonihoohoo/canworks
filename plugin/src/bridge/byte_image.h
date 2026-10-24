@@ -36,6 +36,11 @@ class ByteImage {
   void write_outputs(size_t offset, const uint8_t* data, size_t n);
   // Whether a client has written all of bytes offset..offset+n-1 since start.
   bool client_wrote(size_t offset, size_t n) const;
+  // Input bytes whose reads are counted (the mailboxes' network info and
+  // cyclic job table, read without a request): reads since start of any of
+  // them.
+  void watch_reads(size_t offset, size_t n);
+  uint64_t watched_reads() const { return watched_reads_.load(std::memory_order_relaxed); }
 
   // The PLC link header (plc_link configs): output bytes 0..header_bytes-1
   // hold running (word 0) and the map hash (words 1 and 2). Output bytes
@@ -60,6 +65,11 @@ class ByteImage {
     }
     // Records that a client wrote these output bytes (client_wrote).
     void mark_written(size_t offset, size_t n);
+    // Records that a client read these input bytes (watched_reads).
+    void note_read(size_t offset, size_t n) {
+      if (img_.watch_n_ && offset < img_.watch_at_ + img_.watch_n_ && img_.watch_at_ < offset + n)
+        img_.watched_reads_.fetch_add(1, std::memory_order_relaxed);
+    }
     size_t link_bytes() const { return img_.link_bytes_; }
     Link link_state() const { return img_.link_state(); }
 
@@ -79,6 +89,8 @@ class ByteImage {
   std::vector<uint8_t> out_;
   std::vector<bool> out_written_;  // per output byte: written by a client since start
   std::atomic<uint64_t> out_version_{0};
+  size_t watch_at_ = 0, watch_n_ = 0;  // under mu_
+  std::atomic<uint64_t> watched_reads_{0};
 };
 
 // Big-endian helpers for the image and the bridge blocks.

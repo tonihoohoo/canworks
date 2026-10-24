@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "byte_image.h"
@@ -34,6 +35,17 @@ enum ModbusFunction : uint8_t {
   kWriteMultipleCoils = 15,
   kWriteMultipleRegisters = 16,
   kReadWriteMultipleRegisters = 23,
+  kEncapsulatedInterface = 43,  // MEI type 14: Read Device Identification
+};
+
+constexpr uint8_t kMeiReadDeviceId = 14;
+constexpr uint8_t kDeviceIdMapHash = 0x80;  // the private object: the map hash
+
+// What function 43 / MEI 14 answers: objects 0 (vendor), 1 (product) and 2
+// (version), and the private object 0x80, the map hash as 8 upper-case hex
+// digits. Empty: the function is not offered.
+struct DeviceIdentity {
+  std::string vendor, product, version, map_hash;
 };
 
 // Handles one request PDU (function code and data) under one image Access and
@@ -41,7 +53,8 @@ enum ModbusFunction : uint8_t {
 // gets exception 0x01 and changes nothing. Returns true for an accepted write
 // request (functions 5, 6, 15, 16, 23), which feeds the output watchdog even
 // when the values did not change.
-bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, std::vector<uint8_t>& resp);
+bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, std::vector<uint8_t>& resp,
+                const DeviceIdentity* identity = nullptr);
 
 // The exception response for `function`.
 void exception_pdu(uint8_t function, uint8_t code, std::vector<uint8_t>& resp);
