@@ -538,7 +538,7 @@ When a connection closes, the bridge SHALL keep its address, its counters, how l
 ### Requirement: Modbus trace recorder
 While at least one diagnostics client traces Modbus, the bridge SHALL record each answered request as one record: the UTC time of the answer in microseconds, the client, the MBAP transaction and unit identifiers, the function, the table, start and count, the values read or written (up to 250 bytes), and the result (ok or the exception code, and whether it was a refused write). It SHALL record nothing while no client traces. Recording SHALL happen after the answer is queued, so it never delays an answer. The bridge SHALL keep at least 4 MiB of records for clients to fetch.
 
-With "changes only" (the default), a request whose client, function, start and count (for functions 5 and 6: the address) equal an earlier one's, and whose values and result equal that earlier one's, SHALL be counted and not recorded. The comparison SHALL leave out the words the mailboxes change on their own: the cyclic jobs' keepalive holding registers, and the clock words of the receive mailbox and the cyclic job table; a kept record SHALL still carry them. The next record of that kind from that client SHALL carry the number of requests skipped since its predecessor. Exceptions, refused writes and functions 8 and 43 SHALL always be recorded.
+With "changes only" (the default), a request whose client, function, start and count (for functions 5 and 6: the address) equal an earlier one's, and whose values and result equal that earlier one's, SHALL be counted and not recorded. The comparison SHALL leave out the words the bridge and its mailboxes change on their own: the cyclic jobs' keepalive holding registers, the status block's heartbeat, the network info blocks' update counters, and the clock words of the receive mailbox and the cyclic job table; a kept record SHALL still carry them. The next record of that kind from that client SHALL carry the number of requests skipped since its predecessor. Exceptions, refused writes and functions 8 and 43 SHALL always be recorded.
 
 #### Scenario: OpenPLC polling with nothing changing
 - **WHEN** a client reads input registers 0-49 every 10 ms for 10 s, the values never change, and a trace with changes only runs
@@ -559,6 +559,10 @@ With "changes only" (the default), a request whose client, function, start and c
 #### Scenario: Single-register write back to an earlier value
 - **WHEN** a client writes 7, then 8, then 7 to holding register 3 with function 6 during a trace with changes only
 - **THEN** all three writes are recorded
+
+#### Scenario: Heartbeat and update counter alone do not make a record
+- **WHEN** OpenPLC reads the status block every 10 ms and the network info block and cyclic job table every 10 ms, nothing on the bus changes but the heartbeat and update counter count up, and a trace with changes only runs
+- **THEN** only the first read of each is kept and the following ones are counted
 
 #### Scenario: Mailbox clock alone does not make a record
 - **WHEN** a client reads the receive mailbox every 50 ms, no CAN frame is received, and a trace with changes only runs

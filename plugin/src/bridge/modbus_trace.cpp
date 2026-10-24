@@ -34,22 +34,22 @@ void put64(std::string& s, size_t at, uint64_t v) {
 
 uint16_t be16(const uint8_t* p) { return static_cast<uint16_t>(p[0] << 8 | p[1]); }
 
-// Zeroes the registers of `ignored` in the `n` bytes of register data at `p`
-// that start at register `start`.
-void blank(uint8_t* p, size_t n, unsigned start, const std::vector<uint16_t>& ignored) {
+// Zeroes the image bytes of `ignored` in the `n` bytes of register data at
+// `p` that start at register `start` (register r holds bytes 2r and 2r + 1).
+void blank(uint8_t* p, size_t n, unsigned start, const std::vector<uint32_t>& ignored) {
   if (ignored.empty()) return;
-  for (size_t k = 0; k + 1 < n; k += 2)
-    if (std::binary_search(ignored.begin(), ignored.end(), static_cast<uint16_t>(start + k / 2))) p[k] = p[k + 1] = 0;
+  for (size_t k = 0; k < n; ++k)
+    if (std::binary_search(ignored.begin(), ignored.end(), static_cast<uint32_t>(2 * start + k))) p[k] = 0;
 }
 
 }  // namespace
 
-void ModbusTrace::set_ignored(std::vector<uint16_t> holding, std::vector<uint16_t> input) {
-  std::sort(holding.begin(), holding.end());
-  std::sort(input.begin(), input.end());
+void ModbusTrace::set_ignored(std::vector<uint32_t> out_bytes, std::vector<uint32_t> in_bytes) {
+  std::sort(out_bytes.begin(), out_bytes.end());
+  std::sort(in_bytes.begin(), in_bytes.end());
   std::lock_guard<std::mutex> lock(mu_);
-  ignored_holding_ = std::move(holding);
-  ignored_input_ = std::move(input);
+  ignored_out_ = std::move(out_bytes);
+  ignored_in_ = std::move(in_bytes);
 }
 
 constexpr size_t ModbusTrace::kDefaultBytes;
@@ -83,16 +83,16 @@ void ModbusTrace::record(uint32_t conn, const sockaddr* peer, const std::string&
     if (req_n >= 5 && resp_n >= 2) {
       const unsigned start = be16(req + 1);
       if (fn == 3 || fn == 4)
-        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, fn == 3 ? ignored_holding_ : ignored_input_);
+        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, fn == 3 ? ignored_out_ : ignored_in_);
       else if (fn == 6) {  // the answer echoes the request
-        blank(q + 3, std::min<size_t>(req_n - 3, 2), start, ignored_holding_);
-        blank(a + 3, std::min<size_t>(resp_n - 3, 2), start, ignored_holding_);
+        blank(q + 3, std::min<size_t>(req_n - 3, 2), start, ignored_out_);
+        blank(a + 3, std::min<size_t>(resp_n - 3, 2), start, ignored_out_);
       }
       else if (fn == 16 && req_n > 6)
-        blank(q + 6, req_n - 6, start, ignored_holding_);
+        blank(q + 6, req_n - 6, start, ignored_out_);
       else if (fn == 23 && req_n > 10) {
-        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, ignored_holding_);
-        blank(q + 10, req_n - 10, be16(req + 5), ignored_holding_);
+        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, ignored_out_);
+        blank(q + 10, req_n - 10, be16(req + 5), ignored_out_);
       }
     }
     uint64_t h = fnv(q + head, req_n - head, fnv(a, resp_n, fnv(&unit, 1)));
