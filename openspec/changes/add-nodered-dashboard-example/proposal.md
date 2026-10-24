@@ -15,14 +15,14 @@ The CODESYS and truST example changes, explored at the same time, use the same s
 ## What Changes
 
 - **A new example `examples/node-red-dashboard/`.** It uses the plant of `examples/modbus-bridge`: a temperature module (node 5) whose first two channels follow a sine and a ramp, and a 16-bit digital I/O module (node 6) whose outputs loop back to its inputs. The loopback is the simulator's CiA 401 default behaviour. `rtd8.eds`, `dio16.eds` and `simulation.json` are byte-identical copies.
-- **Its `canworks.json`** has the same networks, with `name`s on the PDO entries that match the shared tag set (`rtd_temp1`, `rtd_temp2`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1`). Its bridge listens on `127.0.0.1:1502` with `127.0.0.1` as the only writer and has the mailboxes for the **sdo** and **emcy** nodes.
+- **Its `canworks.json`** has the same networks, with the PDO entry `name`s of the CODESYS example (`temp1`, `temp2`, `in0`, `in1`, `out0`, `out1`), so the values are `rtd.temp1` ... `dio.out1` in Node-RED and the shared tags `rtd_temp1` ... `dio_out1` in the PLC examples. Its bridge listens on `127.0.0.1:1502` with `127.0.0.1` as the only writer and has the mailboxes for the **sdo** and **emcy** nodes.
 - **`dashboard.json`**: the dashboard tab only (a Node-RED Dashboard 2.0 UI). It uses the bridge config node of the flow that canworks exports for the config, so the layout and map hash never sit in a committed file. Its pages:
   - **Plant**: the shared HMI. It has the two temperatures (°C) with one trend, status dots for both nodes, a limit input, an alarm lamp and an Ack button, and the bridge state.
   - **I/O**: 16 output switches (`dio_out0`, `dio_out1`) and 16 input lamps (`dio_in0`, `dio_in1`).
   - **Service**: NMT start, stop and reset buttons, a device name read over SDO, and an EMCY table.
-- **The shared plant logic, in one function node.** It mirrors `PLANT_LOGIC` of the CODESYS and truST examples. The alarm comes on when temperature 1 goes over the limit (default 25.0 °C) and stays on until Ack while the temperature is back below the limit. It sets bit 0 of `dio_out0`. A running light walks along `dio_out1` every 500 ms and is checked on `dio_in1` (`LIGHT_OK`).
+- **The shared plant logic, in one function node.** It mirrors `PLANT_LOGIC` of the CODESYS and truST examples. The alarm comes on when temperature 1 goes over the limit (default 25.0 °C) and stays on until Ack while the temperature is back below the limit. It sets bit 0 of `dio_out0`. While **Running light** is on (`RUN`), a light walks along `dio_out1` every 500 ms and is checked on `dio_in1` (`LIGHT_OK`); while it is off, `dio_out1` can be switched by hand.
 - **Docker Compose as the main way to run it.** `docker compose up` in the folder starts three services:
-  - a one-shot `setup` from the bridge image, which exports the Node-RED package and the canworks flow at the bridge's own version, so the versions always match and nothing is exported by hand;
+  - a one-shot `setup` from the bridge image, which copies the plant's files into a volume for the bridge (it writes generated files next to its config) and exports the Node-RED package and the canworks flow at the bridge's own version, so the versions always match and nothing is exported by hand;
   - `bridge`, which runs the simulated plant;
   - `node-red` (`nodered/node-red:4.1`), which shares the bridge's network, so it reaches `127.0.0.1:1502` on every OS.
 

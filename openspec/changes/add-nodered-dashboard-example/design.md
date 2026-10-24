@@ -22,38 +22,40 @@ Alternative: commit the whole flow and regenerate it with a test (rejected: stal
 
 ### Compose: setup, bridge, node-red
 ```
-setup     bridge image, entrypoint overridden: canworks-deploy --export-nodered-package /share
-          and --config /example/canworks.json --export-nodered /share/plant_node-red.json; exits
-bridge    bridge image, --config /example/canworks.json; ports 1880:1880 (Node-RED's, see below)
+setup     bridge image, entrypoint overridden: copies canworks.json, simulation.json and the EDS files to
+          the plant volume, canworks-deploy --export-nodered-package /share and --config
+          /example/canworks.json --export-nodered /share/plant_node-red.json; exits
+bridge    bridge image, default command on the plant volume at /etc/canworks-bridge (the bridge
+          writes .canworks/ next to its config, so not the read-only example folder);
+          ports 1880:1880 (Node-RED's, see below)
 node-red  nodered/node-red:4.1, network_mode "service:bridge", depends_on setup (completed) and bridge,
           entrypoint start.sh
 ```
 - `network_mode: service:bridge` puts Node-RED in the bridge's network namespace. Node-RED reaches the bridge at `127.0.0.1:1502` on Linux and on Docker Desktop alike. The bridge's `writers` stay `["127.0.0.1"]`, and Modbus is not exposed outside the pair. The published port 1880 sits on `bridge` because the namespace belongs to it.
 - No `--network host` and no `NET_ADMIN`: the plant is simulated in-process.
 - `CANWORKS_VERSION` (default `latest`) tags both bridge services, so `setup` exports the package and flow at the same version as the running bridge.
-- `start.sh` (in the folder, mounted) runs on every start. When the `/data` volume does not have the package version from `/share` yet, it runs `npm install` on the `.tgz` and the pinned dashboard there. When `/data/flows.json` is missing, it joins `/share/plant_node-red.json` and `/example/dashboard.json` with a one-line `node -e`. Then it starts Node-RED. After that the user's own changes to the flow persist. The README says to remove the volume (`docker compose down -v`) to start over after changing the config.
+- `start.sh` (in the folder, mounted) runs on every start. When the `/data` volume does not have the package version from `/share` yet, it runs `npm install` on the `.tgz` and the pinned dashboard there. When `/data/.canworks-flow` is missing, it joins `/share/plant_node-red.json` and `/example/dashboard.json` with a short `node -e` into `flows.json` (replacing the sample flow the image puts in a new `/data` volume) and writes the marker. Then it starts Node-RED with the image's own entrypoint. After that the user's own changes to the flow persist. The README says to remove the volume (`docker compose down -v`) to start over after changing the config.
 
 ### Names on the PDO entries
-The config names the PDO entries with the shared tags, so `msg.topic` is the tag name: `rtd_temp1`, `rtd_temp2` (0x7130:1/2), `dio_in0`, `dio_in1` (0x6000:1/2) and `dio_out0`, `dio_out1` (0x6200:1/2). The node status bits stay `rtd.status` and `dio.status`; the dashboard labels them `rtd_ok` and `dio_ok`. Channels 3 and 4 and the analogue values keep their default names. The networks are otherwise identical to `examples/modbus-bridge`.
+The config names the PDO entries as the CODESYS example does: `temp1`, `temp2` (0x7130:1/2), `in0`, `in1` (0x6000:1/2) and `out0`, `out1` (0x6200:1/2). A named entry's register map name is `<node>.<name>`, so `msg.topic` is `rtd.temp1` ... `dio.out1`, and the PLC examples' tags are `rtd_temp1` ... `dio_out1`; the dashboard shows the tag names. The node status bits stay `rtd.status` and `dio.status`; the dashboard labels them `rtd_ok` and `dio_ok`. Channels 3 and 4 and the analogue values keep their default names. The networks are otherwise identical to `examples/modbus-bridge`.
 
 ### Plant logic in one function node
-A function node keeps `limit` (default 25.0), `alarm`, the light step and `LIGHT_OK` in node context. It reads messages with topic `rtd_temp1` (0.1 °C, so it divides by 10), `dio_in1`, `limit` and `ack`, and it ticks on a 500 ms inject. It writes `dio_out0` and `dio_out1` through **canworks out** and sends `alarm` and `light_ok` to the widgets. It does the same as `PLANT_LOGIC`:
+A function node keeps `limit` (default 25.0), `alarm`, `run`, the light step and `LIGHT_OK` in node context. It reads `rtd.temp1` (0.1 °C, so it divides by 10), `rtd.temp2`, `dio.in0`, `dio.in1`, the status values, `limit`, `ack`, `run` and the I/O page's switch clicks, and it ticks on a 500 ms inject. It writes `dio.out0` and `dio.out1` through **canworks out**, sends one state message to the page templates (so a reloaded page shows everything at once), trend points and a notification when the alarm comes on. It does the same as `PLANT_LOGIC`:
 - the alarm comes on when `temp1 > limit`, and Ack clears it only when `temp1 <= limit`;
 - `dio_out0` bit 0 follows the alarm, and the other bits come from the I/O page switches;
-- `dio_out1` is a single bit that moves one place per step;
-- `LIGHT_OK` is true when `dio_in1` equals the `dio_out1` that was written.
+- while `run` is on, `dio_out1` is a single bit that moves one place per step and `LIGHT_OK` is set at each step to whether `dio_in1` equals the `dio_out1` that was written; while it is off, `LIGHT_OK` is false and `dio_out1` comes from the switches.
 
 Behaviour is defined by the CODESYS and truST examples' `PLANT_LOGIC`. When those change, this node follows.
 
 ### Widgets
-- **Plant**: two `ui-text` values and one `ui-chart` (series from the topic) for the temperatures in °C, `ui-text` status dots for `rtd.status` and `dio.status`, `ui-number-input` for the limit, a `ui-text` alarm lamp, `ui-button` Ack, `ui-text` for `bridge.state` and `ui-notification` when the alarm comes on. Gauges get explicit `segments`, because a gauge without them logs an error at start (seen in the explore).
-- **I/O**: 16 `ui-switch` widgets packed into `dio_out0` and `dio_out1` (bit 0 of `dio_out0` is owned by the alarm and shown, not switched), and 16 lamps unpacked from `dio_in0` and `dio_in1`.
+- **Plant**: one `ui-template` for the two temperatures, the alarm line and the status dots (`rtd.status`, `dio.status`, `LIGHT_OK`, `bridge.state`), one `ui-chart` (series from the topic) for the trend, `ui-number-input` for the limit, `ui-button` Ack, `ui-switch` Running light and `ui-notification` when the alarm comes on.
+- **I/O**: one `ui-template` with a row of 8 bit buttons per byte: outputs as switches (bit 0 of `dio_out0` is owned by the alarm and shown, not switched; `dio_out1` only while the light is off) and inputs as lamps. Sixteen `ui-switch` nodes plus packing would be four times the nodes for the same thing.
 - **Service**: `ui-button` for NMT start, stop and reset of node 5 or 6 through **nmt**, a "Read device name" button through **sdo** (0x1008, string) into `ui-text`, and a `ui-table` of the last 20 EMCY messages from **emcy**.
 
 ### CI check
 `tools/deploy/tests/test_nodered_example.py` runs in the tools shard. It:
 - compares the plant files byte for byte with `examples/modbus-bridge`;
-- checks the config with the bridge's checker, where the shard already has it, or else the deploy tool's config check;
+- runs the deploy tool's `--check` on the config and compares its networks with the plant's (entry names aside);
 - exports the flow with `nodered.flow(cfg, "plant")`;
 - asserts that every canworks node in `dashboard.json` uses the export's bridge id, every topic it filters or sends exists among the export's names and status topics, and every **canworks out** topic is an output;
 - asserts that `docker-compose.yml` names `canworks.json`, `dashboard.json` and `start.sh`, and `start.sh` names the pinned dashboard version.
