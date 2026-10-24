@@ -365,9 +365,9 @@ class BridgePage(OnlineBase):
         pg.wait_for_selector('[data-connection="Line"]')
         self.assertFalse(pg.is_checked('input[data-path="bridge.connections[1].writes"]'))
         pg.check('input[data-path="bridge.connections[1].writes"]')
-        self.checked()
-        self.assertIn("Line writes, but with the PLC link only the PLC writes outputs and mailboxes (OpenPLC does)",
-                      pg.inner_text("#problem-list"))
+        # The check runs after the tick: wait for its warning, not for an idle check that may predate it.
+        pg.wait_for_function("t => document.querySelector('#problem-list').innerText.includes(t)",
+                             arg="Line writes, but with the PLC link only the PLC writes outputs and mailboxes (OpenPLC does)")
         # HMI: 127.0.0.1 prefilled; an empty address is refused under the field.
         tree_view(pg, "bridge")
         pg.click("[data-conn-add]")
