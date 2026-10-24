@@ -31,10 +31,51 @@ constexpr int kKeepIdleS = 5;
 constexpr int kKeepIntervalS = 2;
 constexpr int kKeepProbes = 3;
 
+uint64_t utc_us() {
+  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count());
+}
+
+// "60 s", or "200 ms" for a time that is not whole seconds (the tests').
+std::string span_text(int ms) {
+  return ms % 1000 ? std::to_string(ms) + " ms" : std::to_string(ms / 1000) + " s";
+}
+
+uint16_t peer_port(const sockaddr* pa) {
+  if (pa->sa_family == AF_INET6) return ntohs(reinterpret_cast<const sockaddr_in6*>(pa)->sin6_port);
+  if (pa->sa_family == AF_INET) return ntohs(reinterpret_cast<const sockaddr_in*>(pa)->sin_port);
+  return 0;
+}
+
+bool is_write(uint8_t fn) {
+  return fn == kWriteSingleCoil || fn == kWriteSingleRegister || fn == kWriteMultipleCoils ||
+         fn == kWriteMultipleRegisters || fn == kReadWriteMultipleRegisters;
+}
+
+size_t function_slot(uint8_t fn) {
+  for (size_t i = 0; i < sizeof(kCountedFunctions); ++i)
+    if (kCountedFunctions[i] == fn) return i;
+  return kFunctionSlots - 1;
+}
+
+size_t exception_slot(uint8_t code) {
+  for (size_t i = 0; i < sizeof(kCountedExceptions); ++i)
+    if (kCountedExceptions[i] == code) return i;
+  return kExceptionSlots - 1;
+}
+
 struct Client {
-  int fd;
-  bool may_write;
+  int fd = -1;
+  bool may_write = false;
   std::string peer;
+  uint16_t port = 0;
+  sockaddr_storage addr{};
+  ClientInfo info;  // the counters (modbus-bridge "Client counters")
+  // Requests per second of the last 5 s, by steady second.
+  uint32_t per_second[5] = {};
+  int64_t second = 0;
+  std::string why;  // set: closed this round, for this reason
   Clock::time_point last;        // the last complete request (or the accept)
   Clock::time_point partial{};   // since when rx holds an incomplete request
   Clock::time_point over{};      // since when tx is over max_queued
@@ -67,6 +108,9 @@ void close_fd(int& fd) {
 }
 
 }  // namespace
+
+constexpr size_t ModbusServer::kClosedKept;
+constexpr std::chrono::minutes ModbusServer::kClosedFor;
 
 bool ModbusServer::start(const ServerConfig& cfg, std::string& err) {
   stop();
@@ -118,6 +162,25 @@ void ModbusServer::run() {
   std::vector<Client> clients;
   std::vector<pollfd> fds;
   std::vector<uint8_t> resp;
+  uint32_t connections = 0;
+  Clock::time_point expired = Clock::now();
+  // A connection that ends goes to the closed list with its reason.
+  auto closed = [this](const ClientInfo& info, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(info_mu_);
+    closed_.push_back(ClosedClient{info, reason, utc_us(), Clock::now()});
+    if (closed_.size() > kClosedKept) closed_.erase(closed_.begin());
+  };
+  auto refused = [&](const std::string& who, const sockaddr* pa, const std::string& reason) {
+    ClientInfo info;
+    info.address = who;
+    info.port = peer_port(pa);
+    info.connected_us = utc_us();
+    closed(info, reason);
+  };
+  auto finish = [&](Client& c, const std::string& reason) {
+    if (trace) trace->forget(c.info.connection);
+    closed(c.info, reason);
+  };
   while (!stop_) {
     progress.beat();
     fds.clear();
@@ -134,21 +197,40 @@ void ModbusServer::run() {
     if (::poll(fds.data(), fds.size(), timeout) < 0 && errno != EINTR) break;
     if (stop_) break;
     Clock::time_point now = Clock::now();
+    const int64_t sec = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    if (trace && now - expired >= std::chrono::seconds(1)) {
+      expired = now;
+      size_t n = trace->expire(now);
+      if (n) say("modbus: " + std::to_string(n) + " Modbus trace" + (n == 1 ? "" : "s") + " ended: no fetch for 10 s");
+    }
 
     // Existing clients first, so a freed slot can be reused in this round.
     for (size_t i = 0; i < clients.size(); ++i) {
       Client& c = clients[i];
       short re = fds[i + 2].revents;
-      bool drop = false;
-      if (re & (POLLERR | POLLNVAL)) drop = true;
-      if (!drop && (re & (POLLIN | POLLHUP))) {
+      std::string& why = c.why;
+      if (re & (POLLERR | POLLNVAL)) {
+        int e = 0;
+        socklen_t el = sizeof(e);
+        ::getsockopt(c.fd, SOL_SOCKET, SO_ERROR, &e, &el);
+        why = e == ETIMEDOUT ? "keepalive" : e == ECONNRESET || e == 0 ? "closed by the client"
+                                                                       : std::string("connection error: ") + std::strerror(e);
+      }
+      if (why.empty() && (re & (POLLIN | POLLHUP))) {
         if (c.tx.size() >= cfg_.max_queued) {
-          drop = (re & POLLHUP) != 0;  // gone; its replies cannot be delivered
+          if (re & POLLHUP) why = "closed by the client";  // gone; its replies cannot be delivered
         } else if (may_read(c, cfg_.max_queued)) {
           uint8_t buf[1024];
           ssize_t got = ::recv(c.fd, buf, sizeof(buf), 0);
-          if (got <= 0) {
-            drop = !(got < 0 && (errno == EAGAIN || errno == EINTR));
+          if (got == 0) {
+            why = "closed by the client";
+          } else if (got < 0) {
+            if (errno == ETIMEDOUT)
+              why = "keepalive";
+            else if (errno == ECONNRESET)
+              why = "closed by the client";
+            else if (errno != EAGAIN && errno != EINTR)
+              why = std::string("connection error: ") + std::strerror(errno);
           } else {
             if (c.rx.size() == c.used) c.partial = now;
             c.rx.insert(c.rx.end(), buf, buf + got);
@@ -156,13 +238,13 @@ void ModbusServer::run() {
         }
       }
       // The complete frames in the buffer, in order, while the replies fit.
-      while (!drop && c.tx.size() < cfg_.max_queued && c.rx.size() - c.used >= kMbapSize) {
+      while (why.empty() && c.tx.size() < cfg_.max_queued && c.rx.size() - c.used >= kMbapSize) {
         const uint8_t* f = &c.rx[c.used];
         uint16_t proto = get_be16(f + 2);
         uint16_t len = get_be16(f + 4);
         if (proto != 0 || len < 2 || len > kMaxPdu + 1) {
           say("modbus: closing " + c.peer + ": not a Modbus TCP frame");
-          drop = true;
+          why = "not a Modbus TCP frame";
           break;
         }
         if (c.rx.size() - c.used < 6u + len) break;
@@ -171,15 +253,43 @@ void ModbusServer::run() {
         c.last = now;
         const uint8_t* pdu = f + kMbapSize;
         size_t n = len - 1u;
+        bool wrote = false;
         if (unit != cfg_.unit_id && unit != 0 && unit != 255) {
           exception_pdu(pdu[0], kGatewayTargetFailed, resp);
-        } else if (handle_pdu(image_, pdu, n, c.may_write, resp, identity.vendor.empty() ? nullptr : &identity) && on_write) {
-          on_write();
+        } else {
+          wrote = handle_pdu(image_, pdu, n, c.may_write, resp, identity.vendor.empty() ? nullptr : &identity);
+          if (wrote && on_write) on_write();
         }
         uint8_t head[kMbapSize] = {f[0], f[1], 0, 0, 0, 0, unit};
         put_be16(head + 4, static_cast<uint16_t>(resp.size() + 1));
         c.tx.insert(c.tx.end(), head, head + kMbapSize);
         c.tx.insert(c.tx.end(), resp.begin(), resp.end());
+        // The counters, then the trace: the answer is queued already.
+        const uint8_t fn = pdu[0];
+        const bool exc = resp.size() >= 2 && (resp[0] & 0x80);
+        const bool refused_write = exc && resp[1] == kIllegalFunction && is_write(fn) && !c.may_write;
+        ClientInfo& in = c.info;
+        ++in.requests;
+        ++in.functions[function_slot(fn)];
+        if (exc) ++in.exceptions[exception_slot(resp[1])];
+        if (refused_write) ++in.refused_writes;
+        uint64_t t = (wrote || (trace && trace->active())) ? utc_us() : 0;
+        if (wrote) {
+          in.last_write_us = t;
+          in.last_write_function = fn;
+          const uint8_t* at = fn == kReadWriteMultipleRegisters && n >= 9 ? pdu + 5 : pdu + 1;
+          in.last_write_start = n >= 3 ? get_be16(at) : 0;
+          in.last_write_count = fn == kWriteSingleCoil || fn == kWriteSingleRegister ? 1 : n >= 5 ? get_be16(at + 2) : 0;
+        }
+        if (c.second != sec) {
+          // Seconds that passed with no request are empty.
+          for (int64_t k = c.second + 1; k <= sec && k <= c.second + 5; ++k) c.per_second[k % 5] = 0;
+          c.second = sec;
+        }
+        ++c.per_second[sec % 5];
+        if (trace && trace->active())
+          trace->record(in.connection, reinterpret_cast<const sockaddr*>(&c.addr), c.peer, c.port, get_be16(f), unit,
+                        pdu, n, resp.data(), resp.size(), refused_write, t);
         c.used += 6u + len;
         c.partial = now;  // the next request starts now
       }
@@ -187,33 +297,33 @@ void ModbusServer::run() {
         c.rx.erase(c.rx.begin(), c.rx.begin() + static_cast<std::ptrdiff_t>(c.used));
         c.used = 0;
       }
-      if (!drop && !c.tx.empty()) {
+      if (why.empty() && !c.tx.empty()) {
         ssize_t sent = ::send(c.fd, c.tx.data(), c.tx.size(), MSG_NOSIGNAL);
         if (sent > 0)
           c.tx.erase(c.tx.begin(), c.tx.begin() + sent);
         else if (sent < 0 && errno != EAGAIN && errno != EINTR)
-          drop = true;
+          why = errno == ETIMEDOUT ? "keepalive" : "closed by the client";
       }
       bool over = c.tx.size() >= cfg_.max_queued;
       if (over && !c.over_cap) c.over = now;
       c.over_cap = over;
-      if (!drop && over && now - c.over > std::chrono::milliseconds(cfg_.over_queued_ms)) {
+      if (why.empty() && over && now - c.over > std::chrono::milliseconds(cfg_.over_queued_ms)) {
         say("modbus: closing " + c.peer + ": replies not read");
-        drop = true;
+        why = "replies not read";
       }
-      if (!drop && !over && !c.rx.empty() && now - c.partial > std::chrono::milliseconds(cfg_.partial_timeout_ms)) {
+      if (why.empty() && !over && !c.rx.empty() && now - c.partial > std::chrono::milliseconds(cfg_.partial_timeout_ms)) {
         say("modbus: closing " + c.peer + ": incomplete request");
-        drop = true;
+        why = "incomplete request " + span_text(cfg_.partial_timeout_ms);
       }
-      if (!drop && now - c.last > std::chrono::milliseconds(cfg_.idle_timeout_ms)) {
+      if (why.empty() && now - c.last > std::chrono::milliseconds(cfg_.idle_timeout_ms)) {
         say("modbus: closing " + c.peer + ": idle");
-        drop = true;
+        why = "idle " + span_text(cfg_.idle_timeout_ms);
       }
-      if (drop) c.fd = -c.fd - 1;  // marked; removed below
     }
     for (size_t i = clients.size(); i-- > 0;) {
-      if (clients[i].fd < 0) {
-        ::close(-clients[i].fd - 1);
+      if (!clients[i].why.empty()) {
+        ::close(clients[i].fd);
+        finish(clients[i], clients[i].why);
         clients.erase(clients.begin() + static_cast<std::ptrdiff_t>(i));
       }
     }
@@ -228,6 +338,7 @@ void ModbusServer::run() {
         std::string who = address_text(pa);
         if (!cfg_.readers.empty() && !cfg_.readers.matches(pa)) {
           say("modbus: refused " + who + ": not in readers");
+          refused(who, pa, "not in readers");
           ::close(fd);
           continue;
         }
@@ -245,12 +356,14 @@ void ModbusServer::run() {
           }
           if (idle == clients.end()) {
             say("modbus: refused " + who + ": max_clients_per_address reached");
+            refused(who, pa, "per-address limit");
             ::close(fd);
             continue;
           }
           say("modbus: closing " + idle->peer + " (idle connection): to make room for writer " + who +
               " (max_clients_per_address)");
           ::close(idle->fd);
+          finish(*idle, "slot taken by a writer");
           clients.erase(idle);
         }
         if (static_cast<int>(clients.size()) >= cfg_.max_clients) {
@@ -266,11 +379,13 @@ void ModbusServer::run() {
           }
           if (oldest == clients.end()) {
             say("modbus: refused " + who + ": max_clients reached");
+            refused(who, pa, "max_clients reached");
             ::close(fd);
             continue;
           }
           say("modbus: closing " + oldest->peer + ": to make room for writer " + who);
           ::close(oldest->fd);
+          finish(*oldest, "slot taken by a writer");
           clients.erase(oldest);
         }
         int one = 1;
@@ -280,18 +395,43 @@ void ModbusServer::run() {
         ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &kKeepIdleS, sizeof(kKeepIdleS));
         ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &kKeepIntervalS, sizeof(kKeepIntervalS));
         ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &kKeepProbes, sizeof(kKeepProbes));
-        clients.push_back(Client{fd, writer, who, now, now, now, false, {}, 0, {}, 0});
+        Client nc;
+        nc.fd = fd;
+        nc.may_write = writer;
+        nc.peer = who;
+        nc.port = peer_port(pa);
+        std::memcpy(&nc.addr, &peer, sizeof(peer));
+        nc.last = nc.partial = nc.over = now;
+        nc.second = sec;
+        nc.info.address = who;
+        nc.info.port = nc.port;
+        nc.info.connection = ++connections;
+        nc.info.writer = writer;
+        nc.info.connected_us = utc_us();
+        clients.push_back(std::move(nc));
       }
     }
     clients_.store(static_cast<int>(clients.size()), std::memory_order_relaxed);
     {
       std::lock_guard<std::mutex> lock(info_mu_);
       info_.clear();
-      for (const Client& c : clients)
-        info_.push_back(ClientInfo{c.peer, c.requests, c.may_write, c.tx.size(), c.rx.size()});
+      for (Client& c : clients) {
+        ClientInfo in = c.info;
+        in.requests = c.requests;
+        in.queued = c.tx.size();
+        in.buffered = c.rx.size();
+        in.recent = 0;
+        // The last 5 whole or running seconds; a quiet client's old seconds are stale.
+        for (int64_t k = sec - 4; k <= sec; ++k)
+          if (k > c.second - 5 && k <= c.second) in.recent += c.per_second[((k % 5) + 5) % 5];
+        info_.push_back(in);
+      }
     }
   }
-  for (Client& c : clients) ::close(c.fd);
+  for (Client& c : clients) {
+    ::close(c.fd);
+    if (trace) trace->forget(c.info.connection);
+  }
   clients_ = 0;
   std::lock_guard<std::mutex> lock(info_mu_);
   info_.clear();
@@ -300,6 +440,15 @@ void ModbusServer::run() {
 std::vector<ClientInfo> ModbusServer::client_list() const {
   std::lock_guard<std::mutex> lock(info_mu_);
   return info_;
+}
+
+std::vector<ClosedClient> ModbusServer::closed_list() const {
+  std::lock_guard<std::mutex> lock(info_mu_);
+  std::vector<ClosedClient> out;
+  auto now = Clock::now();
+  for (const ClosedClient& c : closed_)
+    if (now - c.closed < kClosedFor) out.push_back(c);
+  return out;
 }
 
 }  // namespace canworks_bridge

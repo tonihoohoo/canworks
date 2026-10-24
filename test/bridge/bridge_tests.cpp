@@ -41,6 +41,11 @@ using namespace canworks_bridge;
 
 namespace {
 
+std::string& err_sink() {
+  static std::string e;
+  return e;
+}
+
 // Every address may write (writers ["0.0.0.0/0", "::/0"]).
 ServerConfig open_config() {
   ServerConfig cfg;
@@ -58,9 +63,10 @@ struct Fixture {
   std::vector<std::string> logs;
   std::mutex log_mu;
 
-  explicit Fixture(ServerConfig cfg = open_config(), size_t in = 40, size_t out = 16) {
+  explicit Fixture(ServerConfig cfg = open_config(), size_t in = 40, size_t out = 16, ModbusTrace* trace = nullptr) {
     image.resize(in, out);
     cfg.listen = "127.0.0.1:0";
+    server.trace = trace;
     server.on_write = [this] { ++writes; };
     server.identity = DeviceIdentity{"canworks", "canworks-bridge", "9.9.9", "1234ABCD"};
     server.log = [this](const std::string& s) {
@@ -350,6 +356,9 @@ TEST(client_that_never_reads) {
   EXPECT(wait_for([&] { return fx.logged("replies not read"); }, 3000));
   EXPECT(wait_for([&] { return fx.server.clients() == 1; }));
   EXPECT(other.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  // Spec "Client cut for not reading": in the closed list with its counts.
+  auto l = fx.server.closed_list();
+  EXPECT(l.size() == 1 && l[0].reason == "replies not read" && l[0].info.functions[3] > 0);  // slot 3: function 4
 }
 
 // A client that reads its replies but pipelines requests faster than they are
@@ -881,6 +890,225 @@ TEST(sd_notify_datagram) {
   ::unsetenv("NOTIFY_SOCKET");
   ::close(fd);
   ::unlink(path);
+}
+
+// ---- client counters, closed list, Modbus trace (add-modbus-traffic-view) ----
+
+namespace {
+
+size_t slot_of(uint8_t fn) {
+  for (size_t i = 0; i < sizeof(kCountedFunctions); ++i)
+    if (kCountedFunctions[i] == fn) return i;
+  return kFunctionSlots - 1;
+}
+
+ClientInfo only_client(Fixture& fx) {
+  auto l = fx.server.client_list();
+  return l.empty() ? ClientInfo{} : l[0];
+}
+
+struct Rec {
+  uint64_t time = 0, seq = 0;
+  uint32_t conn = 0, skipped = 0;
+  uint8_t flags = 0;
+  std::string address;
+  Bytes req, resp;
+};
+
+uint64_t le(const std::string& d, size_t at, int n) {
+  uint64_t v = 0;
+  for (int i = n - 1; i >= 0; --i) v = (v << 8) | static_cast<uint8_t>(d[at + i]);
+  return v;
+}
+
+std::vector<Rec> records(const std::string& d) {
+  std::vector<Rec> out;
+  size_t at = 0;
+  while (at + kModbusTraceHeader <= d.size()) {
+    Rec r;
+    r.time = le(d, at, 8);
+    r.seq = le(d, at + 8, 8);
+    r.conn = static_cast<uint32_t>(le(d, at + 16, 4));
+    r.skipped = static_cast<uint32_t>(le(d, at + 20, 4));
+    r.flags = static_cast<uint8_t>(d[at + 27]);
+    size_t a = static_cast<uint8_t>(d[at + 30]), q = static_cast<uint8_t>(d[at + 31]),
+           p = static_cast<uint8_t>(d[at + 32]);
+    size_t b = at + kModbusTraceHeader;
+    r.address = d.substr(b, a);
+    r.req.assign(d.begin() + static_cast<long>(b + a), d.begin() + static_cast<long>(b + a + q));
+    r.resp.assign(d.begin() + static_cast<long>(b + a + q), d.begin() + static_cast<long>(b + a + q + p));
+    out.push_back(r);
+    at = b + a + q + p;
+  }
+  return out;
+}
+
+std::vector<Rec> fetch_all(ModbusTrace& t, uint64_t session, uint64_t after = 0, uint64_t* lost = nullptr) {
+  ModbusTrace::Fetch f;
+  std::vector<Rec> out;
+  for (;;) {
+    if (!t.fetch(session, after, 4000, ModbusTrace::Clock::now(), f)) return out;
+    if (lost) *lost += f.lost;
+    auto r = records(f.data);
+    out.insert(out.end(), r.begin(), r.end());
+    after = f.next;
+    if (!f.more) return out;
+  }
+}
+
+}  // namespace
+
+TEST(client_counters) {
+  // Spec "Counting a polling client".
+  Fixture fx;
+  Client c(fx.server.port());
+  for (int i = 0; i < 100; ++i) {
+    EXPECT(c.request(read_req(kReadInputRegisters, 0, 10)).size() == 22);
+    EXPECT(c.request(write_regs(0, {1, 2, 3, 4})).size() == 5);
+  }
+  EXPECT(wait_for([&] { return only_client(fx).requests == 200; }));
+  ClientInfo in = only_client(fx);
+  EXPECT(in.functions[slot_of(kReadInputRegisters)] == 100);
+  EXPECT(in.functions[slot_of(kWriteMultipleRegisters)] == 100);
+  uint64_t ex = 0;
+  for (uint64_t e : in.exceptions) ex += e;
+  EXPECT(ex == 0 && in.refused_writes == 0);
+  EXPECT(in.last_write_function == kWriteMultipleRegisters && in.last_write_start == 0 && in.last_write_count == 4);
+  EXPECT(in.last_write_us > 1600000000000000ull);
+  EXPECT(in.recent == 200);
+  EXPECT(in.connection == 1 && in.port != 0);
+}
+
+TEST(client_counters_refused_and_exceptions) {
+  // Spec "Reader that tries to write".
+  ServerConfig cfg;
+  std::string err;
+  EXPECT(cfg.writers.add("10.0.0.20", err));
+  Fixture fx(cfg);
+  Client c(fx.server.port());
+  for (int i = 0; i < 3; ++i)
+    EXPECT(c.request({kWriteSingleRegister, 0, 5, 0, 1}) == exc(kWriteSingleRegister, kIllegalFunction));
+  EXPECT(c.request(read_req(kReadInputRegisters, 30000, 1)) == exc(kReadInputRegisters, kIllegalDataAddress));
+  EXPECT(c.request({0x41}) == exc(0x41, kIllegalFunction));
+  EXPECT(wait_for([&] { return only_client(fx).requests == 5; }));
+  ClientInfo in = only_client(fx);
+  EXPECT(in.refused_writes == 3);
+  EXPECT(in.exceptions[0] == 4 && in.exceptions[1] == 1);  // 0x01 (3 refused, 1 unknown function), 0x02
+  EXPECT(in.functions[kFunctionSlots - 1] == 1);           // function 0x41: other
+  EXPECT(in.last_write_us == 0);
+}
+
+TEST(closed_list_reasons) {
+  ServerConfig cfg = open_config();
+  cfg.idle_timeout_ms = 200;
+  EXPECT(cfg.readers.add("127.0.0.1", err_sink()));
+  Fixture fx(cfg);
+  {
+    Client c(fx.server.port());
+    EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  }
+  EXPECT(wait_for([&] { return fx.server.closed_list().size() == 1; }));
+  {
+    Client c(fx.server.port());
+    EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+    EXPECT(c.closed(3000));
+  }
+  EXPECT(wait_for([&] { return fx.server.closed_list().size() == 2; }));
+  {
+    Client c(fx.server.port(), "127.0.0.1", 0, "127.0.0.2");
+    EXPECT(c.closed());
+  }
+  EXPECT(wait_for([&] { return fx.server.closed_list().size() == 3; }));
+  auto l = fx.server.closed_list();
+  EXPECT(l[0].reason == "closed by the client" && l[0].info.requests == 1);
+  EXPECT(l[1].reason == "idle 200 ms");
+  EXPECT(l[2].reason == "not in readers" && l[2].info.address == "127.0.0.2");
+  // At most the last 8.
+  for (int i = 0; i < 10; ++i) {
+    Client c(fx.server.port());
+    EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  }
+  EXPECT(wait_for([&] {
+    auto x = fx.server.closed_list();
+    return x.size() == ModbusServer::kClosedKept && x.back().reason == "closed by the client" &&
+           x.front().reason == "closed by the client";
+  }));
+}
+
+TEST(modbus_trace_nothing_without_a_session) {
+  // Spec "Nothing recorded without a trace".
+  ModbusTrace trace;
+  Fixture fx(open_config(), 40, 16, &trace);
+  Client c(fx.server.port());
+  for (int i = 0; i < 20; ++i) EXPECT(c.request(read_req(kReadInputRegisters, 0, 4)).size() == 10);
+  EXPECT(trace.last_seq() == 0 && !trace.active());
+}
+
+TEST(modbus_trace_changes_only) {
+  // Spec "OpenPLC polling with nothing changing".
+  ModbusTrace trace;
+  Fixture fx(open_config(), 40, 16, &trace);
+  Client c(fx.server.port());
+  uint64_t next = trace.start(7, true, AddressList(), ModbusTrace::Clock::now());
+  EXPECT(trace.active());
+  for (int i = 0; i < 50; ++i) EXPECT(c.request(read_req(kReadInputRegisters, 0, 4)).size() == 10);
+  auto r = fetch_all(trace, 7, next);
+  EXPECT(r.size() == 1 && r[0].skipped == 0 && r[0].address == "127.0.0.1");
+  EXPECT((r.size() == 1 && r[0].req == read_req(kReadInputRegisters, 0, 4) && r[0].resp.size() == 10));
+  Bytes in(40, 0);
+  in[1] = 5;
+  fx.image.publish_inputs(in.data(), in.size());
+  EXPECT(c.request(read_req(kReadInputRegisters, 0, 4)).size() == 10);
+  r = fetch_all(trace, 7, r.empty() ? next : r.back().seq);
+  EXPECT(r.size() == 1 && r[0].skipped == 49 && r[0].resp[3] == 5);
+  // Writes: the same write again is skipped; a new value is kept.
+  for (int i = 0; i < 5; ++i) EXPECT(c.request(write_regs(2, {7})).size() == 5);
+  EXPECT(c.request(write_regs(2, {8})).size() == 5);
+  r = fetch_all(trace, 7, trace.last_seq() - 2);
+  EXPECT(r.size() == 2 && r[0].skipped == 0 && r[1].skipped == 4 && r[1].req.back() == 8);
+}
+
+TEST(modbus_trace_exceptions_always_and_all) {
+  // Spec "Exception always recorded".
+  ModbusTrace trace;
+  ServerConfig cfg;  // nobody writes
+  Fixture fx(cfg, 40, 16, &trace);
+  Client c(fx.server.port());
+  trace.start(1, true, AddressList(), ModbusTrace::Clock::now());
+  for (int i = 0; i < 10; ++i) EXPECT(c.request(read_req(kReadInputRegisters, 30000, 1)).size() == 2);
+  for (int i = 0; i < 3; ++i) EXPECT(c.request({kWriteSingleRegister, 0, 1, 0, 1}).size() == 2);
+  auto r = fetch_all(trace, 1);
+  EXPECT(r.size() == 13);
+  EXPECT(r.size() == 13 && r[12].flags == kTraceRefusedWrite && r[0].flags == 0 && r[0].resp == exc(4, 2));
+  // changes_only false: every request.
+  trace.stop(1);
+  EXPECT(!trace.active());
+  uint64_t next = trace.start(2, false, AddressList(), ModbusTrace::Clock::now());
+  for (int i = 0; i < 20; ++i) EXPECT(c.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  EXPECT(fetch_all(trace, 2, next).size() == 20);
+}
+
+TEST(modbus_trace_client_filter_wrap_and_idle_end) {
+  // Spec "Only one client's requests".
+  ModbusTrace trace(2000);
+  Fixture fx(open_config(), 40, 16, &trace);
+  AddressList only;
+  std::string err;
+  EXPECT(only.add("127.0.0.2", err));
+  trace.start(1, false, only, ModbusTrace::Clock::now());
+  Client a(fx.server.port()), b(fx.server.port(), "127.0.0.1", 0, "127.0.0.2");
+  EXPECT(a.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  EXPECT(b.request(read_req(kReadInputRegisters, 0, 2)).size() == 6);
+  auto r = fetch_all(trace, 1);
+  EXPECT(r.size() == 1 && r[0].address == "127.0.0.2");
+  // The ring wraps: the oldest go, and the fetch says how many were lost.
+  for (int i = 0; i < 100; ++i) EXPECT(a.request(read_req(kReadInputRegisters, 0, 1)).size() == 4);
+  ModbusTrace::Fetch f;
+  EXPECT(trace.fetch(1, 0, 4000, ModbusTrace::Clock::now(), f));
+  EXPECT(f.lost > 0 && f.next == trace.last_seq());
+  // Spec "Forgotten Modbus trace": no fetch for 10 s ends it.
+  EXPECT(trace.expire(ModbusTrace::Clock::now() + std::chrono::seconds(11)) == 1);
+  EXPECT(!trace.active() && !trace.fetch(1, 0, 10, ModbusTrace::Clock::now(), f));
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

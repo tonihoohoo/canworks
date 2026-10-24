@@ -136,6 +136,56 @@ const char* nmt_command(uint8_t cmd) {
 
 namespace {
 
+uint64_t utc_now_us() {
+  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count());
+}
+
+const char* write_table(uint8_t fn) {
+  return fn == 5 || fn == 15 ? "coil" : "holding register";
+}
+
+// A client's counters in the status (modbus-bridge "Client counters").
+cJSON* client_json(const ClientInfo& c) {
+  cJSON* o = cJSON_CreateObject();
+  cJSON_AddStringToObject(o, "address", c.address.c_str());
+  cJSON_AddNumberToObject(o, "port", c.port);
+  cJSON_AddNumberToObject(o, "connection", c.connection);
+  cJSON_AddNumberToObject(o, "requests", static_cast<double>(c.requests));
+  cJSON_AddBoolToObject(o, "writer", c.writer);
+  cJSON_AddNumberToObject(o, "connected_us", static_cast<double>(c.connected_us));
+  cJSON_AddNumberToObject(o, "rate", static_cast<double>(c.recent) / 5.0);
+  cJSON* fns = cJSON_AddObjectToObject(o, "functions");
+  for (size_t i = 0; i < kFunctionSlots; ++i) {
+    if (!c.functions[i]) continue;
+    std::string k = i < sizeof(kCountedFunctions) ? std::to_string(kCountedFunctions[i]) : "other";
+    cJSON_AddNumberToObject(fns, k.c_str(), static_cast<double>(c.functions[i]));
+  }
+  cJSON* ex = cJSON_AddObjectToObject(o, "exceptions");
+  for (size_t i = 0; i < kExceptionSlots; ++i) {
+    if (!c.exceptions[i]) continue;
+    char k[8];
+    if (i < sizeof(kCountedExceptions))
+      std::snprintf(k, sizeof(k), "0x%02X", kCountedExceptions[i]);
+    else
+      std::snprintf(k, sizeof(k), "other");
+    cJSON_AddNumberToObject(ex, k, static_cast<double>(c.exceptions[i]));
+  }
+  cJSON_AddNumberToObject(o, "refused_writes", static_cast<double>(c.refused_writes));
+  if (c.last_write_us) {
+    cJSON* w = cJSON_AddObjectToObject(o, "last_write");
+    cJSON_AddNumberToObject(w, "time_us", static_cast<double>(c.last_write_us));
+    cJSON_AddNumberToObject(w, "function", c.last_write_function);
+    cJSON_AddStringToObject(w, "table", write_table(c.last_write_function));
+    cJSON_AddNumberToObject(w, "start", c.last_write_start);
+    cJSON_AddNumberToObject(w, "count", c.last_write_count);
+  } else {
+    cJSON_AddNullToObject(o, "last_write");
+  }
+  return o;
+}
+
 std::string dir_of(const std::string& path) {
   size_t slash = path.rfind('/');
   return slash == std::string::npos ? "." : slash == 0 ? "/" : path.substr(0, slash);
@@ -338,6 +388,11 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   dh.put_config = [this](const std::vector<std::pair<std::string, std::string>>& files, std::string& why) {
     return put_config(files, why);
   };
+  dh.host_op = [this](uint64_t client, const std::string& id, const std::string& op, const cJSON* req,
+                      std::string& out) { return modbus_trace_op(client, id, op, req, out); };
+  dh.client_gone = [this](uint64_t client) {
+    if (modbus_trace_.stop(client)) log_info("diagnostics: Modbus trace ended: client disconnected");
+  };
   engine_->set_diag_host(dh);
   if (!engine_->prepare(config_path, limits, version)) return false;
   const canopen_plugin::ConfigSet& s = engine_->set();
@@ -387,6 +442,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   }
 
   server_.on_write = [this] { on_write(); };
+  server_.trace = &modbus_trace_;
   {
     // Read Device Identification (modbus-bridge "Device identification
     // with the map hash"): a client checks the map without the PLC link.
@@ -807,14 +863,22 @@ cJSON* BridgeHost::status_json() const {
     cJSON* down = cJSON_AddArrayToObject(b, "bus_not_ok");
     for (const auto& n : bus_down_) cJSON_AddItemToArray(down, cJSON_CreateString(n.c_str()));
   }
+  // The clients with their counters, and the recently closed connections
+  // (modbus-bridge "Client counters", "Recently closed clients").
   cJSON* clients = cJSON_AddArrayToObject(b, "clients");
-  for (const ClientInfo& c : server_.client_list()) {
-    cJSON* o = cJSON_CreateObject();
-    cJSON_AddStringToObject(o, "address", c.address.c_str());
-    cJSON_AddNumberToObject(o, "requests", static_cast<double>(c.requests));
-    cJSON_AddBoolToObject(o, "writer", c.writer);
-    cJSON_AddItemToArray(clients, o);
+  for (const ClientInfo& c : server_.client_list()) cJSON_AddItemToArray(clients, client_json(c));
+  cJSON* closed = cJSON_AddArrayToObject(b, "closed_clients");
+  uint64_t now_us = utc_now_us();
+  for (const ClosedClient& c : server_.closed_list()) {
+    cJSON* o = client_json(c.info);
+    cJSON_AddStringToObject(o, "reason", c.reason.c_str());
+    cJSON_AddNumberToObject(o, "closed_us", static_cast<double>(c.closed_us));
+    cJSON_AddNumberToObject(o, "ago_s", static_cast<double>((now_us - std::min(now_us, c.closed_us)) / 1000000));
+    cJSON_AddNumberToObject(o, "connected_s",
+                            static_cast<double>((c.closed_us - std::min(c.closed_us, c.info.connected_us)) / 1000000));
+    cJSON_AddItemToArray(closed, o);
   }
+  if (size_t n = modbus_trace_.sessions()) cJSON_AddNumberToObject(b, "modbus_traces", static_cast<double>(n));
   // Mailbox use since the start (modbus-bridge-mailboxes "Mailbox use in the
   // status"): diag says when nothing has used them.
   if (mailboxes_) {
@@ -848,6 +912,91 @@ cJSON* BridgeHost::status_json() const {
 // The uploaded "canworks.json" is the running config file, whatever its name.
 std::string BridgeHost::staged_path(const std::string& name) const {
   return name == "canworks.json" ? base_of(config_path_) : name;
+}
+
+// ---- Modbus trace (modbus_trace_start, _fetch, _stop) ----
+
+bool BridgeHost::modbus_trace_op(uint64_t client, const std::string& id, const std::string& op, const cJSON* req,
+                                 std::string& out) {
+  using canopen_plugin::diag_error;
+  using canopen_plugin::diag_ok;
+  auto now = ModbusTrace::Clock::now();
+  if (op == "modbus_trace_start") {
+    const cJSON* co = cJSON_GetObjectItemCaseSensitive(req, "changes_only");
+    if (co && !cJSON_IsBool(co)) {
+      out += diag_error(id, "field 'changes_only' must be true or false");
+      return true;
+    }
+    AddressList clients;
+    const cJSON* cl = cJSON_GetObjectItemCaseSensitive(req, "clients");
+    if (cl && !cJSON_IsArray(cl)) {
+      out += diag_error(id, "field 'clients' must be a list of addresses or prefixes");
+      return true;
+    }
+    const cJSON* a = nullptr;
+    cJSON_ArrayForEach(a, cl) {
+      std::string err;
+      if (!cJSON_IsString(a) || !clients.add(a->valuestring, err)) {
+        out += diag_error(id, err.empty() ? "field 'clients' must be a list of addresses or prefixes" : "clients: " + err);
+        return true;
+      }
+    }
+    bool changes = !co || cJSON_IsTrue(co);
+    bool had = modbus_trace_.sessions() > 0;
+    uint64_t next = modbus_trace_.start(client, changes, clients, now);
+    log_info("diagnostics: Modbus trace started (%s%s)%s", changes ? "changes only" : "every request",
+             cl && cJSON_GetArraySize(cl) ? ", some clients" : "", had ? "" : "; recording Modbus requests");
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddNumberToObject(res, "next", static_cast<double>(next));
+    char hash[16];
+    std::snprintf(hash, sizeof(hash), "0x%08x", map_hash_);
+    cJSON_AddStringToObject(res, "map_hash", hash);
+    cJSON_AddNumberToObject(res, "buffer_bytes", static_cast<double>(modbus_trace_.capacity()));
+    cJSON_AddNumberToObject(res, "header_size", static_cast<double>(kModbusTraceHeader));
+    cJSON_AddStringToObject(res, "listen", cfg_.listen.c_str());
+    cJSON_AddNumberToObject(res, "port", server_.port());
+    cJSON_AddNumberToObject(res, "unit_id", cfg_.unit_id);
+    cJSON_AddBoolToObject(res, "changes_only", changes);
+    out += diag_ok(id, res);
+    return true;
+  }
+  if (op == "modbus_trace_fetch") {
+    const cJSON* af = cJSON_GetObjectItemCaseSensitive(req, "after");
+    if (!cJSON_IsNumber(af) || af->valuedouble < 0 || af->valuedouble > 9007199254740992.0) {
+      out += diag_error(id, "field 'after' must be a sequence number");
+      return true;
+    }
+    size_t max = ModbusTrace::kFetchDefault;
+    if (const cJSON* m = cJSON_GetObjectItemCaseSensitive(req, "max")) {
+      if (!cJSON_IsNumber(m) || m->valuedouble < 1 || m->valuedouble > double(ModbusTrace::kFetchMax)) {
+        out += diag_error(id, "field 'max' must be 1-4000");
+        return true;
+      }
+      max = static_cast<size_t>(m->valuedouble);
+    }
+    ModbusTrace::Fetch f;
+    if (!modbus_trace_.fetch(client, static_cast<uint64_t>(af->valuedouble), max, now, f)) {
+      out += diag_error(id, "no Modbus trace running (send modbus_trace_start)");
+      return true;
+    }
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddNumberToObject(res, "count", static_cast<double>(f.count));
+    cJSON_AddNumberToObject(res, "next", static_cast<double>(f.next));
+    cJSON_AddBoolToObject(res, "more", f.more);
+    cJSON_AddNumberToObject(res, "lost", static_cast<double>(f.lost));
+    cJSON_AddStringToObject(res, "records", base64(f.data).c_str());
+    out += diag_ok(id, res);
+    return true;
+  }
+  if (op == "modbus_trace_stop") {
+    bool had = modbus_trace_.stop(client);
+    if (had) log_info("diagnostics: Modbus trace stopped");
+    cJSON* res = cJSON_CreateObject();
+    cJSON_AddBoolToObject(res, "stopped", had);
+    out += diag_ok(id, res);
+    return true;
+  }
+  return false;
 }
 
 unsigned BridgeHost::put_config(const std::vector<std::pair<std::string, std::string>>& files, std::string& why) {

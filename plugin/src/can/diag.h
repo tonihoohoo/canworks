@@ -116,6 +116,13 @@ struct DiagHost {
   // the config's folder, contents); returns the upload's number when the
   // host restarts on them, else 0 with `why`. Null: the host takes no configs.
   std::function<unsigned(const std::vector<std::pair<std::string, std::string>>& files, std::string& why)> put_config;
+  // Operations the host answers itself (the bridge's modbus_trace_*), on
+  // the server thread, for any logged-in client: true and `out` the answer
+  // line when it knows `op`. Null or false: "not a bridge".
+  std::function<bool(uint64_t client, const std::string& id, const std::string& op, const cJSON* req, std::string& out)>
+      host_op;
+  // A logged-in client disconnected (its host operations end).
+  std::function<void(uint64_t client)> client_gone;
 };
 
 // The CiA 309-3 gateway as the diagnostics server sees it (cia309_server.h):

@@ -135,6 +135,7 @@ async function connTick() {
   connBar();
   if (typeof jobsSeen === "function") jobsSeen(r);
   if (onlineViews().includes(S.view) && $("#online-live")) onlineApply(r, err);
+  if (S.view === "bridge" && typeof bridgeClientsLive === "function") bridgeClientsLive(r, err);
   CONN.timer = setTimeout(connTick, err ? 2000 : 500);
 }
 

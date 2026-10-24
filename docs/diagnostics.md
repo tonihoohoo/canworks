@@ -30,6 +30,7 @@ canworks-diag --runtime plc.local lss-inquire 0x360 0x1 0 0x1234           # VEN
 canworks-diag --runtime plc.local lss-set-id 0x360 0x1 0 0x1234 12 [--store]
 canworks-diag --runtime plc.local lss-set-bitrate 0x360 0x1 0 0x1234 250 [--store]
 canworks-diag --runtime plc.local trace -o run.pcapng --duration 60         # see trace.md
+canworks-diag --runtime plc.local modbus-trace --config canworks.json      # the bridge's Modbus requests; --all, --client, -o, --duration
 canworks-diag convert run.pcapng run.asc
 canworks-diag convert run.pcapng run.csv --dbc machine.dbc                # decode with DBC files too (repeatable; also on trace and explain)
 canworks-diag --runtime plc.local backup 23 [-o node23.dcf]                 # all parameters into a DCF
@@ -48,6 +49,8 @@ canworks-diag --runtime plc.local gateway --exec "1 2 r 0x1018 1 u32"      # or 
 ```
 
 `gateway` opens CiA 309-3 sessions on the runtime's gateway through this channel (login, then the `cia309` op): `--listen [ADDRESS:PORT]` serves a local plain port whose connections are each tunnelled to the runtime (loopback only unless `--listen-any`), `--exec LINE` (repeatable) sends lines and prints the answers (exit 1 when one is an `ERROR`), `--list` prints the network numbering, and without them it is a prompt; `--network NAME` sets the session's default network. `status` prints a CiA 309-3 gateway line (listen address, mode, sessions with address, plain or tunnelled, and commands served) when the runtime has one. See [cia309-gateway.md](cia309-gateway.md).
+
+`modbus-trace` prints each Modbus request a [bridge](modbus-bridge.md#seeing-the-modbus-traffic) answers, one line each: time, client (by connection name with `--config`), function, range, values by name, result and hints, and how many unchanged requests it skipped. `--all` records every request, not only changes; `--client ADDRESS` (repeatable) only those clients; `-o FILE.pcapng` also writes them to a pcapng file; `--duration S` stops after S seconds (default: Ctrl-C). `status` lists a bridge's clients with their counters and the recently closed connections with their reason.
 
 `explain` needs no runtime: it explains frames given in candump syntax, or frame `--index` of a `--trace` file, layer by layer, as text or `--format json` ([frame-inspector.md](frame-inspector.md#command-line)).
 
@@ -281,7 +284,7 @@ The login answer carries `protocol` (2), `version`, `allow_changes`, `master_nod
 
 It also carries `cia309`: true when the runtime has a CiA 309-3 gateway that takes this connection with the `cia309` op below ([cia309-gateway.md](cia309-gateway.md)).
 
-It also carries `host`, the program serving the channel: `bridge` for [canworks-bridge](modbus-bridge.md) (an older canworks plugin said `openplc`). A bridge's `status` answers have a `bridge` part (output state, watchdog, Modbus clients, `last_upload`), and a bridge whose config has `allow_config_upload: true` says so in the hello and takes `put_config` (`files`: published names mapped to base64 contents, at most 8 MB; `canworks.json` is the config itself), which needs `allow_changes` too and answers `upload` and `restarting`, or the reasons the config was rejected ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)).
+It also carries `host`, the program serving the channel: `bridge` for [canworks-bridge](modbus-bridge.md) (an older canworks plugin said `openplc`). A bridge's `status` answers have a `bridge` part (output state, watchdog, Modbus clients with their counters, recently closed clients, `last_upload`), and a bridge whose config has `allow_config_upload: true` says so in the hello and takes `put_config` (`files`: published names mapped to base64 contents, at most 8 MB; `canworks.json` is the config itself), which needs `allow_changes` too and answers `upload` and `restarting`, or the reasons the config was rejected ([modbus-bridge.md](modbus-bridge.md#deploying-and-checking-a-config)).
 
 Every request after the hello may carry `network`, the name of the network it is for. With one network it may be left out. With several, a request without it answers `network required (io, drives)` and one with a name the bridge does not run `unknown network 'x' (io, drives)`. A client sends `network` only when the hello lists more than one network, so it also talks to an older plugin. Then:
 
@@ -303,6 +306,9 @@ Every request after the hello may carry `network`, the name of the network it is
 | `trace_start` | `filters` (optional list of `{"id", "mask"}`, at most 16), `error_frames` (default false) | `next` (the sequence number to fetch after), `buffer_frames` (65536), `record_size` (24), `network`, `interface`, `bitrate` of the traced network |
 | `trace_fetch` | `after` (the last sequence number received), `max` (1-4000, default 2000) | `count`, `next`, `more` (more frames are waiting), `lost` (frames the ring overwrote before this client fetched them), `kernel_drops` (frames the kernel dropped since tracing started), `session`, `frames` |
 | `trace_stop` | | ends this client's trace |
+| `modbus_trace_start` | `changes_only` (default true), `clients` (optional list of addresses or prefixes) | bridge only, no `network`: `next`, `map_hash`, `buffer_bytes`, `header_size` (34), `port`, `unit_id`; `not a bridge` elsewhere |
+| `modbus_trace_fetch` | `after`, `max` (1-4000, default 2000) | `records` (base64, see [Modbus trace records](#modbus-trace-records)), `count`, `next`, `more`, `lost`; `no Modbus trace running` after a stop or 10 s without a fetch |
+| `modbus_trace_stop` | | ends this client's Modbus trace |
 | `send_frame` | `can_id` (the frame's identifier; `id` stays the request's own), `ext` (default false), `rtr` (default false), `dlc` (remote frames), `data` (hex, 0-8 bytes), `period_ms` (0 or left out: one frame; 10-60000: cyclic), `count` (cyclic, optional), `force` | one frame: `sent`; cyclic: `job`, `period_ms`, `count` |
 | `send_frame_stop` | `job` (left out: all of this connection's jobs) | `stopped`: each job's `job`, `id`, `period_ms`, `sent` and `reason` (`stopped`, `count reached`, `time limit`, `transmit queue full`, ...), jobs that ended on their own included |
 | `cia309` | | switches the connection to the CiA 309-3 gateway ([cia309-gateway.md](cia309-gateway.md)): `protocol` (`CiA 309-3`), `version` (`2.1`), `allow_changes`, `allow_force`, `default_net` and `nets` (`number`, `name`, `protocol`, `role`, `served`); every byte after this answer is CiA 309-3 lines in the same TLS session. Refused with `cia309 gateway not configured` or `too many gateway clients` (the connection stays a diagnostics one). Needs no `allow_changes` and no `network` |
@@ -328,6 +334,10 @@ Numbers may also be given as strings (`"0x1018"`). `sdo_write`, `nmt`, the `lss_
 | 13 | 1 | flags: bit 0 sent from the bridge's computer (Tx: by the bridge, or by another program on it such as `cansend`; on a simulated network the simulated devices' frames are Rx), bit 1 gap: the capture restarted (after the interface went down or the session restarted); a gap record carries no frame |
 | 14 | 2 | reserved, 0 |
 | 16 | 8 | data, unused bytes 0 |
+
+### Modbus trace records
+
+`records` is base64 of `count` records, back to back, little-endian: a 34-byte header (0: time of the answer, microseconds since 1970, 8 bytes; 8: sequence number, 8 bytes; 16: connection number, 4 bytes; 20: unchanged requests skipped before it, 4 bytes; 24: MBAP transaction, 2 bytes; 26: unit; 27: flags, bit 0 refused write; 28: client port, 2 bytes; 30: address length; 31: request PDU length; 32: answer PDU length; 33: 0), then the client's address as text, the request PDU and the answer PDU. A bridge's `status` lists each client with `functions` (requests per function code), `exceptions` (per code), `refused_writes`, `last_write` (`time_us`, `function`, `table`, `start`, `count`), `rate` (requests per second over 5 s) and `connected_us`, and `closed_clients` with `reason`, `ago_s` and `connected_s`.
 
 A trace ends when its client sends `trace_stop`, disconnects, or sends no `trace_fetch` for 10 seconds (`trace_fetch` then answers `no trace running`); the bridge logs each start and end. `trace_start` answers `no bus` while there is no CANopen session, and the capture is reopened with a gap record when the session comes back. Trace requests are served by the diagnostics server's own thread from its ring; they never wait on the CAN thread. Fetching every 100 ms keeps up with a fully loaded 1 Mbit/s bus (about 8000 frames per second).
 

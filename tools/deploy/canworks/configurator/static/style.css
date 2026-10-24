@@ -1209,3 +1209,16 @@ dialog.eds-dialog .grid { grid-template-columns: 1fr; }
 .codesys-import table { width: 100%; border-collapse: collapse; }
 .codesys-import th, .codesys-import td { text-align: left; padding: 3px 8px 3px 0; vertical-align: top; }
 .codesys-import details ul { margin: 6px 0; padding-left: 20px; max-height: 12em; overflow: auto; }
+/* Modbus requests in the Trace view (trace_modbus.js). */
+.trace-row.k-modbus .modbus-tag { color: var(--accent); font-weight: 600; }
+.trace-row.k-modbus.modbus-exception, .trace-row.k-modbus.modbus-refused { color: var(--st-error); }
+.trace-modbus-capture { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.trace-modbus-capture select { justify-self: start; }
+.trace-modbus-table { margin-top: 12px; }
+table.modbus-requests td { white-space: nowrap; }
+table.modbus-requests td:nth-last-child(2) { white-space: normal; }
+table.modbus-requests tr.warn td:first-child { box-shadow: inset 3px 0 0 var(--st-warn); }
+.modbus-delays { margin: 4px 0; padding-left: 18px; }
+.modbus-delays button.link { margin-left: 8px; }
+table.bridge-clients tr.warn td:first-child { box-shadow: inset 3px 0 0 var(--st-warn); }
+table.bridge-clients .tag { margin-left: 6px; }

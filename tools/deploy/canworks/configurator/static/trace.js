@@ -271,11 +271,15 @@ function filtersMenu() {
   const dir = el("select", { "aria-label": "Direction", dataset: { traceFilter: "dir" } },
     [["any", "Rx and Tx"], ["rx", "Rx only"], ["tx", "Tx only"]].map(([v, l]) => el("option", { value: v, selected: (f.dir || "any") === v }, l)));
   dir.onchange = () => { f.dir = dir.value; changed(); };
+  // CAN frames, the bridge's Modbus requests or both (canopen-configurator "Modbus requests in the Trace view").
+  const source = el("select", { "aria-label": "Source", dataset: { traceFilter: "source" } },
+    [["any", "CAN and Modbus"], ["can", "CAN only"], ["modbus", "Modbus only"]].map(([v, l]) => el("option", { value: v, selected: (f.source || "any") === v }, l)));
+  source.onchange = () => { f.source = source.value; changed(); };
   const menu = closeOnOutside(el("details", { class: "menu trace-menu trace-filters-menu", dataset: { trace: "filters" } },
     el("summary", { "aria-haspopup": "true", id: "trace-filter-summary" }, "Filters"),
     el("div", { class: "menu-panel trace-filters" },
       el("div", { class: "row" }, input("nodes", "Nodes: 2, 23", "13ch"), input("id_from", "ID from", "9ch"),
-        input("id_to", "ID to", "9ch"), dir, input("text", "Search text", "16ch")),
+        input("id_to", "ID to", "9ch"), dir, source, input("text", "Search text", "16ch")),
       kinds,
       el("p", { class: "hint" }, "Display filters never change what is recorded."),
       el("div", { class: "toolbar" }, el("button", { type: "button", dataset: { trace: "clear-filters" }, onclick: () => {
@@ -291,7 +295,7 @@ function filtersMenu() {
 
 function filterCount() {
   const f = T.filter;
-  return [f.nodes, f.id_from || f.id_to, f.dir && f.dir !== "any", f.text, f.kinds && f.kinds.length].filter(Boolean).length;
+  return [f.nodes, f.id_from || f.id_to, f.dir && f.dir !== "any", f.source && f.source !== "any", f.text, f.kinds && f.kinds.length].filter(Boolean).length;
 }
 
 function updateFilterCount() {
@@ -302,7 +306,7 @@ function updateFilterCount() {
   // The fields follow T.filter when a row's Show frames changed it.
   for (const i of document.querySelectorAll("[data-trace-filter]")) {
     const k = i.dataset.traceFilter;
-    const v = k === "dir" ? (T.filter.dir || "any") : (T.filter[k] != null ? T.filter[k] : "");
+    const v = k === "dir" || k === "source" ? (T.filter[k] || "any") : (T.filter[k] != null ? T.filter[k] : "");
     if (document.activeElement !== i && i.value !== v) i.value = v;
   }
 }
@@ -339,7 +343,8 @@ function captureSettings() {
         T.capFilters.push({ id: "0x180", mask: "0x780" });
         draw();
       } }, "Add filter"),
-      el("label", { class: "check inline" }, errs, " Record error frames (the adapter must report them)")))));
+      el("label", { class: "check inline" }, errs, " Record error frames (the adapter must report them)")),
+    traceModbusCapture())));
 }
 
 async function pollTrace(seq, first) {
@@ -360,6 +365,7 @@ async function pollTrace(seq, first) {
       if (T.tab === "frames" && T.follow) refreshRows(true);
       else if (T.tab === "frames") updateScroll();
       if (T.tab === "graph" && !T.zoom && now - T.lastGraph > 1000) loadGraph();
+      if (T.tab === "ids") traceModbusRefresh();
     }
     if (T.tab === "trigger" && prev && JSON.stringify(prev.recording.hits) !== JSON.stringify(st.recording.hits)) renderTriggerStatus();
     T.lastGeneration = st.generation;
@@ -414,6 +420,8 @@ function showTraceHeader(st) {
       "Opening, viewing and exporting trace files works without it.", { trace: "online-hint" }));
   }
   for (const w of st.warnings || []) notes.push(noteBar("warning", humanise(w), { trace: "warning" }));
+  if (rec.modbus_note) notes.push(noteBar("info", rec.modbus_note, { trace: "modbus-rec-note" }));
+  if (st.modbus_note) notes.push(noteBar("warning", st.modbus_note, { trace: "modbus-note" }));
   const trimmed = rec.trimmed || 0;
   if (trimmed) notes.push(noteBar("info",
     `Single trigger: the trace holds the pre/post window around the hit; ${trimmed.toLocaleString()} frames outside it were removed.`, { trace: "trimmed" }));
@@ -428,9 +436,10 @@ function showTraceHeader(st) {
     rec.running && sm.load != null ? `bus load ${sm.load.toFixed(1)} % (estimate)` : null,
     sm.bitrate ? `${sm.bitrate / 1000} kbit/s` : null,
     `${sm.error_frames} error frames`,
+    st.modbus ? `${st.modbus.toLocaleString()} Modbus requests` : null,
     sm.lost ? `${sm.lost} lost` : null, sm.kernel_drops ? `${sm.kernel_drops} dropped by ${traceDropsBy(st)}` : null,
     st.trigger_text ? `trigger: ${st.trigger_text}${rec.hits && rec.hits.length ? ` (${rec.hits.length} hit${rec.hits.length === 1 ? "" : "s"})` : ""}` : null];
-  if (filterCount() && (T.tab === "frames" || T.tab === "ids") && T.total != null && T.tab === "frames") bits.push(`showing ${T.total.toLocaleString()} of ${sm.frames.toLocaleString()}`);
+  if (filterCount() && (T.tab === "frames" || T.tab === "ids") && T.total != null && T.tab === "frames") bits.push(`showing ${T.total.toLocaleString()} of ${(sm.frames + (st.modbus || 0)).toLocaleString()}`);
   else if (filterCount() && T.tab === "ids") bits.push(`showing ${TI.rows.size} identifier${TI.rows.size === 1 ? "" : "s"} (filtered)`);
   $("#trace-stats").textContent = bits.filter(Boolean).join(" · ");
   const ss = document.querySelector("[data-trace=start-stop]");
@@ -654,7 +663,8 @@ async function traceStart(again) {
   }
   try {
     T.st = await api("POST", "/api/trace/start", { filters: T.capFilters.map((f) => ({ id: f.id, mask: f.mask })),
-      error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined });
+      error_frames: T.errorFrames, port: diagPort(), continue: cont, eds: commissionEds() || undefined,
+      modbus: traceModbusBody() });
     banner("");
     T.follow = true;
     T.zoom = null;
@@ -784,6 +794,7 @@ function filterBody() {
   if (f.id_to) out.id_to = f.id_to;
   if (f.dir && f.dir !== "any") out.dir = f.dir;
   if (f.text) out.text = f.text;
+  if (f.source && f.source !== "any") out.source = f.source;
   return out;
 }
 
@@ -844,6 +855,7 @@ async function refreshRows(toEnd, reset, atUs) {
   let r;
   try { r = await api("POST", "/api/trace/frames", body); } catch (e) { banner(e.message, true); return; }
   if (seq !== T.rowsSeq || !$("#trace-list")) return;
+  traceModbusRows(r);
   T.total = r.total;
   updateScroll();
   if (toEnd) scrollToRow(r.total);
@@ -857,6 +869,7 @@ async function refreshRows(toEnd, reset, atUs) {
       const again = await api("POST", "/api/trace/frames", { offset: firstRow(), count: visible + 3, filter: filterBody() });
       if (seq !== T.rowsSeq) return;
       r = again;
+      traceModbusRows(r);
     }
   }
   drawRows(r);
@@ -871,6 +884,7 @@ function drawRows(r) {
   const shown = r.rows.slice(skip);
   rows.replaceChildren(...shown.map((x) => {
     const cls = ["trace-row", "k-" + x.kind, x.seq === T.selected ? "selected" : "", x.dir === "Tx" ? "tx" : ""].join(" ");
+    if (x.kind === "modbus") return traceModbusRow(x, cls);
     return el("div", { class: cls, dataset: { seq: x.seq, t: x.t_us }, onclick: () => selectRow(x, true) },
       el("span", null, timeText(x.t_us)), el("span", null, x.gap ? "" : x.dir),
       el("span", null, x.gap ? "" : x.err ? "ERR" : x.id + (x.rtr ? " R" : "")),
@@ -908,7 +922,7 @@ function rowActions() {
   if (T.jumpedFrom === "graph") parts.push(el("button", { type: "button", dataset: { trace: "back-to-graph" },
     onclick: () => { T.jumpedFrom = null; T.tab = "graph"; renderTraceTab(); } }, "Back to graph"));
   if (T.selected != null && T.selectedUs != null) {
-    parts.push(el("span", { class: "muted" }, `Selected frame at ${secText(T.selectedUs)}`),
+    parts.push(el("span", { class: "muted" }, `Selected ${traceModbusSeq(T.selected) ? "Modbus request" : "frame"} at ${secText(T.selectedUs)}`),
       el("button", { type: "button", dataset: { trace: "to-graph" }, onclick: () => {
         T.a = T.selectedUs;
         T.jumpedFrom = "frames";
@@ -916,7 +930,7 @@ function rowActions() {
         renderTraceTab();
       } }, "Show in graph (cursor A)"));
     const x = T.selectedRow;
-    if (x && x.seq === T.selected && !x.gap && !x.err) {
+    if (x && x.seq === T.selected && !x.gap && !x.err && !traceModbusSeq(x.seq)) {
       parts.push(el("button", { type: "button", dataset: { trace: "explain-lab" }, onclick: () => traceExplainInLab(x.seq) }, "Explain in Frame lab"));
       parts.push(sendButton({ id: x.id, ext: !!x.ext, rtr: !!x.rtr, dlc: x.dlc || 0, data: x.rtr ? "" : x.data }));
     }

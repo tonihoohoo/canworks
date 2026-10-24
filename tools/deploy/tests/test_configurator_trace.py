@@ -230,3 +230,75 @@ class TwoNetworks(Trace):
                                                   "data": b64(written(sample_trace(), "candump"))})
         self.assertEqual(st["network"], "io")
         self.assertIn("pingpong_TPDO1.UNSIGNED32_sent_from_slave", [s["key"] for s in st["series"]])
+
+
+class LiveModbus(Trace):
+    """Modbus requests next to the frames in the Trace view
+    (add-modbus-traffic-view; canopen-configurator "Modbus requests in the
+    Trace view")."""
+
+    def setUp(self):
+        super().setUp()
+        import json
+        import shutil
+        from .test_modbus_trace import EXAMPLE
+        from .test_configurator_online import DIAG
+        self.fake = FakePlugin()
+        self.fake.__enter__()
+        self.addCleanup(self.fake.__exit__)
+        self.connect(self.fake)
+        with open(EXAMPLE, encoding="utf-8") as f:
+            self.cfg = json.load(f)
+        os.makedirs(self.canopen, exist_ok=True)
+        folder = os.path.dirname(EXAMPLE)
+        for name in os.listdir(folder):
+            if name.endswith(".eds"):
+                shutil.copy(os.path.join(folder, name), self.canopen)
+        self.cfg["diagnostics"] = dict(DIAG)
+        self.save(self.cfg)
+        self.addCleanup(lambda: self.request("POST", "/api/trace/stop", {}))
+
+    def test_modbus_rows_inspector_and_by_request(self):
+        from canworks.bustrace.modbus import Record
+        from .test_modbus_trace import write16
+        self.fake.modbus_bridge = True
+        st = self.ok("POST", "/api/trace/start", {"modbus": {"on": True, "changes_only": False}})
+        self.assertTrue(self.wait_for(lambda: self.state()["recording"]["state"] == "recording"
+                                      and self.fake.modbus_starts))
+        self.assertEqual(self.fake.modbus_starts[-1]["changes_only"], False)
+        now = int(time.time() * 1e6)
+        q, a = write16(1, [3])
+        self.fake.push([Frame(now - 2_000_000, 0x206, b"\x00")])
+        self.fake.push_modbus([Record(now - 1_900_000, "127.0.0.1", q, a)])
+        self.fake.push([Frame(now - 1_800_000, 0x206, b"\x01")])
+        self.assertTrue(self.wait_for(lambda: self.state()["frames"] == 3, 6))
+        st = self.state()
+        self.assertEqual(st["modbus"], 1)
+        rows = self.ok("POST", "/api/trace/frames", {})["rows"]
+        self.assertEqual([r["kind"] == "modbus" for r in rows], [False, True, False])
+        mb = rows[1]
+        self.assertEqual(mb["id"], "Modbus")
+        self.assertIn("write HR", mb["text"])
+        only = self.ok("POST", "/api/trace/frames", {"filter": {"source": "modbus"}})
+        self.assertEqual(only["total"], 1)
+        can = self.ok("POST", "/api/trace/frames", {"filter": {"source": "can"}})
+        self.assertEqual(can["total"], 2)
+        rec = self.ok("POST", "/api/trace/modbus/record", {"seq": mb["seq"]})
+        self.assertEqual(rec["function"], 16)
+        self.assertIn("delays", rec)
+        status, _, _ = self.request("POST", "/api/trace/modbus/record", {"seq": rows[0]["seq"]})
+        self.assertEqual(status, 400)
+        table = self.ok("POST", "/api/trace/modbus", {})
+        self.assertEqual(table["records"], 1)
+        self.assertEqual(len(table["requests"]), 1)
+        self.ok("POST", "/api/trace/stop", {})
+        out = self.ok("POST", "/api/trace/export", {"format": "candump"})
+        self.assertTrue(out["left_out"])
+        out = self.ok("POST", "/api/trace/export", {"format": "pcapng"})
+        self.assertIsNone(out["left_out"])
+        back = self.ok("POST", "/api/trace/open", {"name": "t.pcapng", "data": out["data"]})
+        self.assertEqual(back["modbus"], 1)
+
+    def test_bad_modbus_option(self):
+        status, data, _ = self.request("POST", "/api/trace/start", {"modbus": {"on": True, "client": 5}})
+        self.assertEqual(status, 400, data)

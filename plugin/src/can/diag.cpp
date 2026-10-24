@@ -725,6 +725,7 @@ void DiagServer::hand_over(size_t i) {
 void DiagServer::close_client(size_t i) {
   log_unlogged_frames(clients_[i]);
   end_client_jobs(clients_[i].serial, "client disconnected");
+  if (clients_[i].authed && host_.client_gone) host_.client_gone(clients_[i].serial);
   if (clients_[i].fd >= 0) close(clients_[i].fd);
   clients_.erase(clients_.begin() + static_cast<long>(i));
 }
@@ -1093,6 +1094,13 @@ void DiagServer::handle_line(Client& c, const std::string& line) {
       c.out += diag_ok(r.id, cia309_.info ? cia309_.info() : nullptr);
       c.handover = true;
     }
+    return;
+  }
+  // The bridge's Modbus trace (canopen-online-diagnostics "Modbus trace
+  // operations"): bridge-wide, so no network.
+  if (c.authed && r.op.compare(0, 13, "modbus_trace_") == 0) {
+    if (!host_.host_op || !host_.host_op(c.serial, r.id, r.op, req, c.out)) c.out += diag_error(r.id, "not a bridge");
+    cJSON_Delete(req);
     return;
   }
   size_t net = 0;

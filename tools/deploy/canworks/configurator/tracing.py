@@ -21,7 +21,7 @@ from array import array
 
 from .. import contract, dbcexport, diag
 from ..bustrace import explain as explain_mod
-from ..bustrace import formats, sequences, triggers
+from ..bustrace import formats, modbus as modbus_mod, sequences, triggers
 from ..bustrace.decode import CONTEXT_KINDS, KINDS, Decoder, network_entry
 from ..bustrace.recorder import Recorder, Session
 from ..bustrace.stats import KIND_CODE, Analysis, id_key
@@ -33,6 +33,7 @@ MAX_VIEWS = 8
 MAX_SEQUENCES = 2000  # conversations or boot stories sent to the page
 CONTEXT = {KIND_CODE[k] for k in CONTEXT_KINDS}  # SDO transfers, J1939 transport sessions
 GAP = KIND_CODE["gap"]
+MODBUS = KIND_CODE["modbus"]
 EXPORT_FORMATS = ("pcapng", "candump", "asc", "blf", "trc", "csv", "signals")
 CONTENT_TYPES = {"csv": "text/csv", "signals": "text/csv"}
 
@@ -106,13 +107,19 @@ class DisplayFilter:
             raise Refused(400, "dir must be any, rx or tx")
         self.dir = direction
         self.text = str(spec.get("text") or "").strip().lower()
+        # Modbus records next to the frames (canopen-configurator "Modbus
+        # requests in the Trace view"): any, can or modbus.
+        source = spec.get("source") or "any"
+        if source not in ("any", "can", "modbus"):
+            raise Refused(400, "source must be any, can or modbus")
+        self.source = source
         self.key = (tuple(sorted(self.nodes or ())), tuple(sorted(self.kinds or ())), self.id_from, self.id_to,
-                    self.dir, self.text)
+                    self.dir, self.text, self.source)
 
     @property
     def empty(self):
         return not (self.nodes or self.kinds or self.id_from is not None or self.id_to is not None
-                    or self.dir != "any" or self.text)
+                    or self.dir != "any" or self.text or self.source != "any")
 
 
 class FilterView:
@@ -135,6 +142,15 @@ class FilterView:
         for seq in range(start, end):
             i = seq - base
             kind = kinds[i]
+            if kind == MODBUS:
+                # A Modbus record: the source filter and the text decide.
+                if flt.source != "can" and flt.nodes is None and flt.kinds is None and flt.id_from is None \
+                        and flt.id_to is None and flt.dir == "any":
+                    if not flt.text or flt.text in session.modbus_text(t.frame(i)).lower():
+                        self.seqs.append(seq)
+                continue
+            if flt.source == "modbus":
+                continue
             if kind == GAP:
                 if flt.kinds is None or GAP in flt.kinds:
                     self.seqs.append(seq)
@@ -199,6 +215,7 @@ class Workspace:
         self.device_reads = []
         # The last read's result per node: {node: (read_result(...), time or None)}.
         self.read_results = {}
+        self.modbus_cache = None  # (generation, places, rows, table)
 
     def _replace(self, session, source, warnings):
         self.session, self.source, self.warnings = session, source, list(warnings)
@@ -208,7 +225,7 @@ class Workspace:
 
     # -- recording ----------------------------------------------------------
     def start(self, connect, decoder, filters, error_frames, trigger, autosave_dir, name_prefix, network=None,
-              continue_=False, ended=None, connection=None, adapter_host=None):
+              continue_=False, ended=None, connection=None, adapter_host=None, modbus=None, mapdec=None):
         """continue_: append to the recording that stopped (on its network
         only), after a gap marker, keeping the trigger's hits. ended: see
         Recorder. connection: "adapter" or "runtime", kept in the metadata,
@@ -229,13 +246,14 @@ class Workspace:
                 self.trigger = trigger or None
             if not continue_:
                 self._replace(Session(decoder, limit=self.limit), "live", decoder.warnings)
+            self.session.mapdec = mapdec
             if connection:
                 self.session.trace.meta["connection"] = connection
             if adapter_host:
                 self.session.trace.meta["adapter_host"] = adapter_host
             self.recorder = Recorder(connect, self.session, filters, error_frames, self.trigger,
                                      autosave_dir=autosave_dir, name_prefix=name_prefix, ended=ended,
-                                     offset_us=old.offset_us if continue_ and old else None)
+                                     offset_us=old.offset_us if continue_ and old else None, modbus=modbus)
             if continue_ and old and old.engine and self.recorder.engine:
                 self.recorder.engine.hits = list(old.engine.hits)
             self.recorder.start()
@@ -287,13 +305,16 @@ class Workspace:
             with s.lock:
                 s.decoder.add_device_values(nid, values, t if t is not None else -1, dtype)
 
-    def redecode(self, decoder):
+    def redecode(self, decoder, mapdec=None):
         """Decodes the trace again with another decoder (the DBC files or the
         nodes' EDS files changed); a live recording keeps recording."""
         with self.lock:
             s = self.session
             live = self.source == "live"
         with s.lock:
+            if mapdec is not None:
+                mapdec.set_bridge_hash(s.trace.meta.get("bridge_map_hash"))
+                s.mapdec = mapdec
             reads = [((t if t is not None else -1), nid, values, dtype)
                      for nid, values, dtype, t in (self.device_reads if live else [])]
             reads.sort(key=lambda r: r[0])
@@ -356,11 +377,14 @@ class Workspace:
                 rec.stop_at_us = None
                 rec.pending_saves = []
 
-    def open(self, trace, name, decoder, network=None):
+    def open(self, trace, name, decoder, network=None, mapdec=None):
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "stop the recording before opening a file")
         session = Session(decoder, trace=trace)  # decodes every frame: the page keeps polling meanwhile
+        if mapdec is not None:
+            mapdec.set_bridge_hash(trace.meta.get("bridge_map_hash"))
+        session.mapdec = mapdec
         with self.lock:
             if self.recorder and self.recorder.running:
                 raise Refused(409, "stop the recording before opening a file")
@@ -381,7 +405,8 @@ class Workspace:
                    "summary": s.analysis.summary(sum(n for _, n in t.lost), t.kernel_drops),
                    "series": s.analysis.series_list(), "warnings": self.warnings,
                    "filters": [{"id": i, "mask": m} for i, m in self.filters], "error_frames": self.error_frames,
-                   "trigger": self.trigger, "trigger_text": triggers.describe(self.trigger) if self.trigger else ""}
+                   "trigger": self.trigger, "trigger_text": triggers.describe(self.trigger) if self.trigger else "",
+                   "modbus": len(t.modbus), "modbus_note": self._modbus_note(s)}
         out["recording"] = info or {"state": "idle", "message": "", "running": False, "saved": [], "hits": []}
         return out
 
@@ -432,6 +457,9 @@ class Workspace:
                 for j in between:
                     if j in wanted:
                         f = t.frame(j)
+                        if f.modbus:
+                            rows.append(self._modbus_row(s, f, j + base, positions[len(rows)]))
+                            continue
                         d = dec.decode(f)
                         rows.append(_row(f, d, j + base, positions[len(rows)]))
                     elif a.kinds[j] in CONTEXT:
@@ -471,7 +499,7 @@ class Workspace:
                 base = t.dropped
                 for q in view.seqs:
                     f = t.frame(q - base)
-                    if not f.gap:
+                    if not f.gap and not f.modbus:
                         keys.add(id_key(f))
             now = self._now_us()
             rows = a.id_table(rev, now)
@@ -502,7 +530,7 @@ class Workspace:
                 data = {}
                 for j in range(i + 1):
                     f = t.frame(j)
-                    if not f.gap:
+                    if not f.gap and not f.modbus:
                         data[id_key(f)] = f.data
                 a.set_reference(data, t.times[i])
             return {"reference": a.ref is not None, "reference_us": a.ref_us}
@@ -537,6 +565,8 @@ class Workspace:
             f = t.frame(i)
             if f.gap:
                 raise Refused(422, "this row marks lost frames; it is not a frame")
+            if f.modbus:
+                raise Refused(422, "this row is a Modbus request, not a CAN frame")
             rate = bitrate or s.analysis.bitrate or fallback or None
             m = explain_mod.explain(f, s.decoder, rate, explain_mod.context_for(t, i, s.decoder))
         m.update(seq=seq, t_us=f.time_us, dir="Tx" if f.tx else "Rx")
@@ -597,6 +627,60 @@ class Workspace:
                         "period_max_us": max(periods) if periods else None,
                         "cycle": sequences.sync_cycle(t, a.kinds, dec, n, base)}
         raise Refused(400, "kind must be sdo, boot or sync")
+
+    # -- Modbus records (canopen-configurator "Modbus requests in the Trace
+    # view") -------------------------------------------------------------------
+    @staticmethod
+    def _modbus_note(s):
+        dec = getattr(s, "mapdec", None)
+        if not s.trace.modbus or dec is None:
+            return ""
+        return dec.mismatch or dec.problem or ""
+
+    def _modbus_row(self, s, f, seq, pos):
+        rec = s.trace.modbus[f.can_id]
+        d = s.modbus_decode(rec)
+        return {"pos": pos, "seq": seq, "t_us": rec.time_us, "dir": "", "id": "Modbus", "ext": False, "rtr": False,
+                "err": False, "gap": False, "dlc": 0, "data": "", "kind": "modbus", "node": None,
+                "name": d["client"], "text": d["text"], "source": None, "modbus": {
+                    k: d[k] for k in ("client", "address", "function", "function_name", "short", "range", "result",
+                                      "exception", "refused", "skipped", "hints", "write")}}
+
+    def _modbus_all(self):
+        """Every record decoded with its delays, and the By request table,
+        kept until the trace grows or is decoded again."""
+        with self.lock:
+            s, generation = self.session, self.generation
+        with s.lock:
+            n = len(s.trace.modbus)
+            c = self.modbus_cache
+            if c and c[0] == generation and c[1] == n:
+                return c[2], c[3]
+            mapdec = getattr(s, "mapdec", None) or modbus_mod.MapDecoder(None)
+            rows, table = modbus_mod.decode_all(mapdec, s.trace, s.decoder, self.network or s.trace.meta.get("network"))
+            self.modbus_cache = (generation, n, rows, table)
+            return rows, table
+
+    def modbus_table(self):
+        """By request (canopen-configurator "Modbus requests in the Trace view")."""
+        rows, table = self._modbus_all()
+        with self.session.lock:
+            note = self._modbus_note(self.session)
+            skipped = sum(r["skipped"] for r in rows)
+        return {"requests": table, "records": len(rows), "skipped": skipped, "note": note}
+
+    def modbus_record(self, seq):
+        """The inspector of the Modbus row at absolute frame number `seq`."""
+        with self.session.lock:
+            t = self.session.trace
+            i = seq - t.dropped
+            if not 0 <= i < len(t) or not t.frame(i).modbus:
+                raise Refused(400, "row %s is not a Modbus request" % seq)
+            index = t.frame(i).can_id
+        rows, _ = self._modbus_all()
+        if index >= len(rows):
+            raise Refused(409, "the Modbus request is not decoded yet")
+        return dict(rows[index], seq=seq)
 
     def part(self, start_us=None, end_us=None):
         with self.session.lock:
@@ -828,6 +912,23 @@ def encode_export(ws, fmt, start_us, end_us, keys, base_name):
         name = "%s.%s" % (base_name, ext)
     return {"name": name, "content_type": CONTENT_TYPES.get(fmt, "application/octet-stream"),
             "size": len(data), "data": base64.b64encode(data).decode("ascii")}
+
+
+def modbus_option(spec):
+    """The Capture… dialog's Modbus choice: None (CAN only) or the recorder's
+    {"changes_only", "clients"} (canopen-configurator "Modbus requests in the
+    Trace view")."""
+    if not spec:
+        return None
+    if not isinstance(spec, dict):
+        raise Refused(400, "modbus must be an object")
+    if not spec.get("on"):
+        return None
+    client = spec.get("client")
+    if client is not None and not isinstance(client, str):
+        raise Refused(400, "modbus.client must be an address")
+    client = (client or "").strip()
+    return {"changes_only": spec.get("changes_only", True) is not False, "clients": [client] if client else None}
 
 
 def connector(hostname, port, token, timeout=3.0, network=None):

@@ -200,6 +200,13 @@ class FakePlugin:
         self.trace_session = True
         self.trace_starts = []
         self.trace_lock = threading.Lock()
+        # The bridge's Modbus trace: off ("not a bridge") unless a test sets
+        # modbus_bridge; records the test pushes (bustrace.modbus.Record).
+        self.modbus_bridge = False
+        self.modbus_records = []  # (seq, packed)
+        self.modbus_seq = 0
+        self.modbus_starts = []
+        self.modbus_map_hash = "0x00000000"
         self.present = {2, 23, 40}  # node IDs that answer SDO
         if self.networks:
             if self.networks[0].get("protocol") == "j1939":
@@ -419,6 +426,31 @@ class FakePlugin:
                 self.trace_records.append((self.trace_seq, f.pack()))
             del self.trace_records[:-self.trace_ring]
 
+    def push_modbus(self, records):
+        """Adds Modbus records (bustrace.modbus.Record) to the fake bridge's trace."""
+        with self.trace_lock:
+            for r in records:
+                self.modbus_seq += 1
+                r.seq = self.modbus_seq
+                self.modbus_records.append((self.modbus_seq, r.pack()))
+
+    def _modbus(self, req, ok, err):
+        op = req["op"]
+        if not self.modbus_bridge:
+            return err("not a bridge")
+        if op == "modbus_trace_start":
+            self.modbus_starts.append(req)
+            return ok({"next": self.modbus_seq, "map_hash": self.modbus_map_hash, "buffer_bytes": 4 << 20,
+                       "header_size": 34, "port": 1502, "unit_id": 1, "changes_only": req.get("changes_only", True)})
+        if op == "modbus_trace_stop":
+            return ok({"stopped": True})
+        with self.trace_lock:
+            after, most = int(req["after"]), int(req.get("max", 2000))
+            recs = [(q, b) for q, b in self.modbus_records if q > after][:most]
+            nxt = recs[-1][0] if recs else after
+            return ok({"count": len(recs), "next": nxt, "more": nxt < self.modbus_seq, "lost": 0,
+                       "records": base64.b64encode(b"".join(b for _, b in recs)).decode()})
+
     def _trace(self, req, ok, err, net):
         op = req["op"]
         if not self.trace_supported:
@@ -522,6 +554,8 @@ class FakePlugin:
         op = req.get("op")
         ok = lambda result: {"ok": True, "result": result}  # noqa: E731
         err = lambda why: {"ok": False, "error": why}  # noqa: E731
+        if op in ("modbus_trace_start", "modbus_trace_fetch", "modbus_trace_stop"):
+            return self._modbus(req, ok, err)  # bridge-wide: no network
         net, why = self._pick(req)
         if why:
             return err(why)

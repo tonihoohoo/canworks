@@ -21,6 +21,7 @@ import time
 from .. import diag
 from . import formats, triggers
 from .model import RECORD_SIZE, Frame, Trace, unpack_records
+from .modbus import Record as ModbusRecord
 from .stats import Analysis
 
 FETCH_INTERVAL = 0.1
@@ -28,6 +29,9 @@ STATUS_INTERVAL = 0.5
 RECONNECT_INTERVAL = 1.0
 LOST_AFTER_S = 10.0  # a runtime that answers no reconnect for this long ends the recording
 TOO_OLD = "the bridge is too old for traces; update it (install-bridge.sh)"
+MODBUS_HOLD_US = 500_000  # Modbus records wait this long for CAN frames of their time
+NOT_A_BRIDGE = "Modbus requests: the runtime is not a bridge, so only CAN frames are recorded"
+MODBUS_TOO_OLD = "Modbus requests: the bridge is too old for a Modbus trace; update it (install-bridge.sh)"
 
 
 class Session:
@@ -38,6 +42,7 @@ class Session:
         if trace is None and bitrate:
             self.trace.meta["bitrate"] = bitrate
         self.analysis = Analysis(decoder, bitrate or self.trace.meta.get("bitrate"))
+        self.mapdec = None  # bustrace.modbus.MapDecoder of the Modbus records, when there is a config
         if trace is not None and len(trace):
             for f in trace:
                 self.analysis.feed(f)
@@ -58,6 +63,33 @@ class Session:
     def feed(self, frames, on_decoded=None):
         return self.feed_packed(b"".join(f.pack() for f in frames), on_decoded)
 
+    def modbus_decode(self, rec):
+        from .modbus import MapDecoder
+        if self.mapdec is None:
+            self.mapdec = MapDecoder(None)
+        return self.mapdec.decode(rec)
+
+    def modbus_text(self, place):
+        """A Modbus place's row text, for the text filter."""
+        rec = self.trace.modbus[place.can_id]
+        d = self.modbus_decode(rec)
+        return "%s %s %s" % (d["client"], d["text"], " ".join(d["hints"]))
+
+    def feed_modbus(self, records):
+        """Appends Modbus records (time order) after the frames: a record
+        older than the newest frame keeps its own time but takes its place
+        after it."""
+        with self.lock:
+            t = self.trace
+            for r in records:
+                end = t.end_us
+                before = t.dropped
+                t.append_modbus(r, end if end is not None and r.time_us < end else None)
+                self.analysis.feed(t.frame(len(t) - 1))
+                dropped = t.dropped - before
+                if dropped:
+                    self.analysis.drop_front(dropped)
+
 
 class Recorder:
     """state: idle, connecting, recording, no_bus, reconnecting, stopped,
@@ -69,7 +101,7 @@ class Recorder:
 
     def __init__(self, connect, session, filters=None, error_frames=False, trigger=None, autosave_dir=None,
                  name_prefix="canworks", fetch_interval=FETCH_INTERVAL, status_interval=STATUS_INTERVAL,
-                 on_stop=None, ended=None, offset_us=None, lost_after=LOST_AFTER_S):
+                 on_stop=None, ended=None, offset_us=None, lost_after=LOST_AFTER_S, modbus=None):
         self.connect = connect  # () -> a connected diag.Client
         self.session = session
         self.filters = list(filters or [])
@@ -82,6 +114,13 @@ class Recorder:
         self.on_stop = on_stop
         self.ended = ended
         self.lost_after = lost_after
+        # Modbus requests (canopen-configurator "Modbus requests in the
+        # Trace view"): {"changes_only", "clients"} or None.
+        self.modbus = modbus
+        self.modbus_note = ""
+        self._mb_pending = []
+        self._can_pending = []
+        self._mb_active = False
         self.state = "idle"
         self.message = ""
         self.saved = []  # auto-saved file paths
@@ -121,7 +160,8 @@ class Recorder:
         out = {"state": self.state, "message": self.message, "running": self.running,
                "saved": list(self.saved), "hits": list(self.engine.hits) if self.engine else [],
                "trigger": triggers.describe(self.engine.spec) if self.engine else None,
-               "lost": sum(n for _, n in t.lost), "kernel_drops": t.kernel_drops, "trimmed": self.trimmed}
+               "lost": sum(n for _, n in t.lost), "kernel_drops": t.kernel_drops, "trimmed": self.trimmed,
+               "modbus": bool(self.modbus), "modbus_note": self.modbus_note}
         return out
 
     # -- the loop -------------------------------------------------------------
@@ -136,6 +176,7 @@ class Recorder:
     def _run(self):
         client = None
         next_seq = 0
+        mb_seq = None  # the Modbus trace's cursor; None: no Modbus trace
         last_status = 0.0
         last_ok = time.monotonic()
         try:
@@ -191,10 +232,14 @@ class Recorder:
                             if last is not None and at - last >= 1_000_000:
                                 self.session.trace.add_marker(at, "gap of %.1f s" % ((at - last) / 1e6), "gap")
                     next_seq = int(r.get("next") or 0)
+                    mb_seq = self._modbus_start(client)
                     self.state, self.message = "recording", ""
                 try:
                     more = self._fetch(client, next_seq)
                     next_seq = more[0]
+                    if mb_seq is not None:
+                        mb_seq, mb_more = self._fetch_modbus(client, mb_seq)
+                        more = (more[0], more[1] or mb_more)
                     now = time.monotonic()
                     if now - last_status >= self.status_interval:
                         last_status = now
@@ -202,6 +247,9 @@ class Recorder:
                 except diag.DiagError as e:
                     client.close()
                     client = None
+                    mb_seq = None
+                    self._flush_modbus(None)
+                    self._mb_active = False
                     if str(e).startswith("connection ended"):
                         self._end(str(e)[len("connection ended"):].lstrip(": ") or "closed")
                         break
@@ -223,10 +271,14 @@ class Recorder:
         finally:
             if client is not None:
                 try:
+                    if mb_seq is not None:
+                        mb_seq = self._fetch_modbus(client, mb_seq, flush=True)[0]
+                        client.modbus_trace_stop()
                     client.trace_stop()
                 except diag.DiagError:
                     pass
                 client.close()
+            self._flush_modbus(None)
             self._autosave_due(force=True)
             if self.stop_at_us is not None:
                 self._keep_window()
@@ -247,7 +299,11 @@ class Recorder:
                 trace.add_marker(first_us, "%d frames lost" % lost, "lost")
         trace.kernel_drops = int(r.get("kernel_drops") or 0)
         if data:
-            self.session.feed_packed(data, self._on_frame if self.engine else None)
+            if self._mb_active:
+                # With a Modbus trace the frames wait too, so both go in by time.
+                self._can_pending += unpack_records(data)
+            else:
+                self.session.feed_packed(data, self._on_frame if self.engine else None)
             newest = Frame.unpack(data, len(data) - RECORD_SIZE).time_us
             off = int(time.time() * 1e6) - newest
             if self.offset_us is None or off < self.offset_us:
@@ -257,6 +313,77 @@ class Recorder:
         elif self.state == "no_bus":
             self.state, self.message = "recording", ""
         return int(r.get("next", after)), bool(r.get("more"))
+
+    # -- Modbus ---------------------------------------------------------------
+    def _modbus_start(self, client):
+        """Starts the Modbus trace next to the CAN one; the cursor, or None
+        (not asked for, or not a bridge: noted, CAN goes on)."""
+        if not self.modbus:
+            return None
+        try:
+            r = client.modbus_trace_start(self.modbus.get("changes_only", True), self.modbus.get("clients"))
+        except diag.DiagError as e:
+            if e.kind != "refused":
+                raise
+            self.modbus_note = MODBUS_TOO_OLD if "unknown op" in str(e) else \
+                NOT_A_BRIDGE if "not a bridge" in str(e) else "Modbus requests: %s" % e
+            return None
+        with self.session.lock:
+            meta = self.session.trace.meta
+            meta["modbus"] = True
+            for k, key in (("map_hash", "bridge_map_hash"), ("port", "modbus_port")):
+                if r.get(k) is not None:
+                    meta[key] = r[k]
+            if len(self.session.trace.modbus):
+                at = int(time.time() * 1e6) - (self.offset_us or 0)
+                self.session.trace.add_marker(at, "Modbus trace restarted (requests may be missing)", "gap")
+        self.modbus_note = ""
+        self._mb_active = True
+        return int(r.get("next") or 0)
+
+    def _fetch_modbus(self, client, after, flush=False):
+        r = client.modbus_trace_fetch(after, 4000)
+        recs = ModbusRecord.unpack_all(base64.b64decode(r.get("records") or ""))
+        lost = int(r.get("lost") or 0)
+        if lost:
+            at = recs[0].time_us if recs else int(time.time() * 1e6) - (self.offset_us or 0)
+            with self.session.lock:
+                self.session.trace.add_marker(at, "%d Modbus requests lost" % lost, "lost")
+        self._mb_pending += recs
+        if recs:
+            off = int(time.time() * 1e6) - recs[-1].time_us
+            if self.offset_us is None or off < self.offset_us:
+                self.offset_us = off
+        self._flush_modbus(None if flush else int(time.time() * 1e6) - (self.offset_us or 0) - MODBUS_HOLD_US)
+        return int(r.get("next", after)), bool(r.get("more"))
+
+    def _flush_modbus(self, upto_us):
+        """Puts the waiting frames and Modbus records up to a time into the
+        trace, in time order (all of them with None): records and frames of
+        the same moment come in different fetches."""
+        if not self._mb_pending and not self._can_pending:
+            return
+        if upto_us is None:
+            mb, self._mb_pending = self._mb_pending, []
+            can, self._can_pending = self._can_pending, []
+        else:
+            mb = [x for x in self._mb_pending if x.time_us <= upto_us]
+            self._mb_pending = [x for x in self._mb_pending if x.time_us > upto_us]
+            can = [f for f in self._can_pending if f.time_us <= upto_us]
+            self._can_pending = [f for f in self._can_pending if f.time_us > upto_us]
+        mb.sort(key=lambda x: x.time_us)
+        on = self._on_frame if self.engine else None
+        i = 0
+        for rec in mb:
+            j = i
+            while j < len(can) and can[j].time_us <= rec.time_us:
+                j += 1
+            if j > i:
+                self.session.feed(can[i:j], on)
+                i = j
+            self.session.feed_modbus([rec])
+        if i < len(can):
+            self.session.feed(can[i:], on)
 
     def _poll_status(self, client):
         st = client.status()

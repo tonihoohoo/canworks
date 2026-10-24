@@ -200,6 +200,7 @@ class Analysis:
         self.series = {}           # key -> Series
         self.frames = 0
         self.error_frames = 0
+        self.modbus = 0            # Modbus records fed
         self.first_us = None
         self.last_us = None
         for key, label, node in decoder.signal_keys():
@@ -217,6 +218,11 @@ class Analysis:
         self.fed += 1
         self.kinds.append(KIND_CODE[d.kind])
         self.nodes.append(d.node if isinstance(d.node, int) and 0 <= d.node < 256 else 0)
+        if f.modbus:
+            # Not a frame: no rate, load or identifier row (canopen-bus-trace
+            # "Modbus records in a trace").
+            self.modbus += 1
+            return d
         if f.gap:
             return d
         self.frames += 1
@@ -295,7 +301,8 @@ class Analysis:
                     bits += b[1]
             rate = frames / (n * BUCKET_US / 1e6)
             load = 100.0 * bits / (n * BUCKET_US / 1e6) / self.bitrate if self.bitrate else None
-        return {"frames": self.frames, "error_frames": self.error_frames, "lost": lost, "kernel_drops": kernel_drops,
+        return {"frames": self.frames, "error_frames": self.error_frames, "modbus": self.modbus,
+                "lost": lost, "kernel_drops": kernel_drops,
                 "rate": rate, "load": load, "bitrate": self.bitrate or None,
                 "first_us": self.first_us, "last_us": self.last_us}
 

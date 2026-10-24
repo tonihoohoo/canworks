@@ -283,6 +283,7 @@ function renderBridge(view) {
       title: "Install the bridge on a Linux device over SSH and start it with this project's saved config",
       onclick: () => installOnDevice(null) }, "Install on device…")),
     bridgeConnections(),
+    bridgeClientsBox(),
     ...bridgeServerFields(),
     el("fieldset", null, el("legend", null, "Bridge blocks"),
       el("p", { class: "muted" }, "Optional. Suggest places a block after the packed data, in a free range."),
@@ -916,7 +917,7 @@ async function plcLinkOn() {
 // Add connection: the four kinds, each with what it gets, then its name,
 // address and Writes. OpenPLC on a standalone config also offers New editor
 // project… and Move into project…, which add the connection on the way.
-async function addConnection() {
+async function addConnection(prefill) {
   const has = connectionsOf("openplc").length > 0;
   const pick = (k) => el("label", { class: "choice" },
     el("input", { type: "radio", name: "conn-kind", value: k.kind, dataset: { connKind: k.kind },
@@ -926,6 +927,7 @@ async function addConnection() {
   const address = el("input", { type: "text", spellcheck: "false", id: "conn-address", placeholder: "e.g. 192.168.10.20", dataset: { connAddress: "1" } });
   const writes = el("input", { type: "checkbox", dataset: { connWrites: "1" } });
   const addressMsg = el("span", { class: "field-msg", dataset: { connMsg: "address" } });
+  if (prefill && prefill.address) address.value = prefill.address;
   const kindOf = () => (form.querySelector("input[name=conn-kind]:checked") || {}).value || "hmi";
   // Next to a PLC link one PLC writes already: a new connection starts read-only (UI-2).
   const link = !!(fileConfig().bridge || {}).plc_link;
@@ -1084,4 +1086,110 @@ async function connectionDownload(i) {
   const notes = (r.notes || []).map((n) => ` Note: ${n}.`).join("");
   const how = c.kind === "nodered" ? ` Import it in Node-RED; it needs the package ${r.package} (Package on this row).` : r.name.endsWith(".zip") ? " Unzip it and follow README.txt." : "";
   banner(`Downloaded ${r.name}.${how} Save keeps its map hash, so the row says when the map changes.${notes}`, notes ? "warning" : "done");
+}
+
+// -- clients (add-modbus-traffic-view; canopen-configurator "Modbus clients
+// panel") ------------------------------------------------------------------
+
+function bridgeClientsBox() {
+  const box = el("fieldset", { id: "bridge-clients", dataset: { bridge: "clients" } }, el("legend", null, "Clients"));
+  setTimeout(() => bridgeClientsLive(S.onlineLast, null));
+  return box;
+}
+
+// The register map's names in a written range.
+function bridgeRangeNames(table, start, count) {
+  const rows = (S.bridgeMap && S.bridgeMap.rows) || [];
+  const end = start + count;
+  const names = rows.filter((r) => r.table === table && r.address < end && r.address + (r.count || 1) > start).map((r) => r.name);
+  return names.length > 3 ? names.slice(0, 3).join(", ") + ` and ${names.length - 3} more` : names.join(", ");
+}
+
+function bridgeClientWrite(c) {
+  const w = c.last_write;
+  if (!w) return "";
+  const short = w.table === "coil" ? "CO" : "HR";
+  const range = w.count > 1 ? `${w.start}-${w.start + w.count - 1}` : String(w.start);
+  const names = bridgeRangeNames(w.table, w.start, w.count);
+  return `${short} ${range}${names ? ": " + names : ""}`;
+}
+
+function bridgeExceptions(c) {
+  const ex = c.exceptions || {};
+  const n = Object.values(ex).reduce((a, b) => a + b, 0);
+  return n ? `${n} (${Object.entries(ex).map(([k, v]) => `${k}: ${v}`).join(", ")})` : "0";
+}
+
+function bridgeAgo(s) {
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  return `${Math.floor(s / 3600)} h ago`;
+}
+
+// Connected to the bridge: each connection of the config with its clients'
+// counters, every other client marked Not in connections, the closed ones
+// under a disclosure. `r`: the last /api/online/status answer.
+function bridgeClientsLive(r, err) {
+  const box = $("#bridge-clients");
+  if (!box) return;
+  const legend = box.querySelector("legend");
+  const b = r && r.status && r.status.bridge;
+  if (!connIsOn() || connAdapter() || !b || err) {
+    box.replaceChildren(legend, el("p", { class: "muted", dataset: { bridgeClients: "offline" } },
+      connAdapter() ? "Connect to the runtime that runs canworks-bridge (not a USB adapter) to see its Modbus clients."
+        : err ? `The bridge does not answer: ${err.message}`
+        : connIsOn() ? "The runtime is not a bridge, or too old to list its clients."
+        : "Connect with Connect… in the connection bar to see which clients are connected, their request rate, exceptions and refused writes."));
+    return;
+  }
+  const open = box.querySelector("details[data-bridge=closed-clients]");
+  const keepOpen = !!(open && open.open);
+  const conns = connectionsOf();
+  const clients = Array.isArray(b.clients) ? b.clients : [];
+  const addrOf = (c) => c.kind === "openplc" ? "127.0.0.1" : (c.address || "");
+  const known = new Set(conns.map(addrOf).filter(Boolean));
+  const list = Array.isArray(S.model.top.bridge.connections) ? S.model.top.bridge.connections : [];
+  const settingsLink = (c) => el("button", { type: "button", class: "link", dataset: { bridgeClientSettings: c.name || addrOf(c) },
+    onclick: () => {
+      S.connOpen = list.indexOf(c);
+      const d = document.querySelector(`[data-conn-settings-of="${S.connOpen}"]`);
+      if (d) { d.open = true; d.scrollIntoView({ block: "center" }); }
+      const w = document.querySelector(`[data-path="bridge.connections[${S.connOpen}].writes"]`);
+      if (w && !w.disabled) w.focus();
+    } }, "Settings");
+  const row = (name, address, cl, extra) => {
+    const sum = (k) => cl.reduce((a, c) => a + (Number(c[k]) || 0), 0);
+    const refused = sum("refused_writes");
+    const last = cl.map((c) => c.last_write).filter(Boolean).sort((a, b) => b.time_us - a.time_us)[0];
+    return el("tr", { class: refused ? "warn" : "", dataset: { bridgeClient: address || name, clientState: cl.length ? "connected" : "not-connected" } },
+      el("td", null, name, extra.tag ? el("span", { class: "tag", dataset: { bridgeClientTag: "unknown" } }, "Not in connections") : null),
+      el("td", { class: "mono" }, address || "(no address)"),
+      el("td", null, cl.length ? `Connected${cl.length > 1 ? ` (${cl.length})` : ""}` : "Not connected"),
+      el("td", { class: "num" }, cl.length ? sum("rate").toFixed(1) : ""),
+      el("td", null, cl.length ? cl.map(bridgeExceptions).join("; ") : ""),
+      el("td", null, refused ? el("span", null, String(refused), " ", extra.link) : cl.length ? "0" : ""),
+      el("td", null, last ? bridgeClientWrite({ last_write: last }) : ""));
+  };
+  const rows = conns.map((c) => {
+    const a = addrOf(c);
+    return row(c.name || CONNECTION_TITLE[c.kind] || c.kind, a, clients.filter((x) => a && x.address === a), { link: settingsLink(c) });
+  });
+  const others = [...new Set(clients.filter((x) => !known.has(x.address)).map((x) => x.address))];
+  for (const a of others) {
+    rows.push(row(a, a, clients.filter((x) => x.address === a), { tag: true,
+      link: el("button", { type: "button", class: "link", dataset: { bridgeClientAdd: a }, onclick: () => addConnection({ address: a }) }, "Add connection") }));
+  }
+  const closed = Array.isArray(b.closed_clients) ? b.closed_clients : [];
+  box.replaceChildren(legend,
+    el("p", { class: "muted" }, "Live from the bridge: requests per second over the last 5 s, exceptions by code and refused writes since each client connected."),
+    rows.length ? el("table", { class: "od bridge-clients" },
+      el("thead", null, el("tr", null, thCells(["Name", "Address", "State", "Requests/s", "Exceptions", "Refused writes", "Last write"]))),
+      el("tbody", null, rows))
+      : el("p", { class: "muted" }, "No connection in the config and no client connected."),
+    closed.length ? el("details", { dataset: { bridge: "closed-clients" }, open: keepOpen || null },
+      el("summary", null, `Recently closed (${closed.length})`),
+      el("table", { class: "od" }, el("thead", null, el("tr", null, thCells(["Address", "Closed", "Reason", "Connected for", "Requests"]))),
+        el("tbody", null, closed.slice().reverse().map((c) => el("tr", { dataset: { closedClient: c.address } },
+          el("td", { class: "mono" }, `${c.address}:${c.port}`), el("td", null, bridgeAgo(c.ago_s || 0)), el("td", null, c.reason),
+          el("td", null, `${c.connected_s || 0} s`), el("td", { class: "num" }, String(c.requests || 0))))))) : null);
 }

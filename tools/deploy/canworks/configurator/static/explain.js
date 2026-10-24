@@ -491,6 +491,7 @@ function fxExplainWire(I, k) {
 async function fxInspectSeq(seq, target, opts) {
   const box = target || $("#trace-inspector");
   if (!box) return;
+  if (typeof traceModbusSeq === "function" && traceModbusSeq(seq)) return traceModbusInspect(seq, box);
   const my = (box._fxSeq = (box._fxSeq || 0) + 1);
   let m;
   try {
