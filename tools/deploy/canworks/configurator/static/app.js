@@ -216,6 +216,9 @@ new MutationObserver(() => {
 document.addEventListener("DOMContentLoaded", () => { for (const b of document.querySelectorAll("[data-box]:not([data-box-ready])")) boxBar(b); });
 
 const JOB_ROUTES = /^\/api\/(online\/(scan|scan_stop|lss_find|backup|compare|restore|restore_plan|configure\w*|od_read|job|pdo_test_start|pdo_test_stop|sync_start|sync_stop|send_frame|send_stop)|trace\/(start|stop))$/;
+// The server's answer to a request with an old session token (server.py _api).
+const SESSION_REFUSED = "missing or wrong session token";
+
 async function api(method, path, body) {
   // After Quit nothing answers: the page's timers wait for good (life.js).
   if (typeof LIFE !== "undefined" && LIFE.stopped) return new Promise(() => {});
@@ -240,6 +243,11 @@ async function api(method, path, body) {
   // The online status of a runtime or adapter that does not answer comes as
   // { reachable: false, error, kind }: an error to the callers, like any other.
   const ok = res.ok && !(data && data.reachable === false);
+  // A configurator started again has another session token (UI-14): this tab says so and stops asking.
+  if (res.status === 403 && data && data.error === SESSION_REFUSED && typeof showStopped === "function") {
+    showStopped("restarted");
+    return new Promise(() => {});
+  }
   if (method === "POST" && typeof commLogApi === "function") commLogApi(path, body, ok, data);
   // A job was started or stopped: the status bar (jobs.js) looks at once.
   if (method === "POST" && typeof jobsKick === "function" && JOB_ROUTES.test(path)) jobsKick();
@@ -1554,8 +1562,9 @@ function render() {
   fitHeaderMore();
   const badge = $("#mode");
   badge.hidden = false;
-  badge.replaceChildren(el("span", { class: "mode-name" }, S.state.commission ? "commissioning a device (nothing here is saved to a project)"
-    : S.state.mode === "project" ? "project " + S.state.name : "config " + S.state.name));
+  // "project NAME": the word, like the target, gives way before the name when the header is short (UI-13).
+  badge.replaceChildren(...(S.state.commission ? [el("span", { class: "mode-name" }, "commissioning a device (nothing here is saved to a project)")]
+    : [el("span", { class: "mode-kind" }, S.state.mode === "project" ? "project " : "config "), el("span", { class: "mode-name" }, S.state.name)]));
   badge.title = S.state.config_path;
   if (!S.state.commission && S.model) {
     // The target opens the Project page, where it is switched.

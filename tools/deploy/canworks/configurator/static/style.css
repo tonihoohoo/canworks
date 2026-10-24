@@ -1153,8 +1153,11 @@ body.header-tight header .top-row .sim-what { display: none; }
   header .top-row { flex-wrap: nowrap; }
   header .top-row > * { flex-shrink: 0; }
   header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
-  #mode .mode-name { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
-  #mode .target-mark, #mode .unsaved-mark { flex: none; white-space: pre; }
+  /* The project name stays (UI-13): the word "project" goes, and the target shrinks far faster than the name. */
+  #mode .mode-name { flex: 0 1 auto; min-width: 3ch; max-width: none; overflow: hidden; text-overflow: ellipsis; }
+  #mode .unsaved-mark { flex: none; white-space: pre; }
+  #mode .target-mark { flex: 0 10000 auto; min-width: 1.5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  #mode .mode-kind { display: none; }
 }
 /* Wider, a header that would still wrap (a wide font, the simulation chip) does the same. */
 @media (min-width: 801px) {
@@ -1162,7 +1165,9 @@ body.header-tight header .top-row .sim-what { display: none; }
   body.header-tight header .top-row > * { flex-shrink: 0; }
   body.header-tight header .top-row > #mode { flex-shrink: 1; min-width: 0; display: inline-flex; align-items: baseline; white-space: nowrap; }
   body.header-tight #mode .mode-name { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
-  body.header-tight #mode .target-mark, body.header-tight #mode .unsaved-mark { flex: none; white-space: pre; }
+  body.header-tight #mode .unsaved-mark { flex: none; white-space: pre; }
+  body.header-tight #mode .target-mark { flex: 0 10000 auto; min-width: 1.5ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  body.header-tight #mode .mode-kind { display: none; }
 }
 /* A Commission node's one-line header (commission-master-detail): back to Nodes, the node, its live state. */
 .node-head { flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px; }

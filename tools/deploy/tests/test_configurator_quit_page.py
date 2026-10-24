@@ -246,6 +246,27 @@ class Gone(Base):
         pg.close(run_before_unload=True)
         self.assertEqual(asked, [])
 
+    def test_restarted_with_another_session(self):
+        # UI-14: the configurator answers again, with a new session token: the
+        # old tab says it was restarted within 2 s and asks nothing more.
+        pg = self.page
+        self.open()
+        pg.wait_for_timeout(300)
+        self.server.token = "a-new-session"
+        self.comes_back()  # the next heartbeat (or the status bar's poll) is refused
+        start = time.monotonic()
+        pg.wait_for_selector('#stopped[data-restarted="1"]', timeout=4000)
+        self.assertLess(time.monotonic() - start, 2.5)
+        text = pg.inner_text("#stopped")
+        self.assertIn("This configurator was restarted.", text)
+        self.assertIn("Open the new tab", text)
+        self.assertTrue(pg.is_visible("#stopped-reload"))
+        sent = []
+        pg.on("request", lambda r: sent.append(r.url) if "/api/" in r.url else None)
+        self.comes_back()
+        pg.wait_for_timeout(5500)  # past the status bar's slow poll
+        self.assertEqual(sent, [])
+
     def test_one_missed_beat_says_nothing(self):
         pg = self.page
         self.open()

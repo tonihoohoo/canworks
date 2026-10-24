@@ -285,8 +285,11 @@ function editorProjectSection() {
   }
   const move = el("button", { type: "button", dataset: { editorProject: "move" } }, "Move into project…");
   move.onclick = () => busy(move, "Moving…", moveIntoProject);
-  const create = el("button", { type: "button", dataset: { editorProject: "new" },
-    title: "Create an OpenPLC Editor project with this config: the bridge as its Modbus device, and the canworks variables and programs" }, "New editor project…");
+  // Off without openplc-cli, with the reason, as in Add connection (UI-9).
+  const cli = !!S.state.openplc_cli;
+  const create = el("button", { type: "button", dataset: { editorProject: "new" }, disabled: cli ? null : true,
+    title: cli ? "Create an OpenPLC Editor project with this config: the bridge as its Modbus device, and the canworks variables and programs"
+      : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC" }, "New editor project…");
   create.onclick = () => busy(create, "Creating…", newEditorProject);
   box.append(el("p", { class: "muted" }, "No editor project: this is a config folder, so PLC addresses are not checked against a program. Save writes the remote device, the canworks_in and canworks_out programs and the canworks variable list once the config is in an editor project."),
     el("div", { class: "toolbar" }, move, create));
