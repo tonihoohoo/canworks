@@ -437,7 +437,8 @@ def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0, local=None):
         try:
             c = diag.Client(host, port, token, timeout=5.0)
             c.connect()
-            st = c.status()
+            # A bridge with several networks answers status per network; the upload is the bridge's own.
+            st = c.request("status", network=c.networks[0].get("name")) if c.several() else c.status()
             c.close()
         except diag.DiagError as e:
             last = e
@@ -448,9 +449,9 @@ def _deploy_bridge(args, cfg, sim_path, out, err, wait_s=60.0, local=None):
         if up.get("result") == "started":
             out("ok: canworks-bridge runs the new config")
             return 0
-        raise Failure("canworks-bridge did not start the new config: %s" % up.get("detail"))
+        raise Failure("canworks-bridge did not start the new config: %s" % up.get("detail"), uploaded=True)
     raise Failure("canworks-bridge did not answer within %d s after the upload%s"
-                  % (wait_s, ": %s" % last if last else ""))
+                  % (wait_s, ": %s" % last if last else ""), uploaded=True)
 
 
 def _from_codesys(args, out, runner=None):
