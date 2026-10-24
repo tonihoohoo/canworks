@@ -67,7 +67,9 @@ class OpenplcModbusPage(OnlineBase):
         # would cost; turned on they are placed after the data, a count change moves
         # them, and the page says the editor project needs a Save and a Build.
         pg.wait_for_selector('[data-bridge-mailboxes="0"]')
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("7 instead of 5 Modbus requests per poll")')
+        # Their own groups at the mailbox poll (mailbox-poll): 60 ms, the first multiple of the 20 ms poll from 50.
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("4 more Modbus requests every 60 ms")')
+        self.assertEqual(pg.locator("select[data-mailbox-poll]").count(), 0)
         self.assertIn("(budget 40)", pg.inner_text("[data-bridge-mailbox-cost]"))
         self.assertIn("declares no mailbox block", pg.inner_text("[data-bridge-mailbox-who]"))
         pg.check('input[data-path="bridge.mailboxes"]')
@@ -76,19 +78,33 @@ class OpenplcModbusPage(OnlineBase):
         self.assertNotIn("Update declarations", pg.inner_text("[data-bridge-mailbox-update]"))
         pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("The mailboxes take")')
         self.checked()
-        self.assertIn("The program declares no mailbox block, but the mailboxes take 2 of the 7",
+        self.assertIn("The program declares no mailbox block, but the mailboxes take 4 Modbus requests every 60 ms",
                       pg.inner_text("#problem-list"))
+        # The mailbox poll in the connection's Settings: multiples of the poll, each with what it gives.
+        sel = 'select[data-mailbox-poll]'
+        pg.wait_for_selector(sel)
+        self.assertEqual(pg.eval_on_selector_all(sel + " option", "os => os.map(o => o.textContent)"),
+                         ["20 ms", "60 ms (default)", "100 ms", "200 ms"])
+        hint = pg.inner_text('label:has(%s) .hint' % sel)
+        self.assertIn("about 120-180 ms plus the bus", hint)
+        self.assertIn("about 75 CAN frames per second", hint)
+        pg.select_option(sel, "100")
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("every 100 ms")')
+        self.assertEqual(pg.evaluate("() => getPath('bridge.connections[0].mailbox_poll_ms')"), 100)
+        pg.keyboard.press("Control+z")
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("every 60 ms")')
+        self.assertIsNone(pg.evaluate("() => getPath('bridge.connections[0].mailbox_poll_ms') ?? null"))
         pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "16")
         pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
         pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("+275 input")')
         pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "")
         pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
         self.checked()
-        # The expected receive rate at the 20 ms poll: 9 frames per batch, one batch per two polls.
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 225 CAN frames/s")')
+        # The expected receive rate at the 60 ms mailbox poll: 9 frames per batch, one batch per two mailbox polls.
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 75 CAN frames/s")')
         pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "2")
         pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
-        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 525 CAN frames/s at this poll (21 per batch")')
+        pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("about 175 CAN frames/s at the 60 ms mailbox poll (21 per batch")')
         pg.fill('input[data-path="bridge.mailboxes.receive_blocks"]', "")
         pg.press('input[data-path="bridge.mailboxes.receive_blocks"]', "Tab")
         # Nothing declares a mailbox block: Problems turns them off in one step.

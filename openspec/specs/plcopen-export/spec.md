@@ -1,7 +1,7 @@
 # plcopen-export Specification
 
 ## Purpose
-Export a Modbus bridge config as PLCopen XML for a PLC that imports it and reads the bridge as a Modbus client (truST, others): the variables, the copy programs and the canworks function blocks in one file, with the target's files that connect it to the bridge.
+Export a Modbus bridge config as PLCopen XML for a PLC that imports it and reads the bridge as a Modbus client: the variables, the copy programs and the canworks function blocks in one file, with the target's files that connect it to the bridge.
 
 ## Requirements
 

@@ -95,7 +95,16 @@ The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.m
 | `J1939_RECEIVE` | the same | as `CAN_RECEIVE`, plus one per 128 bytes of a message longer than 8 bytes |
 | `CAN_BUS_INFO`, `J1939_ECU_INFO` | network info (the first 8 networks) | none: read every scan |
 
-A round trip is about two polls of the bridge: the request goes out with the next poll and the answer comes back with the one after, so 20-30 ms at the default 10 ms poll, plus the time on the bus. The receive mailbox shows 9 CAN frames per batch (21 with `receive_blocks: 2`), and the next batch comes once every receiving block has read its records, one batch every two polls: about 450 frames per second at the default 10 ms poll, or 1050 with two receive blocks ([modbus-bridge.md](modbus-bridge.md#receive-throughput)). Frames of one batch share their `TIMESTAMP`. For more, or for frames every few milliseconds, use the config's `rx` and `tx` messages ([raw-can.md](raw-can.md#config-messages)) or `CAN_SEND_CYCLIC`, whose frames the bridge sends from its own timer.
+A round trip is about two polls of the mailboxes: the request goes out with the next poll and the answer comes back with the one after, plus the time on the bus. The receive mailbox shows 9 CAN frames per batch (21 with `receive_blocks: 2`), and the next batch comes once every receiving block has read its records, one batch every two polls ([modbus-bridge.md](modbus-bridge.md#receive-throughput)). OpenPLC polls the mailboxes in register groups of their own, every **mailbox poll** of its connection (default 50 ms, a multiple of the poll up to 250 ms, in the connection's Settings), while the values and the status stay at the poll:
+
+| Mailbox poll | Round trip | CAN frames/s, 1 receive block | 2 receive blocks |
+|---|---|---|---|
+| 10 ms | 20-30 ms | about 450 | about 1050 |
+| 50 ms (default) | 100-150 ms | about 90 | about 210 |
+| 100 ms | 200-300 ms | about 45 | about 105 |
+| 200 ms | 400-600 ms | about 22 | about 52 |
+
+The default `TIMEOUT`s (5 s for SDOs and NMT, 1 s for a send) hold at every mailbox poll. Other clients poll the mailboxes at their own poll; if a PLC's Modbus driver allows a cycle time per channel, put the mailbox range in a channel of its own with a slower cycle. The Node-RED package reads each mailbox part only while a node uses it ([node-red.md](node-red.md)). Frames of one batch share their `TIMESTAMP`. For more, or for frames every few milliseconds, use the config's `rx` and `tx` messages ([raw-can.md](raw-can.md#config-messages)) or `CAN_SEND_CYCLIC`, whose frames the bridge sends from its own timer.
 
 **Sharing.** Blocks that need a request mailbox take a ticket when they start and get a mailbox in that order; an instance keeps it for its whole transfer, so with one request mailbox the blocks take turns. Waiting for a mailbox does not count against `TIMEOUT`. An instance that is no longer called drops out of the order, and loses its mailbox after 100 scans. More request mailboxes (up to 4) let that many transfers run at once.
 
@@ -107,7 +116,7 @@ A round trip is about two polls of the bridge: the request goes out with the nex
 
 ### With or without the mailboxes
 
-Every client polls the mailboxes' registers on every cycle, whether or not a block is called, so they are off by default. They come on when a program needs them:
+Every client polls the mailboxes' registers whether or not a block is called (OpenPLC every mailbox poll, the PLCopen copy code every cycle; only Node-RED skips the parts nobody uses), so they are off by default. They come on when a program needs them:
 
 - **OpenPLC**: Check and Save read the editor project's POUs. A declared mailbox block whose part is off is an error in Problems, with **Turn on what the program uses**, which turns on only the parts the declared blocks need. Mailboxes that neither the program nor a connection's **canworks blocks** choice needs get a warning with **Turn off the mailboxes**. The scan counts arrays of a block with any bounds and dimensions (integers and the project's constants, `ARRAY[1..N, 0..1] OF CAN_SEND_CYCLIC`), `canworks.CAN_RECEIVE` as `CAN_RECEIVE`, and the blocks inside a function block once per instance of it. Ladder, FBD and other non-ST POU files count each block they name, with an unknown number of instances. When a count cannot be worked out, Turn on what the program uses gives that part the most (16 cyclic jobs) and Problems never offers Turn off.
 - **Another client** (another PLC, Node-RED): turn them on in the **Function blocks** section of the Modbus bridge page ([configurator.md](configurator.md#modbus-bridge)), with only the parts its program uses. Copy as ST call names a missing part.
@@ -119,17 +128,17 @@ Every client polls the mailboxes' registers on every cycle, whether or not a blo
 
 **What they cost** (the example `examples/openplc-modbus`, one network, OpenPLC polling every 10 ms):
 
-| Mailboxes | Input / holding registers | Modbus requests per poll |
-|---|---|---|
-| Off | 33 / 16 | 5 |
-| 1 request mailbox only | 105 / 88 | 5 |
-| 1 request mailbox and the receive mailbox | 225 / 91 | 6 |
-| Defaults (1 request, receive, 4 cyclic jobs, network info) | 260 / 95 | 7 |
-| 4 request mailboxes, 16 cyclic jobs | 524 / 323 | 13 |
+| Mailboxes | Input / holding registers | Modbus requests every poll | More every mailbox poll |
+|---|---|---|---|
+| Off | 33 / 16 | 5 | 0 |
+| 1 request mailbox only | 105 / 88 | 5 | 2 |
+| 1 request mailbox and the receive mailbox | 225 / 91 | 5 | 3 |
+| Defaults (1 request, receive, 4 cyclic jobs, network info) | 260 / 95 | 5 | 4 |
+| 4 request mailboxes, 16 cyclic jobs | 524 / 323 | 5 | 10 |
 
 `canworks_in` and `canworks_out` also copy every mailbox word on every scan.
 
-That copy is what the PLC feels. On a Raspberry Pi 5 bench with one CANopen node and a 10 ms poll, the OpenPLC runtime used about 9 % CPU without mailboxes, 27-29 % with the request and receive mailboxes and 31 % with the defaults. The bridge stayed at about 2 % either way.
+OpenPLC's Modbus master converts every polled register in Python, so its CPU follows the registers it polls per second. On a Raspberry Pi 5 bench with one CANopen node and a 10 ms poll, the OpenPLC runtime used about 9 % CPU without mailboxes and 31 % with the defaults polled every 10 ms. The bridge stayed at about 2 % either way. The default 50 ms mailbox poll polls them a fifth as often.
 
 **Without mailboxes, use the config instead:**
 

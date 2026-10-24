@@ -127,7 +127,7 @@ When a PLC program owns the bridge's writes (a config with the PLC link, `bridge
 
 ## Timing and limits
 
-- With the default 10 ms poll a new input value reaches **canworks in** within two poll periods plus one SYNC period; an output reaches the bus by the next SYNC after the write. A short SDO takes a few poll periods, a 1024-byte SDO read about 150 ms on a simulated node. That suits monitoring, dashboards, commissioning and slow control, not motion.
+- With the default 10 ms poll a new input value reaches **canworks in** within two poll periods plus one SYNC period; an output reaches the bus by the next SYNC after the write. A short SDO takes a few poll periods, a 1024-byte SDO read about 150 ms on a simulated node. That suits monitoring, dashboards, commissioning and slow control, not motion. The bridge node reads a request mailbox's answer only while a job uses one (and one poll after), the receive mailbox only while a receive or emcy node has a receiver open, and the cyclic job table only while a cyclic job runs, so an idle flow polls only the values, the status and network info; the first job after an idle spell takes one poll longer.
 - Node-RED and the bridge talk Modbus TCP, so Node-RED can run on another machine; the bus side needs Linux ([modbus-bridge.md](modbus-bridge.md#limits)).
 - The package has no dependencies of its own (its own Modbus TCP client), so a Node-RED update does not break it.
 

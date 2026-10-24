@@ -13,7 +13,7 @@ import tempfile
 import unittest
 import zlib
 
-from canworks import editorproject, mainmove, modbusmap, openplcmodbus
+from canworks import contract, editorproject, mainmove, modbusmap, openplcmodbus
 
 from .test_contract import REPO
 
@@ -129,7 +129,7 @@ class RemoteDevice(unittest.TestCase):
                             if g["functionCode"] == "4" for p in g["ioPoints"]))
 
     def test_iec_base_and_settings(self):
-        cfg = load()
+        cfg = plain()
         cfg["bridge"]["connections"][0].update({"poll_ms": 20, "remote_device": "can_bus", "iec_base": 300})
         cfg["bridge"]["listen"] = "127.0.0.1:1600"
         dev = openplcmodbus.remote_device(cfg, decls(cfg), iec_base=300)
@@ -137,6 +137,7 @@ class RemoteDevice(unittest.TestCase):
         self.assertEqual(dev["modbusTcpConfig"]["port"], 1600)
         self.assertEqual(dev["modbusTcpConfig"]["ioGroups"][0]["ioPoints"][0]["iecLocation"], "%QW300")
         self.assertEqual({g["cycleTime"] for g in dev["modbusTcpConfig"]["ioGroups"]}, {20})
+        self.assertNotIn("mailboxes", cfg["bridge"])
 
     def test_stable_ids(self):
         again = openplcmodbus.remote_device(self.cfg, decls(self.cfg))
@@ -328,6 +329,62 @@ class Mailboxes(unittest.TestCase):
     def test_without_mailboxes_no_flags(self):
         in_st, _ = openplcmodbus.programs(plain(), decls(plain()))
         self.assertNotIn("canworks.link[89]", in_st)
+
+
+class MailboxPoll(unittest.TestCase):
+    """mailbox-poll: the mailbox blocks in groups of their own, polled every
+    mailbox_poll_ms (modbus-bridge-map "OpenPLC remote device file",
+    modbus-connections "Connection kinds")."""
+
+    def groups(self, cfg):
+        return openplcmodbus.remote_device(cfg, decls(cfg))["modbusTcpConfig"]["ioGroups"]
+
+    def test_own_groups_at_the_mailbox_poll(self):
+        cfg = load()
+        groups, _ = openplcmodbus.layout(cfg, decls(cfg))
+        mailbox = [(g.area, g.first, g.count) for g in groups if g.key == "mailbox"]
+        self.assertEqual(mailbox, [("I", 33, 72), ("I", 105, 120), ("I", 225, 35), ("Q", 16, 79)])
+        items = [it for it in modbusmap.collect(cfg)]
+        for g in groups:
+            regs = set(g.registers)
+            kinds = {"mailbox_area" in it.extra for it in items if it.loc.area == g.area
+                     and set(range(it.loc.index // 2, (it.loc.index + it.nbytes + 1) // 2)) & regs}
+            self.assertEqual(len(kinds), 1, (g.area, g.first))
+        dev = self.groups(cfg)
+        self.assertEqual({g["cycleTime"] for g in dev if "_mailbox_" in g["name"]}, {50})
+        self.assertEqual({g["cycleTime"] for g in dev if "_mailbox_" not in g["name"]}, {10})
+        self.assertEqual({g["errorHandling"] for g in dev if g["name"].startswith("in_mailbox_")}, {"set-to-zero"})
+        self.assertEqual((openplcmodbus.request_count(groups), openplcmodbus.mailbox_request_count(groups)), (5, 4))
+        self.assertEqual(openplcmodbus.requests_text(groups, openplcmodbus.settings(cfg)),
+                         "5 Modbus requests every 10 ms, 4 more every 50 ms")
+
+    def test_defaults(self):
+        for poll, want in ((10, 50), (15, 60), (20, 60), (50, 50), (100, 100)):
+            cfg = load()
+            cfg["bridge"]["connections"][0]["poll_ms"] = poll
+            self.assertEqual(openplcmodbus.settings(cfg)["mailbox_poll_ms"], want, poll)
+
+    def test_set(self):
+        cfg = load()
+        cfg["bridge"]["connections"][0]["mailbox_poll_ms"] = 100
+        self.assertEqual({g["cycleTime"] for g in self.groups(cfg) if "_mailbox_" in g["name"]}, {100})
+
+    def test_check(self):
+        for poll, mpoll, ok in ((10, 100, True), (10, 10, True), (20, 50, False), (10, 5, False), (10, 300, False)):
+            cfg = load()
+            cfg["bridge"]["connections"][0].update({"poll_ms": poll, "mailbox_poll_ms": mpoll})
+            r = contract.check_config(cfg, EXAMPLE)
+            bad = [e for e in r.errors if "mailbox_poll_ms" in e]
+            self.assertEqual(not bad, ok, (poll, mpoll, r.errors))
+            if poll == 20:
+                self.assertIn("multiple of the poll (20 ms) and at most 250 ms", bad[0])
+
+    def test_budget_counts_the_mailbox_poll(self):
+        many = [openplcmodbus.Group("I", "data", k * 2, "data") for k in range(38)]
+        many += [openplcmodbus.Group("I", "mailbox", 200 + k, "mailbox") for k in range(10)]
+        s = {"poll_ms": 10, "mailbox_poll_ms": 50}
+        self.assertIsNone(openplcmodbus.budget_warning(many, s))       # 38 + 10 / 5 = 40
+        self.assertIn("41 Modbus requests per poll", openplcmodbus.budget_warning(many + many[-5:], s))
 
 
 class OtherPlc(unittest.TestCase):

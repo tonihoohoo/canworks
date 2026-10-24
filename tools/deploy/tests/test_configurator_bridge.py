@@ -735,7 +735,7 @@ class MailboxUse(Base):
                 "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
         items = self.items(cfg)
         self.assertEqual([(i["level"], i["mailbox_fix"]) for i in items], [("warning", "off")])
-        self.assertIn("the mailboxes take 2 of the 7 Modbus requests per poll", items[0]["message"])
+        self.assertIn("the mailboxes take 4 Modbus requests every 50 ms", items[0]["message"])
 
     def test_connection_blocks_need_them(self):
         # modbus-connections "Mailbox warning counts the connections": an Other
@@ -758,7 +758,9 @@ class MailboxUse(Base):
 
     def test_cost_both_ways(self):
         off = self.ok("/api/bridge/map", {"config": self.cfg})["mailbox_cost"]
-        self.assertEqual((off["on"], off["requests_with"], off["requests_without"]), (False, 7, 5))
+        # Their own groups every 50 ms (mailbox-poll), none more every poll.
+        self.assertEqual((off["on"], off["requests_with"], off["requests_without"], off["mailbox_requests"],
+                          off["mailbox_poll_ms"]), (False, 5, 5, 4, 50))
         cfg = copy.deepcopy(self.cfg)
         cfg["bridge"]["mailboxes"] = {"receive": False, "network_info": False, "cyclic_jobs": 0}
         for key in ("input", "output"):

@@ -1971,7 +1971,9 @@ class Session:
                "map_hash": connections.map_hash_text(cfg)}
         if modbusmap.is_openplc(cfg):
             try:
-                out["requests"] = openplcmodbus.request_count(openplcmodbus.layout(cfg, [], 0)[0])
+                groups = openplcmodbus.layout(cfg, [], 0)[0]
+                out["requests"] = openplcmodbus.request_count(groups)
+                out["mailbox_requests"] = openplcmodbus.mailbox_request_count(groups)
             except (openplcmodbus.OpenplcError, modbusmap.MapError):
                 pass
         mb = cfg["bridge"].get("mailboxes")
@@ -1985,8 +1987,10 @@ class Session:
                 can = mailboxlayout.records_per_batch("can", s["receive_blocks"])
                 out["mailboxes"]["can_per_batch"] = can
                 if modbusmap.is_openplc(cfg):
-                    poll = bridgecheck.openplc_settings(cfg)["poll_ms"]
+                    # OpenPLC polls the mailbox blocks every mailbox_poll_ms (mailbox-poll).
+                    poll = bridgecheck.openplc_settings(cfg)["mailbox_poll_ms"]
                     out["mailboxes"]["can_per_second"] = round(can * 1000 / poll / 2)
+                    out["mailboxes"]["poll_ms"] = poll
         out["mailbox_cost"] = self.mailbox_cost(cfg)
         if modbusmap.is_openplc(cfg) and self.mode == "project" and self.folder:
             # Who needs them: the editor project's mailbox blocks.
@@ -2025,8 +2029,11 @@ class Session:
             except (ApiError, KeyError, TypeError):
                 return cost
         try:
-            cost["requests_with"] = openplcmodbus.request_count(openplcmodbus.layout(with_mb, [], 0)[0])
+            groups = openplcmodbus.layout(with_mb, [], 0)[0]
+            cost["requests_with"] = openplcmodbus.request_count(groups)
             cost["requests_without"] = openplcmodbus.request_count(openplcmodbus.layout(bare, [], 0)[0])
+            cost["mailbox_requests"] = openplcmodbus.mailbox_request_count(groups)
+            cost["mailbox_poll_ms"] = bridgecheck.openplc_settings(cfg)["mailbox_poll_ms"]
         except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
             pass
         return cost
@@ -2193,9 +2200,10 @@ class Session:
                 base = openplcmodbus.free_iec_base(cfg, [], self.uses)
         except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
             return None
-        return {"remote_device": s["remote_device"], "poll_ms": s["poll_ms"], "port": s["port"],
-                "watchdog_ms": s["watchdog_ms"], "map_hash": "0x%08x" % modbusmap.map_hash(cfg),
-                "requests": openplcmodbus.request_count(groups), "warning": openplcmodbus.budget_warning(groups),
+        return {"remote_device": s["remote_device"], "poll_ms": s["poll_ms"], "mailbox_poll_ms": s["mailbox_poll_ms"],
+                "port": s["port"], "watchdog_ms": s["watchdog_ms"], "map_hash": "0x%08x" % modbusmap.map_hash(cfg),
+                "requests": openplcmodbus.request_count(groups), "mailbox_requests": openplcmodbus.mailbox_request_count(groups),
+                "requests_text": openplcmodbus.requests_text(groups, s), "warning": openplcmodbus.budget_warning(groups, s),
                 "iec_base": base, "files": openplcmodbus.own_files(cfg), "old_main": self.old_main(cfg),
                 "outdated": self.outdated(cfg)}
 
@@ -2294,16 +2302,14 @@ class Session:
 
     @staticmethod
     def mailbox_requests(cfg):
-        """'2 of the 7 Modbus requests per poll' for an OpenPLC config's
-        mailboxes, or None when the map cannot be laid out."""
+        """'2 Modbus requests every 50 ms' for an OpenPLC config's mailboxes
+        (mailbox-poll), or None when the map cannot be laid out."""
         try:
-            with_mb = openplcmodbus.request_count(openplcmodbus.layout(cfg, [], 0)[0])
-            bare = copy.deepcopy(cfg)
-            bare["bridge"].pop("mailboxes", None)
-            without = openplcmodbus.request_count(openplcmodbus.layout(bare, [], 0)[0])
+            n = openplcmodbus.mailbox_request_count(openplcmodbus.layout(cfg, [], 0)[0])
+            poll = bridgecheck.openplc_settings(cfg)["mailbox_poll_ms"]
         except (openplcmodbus.OpenplcError, modbusmap.MapError, KeyError, TypeError, ValueError, AttributeError):
             return None
-        return "%d of the %d Modbus requests per poll" % (with_mb - without, with_mb)
+        return "%d Modbus request%s every %d ms" % (n, "" if n == 1 else "s", poll)
 
     def sync_openplc(self, cfg, force=False):
         """Writes the editor's remote device, canworks_in, canworks_out and

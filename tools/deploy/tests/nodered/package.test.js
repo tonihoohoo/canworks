@@ -230,6 +230,29 @@ test("long SDO reads: string and bytes over a mailbox with FETCH", async () => {
   await finish(t);
 });
 
+test("idle mailbox parts are not read; the first job after idle reads its mailbox first", async () => {
+  const t = setup();
+  const name = Buffer.from("A device name");
+  withFetch(t.model, { "6:4104:0": name });
+  const sdo = t.add("canworks-sdo", { node: "6", index: "0x1008", datatype: "string" });
+  await ready(t);
+  const parts = new Map(t.lay.read.filter((ch) => ch[2]).map((ch) => [ch[0], ch[2]]));
+  const always = t.lay.read.filter((ch) => !ch[2]).map((ch) => ch[0]);
+  // Let the receivers of earlier runs be swept, then poll idle.
+  await t.rt.until(() => t.bridge.rxSwept, 3000, "swept");
+  await sleep(60);
+  t.model.readLog = [];
+  await sleep(60);
+  assert.ok(t.model.readLog.length > 0);
+  assert.deepStrictEqual(t.model.readLog.filter((s) => parts.has(s)), [], "no mailbox part read while idle");
+  for (const s of always) assert.ok(t.model.readLog.includes(s), "range " + s + " read every poll");
+  const m = await run(t, sdo);
+  assert.strictEqual(m.payload, name.toString());
+  assert.strictEqual(m.canworks.status, "done");
+  assert.ok(t.model.readLog.some((s) => parts.get(s) === "requests"), "the request mailbox read while the job runs");
+  await finish(t);
+});
+
 test("three reads, one mailbox: in order, each its own result", async () => {
   const t = setup((lay) => (lay.mailboxes.requests = lay.mailboxes.requests.slice(0, 1)));
   const objs = { "6:8192:1": Buffer.from("one"), "6:8192:2": Buffer.from("two"), "6:8192:3": Buffer.from("three") };
