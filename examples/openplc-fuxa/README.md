@@ -33,7 +33,7 @@ You need Docker with Compose (Docker Desktop on macOS and Windows; with Colima o
 - **runtime**: upstream's OpenPLC Runtime v4.3.1, unchanged, in the bridge's network. It runs the uploaded program, and its OPC UA server runs because the project has one ([devices/servers/opcua.json](devices/servers/opcua.json)).
 - **fuxa**: FUXA 1.3.5 in the same network. [fuxa/start.sh](fuxa/start.sh) installs FUXA's OPC UA driver and loads [fuxa/project.json](fuxa/project.json) once, so changes you make in FUXA's editor stay.
 
-Only this PC can reach them (`127.0.0.1`): the runtime on port 8443, FUXA on 1881 and the OPC UA server on 4840, for example for UaExpert at `opc.tcp://localhost:4840/openplc/opcua`. `canworks-local-runtime` uses port 8443 too, so stop one before starting the other (`canworks-local-runtime stop`, or `docker compose down` here).
+Only this PC can reach them (`127.0.0.1`): the runtime on port 8443, FUXA on 1881 and the OPC UA server on 4840, for example for UaExpert at `opc.tcp://localhost:4840/openplc/opcua`. `canworks-local-runtime` uses port 8443 too and the [FUXA with Node-RED example](../fuxa-node-red/README.md) port 1881, so stop one before starting the other (`canworks-local-runtime stop`, or `docker compose down` in the example's folder).
 
 | Setting | How |
 | --- | --- |
