@@ -14,6 +14,7 @@
 #include <chrono>
 #include <functional>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <memory>
 #include <map>
@@ -3734,6 +3735,41 @@ TEST(sim_input_pdo_timeout_synchronous) {
   cJSON_Delete(r);
   CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] == 0; }, seconds(2)));
   CHECK(logged("node 2 (pingpong) TPDO 1 is back after "));
+  delete sim;
+}
+
+// Frame counter of an input PDO (canopen-pdo-io "Receive counter of an
+// input PDO"): one per received TPDO, with or after its values, never reset
+// by a timeout.
+TEST(sim_input_pdo_counter) {
+  clear_logs();
+  std::string dir = make_dir(input_timeout_json("\"counter_location\": \"%IW50\", "), {{"cpp-slave.eds", slave_eds()}});
+  static Sim* sim;
+  sim = new Sim(dir);
+  CHECK(sim->ok());
+  if (!sim->ok()) return;
+  CHECK(sim->StartSimulator(R"({"nodes": {"2": {"sources": {"0x4001": {"expr": "[0x4000]"}}}}})"));
+  sim->net().Start();
+  CHECK(sim->RunUntil([] { return sim->status() && sim->uw(50) > 3; }, seconds(5)));
+  uint16_t a = sim->uw(50);
+  int fa = sim->frames(0x182);
+  sim->RunFor(milliseconds(1000));
+  uint16_t b = sim->uw(50);
+  int fb = sim->frames(0x182);
+  std::printf("    counter %u -> %u, frames on the bus %d\n", a, b, fb - fa);
+  // Every 20 ms (the simulated clock runs a little fast): one per frame the bus saw.
+  CHECK(b - a >= 30);
+  CHECK_MSG(std::abs((b - a) - (fb - fa)) <= 2, "bus " + std::to_string(fb - fa));
+
+  cJSON* r = sim->SimAsk(R"({"op":"sim_fault","node":2,"fault":{"tpdo_stop":1}})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([] { return sim->plc().bool_in[10][1] != 0; }, seconds(2)));
+  uint16_t c = sim->uw(50);
+  sim->RunFor(milliseconds(300));
+  CHECK(sim->uw(50) == c);  // nothing came, nothing counted, nothing reset
+  r = sim->SimAsk(R"({"op":"sim_clear","node":2,"fault":"tpdo_stop"})");
+  cJSON_Delete(r);
+  CHECK(sim->RunUntil([c] { return sim->uw(50) > c + 2; }, seconds(2)));
   delete sim;
 }
 

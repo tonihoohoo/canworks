@@ -28,7 +28,7 @@ A version 2 network MAY have `protocol`, `"canopen"` (default) or `"j1939"`. A J
 - **THEN** the file is rejected saying a range needs an arbitrary-address-capable NAME
 
 ### Requirement: Received messages
-Each `j1939.rx` entry SHALL have `pgn` (0..0x3FFFF) and `signals`, and MAY have `source` (0..253), or `source_name` with optional `source_name_mask`, `timeout_ms` (0 = no supervision, default) and `status_location`. A PDU1 PGN (PF < 240) SHALL have PS 0. Two entries with the same PGN SHALL differ in their source filter.
+Each `j1939.rx` entry SHALL have `pgn` (0..0x3FFFF) and `signals`, and MAY have `source` (0..253), or `source_name` with optional `source_name_mask`, `timeout_ms` (0 = no supervision, default), `status_location` and `counter_location` (an `%IW` word). A PDU1 PGN (PF < 240) SHALL have PS 0. Two entries with the same PGN SHALL differ in their source filter.
 
 #### Scenario: Same PGN from two ECUs
 - **WHEN** two `rx` entries have PGN 65280, one with `source` 0 and one with `source` 3
@@ -37,6 +37,10 @@ Each `j1939.rx` entry SHALL have `pgn` (0..0x3FFFF) and `signals`, and MAY have 
 #### Scenario: Same PGN, no filter twice
 - **WHEN** two `rx` entries have PGN 65280 and neither has a source filter
 - **THEN** the file is rejected naming both paths
+
+#### Scenario: Counter location not a word
+- **WHEN** an `rx` entry has `"counter_location": "%IX202.0"`
+- **THEN** the file is rejected naming the entry and that the counter needs an `%IW` input
 
 ### Requirement: Sent messages
 Each `j1939.tx` entry SHALL have `pgn` and `signals`, and MAY have `priority` 0..7 (default 6), `destination` (0..253 or 255, default 255, only for PDU1 PGNs), `length` 1..1785 bytes (default: the smallest whole number of bytes, at least 8, that holds every signal), `period_ms` (0 = on change and request only) and `min_gap_ms`. TX PGNs SHALL be unique in a network.

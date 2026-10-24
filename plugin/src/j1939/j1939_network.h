@@ -46,6 +46,8 @@ class J1939Image {
   void set_value(size_t rx, size_t signal, uint64_t v) { in_work_[rx_slot_[rx] + 1 + 2 * signal] = v; }
   void set_valid(size_t rx, size_t signal, bool valid) { in_work_[rx_slot_[rx] + 2 + 2 * signal] = valid; }
   void set_status(size_t rx, bool ok) { in_work_[rx_slot_[rx]] = ok; }
+  // The rx entry's message counter (counter_location), wrapping at 65535.
+  void set_counter(size_t rx, uint16_t n) { in_work_[count_slot_ + rx] = n; }
   void set_claim(J1939ClaimState state, uint8_t address) {
     in_work_[claim_slot_] = static_cast<uint8_t>(state);
     in_work_[claim_slot_ + 1] = address;
@@ -82,6 +84,7 @@ class J1939Image {
   size_t claim_slot_ = 0;        // claim state, address
   std::vector<size_t> dm_slot_;  // per diagnostics.rx entry
   size_t clear_slot_ = 0;
+  size_t count_slot_ = 0;  // one message counter per rx entry
   std::vector<size_t> tx_slot_;
   size_t own_slot_ = 0;  // own codes' active bits, then the lamps byte
   size_t own_count_ = 0;
@@ -158,6 +161,7 @@ class J1939Engine : private AddressClaimer::Actions {
     bool timed_out = false;
     uint64_t timeouts = 0;
     uint64_t count = 0;
+    uint16_t counter = 0;  // the counter_location value
     std::set<uint8_t> sources;
     // Multiplexed messages: which signals the last message carried, and per
     // signal when it was last carried (its valid bit times out).

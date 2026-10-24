@@ -271,6 +271,9 @@ def _pdo(p):
         chips.append('<span class="chip">Receive timeout %s%s, %s%s</span>' % (
             "?" if t["ms"] is None else "%d ms" % t["ms"], " (auto)" if t["auto"] else "", E(t["on_timeout"]),
             (", timeout bit " + _loc(t["location"], t["variables"])) if t["location"] else ""))
+    if p.get("counter"):
+        chips.append('<span class="chip">Frame counter %s</span>' % _loc(p["counter"]["location"],
+                                                                        p["counter"]["variables"]))
     chips.append('<span class="chip">%s</span>' % {
         "device": "Device mapping kept", "eds": "Mapping as the EDS gives it"}.get(p["mapping"],
                                                                                "Mapping written by the master"))
@@ -416,6 +419,9 @@ def _j1939_message(m):
     chips.append('<span class="chip">%s</span>' % E(m["trigger"]))
     if m["status"]:
         chips.append('<span class="chip">Status %s</span>' % _loc(m["status"]["location"], m["status"]["variables"]))
+    if m.get("counter"):
+        chips.append('<span class="chip">Message counter %s</span>' % _loc(m["counter"]["location"],
+                                                                          m["counter"]["variables"]))
     rows = []
     for sg in m["signals"]:
         rows.append([E(sg["name"]), str(sg["start_bit"]), str(sg["length"]), E(sg["byte_order"]),

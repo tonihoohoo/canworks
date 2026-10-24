@@ -128,7 +128,7 @@ class Page(unittest.TestCase):
         if not path.startswith("nodes["):
             return
         m = re.match(r"(nodes\[\d+\]\.(?:tx|rx)_pdos\[\d+\])\.(number|cob_id|transmission|inhibit_time_us|"
-                     r"event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location)", path)
+                     r"event_timer_ms|sync_start|timeout_ms|on_timeout|timeout_location|counter_location)", path)
         if m:
             self.pdo_settings(m.group(1))
         else:
@@ -1115,6 +1115,38 @@ class Page(unittest.TestCase):
         pdo = load(path)["networks"][0]["nodes"][0]["tx_pdos"][0]
         for key in ("timeout_ms", "on_timeout", "timeout_location"):
             self.assertNotIn(key, pdo)
+
+    def test_input_pdo_frame_counter(self):
+        # canopen-configurator "Frame counter fields": shown without a timeout, suggested as a free word,
+        # declared as UINT, clashes named, and an empty field saves no field.
+        pg = self.page
+        self.open_from_start("#start-open", self.project)
+        self.fill("adapter.interface", "can0")
+        self.fill("master.sync_period_us", "10")
+        self.add_node(os.path.join(REPO, "test", "fixtures", "eds", "pdo-comm.eds"))
+        self.fill("nodes[0].node_id", "2")
+        self.pick("0x4001:0")
+        pg.wait_for_selector('input[data-path="nodes[0].tx_pdos[0].entries[0].iec_location"]')
+        self.fill("nodes[0].tx_pdos[0].entries[0].iec_location", "%ID700")
+        self.pdo_settings("nodes[0].tx_pdos[0]")
+        counter = 'input[data-path="nodes[0].tx_pdos[0].counter_location"]'
+        self.assertEqual(pg.get_attribute(counter, "placeholder"), "%IW…")
+        pg.click('button[data-suggest="counter"]')
+        pg.wait_for_function("""() => /^%%IW\\d+$/.test(document.querySelector('%s').value)""" % counter)
+        self.fill("nodes[0].tx_pdos[0].counter_location", "%IW700")
+        pg.wait_for_selector(counter + ".invalid")
+        self.assertIn("TPDO 1 counter_location (%IW700)", pg.inner_text("#problem-list"))
+        self.fill("nodes[0].tx_pdos[0].counter_location", "%IW720")
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
+        self.save()
+        path = os.path.join(self.project, "canworks", "canworks.json")
+        self.assertEqual(load(path)["networks"][0]["nodes"][0]["tx_pdos"][0].get("counter_location"), "%IW720")
+        self.fill("nodes[0].tx_pdos[0].counter_location", "")
+        self.save()
+        deadline = time.time() + 5
+        while "counter_location" in load(path)["networks"][0]["nodes"][0]["tx_pdos"][0] and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertNotIn("counter_location", load(path)["networks"][0]["nodes"][0]["tx_pdos"][0])
 
     def test_device_pdo_mapping(self):
         pg = self.page

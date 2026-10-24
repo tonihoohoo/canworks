@@ -134,6 +134,12 @@ class Declarations(unittest.TestCase):
         self.assertEqual(decls["machine_Pressure"]["kind"], "j1939")
         self.assertIn("PGN 65280 (Pressures) Pressure", decls["machine_Pressure"]["description"])
 
+    def test_message_counter(self):
+        cfg = patched(base(), [["set", "networks/1/j1939/rx/0/counter_location", "%IW212"]])
+        decls = {d["name"]: d for d in declare.declarations(cfg, lambda *a: None, {})}
+        d = decls["machine_Pressures_count"]
+        self.assertEqual((d["location"], d["type"], d["path"]), ("%IW212", "UINT", "networks[1].j1939.rx[0].counter_location"))
+
     def test_sizes_and_sign(self):
         cfg = base()
         sigs = cfg["networks"][1]["j1939"]["rx"][0]["signals"]

@@ -1191,6 +1191,9 @@ void Network::OnRpdo(int num, std::error_code ec, const void* p, std::size_t n) 
       ip.seen = true;
       ip.len_warned = false;
       if (ip.timed_out) Defer([this, num] { HandleRpdoBack(static_cast<unsigned>(num)); });
+      // Lely wrote the PDO's objects (OnRpdoWrite) before this call, so the
+      // count reaches the image with or after the frame's values.
+      if (ip.counter >= 0) Defer([this, num] { HandleRpdoCount(static_cast<unsigned>(num)); });
     }
   }
   if (ec) return;
@@ -1217,6 +1220,7 @@ void Network::MapInputPdos() {
   in_pdos_.clear();
   const auto& bindings = image_.inputs();
   const auto& bits = image_.timeout_bits();
+  const auto& counters = image_.counters();
   for (unsigned num = 1; num <= 512; ++num) {
     std::error_code ec;
     uint32_t cob = (*this)[0x1400 + num - 1][1].Read<uint32_t>(ec);
@@ -1232,6 +1236,11 @@ void Network::MapInputPdos() {
         ip.zero = pdo.timeout_zero;
         for (size_t k = 0; k < bits.size(); ++k)
           if (bits[k].node_id == n.node_id && bits[k].pdo == pdo.number) ip.bit = static_cast<int>(k);
+        for (size_t k = 0; k < counters.size(); ++k)
+          if (counters[k].node_id == n.node_id && counters[k].pdo == pdo.number) {
+            ip.counter = static_cast<int>(k);
+            ip.frames = image_.counter(k);  // a remap keeps counting
+          }
         auto node = nodes_.find(n.node_id);
         if (node != nodes_.end())
           for (size_t i : node->second.inputs)
@@ -1319,6 +1328,17 @@ void Network::HandleRpdoBack(unsigned num) {
   log_info("%s TPDO %u is back after %lld ms without it", nodes_[p.node_id].cfg->label().c_str(), p.pdo,
            static_cast<long long>(gone.count()));
   if (p.bit >= 0) image_.set_timeout_bit(static_cast<size_t>(p.bit), false);
+  image_.commit_inputs();
+}
+
+// canopen-pdo-io "Receive counter of an input PDO": frames that updated the
+// inputs; while the program holds the network stopped they do not.
+void Network::HandleRpdoCount(unsigned num) {
+  if (run_->prog_stopped) return;
+  auto it = in_pdos_.find(num);
+  if (it == in_pdos_.end() || it->second.counter < 0) return;
+  InputPdo& p = it->second;
+  image_.set_counter(static_cast<size_t>(p.counter), ++p.frames);
   image_.commit_inputs();
 }
 

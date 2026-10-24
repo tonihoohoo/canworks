@@ -61,7 +61,7 @@ def canopen_uses(cfg):
     for net in contract.networks(cfg):
         at = net["path"] + "." if net["path"] else ""
         if net["role"] == "j1939":
-            # The ECU state and address, rx status, signal and valid locations.
+            # The ECU state and address, rx status, counter, signal and valid locations.
             out += [(path, parse_location(text)) for _, _, path, text in contract.location_uses(net)]
             continue
         out += _network_uses(net["master"], net["nodes"], at)
@@ -98,9 +98,10 @@ def _network_uses(master, nodes, at):
             if loc:
                 out.append(("%snodes[%d].%s" % (at, i, key), loc))
         for j, p in enumerate(n.get("tx_pdos") or []):
-            loc = parse_location((p or {}).get("timeout_location"))
-            if loc:
-                out.append(("%snodes[%d].tx_pdos[%d].timeout_location" % (at, i, j), loc))
+            for key in ("timeout_location", "counter_location"):
+                loc = parse_location((p or {}).get(key))
+                if loc:
+                    out.append(("%snodes[%d].tx_pdos[%d].%s" % (at, i, j, key), loc))
         for key in ("tx_pdos", "rx_pdos"):
             for j, p in enumerate(n.get(key) or []):
                 for k, e in enumerate((p or {}).get("entries") or []):

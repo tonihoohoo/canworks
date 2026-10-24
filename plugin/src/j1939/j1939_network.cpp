@@ -54,6 +54,8 @@ void J1939Image::build(const J1939Config& cfg) {
   }
   clear_slot_ = n;
   n += 1;
+  count_slot_ = n;
+  n += cfg.rx.size();
   in_work_.assign(n, 0);
   in_work_[claim_slot_] = static_cast<uint8_t>(J1939ClaimState::NoBus);
   in_work_[claim_slot_ + 1] = kJ1939NullAddress;
@@ -112,6 +114,8 @@ void J1939Image::copy_to_plc(ImageHost& rt) {
       for (unsigned k = 0; k < d.dtcs; ++k) image_write_input(rt, d.dtc_location(k), s[4 + k]);
   }
   if (c.diagnostics.has_clear_location) image_write_input(rt, c.diagnostics.clear_location, snap[clear_slot_]);
+  for (size_t i = 0; i < c.rx.size(); ++i)
+    if (c.rx[i].has_counter_location) image_write_input(rt, c.rx[i].counter_location, snap[count_slot_ + i]);
 }
 
 void J1939Image::copy_from_plc(ImageHost& rt) {
@@ -367,6 +371,7 @@ void J1939Engine::on_message(const J1939Message& m, clock::time_point now) {
       st.sig_seen[k] = 1;
       st.sig_last[k] = now;
     }
+    image_.set_counter(i, ++st.counter);
     dirty_ = true;
   }
 }

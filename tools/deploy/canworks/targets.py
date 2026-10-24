@@ -97,6 +97,7 @@ ROWS = [
     ("nodes.retry_factor", _RUNTIME, {CODESYS: "node guarding retries"}, ()),
     ("nodes.simulate", _RUNTIME, {CODESYS: "simulated devices run in canworks, not in CODESYS"}, ()),
     ("nodes.tx_pdos.timeout_location", _RUNTIME, {CODESYS: "canworks receive timeout of a TPDO"}, ()),
+    ("nodes.tx_pdos.counter_location", _RUNTIME, {CODESYS: "canworks frame counter of a TPDO"}, ()),
     ("nodes.tx_pdos.timeout_ms", _RUNTIME, {CODESYS: "canworks receive timeout of a TPDO"}, ()),
     ("nodes.tx_pdos.on_timeout", _RUNTIME, {CODESYS: "canworks receive timeout of a TPDO"}, ()),
     ("nodes.tx_pdos.entries.iec_location", _RUNTIME,
@@ -158,7 +159,7 @@ FIELD_LABELS = dict(
      ("nodes.revision_number", "Revision number"), ("nodes.serial_number", "Serial number"),
      ("nodes.retry_factor", "Guarding retries"), ("nodes.simulate", "Simulated device"),
      ("nodes.tx_pdos.timeout_location", "Timeout bit"), ("nodes.tx_pdos.timeout_ms", "Receive timeout (ms)"),
-     ("nodes.tx_pdos.on_timeout", "On timeout"),
+     ("nodes.tx_pdos.on_timeout", "On timeout"), ("nodes.tx_pdos.counter_location", "Frame counter"),
      ("nodes.tx_pdos.entries.iec_location", "PLC location"), ("nodes.rx_pdos.entries.iec_location", "PLC location"),
      ("nodes.tx_pdos.entries.bits.iec_location", "Bit location"), ("nodes.rx_pdos.entries.bits.iec_location", "Bit location"),
      ("role=slave", "Slave network"), ("protocol=j1939", "J1939 network"), ("protocol=none", "Plain CAN network")]

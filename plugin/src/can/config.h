@@ -76,6 +76,10 @@ struct PdoConfig {
   bool timeout_zero = false;  // on_timeout "zero" (default "hold")
   bool has_timeout_location = false;
   IecLocation timeout_location;  // %IX, TRUE while timed out
+  // Frame counter of a node TPDO (canopen-pdo-io "Receive counter of an
+  // input PDO"): frames that updated its inputs, wrapping at 65535.
+  bool has_counter_location = false;
+  IecLocation counter_location;  // %IW
   // Who sets the PDO's mapping object (JSON `mapping`): the plugin writes it
   // from `entries` ("config"), or the node keeps its EDS default mapping
   // ("device"). Unset follows the EDS: "device" when the mapping object is

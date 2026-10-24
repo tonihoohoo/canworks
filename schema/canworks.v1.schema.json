@@ -904,6 +904,11 @@
           "type": "string",
           "pattern": "^%[Ii][Xx][0-9]+\\.[0-7]$"
         },
+        "counter_location": {
+          "description": "TPDO only. An input word (%IW...) that counts the PDO's frames that updated its inputs, wrapping at 65535.",
+          "type": "string",
+          "pattern": "^%[Ii][Ww][0-9]+$"
+        },
         "sync_start": {
           "description": "TPDO only, with a synchronous transmission type (1-240). Sub-index 6. Left out, the EDS value stays.",
           "anyOf": [
@@ -969,6 +974,11 @@
           {
             "required": [
               "timeout_location"
+            ]
+          },
+          {
+            "required": [
+              "counter_location"
             ]
           }
         ]

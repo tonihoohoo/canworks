@@ -522,6 +522,19 @@ class Parser {
         error(pw, pdo_name + ": field 'timeout_location' is only for tx_pdos (PDOs the node sends)");
       pdo.has_timeout_location = false;
     }
+    if (cJSON_GetObjectItemCaseSensitive(p, "counter_location")) {
+      IecLocation loc;
+      if (!is_tx) {
+        error(pw, pdo_name + ": field 'counter_location' is only for tx_pdos (PDOs the node sends)");
+      } else if (get_location(p, "counter_location", pw, false, loc)) {
+        if (loc.area != IecArea::Input || loc.size != IecSize::W) {
+          error(pw, pdo_name + ": field 'counter_location' must be an input word (%IW...), not " + loc.str());
+        } else {
+          pdo.has_counter_location = true;
+          pdo.counter_location = loc;
+        }
+      }
+    }
   }
 
   void parse_pdos(const cJSON* node, const char* key, NodeConfig& n,
@@ -545,7 +558,8 @@ class Parser {
         continue;
       }
       check_known(p, pw, {"number", "cob_id", "transmission", "inhibit_time_us", "event_timer_ms", "sync_start",
-                          "mapping", "entries", "timeout_ms", "on_timeout", "timeout_location"});
+                          "mapping", "entries", "timeout_ms", "on_timeout", "timeout_location",
+                          "counter_location"});
       const std::string what = std::string(is_tx ? "TPDO " : "RPDO ");
       pdo.number = i + 1;
       if (get_uint(p, "number", pw, false, 512, v)) {
@@ -1432,7 +1446,7 @@ class Parser {
         }
         if (std::strcmp(list, "rx") == 0) {
           check_known(m, w, {"pgn", "name", "source", "source_name", "source_name_mask", "timeout_ms",
-                             "status_location", "signals"});
+                             "status_location", "counter_location", "signals"});
           J1939Rx r;
           j_pgn(m, w, r.pgn);
           get_string(m, "name", w, false, r.name);
@@ -1457,6 +1471,8 @@ class Parser {
           if (j_range(m, "timeout_ms", w, 0, kJ1939MaxPeriodMs, v)) r.timeout_ms = (unsigned)v;
           r.has_status_location = j_location(m, "status_location", w, IecArea::Input, IecSize::X,
                                              "a bit input (%IX)", r.status_location);
+          r.has_counter_location = j_location(m, "counter_location", w, IecArea::Input, IecSize::W,
+                                              "a word input (%IW)", r.counter_location);
           parse_j1939_signals(m, w, true, nullptr, r.signals);
           jc.rx.push_back(r);
         } else if (std::strcmp(list, "tx") == 0) {
@@ -3819,6 +3835,7 @@ class Parser {
       for (const auto& r : j.rx) {
         std::string m = p + "PGN " + std::to_string(r.pgn);
         if (r.has_status_location) uses.push_back({r.status_location, m + " status_location"});
+        if (r.has_counter_location) uses.push_back({r.counter_location, m + " counter_location"});
         for (const auto& s : r.signals) {
           uses.push_back({s.location, m + " signal " + s.name});
           if (s.has_valid_location) uses.push_back({s.valid_location, m + " signal " + s.name + " valid_location"});
@@ -3880,9 +3897,12 @@ class Parser {
         if (sv.has_status) uses.push_back({sv.status_location, who + " status_location"});
         if (sv.has_abort_code) uses.push_back({sv.abort_code_location, who + " abort_code_location"});
       }
-      for (const auto& pdo : n.tx_pdos)
+      for (const auto& pdo : n.tx_pdos) {
         if (pdo.has_timeout_location)
           uses.push_back({pdo.timeout_location, nl + " TPDO " + std::to_string(pdo.number) + " timeout_location"});
+        if (pdo.has_counter_location)
+          uses.push_back({pdo.counter_location, nl + " TPDO " + std::to_string(pdo.number) + " counter_location"});
+      }
       auto add = [&](const std::vector<PdoConfig>& pdos, const char* dir) {
         for (const auto& p : pdos)
           for (const auto& e : p.entries) {
