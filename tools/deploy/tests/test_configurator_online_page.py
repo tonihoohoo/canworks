@@ -500,8 +500,15 @@ class OnlinePage(OnlineBase):
             pg.click('tr[data-online-node="2"]')
             pg.wait_for_selector('button[data-nmt="reset"]:not([disabled])')
             fp.force_running = True
-            # Each poll's status says PRE-OPERATIONAL to the page.
-            pg.evaluate("() => setInterval(() => S.onlineLast && S.onlineLast.status.nodes.forEach((n) => { n.state = 127; }), 20)")
+            # Each poll's status says PRE-OPERATIONAL to the page: the answer
+            # is changed before the page sees it (a timer racing the polls let
+            # one OPERATIONAL status through now and then).
+            pg.evaluate("""() => {
+              const preop = (r) => { if (r && r.status && r.status.nodes) r.status.nodes.forEach((n) => { n.state = 127; }); return r; };
+              const orig = api;
+              window.api = async (...a) => { const r = await orig(...a); return a[1] === "/api/online/status" ? preop(r) : r; };
+              preop(S.onlineLast);
+            }""")
             pg.click('button[data-nmt="reset"]')
             pg.click('#modal button[data-value="go"]')
             pg.wait_for_selector("#modal-text:has-text('an NMT command takes it out of')")

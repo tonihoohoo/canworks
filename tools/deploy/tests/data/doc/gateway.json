@@ -1536,7 +1536,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.137.0"
+  "version": "0.137.1"
  },
  "warnings": []
 }

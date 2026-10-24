@@ -2,6 +2,8 @@
 // the example config (examples/modbus-bridge) on its simulated bus, served
 // on a free loopback port and read and written by a Modbus TCP client.
 
+#include <atomic>
+#include <thread>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -345,6 +347,40 @@ TEST(watchdog_safe) {
   EXPECT(wait_for([&] { return reg(c, 4) == 0x0300 && reg(c, 5) == 4321; }));
   h.host.stop();
   EXPECT(logged("outputs at their safe values for 20 ms first (on_client_loss safe)"));
+}
+
+// Spec "Safe values", a clean stop: a client that keeps writing while the
+// bridge stops does not put its values over the safe ones (hardware check
+// 5.2 of add-safe-output-values).
+TEST(safe_stop_with_a_writing_client) {
+  Host h([](cJSON* r) {
+    set_number(bridge_of(r), "watchdog_ms", 300);
+    set_string(bridge_of(r), "on_client_loss", "safe");
+    cJSON* sv = cJSON_CreateObject();
+    cJSON_AddNumberToObject(sv, "%QW2", 4321);
+    cJSON_AddItemToObject(bridge_of(r), "safe_values", sv);
+  });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, 0, {0x0102, 1234}));
+  std::atomic<bool> done{false};
+  int writes = 0;
+  std::thread writer([&] {
+    while (!done && write(c, 0, {0x0102, 1234})) ++writes;
+  });
+  usleep(50000);
+  h.host.stop();
+  done = true;
+  writer.join();
+  std::vector<uint8_t> out = h.host.sent_outputs();
+  EXPECT(writes > 0);
+  EXPECT(out.size() >= 4);
+  if (out.size() < 4) return;
+  // %QW2: bytes 2 and 3, in the config's word order.
+  uint16_t hi = static_cast<uint16_t>(out[2] << 8 | out[3]), lo = static_cast<uint16_t>(out[3] << 8 | out[2]);
+  EXPECT(hi == 4321 || lo == 4321);
 }
 
 TEST(control_block_nmt_and_idle) {
@@ -968,15 +1004,33 @@ TEST(modbus_trace_ops_and_client_status) {
   for (int i = 0; i < 5; ++i) EXPECT(c.request(read_req(kReadHoldingRegisters, 0, 1)).size() == 4);
   EXPECT(c.request({kWriteSingleRegister, 0, 9, 0, 7}).size() == 5);
   std::string fetch = R"({"op":"modbus_trace_fetch","after":)" + std::to_string(static_cast<long long>(next)) + "}";
-  a = op(fetch.c_str());
-  EXPECT(a && result(a) && cJSON_GetNumberValue(cJSON_GetObjectItem(result(a), "count")) == 2);
-  EXPECT(a && result(a) && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(result(a), "records"))).size() > 40);
-  cJSON_Delete(a);
-  cJSON* st = h.host.status_json();
+  // The server records a request and counts it after its answer is queued:
+  // the client may read the answer first.
+  auto text = [](cJSON* item) {
+    const char* v = cJSON_GetStringValue(item);
+    return std::string(v ? v : "");
+  };
+  double count = 0;
+  std::string records;
+  EXPECT(wait_for([&] {
+    cJSON* f = op(fetch.c_str());
+    count = f && result(f) ? cJSON_GetNumberValue(cJSON_GetObjectItem(result(f), "count")) : 0;
+    records = f && result(f) ? text(cJSON_GetObjectItem(result(f), "records")) : "";
+    cJSON_Delete(f);
+    return count == 2;
+  }));
+  EXPECT(records.size() > 40);
+  cJSON* st = nullptr;
+  EXPECT(wait_for([&] {
+    cJSON_Delete(st);
+    st = h.host.status_json();
+    cJSON* cl = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "clients"), 0);
+    return cl && cJSON_GetObjectItem(cl, "last_write") && !cJSON_IsNull(cJSON_GetObjectItem(cl, "last_write"));
+  }));
   cJSON* cl = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "clients"), 0);
   EXPECT(cl && cJSON_GetNumberValue(cJSON_GetObjectItem(cJSON_GetObjectItem(cl, "functions"), "3")) == 5);
   cJSON* lw = cJSON_GetObjectItem(cl, "last_write");
-  EXPECT(lw && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(lw, "table"))) == "holding register" &&
+  EXPECT(lw && text(cJSON_GetObjectItem(lw, "table")) == "holding register" &&
          cJSON_GetNumberValue(cJSON_GetObjectItem(lw, "start")) == 9);
   EXPECT(cJSON_GetNumberValue(cJSON_GetObjectItem(st, "modbus_traces")) == 1);
   EXPECT(cJSON_IsArray(cJSON_GetObjectItem(st, "closed_clients")));
