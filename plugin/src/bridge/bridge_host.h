@@ -35,6 +35,8 @@
 
 typedef struct cJSON cJSON;
 
+struct cJSON;
+
 namespace canworks_bridge {
 
 // The server settings of a bridge config; false with `err` when an entry of
@@ -84,6 +86,11 @@ class BridgeHost {
   uint16_t modbus_port() const { return server_.port(); }
   // The "bridge" part of the diagnostics status answer.
   cJSON* status_json() const;
+  // modbus_trace_start/fetch/stop (canopen-online-diagnostics "Modbus trace
+  // operations"), on the diagnostics server thread
+  // (public for the tests).
+  bool modbus_trace_op(uint64_t client, const std::string& id, const std::string& op, const cJSON* req,
+                       std::string& out);
 
  private:
   void loop();
@@ -117,6 +124,7 @@ class BridgeHost {
 
   std::unique_ptr<canopen_plugin::Engine> engine_;
   ByteImage image_;
+  ModbusTrace modbus_trace_;  // before server_, which records into it
   ModbusServer server_{image_};
   std::thread thread_;
   std::atomic<bool> stop_{false};

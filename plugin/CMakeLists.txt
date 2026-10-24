@@ -141,6 +141,7 @@ add_library(canworks_bridge_proto STATIC
     src/bridge/byte_image.cpp
     src/bridge/modbus.cpp
     src/bridge/modbus_server.cpp
+    src/bridge/modbus_trace.cpp
     src/bridge/address_list.cpp
     src/bridge/bridge_blocks.cpp
     src/bridge/mailboxes.cpp

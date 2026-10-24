@@ -935,6 +935,58 @@ TEST(device_identification_names_the_map_hash) {
   EXPECT(r.size() > 7 && r[6] == 3);
 }
 
+// The Modbus trace through the host's operations and the clients in the
+// status (canopen-online-diagnostics "Modbus trace operations", "Modbus
+// clients in the status").
+TEST(modbus_trace_ops_and_client_status) {
+  Host h;
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  auto op = [&](const char* line) {
+    cJSON* req = cJSON_Parse(line);
+    std::string out;
+    bool known = h.host.modbus_trace_op(42, "1", cJSON_GetStringValue(cJSON_GetObjectItem(req, "op")), req, out);
+    cJSON_Delete(req);
+    cJSON* ans = known ? cJSON_Parse(out.c_str()) : nullptr;
+    return ans;
+  };
+  auto result = [](cJSON* ans) { return cJSON_GetObjectItem(ans, "result"); };
+  cJSON* a = op(R"({"op":"modbus_trace_fetch","after":0})");
+  EXPECT(a && cJSON_GetObjectItem(a, "error"));
+  cJSON_Delete(a);
+  a = op(R"({"op":"modbus_trace_start","clients":["not an address"]})");
+  EXPECT(a && cJSON_GetObjectItem(a, "error"));
+  cJSON_Delete(a);
+  a = op(R"({"op":"modbus_trace_start"})");
+  EXPECT(a && result(a));
+  double next = cJSON_GetNumberValue(cJSON_GetObjectItem(result(a), "next"));
+  EXPECT(cJSON_IsTrue(cJSON_GetObjectItem(result(a), "changes_only")));
+  EXPECT(cJSON_GetNumberValue(cJSON_GetObjectItem(result(a), "buffer_bytes")) == 4 << 20);
+  EXPECT(std::string(cJSON_GetStringValue(cJSON_GetObjectItem(result(a), "map_hash"))).compare(0, 2, "0x") == 0);
+  cJSON_Delete(a);
+  Client c(h.port());
+  for (int i = 0; i < 5; ++i) EXPECT(c.request(read_req(kReadHoldingRegisters, 0, 1)).size() == 4);
+  EXPECT(c.request({kWriteSingleRegister, 0, 9, 0, 7}).size() == 5);
+  std::string fetch = R"({"op":"modbus_trace_fetch","after":)" + std::to_string(static_cast<long long>(next)) + "}";
+  a = op(fetch.c_str());
+  EXPECT(a && result(a) && cJSON_GetNumberValue(cJSON_GetObjectItem(result(a), "count")) == 2);
+  EXPECT(a && result(a) && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(result(a), "records"))).size() > 40);
+  cJSON_Delete(a);
+  cJSON* st = h.host.status_json();
+  cJSON* cl = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "clients"), 0);
+  EXPECT(cl && cJSON_GetNumberValue(cJSON_GetObjectItem(cJSON_GetObjectItem(cl, "functions"), "3")) == 5);
+  cJSON* lw = cJSON_GetObjectItem(cl, "last_write");
+  EXPECT(lw && std::string(cJSON_GetStringValue(cJSON_GetObjectItem(lw, "table"))) == "holding register" &&
+         cJSON_GetNumberValue(cJSON_GetObjectItem(lw, "start")) == 9);
+  EXPECT(cJSON_GetNumberValue(cJSON_GetObjectItem(st, "modbus_traces")) == 1);
+  EXPECT(cJSON_IsArray(cJSON_GetObjectItem(st, "closed_clients")));
+  cJSON_Delete(st);
+  a = op(R"({"op":"modbus_trace_stop"})");
+  EXPECT(a && cJSON_IsTrue(cJSON_GetObjectItem(result(a), "stopped")));
+  cJSON_Delete(a);
+  EXPECT(!op(R"({"op":"modbus_trace_other"})"));
+}
+
 TEST(map_hash_vectors) {
   // The same text and CRC as the PC tools (tools/deploy/tests/test_modbusmap.py).
   EXPECT(canopen_plugin::crc32_ieee("123456789") == 0xCBF43926u);
