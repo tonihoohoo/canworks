@@ -8,8 +8,10 @@ import json
 import os
 import shutil
 import tempfile
+import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, wait as _wait
 
 from . import jobs, plan as plan_mod, release, ssh, store as store_mod
 from .ssh import SshError
@@ -55,6 +57,35 @@ def summary(instances, own=None):
     if stopped:
         return "%d bridge%s stopped" % (stopped, "" if stopped == 1 else "s")
     return ""
+
+
+def _resolve(host):
+    try:
+        return {a[4][0] for a in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)}
+    except (OSError, UnicodeError):
+        return set()
+
+
+def not_saved(found, hosts, resolve=_resolve, timeout=1.0):
+    """The discovered devices (online.runtimes_list's {name, addresses}) that
+    are not in the device list: a device saved by its name (plc1.local, or
+    the advertised name itself) or by any of its addresses is left out, and
+    so is one a saved name resolves to, looked up within `timeout` seconds."""
+    def bare(h):
+        h = h.lower().rstrip(".")
+        return h[:-6] if h.endswith(".local") else h
+    names = {bare(h) for h in hosts if h}
+    known = {h.strip("[]") for h in hosts if h}
+    pool = ThreadPoolExecutor(max_workers=max(1, min(8, len(names))))
+    try:
+        futs = [pool.submit(resolve, h) for h in hosts if h]
+        done, _ = _wait(futs, timeout=timeout)
+        for f in done:
+            known |= f.result()
+    finally:
+        pool.shutdown(wait=False)
+    return [r for r in found if bare(r.get("name") or "") not in names
+            and not known.intersection(r.get("addresses") or [])]
 
 
 class Devices:
