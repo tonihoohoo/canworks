@@ -263,6 +263,29 @@ class CommissionPage(AdapterPage):
         pg.wait_for_selector('[data-online="scan-progress"]:has-text("Cancelled after")', timeout=10000)
         self.assertFalse(pg.is_visible('button[data-online="scan-cancel"]'))
 
+    def test_scan_poll_refused_ends_the_progress(self):
+        # A poll that fails (the connection refused or dropped mid-scan) ends
+        # the progress: Scan the bus works again, no Scanning... left behind.
+        pg = self.page
+        self.commission()
+        self.connect_adapter()
+        polls = []
+
+        def scan(route):
+            body = route.request.post_data_json or {}
+            if body.get("start"):
+                return route.fulfill(json={"running": True, "done": 0, "total": 127})
+            polls.append(body)
+            return route.fulfill(status=400, json={"error": "the bus does not run at 250 kbit/s"})
+        pg.route("**/api/online/scan", scan)
+        pg.click('button[data-online="scan"]')
+        pg.wait_for_selector('[data-online="scan-progress"]:has-text("The scan stopped: the bus does not run at 250 kbit/s.")',
+                             timeout=10000)
+        self.assertTrue(polls)
+        self.assertTrue(pg.is_enabled('button[data-online="scan"]'))
+        self.assertFalse(pg.is_visible('button[data-online="scan-cancel"]'))
+        pg.unroute("**/api/online/scan")
+
     def test_commission_after_close_starts_empty(self):
         pg = self.page
         self.device(7, identity=(0x360, 0x1, 0, 0x5))
