@@ -138,7 +138,7 @@ Every client polls the mailboxes' registers whether or not a block is called (Op
 
 `canworks_in` and `canworks_out` also copy every mailbox word on every scan.
 
-OpenPLC's Modbus master converts every polled register in Python, so its CPU follows the registers it polls per second. On a Raspberry Pi 5 bench with one CANopen node and a 10 ms poll, the OpenPLC runtime used about 9 % CPU without mailboxes and 31 % with the defaults polled every 10 ms. The bridge stayed at about 2 % either way. The default 50 ms mailbox poll polls them a fifth as often.
+OpenPLC's Modbus master converts every polled register in Python, so its CPU follows the registers it polls per second. On a Raspberry Pi 5 bench with one CANopen node and a 10 ms poll, the OpenPLC runtime used about 9 % CPU without mailboxes and 31 % with the defaults polled every 10 ms. The bridge stayed at about 2 % either way. The default 50 ms mailbox poll polls them a fifth as often: on the same bench, with a program that uses `CO_SDO_READ_STRING` and `CAN_RECEIVE`, the runtime used about 33 % at a 10 ms mailbox poll and about 16 % at 50 ms (bridge about 3 %).
 
 **Without mailboxes, use the config instead:**
 

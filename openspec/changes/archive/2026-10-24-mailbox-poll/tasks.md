@@ -28,5 +28,5 @@
 
 ## 6. Hardware check (Pi, after merge)
 
-- [ ] 6.1 Pi with node 23, default mailboxes, OpenPLC program that declares mailbox blocks: runtime CPU over 60 s at mailbox poll 10 and 50 ms (data poll 10 ms), compared with 31 % and 9 % from #278
-- [ ] 6.2 Same program: `CO_SDO_READ_STRING` 0x1008 and a `CAN_RECEIVE` work at 50 ms; note the round trip
+- [x] 6.1 Pi with node 23, default mailboxes, OpenPLC program that declares mailbox blocks: runtime CPU over 60 s at mailbox poll 10 and 50 ms (data poll 10 ms), compared with 31 % and 9 % from #278. Result (bridge 0.134.0, 2 x 60 s each): OpenPLC runtime about 33 % at mailbox poll 10 ms (9 Modbus groups, all at 10 ms) and about 16 % at 50 ms (mailbox groups at 50 ms); bridge about 3 % in both
+- [x] 6.2 Same program: `CO_SDO_READ_STRING` 0x1008 and a `CAN_RECEIVE` work at 50 ms; note the round trip. Result at 50 ms: the string read of 0x1008:0 every 2 s finished 34 times with 0 errors, round trip 60-80 ms (180 ms at most, with byte reads of the same node running alongside); an `ALL_IDS` `CAN_RECEIVE` got 131 frames in about 31 s (about 4.2 per second, as many as the other senders put on the bus), 0 dropped, 0 queued
