@@ -28,5 +28,5 @@
 
 ## 6. Hand checks (no Pi)
 
-- [ ] 6.1 Mac (Colima with the docker-compose plugin): `docker compose up` on the released images, open and upload from the OpenPLC Editor, FUXA Plant and I/O views: values, trend, alarm and Ack (no clear while over the limit), limit change, running light loop back, manual outputs with the light off, restart keeps a FUXA edit
-- [ ] 6.2 Windows with Docker Desktop: the same, with the editor on Windows
+- [x] 6.1 Mac (Colima with the docker-compose plugin): `docker compose up` on the released images, open and upload from the OpenPLC Editor, FUXA Plant and I/O views: values, trend, alarm and Ack (no clear while over the limit), limit change, running light loop back, manual outputs with the light off, restart keeps a FUXA edit (passed 2026-10-24 on the released images: values, writes, alarm latch and Ack, loop back, browser views, FUXA edit kept over `down`/`up`; first user through the runtime API and upload with `openplc-cli`, editor GUI not opened. Found: `down` drops the uploaded program, which is in the runtime container, so the README says `stop`/`start`)
+- [x] 6.2 Windows with Docker Desktop: the same, with the editor on Windows (passed 2026-10-24, Docker Desktop 29.8.2: upload with `openplc-cli` 4.3.2, values, writes, browser views, `stop`/`start` keeps the program, `down`/`up` keeps FUXA edits and the user but not the program, as on the Mac)

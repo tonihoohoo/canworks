@@ -39,7 +39,8 @@ Only this PC can reach them (`127.0.0.1`): the runtime on port 8443, FUXA on 188
 | --- | --- |
 | canworks version | `CANWORKS_VERSION=0.137.1 docker compose up` (default `latest`). |
 | Upload from the command line | `openplc-cli upload . --host localhost --yes` in this folder, with the runtime's user in `OPENPLC_USER` and `OPENPLC_PASSWORD`, once it exists. |
-| Stop | `docker compose down`. The program, the runtime's user and your FUXA changes stay in volumes. |
+| Stop and start again | `docker compose stop`, then `docker compose start`: the program runs again on its own. |
+| Remove the containers | `docker compose down`. The runtime's user and your FUXA changes stay in volumes, but the runtime's program and certificate are in its container: after `docker compose up`, upload again (the editor asks to accept the new certificate). |
 | Start over | `docker compose down -v`, then `docker compose up`: a new runtime (create the user and upload again) and FUXA with this folder's project. |
 
 The project was made with OpenPLC Editor 4.3.2. `limit` and `run` start at 25.0 and on after every PLC start; they are not retained.
