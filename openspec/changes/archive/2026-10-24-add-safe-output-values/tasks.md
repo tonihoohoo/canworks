@@ -21,9 +21,9 @@
 
 ## 4. Archive
 
-- [ ] 4.1 `openspec archive add-safe-output-values --yes` on the branch; one PR with spec, code and archive; squash auto-merge
+- [x] 4.1 `openspec archive add-safe-output-values --yes` on the branch; one PR with spec, code and archive; squash auto-merge
 
 ## 5. Hardware check (Pi)
 
-- [ ] 5.1 Pi with node 23 on its OpenPLC connection, `"safe"` with a safe value on the valve output: stop the PLC through the runtime API; the trace shows the valve RPDO with the safe value on every SYNC, and the PLC's start resumes its own values
-- [ ] 5.2 Same bench: `systemctl restart canworks-bridge@…`; the trace shows the safe value before the pre-operational command, and the safe value again from the start until OpenPLC writes
+- [x] 5.1 Pi with node 23 on its OpenPLC connection, `"safe"` with a safe value on the valve output: stop the PLC through the runtime API; the trace shows the valve RPDO with the safe value on every SYNC, and the PLC's start resumes its own values. Result (bridge 0.137.0): on the PLC's stop the valve RPDO 0x217 went to the safe value 01, and after the start back to the PLC's 00. The RPDO is event-driven, so the safe value is sent once when it changes, not on every SYNC
+- [x] 5.2 Same bench: `systemctl restart canworks-bridge@…`; the trace shows the safe value before the pre-operational command, and the safe value again from the start until OpenPLC writes. Result: failed on 0.137.0 (the stop let OpenPLC write 00 after the safe value), fixed in #307; on 0.137.1, two restarts each sent 0x217=01 before NMT 80 17 with no 00 in between, then after NMT 01 17 0x217=01 within 0.2 ms, and 00 about 140 ms later when OpenPLC wrote
