@@ -1,0 +1,69 @@
+# The canworks FUXA example (README.md): the simulated plant in
+# canworks-bridge, with the control in FUXA's built-in Node-RED and the
+# HMI drawn in FUXA. In this folder:
+#
+#   docker compose up
+#
+# then open http://localhost:1881 (the HMI) and http://localhost:1881/nodered/
+# (the flow). CANWORKS_VERSION picks the canworks release (default latest);
+# the Node-RED package and the flow come from the same image as the bridge,
+# so the versions always match.
+
+name: canworks-fuxa
+
+services:
+  # Copies the plant's files for the bridge and writes the Node-RED package
+  # and the flow of canworks.json, then exits. Runs at every `up`, so a
+  # changed config reaches the bridge.
+  setup:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        rm -rf /share/* /plant/* &&
+        cp /example/canworks.json /example/simulation.json /example/*.eds /plant/ &&
+        /opt/canworks/venv/bin/canworks-deploy --export-nodered-package /share &&
+        /opt/canworks/venv/bin/canworks-deploy --config /example/canworks.json
+        --export-nodered /share/plant_node-red.json
+    volumes:
+      - ./:/example:ro
+      - share:/share
+      - plant:/plant
+
+  # The plant: two CANopen nodes simulated inside the bridge, no CAN
+  # interface. Modbus TCP on 127.0.0.1:1502 of this service's network only.
+  bridge:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - plant:/etc/canworks-bridge
+    ports:
+      - "127.0.0.1:1881:1881"   # FUXA's, which shares this service's network
+    restart: unless-stopped
+
+  # FUXA in the bridge's network, so its Node-RED reaches 127.0.0.1:1502 on
+  # every OS; start.sh turns Node-RED on, installs the canworks package and
+  # loads the flow and the FUXA project on first start.
+  fuxa:
+    image: frangoteam/fuxa:1.3.5
+    network_mode: service:bridge
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      bridge:
+        condition: service_started
+    entrypoint: ["/bin/sh", "/example/start.sh"]
+    volumes:
+      - ./:/example:ro
+      - share:/share:ro
+      - fuxa-appdata:/usr/src/app/FUXA/server/_appdata
+      - fuxa-db:/usr/src/app/FUXA/server/_db
+    restart: unless-stopped
+
+volumes:
+  plant:
+  share:
+  fuxa-appdata:
+  fuxa-db:

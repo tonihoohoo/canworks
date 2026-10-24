@@ -22,7 +22,7 @@ The control SHALL run in FUXA's built-in Node-RED on the canworks Node-RED packa
 - **THEN** the example check fails naming both files
 
 ### Requirement: Values as FUXA Server tags
-The flow SHALL write the plant state to tags of the FUXA Server device whose ids equal their names: `temp1`, `temp2`, `rtd_ok`, `dio_ok`, `canworks_ok`, `bus_ok`, `alarm`, `light_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1` and `bridge_state`. It SHALL write only values that changed.
+The flow SHALL write the plant state to tags of the FUXA Server device whose ids equal their names: `temp1`, `temp2`, `rtd_ok`, `dio_ok`, `canworks_ok`, `bus_ok`, `alarm`, `light_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1` and `bridge_state`. It SHALL write a tag only when it holds another value, so the tags are filled again after FUXA reloads its project.
 
 #### Scenario: Temperature shown
 - **WHEN** the simulated temperature 1 changes
@@ -39,12 +39,12 @@ The tags `limit` (start 25), `run` (start true), `ack`, `manual_out0` and `manua
 - **WHEN** the operator presses Ack while temperature 1 is at or below the limit
 - **THEN** `alarm` turns false and `ack` reads false again
 
-### Requirement: Operator values on project save
-`limit`, `run`, `manual_out0` and `manual_out1` SHALL keep their values when the FUXA project is saved. After a restart of the FUXA container they MAY return to their start values, and the README SHALL say so.
+### Requirement: Operator values after a reload
+When the FUXA project is saved or FUXA restarts, `limit`, `run`, `manual_out0` and `manual_out1` SHALL return to their start values and the logic SHALL follow them. The README SHALL say so.
 
 #### Scenario: Project saved
 - **WHEN** the limit is 30 and the user saves the project in FUXA's editor
-- **THEN** the limit is still 30
+- **THEN** the limit is 25 again and the alarm uses 25
 
 ### Requirement: Plant view
 `fuxa/project.json` SHALL have a **Plant** view with:

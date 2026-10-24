@@ -3,6 +3,7 @@
 [Node-RED](https://nodered.org) uses a canworks network through the [Modbus bridge](modbus-bridge.md) with the canworks node package `node-red-canworks`: the bridge runs the CAN bus, and the package's nodes read and write its values by name and run the same jobs as the PLC function blocks (SDO, NMT, EMCY, raw CAN, J1939). Node-RED never touches the bus itself, so the bridge's watchdog, node supervision and SDO handling stay where they are.
 
 - [Dashboard example](#dashboard-example)
+- [FUXA example](#fuxa-example)
 - [What you need](#what-you-need)
 - [Install the package](#install-the-package)
 - [Export and import the flow](#export-and-import-the-flow)
@@ -17,6 +18,10 @@
 ## Dashboard example
 
 [`examples/node-red-dashboard`](../examples/node-red-dashboard/README.md) is a ready [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on these nodes, against the simulated plant of the Modbus bridge example (a temperature module and a digital I/O module, no CAN interface). `docker compose up` in that folder starts the bridge and Node-RED with the package, Dashboard 2.0 and the flow installed; the dashboard is at `http://localhost:1880/dashboard`. Its pages show the temperatures with a trend, an alarm with Ack, the digital inputs and outputs, NMT commands, an SDO read and received EMCY messages. The CODESYS example runs the same plant and logic.
+
+## FUXA example
+
+[`examples/fuxa-node-red`](../examples/fuxa-node-red/README.md) runs the same plant and logic in the Node-RED built into [FUXA](https://github.com/frangoteam/FUXA), a web HMI. Node-RED does the control on these nodes, and FUXA's views show it: the flow writes the values to tags of FUXA's own server device and gets the operator's limit, Ack, running light and manual outputs back from them, so FUXA itself needs no connection to the bridge. `docker compose up` in that folder starts the bridge and FUXA with Node-RED turned on, the package installed and the flow and views loaded; the HMI is at `http://localhost:1881` and the flow at `http://localhost:1881/nodered/`. The package goes into FUXA's Node-RED like into any other: Manage palette > Install > Upload, or `npm install` in `_appdata/node-red`.
 
 ## What you need
 

@@ -5,9 +5,9 @@
 FUXA 1.3.5 (checked in its source and run in Docker):
 - Node-RED 4.1.11 is a dependency of the server. It is mounted at `/nodered` (editor) and `/dashboard` (HTTP nodes) when `nodeRedEnabled` is true in `_appdata/mysettings.json`, and its `userDir` is `_appdata/node-red`.
 - `node-red-contrib-fuxa` is loaded from the image (`nodesDir`). Its nodes and function nodes reach FUXA through `global.get("fuxa")`. The nodes use `setTag(id, value)`, `getTag(id)` and `getTagId(name)`, plus the runtime's `device-value:changed` events for `get-tag-change`.
-- `getTagId(name)` and the editor's tag dropdown (`/nodered/fuxa/devices`) search only `project.devices`. They skip the FUXA Server device (`project.server`). `setTag` and `getTag` by id work on Server tags, because the server is one of the active devices.
+- `getTagId(name)`, the editor's tag dropdown (`/nodered/fuxa/devices`) and the browser's tag writes look in `project.devices`. The FUXA Server device must therefore be there under id `"0"`, as FUXA's editor saves it, and not only under `project.server`. With the server only in `project.server`, Node-RED found no tag by name, and views wrote nothing (the browser sent the write without a device, which the server drops). Both work once the server device is in `devices`.
 - The device type `internal` keeps its values in each browser, so it cannot carry plant values.
-- Server tags take their `init` value whenever the project is loaded: at start, and when the project is saved. With `daq: {enabled, restored: true}` a project save keeps the last value. After a container restart the value was back to `init` in two runs (FUXA logged "restored 2/2"). This is not dug into further: the example does not depend on it.
+- Server tags take their `init` value whenever the project is loaded: at start, and when the project is saved. DAQ with `restored: true` kept a value over a project save but not over a container restart, and on a first start it left the tag empty (`null`) instead of at `init`. So the example does not use it.
 - The Server device polls every 1000 ms by default (`server.polling`). `get-tag-change` fires on that poll.
 
 ## Goals / Non-Goals
@@ -37,7 +37,7 @@ The HMI tags are on the FUXA Server device. Each tag's id equals its name (`limi
 | `ack` | boolean | FUXA (Node-RED sets it back to false) | false |
 | `manual_out0` (bits 1-7), `manual_out1` | number (byte) | FUXA | 0 |
 
-`bus_ok` is `bridge.bus_ok`, and `canworks_ok` is true when the bridge state is `running` and `bus_ok` is true. `bridge_state` (the bridge's state text) exists only in this example, because OpenPLC does not get that text; the shared views show `canworks_ok` and `bus_ok`, and only this example's README mentions `bridge_state`. `limit`, `run`, `manual_out0` and `manual_out1` have DAQ with restore, so saving the project in FUXA's editor keeps them. A container restart sets them back to their start values; the README says so. `server.polling` is 200 ms, so operator changes reach the logic within 0.2 s.
+`bus_ok` is `bridge.bus_ok`, and `canworks_ok` is true when the bridge state is `running` and `bus_ok` is true. `bridge_state` (the bridge's state text) exists only in this example, because OpenPLC does not get that text; the shared views show `canworks_ok` and `bus_ok`, and only this example's README mentions `bridge_state`. Saving the project in FUXA's editor or restarting FUXA sets the operator tags back to their start values, and the logic follows them through `get-tag-change`; the README says so. `server.polling` is 200 ms, so operator changes reach the logic within 0.2 s.
 
 If add-openplc-fuxa-example merges first with other tag ids for its OPC UA tags, this example takes its ids. If this one merges first, that change takes these. Whichever merges second adapts.
 
@@ -45,17 +45,17 @@ If add-openplc-fuxa-example merges first with other tag ids for its OPC UA tags,
 `plant.json` is one Node-RED tab (ids `fxnr.*`) that uses the bridge config node of the export named `plant`, as the dashboard example does:
 - **canworks in** with the dashboard example's filter → **plant logic**.
 - **plant logic** is a copy of the dashboard example's node, with the same `func` text, so the two cannot drift. CI compares them. Output 1 → **canworks out**. Output 2 (the state message) → **to FUXA**. Outputs 3 and 4 (trend, notification) are not wired: FUXA has its own trend and alarms.
-- **to FUXA** is a function that maps the state message to tag ids (`lightOk` → `light_ok`, ...). It also computes `canworks_ok`, and calls `global.get("fuxa").setTag(id, value)` for each value that changed. It uses this call rather than the documented **set-tag** node because set-tag looks up `msg.topic` by name, which fails for Server tags (Context). One function replaces fourteen set-tag nodes.
-- **get-tag-change** nodes, each with `tagId` set, for `limit`, `run`, `ack`, `manual_out0` and `manual_out1`. `limit` and `run` go straight to the logic, since the topic is the tag name. `ack` passes only when true, and then **set-tag** (with `tagId: "ack"`) writes false back. `manual_out0` and `manual_out1` go through a small function that turns a changed byte into the logic's `switch` messages (`{name: "dio_out0"` or `"dio_out1", bit, value}`), one per changed bit. The logic ignores bit 0 of `dio_out0`, which belongs to the alarm.
+- **to FUXA** is a function that maps the state message to tag ids (`lightOk` → `light_ok`, ...). It also computes `canworks_ok`, and calls `global.get("fuxa").setTag(id, value)` for each value the tag does not already hold (`getTag(id)`). Comparing with the tag, not with a copy in the node, fills the tags again after FUXA reloads its project. One function replaces thirteen set-tag nodes.
+- **get-tag-change** nodes, each with `tag` and `tagId` set to the tag's name, for `limit`, `run`, `ack`, `manual_out0` and `manual_out1`. `limit` and `run` go straight to the logic, since the topic is the tag name. `ack` passes only when true, and then **set-tag** (with `tagId: "ack"`) writes false back. `manual_out0` and `manual_out1` go through a small function that turns a changed byte into the logic's `switch` messages (`{name: "dio_out0"` or `"dio_out1", bit, value}`), one per changed bit. The logic ignores bit 0 of `dio_out0`, which belongs to the alarm.
 - A **start** inject (topic `start`) runs once at deploy. It sends the logic its start message and reads `limit`, `run`, `manual_out0` and `manual_out1` with **get-tag**, so a redeploy picks up the values FUXA already holds.
 
 
 ### FUXA project and views
-`fuxa/project.json` is a whole FUXA project (the `POST /api/project` body). It has no devices, the Server device with the tags above and `polling: 200`, and the views:
+`fuxa/project.json` is a whole FUXA project (the `POST /api/project` body). Its only device is the FUXA Server device (in `devices["0"]` and `server`) with the tags above and `polling: 200`, and it has the views:
 - **Plant**: the two temperatures with a trend, the limit input, the alarm lamp, Ack, the running light switch and its check, status lamps for both nodes, `canworks_ok` and `bus_ok`.
 - **I/O**: lamps for the 16 input bits, the 16 output bits, and buttons for bits 1-7 of `manual_out0` and the 8 bits of `manual_out1` (these work while the running light is off).
 
-The views are drawn in FUXA's editor against the running example and exported, because view SVG cannot practically be written by hand. If add-openplc-fuxa-example already has views on the same tag ids, its views are reused as they are.
+The views were generated once from a short script (FUXA's value, lamp, button, input and chart items with their SVG) and checked in FUXA against the running example; after that they are edited in FUXA's editor. They bind tags by id only, so the OpenPLC + FUXA example can take them as they are.
 
 ### Compose and start script
 ```

@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "tick_ms": 10,
+  "networks": {
+    "field": {
+      "nodes": {
+        "5": {
+          "sources": {
+            "0x7130:1": { "sine": { "min": 200, "max": 260, "period_s": 30 } },
+            "0x7130:2": { "ramp": { "from": 300, "to": 360, "duration_s": 30, "then": "reverse" } }
+          }
+        }
+      }
+    }
+  }
+}

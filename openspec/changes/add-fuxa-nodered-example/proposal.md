@@ -7,9 +7,9 @@ Toni (2026-10-24): "Explore fuxa example where fuxa integrated node red is used 
 The explore (report `research/fuxa-nodered-example-2026-10-24.md` in the project files) ran the whole chain in the cloud container: FUXA 1.3.5 with its Node-RED on, the real canworks-bridge built from main with the shared plant, node-red-canworks 0.137.1 and the shared plant logic. It found:
 - FUXA's Node-RED (4.1.11 on Node 18) is off by default and turns on with `nodeRedEnabled: true` in `_appdata/mysettings.json`. Its editor is at `/nodered/` and its user folder is `_appdata/node-red`.
 - The canworks `.tgz` installs there with Manage palette > Upload, or with `npm install` in that folder. It needs no internet.
-- FUXA's own nodes (`node-red-contrib-fuxa`, built in) and `global.get("fuxa")` read and write FUXA tags. Tags of the **FUXA Server** device are shared by every browser and work by tag id. FUXA's node editors look tags up by name only on real devices, so the example uses fixed tag ids.
+- FUXA's own nodes (`node-red-contrib-fuxa`, built in) and `global.get("fuxa")` read and write FUXA tags. Tags of the **FUXA Server** device are shared by every browser. The example gives each tag an id equal to its name.
 - A limit written from FUXA raised the alarm. Output bit 0 went out over CAN and came back on the loopback input, and Ack cleared it.
-- Saving the FUXA project resets Server tags to their start values unless the tag has DAQ with "restore". With restore, a project save keeps them, but a container restart still starts them from their start values. The example states this, like the OpenPLC example does for a PLC restart.
+- Saving the FUXA project or restarting FUXA resets Server tags to their start values. The example states this, like the OpenPLC example does for a PLC restart.
 
 ## What Changes
 
@@ -35,7 +35,6 @@ The explore (report `research/fuxa-nodered-example-2026-10-24.md` in the project
 - FUXA talking Modbus to the bridge (a second client and writer, and addresses that move with the map).
 - Node-RED Dashboard 2.0 inside FUXA (that is the dashboard example).
 - Running FUXA or Docker in CI.
-- A FUXA change upstream so its nodes find Server tags by name (could be offered to FUXA later; the example does not need it).
 
 ## Capabilities
 

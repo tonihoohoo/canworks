@@ -1,25 +1,25 @@
 ## 1. Example files
 
-- [ ] 1.1 `examples/fuxa-node-red/`: copy `canworks.json`, `rtd8.eds`, `dio16.eds`, `simulation.json` from `examples/node-red-dashboard`
-- [ ] 1.2 `plant.json`: canworks in → plant logic (copied) → canworks out, 500 ms tick, start inject with get-tag reads, **to FUXA** function (`global.get("fuxa").setTag`), get-tag-change for `limit`, `run`, `ack`, `manual_out0`, `manual_out1`, ack release, manual bytes → switch messages
-- [ ] 1.3 Tag ids = names, agreed with add-openplc-fuxa-example (2026-10-24); recheck its final list at apply time
-- [ ] 1.4 `fuxa/project.json`: no devices, Server tags (ids = names, `limit`/`run`/`manual_out0`/`manual_out1` with DAQ restore, `polling` 200), views **Plant** and **I/O** drawn in FUXA's editor and exported (or reused from add-openplc-fuxa-example when it already has them)
-- [ ] 1.5 `docker-compose.yml` (setup, bridge publishing 127.0.0.1:1881, fuxa 1.3.5 with `network_mode: service:bridge`) and `start.sh` (mysettings, offline package install on version change, flow once, project once)
-- [ ] 1.6 `README.md`: Docker route, URLs, port shared with the OpenPLC + FUXA example, restart behaviour, security; then installed bridge + own FUXA
+- [x] 1.1 `examples/fuxa-node-red/`: copy `canworks.json`, `rtd8.eds`, `dio16.eds`, `simulation.json` from `examples/node-red-dashboard`
+- [x] 1.2 `plant.json`: canworks in → plant logic (copied) → canworks out, 500 ms tick, start inject with get-tag reads, **to FUXA tags** function (`global.get("fuxa")`, writes what the tag does not hold), get-tag-change for `limit`, `run`, `ack`, `manual_out0`, `manual_out1`, ack release, run and manual bytes → switch messages
+- [x] 1.3 Tag ids = names, agreed with add-openplc-fuxa-example (2026-10-24: `manual_out0`, `bus_ok` added; `bridge_state` only here)
+- [x] 1.4 `fuxa/project.json`: the FUXA Server device in `devices["0"]` and `server` (needed for name lookup in Node-RED and for writes from views), tags (ids = names, `polling` 200), views **Plant** and **I/O**, chart of both temperatures and the limit. No DAQ restore: it left tags empty on a first start
+- [x] 1.5 `docker-compose.yml` (setup, bridge publishing 127.0.0.1:1881, fuxa 1.3.5 with `network_mode: service:bridge`, volumes for `_appdata` and `_db`) and `start.sh` (mysettings, offline package install on version change, flow once, project once)
+- [x] 1.6 `README.md`: Docker route, URLs, port shared with the OpenPLC + FUXA example, restart behaviour, security; then installed bridge + own FUXA
 
 ## 2. Check
 
-- [ ] 2.1 `tools/deploy/tests/test_fuxa_nodered_example.py` (plant files, plant logic text, bridge id, topics, tag ids in flow and views, compose and start script references)
+- [x] 2.1 `tools/deploy/tests/test_fuxa_nodered_example.py` (plant files, plant logic text, bridge id, topics, wires, tag ids in flow, views and chart, compose and start script references); timing entry in `.github/ci/tool-test-times.json`
 - [ ] 2.2 CI time: wall and summed job time against the main baseline, in the PR description
 
 ## 3. Local run
 
-- [ ] 3.1 In the cloud container: bridge built from the branch with the example config, FUXA 1.3.5 started through `start.sh`; values reach the tags, limit/Ack/running light/manual outputs work, project save keeps the limit; screenshots of both views with Playwright for the PR
+- [x] 3.1 In the cloud container: bridge built from main with the example config, FUXA 1.3.5 started through `start.sh` (first start: package install, flow, project load; second start: both kept; stop is immediate). From the browser (Playwright): limit 15 raised the alarm and output bit 0 came back on `dio_in0`, limit 30 + Ack cleared it, Ack while too hot kept it, the running light switched off, manual bit 3 of `dio_out1` came back on `dio_in1`, `manual_out0` bits 1-2 reached `dio_out0`. A project save reset the limit to 25 and refilled every Node-RED tag. Screenshot of the Plant view in `docs/images/fuxa-node-red-plant.png`
 
 ## 4. Docs and version
 
-- [ ] 4.1 README.md (examples) and `docs/node-red.md` (a "FUXA example" section)
-- [ ] 4.2 Version bump: not needed (no tools code changes)
+- [x] 4.1 README.md (Node-RED line) and `docs/node-red.md` ("FUXA example" section)
+- [x] 4.2 Version bump: not needed (no tools code changes)
 
 ## 5. Hand checks (no Pi)
 
