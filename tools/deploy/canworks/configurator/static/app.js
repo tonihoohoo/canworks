@@ -6963,7 +6963,15 @@ async function runScan(start, forced) {
     const body = { start, config: fileConfig(), port: diagPort(), network: onlineNetwork() || undefined };
     r = start ? await apiRunning("/api/online/scan", body, "Scan anyway?", !!forced) : await api("POST", "/api/online/scan", body);
   } catch (e) {
-    if (seq === S.onlineSeq) banner(e.message, true);
+    if (seq !== S.onlineSeq) return;
+    banner(e.message, true);
+    // A failed start or poll (the connection was refused or dropped): the scan's progress ends here.
+    const p = document.querySelector("[data-online=scan-progress]");
+    const b = document.querySelector("[data-online=scan]");
+    const c = document.querySelector("[data-online=scan-cancel]");
+    if (p) p.textContent = start ? "Scan not started." : `The scan stopped: ${e.message.replace(/\.?$/, ".")}`;
+    if (b) b.disabled = false;
+    if (c) c.hidden = true;
     return;
   }
   const progress = document.querySelector("[data-online=scan-progress]");

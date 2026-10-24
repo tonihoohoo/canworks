@@ -428,6 +428,7 @@ async function devProbe(id, refresh) {
     DEV.keyOffered[id] = true;
     devOfferKeyLogin(id);
   }
+  return r;
 }
 
 async function devOfferKeyLogin(id) {
@@ -576,7 +577,26 @@ async function devJobEnded(id, j) {
   if (typeof jobsKick === "function") jobsKick();
   // A finished job may have made the device the project's runtime host (Online access).
   if (j.exit === 0 && S.state && S.state.mode) await loadOnlineSettings();
-  await devProbe(id);
+  // The job's last line can come before its unit has ended, and a server it
+  // started before that server shows up: the row is read again until the
+  // device shows the result (a few seconds at most).
+  for (let i = 0; i < 4; i++) {
+    const r = await devProbe(id);
+    if (!r || !devJobSettling(r.probe, j)) return;
+    await new Promise((ok) => setTimeout(ok, DEV_SETTLE_MS));
+  }
+}
+
+const DEV_SETTLE_MS = 1500;
+
+// True while the device does not show a job that ended yet: the job still
+// runs there, or a remote CAN adapter it turned on is not listed or not running.
+function devJobSettling(probe, j) {
+  const job = (probe && probe.install_job) || {};
+  if (job.id === j.id && ["active", "activating", "deactivating"].includes(job.state)) return true;
+  if (j.exit !== 0 || !j.served || !["adapter_on", "adapter_change", "adapter_token"].includes(j.action)) return false;
+  const a = ((probe && probe.adapters) || []).find((x) => x && x.adapter === j.served.adapter);
+  return !a || a.state !== "active";
 }
 
 // Redraws the job box only (the log keeps its scroll and fold).
@@ -733,6 +753,14 @@ async function devAdapterConnect(d, port) {
   if (!(await saveOnline({ remote_adapter: true, remote_host: devAdapterAddress(d.host, port) }))) return;
   CONN.target = "remote";
   openConnect();
+  // One click: with this PC's token for the server the panel connects at once
+  // (read-only, as every new connection); without one it waits for the token.
+  if (!S.online.remote_token_set) return;
+  for (let i = 0; i < 20; i++) {
+    const go = document.querySelector("#conn-dialog[open] [data-online=connect]");
+    if (go && !go.hidden && !go.disabled) { go.click(); return; }
+    await new Promise((r) => setTimeout(r, 50));
+  }
 }
 
 async function devAdapterCopyToken(d, port) {
