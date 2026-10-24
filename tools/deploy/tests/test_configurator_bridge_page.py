@@ -362,6 +362,87 @@ class BridgePage(OnlineBase):
         self.assertEqual(pg.evaluate(FIT_CHECK), [])
         audit(pg, "Modbus bridge page with function blocks")
 
+    def test_add_dialog_writers_and_refused_download(self):
+        """UI-2, UI-3, UI-10, DOCS-1, BRIDGE-7 (page side), UI-15: the
+        OpenPLC banner, Writes off next to the PLC link, the required
+        address, a Download refused while its connection has an error, and
+        the request mailbox kept while the receive mailbox is on."""
+        pg = self.page
+        self.to_bridge()
+        tree_view(pg, "bridge")
+        pg.click("[data-conn-add]")
+        pg.wait_for_selector("[data-conn-dialog]")
+        self.assertIn("The mailboxes stay off until the program declares a mailbox block",
+                      pg.inner_text("[data-conn-openplc-note]"))
+        self.assertNotIn("function block mailboxes", pg.inner_text("[data-conn-openplc-note]"))
+        pg.click("#modal-buttons button[data-value=cancel]")
+        add_connection(pg, "openplc")
+        pg.wait_for_selector("[data-conn-added=openplc]")
+        banner = pg.inner_text("#banner")
+        self.assertIn("The PLC link, low word first and the live lists are on", banner)
+        self.assertIn("The mailboxes stay off until the program declares a mailbox block", banner)
+        # truST next to the PLC link: Writes off; ticked, Problems names it.
+        tree_view(pg, "bridge")
+        pg.click("[data-conn-add]")
+        pg.wait_for_selector("[data-conn-dialog]")
+        pg.click('label:has([data-conn-kind="trust"])')
+        self.assertFalse(pg.is_checked("[data-conn-writes]"))
+        pg.fill("[data-conn-name]", "Line")
+        pg.fill("[data-conn-address]", "192.168.1.50")
+        pg.click("#modal-buttons button[data-value=add]")
+        pg.wait_for_selector('[data-connection="Line"]')
+        self.assertFalse(pg.is_checked('input[data-path="bridge.connections[1].writes"]'))
+        pg.check('input[data-path="bridge.connections[1].writes"]')
+        self.checked()
+        self.assertIn("Line writes, but with the PLC link only the PLC writes outputs and mailboxes (OpenPLC does)",
+                      pg.inner_text("#problem-list"))
+        # HMI: 127.0.0.1 prefilled; an empty address is refused under the field.
+        tree_view(pg, "bridge")
+        pg.click("[data-conn-add]")
+        pg.wait_for_selector("[data-conn-dialog]")
+        pg.click('label:has([data-conn-kind="hmi"])')
+        self.assertEqual(pg.input_value("[data-conn-address]"), "127.0.0.1")
+        pg.click('label:has([data-conn-kind="plc"])')
+        self.assertEqual(pg.input_value("[data-conn-address]"), "")
+        pg.click('label:has([data-conn-kind="hmi"])')
+        pg.fill("[data-conn-address]", "")
+        pg.click("#modal-buttons button[data-value=add]")
+        pg.wait_for_selector("[data-conn-msg=address]:has-text(\"Give the client's address\")")
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.connections.length"), 2)
+        pg.click("#modal-buttons button[data-value=cancel]")
+        # Other PLC elsewhere while the bridge listens on loopback: no file, the row does not turn In sync.
+        add_connection(pg, "plc", name="Cell", address="192.168.1.51")
+        pg.wait_for_selector('[data-connection="Cell"]')
+        self.checked()
+        pg.click('[data-conn-download="2"]')
+        pg.wait_for_selector("[data-conn-fix-first]")
+        text = pg.inner_text("#banner")
+        self.assertIn("The saved config has 1 error: fix it first.", text)
+        self.assertIn("Cell connects from 192.168.1.51, but the bridge listens on 127.0.0.1:1502 only", text)
+        self.assertNotEqual(pg.get_attribute('[data-connection="Cell"] [data-conn-state]', "data-conn-state"), "up_to_date")
+        self.assertNotIn("map_hash", pg.evaluate("() => S.model.top.bridge.connections[2]"))
+        # Function blocks: the receive mailbox keeps one request mailbox.
+        tree_view(pg, "bridge")
+        self.assertIn("Off by default, because when on every client polls them",
+                      pg.inner_text("[data-bridge-mailboxes]"))
+        pg.check('input[data-path="bridge.mailboxes"]')
+        pg.wait_for_selector('[data-bridge-mailboxes="1"]')
+        pg.fill('input[data-path="bridge.mailboxes.requests"]', "0")
+        pg.press('input[data-path="bridge.mailboxes.requests"]', "Tab")
+        pg.wait_for_function("() => S.model.top.bridge.mailboxes.requests === 1")
+        self.assertEqual(pg.input_value('input[data-path="bridge.mailboxes.requests"]'), "1")
+        pg.uncheck('input[data-path="bridge.mailboxes.receive"]')
+        pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "0")
+        pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
+        pg.fill('input[data-path="bridge.mailboxes.requests"]', "0")
+        pg.press('input[data-path="bridge.mailboxes.requests"]', "Tab")
+        pg.wait_for_timeout(200)
+        self.assertEqual(pg.evaluate("() => S.model.top.bridge.mailboxes.requests"), 0)
+        # Cyclic jobs back on: the request mailbox comes back with them.
+        pg.fill('input[data-path="bridge.mailboxes.cyclic_jobs"]', "2")
+        pg.press('input[data-path="bridge.mailboxes.cyclic_jobs"]', "Tab")
+        pg.wait_for_function("() => S.model.top.bridge.mailboxes.requests === 1")
+
     def test_example_live_list_follows_the_network(self):
         """The example as it is: defaults written out show as the default,
         a network rename carries the live list along, a removal takes it."""

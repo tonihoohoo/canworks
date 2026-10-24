@@ -2129,6 +2129,21 @@ class Session:
             raise ApiError(400, "no connection %r" % index)
         if not isinstance(conn, dict) or conn.get("kind") not in connections.KINDS or conn["kind"] == "openplc":
             raise ApiError(400, "connection %r has no download" % index)
+        # Not with an error on this connection or on the listen address it needs (UI-3):
+        # the file would not work, and the row would say In sync.
+        mine = "bridge.connections[%d]" % int(index)
+
+        def blocks(paths):
+            ours = any(p == mine or p.startswith(mine + ".") for p in paths)
+            others = any(p.startswith("bridge.connections[") for p in paths)
+            return ours or ("bridge.listen" in paths and not others)
+        try:
+            errors = [it for it in contract.check_config(cfg, self.config_path, eds_paths=self.eds_paths(cfg)).items
+                      if it.get("level") == "error" and blocks(it.get("paths") or [])]
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            errors = []
+        if errors:
+            return {"items": errors, "errors": len(errors), "fix_first": True}
         folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
         try:
             name, mime, data, notes = connections.download(

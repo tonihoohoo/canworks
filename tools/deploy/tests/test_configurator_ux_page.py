@@ -22,7 +22,7 @@ from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, fake_editor_cli
 
 TREE_NODE = '#tree [data-key="0:node:%d"]'
-NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device."
+NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission."
 TEXT_NODES = """() => [...document.querySelectorAll('#editor, header, #banner')].flatMap((root) => {
   const out = [];
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);

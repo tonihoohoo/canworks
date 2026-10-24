@@ -61,7 +61,8 @@ def new(kind, cfg, name=None, address=None):
     if kind == "openplc":
         out.update({"address": bridgecheck.OPENPLC_ADDRESS, "writes": True})
     else:
-        out.update({"address": address or "", "writes": kind in ("trust", "plc")})
+        # Next to a PLC link one PLC writes already: a new one starts read-only (UI-2).
+        out.update({"address": address or "", "writes": kind in ("trust", "plc") and not modbusmap.has_plc_link(cfg)})
     if kind in ("trust", "plc"):
         out["format"] = "plcopen"
     elif kind == "hmi":
@@ -175,7 +176,12 @@ def download(cfg, conn, decls, config_name):
         fmt = conn.get("format") or ("plcopen" if kind in ("trust", "plc") else "csv")
         if kind in ("trust", "plc") and fmt == "plcopen":
             target = "trust" if kind == "trust" else "generic"
-            files = plcopen_targets.files(cfg, decls, target, host=bridge_host(cfg, conn),
+            host = bridge_host(cfg, conn)
+            if host is None and not plcopen_targets.is_loopback(conn.get("address") or ""):
+                # A PLC on another machine never reaches the bridge at loopback (UI-3):
+                # the README asks for the bridge's address, and truST refuses without it.
+                host = ""
+            files = plcopen_targets.files(cfg, decls, target, host=host,
                                           library=conn.get("library") is not False, on_loss=_on_loss(conn))
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

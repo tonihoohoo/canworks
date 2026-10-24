@@ -292,6 +292,30 @@ class Connections(Base):
         strip = lambda s: re.sub(r'creationDateTime="[^"]*"', "", s)
         self.assertEqual({n: strip(v) for n, v in got.items()}, {n: strip(v) for n, v in want.items()})
 
+    def test_no_download_with_errors_on_the_connection(self):
+        # UI-3: the bridge on loopback and a PLC elsewhere: nothing is downloaded, the listen error is named.
+        self.open()
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["plc_link"] = True
+        cfg["bridge"]["listen"] = "127.0.0.1:1502"
+        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
+        cfg = self.add(cfg, kind="plc", name="Cell", address="192.168.1.51")
+        cfg = self.add(cfg, kind="hmi", name="Panel", address="127.0.0.1")
+        r = self.download(cfg, 0)
+        self.assertTrue(r["fix_first"])
+        self.assertNotIn("data", r)
+        self.assertEqual(r["errors"], 1)
+        self.assertIn("listens on 127.0.0.1:1502 only", r["items"][0]["message"])
+        # The listen error names Cell: the HMI on the bridge's machine still downloads.
+        self.assertIn("data", self.download(cfg, 1))
+        # A PLC on another machine with the bridge on every address: never told 127.0.0.1.
+        cfg["bridge"]["listen"] = "0.0.0.0:1502"
+        r = self.download(cfg, 0)
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(r["data"]))) as z:
+            readme = z.read(plcopen_targets.README_NAME).decode()
+        self.assertNotIn("127.0.0.1", readme.split("The bridge takes writes")[0])
+        self.assertIn("the PLC reaches it at <the bridge's address>", readme)
+
     def test_problem_downloads_nothing(self):
         self.open()
         cfg = self.add(self.cfg, kind="hmi", name="Panel", address="192.168.10.20", format="st")
@@ -371,6 +395,9 @@ class Connections(Base):
         cfg["bridge"]["watchdog_ms"] = 500
         cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
         self.assertEqual(refused(cfg), [])
+        # truST at 192.168.10.7 needs the bridge on the network: with loopback the Download is refused (UI-3).
+        self.assertTrue(self.download(cfg, 1)["fix_first"])
+        cfg["bridge"]["listen"] = "0.0.0.0:1502"
         self.assertIn("data", self.download(cfg, 1))
         # canworks-deploy --check prints the same texts.
         cfg["bridge"].update(watchdog_ms=100, listen="0.0.0.0:1502")
@@ -408,6 +435,40 @@ class Connections(Base):
         cfg = self.add(cfg, kind="nodered", name="Flows", address="192.168.10.30", writes=True)
         items = self.ok("/api/check", {"config": cfg})["items"]
         self.assertTrue(any("only the PLC writes outputs and mailboxes" in i["message"] for i in items), items)
+
+
+    def test_any_second_writer_next_to_the_plc_link(self):
+        # UI-2: truST and Other PLC next to OpenPLC are writers too; the OpenPLC connection is not warned.
+        self.open()
+        cfg = self.add(self.cfg, kind="openplc")
+        cfg["bridge"]["listen"] = "0.0.0.0:1502"
+        cfg = self.add(cfg, kind="trust", name="Line", address="192.168.1.50")
+        cfg = self.add(cfg, kind="plc", name="Cell", address="192.168.1.51")
+        conns = cfg["bridge"]["connections"]
+        self.assertEqual([c.get("writes") for c in conns], [True, False, False])
+        for c in conns[1:]:
+            c["writes"] = True
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        warned = [(i["paths"], i["message"]) for i in items if "only the PLC writes" in i["message"]]
+        self.assertEqual([p for p, _ in warned], [["bridge.connections[1].writes"], ["bridge.connections[2].writes"]])
+        self.assertIn("Line writes, but with the PLC link only the PLC writes outputs and mailboxes (OpenPLC does)",
+                      warned[0][1])
+        # Without OpenPLC the first PLC that writes owns the link.
+        del conns[0]
+        cfg["bridge"]["writers"] = ["192.168.1.50", "192.168.1.51"]
+        cfg["bridge"]["plc_link"] = True
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        self.assertEqual([i["paths"] for i in items if "only the PLC writes" in i["message"]],
+                         [["bridge.connections[1].writes"]])
+
+    def test_empty_address_names_the_connection(self):
+        # UI-10
+        self.open()
+        cfg = self.add(self.cfg, kind="hmi", name="Panel", address="")
+        items = self.ok("/api/check", {"config": cfg})["items"]
+        [e] = [i for i in items if "bridge.connections[0].address" in i["paths"]]
+        self.assertTrue(e["message"].endswith("bridge.connections[0]: Give the address of Panel: "
+                                              "the IP address it connects from"), e["message"])
 
 
 class Target(Base):

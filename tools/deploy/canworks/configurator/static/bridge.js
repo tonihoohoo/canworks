@@ -321,23 +321,28 @@ function bridgeMailboxes(b, openplc) {
   };
   const box = (label, key, help) => {
     const f = checkbox(label, `bridge.mailboxes.${key}`, true, help);
+    f.querySelector("input").addEventListener("change", () => bridgeKeepRequest(b));
     if (openplc) f.querySelector("input").addEventListener("change", () => bridgeMailboxPlace(b).then(() => changed(true)));
     return f;
   };
+  const requests = field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
+    hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks; the receive mailbox and cyclic jobs need at least 1." });
+  const cyclic = field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
+    hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." });
+  // Before the count's own change handler (which places the areas): the request count is right by then.
+  for (const f of [requests, cyclic]) f.querySelector("input").addEventListener("change", () => bridgeKeepRequest(b));
   return el("fieldset", { dataset: { bridgeMailboxes: mb ? "1" : "0" } }, el("legend", null, "Function blocks"),
     el("div", { class: "check-field" }, el("label", { class: "check" }, on, " Mailboxes for the canworks mailbox blocks"),
       hint("Long SDO objects, any CAN frame, J1939 messages and trouble codes, every EMCY and bus info from the program. " +
-        "Off by default: every client polls them on every cycle, whether or not a block is called." +
+        "Off by default, because when on every client polls them on every cycle, whether or not a block is called." +
         (openplc ? " Problems offers them when the program declares a mailbox block." : " A connection's canworks blocks choice turns on what its program uses.")),
       el("span", { class: "field-msg", dataset: { for: "bridge.mailboxes" } })),
     mb ? el("div", { class: "grid" },
-      count(field("Request mailboxes", "bridge.mailboxes.requests", "int", { placeholder: "1",
-        hint: "0 to 4: how many blocks can ask the bridge at the same moment; more blocks take turns. Each one is 72 input and 72 holding registers. 0: no SDO, send or J1939 request blocks, and no receiver can be opened." })),
+      count(requests),
       box("Receive mailbox", "receive", "Received frames, J1939 messages and EMCY for the receiving blocks: 120 input registers per receive block."),
       count(field("Receive blocks", "bridge.mailboxes.receive_blocks", "int", { placeholder: "1",
         hint: "1 or 2: a batch of received records fills them all. One block carries 9 CAN frames per batch, two carry 21 for one more Modbus request per poll." })),
-      count(field("Cyclic jobs", "bridge.mailboxes.cyclic_jobs", "int", { placeholder: "4",
-        hint: "0 to 16: CAN_SEND_CYCLIC blocks that can run at once. Each one is 4 input registers and 1 holding register." })),
+      count(cyclic),
       box("Network info", "network_info", "Bus state and error counters of each network (up to 8): 18 input registers per network."),
       bridgeLocation("Input area", "bridge.mailboxes.input_location", "mailbox_input", undefined, "%IB…", "Where the responses, the receive mailbox, network info and the cyclic job table start."),
       bridgeLocation("Output area", "bridge.mailboxes.output_location", "mailbox_output", undefined, "%QB…", "Where the requests, the receive acknowledgement and the keepalives start.")) : null,
@@ -347,8 +352,25 @@ function bridgeMailboxes(b, openplc) {
     el("table", { class: "od", dataset: { bridgeMailboxNeeds: "1" } },
       el("thead", null, el("tr", null, thCells(["Part", "Needed by", "Without mailboxes"]))),
       el("tbody", null, BRIDGE_MAILBOX_NEEDS.map(([part, who, alt]) => el("tr", null, el("th", null, part), el("td", null, who), el("td", null, alt))))),
-    mb && openplc ? notice("info", "A change here changes the map hash: the editor project needs Update declarations (Save does it in a project opened here) and a new Build before the blocks work.",
+    mb && openplc ? notice("info", "A change here changes the map hash: the editor project needs a Save (or canworks-deploy --into-project) and a new Build before the blocks work.",
       { live: false, dataset: { bridgeMailboxUpdate: "1" } }) : null);
+}
+
+// A receiver or a cyclic job is opened through a request mailbox (BRIDGE-7):
+// while the receive mailbox or cyclic jobs are on, requests stay at least 1,
+// and the field says why when it put the 1 back.
+function bridgeKeepRequest(b) {
+  const mb = b.mailboxes;
+  if (!mb) return;
+  const requests = mb.requests === undefined ? 1 : Number(mb.requests);
+  const needs = mb.receive !== false || (mb.cyclic_jobs === undefined ? 4 : Number(mb.cyclic_jobs)) > 0;
+  if (!needs || !(requests < 1)) return;
+  mb.requests = 1;
+  const input = document.querySelector('[data-path="bridge.mailboxes.requests"]');
+  if (input) input.value = "1";
+  const msg = document.querySelector('.field-msg[data-for="bridge.mailboxes.requests"]');
+  if (msg) msg.textContent = "At least 1 while the receive mailbox or cyclic jobs are on: they are opened through a request mailbox.";
+  changed(false, "bridge.mailboxes.requests");
 }
 
 // The cost line of the Function blocks section, from the last register map:
@@ -748,17 +770,20 @@ async function addConnection() {
   const name = el("input", { type: "text", spellcheck: "false", id: "conn-name", dataset: { connName: "1" } });
   const address = el("input", { type: "text", spellcheck: "false", id: "conn-address", placeholder: "e.g. 192.168.10.20", dataset: { connAddress: "1" } });
   const writes = el("input", { type: "checkbox", dataset: { connWrites: "1" } });
+  const addressMsg = el("span", { class: "field-msg", dataset: { connMsg: "address" } });
   const kindOf = () => (form.querySelector("input[name=conn-kind]:checked") || {}).value || "hmi";
+  // Next to a PLC link one PLC writes already: a new connection starts read-only (UI-2).
+  const link = !!(fileConfig().bridge || {}).plc_link;
   const other = el("div", { class: "grid" },
     el("div", { class: "field" }, el("label", { for: "conn-name" }, "Name"), name, hint("Empty: the kind's name.")),
-    el("div", { class: "field" }, el("label", { for: "conn-address" }, "Address"), address,
+    el("div", { class: "field" }, el("label", { for: "conn-address" }, "Address"), address, addressMsg,
       hint("The client's IP address, as the bridge sees it.")),
     el("div", { class: "check-field" }, el("label", { class: "check" }, writes, " Writes"),
       hint("On: the bridge takes writes (outputs, blocks) from this address. With the PLC link only the PLC writes.")));
   const standalone = S.state.mode !== "project";
   const cli = !!S.state.openplc_cli;
   const openplcNote = el("p", { class: "hint", dataset: { connOpenplcNote: "1" } },
-    "OpenPLC runs next to the bridge and reads and writes it on 127.0.0.1:1502. Adding it turns on the PLC link, low word first, the function block mailboxes and a live list per CANopen master network, and repacks." +
+    "OpenPLC runs next to the bridge and reads and writes it on 127.0.0.1:1502. Adding it turns on the PLC link, low word first and a live list per CANopen master network, and repacks. The mailboxes stay off until the program declares a mailbox block." +
     (standalone ? " Its editor files need an editor project: " + (cli ? "New editor project… or Move into project… make one with this config."
       : "the OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC, so New editor project… is off; Move into project… copies the config into an existing one.") : ""));
   const form = el("div", { class: "new-config", dataset: { connDialog: "1" } },
@@ -766,12 +791,24 @@ async function addConnection() {
     other, openplcNote);
   // The buttons follow the kind: OpenPLC on a standalone config also gets
   // New editor project… and Move into project….
-  const sync = () => {
+  // Node-RED and an HMI usually run on the bridge's device: 127.0.0.1 until the user types another address.
+  let prefilled = "";
+  // A kind picked: its Writes default and, for Node-RED and an HMI, the prefilled address.
+  const syncKind = () => {
     const k = kindOf();
     other.hidden = k === "openplc";
     openplcNote.hidden = k !== "openplc";
-    writes.checked = k === "trust" || k === "plc";
-    const project = k === "openplc" && standalone;
+    writes.checked = (k === "trust" || k === "plc") && !link;
+    if (address.value.trim() === prefilled) {
+      prefilled = k === "nodered" || k === "hmi" ? "127.0.0.1" : "";
+      address.value = prefilled;
+    }
+    addressMsg.textContent = "";
+    address.removeAttribute("aria-invalid");
+    syncButtons();
+  };
+  const syncButtons = () => {
+    const project = kindOf() === "openplc" && standalone;
     const btn = (v) => document.querySelector(`#modal-buttons [data-value=${v}]`);
     if (!btn("add")) return;
     btn("add").textContent = project ? "Add to this config" : "Add";
@@ -779,17 +816,29 @@ async function addConnection() {
     btn("new").disabled = !cli;
     btn("new").title = cli ? "Create an OpenPLC Editor project with this config and its OpenPLC connection" : "The OpenPLC Editor's command-line tool (openplc-cli) was not found on this PC";
   };
-  form.addEventListener("change", (e) => { if (e.target.name === "conn-kind") sync(); });
-  const answer = modal("Add connection", [["add", "Add", true], ["new", "New editor project…"], ["move", "Move into project…"], ["cancel", "Cancel"]], form);
-  sync();
-  const v = await answer;
+  form.addEventListener("change", (e) => { if (e.target.name === "conn-kind") syncKind(); });
+  syncKind();
+  let v, kind;
+  for (;;) {
+    const answer = modal("Add connection", [["add", "Add", true], ["new", "New editor project…"], ["move", "Move into project…"], ["cancel", "Cancel"]], form);
+    syncButtons();
+    if (addressMsg.textContent) setTimeout(() => address.focus(), 0);
+    v = await answer;
+    kind = kindOf();
+    // The address is required (UI-10): said under the field, and the dialog stays.
+    if (v === "add" && kind !== "openplc" && !address.value.trim()) {
+      addressMsg.textContent = "Give the client's address";
+      address.setAttribute("aria-invalid", "true");
+      continue;
+    }
+    break;
+  }
   if (v === "new" || v === "move") {
     if (S.dirty) { banner("Save the config first: the editor project gets the saved config, with an OpenPLC connection.", true); return; }
     await (v === "new" ? newEditorProject() : moveIntoProject());
     return;
   }
   if (v !== "add") return;
-  const kind = kindOf();
   await addConnectionOf(kind, kind === "openplc" ? {} : { name: name.value.trim() || undefined, address: address.value.trim() || undefined, writes: writes.checked });
 }
 
@@ -809,7 +858,7 @@ async function addConnectionOf(kind, fields) {
   changed(true);
   const c = r.config.bridge.connections[r.index];
   banner(el("span", { dataset: { connAdded: kind } },
-    `Added ${c.name}.` + (kind === "openplc" ? " The PLC link, low word first, the mailboxes and the live lists are on, and every location is packed." +
+    `Added ${c.name}.` + (kind === "openplc" ? " The PLC link, low word first and the live lists are on, and every location is packed. The mailboxes stay off until the program declares a mailbox block." +
       (S.state.mode === "project" ? " Save writes the editor files." : "") +
       (r.old_main ? ` main still declares ${r.old_main} canworks value${r.old_main === 1 ? "" : "s"} at the plugin's locations: after Save, Use canworks.* in main on the Project page.` : "")
       : " Download gives its files.") + " ",
@@ -857,6 +906,17 @@ async function connectionDownload(i) {
     r = await api("POST", "/api/connections/download", { config: cfg, index: i });
   } catch (e) {
     banner(e.message, true);
+    return;
+  }
+  if (r.fix_first) {
+    // An error on this connection or the listen address it needs (UI-3): nothing downloaded, the row stays as it was.
+    const n = r.errors;
+    const first = readable(r.items[0].message);
+    S.check = exportProblems(r, cfg);
+    applyCheck();
+    banner(el("span", { dataset: { connFixFirst: String(i) } },
+      `The saved config has ${counted(n, "error", "errors")}: fix ${n === 1 ? "it" : "them"} first. ${first} `,
+      el("button", { type: "button", class: "link", dataset: { openProblems: "1" }, onclick: openProblems }, "Open Problems")), true);
     return;
   }
   if (r.errors) { exportStopped(c.name || CONNECTION_TITLE[c.kind], r, cfg); return; }

@@ -7864,7 +7864,7 @@ function fieldText(it, first, w) {
 
 // "Node 5 rtd, TPDO 2, 0x6150:1: type UNSIGNED8 ...", with the network first
 // when the draft has several.
-const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device.";
+const NO_NODES_TEXT = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission.";
 
 // The bridge's refusal of a node without supervision (contract.supervision_message).
 const NO_SUPERVISION = /has no heartbeat or guarding \(its EDS heartbeat 0x1017 defaults to 0\)/;
