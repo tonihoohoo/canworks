@@ -14,7 +14,7 @@ A device that has the bridge gets its main action from what is installed (**Upda
 
 ## Adding a device
 
-A device is any Linux computer this PC reaches over SSH. **Add device…** asks for the host name or address, and optionally the SSH user and port. A host that is an alias in `~/.ssh/config` takes its host name, user, port and key files from there; with no user anywhere, this PC's user name is used. Runtimes that announce themselves on the local network are listed under **Found on this network** with **Add**.
+A device is any Linux computer this PC reaches over SSH. **Add device…** asks for the host name or address, and optionally the SSH user and port. A host that is an alias in `~/.ssh/config` takes its host name, user, port and key files from there; with no user anywhere, this PC's user name is used. Runtimes that announce themselves on the local network are listed under **Found on this network** with **Add**, except a device already in the list, whether it was saved by its name (`plc1.local`) or its address.
 
 The first connection to a device shows its host key's fingerprint (`SHA256:…`); nothing is sent to the device before **Trust and connect**. To compare, run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the device. Trusted keys are kept in the configurator's own `known_hosts` in its settings folder, not in `~/.ssh`. When a device later answers with another key, the connection is refused with the key it now shows; if the device was reinstalled, **Forget key** and connect again, otherwise do not connect.
 

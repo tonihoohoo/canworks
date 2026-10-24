@@ -7,9 +7,10 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
-from canworks.devices import jobs, plan, release, store
+from canworks.devices import jobs, plan, release, service, store
 
 from .helpers import tmpdir
 
@@ -598,6 +599,29 @@ class Probe(unittest.TestCase):
         if not shutil.which("shellcheck"):
             self.skipTest("no shellcheck")
         subprocess.run(["shellcheck", "-s", "sh", PROBE], check=True)
+
+
+class NotSavedTests(unittest.TestCase):
+    FOUND = [{"name": "plc1", "addresses": ["192.168.1.114"]},
+             {"name": "bench", "addresses": ["192.168.1.20", "fe80::1"]},
+             {"name": "other", "addresses": ["192.168.1.30"]},
+             {"name": "lab", "addresses": ["192.168.1.40"]}]
+
+    def test_saved_by_name_address_or_lookup_is_left_out(self):
+        names = {"gw.example": {"192.168.1.40"}}
+        out = service.not_saved(self.FOUND, ["plc1.local", "fe80::1", "gw.example"],
+                                resolve=lambda h: names.get(h, set()))
+        self.assertEqual([r["name"] for r in out], ["other"])
+        self.assertEqual(service.not_saved(self.FOUND, [], resolve=lambda h: set()), self.FOUND)
+
+    def test_a_slow_lookup_is_not_waited_for(self):
+        def slow(h):
+            time.sleep(2)
+            return {"192.168.1.30"}
+        t = time.monotonic()
+        out = service.not_saved(self.FOUND[2:3], ["slow.example"], resolve=slow, timeout=0.2)
+        self.assertEqual(out, self.FOUND[2:3])
+        self.assertLess(time.monotonic() - t, 1)
 
 
 if __name__ == "__main__":

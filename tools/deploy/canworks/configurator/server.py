@@ -3502,9 +3502,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks),
                         "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
-                known = {d["host"] for d in dev.store.devices()}
-                found = [r for r in online.runtimes_list().get("discovered") or []
-                         if r.get("addresses") and r["addresses"][0] not in known]
+                found = devices_service.not_saved([r for r in online.runtimes_list().get("discovered") or []
+                                                   if r.get("addresses")], [d["host"] for d in dev.store.devices()])
                 return {"discovered": [{"name": r.get("name") or "", "host": sorted(r["addresses"], key=lambda a: ":" in a)[0]}
                                        for r in found]}
             if route == ("POST", "/api/devices/add"):
