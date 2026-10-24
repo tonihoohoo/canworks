@@ -1059,7 +1059,8 @@ def main(argv=None):
         return run(args)
     except Failure as e:
         print("error: " + str(e).replace("\n", "\nerror: "), file=sys.stderr)
-        if not e.uploaded:
+        if not e.uploaded and args.bridge and not args.check_only:
+            # (only a command that uploads says so: canopen-deploy "Upload wording only for uploads")
             print("nothing was uploaded", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

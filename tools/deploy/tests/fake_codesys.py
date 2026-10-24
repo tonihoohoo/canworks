@@ -164,6 +164,7 @@ class Obj:
         used = [c for c in [top] + top.get_children(True) if c is not self and c.get_name().lower() == name.lower()]
         if name in self.world.names_taken or (top.parent is not None and used):
             raise Exception("the name %s is used already" % name)
+        self.world.log.append(("rename", self._name, name))
         self._name = name
 
     def remove(self):

@@ -27,13 +27,13 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 3. PLC programs and exports
 
-- [ ] 3.1 BRIDGE-3, EXPORTS-4, EXPORTS-5: mailbox scan for any `ARRAY[...] OF` bounds and dimensions (constants from the project), namespaced types, user FB instances (nested), non-ST POU files; unknown count gives the maximum and no Turn off; tests in `test_mailboxuse`.
-- [ ] 3.2 EXPORTS-1: `mailbox_items` adds the connections' `choice_parts` before the "nothing needs them" warning; test with OpenPLC plus truST blocks.
-- [ ] 3.3 EXPORTS-2: compute the trimmed truST map before offering the trim; refusal text with the register count and the canworks blocks None fix; test with virtual-plant.
-- [ ] 3.4 EXPORTS-3: bit channels declared as BOOL at the map row's bit in bridge configs; `canworks_in` reads, `canworks_out` ORs into the entry's word; OpenPLC, truST, generic PLCopen and the ST map export; STruC++ test in `test/plc_modbus`; docs/plc-library.md.
-- [ ] 3.5 EXPORTS-6: generic dialect with VAR_EXTERNAL `canworks` and the TC6 2.01 namespace; validate against the TC6 2.01 schema in the test; check whether truST takes the same file and use it there too if it does.
-- [ ] 3.6 EXPORTS-7: CODESYS build names the CAN bus object after the network; import takes the name from it (interface when it is the default name); round trip test with one network.
-- [ ] 3.7 EXPORTS-8: "nothing was uploaded" only for commands that upload; test.
+- [x] 3.1 BRIDGE-3, EXPORTS-4, EXPORTS-5: mailbox scan for any `ARRAY[...] OF` bounds and dimensions (constants from the project), namespaced types, user FB instances (nested), non-ST POU files; unknown count gives the maximum and no Turn off; tests in `test_mailboxuse`.
+- [x] 3.2 EXPORTS-1: `mailbox_items` adds the connections' `choice_parts` before the "nothing needs them" warning; test with OpenPLC plus truST blocks.
+- [x] 3.3 EXPORTS-2: compute the trimmed truST map before offering the trim; refusal text with the register count and the canworks blocks None fix; test with virtual-plant.
+- [x] 3.4 EXPORTS-3: bit channels declared as BOOL at the map row's bit in bridge configs; `canworks_in` reads, `canworks_out` ORs into the entry's word; OpenPLC, truST, generic PLCopen and the ST map export; STruC++ test in `test/plc_modbus`; docs/plc-library.md.
+- [x] 3.5 EXPORTS-6: generic dialect with VAR_EXTERNAL `canworks` and the TC6 2.01 namespace; validate against the TC6 2.01 schema in the test; check whether truST takes the same file and use it there too if it does.
+- [x] 3.6 EXPORTS-7: CODESYS build names the CAN bus object after the network; import takes the name from it (interface when it is the default name); round trip test with one network.
+- [x] 3.7 EXPORTS-8: "nothing was uploaded" only for commands that upload; test.
 
 ## 4. Configurator and Devices
 

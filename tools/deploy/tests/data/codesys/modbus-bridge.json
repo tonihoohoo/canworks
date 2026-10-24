@@ -12,6 +12,7 @@
       "folder": "field",
       "net_id": 0,
       "bitrate_kbit": 250,
+      "bus_name": "field",
       "canbus": [
         {
           "id": 0,

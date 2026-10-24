@@ -12,7 +12,10 @@ file. Three dialects (plcopen-export spec):
               element in a NAMESPACE, which a CODESYS-style list becomes)
     generic   standard TC6 only: a list becomes a STRUCT type and one
               resource global variable of it, so `canworks.ok` reads the
-              same in every dialect; one configuration with the task
+              same in every dialect; one configuration with the task. The
+              programs declare it VAR_EXTERNAL (plcopen_targets)
+
+CODESYS gets the tc6_0200 namespace it reads, trust and generic tc6_0201.
 
 Bodies stay plain ST text. The declarations are parsed from the sources
 (one declaration per line, as canworks writes them) into TC6 interfaces.
@@ -22,6 +25,10 @@ import re
 from xml.sax.saxutils import escape, quoteattr
 
 NS = "http://www.plcopen.org/xml/tc6_0200"
+# TC6 2.01, the standard dialects' namespace (plcopen-export "Standard globals
+# in the generic dialect"); CODESYS reads tc6_0200.
+NS_201 = "http://www.plcopen.org/xml/tc6_0201"
+NAMESPACES = {"codesys": NS, "trust": NS_201, "generic": NS_201}
 XHTML = "http://www.w3.org/1999/xhtml"
 PLAINTEXT = "http://www.3s-software.com/plcopenxml/interfaceasplaintext"
 GLOBALVARS = "http://www.3s-software.com/plcopenxml/globalvars"
@@ -327,7 +334,7 @@ def writer(pous, lists, dialect, tasks=(), name="canworks", product_version="0",
         raise PlcopenError("unknown dialect %r" % dialect)
     vendor = dialect == "codesys"
     out = ['<?xml version="1.0" encoding="utf-8"?>\n',
-           '<project xmlns="%s">\n' % NS,
+           '<project xmlns="%s">\n' % NAMESPACES[dialect],
            '  <fileHeader companyName="canworks" productName="canworks-deploy" productVersion=%s '
            'creationDateTime=%s/>\n' % (quoteattr(product_version), quoteattr(created)),
            '  <contentHeader name=%s>\n' % quoteattr(name)]

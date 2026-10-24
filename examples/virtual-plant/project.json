@@ -658,7 +658,7 @@
             "documentation": "network cell: slave node 20: error register to send"
           }
         ],
-        "documentation": "canworks values; generated, Update declarations rewrites it"
+        "documentation": "canworks values; generated, Save rewrites it"
       }
     ]
   }

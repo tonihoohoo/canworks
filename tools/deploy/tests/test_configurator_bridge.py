@@ -698,6 +698,25 @@ class MailboxUse(Base):
         self.assertEqual([(i["level"], i["mailbox_fix"]) for i in items], [("warning", "off")])
         self.assertIn("the mailboxes take 2 of the 7 Modbus requests per poll", items[0]["message"])
 
+    def test_connection_blocks_need_them(self):
+        # modbus-connections "Mailbox warning counts the connections": a truST
+        # connection's SDO and send keeps the warning (and its Turn off) away.
+        self.main("    rd : CO_SDO_READ;")
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["connections"].append({"kind": "trust", "name": "truST", "bridge_host": "10.0.0.2",
+                                             "blocks": "sdo_send"})
+        cfg["bridge"]["mailboxes"] = {"receive": False, "network_info": False, "cyclic_jobs": 0}
+        for key in ("input", "output"):
+            cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
+                "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
+        self.assertEqual([i for i in self.items(cfg) if i.get("mailbox_fix") == "off"], [])
+
+    def test_unknown_count_takes_the_most(self):
+        self.main("    jobs : ARRAY[1..K] OF CAN_SEND_CYCLIC;")
+        items = self.items(self.cfg)
+        self.assertEqual(items[0]["mailbox_fix"]["cyclic_jobs"], 16)
+        self.assertNotIn("off", [i.get("mailbox_fix") for i in items])
+
     def test_cost_both_ways(self):
         off = self.ok("/api/bridge/map", {"config": self.cfg})["mailbox_cost"]
         self.assertEqual((off["on"], off["requests_with"], off["requests_without"]), (False, 7, 5))

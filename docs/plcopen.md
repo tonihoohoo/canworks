@@ -41,7 +41,7 @@ Every folder has a `README.txt` with the next steps for that PLC. The bridge tak
 
 ## truST
 
-truST's PLCopen import drops AT addresses, so the located I/O image comes as its own file. Its `modbus-tcp` driver reads the whole `%I` image with one request and writes the whole `%Q` image with one request every cycle, at most 125 input and 123 holding registers. A map that needs more is refused for truST, with the way to trim it. The configurator says so before the Download: the connection's row reads **Cannot download** and Problems has **Trim the mailboxes for truST** and **Set the watchdog to 500 ms** ([modbus-bridge.md](modbus-bridge.md#connections)).
+truST's PLCopen import drops AT addresses, so the located I/O image comes as its own file. Its `modbus-tcp` driver reads the whole `%I` image with one request and writes the whole `%Q` image with one request every cycle, at most 125 input and 123 holding registers. A map that needs more is refused for truST, with the way to trim it. The configurator says so before the Download: the connection's row reads **Cannot download** and Problems has **Trim the mailboxes for truST** and **Set the watchdog to 500 ms** ([modbus-bridge.md](modbus-bridge.md#connections)). The trim is offered only when the map with one request mailbox, packed, fits; otherwise the refusal says how many registers that map needs, and the ways left are canworks blocks **None** on the connection (no mailboxes) or fewer located values.
 
 What works on truST:
 
@@ -68,7 +68,7 @@ CI imports and builds the truST export, with the whole library, against a pinned
 
 ## Other PLCs
 
-`--for generic` writes standard TC6 without vendor parts: the values as a structure `canworks_values` with one global `canworks`, and a configuration with the task `canworks_task`. `canworks-modbus-map.csv` has every register, and `README.txt` lists the client channels to set up. Run `canworks_in` first and `canworks_out` last in the task that uses the values.
+`--for generic` writes standard TC6 2.01 (namespace `tc6_0201`) without vendor parts: the values as a structure `canworks_values` with one resource global `canworks`, which `canworks_in`, `canworks_out` and `main` declare as `VAR_EXTERNAL`, as strict IEC importers want, and a configuration with the task `canworks_task`. The truST file has the same form. `canworks-modbus-map.csv` has every register, and `README.txt` lists the client channels to set up. Run `canworks_in` first and `canworks_out` last in the task that uses the values.
 
 ## Limits
 
