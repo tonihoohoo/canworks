@@ -1,0 +1,81 @@
+{
+  "description": "Mailboxes with a receive mailbox but no request mailbox: opening a receiver needs one (BRIDGE-7).",
+  "message": "opening a receiver or a cyclic job needs a request mailbox",
+  "config": {
+    "schema_version": 2,
+    "networks": [
+      {
+        "name": "io",
+        "adapter": {
+          "type": "socketcan",
+          "interface": "vcan0",
+          "bitrate": 125000
+        },
+        "master": {
+          "node_id": 1,
+          "sync_period_us": 100000,
+          "state_location": "%IB20"
+        },
+        "nodes": [
+          {
+            "node_id": 2,
+            "name": "pingpong",
+            "eds": "cpp-slave.eds",
+            "heartbeat_ms": 100,
+            "status_location": "%IX16.0",
+            "tx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4001",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%ID0"
+                  }
+                ]
+              }
+            ],
+            "rx_pdos": [
+              {
+                "entries": [
+                  {
+                    "index": "0x4000",
+                    "subindex": 0,
+                    "type": "UNSIGNED32",
+                    "iec_location": "%QD0"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "bridge": {
+      "listen": "0.0.0.0:1502",
+      "status_location": "%IB24",
+      "control_location": "%QB8",
+      "live_lists": [
+        {
+          "network": "io",
+          "location": "%IB32"
+        }
+      ],
+      "sdo_bridge_location": {
+        "request": "%QB16",
+        "response": "%IB48"
+      },
+      "writers": [
+        "127.0.0.1"
+      ],
+      "mailboxes": {
+        "requests": 0,
+        "receive": true,
+        "cyclic_jobs": 0,
+        "network_info": false,
+        "input_location": "%IB64",
+        "output_location": "%QB32"
+      }
+    }
+  }
+}

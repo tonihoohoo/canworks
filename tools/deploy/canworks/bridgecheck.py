@@ -524,6 +524,11 @@ def _mailboxes(b, w, networks, err):
             counts[key] = o[key]
         else:
             err(mw, "field '%s' must be true or false" % key, [mw + "." + key])
+    # RX_OPEN and CYCLIC_SET go through a request mailbox (parse_mailboxes).
+    full = dict(mailboxlayout.DEFAULTS, **counts)
+    if not full["requests"] and (full["receive"] or full["cyclic_jobs"]):
+        err(mw, "field 'requests' is 0, but opening a receiver or a cyclic job needs a request mailbox: set "
+                "'requests' to at least 1, or turn 'receive' off and 'cyclic_jobs' to 0", [mw + ".requests"])
     for key in ("input_location", "output_location"):
         if key not in o:
             err(mw, "missing required field '%s' (where the mailbox area starts; Pack for Modbus in the configurator "
