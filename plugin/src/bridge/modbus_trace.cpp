@@ -32,7 +32,25 @@ void put64(std::string& s, size_t at, uint64_t v) {
   for (int i = 0; i < 8; ++i) s[at + i] = static_cast<char>((v >> (8 * i)) & 0xFF);
 }
 
+uint16_t be16(const uint8_t* p) { return static_cast<uint16_t>(p[0] << 8 | p[1]); }
+
+// Zeroes the registers of `ignored` in the `n` bytes of register data at `p`
+// that start at register `start`.
+void blank(uint8_t* p, size_t n, unsigned start, const std::vector<uint16_t>& ignored) {
+  if (ignored.empty()) return;
+  for (size_t k = 0; k + 1 < n; k += 2)
+    if (std::binary_search(ignored.begin(), ignored.end(), static_cast<uint16_t>(start + k / 2))) p[k] = p[k + 1] = 0;
+}
+
 }  // namespace
+
+void ModbusTrace::set_ignored(std::vector<uint16_t> holding, std::vector<uint16_t> input) {
+  std::sort(holding.begin(), holding.end());
+  std::sort(input.begin(), input.end());
+  std::lock_guard<std::mutex> lock(mu_);
+  ignored_holding_ = std::move(holding);
+  ignored_input_ = std::move(input);
+}
 
 constexpr size_t ModbusTrace::kDefaultBytes;
 constexpr size_t ModbusTrace::kFetchDefault;
@@ -52,11 +70,32 @@ void ModbusTrace::record(uint32_t conn, const sockaddr* peer, const std::string&
   if (sessions_.empty()) return;
   uint32_t skipped = 0;
   if (!always) {
-    // The kind: function, start and count (the first 5 bytes); the data:
-    // the rest of the request, the answer and the unit.
-    size_t head = std::min<size_t>(req_n, 5);
+    // The kind: function, start and count (the first 5 bytes; functions 5
+    // and 6 have no count, the value follows the address); the data: the
+    // rest of the request, the answer and the unit.
+    size_t head = std::min<size_t>(req_n, fn == 5 || fn == 6 ? 3 : 5);
     uint64_t key = fnv(req, head);
-    uint64_t h = fnv(req + head, req_n - head, fnv(resp, resp_n, fnv(&unit, 1)));
+    // The data without the words the mailboxes change on their own: a
+    // request where only they changed counts as unchanged.
+    uint8_t q[255], a[255];
+    std::memcpy(q, req, req_n);
+    std::memcpy(a, resp, resp_n);
+    if (req_n >= 5 && resp_n >= 2) {
+      const unsigned start = be16(req + 1);
+      if (fn == 3 || fn == 4)
+        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, fn == 3 ? ignored_holding_ : ignored_input_);
+      else if (fn == 6) {  // the answer echoes the request
+        blank(q + 3, std::min<size_t>(req_n - 3, 2), start, ignored_holding_);
+        blank(a + 3, std::min<size_t>(resp_n - 3, 2), start, ignored_holding_);
+      }
+      else if (fn == 16 && req_n > 6)
+        blank(q + 6, req_n - 6, start, ignored_holding_);
+      else if (fn == 23 && req_n > 10) {
+        blank(a + 2, std::min<size_t>(resp[1], resp_n - 2), start, ignored_holding_);
+        blank(q + 10, req_n - 10, be16(req + 5), ignored_holding_);
+      }
+    }
+    uint64_t h = fnv(q + head, req_n - head, fnv(a, resp_n, fnv(&unit, 1)));
     auto& kinds = kinds_[conn];
     auto it = kinds.find(key);
     if (it != kinds.end() && it->second.hash == h) {

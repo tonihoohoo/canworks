@@ -1660,7 +1660,7 @@
  "title": "CAN network documentation",
  "tool": {
   "name": "canworks-deploy",
-  "version": "0.138.0"
+  "version": "0.139.0"
  },
  "warnings": []
 }
