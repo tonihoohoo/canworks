@@ -1,0 +1,305 @@
+{
+  "meta": {
+    "name": "openplc-fuxa",
+    "type": "plc-project"
+  },
+  "data": {
+    "pous": [],
+    "dataTypes": [],
+    "libraries": [
+      {
+        "name": "canworks",
+        "version": "0.137.1"
+      }
+    ],
+    "configuration": {
+      "resource": {
+        "tasks": [
+          {
+            "name": "task0",
+            "triggering": "Cyclic",
+            "interval": "T#20ms",
+            "priority": 1
+          }
+        ],
+        "instances": [
+          {
+            "name": "canworks_in_instance",
+            "task": "task0",
+            "program": "canworks_in"
+          },
+          {
+            "name": "instance0",
+            "program": "main",
+            "task": "task0"
+          },
+          {
+            "name": "canworks_out_instance",
+            "task": "task0",
+            "program": "canworks_out"
+          }
+        ],
+        "globalVariables": []
+      }
+    },
+    "globalVariableLists": [
+      {
+        "name": "canworks",
+        "variables": [
+          {
+            "name": "ok",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "canworks-bridge answers and serves this program's map"
+          },
+          {
+            "name": "bus_ok",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "ok, and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear)"
+          },
+          {
+            "name": "link",
+            "class": "global",
+            "type": {
+              "definition": "array",
+              "value": "ARRAY[0..1279] OF WORD",
+              "data": {
+                "baseType": {
+                  "definition": "base-type",
+                  "value": "WORD"
+                },
+                "dimensions": [
+                  {
+                    "dimension": "0..1279"
+                  }
+                ]
+              }
+            },
+            "location": "",
+            "documentation": "the bridge's control, SDO, live list and mailbox words: the canworks blocks' LINK"
+          },
+          {
+            "name": "can_bus_state",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "CAN bus state"
+          },
+          {
+            "name": "can_master_state",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "CANopen master state"
+          },
+          {
+            "name": "rtd_ok",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "node rtd (5): operational"
+          },
+          {
+            "name": "rtd_state",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node rtd (5): NMT state"
+          },
+          {
+            "name": "rtd_emcy",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "documentation": "node rtd (5): last EMCY code"
+          },
+          {
+            "name": "rtd_tpdo1_timeout",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "node rtd (5): TPDO 1 receive timeout"
+          },
+          {
+            "name": "rtd_temp1",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node rtd (5) TPDO1 0x7130:1 AI0_Input_PV"
+          },
+          {
+            "name": "rtd_temp2",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node rtd (5) TPDO1 0x7130:2 AI1_Input_PV"
+          },
+          {
+            "name": "rtd_AI2_Input_PV",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node rtd (5) TPDO1 0x7130:3 AI2_Input_PV"
+          },
+          {
+            "name": "rtd_AI3_Input_PV",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node rtd (5) TPDO1 0x7130:4 AI3_Input_PV"
+          },
+          {
+            "name": "dio_ok",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "BOOL"
+            },
+            "location": "",
+            "documentation": "node dio (6): operational"
+          },
+          {
+            "name": "dio_state",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node dio (6): NMT state"
+          },
+          {
+            "name": "dio_emcy",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "documentation": "node dio (6): last EMCY code"
+          },
+          {
+            "name": "dio_in0",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node dio (6) TPDO1 0x6000:1 Read input 8-bit 1"
+          },
+          {
+            "name": "dio_in1",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node dio (6) TPDO1 0x6000:2 Read input 8-bit 2"
+          },
+          {
+            "name": "dio_Read_analogue_input_1",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node dio (6) TPDO1 0x6401:1 Read analogue input 1"
+          },
+          {
+            "name": "dio_Read_analogue_input_2",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node dio (6) TPDO1 0x6401:2 Read analogue input 2"
+          },
+          {
+            "name": "dio_out0",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node dio (6) RPDO1 0x6200:1 Write output 8-bit 1"
+          },
+          {
+            "name": "dio_out1",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "USINT"
+            },
+            "location": "",
+            "documentation": "node dio (6) RPDO1 0x6200:2 Write output 8-bit 2"
+          },
+          {
+            "name": "dio_Write_analogue_output_1",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node dio (6) RPDO1 0x6411:1 Write analogue output 1"
+          },
+          {
+            "name": "dio_Write_analogue_output_2",
+            "class": "global",
+            "type": {
+              "definition": "base-type",
+              "value": "INT"
+            },
+            "location": "",
+            "documentation": "node dio (6) RPDO1 0x6411:2 Write analogue output 2"
+          }
+        ],
+        "documentation": "canworks values; generated, Save rewrites it"
+      }
+    ]
+  }
+}

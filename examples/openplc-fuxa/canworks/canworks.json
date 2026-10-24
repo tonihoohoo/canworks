@@ -1,0 +1,179 @@
+{
+  "$schema": "https://github.com/tonihoohoo/canworks/schema/canworks.v2.schema.json",
+  "schema_version": 2,
+  "networks": [
+    {
+      "name": "field",
+      "adapter": {
+        "type": "socketcan",
+        "interface": "sim0",
+        "bitrate": 250000,
+        "simulate": true
+      },
+      "master": {
+        "node_id": 1,
+        "heartbeat_ms": 100,
+        "sync_period_us": 20000,
+        "state_location": "%IB26",
+        "bus_state_location": "%IB27"
+      },
+      "nodes": [
+        {
+          "node_id": 5,
+          "name": "rtd",
+          "eds": "rtd8.eds",
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX28.0",
+          "state_location": "%IB29",
+          "emcy_code_location": "%IW30",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "timeout_ms": 200,
+              "timeout_location": "%IX28.1",
+              "entries": [
+                {
+                  "index": "0x7130",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW12",
+                  "name": "temp1"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW14",
+                  "name": "temp2"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 3,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW16"
+                },
+                {
+                  "index": "0x7130",
+                  "subindex": 4,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW18"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "node_id": 6,
+          "name": "dio",
+          "eds": "dio16.eds",
+          "heartbeat_consumer": true,
+          "config_check": true,
+          "heartbeat_ms": 100,
+          "heartbeat_timeout_ms": 300,
+          "status_location": "%IX28.2",
+          "state_location": "%IB32",
+          "emcy_code_location": "%IW34",
+          "tx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6000",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB20",
+                  "name": "in0"
+                },
+                {
+                  "index": "0x6000",
+                  "subindex": 2,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%IB21",
+                  "name": "in1"
+                },
+                {
+                  "index": "0x6401",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW22"
+                },
+                {
+                  "index": "0x6401",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%IW24"
+                }
+              ]
+            }
+          ],
+          "rx_pdos": [
+            {
+              "number": 1,
+              "transmission": 1,
+              "entries": [
+                {
+                  "index": "0x6200",
+                  "subindex": 1,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB6",
+                  "name": "out0"
+                },
+                {
+                  "index": "0x6200",
+                  "subindex": 2,
+                  "type": "UNSIGNED8",
+                  "iec_location": "%QB7",
+                  "name": "out1"
+                },
+                {
+                  "index": "0x6411",
+                  "subindex": 1,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW8"
+                },
+                {
+                  "index": "0x6411",
+                  "subindex": 2,
+                  "type": "INTEGER16",
+                  "iec_location": "%QW10"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "bridge": {
+    "connections": [
+      {
+        "kind": "openplc",
+        "name": "OpenPLC",
+        "address": "127.0.0.1",
+        "writes": true
+      }
+    ],
+    "plc_link": true,
+    "listen": "127.0.0.1:1502",
+    "writers": [
+      "127.0.0.1"
+    ],
+    "word_order": "low_first",
+    "watchdog_ms": 50,
+    "control_location": "%QB12",
+    "live_lists": [
+      {
+        "network": "field",
+        "location": "%IB36"
+      }
+    ],
+    "sdo_bridge_location": {
+      "request": "%QB18",
+      "response": "%IB52"
+    },
+    "sdo_bridge_write": true
+  }
+}

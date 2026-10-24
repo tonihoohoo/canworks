@@ -1,0 +1,5 @@
+{
+  "devices/remote/canworks.json": "fa273783316d6e564a6c3bb55b95bb2bd0bbd7be253089d48f3bcfdebc2acca8",
+  "pous/programs/canworks_in.st": "ced73ff07ae482e20e744d1b45738e86af55a27652382c22c342783f8f15b651",
+  "pous/programs/canworks_out.st": "9b71289ea66e2d43b76e09e5f13aedbca8d620bccb1180b4767d2521d45c1eea"
+}
