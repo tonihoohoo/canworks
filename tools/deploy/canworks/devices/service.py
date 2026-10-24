@@ -114,6 +114,10 @@ def not_saved(found, hosts, resolve=_resolve, timeout=1.0):
 class Devices:
     def __init__(self, settings_folder, paths=None, probe_env=None, latest=None):
         self.store = store_mod.Store(settings_folder)
+        # The adapter server file and its script, downloaded on this PC and
+        # uploaded with the job (add-adapter-server-file); the tests replace it.
+        self.adapter_cache = os.path.join(settings_folder, "adapter-server")
+        self.adapter_files = lambda version: release.adapter_files(version, self.adapter_cache)
         self.paths = paths or jobs.Paths()
         self.probe_env = probe_env or {}  # the tests' fake device
         self._latest = latest  # the tests' newest release (a function)
@@ -285,7 +289,7 @@ class Devices:
             if not plan_mod.version_tuple(version):
                 raise SshError("the newest release could not be found, and the uninstall runs that release's scripts")
         else:
-            why = plan_mod.blocked(probe, version)
+            why = plan_mod.blocked(probe, version, adapter=action in jobs.ADAPTER_ACTIONS)
             if why:
                 raise SshError(why)
         options = options or {}
@@ -295,18 +299,30 @@ class Devices:
             if action in ("adapter_on", "adapter_token") and not verifier:
                 raise SshError("the token's verifier is missing")
             # Checked before anything goes to the device.
-            jobs.adapter_commands(action, version, self.paths, upload="/tmp/canworks-bridge-upload.check", **adapter)
+            jobs.adapter_commands(action, version, self.paths, upload="/tmp/canworks-bridge-upload.check",
+                                  uploaded=True, **adapter)
         conn, _ = self.connection(did)
         upload = None
-        if action in ("adapter_on", "adapter_token"):
-            # Only the verifier goes to the device; the token stays on this PC.
+        uploaded = False
+        if action in jobs.ADAPTER_ACTIONS:
+            # The release's script and adapter server file from this PC, so the
+            # device needs no internet; without them the job downloads there.
+            files = list(self.adapter_files(version) or [])
+            if not files and probe.get("internet") is False:
+                raise SshError("Neither this PC nor the device can download the adapter server of release %s "
+                               "from github.com." % version)
             tmp = tempfile.mkdtemp(prefix="canworks-verifier-")
             try:
-                path = os.path.join(tmp, "verifier")
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(verifier + "\n")
-                upload = jobs.make_upload_dir(conn)
-                conn.put_files(upload, [path])
+                if action in ("adapter_on", "adapter_token"):
+                    # Only the verifier goes to the device; the token stays on this PC.
+                    path = os.path.join(tmp, "verifier")
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(verifier + "\n")
+                    files.append(path)
+                if files:
+                    upload = jobs.make_upload_dir(conn)
+                    conn.put_files(upload, files)
+                    uploaded = len(files) >= 2 and os.path.basename(files[0]) == release.ADAPTER_SCRIPT
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
         if action in jobs.BRIDGE_ACTIONS and config_dir:
@@ -347,7 +363,8 @@ class Devices:
                               adapters=bool(probe.get("adapters")), **adapter,
                               link_config=link_config, runtime_port=runtime_port, link_instance=link_instance,
                               instance=instance if action in jobs.BRIDGE_ACTIONS else None,
-                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
+                              upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"),
+                              uploaded=uploaded)
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)
         self.store.update(did, job={"id": job_id, "action": action, "version": version,
                                     "instance": instance if action in jobs.BRIDGE_ACTIONS else None})

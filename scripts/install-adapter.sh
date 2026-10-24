@@ -6,18 +6,22 @@
 #
 #   sudo scripts/install-adapter.sh --adapter socketcan:can0 --bitrate 500 --user USER
 #                                   [--port 7536] [--allow-changes] [--without-discovery]
-#                                   [--verifier-file FILE] [--version X] [--prefix /opt/canworks-adapter]
+#                                   [--verifier-file FILE] [--version X] [--file canworks-adapter-X.pyz]
+#                                   [--prefix /opt/canworks-adapter]
 #   sudo scripts/install-adapter.sh --uninstall [--adapter socketcan:can0] [--prefix ...]
 #
-# Install: the PC tools of release X (the newest without --version) in
-# <prefix>/venv with the release's locked dependency versions, unless that
-# version is there already (no Lely, no build); USER joins the dialout group
-# for a serial (slcan) adapter; then `canworks-diag adapter-serve
-# --install-service --service-user USER` writes and (re)starts
-# canworks-adapter-<channel>.service running as USER, and its Avahi file
-# unless --without-discovery. --verifier-file is the token's verifier, made
-# where the token is kept: the token itself never comes to the device and is
-# never printed. Without it a reinstall keeps the server's token.
+# Install: the adapter server file of release X (the newest without --version
+# or --file), canworks-adapter-X.pyz, as <prefix>/canworks-adapter.pyz unless
+# that version is there already; --file takes one already on the device, so
+# nothing is downloaded. The device needs python3 3.11 or newer and the
+# openssl command, and nothing else: no pip, no venv, no packages. A venv an
+# older install left in <prefix> is removed. USER joins the dialout group for
+# a serial (slcan) adapter; then `adapter-serve --install-service
+# --service-user USER` writes and (re)starts canworks-adapter-<channel>.service
+# running the file as USER, and its Avahi file unless --without-discovery.
+# --verifier-file is the token's verifier, made where the token is kept: the
+# token itself never comes to the device and is never printed. Without it a
+# reinstall keeps the server's token.
 #
 # Uninstall: stops and removes the server of --adapter (every server without
 # it) and its Avahi file; <prefix> goes with the last one.
@@ -33,6 +37,7 @@ ALLOW_CHANGES=0
 WITH_DISCOVERY=1
 VERIFIER_FILE=""
 VERSION=""
+FILE_ARG=""
 UNINSTALL=0
 GITHUB=${CANWORKS_REPO:-https://github.com/tonihoohoo/canworks}
 # Overridable for the tests.
@@ -40,7 +45,9 @@ UNIT_DIR=${CANWORKS_UNIT_DIR:-/etc/systemd/system}
 AVAHI_DIR=${CANWORKS_AVAHI_DIR:-/etc/avahi/services}
 SYSTEMCTL=${CANWORKS_SYSTEMCTL:-systemctl}
 USERMOD=${CANWORKS_USERMOD:-usermod}
-PIP=${CANWORKS_ADAPTER_PIP:-}
+PYTHON=${CANWORKS_PYTHON:-python3}
+OPENSSL=${CANWORKS_OPENSSL:-openssl}
+DOWNLOAD=${CANWORKS_ADAPTER_DOWNLOAD:-}  # the tests' stub: DOWNLOAD URL FILE
 
 usage() {
     if [ -f "${BASH_SOURCE[0]:-}" ]; then
@@ -63,6 +70,7 @@ while [ $# -gt 0 ]; do
         --without-discovery) WITH_DISCOVERY=0 ;;
         --verifier-file) [ $# -ge 2 ] || die "--verifier-file needs a file"; VERIFIER_FILE="$2"; shift ;;
         --version) [ $# -ge 2 ] || die "--version needs a version"; VERSION=${2#deploy-v}; VERSION=${VERSION#v}; shift ;;
+        --file) [ $# -ge 2 ] || die "--file needs the adapter server file"; FILE_ARG="$2"; shift ;;
         --prefix) [ $# -ge 2 ] || die "--prefix needs a folder"; PREFIX="$2"; shift ;;
         --uninstall) UNINSTALL=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -114,7 +122,15 @@ case "$PORT" in ''|*[!0-9]*) die "--port is a port number" ;; esac
 [ "$SERVICE_USER" != root ] || die "the server does not run as root: give a normal user with --user"
 id "$SERVICE_USER" >/dev/null 2>&1 || die "no user $SERVICE_USER on this device"
 [ -z "$VERIFIER_FILE" ] || [ -f "$VERIFIER_FILE" ] || die "no such verifier file: $VERIFIER_FILE"
-[ "$(id -u)" = 0 ] || [ -n "$PIP" ] || die "run it as root (sudo)"
+[ -z "$FILE_ARG" ] || [ -f "$FILE_ARG" ] || die "no such adapter server file: $FILE_ARG"
+[ "$(id -u)" = 0 ] || [ -n "$DOWNLOAD" ] || die "run it as root (sudo)"
+
+# What the file needs on the device, before anything is changed.
+command -v "$PYTHON" >/dev/null 2>&1 || die "the adapter server needs python3 (3.11 or newer) on this device"
+"$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 11))' ||
+    die "the adapter server needs Python 3.11 or newer; this device has $("$PYTHON" -V 2>&1)"
+command -v "$OPENSSL" >/dev/null 2>&1 ||
+    die "the adapter server needs the openssl command (its TLS certificate): install the openssl package"
 
 latest_version() {
     local url tag
@@ -126,37 +142,45 @@ latest_version() {
     echo "${tag#deploy-v}"
 }
 
-# --- The PC tools, in their own venv ----------------------------------------------
+# --- The adapter server file -----------------------------------------------------------
 
-[ -n "$VERSION" ] || VERSION=$(latest_version)
-DIAG="$PREFIX/venv/bin/canworks-diag"
-have=""
-if [ -x "$PREFIX/venv/bin/python" ]; then
-    have=$("$PREFIX/venv/bin/python" -c 'import importlib.metadata as m; print(m.version("canworks"))' 2>/dev/null) || have=""
+FILE="$PREFIX/canworks-adapter.pyz"
+file_version() { "$PYTHON" -I -S "$1" --version 2>/dev/null | awk '{ print $NF }'; }
+if [ -z "$VERSION" ] && [ -n "$FILE_ARG" ]; then
+    VERSION=$(file_version "$FILE_ARG")
+    [ -n "$VERSION" ] || die "$FILE_ARG is not an adapter server file"
 fi
-if [ "$have" = "$VERSION" ] && [ -x "$DIAG" ]; then
-    echo "::canworks-step 1/2 The PC tools $VERSION are installed"
+[ -n "$VERSION" ] || VERSION=$(latest_version)
+have=""
+[ -f "$FILE" ] && have=$(file_version "$FILE")
+if [ "$have" = "$VERSION" ]; then
+    echo "::canworks-step 1/2 The adapter server $VERSION is installed"
 else
-    echo "::canworks-step 1/2 Installing the PC tools $VERSION"
-    if [ -n "$PIP" ]; then
-        "$PIP" "$PREFIX/venv" "$VERSION"   # the tests' stub fills the venv
+    echo "::canworks-step 1/2 Installing the adapter server $VERSION"
+    mkdir -p "$PREFIX"
+    tmp="$PREFIX/.canworks-adapter.pyz.new"
+    if [ -n "$FILE_ARG" ]; then
+        cp "$FILE_ARG" "$tmp"
     else
-        command -v python3 >/dev/null 2>&1 || die "python3 is needed for the adapter server"
-        if [ ! -x "$PREFIX/venv/bin/python" ]; then
-            if ! python3 -m venv "$PREFIX/venv" 2>/dev/null; then
-                command -v apt-get >/dev/null 2>&1 || die "python3 -m venv failed: install python3-venv"
-                say "Installing python3-venv"
-                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv >/dev/null
-                rm -rf "${PREFIX:?}/venv"
-                python3 -m venv "$PREFIX/venv" || die "python3 -m venv failed"
-            fi
+        url="$GITHUB/releases/download/deploy-v$VERSION/canworks-adapter-$VERSION.pyz"
+        if [ -n "$DOWNLOAD" ]; then
+            "$DOWNLOAD" "$url" "$tmp" || die "could not download $url"
+        else
+            command -v curl >/dev/null 2>&1 || die "curl is needed to download the adapter server (or give --file)"
+            curl -fsSL -o "$tmp" "$url" || die "could not download $url"
         fi
-        rel="$GITHUB/releases/download/deploy-v$VERSION"
-        "$PREFIX/venv/bin/python" -m pip install -q --upgrade \
-            -c "$rel/canworks-$VERSION-constraints.txt" "canworks @ $rel/canworks-$VERSION-py3-none-any.whl" ||
-            die "could not install the PC tools $VERSION into $PREFIX/venv"
     fi
-    [ -x "$DIAG" ] || die "the PC tools installed no canworks-diag in $PREFIX/venv"
+    got=$(file_version "$tmp")
+    if [ "$got" != "$VERSION" ]; then
+        rm -f "$tmp"
+        die "the adapter server file is version ${got:-unknown}, not $VERSION"
+    fi
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$FILE"
+fi
+if [ -d "$PREFIX/venv" ]; then
+    rm -rf "${PREFIX:?}/venv"
+    say "Removed the old venv in $PREFIX (the server now runs from one file)"
 fi
 
 # --- The service ----------------------------------------------------------------------
@@ -169,5 +193,5 @@ opts=(--adapter "$ADAPTER" --bitrate "$BITRATE" --port "$PORT" --install-service
 [ "$ALLOW_CHANGES" -eq 0 ] || opts+=(--allow-changes)
 [ -z "$VERIFIER_FILE" ] || opts+=(--token-verifier-file "$VERIFIER_FILE")
 [ "$WITH_DISCOVERY" -eq 1 ] || opts+=(--without-discovery)
-"$DIAG" adapter-serve "${opts[@]}"
+"$PYTHON" -I -S "$FILE" adapter-serve "${opts[@]}"
 say "Adapter server on $ADAPTER at $BITRATE kbit/s, port $PORT, $( [ "$ALLOW_CHANGES" -eq 1 ] && echo "changes allowed" || echo "read-only")"

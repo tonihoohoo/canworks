@@ -6,7 +6,7 @@
 # It reads canworks' own parts only, never the OpenPLC runtime or Docker.
 #
 # For the tests: CANWORKS_PROBE_ROOT puts every file path under another folder,
-# CANWORKS_PROBE_SYSTEMCTL, _IP, _SUDO and _CURL replace those
+# CANWORKS_PROBE_SYSTEMCTL, _IP, _SUDO, _CURL, _PYTHON and _OPENSSL replace those
 # commands, CANWORKS_PROBE_URL is the release host checked for internet access
 # and CANWORKS_PROBE_UID the user id.
 
@@ -15,6 +15,8 @@ SYSTEMCTL=${CANWORKS_PROBE_SYSTEMCTL:-systemctl}
 IP=${CANWORKS_PROBE_IP:-ip}
 SUDO=${CANWORKS_PROBE_SUDO:-sudo}
 CURL=${CANWORKS_PROBE_CURL:-curl}
+PYTHON=${CANWORKS_PROBE_PYTHON:-python3}
+OPENSSL=${CANWORKS_PROBE_OPENSSL:-openssl}
 URL=${CANWORKS_PROBE_URL:-https://github.com}
 
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -174,6 +176,11 @@ for f in "$R"/etc/systemd/system/canworks-adapter-*.service; do
         "$(jb "$a_adv")" "$(js "$user")" "$(jn "$pcs")")"
 done
 
+# What the adapter server file needs (python3 3.11+ and the openssl command).
+python=""
+have "$PYTHON" && python=$("$PYTHON" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null)
+openssl=0; have "$OPENSSL" && openssl=1
+
 # ip's own JSON, passed through as it is (the configurator reads it).
 can=null vcan=null
 if have "$IP" && "$IP" -j link show >/dev/null 2>&1; then
@@ -210,5 +217,6 @@ printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
 printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, "adapters": [%s], ' \
     "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")" "$adapters"
 printf '"bridge_uses": %s, ' "$bridge_uses"
+printf '"python3": %s, "openssl": %s, ' "$(js "$python")" "$(jb "$openssl")"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

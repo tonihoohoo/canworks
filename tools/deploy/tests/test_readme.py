@@ -29,7 +29,8 @@ DEVICE_PLAN = TOOLS / "devices" / "plan.py"
 # Commands that are not PC tools' entry points: they run on the bridge's device.
 DEVICE_COMMANDS = {"canworks-bridge", "canworks-canopen-sim"}
 # Names that look like commands but are not: the Claude skill.
-NOT_COMMANDS = {"canworks-datasheet-notes"}
+# File names, not commands: the adapter server file canworks-adapter-<version>.pyz.
+NOT_COMMANDS = {"canworks-datasheet-notes", "canworks-adapter-"}
 
 NOT_PAGE = {
     # The Configurator bullets' lead-ins

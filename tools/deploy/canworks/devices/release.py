@@ -50,3 +50,45 @@ def latest_on_device(conn):
     except SshError:
         return None
     return from_url(out) if status == 0 else None
+
+
+ADAPTER_SCRIPT = "install-adapter.sh"
+MAX_ADAPTER_FILE = 8 << 20  # the file is about 1 MB; anything far larger is not it
+
+
+def adapter_file_name(version):
+    return "canworks-adapter-%s.pyz" % version
+
+
+def _download_url():
+    return os.environ.get("CANWORKS_RELEASES_DOWNLOAD") or REPO + "/releases/download"
+
+
+def adapter_files(version, cache_dir, timeout=30.0):
+    """[install-adapter.sh, canworks-adapter-<version>.pyz] of release
+    `version` downloaded on this PC into cache_dir/<version>/ (kept there,
+    so a second device needs no download), or None when this PC cannot get
+    them (add-adapter-server-file: the job then downloads on the device)."""
+    folder = os.path.join(cache_dir, version)
+    names = (ADAPTER_SCRIPT, adapter_file_name(version))
+    paths = [os.path.join(folder, n) for n in names]
+    if all(os.path.isfile(p) for p in paths):
+        return paths
+    try:
+        os.makedirs(folder, exist_ok=True)
+        for name, path in zip(names, paths):
+            if os.path.isfile(path):
+                continue
+            url = "%s/deploy-v%s/%s" % (_download_url(), version, name)
+            req = urllib.request.Request(url, headers={"User-Agent": "canworks-config"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = r.read(MAX_ADAPTER_FILE + 1)
+            if not data or len(data) > MAX_ADAPTER_FILE:
+                return None
+            tmp = path + ".part"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+    except (OSError, urllib.error.URLError, ValueError):
+        return None
+    return paths

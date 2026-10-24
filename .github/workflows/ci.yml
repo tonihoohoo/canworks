@@ -32,6 +32,9 @@ jobs:
       # The PLCopen export's paths (.github/ci/plcopen-paths.txt) changed:
       # the tools shard runs the truST import check; always true on main.
       plcopen: ${{ steps.classify.outputs.plcopen }}
+      # The adapter server file's paths (.github/ci/adapter-file-paths.txt)
+      # changed: the tools shard builds the file and runs it on a bare Python.
+      adapterfile: ${{ steps.classify.outputs.adapterfile }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -404,6 +407,11 @@ jobs:
       - name: CI change classification, test sharding and banned words
         if: matrix.shard == 1
         run: python -m unittest discover -v -s test/ci
+
+      - name: Adapter server file on a bare Python (built, served, used by a PC; add-adapter-server-file)
+        if: matrix.shard == 1 && needs.changes.outputs.adapterfile == 'true'
+        working-directory: tools/deploy
+        run: CANWORKS_ADAPTER_FILE=1 python -m unittest -v tests.test_adapter_file
 
       - name: Cache the pinned truST release
         if: matrix.shard == 1 && needs.changes.outputs.plcopen == 'true'

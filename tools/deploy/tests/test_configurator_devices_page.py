@@ -69,7 +69,8 @@ esac
 
 
 # The release's install-adapter.sh: the unit the probe reads, and the verifier
-# it was given (add-devices-adapter-server).
+# and adapter server file it was given (add-devices-adapter-server,
+# add-adapter-server-file: both uploaded from this PC).
 ADAPTER_SCRIPT = r"""#!/bin/bash
 echo "args: $*"
 mkdir -p "$FAKE_FS/etc/systemd/system"
@@ -77,9 +78,9 @@ unit="$FAKE_FS/etc/systemd/system/canworks-adapter-can0.service"
 case " $* " in
     *" --uninstall "*) rm -f "$unit" "$FAKE_UNITS/canworks-adapter-can0.service"; exit 0 ;;
 esac
-echo "::canworks-step 1/2 Installing the PC tools"
+echo "::canworks-step 1/2 Installing the adapter server"
 echo "::canworks-step 2/2 Starting the adapter server on can0"
-user=""; rate=""; port=""; changes=""; verifier=""
+user=""; rate=""; port=""; changes=""; verifier=""; file=""
 while [ $# -gt 0 ]; do
     case $1 in
         --user) user=$2; shift ;;
@@ -87,13 +88,15 @@ while [ $# -gt 0 ]; do
         --port) port=$2; shift ;;
         --allow-changes) changes=" --allow-changes" ;;
         --verifier-file) verifier=$2; shift ;;
+        --file) file=$2; shift ;;
     esac
     shift
 done
 [ -z "$verifier" ] || cp "$verifier" "$FAKE_FS/verifier-seen"
+[ -z "$file" ] || cp "$file" "$FAKE_FS/file-seen"
 printf '[Service]
 User=%s
-ExecStart=/opt/canworks-adapter/venv/bin/canworks-diag adapter-serve --adapter socketcan:can0 --bitrate %s --port %s%s
+ExecStart=/usr/bin/python3 /opt/canworks-adapter/canworks-adapter.pyz adapter-serve --adapter socketcan:can0 --bitrate %s --port %s%s
 '     "$user" "$rate" "$port" "$changes" > "$unit"
 echo active > "$FAKE_UNITS/canworks-adapter-can0.service"
 """
@@ -353,6 +356,12 @@ class DevicesPage(OnlineBase):
         self.put_file(ip, '#!/bin/sh\ncase "$*" in *"type can"*) echo \'[{"ifname":"can0","flags":["UP"],"linkinfo":'
                           '{"info_kind":"can","info_data":{"bittiming":{"bitrate":500000}}}}]\' ;; *) echo "[]" ;; esac\n', 0o755)
         self.server.devices.probe_env["CANWORKS_PROBE_IP"] = ip
+        # The release's script and adapter server file, as this PC downloads them.
+        release = os.path.join(self.dir, "release-0.98.0")
+        self.put_file(os.path.join(release, "install-adapter.sh"), ADAPTER_SCRIPT, 0o755)
+        self.put_file(os.path.join(release, "canworks-adapter-0.98.0.pyz"), "canworks-diag 0.98.0\n")
+        self.server.devices.adapter_files = lambda v: [os.path.join(release, "install-adapter.sh"),
+                                                       os.path.join(release, "canworks-adapter-%s.pyz" % v)]
         pg.set_viewport_size({"width": 1280, "height": 900})
         pg.goto(self.server.url)
         pg.click("#start-devices")
@@ -375,6 +384,8 @@ class DevicesPage(OnlineBase):
             token = json.load(f)["adapter_tokens"]["127.0.0.1"]
         with open(os.path.join(self.fs, "verifier-seen")) as f:
             self.assertTrue(diag.token_matches(token, f.read().strip()))
+        with open(os.path.join(self.fs, "file-seen")) as f:
+            self.assertEqual(f.read(), "canworks-diag 0.98.0\n")  # uploaded: nothing downloaded on the device
         for folder, _, files in os.walk(self.device.root):
             for name in files:
                 with open(os.path.join(folder, name), "rb") as f:

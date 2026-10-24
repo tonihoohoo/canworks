@@ -146,5 +146,32 @@ class Plcopen(unittest.TestCase):
         self.assertEqual(Ui.run_main(self, "--main-push", "HEAD", "HEAD")["plcopen"], "true")
 
 
+class AdapterFile(unittest.TestCase):
+    """add-adapter-server-file: the file test runs when the code it carries changes."""
+
+    def setUp(self):
+        self.rules = ci.load_adapter_file_rules()
+
+    def test_server_code_and_scripts(self):
+        for p in ("tools/deploy/canworks/diag.py", "tools/deploy/canworks/localbus/serve.py",
+                  "tools/deploy/canworks/link/discovery.py", "tools/deploy/uv.lock", "scripts/build-adapter-pyz.py",
+                  "scripts/install-adapter.sh", "tools/deploy/tests/test_adapter_file.py", ".github/workflows/ci.yml"):
+            self.assertTrue(ci.is_adapter_file([p], self.rules), p)
+
+    def test_page_code_skips_it(self):
+        self.assertFalse(ci.is_adapter_file(["tools/deploy/canworks/configurator/static/app.js",
+                                             "tools/deploy/canworks/plcopen.py", "docs/pc-adapter.md"], self.rules))
+
+    def test_unknown_paths_run_it(self):
+        self.assertTrue(ci.is_adapter_file(None, self.rules))
+
+    def test_every_rule_matches_a_file(self):
+        Plcopen.test_every_rule_matches_a_file(self)
+
+    def test_output(self):
+        self.assertEqual(Ui.run_main(self, "HEAD", "HEAD")["adapterfile"], "false")
+        self.assertEqual(Ui.run_main(self, "--main-push", "HEAD", "HEAD")["adapterfile"], "true")
+
+
 if __name__ == "__main__":
     unittest.main()

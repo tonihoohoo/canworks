@@ -15,8 +15,10 @@ def version_tuple(text):
     return tuple(int(x) for x in m.groups()) if m else None
 
 
-def blocked(probe, latest):
-    """Why no install action can run on this device now, or None."""
+def blocked(probe, latest, adapter=False):
+    """Why no install action can run on this device now, or None. The remote
+    CAN adapter's actions (`adapter`) need neither internet on the device (the
+    PC uploads the adapter server file) nor room for a build."""
     if probe.get("systemd") is False:
         return "This device has no systemd, which the install job needs."
     if probe.get("sudo") == "unavailable":
@@ -24,10 +26,10 @@ def blocked(probe, latest):
     job = probe.get("install_job") or {}
     if job.get("state") in ("active", "activating"):
         return "An install is running on this device."
-    if probe.get("internet") is False:
+    if probe.get("internet") is False and not adapter:
         return "The device cannot reach github.com, which the install downloads from."
     free = probe.get("disk_free_mb")
-    if isinstance(free, int) and free < MIN_FREE_MB:
+    if isinstance(free, int) and free < MIN_FREE_MB and not adapter:
         return "Less than 2 GB is free on the device (%d MB); the build needs about 2 GB." % free
     if not latest:
         return "The newest canworks release could not be found from this PC. Check its internet access."
@@ -145,6 +147,9 @@ def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None
            "state": "warn" if bad else "ok" if servers else "off", "needs": "", "used": target != "codesys"}
     if target == "codesys":
         return out
+    missing = adapter_missing(probe)
+    if missing:
+        out["hint"] = missing
     acts = []
     many = len(servers) > 1
     for a in servers:
@@ -159,21 +164,36 @@ def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None
         if same["port"] in tokens:
             acts.append(_main("adapter_copy_token", "Copy token", latest, [], button="Copy token%s" % on, local=True,
                               **same))
-        else:
+        elif not missing:
             acts.append(_main("adapter_token", "New token for the remote CAN adapter%s" % on, latest, [NEW_TOKEN],
                               button="New token%s…" % on, **same))
-        acts.append(_main("adapter_change", "Change the remote CAN adapter%s" % on, latest, [], button="Change%s…" % on,
-                          dialog=True, current=current,
-                          choices=[c for c in choices if c["adapter"] == a["adapter"]], **same))
+        if not missing:
+            acts.append(_main("adapter_change", "Change the remote CAN adapter%s" % on, latest, [],
+                              button="Change%s…" % on, dialog=True, current=current,
+                              choices=[c for c in choices if c["adapter"] == a["adapter"]], **same))
         acts.append(_main("adapter_off", "Turn off the remote CAN adapter%s" % on, latest,
                           ["PCs connected to it lose the connection; %s is free on the device again." % name],
                           button="Turn off%s…" % on, **same))
-    if free:
+    if free and not missing:
         acts.append(_main("adapter_on", "Turn on the remote CAN adapter", latest, [],
                           button="Add…" if servers else "Turn on…", dialog=True, choices=free, port=port))
     if acts:
         out["actions"] = acts
     return out
+
+
+def adapter_missing(probe):
+    """What the adapter server file needs and the device lacks, in one
+    sentence, or None (also for a probe made before the check existed)."""
+    if "python3" in probe:
+        have = probe.get("python3")
+        m = re.match(r"^(\d+)\.(\d+)", have or "")
+        if not m or (int(m.group(1)), int(m.group(2))) < (3, 11):
+            return "The remote CAN adapter needs Python 3.11 or newer on the device%s." % (
+                " (it has %s)" % have if have else "")
+    if probe.get("openssl") is False:
+        return "The remote CAN adapter needs the openssl command on the device: install the openssl package."
+    return None
 
 
 def same_config(found, saved):
@@ -347,6 +367,12 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         main = _main("install_bridge", with_latest("Install the bridge"), latest, hint=NO_CONFIG_HINT)
     reason = blocked(probe, latest) if main or any(a for r in rows for a in r.get("actions") or []
                                                    if not a.get("local")) else None
+    # The remote CAN adapter's own reason: it needs no internet on the device.
+    for r in rows:
+        if r["part"] == "adapter":
+            for a in r.get("actions") or []:
+                if not a.get("local"):
+                    a["blocked"] = blocked(probe, latest, adapter=True)
     pc = version_tuple(pc_version)
     here = version_tuple((bridge or {}).get("version"))
     # Only a newer major or minor on the device is worth a word: patch

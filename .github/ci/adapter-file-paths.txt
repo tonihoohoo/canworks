@@ -1,0 +1,16 @@
+# Path rules of the adapter server file test (.github/scripts/ci_changes.py
+# prints adapterfile=true when a changed path matches one): the code the file
+# runs, its build script and test, the install script, the lock file and the
+# shared CI files. One fnmatch pattern per line on the repository path, where
+# * also matches /.
+
+tools/deploy/canworks/diag.py
+tools/deploy/canworks/localbus/*
+tools/deploy/canworks/link/*
+tools/deploy/canworks/__init__.py
+tools/deploy/pyproject.toml
+tools/deploy/uv.lock
+tools/deploy/tests/test_adapter_file.py
+scripts/build-adapter-pyz.py
+scripts/install-adapter.sh
+.github/*

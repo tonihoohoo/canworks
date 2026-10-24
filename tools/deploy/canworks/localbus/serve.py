@@ -41,6 +41,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 
 from .. import diag
 from ..diag import DiagError
@@ -638,11 +639,14 @@ def unit_name(spec):
 
 
 def _command():
-    """How the service starts this canworks-diag: the installed command, else
-    this Python with the module."""
+    """How the service starts this canworks-diag: the installed command, this
+    Python with the adapter server file it runs from, else this Python with
+    the module."""
     exe = os.path.realpath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
     if os.path.basename(exe) == "canworks-diag" and os.access(exe, os.X_OK):
         return [exe]
+    if exe and os.path.isfile(exe) and zipfile.is_zipfile(exe):
+        return [sys.executable, exe]
     return [sys.executable, "-m", "canworks.diag"]
 
 
