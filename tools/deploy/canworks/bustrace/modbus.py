@@ -155,6 +155,10 @@ def value_text(v):
     return str(v)
 
 
+# The bit table whose bits a register table serves too.
+BITS_IN = {"holding register": "coil", "input register": "discrete input"}
+
+
 class MapDecoder:
     """Names Modbus records with a config's register map. Without a bridge
     config (or with one whose map cannot be laid out) the records show
@@ -210,7 +214,21 @@ class MapDecoder:
         if self.mismatch or not self.rows or start is None or count is None:
             return out
         end = start + count
+        bits = BITS_IN.get(table)
         for r in self.rows:
+            if bits and r["table"] == bits:
+                # A bit's byte n is served in register n // 2 too (even n the
+                # high byte): name it in a register range as well.
+                a = r["byte"] // 2
+                if not start <= a < end:
+                    continue
+                v = {"name": r["name"], "location": r["location"], "type": r["type"], "row": r, "split": False,
+                     "value": None}
+                off = (a - start) * 2 + (r["byte"] % 2)
+                if data is not None and off < len(data):
+                    v["value"] = bool(data[off] >> (r["address"] % 8) & 1)
+                out.append(v)
+                continue
             if r["table"] != table:
                 continue
             a, n = r["address"], r["count"]
