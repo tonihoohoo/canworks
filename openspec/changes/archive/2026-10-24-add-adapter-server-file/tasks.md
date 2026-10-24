@@ -27,6 +27,8 @@
 
 ## 6. Hardware checks (Linux device with can0; Mac or Windows PC)
 
-- [ ] 6.1 Devices Turn on on the device (old venv there): job uploads, installs the file, removes the venv; Connect from this PC; scan lists the nodes; install time noted
+- [x] 6.1 Devices Turn on on the device (old venv there): job uploads, installs the file, removes the venv; Connect from this PC; scan lists the nodes; install time noted
+  - 2026-10-24, tools 0.133.0 on a Mac, Linux device with can0 at 500 kbit/s next to a running bridge: Turn on (Allow changes, Advertise) took 4 s; the PC uploaded install-adapter.sh and the file, nothing was downloaded on the device; the folder holds only canworks-adapter.pyz (same sha256 as the release asset), the unit runs `/usr/bin/python3 /opt/canworks-adapter/canworks-adapter.pyz adapter-serve ...`; Connect from this PC (read-only) and scan found the nodes. The device had no old venv (an earlier Turn off removed it), so venv removal rests on test/adapter/install_test.sh.
+  - Seen, not part of this change: the row shows off until Check again after the job; Connect from this PC needs a second Connect click; a scan that hit a reconnect and a bit rate refusal left the page at Scanning... 0 of 127.
 - [ ] 6.2 Same with the device cut off from the internet (LAN only), if Toni approves changing the device's network for the test
 - [ ] 6.3 By hand: copy the file with scp, `python3 canworks-adapter-X.pyz adapter-serve --adapter socketcan:can0 --bitrate 500`, PC scans; Turn off leaves can0 free
