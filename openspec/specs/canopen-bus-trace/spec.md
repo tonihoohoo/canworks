@@ -354,7 +354,7 @@ A trace recorded through a bridge's diagnostics channel with Modbus requests on 
 - **THEN** the frame rate reads about 200 frames/s and the statistics say 300 Modbus requests
 
 ### Requirement: Modbus decoding with the register map
-Each Modbus record SHALL be decoded with the config's register map: the client by its connection's name when an entry of `bridge.connections` has its address, else its address; the range split into the map's values with their names and types (a 32- or 64-bit value over its registers in the config's word order, coils and discrete inputs by their bit names); and the result. An exception SHALL get a hint where the map explains it:
+Each Modbus record SHALL be decoded with the config's register map: the client by its connection's name when an entry of `bridge.connections` has its address, else its address; the range split into the map's values with their names and types (a 32- or 64-bit value over its registers in the config's word order, coils and discrete inputs by their bit names, and the bits a register serves in its bytes by their bit names in a register range too); and the result. An exception SHALL get a hint where the map explains it:
 - exception 0x02 on a range past the image: the image's size in registers;
 - a start of 30000 or more on input registers, or 40000 or more on holding registers: addresses here start at 0;
 - a range that splits a 32- or 64-bit value: which value it cuts;
