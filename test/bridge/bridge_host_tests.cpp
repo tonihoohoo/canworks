@@ -929,4 +929,43 @@ TEST(mailboxes_on_the_simulated_bus) {
   EXPECT(info.size() == 18 && (info[0] >> 8) == 0 && (uint32_t(info[5]) << 16 | info[6]) > 0);
 }
 
+// Idle (control command 2) turns the outputs off, and a mailbox frame is an
+// output: the program's receivers, cyclic jobs and operations end with the
+// log reason "idle", never as a block that stopped calling while the client
+// kept writing keepalives (modbus-bridge-mailboxes "Idle ends the program's
+// resources").
+TEST(idle_ends_the_program_resources) {
+  Host h(add_mailboxes);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kKeepaliveReg = 88;  // %QB176
+  constexpr uint16_t kJobTableReg = 242;  // %IB484
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  std::vector<uint16_t> r = mb_call(c, 1, kOpRxOpen, {kRxCan << 8, 32, 0, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[2] == 0);
+  r = mb_call(c, 2, kOpCyclicSet, {0xFFFF, 0, 0x300, 2, 20}, {0x0102, 0, 0, 0});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone);
+  uint16_t job = r.size() == 12 ? r[2] : 0;
+  auto job_gen = [&] { return reg(c, static_cast<uint16_t>(kJobTableReg + 1 + job * 4 + 1)); };
+  auto rx_gen = [&] { return static_cast<uint16_t>(reg(c, kRxReg + 5) >> 8); };  // receiver 0
+  EXPECT(job_gen() != 0 && rx_gen() != 0);
+  // Idle; the client keeps writing keepalives and acknowledging batches.
+  EXPECT(write(c, kControlReg, {4, 2 << 8, 0}));
+  EXPECT(wait_for([&] { return state(c) == 3; }));
+  for (uint16_t i = 1; i <= 15; ++i) {
+    EXPECT(write(c, static_cast<uint16_t>(kKeepaliveReg + job), {i}));
+    EXPECT(write(c, kAckReg, {reg(c, kRxReg), 0, 0}));
+    usleep(100000);
+  }
+  EXPECT(job_gen() == 0 && rx_gen() == 0);
+  EXPECT(logged("of the program ended (idle)"));
+  EXPECT(!logged("stopped calling"));
+  EXPECT(!logged("were not taken within 1 s"));
+  EXPECT(write(c, kControlReg, {5, 1 << 8, 0}));
+  EXPECT(wait_for([&] { return state(c) == 1; }));
+}
+
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

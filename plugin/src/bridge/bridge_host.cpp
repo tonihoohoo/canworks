@@ -498,9 +498,11 @@ void BridgeHost::end_program_resources(const char* why) {
 }
 
 void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
-  if (why != OutputState::kIdle)
-    end_program_resources(why == OutputState::kPlcStopped ? "the PLC stopped"
-                          : why == OutputState::kMismatch ? "the program was built for another map"
+  // Idle turns the outputs off too, and a mailbox frame or SDO write is an
+  // output: the program's mailbox resources end in every off state.
+  end_program_resources(why == OutputState::kIdle         ? "idle"
+                        : why == OutputState::kPlcStopped ? "the PLC stopped"
+                        : why == OutputState::kMismatch   ? "the program was built for another map"
                                                           : "the watchdog");
   const char* reason = why == OutputState::kIdle         ? "the control block's idle command"
                        : why == OutputState::kPlcStopped ? "the PLC link header (the PLC stopped)"
