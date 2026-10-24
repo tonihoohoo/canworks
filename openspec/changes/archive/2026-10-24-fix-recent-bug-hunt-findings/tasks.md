@@ -80,7 +80,13 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 8. Hardware and desktop checks
 
-- [ ] 8.1 Bench device: a config with the real CANopen network and a second, simulated network; `systemctl stop` exits cleanly, the real node gets its `on_plc_stop` NMT, the next start reports a clean stop; a config upload applies.
-- [ ] 8.2 Bench device: with the same config, take the real interface down and up while a client writes outputs of the simulated network; the bridge keeps running.
-- [ ] 8.3 Mac: the configurator in Safari: header menus (the #282 fix), Settings → Check now, Devices at a narrow window.
-- [ ] 8.4 Node-RED on the bench device: a flow with an EMCY receiver deployed five times, the bridge's receiver count stays at the flow's receivers.
+- [x] 8.1 Bench device: a config with the real CANopen network and a second, simulated network; `systemctl stop` exits cleanly, the real node gets its `on_plc_stop` NMT, the next start reports a clean stop; a config upload applies.
+- [x] 8.2 Bench device: with the same config, take the real interface down and up while a client writes outputs of the simulated network; the bridge keeps running.
+- [x] 8.3 Mac: the configurator in Safari: header menus (the #282 fix), Settings → Check now, Devices at a narrow window.
+- [x] 8.4 Node-RED on the bench device: a flow with an EMCY receiver deployed five times, the bridge's receiver count stays at the flow's receivers.
+
+Results 2026-10-24 (bridge at main 2e43dad5, PC tools 0.132.0):
+- 8.1 passed: `systemctl stop` exits 0 with both networks sending their stop NMT (`000 [2] 80 17` on the real bus), the next start reports a clean stop, and a `--bridge` upload applies with the same PID. Found: `canworks-deploy --bridge` reports that the bridge did not answer after an upload of a config with several networks, because its readback asks for status without a network (follow-up).
+- 8.2 passed: with a client writing the simulated network's outputs every 50 ms (898 ok, 0 errors), the real interface taken down came back up by the bridge within 2 s; same PID, no restart.
+- 8.3 passed in Playwright WebKit 27.2 (Safari's engine), not the Safari app: header menus open and close (click, outside click, Escape, another menu) at 1600, 1280 and 800 px, Check now keeps its menu open and shows the result, Devices puts the list above the details at 800 and 600 px.
+- 8.4 passed: one EMCY receiver deployed five times keeps one receiver open; each Deploy closes the old one.
