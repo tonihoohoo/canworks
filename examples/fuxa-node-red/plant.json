@@ -1,0 +1,350 @@
+[
+ {
+  "id": "fxnr.tab",
+  "type": "tab",
+  "label": "Plant logic",
+  "disabled": false,
+  "info": "The canworks plant's control in FUXA's built-in Node-RED, on the canworks bridge node \"canworks plant\" of the exported flow. The HMI is FUXA's: values go to the tags of the FUXA Server device, and the operator's limit, Ack, running light and manual outputs come back from them. See examples/fuxa-node-red/README.md."
+ },
+ {
+  "id": "fxnr.note",
+  "type": "comment",
+  "z": "fxnr.tab",
+  "name": "The plant logic is the Node-RED dashboard example's, unchanged; FUXA's tags around it",
+  "info": "",
+  "x": 160,
+  "y": 40,
+  "wires": []
+ },
+ {
+  "id": "fxnr.in",
+  "type": "canworks-in",
+  "z": "fxnr.tab",
+  "name": "plant values",
+  "bridge": "d4fafd0077e9c57d",
+  "filter": "rtd.temp1,rtd.temp2,dio.in0,dio.in1,rtd.status,dio.status,bridge.state,bridge.bus_ok",
+  "x": 130,
+  "y": 100,
+  "wires": [
+   [
+    "fxnr.logic"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.tick",
+  "type": "inject",
+  "z": "fxnr.tab",
+  "name": "500 ms",
+  "props": [
+   {
+    "p": "topic",
+    "vt": "str"
+   }
+  ],
+  "repeat": "0.5",
+  "crontab": "",
+  "once": true,
+  "onceDelay": "0.5",
+  "topic": "tick",
+  "x": 130,
+  "y": 160,
+  "wires": [
+   [
+    "fxnr.logic"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.start",
+  "type": "inject",
+  "z": "fxnr.tab",
+  "name": "start",
+  "props": [
+   {
+    "p": "topic",
+    "vt": "str"
+   }
+  ],
+  "repeat": "",
+  "crontab": "",
+  "once": true,
+  "onceDelay": "1",
+  "topic": "start",
+  "x": 130,
+  "y": 220,
+  "wires": [
+   [
+    "fxnr.logic",
+    "fxnr.get.limit",
+    "fxnr.get.run",
+    "fxnr.get.m0",
+    "fxnr.get.m1"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.get.limit",
+  "type": "get-tag",
+  "z": "fxnr.tab",
+  "name": "limit",
+  "tag": "limit",
+  "tagId": "limit",
+  "x": 340,
+  "y": 280,
+  "wires": [
+   [
+    "fxnr.logic"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.get.run",
+  "type": "get-tag",
+  "z": "fxnr.tab",
+  "name": "run",
+  "tag": "run",
+  "tagId": "run",
+  "x": 340,
+  "y": 320,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.get.m0",
+  "type": "get-tag",
+  "z": "fxnr.tab",
+  "name": "manual_out0",
+  "tag": "manual_out0",
+  "tagId": "manual_out0",
+  "x": 360,
+  "y": 360,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.get.m1",
+  "type": "get-tag",
+  "z": "fxnr.tab",
+  "name": "manual_out1",
+  "tag": "manual_out1",
+  "tagId": "manual_out1",
+  "x": 360,
+  "y": 400,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.chg.limit",
+  "type": "get-tag-change",
+  "z": "fxnr.tab",
+  "name": "limit",
+  "tag": "limit",
+  "tagId": "limit",
+  "x": 140,
+  "y": 460,
+  "wires": [
+   [
+    "fxnr.logic"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.chg.run",
+  "type": "get-tag-change",
+  "z": "fxnr.tab",
+  "name": "run",
+  "tag": "run",
+  "tagId": "run",
+  "x": 140,
+  "y": 500,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.chg.m0",
+  "type": "get-tag-change",
+  "z": "fxnr.tab",
+  "name": "manual_out0",
+  "tag": "manual_out0",
+  "tagId": "manual_out0",
+  "x": 160,
+  "y": 540,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.chg.m1",
+  "type": "get-tag-change",
+  "z": "fxnr.tab",
+  "name": "manual_out1",
+  "tag": "manual_out1",
+  "tagId": "manual_out1",
+  "x": 160,
+  "y": 580,
+  "wires": [
+   [
+    "fxnr.manual"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.chg.ack",
+  "type": "get-tag-change",
+  "z": "fxnr.tab",
+  "name": "ack",
+  "tag": "ack",
+  "tagId": "ack",
+  "x": 140,
+  "y": 640,
+  "wires": [
+   [
+    "fxnr.ack.on"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.ack.on",
+  "type": "switch",
+  "z": "fxnr.tab",
+  "name": "pressed",
+  "property": "payload",
+  "propertyType": "msg",
+  "rules": [
+   {
+    "t": "true"
+   }
+  ],
+  "checkall": "true",
+  "repair": false,
+  "outputs": 1,
+  "x": 330,
+  "y": 640,
+  "wires": [
+   [
+    "fxnr.logic",
+    "fxnr.ack.off"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.ack.off",
+  "type": "change",
+  "z": "fxnr.tab",
+  "name": "release",
+  "rules": [
+   {
+    "t": "set",
+    "p": "payload",
+    "pt": "msg",
+    "to": "false",
+    "tot": "bool"
+   }
+  ],
+  "x": 510,
+  "y": 680,
+  "wires": [
+   [
+    "fxnr.set.ack"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.set.ack",
+  "type": "set-tag",
+  "z": "fxnr.tab",
+  "name": "ack",
+  "tag": "ack",
+  "tagId": "ack",
+  "x": 690,
+  "y": 680,
+  "wires": []
+ },
+ {
+  "id": "fxnr.manual",
+  "type": "function",
+  "z": "fxnr.tab",
+  "name": "run and manual outputs",
+  "func": "// FUXA's run and manual output bytes to the plant logic's messages: run\n// first, then one switch message per bit of manual_out0 (bits 1-7, bit 0\n// is the alarm's) and manual_out1. All bits are sent again after each\n// change, so the outputs match the bytes when the running light goes off.\nconst m = context.get(\"m\") || { manual_out0: 0, manual_out1: 0 };\nconst out = [];\nif (msg.topic === \"run\") out.push({ topic: \"run\", payload: !!msg.payload });\nelse if (msg.topic in m) m[msg.topic] = Number(msg.payload) || 0;\nelse return null;\ncontext.set(\"m\", m);\nfor (let bit = 0; bit < 8; bit++) {\n    if (bit > 0) out.push({ topic: \"switch\", payload: { name: \"dio_out0\", bit, value: !!(m.manual_out0 & (1 << bit)) } });\n    out.push({ topic: \"switch\", payload: { name: \"dio_out1\", bit, value: !!(m.manual_out1 & (1 << bit)) } });\n}\nreturn [out];",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 590,
+  "y": 440,
+  "wires": [
+   [
+    "fxnr.logic"
+   ]
+  ]
+ },
+ {
+  "id": "fxnr.logic",
+  "type": "function",
+  "z": "fxnr.tab",
+  "name": "plant logic",
+  "func": "// The example plant's logic, the same as PLANT_LOGIC in the CODESYS\n// example: alarm when temperature 1 is over the limit, held until\n// Ack while it is back under; the alarm sets output byte 0 bit 0. A light\n// runs along output byte 1 (one bit every 500 ms tick) and the loop back\n// is checked on input byte 1. Outputs: 1 canworks out, 2 page state,\n// 3 trend points, 4 alarm notification.\nconst s = context.get(\"s\") || {\n    temp1: null, temp2: null, limit: 25.0, ack: false, run: true, alarm: false,\n    in0: 0, in1: 0, out0: 0, out1: 0, user0: 0, user1: 0, pos: 0, lightOk: false,\n    rtdOk: false, dioOk: false, bridge: \"connecting\", busOk: false\n};\nconst out = [], trend = [];\nlet note = null;\nconst t = msg.topic, v = msg.payload;\nif (t === \"rtd.temp1\" || t === \"rtd.temp2\") {\n    const c = Number(v) / 10;\n    if (t === \"rtd.temp1\") s.temp1 = c; else s.temp2 = c;\n    trend.push({ topic: t === \"rtd.temp1\" ? \"Temperature 1\" : \"Temperature 2\", payload: c });\n} else if (t === \"dio.in0\") s.in0 = Number(v) || 0;\nelse if (t === \"dio.in1\") s.in1 = Number(v) || 0;\nelse if (t === \"rtd.status\") s.rtdOk = !!v;\nelse if (t === \"dio.status\") s.dioOk = !!v;\nelse if (t === \"bridge.state\") s.bridge = String(v);\nelse if (t === \"bridge.bus_ok\") s.busOk = !!v;\nelse if (t === \"limit\" && Number.isFinite(Number(v))) s.limit = Number(v);\nelse if (t === \"ack\") s.ack = true;\nelse if (t === \"run\") s.run = !!v;\nelse if (t === \"switch\" && v && typeof v === \"object\") {\n    const m = 1 << v.bit;\n    if (v.name === \"dio_out0\" && v.bit > 0) s.user0 = v.value ? s.user0 | m : s.user0 & ~m;\n    if (v.name === \"dio_out1\" && !s.run) s.user1 = v.value ? s.user1 | m : s.user1 & ~m;\n}\n// The alarm.\nconst was = s.alarm;\nif (s.temp1 !== null && s.temp1 > s.limit) s.alarm = true;\nelse if (s.ack) s.alarm = false;\ns.ack = false;\nif (s.alarm && !was) note = { payload: \"Temperature 1 is over \" + s.limit.toFixed(1) + \" °C\", topic: \"Alarm\" };\n// The running light: a step every tick while running.\nif (t === \"tick\" && s.run) {\n    s.lightOk = s.in1 === s.out1;\n    s.pos = (s.pos + 1) % 8;\n}\nif (!s.run) s.lightOk = false;\nconst out0 = (s.alarm ? 1 : 0) | (s.user0 & 0xfe);\nconst out1 = s.run ? 1 << s.pos : s.user1;\nif (out0 !== s.out0 || t === \"start\") { s.out0 = out0; out.push({ topic: \"dio.out0\", payload: out0 }); }\nif (out1 !== s.out1 || t === \"start\") { s.out1 = out1; out.push({ topic: \"dio.out1\", payload: out1 }); }\ncontext.set(\"s\", s);\nconst state = { topic: \"state\", payload: {\n    temp1: s.temp1, temp2: s.temp2, limit: s.limit, alarm: s.alarm, run: s.run, lightOk: s.lightOk,\n    rtdOk: s.rtdOk, dioOk: s.dioOk, bridge: s.bridge, busOk: s.busOk,\n    dio_in0: s.in0, dio_in1: s.in1, dio_out0: s.out0, dio_out1: s.out1\n} };\nconst last = context.get(\"last\");\nconst text = JSON.stringify(state.payload);\ncontext.set(\"last\", text);\nreturn [out, text === last ? null : state, trend, note];\n",
+  "outputs": 4,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 820,
+  "y": 220,
+  "wires": [
+   [
+    "fxnr.out"
+   ],
+   [
+    "fxnr.tofuxa"
+   ],
+   [],
+   []
+  ]
+ },
+ {
+  "id": "fxnr.out",
+  "type": "canworks-out",
+  "z": "fxnr.tab",
+  "name": "outputs",
+  "bridge": "d4fafd0077e9c57d",
+  "topic": "",
+  "x": 1050,
+  "y": 160,
+  "wires": []
+ },
+ {
+  "id": "fxnr.tofuxa",
+  "type": "function",
+  "z": "fxnr.tab",
+  "name": "to FUXA tags",
+  "func": "// The plant state to the tags of the FUXA Server device (tag id = name).\n// A value is written when the tag holds another one, which also refills\n// the tags after FUXA reloads its project. limit, run, ack and the manual\n// bytes belong to the operator and are not written here.\nconst fuxa = global.get(\"fuxa\");\nconst s = msg.payload;\nconst values = {\n    temp1: s.temp1, temp2: s.temp2, alarm: s.alarm, light_ok: s.lightOk,\n    rtd_ok: s.rtdOk, dio_ok: s.dioOk, bus_ok: s.busOk, bridge_state: s.bridge,\n    canworks_ok: s.bridge === \"running\" && s.busOk,\n    dio_in0: s.dio_in0, dio_in1: s.dio_in1, dio_out0: s.dio_out0, dio_out1: s.dio_out1\n};\nfor (const [id, v] of Object.entries(values)) {\n    if (v !== null && v !== undefined && fuxa.getTag(id) !== v) fuxa.setTag(id, v);\n}\nreturn null;",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": [],
+  "x": 1060,
+  "y": 220,
+  "wires": []
+ }
+]

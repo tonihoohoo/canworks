@@ -194,6 +194,7 @@
   "tests.test_explain.Sequences": 0.5,
   "tests.test_explain.Wire": 0.0,
   "tests.test_fast_start.FastStart": 0.2,
+  "tests.test_fuxa_nodered_example.FuxaNodeRedExampleTest": 0.2,
   "tests.test_j1939_config.Clash": 0.0,
   "tests.test_j1939_config.CopyAsStCall": 0.0,
   "tests.test_j1939_config.Declarations": 0.0,
