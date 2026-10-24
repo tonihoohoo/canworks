@@ -18,9 +18,10 @@
 - [ ] 3.2 `bustrace/decode.py` with `modbusmap.py`: range to named values (word order, bits), client names from `bridge.connections`, hints (past the image, 3xxxx/4xxxx, split value, not a writer), map hash mismatch
 - [ ] 3.3 `bustrace/recorder.py`: second fetch loop, one session sorted by time, gap markers
 - [ ] 3.4 `bustrace/stats.py`: Modbus counts in the statistics; By request table
-- [ ] 3.5 `bustrace/formats.py`: pcapng IPv4 interface with synthetic handshake per client and comments; reader; other formats leave them out with a note
-- [ ] 3.6 `diag.py`: `modbus-trace` command (`--config`, `--all`, `-o`, `--duration`, Ctrl-C) and client lines in `status`
-- [ ] 3.7 Tests: decoding cases, hints, pcapng round trip, tshark decodes the file as Modbus/TCP where tshark is installed, CLI against the simulated bridge
+- [ ] 3.5 `bustrace/decode.py`: delay matching (write: first frame after it with the new value; read: last frame before it with the value read; other network; not seen within 1 s) and min/avg/max in By request
+- [ ] 3.6 `bustrace/formats.py`: pcapng IPv4 interface with synthetic handshake per client and comments; reader; other formats leave them out with a note
+- [ ] 3.7 `diag.py`: `modbus-trace` command (`--config`, `--all`, `-o`, `--duration`, Ctrl-C) and client lines in `status`
+- [ ] 3.8 Tests: decoding cases, hints, delays (write to RPDO, TPDO to read, other network, not seen), pcapng round trip, tshark decodes the file as Modbus/TCP where tshark is installed, CLI against the simulated bridge
 
 ## 4. Configurator
 
@@ -41,5 +42,5 @@
 
 ## 7. Hardware check (Pi)
 
-- [ ] 7.1 Pi with OpenPLC at a 10 ms poll: Modbus trace with changes only for 60 s from the Mac configurator, the bridge's CPU with and without the trace (under 5 % with it), no change in OpenPLC's poll timing
+- [ ] 7.1 Pi with OpenPLC at a 10 ms poll: Modbus trace with changes only for 60 s from the Mac configurator, the bridge's CPU with and without the trace (under 5 % with it), no change in OpenPLC's poll timing; By request shows write-to-RPDO and TPDO-to-read delays within one poll plus one SYNC
 - [ ] 7.2 Same bench: a script client on the Mac reads holding register 40001 and writes without being a writer; the hints and the Clients panel show both

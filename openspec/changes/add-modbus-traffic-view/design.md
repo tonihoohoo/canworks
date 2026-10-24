@@ -36,11 +36,14 @@ OpenPLC's Modbus master polls every group every 10 ms by default: a typical proj
 
 **8. Clients panel.** The Modbus bridge page, while connected, polls the status once a second and shows one row per connection of the config (name, address, connected or not, requests per second, exceptions, refused writes, last write and its range by name) and one row per other client seen (**Not in connections**), with the recently closed ones under a disclosure. A connection with `writes` false whose client wrote gets its refused count in amber with a link to the connection's Settings.
 
+**9. Delays matched on the PC from decoded values.** The bridge's trace stays dumb: the PC matches. A write's changed values (compared with that client's previous write of the same range) are looked up in the map to their binding. The decoder then finds the first frame after the write on the traced network whose decoded value of that binding equals the written one. A read goes backwards to the last frame that carried the value read. Matching by value, not just "the next RPDO", avoids blaming an RPDO that left before the bridge applied the write. The search stops after 1 s. By request keeps the minimum, average and maximum per request kind, so the bridge's added delay is a number in the table: the README's "up to one poll more each way" can be checked on a real bench. Alternative considered: the bridge stamps the snapshot it published and the frame it sent with it. That would be more exact, but it needs changes to the CAN thread for a figure the value match gives to well under a millisecond.
+
 ## Risks / Trade-offs
 
 - [Recording cost on a Pi at 1000 requests/s] → hashing 250 bytes and a ring copy per request is a few microseconds; the HW check measures it with OpenPLC's master at a 10 ms poll, and the bridge's CPU must stay under 5 %.
 - [Values of a whole image cross the diagnostics channel] → same exposure as the CAN trace, behind the same token and TLS.
 - [Wireshark's dissector refuses packets without a handshake] → each client's stream starts with a synthetic SYN/SYN-ACK/ACK in the file; checked against tshark in the tests where tshark is installed.
+- [Same value written twice in a row, or a value that equals the old one] → only changed values are matched; an unchanged write has no delay to show.
 - [Clock steps on the bridge host (NTP)] → both kinds use the same clock, so a step moves both.
 
 ## Open Questions

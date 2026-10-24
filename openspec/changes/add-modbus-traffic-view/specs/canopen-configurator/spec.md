@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Modbus requests in the Trace view
-On a bridge project the Trace view's Capture… SHALL offer **Modbus requests** (on by default) with **Only changes** (on by default) and an optional client from the config's connections. With it on, recording SHALL fetch the bridge's Modbus records with the picked network's frames. The Chronological list SHALL show Modbus rows between the CAN rows by time, marked as Modbus, and the Filters SHALL have a source filter CAN / Modbus / both. A Modbus row SHALL open in the inspector with the request and answer, each value of its range by name, the skipped count and the hint. By identifier SHALL have a **By request** table for the Modbus records: one row per client, function and range, with the request count (skipped ones included), average cycle time, last values by name and the last exception. Recording through a USB adapter, or from a runtime that is not a bridge, SHALL grey the option out with the reason.
+On a bridge project the Trace view's Capture… SHALL offer **Modbus requests** (on by default) with **Only changes** (on by default) and an optional client from the config's connections. With it on, recording SHALL fetch the bridge's Modbus records with the picked network's frames. The Chronological list SHALL show Modbus rows between the CAN rows by time, marked as Modbus, and the Filters SHALL have a source filter CAN / Modbus / both. A Modbus row SHALL open in the inspector with the request and answer, each value of its range by name, the skipped count, the hint, and per changed value its delay to or from the bus (canopen-bus-trace, "Delay between Modbus and CAN") with a link that selects that CAN frame. By identifier SHALL have a **By request** table for the Modbus records: one row per client, function and range, with the request count (skipped ones included), average cycle time, the minimum, average and maximum delay to or from the bus, last values by name and the last exception. Recording through a USB adapter, or from a runtime that is not a bridge, SHALL grey the option out with the reason.
 
 #### Scenario: Find a wrong address
 - **WHEN** an HMI connection reads holding register 40001 and the user records with Modbus requests on
 - **THEN** By request lists the HMI's read of holding register 40001 with its count and exception 0x02, and its inspector says holding registers start at 0 here
+
+#### Scenario: Jump from a write to its RPDO
+- **WHEN** the user opens a write of `dio.valve_cmd` in the inspector
+- **THEN** it shows the delay to node 6's RPDO, and its link selects that RPDO in the Chronological list
 
 #### Scenario: Only Modbus
 - **WHEN** the user sets the source filter to Modbus

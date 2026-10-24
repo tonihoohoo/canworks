@@ -28,6 +28,21 @@ When the bridge's map hash differs from the config's, the records SHALL be shown
 - **WHEN** a client reads holding register 40001 and gets exception 0x02
 - **THEN** the row shows the exception with the hint that holding registers start at 0 here and the image has N registers
 
+### Requirement: Delay between Modbus and CAN
+For a Modbus write, the trace SHALL find, for each value of the write that changed, the first CAN frame after the write on the traced network that carries the new value (an RPDO entry, a J1939 or raw transmit signal decoded with the config), and SHALL give the time from the write's answer to that frame. For a Modbus read, for each value that changed since that client's previous read of it, the trace SHALL find the last CAN frame before the read that carried the value read, and SHALL give the time from that frame to the read's answer. A value bound to another network SHALL say so. A value whose frame is not found within 1 s SHALL say "not seen on the bus". With **Only changes** these delays SHALL be exact, since the first record showing a new value is kept.
+
+#### Scenario: Write to RPDO
+- **WHEN** OpenPLC writes `dio.valve_cmd` = 500 at 10.000 s and node 6's RPDO carrying 500 is on the bus at 10.004 s
+- **THEN** the write's delay for `dio.valve_cmd` is 4 ms
+
+#### Scenario: TPDO to read
+- **WHEN** node 5's TPDO carries a new `rtd.temp` at 20.000 s and the next read of it by OpenPLC is answered at 20.007 s
+- **THEN** that read's delay for `rtd.temp` is 7 ms
+
+#### Scenario: Value on another network
+- **WHEN** the trace records network `field` and a write changes a value bound to network `drives`
+- **THEN** that value's delay says it is on `drives`, not traced
+
 ### Requirement: Modbus records in saved traces
 Saving a trace with Modbus records as pcapng SHALL write them as a second interface of IPv4 packets, one per request and one per answer, between the client's address and the bridge's port, so a Modbus/TCP dissector decodes them; skipped counts SHALL be kept in packet comments. Opening such a file SHALL bring the records back with their decoding. Saving in a format that has no place for them (ASC, BLF, TRC, candump, CSV) SHALL keep the CAN frames and say that the Modbus records are left out.
 
