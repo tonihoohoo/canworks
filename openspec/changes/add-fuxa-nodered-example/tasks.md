@@ -1,9 +1,9 @@
 ## 1. Example files
 
 - [ ] 1.1 `examples/fuxa-node-red/`: copy `canworks.json`, `rtd8.eds`, `dio16.eds`, `simulation.json` from `examples/node-red-dashboard`
-- [ ] 1.2 `plant.json`: canworks in → plant logic (copied) → canworks out, 500 ms tick, start inject with get-tag reads, **to FUXA** function (`global.get("fuxa").setTag`), get-tag-change for `limit`, `run`, `ack`, `manual_out1`, ack release, `manual_out1` → switch messages
-- [ ] 1.3 Tag ids: check add-openplc-fuxa-example's tag ids at apply time and use the same ones
-- [ ] 1.4 `fuxa/project.json`: no devices, Server tags (ids = names, `limit`/`run`/`manual_out1` with DAQ restore, `polling` 200), views **Plant** and **I/O** drawn in FUXA's editor and exported (or reused from add-openplc-fuxa-example when it already has them)
+- [ ] 1.2 `plant.json`: canworks in → plant logic (copied) → canworks out, 500 ms tick, start inject with get-tag reads, **to FUXA** function (`global.get("fuxa").setTag`), get-tag-change for `limit`, `run`, `ack`, `manual_out0`, `manual_out1`, ack release, manual bytes → switch messages
+- [ ] 1.3 Tag ids = names, agreed with add-openplc-fuxa-example (2026-10-24); recheck its final list at apply time
+- [ ] 1.4 `fuxa/project.json`: no devices, Server tags (ids = names, `limit`/`run`/`manual_out0`/`manual_out1` with DAQ restore, `polling` 200), views **Plant** and **I/O** drawn in FUXA's editor and exported (or reused from add-openplc-fuxa-example when it already has them)
 - [ ] 1.5 `docker-compose.yml` (setup, bridge publishing 127.0.0.1:1881, fuxa 1.3.5 with `network_mode: service:bridge`) and `start.sh` (mysettings, offline package install on version change, flow once, project once)
 - [ ] 1.6 `README.md`: Docker route, URLs, port shared with the OpenPLC + FUXA example, restart behaviour, security; then installed bridge + own FUXA
 

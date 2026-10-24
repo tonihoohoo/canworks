@@ -22,14 +22,14 @@ The control SHALL run in FUXA's built-in Node-RED on the canworks Node-RED packa
 - **THEN** the example check fails naming both files
 
 ### Requirement: Values as FUXA Server tags
-The flow SHALL write the plant state to tags of the FUXA Server device whose ids equal their names: `temp1`, `temp2`, `rtd_ok`, `dio_ok`, `canworks_ok`, `alarm`, `light_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1` and `bridge_state`. It SHALL write only values that changed.
+The flow SHALL write the plant state to tags of the FUXA Server device whose ids equal their names: `temp1`, `temp2`, `rtd_ok`, `dio_ok`, `canworks_ok`, `bus_ok`, `alarm`, `light_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1` and `bridge_state`. It SHALL write only values that changed.
 
 #### Scenario: Temperature shown
 - **WHEN** the simulated temperature 1 changes
 - **THEN** the `temp1` tag in FUXA has the new value in °C within a second
 
 ### Requirement: Operator tags back to the logic
-The tags `limit` (start 25), `run` (start true), `ack` and `manual_out1` SHALL reach the logic within half a second of a change in FUXA. Node-RED SHALL set `ack` back to false after using it. While `run` is false, `dio_out1` SHALL follow `manual_out1`. At deploy the flow SHALL read the current `limit`, `run` and `manual_out1` from FUXA.
+The tags `limit` (start 25), `run` (start true), `ack`, `manual_out0` and `manual_out1` SHALL reach the logic within half a second of a change in FUXA. Node-RED SHALL set `ack` back to false after using it. Bits 1-7 of `dio_out0` SHALL follow `manual_out0`, and while `run` is false, `dio_out1` SHALL follow `manual_out1`. At deploy the flow SHALL read the current operator values from FUXA.
 
 #### Scenario: Limit from FUXA
 - **WHEN** the operator sets `limit` below temperature 1 in FUXA
@@ -40,7 +40,7 @@ The tags `limit` (start 25), `run` (start true), `ack` and `manual_out1` SHALL r
 - **THEN** `alarm` turns false and `ack` reads false again
 
 ### Requirement: Operator values on project save
-`limit`, `run` and `manual_out1` SHALL keep their values when the FUXA project is saved. After a restart of the FUXA container they MAY return to their start values, and the README SHALL say so.
+`limit`, `run`, `manual_out0` and `manual_out1` SHALL keep their values when the FUXA project is saved. After a restart of the FUXA container they MAY return to their start values, and the README SHALL say so.
 
 #### Scenario: Project saved
 - **WHEN** the limit is 30 and the user saves the project in FUXA's editor
@@ -51,14 +51,14 @@ The tags `limit` (start 25), `run` (start true), `ack` and `manual_out1` SHALL r
 - the two temperatures and their trend;
 - the limit input, the alarm lamp and Ack;
 - the running light switch and its check;
-- the status of both nodes and the bridge state.
+- the status of both nodes, `canworks_ok` and `bus_ok`.
 
 #### Scenario: Alarm on the view
 - **WHEN** the user sets the limit to 22.0 on the Plant view while temperature 1 is 23.0 °C
 - **THEN** the alarm lamp comes on
 
 ### Requirement: I/O view
-`fuxa/project.json` SHALL have an **I/O** view with lamps for the 16 input bits and the 16 output bits, and buttons for the 8 bits of `manual_out1`, which work while the running light is off.
+`fuxa/project.json` SHALL have an **I/O** view with lamps for the 16 input bits and the 16 output bits, and buttons for bits 1-7 of `manual_out0` and the 8 bits of `manual_out1` (these work while the running light is off).
 
 #### Scenario: Manual output loops back
 - **WHEN** the user turns the running light off and switches bit 3 of `manual_out1` on

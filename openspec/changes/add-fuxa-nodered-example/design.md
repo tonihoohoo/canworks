@@ -52,8 +52,8 @@ If add-openplc-fuxa-example merges first with other tag ids for its OPC UA tags,
 
 ### FUXA project and views
 `fuxa/project.json` is a whole FUXA project (the `POST /api/project` body). It has no devices, the Server device with the tags above and `polling: 200`, and the views:
-- **Plant**: the two temperatures with a trend, the limit input, the alarm lamp, Ack, the running light switch and its check, status lamps for both nodes, and the bridge state.
-- **I/O**: lamps for the 16 input bits, the 16 output bits, and buttons for the 8 bits of `manual_out1`, which work while the running light is off.
+- **Plant**: the two temperatures with a trend, the limit input, the alarm lamp, Ack, the running light switch and its check, status lamps for both nodes, `canworks_ok` and `bus_ok`.
+- **I/O**: lamps for the 16 input bits, the 16 output bits, and buttons for bits 1-7 of `manual_out0` and the 8 bits of `manual_out1` (these work while the running light is off).
 
 The views are drawn in FUXA's editor against the running example and exported, because view SVG cannot practically be written by hand. If add-openplc-fuxa-example already has views on the same tag ids, its views are reused as they are.
 
