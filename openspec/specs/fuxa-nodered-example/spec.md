@@ -1,7 +1,7 @@
 # fuxa-nodered-example Specification
 
 ## Purpose
-TBD - created by archiving change add-fuxa-nodered-example. Update Purpose after archive.
+The FUXA example `examples/fuxa-node-red`: the shared simulated plant's control in FUXA's built-in Node-RED on the canworks Node-RED nodes, with the HMI drawn in FUXA on FUXA Server tags, run with Docker Compose.
 
 ## Requirements
 
