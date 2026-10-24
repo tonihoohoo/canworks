@@ -2,6 +2,8 @@
 // the example config (examples/modbus-bridge) on its simulated bus, served
 // on a free loopback port and read and written by a Modbus TCP client.
 
+#include <atomic>
+#include <thread>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -345,6 +347,40 @@ TEST(watchdog_safe) {
   EXPECT(wait_for([&] { return reg(c, 4) == 0x0300 && reg(c, 5) == 4321; }));
   h.host.stop();
   EXPECT(logged("outputs at their safe values for 20 ms first (on_client_loss safe)"));
+}
+
+// Spec "Safe values", a clean stop: a client that keeps writing while the
+// bridge stops does not put its values over the safe ones (hardware check
+// 5.2 of add-safe-output-values).
+TEST(safe_stop_with_a_writing_client) {
+  Host h([](cJSON* r) {
+    set_number(bridge_of(r), "watchdog_ms", 300);
+    set_string(bridge_of(r), "on_client_loss", "safe");
+    cJSON* sv = cJSON_CreateObject();
+    cJSON_AddNumberToObject(sv, "%QW2", 4321);
+    cJSON_AddItemToObject(bridge_of(r), "safe_values", sv);
+  });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, 0, {0x0102, 1234}));
+  std::atomic<bool> done{false};
+  int writes = 0;
+  std::thread writer([&] {
+    while (!done && write(c, 0, {0x0102, 1234})) ++writes;
+  });
+  usleep(50000);
+  h.host.stop();
+  done = true;
+  writer.join();
+  std::vector<uint8_t> out = h.host.sent_outputs();
+  EXPECT(writes > 0);
+  EXPECT(out.size() >= 4);
+  if (out.size() < 4) return;
+  // %QW2: bytes 2 and 3, in the config's word order.
+  uint16_t hi = static_cast<uint16_t>(out[2] << 8 | out[3]), lo = static_cast<uint16_t>(out[3] << 8 | out[2]);
+  EXPECT(hi == 4321 || lo == 4321);
 }
 
 TEST(control_block_nmt_and_idle) {

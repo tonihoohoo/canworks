@@ -84,6 +84,8 @@ class BridgeHost {
   const canopen_plugin::ConfigSet& set() const { return engine_->set(); }
   ByteImage& image() { return image_; }
   uint16_t modbus_port() const { return server_.port(); }
+  // The output image the networks were last given (tests).
+  std::vector<uint8_t> sent_outputs() const;
   // The "bridge" part of the diagnostics status answer.
   cJSON* status_json() const;
   // modbus_trace_start/fetch/stop (canopen-online-diagnostics "Modbus trace

@@ -532,6 +532,10 @@ void BridgeHost::write_marker() {
 void BridgeHost::stop() {
   if (!running_) return;
   if (cfg_.on_client_loss == BridgeConfig::Loss::Safe) {
+    // The Modbus server stops first: a PLC that keeps writing while the
+    // bridge stops would put its own values over the safe ones before the
+    // networks send them (hardware check of add-safe-output-values 5.2).
+    server_.stop();
     {
       std::lock_guard<std::mutex> lock(exchange_mu_);
       write_safe_outputs();
@@ -551,6 +555,11 @@ void BridgeHost::stop() {
   canopen_plugin::set_outputs_enabled(true);
   running_ = false;
   if (::unlink(marker_path().c_str()) == 0) sync_dir(dir_of(marker_path()));
+}
+
+std::vector<uint8_t> BridgeHost::sent_outputs() const {
+  std::lock_guard<std::mutex> lock(exchange_mu_);
+  return g_image ? g_image->out : std::vector<uint8_t>();
 }
 
 void BridgeHost::push_outputs() {
