@@ -363,8 +363,11 @@ class Connection:
             if self.client is not None and isinstance(self.key[0], AdapterTarget):
                 self.client.allow_changes = bool(allow)
                 self.key[0].allow_changes = bool(allow)
-                if isinstance(getattr(self.client, "info", None), dict):
-                    self.client.info["allow_changes"] = bool(allow)  # the hello the pages and jobs read
+                info = getattr(self.client, "info", None)
+                if isinstance(info, dict):
+                    # The hello the pages and jobs read; an adapter server started
+                    # without --allow-changes refuses changes whatever the switch.
+                    info["allow_changes"] = bool(allow) and info.get("server_allow_changes") is not False
 
     @property
     def info(self):
