@@ -1,0 +1,2706 @@
+{
+ "version": "1.00",
+ "name": "canworks plant",
+ "devices": {
+  "0": {
+   "id": "0",
+   "name": "FUXA Server",
+   "type": "FuxaServer",
+   "enabled": true,
+   "property": {},
+   "polling": 200,
+   "tags": {
+    "temp1": {
+     "id": "temp1",
+     "name": "temp1",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     },
+     "format": 1
+    },
+    "temp2": {
+     "id": "temp2",
+     "name": "temp2",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     },
+     "format": 1
+    },
+    "rtd_ok": {
+     "id": "rtd_ok",
+     "name": "rtd_ok",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "dio_ok": {
+     "id": "dio_ok",
+     "name": "dio_ok",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "canworks_ok": {
+     "id": "canworks_ok",
+     "name": "canworks_ok",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "bus_ok": {
+     "id": "bus_ok",
+     "name": "bus_ok",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "alarm": {
+     "id": "alarm",
+     "name": "alarm",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "light_ok": {
+     "id": "light_ok",
+     "name": "light_ok",
+     "type": "boolean",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "dio_in0": {
+     "id": "dio_in0",
+     "name": "dio_in0",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "dio_in1": {
+     "id": "dio_in1",
+     "name": "dio_in1",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "dio_out0": {
+     "id": "dio_out0",
+     "name": "dio_out0",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "dio_out1": {
+     "id": "dio_out1",
+     "name": "dio_out1",
+     "type": "number",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "bridge_state": {
+     "id": "bridge_state",
+     "name": "bridge_state",
+     "type": "string",
+     "init": "",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "limit": {
+     "id": "limit",
+     "name": "limit",
+     "type": "number",
+     "init": "25",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     },
+     "format": 1
+    },
+    "run": {
+     "id": "run",
+     "name": "run",
+     "type": "boolean",
+     "init": "true",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "ack": {
+     "id": "ack",
+     "name": "ack",
+     "type": "boolean",
+     "init": "false",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "manual_out0": {
+     "id": "manual_out0",
+     "name": "manual_out0",
+     "type": "number",
+     "init": "0",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    },
+    "manual_out1": {
+     "id": "manual_out1",
+     "name": "manual_out1",
+     "type": "number",
+     "init": "0",
+     "daq": {
+      "enabled": false,
+      "changed": true,
+      "interval": 60,
+      "restored": false
+     }
+    }
+   }
+  }
+ },
+ "server": {
+  "id": "0",
+  "name": "FUXA Server",
+  "type": "FuxaServer",
+  "enabled": true,
+  "property": {},
+  "polling": 200,
+  "tags": {
+   "temp1": {
+    "id": "temp1",
+    "name": "temp1",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    },
+    "format": 1
+   },
+   "temp2": {
+    "id": "temp2",
+    "name": "temp2",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    },
+    "format": 1
+   },
+   "rtd_ok": {
+    "id": "rtd_ok",
+    "name": "rtd_ok",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "dio_ok": {
+    "id": "dio_ok",
+    "name": "dio_ok",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "canworks_ok": {
+    "id": "canworks_ok",
+    "name": "canworks_ok",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "bus_ok": {
+    "id": "bus_ok",
+    "name": "bus_ok",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "alarm": {
+    "id": "alarm",
+    "name": "alarm",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "light_ok": {
+    "id": "light_ok",
+    "name": "light_ok",
+    "type": "boolean",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "dio_in0": {
+    "id": "dio_in0",
+    "name": "dio_in0",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "dio_in1": {
+    "id": "dio_in1",
+    "name": "dio_in1",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "dio_out0": {
+    "id": "dio_out0",
+    "name": "dio_out0",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "dio_out1": {
+    "id": "dio_out1",
+    "name": "dio_out1",
+    "type": "number",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "bridge_state": {
+    "id": "bridge_state",
+    "name": "bridge_state",
+    "type": "string",
+    "init": "",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "limit": {
+    "id": "limit",
+    "name": "limit",
+    "type": "number",
+    "init": "25",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    },
+    "format": 1
+   },
+   "run": {
+    "id": "run",
+    "name": "run",
+    "type": "boolean",
+    "init": "true",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "ack": {
+    "id": "ack",
+    "name": "ack",
+    "type": "boolean",
+    "init": "false",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "manual_out0": {
+    "id": "manual_out0",
+    "name": "manual_out0",
+    "type": "number",
+    "init": "0",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   },
+   "manual_out1": {
+    "id": "manual_out1",
+    "name": "manual_out1",
+    "type": "number",
+    "init": "0",
+    "daq": {
+     "enabled": false,
+     "changed": true,
+     "interval": 60,
+     "restored": false
+    }
+   }
+  }
+ },
+ "hmi": {
+  "views": [
+   {
+    "id": "v_plant",
+    "name": "Plant",
+    "profile": {
+     "width": 1000,
+     "height": 620,
+     "bkcolor": "#ffffffff",
+     "margin": 10,
+     "align": "middleCenter"
+    },
+    "items": {
+     "HXB_v_plant_3": {
+      "id": "HXB_v_plant_3",
+      "type": "svg-ext-html_button",
+      "name": "Plant",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onpage",
+         "actparam": "v_plant",
+         "actoptions": {}
+        }
+       ],
+       "variable": "",
+       "variableId": "",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "HXB_v_plant_6": {
+      "id": "HXB_v_plant_6",
+      "type": "svg-ext-html_button",
+      "name": "I/O",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onpage",
+         "actparam": "v_io",
+         "actoptions": {}
+        }
+       ],
+       "variable": "",
+       "variableId": "",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "VAL_v_plant_12": {
+      "id": "VAL_v_plant_12",
+      "type": "svg-ext-value",
+      "name": "temp1",
+      "label": "Value",
+      "property": {
+       "events": [],
+       "variable": "temp1",
+       "variableId": "temp1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": 1,
+         "min": 0,
+         "max": 0,
+         "text": "°C",
+         "fractionDigits": 1
+        }
+       ]
+      }
+     },
+     "VAL_v_plant_15": {
+      "id": "VAL_v_plant_15",
+      "type": "svg-ext-value",
+      "name": "temp2",
+      "label": "Value",
+      "property": {
+       "events": [],
+       "variable": "temp2",
+       "variableId": "temp2",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": 1,
+         "min": 0,
+         "max": 0,
+         "text": "°C",
+         "fractionDigits": 1
+        }
+       ]
+      }
+     },
+     "HXI_v_plant_18": {
+      "id": "HXI_v_plant_18",
+      "type": "svg-ext-html_input",
+      "name": "limit",
+      "label": "HtmlInput",
+      "property": {
+       "events": [],
+       "variable": "limit",
+       "variableId": "limit",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "options": {
+        "numeric": true,
+        "updated": true
+       }
+      }
+     },
+     "GSE_v_plant_23": {
+      "id": "GSE_v_plant_23",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "alarm",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "alarm",
+       "variableId": "alarm",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#e53935"
+        }
+       ]
+      }
+     },
+     "HXB_v_plant_25": {
+      "id": "HXB_v_plant_25",
+      "type": "svg-ext-html_button",
+      "name": "Ack",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onSetValue",
+         "actparam": "1",
+         "actoptions": {
+          "variable": {
+           "variableId": "ack",
+           "bitmask": null
+          }
+         }
+        }
+       ],
+       "variable": "ack",
+       "variableId": "ack",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "HXC_v_plant_29": {
+      "id": "HXC_v_plant_29",
+      "type": "svg-ext-html_chart",
+      "name": "Temperatures",
+      "label": "HtmlChart",
+      "property": {
+       "id": "c_temps",
+       "type": "realtime1",
+       "options": {
+        "title": "",
+        "realtime": 5,
+        "fontSize": 12,
+        "legendMode": "bottom",
+        "decimalsPrecision": 1,
+        "axisLabelX": "",
+        "axisLabelY1": "°C",
+        "colorBackground": "rgba(255,255,255,0)"
+       }
+      }
+     },
+     "GSE_v_plant_35": {
+      "id": "GSE_v_plant_35",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "run",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "run",
+       "variableId": "run",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "HXB_v_plant_37": {
+      "id": "HXB_v_plant_37",
+      "type": "svg-ext-html_button",
+      "name": "On / off",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "run",
+           "bitmask": null
+          }
+         }
+        }
+       ],
+       "variable": "run",
+       "variableId": "run",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "GSE_v_plant_41": {
+      "id": "GSE_v_plant_41",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "light_ok",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "light_ok",
+       "variableId": "light_ok",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "GSE_v_plant_47": {
+      "id": "GSE_v_plant_47",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "rtd_ok",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "rtd_ok",
+       "variableId": "rtd_ok",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "GSE_v_plant_50": {
+      "id": "GSE_v_plant_50",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_ok",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_ok",
+       "variableId": "dio_ok",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "GSE_v_plant_53": {
+      "id": "GSE_v_plant_53",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "canworks_ok",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "canworks_ok",
+       "variableId": "canworks_ok",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "GSE_v_plant_56": {
+      "id": "GSE_v_plant_56",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "bus_ok",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "bus_ok",
+       "variableId": "bus_ok",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ]
+      }
+     },
+     "VAL_v_plant_60": {
+      "id": "VAL_v_plant_60",
+      "type": "svg-ext-value",
+      "name": "bridge_state",
+      "label": "Value",
+      "property": {
+       "events": [],
+       "variable": "bridge_state",
+       "variableId": "bridge_state",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": 1,
+         "min": 0,
+         "max": 0,
+         "text": ""
+        }
+       ]
+      }
+     },
+     "GSE_v_plant_63": {
+      "id": "GSE_v_plant_63",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#e53935"
+        }
+       ],
+       "bitmask": 1
+      }
+     }
+    },
+    "variables": {},
+    "svgcontent": "<svg width=\"1000\" height=\"620\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns:html=\"http://www.w3.org/1999/xhtml\"><g><title>Layer 1</title><rect x=\"0\" y=\"0\" width=\"1000\" height=\"56\" rx=\"6\" fill=\"#263238ff\" stroke-width=\"0\" id=\"svg_v_plant_1\"/><text x=\"24\" y=\"36\" font-size=\"22\" font-weight=\"bold\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#ffffff\" stroke-width=\"0\" id=\"svg_v_plant_2\" xml:space=\"preserve\">canworks plant: Plant</text><g id=\"HXB_v_plant_3\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"770\" y=\"12\" width=\"100\" height=\"32\" fill=\"#455a64ff\" id=\"svg_v_plant_5\" stroke=\"#ffffff\"/><foreignObject x=\"770\" y=\"12\" height=\"32\" width=\"100\" id=\"H-HXB_v_plant_4\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(69, 90, 100); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_plant_4\">Plant</BUTTON></foreignObject></g><g id=\"HXB_v_plant_6\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"880\" y=\"12\" width=\"100\" height=\"32\" fill=\"#455a64ff\" id=\"svg_v_plant_8\" stroke=\"#ffffff\"/><foreignObject x=\"880\" y=\"12\" height=\"32\" width=\"100\" id=\"H-HXB_v_plant_7\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(69, 90, 100); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_plant_7\">I/O</BUTTON></foreignObject></g><rect x=\"20\" y=\"76\" width=\"300\" height=\"250\" rx=\"6\" fill=\"#f5f5f5ff\" stroke-width=\"0\" id=\"svg_v_plant_9\"/><text x=\"40\" y=\"106\" font-size=\"16\" font-weight=\"bold\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_10\" xml:space=\"preserve\">Temperatures</text><text x=\"40\" y=\"146\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_11\" xml:space=\"preserve\">Temperature 1</text><g id=\"VAL_v_plant_12\" type=\"svg-ext-value\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"22\" fill=\"none\" stroke-width=\"0\"><text id=\"VAL_v_plant_13\" x=\"180\" y=\"150\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"22\" fill=\"#000000\" stroke-width=\"0\" xml:space=\"preserve\">###.#</text></g><text x=\"40\" y=\"190\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_14\" xml:space=\"preserve\">Temperature 2</text><g id=\"VAL_v_plant_15\" type=\"svg-ext-value\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"22\" fill=\"none\" stroke-width=\"0\"><text id=\"VAL_v_plant_16\" x=\"180\" y=\"194\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"22\" fill=\"#000000\" stroke-width=\"0\" xml:space=\"preserve\">###.#</text></g><text x=\"40\" y=\"240\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_17\" xml:space=\"preserve\">Limit</text><g id=\"HXI_v_plant_18\" type=\"svg-ext-html_input\" stroke=\"#000000\" text-anchor=\"right\" font-family=\"sans-serif\" font-size=\"16\" fill=\"#f1f1f1ff\"><rect id=\"svg_v_plant_20\" stroke=\"#5f6368\" stroke-width=\"1\" fill=\"#ffffff\" height=\"30\" width=\"80\" y=\"220\" x=\"180\"/><foreignObject id=\"H-HXI_v_plant_19\" width=\"80\" height=\"30\" y=\"220\" x=\"180\"><INPUT id=\"I-HXI_v_plant_19\" style=\"width: calc(100% - 7px); height: calc(100% - 7px); text-align: right; border: unset; background-color: rgb(255, 255, 255); color: rgb(0, 0, 0); font-size: 16px; vector-effect: non-scaling-stroke;\" type=\"text\"/></foreignObject></g><text x=\"268\" y=\"241\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_21\" xml:space=\"preserve\">°C</text><text x=\"40\" y=\"300\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_22\" xml:space=\"preserve\">Alarm</text><g id=\"GSE_v_plant_23\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"110\" cy=\"295\" rx=\"13\" ry=\"13\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_24\"/></g><g id=\"HXB_v_plant_25\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"180\" y=\"280\" width=\"80\" height=\"32\" fill=\"#e53935ff\" id=\"svg_v_plant_27\" stroke=\"#ffffff\"/><foreignObject x=\"180\" y=\"280\" height=\"32\" width=\"80\" id=\"H-HXB_v_plant_26\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(229, 57, 53); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_plant_26\">Ack</BUTTON></foreignObject></g><rect x=\"340\" y=\"76\" width=\"640\" height=\"250\" rx=\"6\" fill=\"#ffffffff\" stroke-width=\"0\" id=\"svg_v_plant_28\"/><g id=\"HXC_v_plant_29\" type=\"svg-ext-html_chart\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"340\" y=\"76\" width=\"640\" height=\"250\" id=\"svg_v_plant_31\" fill=\"#ffffff\" stroke=\"null\"/><foreignObject x=\"340\" y=\"76\" height=\"250\" width=\"640\" id=\"H-HXC_v_plant_30\"><DIV style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke;\" id=\"D-HXC_v_plant_30\"></DIV></foreignObject></g><rect x=\"20\" y=\"346\" width=\"300\" height=\"250\" rx=\"6\" fill=\"#f5f5f5ff\" stroke-width=\"0\" id=\"svg_v_plant_32\"/><text x=\"40\" y=\"376\" font-size=\"16\" font-weight=\"bold\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_33\" xml:space=\"preserve\">Running light</text><text x=\"40\" y=\"416\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_34\" xml:space=\"preserve\">On</text><g id=\"GSE_v_plant_35\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"110\" cy=\"411\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_36\"/></g><g id=\"HXB_v_plant_37\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"180\" y=\"396\" width=\"100\" height=\"32\" fill=\"#1a73e8ff\" id=\"svg_v_plant_39\" stroke=\"#ffffff\"/><foreignObject x=\"180\" y=\"396\" height=\"32\" width=\"100\" id=\"H-HXB_v_plant_38\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(26, 115, 232); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_plant_38\">On / off</BUTTON></foreignObject></g><text x=\"40\" y=\"460\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_40\" xml:space=\"preserve\">Light OK</text><g id=\"GSE_v_plant_41\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"110\" cy=\"455\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_42\"/></g><text x=\"40\" y=\"510\" font-size=\"12\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_plant_43\" xml:space=\"preserve\">Turn it off to switch</text><text x=\"40\" y=\"528\" font-size=\"12\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_plant_44\" xml:space=\"preserve\">dio_out1 on the I/O view.</text><rect x=\"340\" y=\"346\" width=\"640\" height=\"250\" rx=\"6\" fill=\"#f5f5f5ff\" stroke-width=\"0\" id=\"svg_v_plant_45\"/><text x=\"360\" y=\"376\" font-size=\"16\" font-weight=\"bold\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_46\" xml:space=\"preserve\">Status</text><g id=\"GSE_v_plant_47\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"372\" cy=\"411\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_48\"/></g><text x=\"394\" y=\"416\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_49\" xml:space=\"preserve\">Temperature module (node 5)</text><g id=\"GSE_v_plant_50\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"372\" cy=\"451\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_51\"/></g><text x=\"394\" y=\"456\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_52\" xml:space=\"preserve\">Digital I/O module (node 6)</text><g id=\"GSE_v_plant_53\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"372\" cy=\"491\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_54\"/></g><text x=\"394\" y=\"496\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_55\" xml:space=\"preserve\">canworks running</text><g id=\"GSE_v_plant_56\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"372\" cy=\"531\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_57\"/></g><text x=\"394\" y=\"536\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_58\" xml:space=\"preserve\">CAN bus OK</text><text x=\"680\" y=\"416\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_59\" xml:space=\"preserve\">Bridge state</text><g id=\"VAL_v_plant_60\" type=\"svg-ext-value\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"16\" fill=\"none\" stroke-width=\"0\"><text id=\"VAL_v_plant_61\" x=\"780\" y=\"418\" text-anchor=\"start\" font-family=\"sans-serif\" font-size=\"16\" fill=\"#000000\" stroke-width=\"0\" xml:space=\"preserve\">###.#</text></g><text x=\"680\" y=\"456\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_plant_62\" xml:space=\"preserve\">Alarm output</text><g id=\"GSE_v_plant_63\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"792\" cy=\"451\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_plant_64\"/></g></g></svg>",
+    "type": "svg",
+    "property": {
+     "events": []
+    }
+   },
+   {
+    "id": "v_io",
+    "name": "I/O",
+    "profile": {
+     "width": 1000,
+     "height": 620,
+     "bkcolor": "#ffffffff",
+     "margin": 10,
+     "align": "middleCenter"
+    },
+    "items": {
+     "HXB_v_io_3": {
+      "id": "HXB_v_io_3",
+      "type": "svg-ext-html_button",
+      "name": "Plant",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onpage",
+         "actparam": "v_plant",
+         "actoptions": {}
+        }
+       ],
+       "variable": "",
+       "variableId": "",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "HXB_v_io_6": {
+      "id": "HXB_v_io_6",
+      "type": "svg-ext-html_button",
+      "name": "I/O",
+      "label": "HtmlButton",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onpage",
+         "actparam": "v_io",
+         "actoptions": {}
+        }
+       ],
+       "variable": "",
+       "variableId": "",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": ""
+      }
+     },
+     "GSE_v_io_19": {
+      "id": "GSE_v_io_19",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 1
+      }
+     },
+     "GSE_v_io_21": {
+      "id": "GSE_v_io_21",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_23": {
+      "id": "GSE_v_io_23",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_25": {
+      "id": "GSE_v_io_25",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_27": {
+      "id": "GSE_v_io_27",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_29": {
+      "id": "GSE_v_io_29",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_31": {
+      "id": "GSE_v_io_31",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_33": {
+      "id": "GSE_v_io_33",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in0 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in0",
+       "variableId": "dio_in0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 128
+      }
+     },
+     "GSE_v_io_36": {
+      "id": "GSE_v_io_36",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 1
+      }
+     },
+     "GSE_v_io_38": {
+      "id": "GSE_v_io_38",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_40": {
+      "id": "GSE_v_io_40",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_42": {
+      "id": "GSE_v_io_42",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_44": {
+      "id": "GSE_v_io_44",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_46": {
+      "id": "GSE_v_io_46",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_48": {
+      "id": "GSE_v_io_48",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_50": {
+      "id": "GSE_v_io_50",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_in1 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_in1",
+       "variableId": "dio_in1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 128
+      }
+     },
+     "GSE_v_io_53": {
+      "id": "GSE_v_io_53",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#e53935"
+        }
+       ],
+       "bitmask": 1
+      }
+     },
+     "GSE_v_io_55": {
+      "id": "GSE_v_io_55",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_57": {
+      "id": "GSE_v_io_57",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_59": {
+      "id": "GSE_v_io_59",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_61": {
+      "id": "GSE_v_io_61",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_63": {
+      "id": "GSE_v_io_63",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_65": {
+      "id": "GSE_v_io_65",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_67": {
+      "id": "GSE_v_io_67",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out0 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out0",
+       "variableId": "dio_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 128
+      }
+     },
+     "GSE_v_io_70": {
+      "id": "GSE_v_io_70",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 1
+      }
+     },
+     "GSE_v_io_72": {
+      "id": "GSE_v_io_72",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_74": {
+      "id": "GSE_v_io_74",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_76": {
+      "id": "GSE_v_io_76",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_78": {
+      "id": "GSE_v_io_78",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_80": {
+      "id": "GSE_v_io_80",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_82": {
+      "id": "GSE_v_io_82",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_84": {
+      "id": "GSE_v_io_84",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "dio_out1 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [],
+       "variable": "dio_out1",
+       "variableId": "dio_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#3bb54a"
+        }
+       ],
+       "bitmask": 128
+      }
+     },
+     "GSE_v_io_88": {
+      "id": "GSE_v_io_88",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 2
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_90": {
+      "id": "GSE_v_io_90",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 4
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_92": {
+      "id": "GSE_v_io_92",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 8
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_94": {
+      "id": "GSE_v_io_94",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 16
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_96": {
+      "id": "GSE_v_io_96",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 32
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_98": {
+      "id": "GSE_v_io_98",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 64
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_100": {
+      "id": "GSE_v_io_100",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out0 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out0",
+           "bitmask": 128
+          }
+         }
+        }
+       ],
+       "variable": "manual_out0",
+       "variableId": "manual_out0",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 128
+      }
+     },
+     "GSE_v_io_103": {
+      "id": "GSE_v_io_103",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 0",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 1
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 1
+      }
+     },
+     "GSE_v_io_105": {
+      "id": "GSE_v_io_105",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 1",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 2
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 2
+      }
+     },
+     "GSE_v_io_107": {
+      "id": "GSE_v_io_107",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 2",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 4
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 4
+      }
+     },
+     "GSE_v_io_109": {
+      "id": "GSE_v_io_109",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 3",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 8
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 8
+      }
+     },
+     "GSE_v_io_111": {
+      "id": "GSE_v_io_111",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 4",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 16
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 16
+      }
+     },
+     "GSE_v_io_113": {
+      "id": "GSE_v_io_113",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 5",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 32
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 32
+      }
+     },
+     "GSE_v_io_115": {
+      "id": "GSE_v_io_115",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 6",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 64
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 64
+      }
+     },
+     "GSE_v_io_117": {
+      "id": "GSE_v_io_117",
+      "type": "svg-ext-gauge_semaphore",
+      "name": "manual_out1 bit 7",
+      "label": "HtmlSemaphore",
+      "property": {
+       "events": [
+        {
+         "type": "click",
+         "action": "onToggleValue",
+         "actparam": "",
+         "actoptions": {
+          "variable": {
+           "variableId": "manual_out1",
+           "bitmask": 128
+          }
+         }
+        }
+       ],
+       "variable": "manual_out1",
+       "variableId": "manual_out1",
+       "variableSrc": "FUXA Server",
+       "alarmId": "",
+       "alarmSrc": "",
+       "alarm": "",
+       "alarmColor": "",
+       "ranges": [
+        {
+         "type": "range",
+         "min": 0,
+         "max": 0,
+         "color": "#bfbfbf"
+        },
+        {
+         "type": "range",
+         "min": 1,
+         "max": 1,
+         "color": "#f5a623"
+        }
+       ],
+       "bitmask": 128
+      }
+     }
+    },
+    "variables": {},
+    "svgcontent": "<svg width=\"1000\" height=\"620\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns:html=\"http://www.w3.org/1999/xhtml\"><g><title>Layer 1</title><rect x=\"0\" y=\"0\" width=\"1000\" height=\"56\" rx=\"6\" fill=\"#263238ff\" stroke-width=\"0\" id=\"svg_v_io_1\"/><text x=\"24\" y=\"36\" font-size=\"22\" font-weight=\"bold\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#ffffff\" stroke-width=\"0\" id=\"svg_v_io_2\" xml:space=\"preserve\">canworks plant: I/O</text><g id=\"HXB_v_io_3\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"770\" y=\"12\" width=\"100\" height=\"32\" fill=\"#455a64ff\" id=\"svg_v_io_5\" stroke=\"#ffffff\"/><foreignObject x=\"770\" y=\"12\" height=\"32\" width=\"100\" id=\"H-HXB_v_io_4\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(69, 90, 100); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_io_4\">Plant</BUTTON></foreignObject></g><g id=\"HXB_v_io_6\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"14\" font-family=\"sans-serif\" text-anchor=\"right\" stroke=\"#000000\"><rect stroke-width=\"0\" x=\"880\" y=\"12\" width=\"100\" height=\"32\" fill=\"#455a64ff\" id=\"svg_v_io_8\" stroke=\"#ffffff\"/><foreignObject x=\"880\" y=\"12\" height=\"32\" width=\"100\" id=\"H-HXB_v_io_7\"><BUTTON style=\"width: 100%; height: 100%; vector-effect: non-scaling-stroke; background-color: rgb(69, 90, 100); color: rgb(255, 255, 255);\" class=\"md-btn  md-btn-raised\" id=\"B-HXB_v_io_7\">I/O</BUTTON></foreignObject></g><rect x=\"20\" y=\"76\" width=\"960\" height=\"520\" rx=\"6\" fill=\"#f5f5f5ff\" stroke-width=\"0\" id=\"svg_v_io_9\"/><text x=\"260\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_10\" xml:space=\"preserve\">bit 0</text><text x=\"330\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_11\" xml:space=\"preserve\">bit 1</text><text x=\"400\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_12\" xml:space=\"preserve\">bit 2</text><text x=\"470\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_13\" xml:space=\"preserve\">bit 3</text><text x=\"540\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_14\" xml:space=\"preserve\">bit 4</text><text x=\"610\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_15\" xml:space=\"preserve\">bit 5</text><text x=\"680\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_16\" xml:space=\"preserve\">bit 6</text><text x=\"750\" y=\"106\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_17\" xml:space=\"preserve\">bit 7</text><text x=\"40\" y=\"145\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_18\" xml:space=\"preserve\">Inputs dio_in0</text><g id=\"GSE_v_io_19\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"260\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_20\"/></g><g id=\"GSE_v_io_21\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_22\"/></g><g id=\"GSE_v_io_23\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_24\"/></g><g id=\"GSE_v_io_25\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_26\"/></g><g id=\"GSE_v_io_27\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_28\"/></g><g id=\"GSE_v_io_29\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_30\"/></g><g id=\"GSE_v_io_31\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_32\"/></g><g id=\"GSE_v_io_33\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"140\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_34\"/></g><text x=\"40\" y=\"205\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_35\" xml:space=\"preserve\">Inputs dio_in1</text><g id=\"GSE_v_io_36\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"260\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_37\"/></g><g id=\"GSE_v_io_38\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_39\"/></g><g id=\"GSE_v_io_40\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_41\"/></g><g id=\"GSE_v_io_42\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_43\"/></g><g id=\"GSE_v_io_44\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_45\"/></g><g id=\"GSE_v_io_46\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_47\"/></g><g id=\"GSE_v_io_48\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_49\"/></g><g id=\"GSE_v_io_50\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"200\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_51\"/></g><text x=\"40\" y=\"265\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_52\" xml:space=\"preserve\">Outputs dio_out0</text><g id=\"GSE_v_io_53\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"260\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_54\"/></g><g id=\"GSE_v_io_55\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_56\"/></g><g id=\"GSE_v_io_57\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_58\"/></g><g id=\"GSE_v_io_59\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_60\"/></g><g id=\"GSE_v_io_61\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_62\"/></g><g id=\"GSE_v_io_63\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_64\"/></g><g id=\"GSE_v_io_65\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_66\"/></g><g id=\"GSE_v_io_67\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"260\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_68\"/></g><text x=\"40\" y=\"325\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_69\" xml:space=\"preserve\">Outputs dio_out1</text><g id=\"GSE_v_io_70\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"260\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_71\"/></g><g id=\"GSE_v_io_72\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_73\"/></g><g id=\"GSE_v_io_74\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_75\"/></g><g id=\"GSE_v_io_76\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_77\"/></g><g id=\"GSE_v_io_78\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_79\"/></g><g id=\"GSE_v_io_80\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_81\"/></g><g id=\"GSE_v_io_82\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_83\"/></g><g id=\"GSE_v_io_84\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"320\" rx=\"11\" ry=\"11\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_85\"/></g><text x=\"40\" y=\"415\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_86\" xml:space=\"preserve\">Manual dio_out0 (bits 1-7)</text><text x=\"260\" y=\"415\" font-size=\"12\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"middle\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_87\" xml:space=\"preserve\">alarm</text><g id=\"GSE_v_io_88\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_89\"/></g><g id=\"GSE_v_io_90\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_91\"/></g><g id=\"GSE_v_io_92\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_93\"/></g><g id=\"GSE_v_io_94\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_95\"/></g><g id=\"GSE_v_io_96\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_97\"/></g><g id=\"GSE_v_io_98\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_99\"/></g><g id=\"GSE_v_io_100\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"410\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_101\"/></g><text x=\"40\" y=\"475\" font-size=\"14\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#202124\" stroke-width=\"0\" id=\"svg_v_io_102\" xml:space=\"preserve\">Manual dio_out1</text><g id=\"GSE_v_io_103\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"260\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_104\"/></g><g id=\"GSE_v_io_105\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"330\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_106\"/></g><g id=\"GSE_v_io_107\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"400\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_108\"/></g><g id=\"GSE_v_io_109\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"470\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_110\"/></g><g id=\"GSE_v_io_111\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"540\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_112\"/></g><g id=\"GSE_v_io_113\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"610\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_114\"/></g><g id=\"GSE_v_io_115\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"680\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_116\"/></g><g id=\"GSE_v_io_117\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\"><ellipse cx=\"750\" cy=\"470\" rx=\"14\" ry=\"14\" fill=\"#bfbfbf\" stroke=\"#5f6368\" stroke-width=\"1\" id=\"GSE_v_io_118\"/></g><text x=\"40\" y=\"552\" font-size=\"13\" font-weight=\"normal\" font-family=\"sans-serif\" text-anchor=\"start\" fill=\"#5f6368\" stroke-width=\"0\" id=\"svg_v_io_119\" xml:space=\"preserve\">Click a manual bit to switch it. dio_out1 follows its manual byte while the running light is off.</text></g></svg>",
+    "type": "svg",
+    "property": {
+     "events": []
+    }
+   }
+  ],
+  "layout": {
+   "autoresize": false,
+   "start": "v_plant",
+   "navigation": {
+    "mode": "void",
+    "items": []
+   },
+   "header": {
+    "title": "",
+    "height": 0
+   },
+   "showdev": false,
+   "inputdialog": "false",
+   "hidenavigation": true,
+   "show_connection_error": true
+  }
+ },
+ "charts": [
+  {
+   "id": "c_temps",
+   "name": "Temperatures",
+   "lines": [
+    {
+     "device": "FUXA Server",
+     "id": "temp1",
+     "name": "temp1",
+     "label": "Temperature 1",
+     "color": "#1a73e8",
+     "yaxis": 1,
+     "lineWidth": 2,
+     "spanGaps": true
+    },
+    {
+     "device": "FUXA Server",
+     "id": "temp2",
+     "name": "temp2",
+     "label": "Temperature 2",
+     "color": "#f5a623",
+     "yaxis": 1,
+     "lineWidth": 2,
+     "spanGaps": true
+    },
+    {
+     "device": "FUXA Server",
+     "id": "limit",
+     "name": "limit",
+     "label": "Limit",
+     "color": "#e53935",
+     "yaxis": 1,
+     "lineWidth": 1,
+     "spanGaps": true
+    }
+   ]
+  }
+ ],
+ "alarms": [],
+ "texts": [],
+ "notifications": [],
+ "scripts": [],
+ "reports": [],
+ "recipes": []
+}

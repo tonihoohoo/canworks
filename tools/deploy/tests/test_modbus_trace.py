@@ -103,6 +103,14 @@ class Decoding(unittest.TestCase):
         d = dec.decode(Record(1000, "127.0.0.1", q, a))
         self.assertIn("cuts dio.0x6411:1", d["hints"][0])
 
+    def test_bits_in_registers(self):
+        """A bit is served as a coil or discrete input and inside its byte's
+        register: a register range names it too."""
+        q, a = read4(8, [0x0500])  # input byte 16: bits 0 and 2
+        d = self.dec.decode(Record(1000, "127.0.0.1", q, a))
+        bits = {v["location"]: v["value"] for v in d["values"] if v["location"].startswith("%IX")}
+        self.assertEqual(bits, {"%IX16.0": True, "%IX16.1": False, "%IX16.2": True})
+
     def test_map_hash_mismatch(self):
         dec = MapDecoder(load(), bridge_hash="0x12345678")
         q, a = write16(1, [1])
@@ -134,6 +142,23 @@ class Delays(unittest.TestCase):
         self.assertEqual(r["frame"], 4)
         by = {(x["short"], x["range"]): x for x in table}
         self.assertEqual(by[("HR", "1")]["delay_avg_ms"], 4.0)
+
+    def test_write_to_rpdo_of_a_bit(self):
+        """A BOOLEAN output that shares its holding register with a byte: the
+        write's delay to the RPDO that carries the bit."""
+        cfg = load()
+        cfg["networks"][0]["nodes"][1]["rx_pdos"][0]["entries"][0].update(type="BOOLEAN", iec_location="%QX0.0")
+        can = Decoder.from_config(cfg, EXAMPLE)
+        t = Trace()
+        t.meta["network"] = cfg["networks"][0].get("name")
+        q, a = write16(0, [0x0100])
+        t.append_modbus(Record(10_000_000, "127.0.0.1", q, a))
+        t.append(Frame(10_001_000, 0x206, bytes(6)))  # the old value
+        t.append(Frame(10_003_000, 0x206, bytes([1, 0, 0, 0, 0, 0])))  # carries TRUE
+        rows, _ = decode_all(MapDecoder(cfg), t, can, t.meta["network"])
+        self.assertIn("dio.0x6200:1 = TRUE", rows[0]["text"])
+        w = [x for x in rows[0]["delays"] if x["location"] == "%QX0.0"][0]
+        self.assertEqual((w["delay_us"], w["frame"]), (3000, 2))
 
     def test_not_seen_and_other_network(self):
         cfg = load()
