@@ -245,6 +245,40 @@ class Service(Device):
             with self.subTest(action=action), self.assertRaises(ssh.SshError):
                 self.devices.start(self.did, action, {}, None)
 
+    def test_update_keeps_the_link_and_discovery(self):
+        # An update or a reinstall leaves the link and the advertisement as the device has them.
+        out = self.devices.probe(self.did, "bridge", "proj", None, "0.98.0", password=SSH_PW)
+        self.assertEqual(out["plan"]["options"], {"link": True, "discovery": True})  # a new install
+        seen = []
+        real = jobs.start
+        jobs.start = lambda conn, mode, pw, action, lines, paths, job_id=None: seen.append(lines) or "20261022T000000Z-abcd"
+        self.addCleanup(setattr, jobs, "start", real)
+        b = {"version": "0.97.0", "prefix": "/opt/canworks", "unit": True,
+             "instances": [{"name": "line3", "state": "active"}, {"name": "proj", "state": "active"}]}
+        self.store.update(self.did, probe=dict(out["probe"], sudo="nopasswd", bridge=b, link=None, discovery=False))
+        self.assertEqual(service.job_options(self.store.get(self.did)["probe"]), {"link": False, "discovery": False})
+        self.assertEqual(self.devices.view("bridge", "proj", None, "0.98.0")[0]["plan"]["options"],
+                         {"link": False, "discovery": False})
+        self.devices.start(self.did, "install_bridge", {}, None, instance="proj")
+        self.assertNotIn("--with-link", seen[-1][0])
+        self.assertIn("--without-discovery", seen[-1][0])
+        # The link serves another bridge instance: it keeps serving it.
+        self.store.update(self.did, probe=dict(self.store.get(self.did)["probe"], link="active", discovery=True,
+                                               link_config="/etc/canworks-bridge/line3/canworks.json"))
+        self.devices.start(self.did, "install_bridge", {"link": True, "discovery": True}, None, instance="proj")
+        self.assertIn("--with-link line3", seen[-1][0])
+        self.assertNotIn("--without-discovery", seen[-1][0])
+
+    def test_removed_or_ended_job_is_forgotten(self):
+        # A job seen running is forgotten when its device goes, or a probe shows it ended.
+        self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0", password=SSH_PW)
+        self.devices.running[self.did] = "20261022T000000Z-abcd"
+        self.devices.probe(self.did, "openplc_modbus", "proj", None, "0.98.0")
+        self.assertEqual(self.devices.running_jobs(), [])
+        self.devices.running[self.did] = "20261022T000000Z-abcd"
+        self.devices.remove(self.did)
+        self.assertEqual(self.devices.running_jobs(), [])
+
     def test_list_summary(self):
         # The device list: one line on the bridge instances, no Runtime of / Bridge of tags.
         b = {"version": "0.98.0", "prefix": "/opt/canworks", "unit": True,

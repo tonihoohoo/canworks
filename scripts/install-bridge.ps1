@@ -122,9 +122,13 @@ if ($Instance) {
     $deviceArgs += @("--instance", $Instance, "--config", $upload, "--remove-config-dir")
 }
 
-# The device runs install-bridge.sh as of the release it installs, pinned to it.
-$remote = "curl -LsSf " + (Quote "$Raw/$Tag/scripts/install-bridge.sh") + " | sudo bash -s --"
+# The device runs install-bridge.sh as of the release it installs, pinned to it,
+# downloaded to a file first: piped into bash, a failed download ended with 0.
+$remote = 'f=$(mktemp) && { curl -fLsS -o "$f" ' + (Quote "$Raw/$Tag/scripts/install-bridge.sh") +
+    ' || { s=$?; rm -f "$f"; echo could not download install-bridge.sh ' + (Quote $Version) +
+    ' >&2; exit $s; }; } && sudo bash "$f"'
 foreach ($a in $deviceArgs) { $remote += " " + (Quote $a) }
+$remote += '; s=$?; rm -f "$f"; exit $s'
 $installArgs = @("-t") + $sshOpts + @($Ssh, $remote)
 
 if ($DryRun) {

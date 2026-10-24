@@ -39,9 +39,11 @@ Picking a device checks it again (**Check again** does too). The check is a read
 | A bridge without its service (a partial install) | **Install the bridge X** or **Install and start this project's bridge** |
 | A current bridge without this project's saved config running | **Start this project's bridge** |
 
+The saved config runs on the device when every file a bridge action copies (see below) is there with the same SHA-256: an EDS or simulation file edited next to `canworks.json` also offers **Start this project's bridge**.
+
 For a project with an OpenPLC connection, the editor's **Build and upload** then starts the PLC with the program and its Modbus settings.
 
-X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery), both on by default. A bridge install never moves a remote link that serves another config to this project's bridge: the option is then greyed and the link stays as it is.
+X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery). For a new install both are on; an update or a reinstall keeps them as the device has them (the link only when it is installed, serving the bridge instance it serves now, and discovery only when the device advertises now), and the box is shown unfolded when one is off. A bridge install never moves a remote link that serves another config to this project's bridge: the option is then greyed and the link stays as it is.
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
@@ -75,7 +77,7 @@ A job runs on the device by itself, as the systemd unit `canworks-install-<id>`,
 
 The page shows the steps the scripts announce, each with its time, the time so far and the time the last job of that kind took on this device, and the log folded. **Stop** stops the unit (what it changed so far stays). The status bar lists the job with **Show**. Opening the device again, also after the configurator was restarted, picks the job up from its log.
 
-A failed job shows its exit status, its last 20 log lines and, for the failures the scripts name (no internet access, a full disk, apt locked by another program), what to do.
+The job downloads each release script to a file before running it, so a script that cannot be downloaded (no internet access, or a release that is gone) ends the job failed with "could not download SCRIPT VERSION". A failed job shows its exit status, its last 20 log lines and, for the failures the scripts name (no internet access, a full disk, apt locked by another program), what to do.
 
 When a job ends, the device is checked again and the page says what comes next: for a project's bridge, that it runs this project's saved config, with **Open in Commission**; for a bridge installed with no config, that it starts with a config when that config's Devices page installs it there. The device becomes the project's runtime host under **Online access** when that was empty.
 

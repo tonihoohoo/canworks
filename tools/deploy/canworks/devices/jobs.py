@@ -81,7 +81,10 @@ def instance_name(folder_name):
 
 
 def _fetch(paths, script, version):
-    return "curl -LsSf %s | bash -s --" % quote("%s/deploy-v%s/scripts/%s" % (paths.raw, version, script))
+    """The start of a line that runs the release's `script` (job_script's
+    release_script: downloaded to a file first, so a failed download fails
+    the job; the line's own arguments follow)."""
+    return "release_script %s" % quote("%s/deploy-v%s/scripts/%s" % (paths.raw, version, script))
 
 
 def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, port=None, allow_changes=False,
@@ -114,15 +117,18 @@ def adapter_commands(action, version, paths, adapter=None, bitrate_kbit=None, po
 
 
 def commands(action, version, paths, link=True, discovery=True, purge=False, instance=None, upload=None,
-             bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, **adapter):
+             bridge_prefix=None, link_config=None, runtime_port=None, adapters=False, link_instance=None, **adapter):
     """The root shell lines of one action, each running the release's
-    install-bridge.sh, install-link.sh or install-adapter.sh."""
+    install-bridge.sh, install-link.sh or install-adapter.sh. An
+    install_bridge's link serves `link_instance` (the bridge instance it
+    serves now), else `instance`."""
     if action not in ACTIONS:
         raise JobError("unknown action %r" % (action,))
     if not isinstance(version, str) or not _VERSION.match(version):
         raise JobError("not a release version: %r" % (version,))
-    if instance is not None and not _INSTANCE.match(instance):
-        raise JobError("not a bridge instance name: %r" % (instance,))
+    for name in (instance, link_instance):
+        if name is not None and not _INSTANCE.match(name):
+            raise JobError("not a bridge instance name: %r" % (name,))
     if upload is not None and not upload.startswith("/tmp/canworks-bridge-upload."):
         raise JobError("not an upload folder: %r" % (upload,))
     if link_config is not None and not _CONFIG.match(link_config):
@@ -152,8 +158,8 @@ def commands(action, version, paths, link=True, discovery=True, purge=False, ins
         line = bridge
         if instance and upload:
             line += " --instance %s --config %s --remove-config-dir" % (quote(instance), quote(upload))
-        if link and instance:
-            line += " --with-link " + quote(instance)
+        if link and (link_instance or instance):
+            line += " --with-link " + quote(link_instance or instance)
         if not discovery:
             line += " --without-discovery"
         return [line]
@@ -195,6 +201,25 @@ if ! flock -n 9; then
     exit 75
 fi
 echo "::canworks-job {id} {action} @$(date +%s)"
+# release_script URL ARGS...: the release's script, downloaded to a file and run
+# with ARGS. Not `curl | bash`: with nothing downloaded, bash would end with 0.
+release_script() {{
+    f=$(mktemp /tmp/canworks-script.XXXXXX) || return 1
+    s=0
+    curl -fLsS -o "$f" "$1" || s=$?
+    if [ "$s" != 0 ]; then
+        v=${{1%/scripts/*}}
+        # curl -f's 22: the server answered with an error (a release that is gone).
+        [ "$s" = 22 ] && why="the release has no such file" || why="curl exit $s"
+        echo "could not download ${{1##*/}} ${{v##*/deploy-v}} ($why: $1)"
+        rm -f "$f"
+        return "$s"
+    fi
+    shift
+    bash "$f" "$@" || s=$?
+    rm -f "$f"
+    return "$s"
+}}
 {{
   (
     set -e
@@ -338,6 +363,8 @@ HINTS = (
      "2 GB) and start again."),
     (re.compile(r"Could not get lock|dpkg was interrupted|is held by process"), "Another program is installing "
      "packages on the device (apt is locked): wait until it ends and start again."),
+    (re.compile(r"could not download .*the release has no such file"), "The release's scripts are not on GitHub "
+     "(any more): check the device again for the newest release and start again."),
     (re.compile(r"could not reach|could not download|cannot download|Could not resolve host|"
                 r"Temporary failure (in name resolution|resolving)"), "The device lost its connection to github.com "
      "during the install: check its network and start again."),

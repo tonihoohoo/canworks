@@ -175,6 +175,20 @@ def adapter_row(probe, target, latest, networks=None, tokens=None, instance=None
     return out
 
 
+def same_config(found, saved):
+    """Whether a bridge instance on the device (the probe's) has the saved
+    config: `saved` is the sorted "name sha256" of every file a job uploads
+    (service.config_hashes), each of which must be there unchanged, or
+    canworks.json's sha256 alone. A probe without the file list compares
+    canworks.json only."""
+    if isinstance(saved, str):
+        return found.get("sha256") == saved
+    if not isinstance(found.get("files"), list):
+        own = next((f for f in saved if f.startswith("canworks.json ")), "")
+        return bool(own) and found.get("sha256") == own[len("canworks.json "):]
+    return set(saved) <= set(found["files"])
+
+
 def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=None, networks=None, tokens=None):
     """The page's view of one device. `target` is the project's
     ("openplc_modbus", "bridge", "codesys"), or None with no config open:
@@ -182,8 +196,8 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
     it gets **Install the bridge X**. Only canworks parts are rows: the
     OpenPLC runtime and other programs are not the configurator's.
     `latest` is the newest release ("0.98.0") or None, `instance` the bridge
-    instance name of this project and `config_sha256` its saved
-    canworks.json's."""
+    instance name of this project and `config_sha256` its saved config's
+    files (same_config)."""
     probe = probe or {}
     bridge = probe.get("bridge")
     new = version_tuple(latest)
@@ -209,7 +223,7 @@ def plan(probe, target, latest, pc_version=None, instance=None, config_sha256=No
         bcur = version_tuple(bridge.get("version"))
     else:
         have, bcur, running = ["not installed"], None, []
-    current_cfg = bool(mine and config_sha256 and mine.get("sha256") == config_sha256)
+    current_cfg = bool(mine and config_sha256 and same_config(mine, config_sha256))
     older = bool(new and (bcur is None or bcur < new))
     bstate = "off"
     if need_bridge:

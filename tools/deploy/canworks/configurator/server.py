@@ -5196,7 +5196,7 @@ class Server(http.server.ThreadingHTTPServer):
                            command=view["command"])
         installed = view["installed"]
         if not (view["restart"] and version == installed):
-            latest = self.updates.check()
+            latest = self.updates.check(wait=True)  # a check already running: its result
             if latest is None and self.updates.error:
                 raise ApiError(409, "Could not reach GitHub to find the newest release (%s); nothing was changed."
                                % self.updates.error)

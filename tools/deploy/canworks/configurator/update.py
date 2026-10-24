@@ -257,7 +257,9 @@ class Updates:
         self.folder = folder or config_dir()
         self.fetch, self.info_fn, self.clock, self.installed_fn = fetch, info, clock, installed
         self.lock = threading.Lock()
+        self.checked = threading.Condition(self.lock)  # notified when a check ends
         self.checking = False
+        self._checks, self._found = 0, None  # the checks ended, and what the last one found
         self.error = None
         self.result = None  # the last update's result, from its run file
         self.on_quit = None  # a version to install when the configurator stops
@@ -291,31 +293,42 @@ class Updates:
         newer than this configurator."""
         return newest(__version__, self.installed_fn()) or __version__
 
-    def check(self):
-        """One check now (in the caller's thread); the newest version, or None."""
+    def check(self, wait=False, timeout=60.0):
+        """One check now (in the caller's thread); the newest version, or None
+        (with `error` set when it failed). While another check runs: None at
+        once, or with `wait` that check's result when it ends."""
         with self.lock:
             if self.checking:
-                return None
+                if not wait:
+                    return None
+                n = self._checks
+                self.checked.wait_for(lambda: self._checks != n, timeout)
+                return self._found if self._checks != n else None
             self.checking = True
+        latest = None
         try:
-            latest = self.fetch()
-        except (OSError, ValueError) as e:
+            try:
+                latest = self.fetch()
+            except (OSError, ValueError) as e:
+                with self.lock:
+                    self.error = str(getattr(e, "reason", None) or e)
+                print("canworks-config: update check failed: %s" % self.error, flush=True)
+                st = self.state()
+                st["checked_at"] = self.clock()  # tried: not again for a day, unless asked
+                _write_json(self.state_path, st)
+                return None
             with self.lock:
-                self.error = str(getattr(e, "reason", None) or e)
-            print("canworks-config: update check failed: %s" % self.error, flush=True)
+                self.error = None
             st = self.state()
-            st["checked_at"] = self.clock()  # tried: not again for a day, unless asked
+            st.update(checked_at=self.clock(), latest=latest)
             _write_json(self.state_path, st)
-            return None
+            return latest
         finally:
             with self.lock:
                 self.checking = False
-        with self.lock:
-            self.error = None
-        st = self.state()
-        st.update(checked_at=self.clock(), latest=latest)
-        _write_json(self.state_path, st)
-        return latest
+                self._checks += 1
+                self._found = latest
+                self.checked.notify_all()
 
     def check_in_background(self, force=False, ui_on=True, every_s=CHECK_EVERY_S):
         if not force and (check_off(ui_on) or not self.due(every_s=every_s)):

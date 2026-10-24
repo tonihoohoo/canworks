@@ -508,7 +508,28 @@ class InstallBridgeSh(_Base):
         self.assertIn("ssh -t -p 2222 -i /k/id admin@plc.local", lines[0])
         # The device fetches the script of the release it installs, pinned to it.
         self.assertIn("https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh", lines[0])
-        self.assertIn("sudo bash -s -- --version 1.2.3 --with-link line1", lines[0])
+        self.assertIn('sudo bash "$f" --version 1.2.3 --with-link line1', lines[0])
+
+    def test_over_ssh_failed_download(self):
+        # The device downloads the script to a file first: a failed download (the tag is gone) fails the install.
+        with open(os.path.join(self.bin, "ssh"), "w") as f:
+            f.write('#!/bin/sh\nfor a; do cmd=$a; done\nexec sh -c "$cmd"\n')
+        with open(os.path.join(self.bin, "curl"), "w") as f:
+            f.write("#!/bin/sh\necho 'curl: (22) The requested URL returned error: 404' >&2\nexit 22\n")
+        with open(os.path.join(self.bin, "sudo"), "w") as f:
+            f.write('#!/bin/sh\necho "sudo $*"\n')
+        for name in ("ssh", "curl", "sudo"):
+            os.chmod(os.path.join(self.bin, name), 0o755)
+        r = self.run_script(["bash", self.script, "--ssh", "admin@plc.local", "--version", "1.2.3"])
+        self.assertEqual(r.returncode, 22, r.stdout)
+        self.assertIn("could not download install-bridge.sh 1.2.3", r.stdout)
+        self.assertNotIn("sudo", r.stdout)
+        # A downloaded script runs as root with the arguments.
+        with open(os.path.join(self.bin, "curl"), "w") as f:
+            f.write('#!/bin/sh\nexit 0\n')
+        r = self.run_script(["bash", self.script, "--ssh", "admin@plc.local", "--version", "1.2.3"])
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertRegex(r.stdout, r"sudo bash \S+ --version 1\.2\.3")
 
     def test_no_runtime_options(self):
         # canworks installs canworks only: the old runtime options are unknown.
@@ -873,8 +894,9 @@ class PowerShellScripts(_Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("installing canworks-bridge 1.2.3 on admin@plc.local", r.stdout)
         self.assertIn("ssh -t -p 2222 admin@plc.local", r.stdout)
-        self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh' | sudo bash -s -- "
-                      "'--version' '1.2.3' '--without-j1939'", r.stdout)
+        self.assertIn("'https://raw.example/canworks/deploy-v1.2.3/scripts/install-bridge.sh'", r.stdout)
+        self.assertIn('sudo bash "$f" \'--version\' \'1.2.3\' \'--without-j1939\'', r.stdout)
+        self.assertIn("could not download install-bridge.sh '1.2.3'", r.stdout)
 
     def test_install_bridge_with_config(self):
         cfg = os.path.join(self.tmp, "line 1")

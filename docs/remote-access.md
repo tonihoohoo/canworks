@@ -144,7 +144,7 @@ curl -LsSf .../install-link.sh | sudo bash -s -- --discovery-only --config /opt/
 curl -LsSf .../install-link.sh | sudo bash -s -- --remove-discovery                # discovery off
 ```
 
-A bridge's link serves `/etc/canworks-bridge/NAME/canworks.json` with `--runtime-port none`. `--without-discovery` installs the link without the advertisement.
+A bridge's link serves `/etc/canworks-bridge/NAME/canworks.json` with `--runtime-port none`. `--without-discovery` installs the link without the advertisement. The advertisement carries the config's `diagnostics.port` (7531 when it has none); `--diag-port PORT` names another.
 
 ## Security
 

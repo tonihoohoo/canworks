@@ -184,6 +184,10 @@ class DevicesPage(OnlineBase):
         self.assertEqual(rows[0][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
+        # The device has neither the remote link nor the advertisement: the update keeps them off, unfolded.
+        self.assertTrue(pg.eval_on_selector("[data-devices=options]", "d => d.open"))
+        self.assertFalse(pg.is_checked("[data-devices-option=link]"))
+        self.assertFalse(pg.is_checked("[data-devices-option=discovery]"))
 
         os.environ["FAKE_BUILD_S"] = "2"
         self.addCleanup(os.environ.pop, "FAKE_BUILD_S", None)
@@ -209,6 +213,7 @@ class DevicesPage(OnlineBase):
         pg.click("[data-devices=log] summary")
         # the log text arrives after the click (a busy machine shows that)
         pg.wait_for_selector("[data-devices=log] pre:has-text('args: --version 0.98.0 --instance rtd-monitor --config')")
+        self.assertRegex(pg.inner_text("[data-devices=log] pre"), r"(?m)--remove-config-dir --without-discovery$")
         pg.wait_for_selector("[data-devices=up-to-date]")
         self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="bridge"]'))
         # The status bar drops the job at its next look (a poll in flight may still list it).
