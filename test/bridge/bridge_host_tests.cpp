@@ -68,11 +68,21 @@ std::string read_file(const std::string& p) {
 void write_file(const std::string& p, const std::string& text) { std::ofstream(p) << text; }
 
 // A copy of the example in a fresh directory, the config edited by `edit`.
-std::string example_copy(const std::function<void(cJSON*)>& edit, const char* example = EXAMPLE_DIR) {
+// `sim_edit` edits the simulation file.
+std::string example_copy(const std::function<void(cJSON*)>& edit, const char* example = EXAMPLE_DIR,
+                         const std::function<void(cJSON*)>& sim_edit = nullptr) {
   char tmpl[] = "/tmp/canworks-bridge-XXXXXX";
   std::string dir = mkdtemp(tmpl);
   for (const char* f : {"simulation.json", "rtd8.eds", "dio16.eds"})
     write_file(dir + "/" + f, read_file(std::string(example) + "/" + f));
+  if (sim_edit) {
+    cJSON* sim = cJSON_Parse(read_file(dir + "/simulation.json").c_str());
+    sim_edit(sim);
+    char* text = cJSON_Print(sim);
+    write_file(dir + "/simulation.json", text);
+    cJSON_free(text);
+    cJSON_Delete(sim);
+  }
   cJSON* root = cJSON_Parse(read_file(std::string(example) + "/canworks.json").c_str());
   // The tests' clients connect from the loopback address.
   cJSON* writers = cJSON_CreateArray();
@@ -130,7 +140,8 @@ bool both_operational(Client& c) { return (reg(c, kLiveListReg) >> 8) == 0x60; }
 struct Host {
   BridgeHost host;
   bool ok = false;
-  explicit Host(const std::function<void(cJSON*)>& edit = nullptr, const char* example = EXAMPLE_DIR) {
+  explicit Host(const std::function<void(cJSON*)>& edit = nullptr, const char* example = EXAMPLE_DIR,
+                const std::function<void(cJSON*)>& sim_edit = nullptr) {
     canopen_plugin::set_log_sink(capture);
     canopen_plugin::canopen_init_logging();
     host.listen_override = "127.0.0.1:0";
@@ -142,7 +153,7 @@ struct Host {
                       cJSON_DeleteItemFromObject(bridge_of(r), "writers");
                       cJSON_AddItemToObject(bridge_of(r), "writers", w);
                       if (edit) edit(r);
-                    }, example),
+                    }, example, sim_edit),
                     "test");
     if (!ok) {
       std::lock_guard<std::mutex> l(g_log_mu);
@@ -966,6 +977,66 @@ TEST(idle_ends_the_program_resources) {
   EXPECT(!logged("were not taken within 1 s"));
   EXPECT(write(c, kControlReg, {5, 1 << 8, 0}));
   EXPECT(wait_for([&] { return state(c) == 1; }));
+}
+
+// An SDO write that waits behind another transfer to the same node when the
+// watchdog fires ends with ERROR_ID 8 and never goes out (modbus-bridge-
+// mailboxes "Cancel drops queued work"); the transfer on the bus finishes
+// with its result discarded.
+TEST(cancel_drops_a_queued_sdo_write) {
+  Host h(
+      [](cJSON* r) {
+        add_mailboxes(r);
+        cJSON* m = cJSON_GetObjectItem(bridge_of(r), "mailboxes");
+        set_number(m, "requests", 2);
+        set_number(bridge_of(r), "watchdog_ms", 300);
+        // Hold keeps the outputs, and with them the SDO writes, going.
+        set_string(bridge_of(r), "on_client_loss", "hold");
+        cJSON_ReplaceItemInObject(bridge_of(r), "sdo_bridge_write", cJSON_CreateBool(true));
+      },
+      EXAMPLE_DIR,
+      [](cJSON* sim) {
+        // Node 6 answers 0x1018:1 1.5 s late.
+        cJSON* node = cJSON_CreateObject();
+        cJSON* faults = cJSON_AddArrayToObject(node, "faults");
+        cJSON* f = cJSON_CreateObject();
+        cJSON* d = cJSON_AddObjectToObject(f, "sdo_delay");
+        cJSON_AddNumberToObject(d, "ms", 1500);
+        cJSON_AddStringToObject(d, "object", "0x1018:1");
+        cJSON_AddItemToArray(faults, f);
+        cJSON_AddItemToObject(cJSON_GetObjectItem(cJSON_GetObjectItem(cJSON_GetObjectItem(sim, "networks"), "field"),
+                                                  "nodes"),
+                              "6", node);
+      });
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kReq1 = kMbReqReg + 72, kRsp1 = kMbRspReg + 72;
+  Client c(h.port());
+  EXPECT(wait_for([&] { return both_operational(c); }, 10000));
+  EXPECT(write(c, kMbReqReg, std::vector<uint16_t>(8, 0)));
+  EXPECT(write(c, kReq1, std::vector<uint16_t>(8, 0)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // Mailbox 0: the slow read; mailbox 1: 0x100C (guard time, unused) = 777 behind it.
+  EXPECT(write(c, kMbReqReg, {1, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 3000, 0, 0}));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT(write(c, kReq1, {1, kOpSdoWrite << 8, (6 << 8) | 0, 0x100C, (3 << 8) | 2, 3000, 2, 0, 0x0903}));
+  auto r = regs(c, kReadInputRegisters, kRsp1, 2);
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp1, 2);
+    return r.size() == 2 && r[0] == 1;
+  }, 100));
+  EXPECT(r.size() == 2 && (r[1] >> 8) == kMbBusy);
+  // No more writes: the watchdog ends both.
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp1, 2);
+    return r.size() == 2 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8;
+  }, 2000));
+  r = regs(c, kReadInputRegisters, kMbRspReg, 2);
+  EXPECT(r.size() == 2 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  // 0x100C still holds 0.
+  r = mb_call(c, 2, kOpSdoRead, {(6 << 8) | 0, 0x100C, (3 << 8) | 2, 1000});
+  EXPECT(r.size() == 12 && (r[1] >> 8) == kMbDone && r[8] == 0);
 }
 
 int main(int argc, char** argv) { return check::run_all(argc, argv); }

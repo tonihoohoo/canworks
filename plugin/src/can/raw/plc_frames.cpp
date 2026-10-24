@@ -316,6 +316,24 @@ int PlcPort::tx_poll(uint32_t handle, uint16_t* error_id) {
   return 2;
 }
 
+void PlcPort::tx_cancel(uint32_t handle) {
+  unsigned slot;
+  uint32_t gen;
+  if (!split_handle(handle, kKindTx, slot, gen) || slot >= kTx ||
+      tx_[slot].gen.load(std::memory_order_relaxed) != gen)
+    return;
+  // As a timeout in tx_poll: the handle goes stale, a queued or written
+  // frame is given to the raw thread to free (a queued one is never sent),
+  // a finished one is freed here.
+  TxSlot& s = tx_[slot];
+  s.gen.store(next_gen(gen), std::memory_order_relaxed);
+  uint8_t st = s.state.load(std::memory_order_acquire);
+  while ((st == kQueued || st == kWritten) &&
+         !s.state.compare_exchange_weak(st, kAbandoned, std::memory_order_acq_rel)) {
+  }
+  if (st == kDone || st == kFailed) s.state.store(kFree, std::memory_order_release);
+}
+
 bool PlcPort::next_tx(canworks_can_frame& frame, uint32_t& tag) {
   for (;;) {
     uint32_t tail = txq_tail_.load(std::memory_order_relaxed);
@@ -662,6 +680,10 @@ int api_tx_poll(uint32_t handle, uint16_t* error_id) {
   return p->tx_poll(handle, error_id);
 }
 
+void api_tx_cancel(uint32_t handle) {
+  if (PlcPort* p = port(static_cast<uint8_t>(handle >> 29))) p->tx_cancel(handle);
+}
+
 uint32_t api_cyc_start(uint8_t network, const canworks_can_frame* frame, uint32_t period_us, uint16_t* error_id) {
   PlcPort* p = port(network);
   if (!p) {
@@ -700,6 +722,7 @@ int api_bus_info(uint8_t network, canworks_can_bus_info* info, uint16_t* error_i
 const canworks_can_api_v1 kApiV1 = {
     sizeof(canworks_can_api_v1), api_rx_open, api_rx_read, api_rx_close, api_tx_send,
     api_tx_poll,                 api_cyc_start, api_cyc_update, api_cyc_stop, api_bus_info,
+    api_tx_cancel,
 };
 
 }  // namespace
