@@ -30,7 +30,7 @@ Alternatives: a venv with `--no-deps` and python-can (still needs pip and networ
 The file runs as a zip: the server reads no package data files at run time (checked by the CI test with `python3 -I`, which fails on a missing file too).
 
 ### Keep the `openssl` command
-`serve.make_context()` makes a fresh self-signed P-256 certificate at every start with `openssl req -x509`. The standard library cannot make certificates, and our own ECDSA and DER code would be security code that must not have mistakes. The command is on the Pi and on most Linux systems; the script and the probe check for it and say so in one sentence.
+`serve.make_context()` makes a fresh self-signed P-256 certificate at every start with `openssl req -x509`. The standard library cannot make certificates, and our own ECDSA and DER code would be security code that must not have mistakes. The command is on Raspberry Pi OS, Debian and most Linux systems; the script and the probe check for it and say so in one sentence.
 
 ### The service runs the file
 `serve._command()` returns the installed `canworks-diag` or `python -m canworks.diag` today. When `sys.argv[0]` is a zip file (`zipfile.is_zipfile` on the real path) it returns `[sys.executable, realpath]`. `install-adapter.sh` runs the installed copy (`python3 /opt/canworks-adapter/canworks-adapter.pyz adapter-serve … --install-service`), so the unit points at the installed file, not the upload.
