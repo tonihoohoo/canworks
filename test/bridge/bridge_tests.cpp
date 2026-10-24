@@ -1066,6 +1066,47 @@ TEST(modbus_trace_changes_only) {
   EXPECT(c.request(write_regs(2, {8})).size() == 5);
   r = fetch_all(trace, 7, trace.last_seq() - 2);
   EXPECT(r.size() == 2 && r[0].skipped == 0 && r[1].skipped == 4 && r[1].req.back() == 8);
+  // A single-register write back to an earlier value is a change too.
+  uint64_t before = trace.last_seq();
+  for (uint8_t v : {7, 8, 7}) EXPECT(c.request({kWriteSingleRegister, 0, 3, 0, v}).size() == 5);
+  EXPECT(wait_for([&] { return trace.last_seq() == before + 3; }));
+}
+
+TEST(modbus_trace_changes_only_leaves_out_mailbox_words) {
+  // Spec "Keepalive alone does not make a record", "Mailbox clock alone
+  // does not make a record".
+  ModbusTrace trace;
+  trace.set_ignored({2}, {1});  // a keepalive in HR 2, a clock in IR 1
+  Fixture fx(open_config(), 40, 16, &trace);
+  Client c(fx.server.port());
+  uint64_t next = trace.start(7, true, AddressList(), ModbusTrace::Clock::now());
+  for (uint16_t k = 0; k < 10; ++k) EXPECT(c.request(write_regs(0, {5, 6, k})).size() == 5);
+  for (uint16_t k = 0; k < 5; ++k) EXPECT(c.request({kWriteSingleRegister, 0, 2, 0, static_cast<uint8_t>(k)}).size() == 5);
+  EXPECT(c.request(write_regs(0, {9, 6, 10})).size() == 5);  // a real change beside the keepalive
+  EXPECT(wait_for([&] { return trace.last_seq() == next + 3; }));
+  auto r = fetch_all(trace, 7, next);
+  EXPECT(r.size() == 3);
+  EXPECT((r.size() == 3 && r[0].skipped == 0 && r[1].skipped == 0 && r[2].skipped == 9));
+  EXPECT((r.size() == 3 && r[2].req == write_regs(0, {9, 6, 10})));  // kept whole, keepalive included
+  // Reads: only the clock word changes.
+  Bytes in(40, 0);
+  for (uint8_t t = 0; t < 10; ++t) {
+    in[3] = t;  // input register 1
+    fx.image.publish_inputs(in.data(), in.size());
+    EXPECT(c.request(read_req(kReadInputRegisters, 0, 3)).size() == 8);
+  }
+  in[5] = 1;  // input register 2 changes too
+  fx.image.publish_inputs(in.data(), in.size());
+  EXPECT(c.request(read_req(kReadInputRegisters, 0, 3)).size() == 8);
+  EXPECT(wait_for([&] { return trace.last_seq() == next + 5; }));
+  r = fetch_all(trace, 7, next + 3);
+  EXPECT((r.size() == 2 && r[0].skipped == 0 && r[1].skipped == 9 && r[1].resp[5] == 9));
+  // Without changes only, every request.
+  trace.stop(7);
+  next = trace.start(8, false, AddressList(), ModbusTrace::Clock::now());
+  for (uint16_t k = 0; k < 4; ++k) EXPECT(c.request(write_regs(0, {5, 6, k})).size() == 5);
+  EXPECT(wait_for([&] { return trace.last_seq() == next + 4; }));
+  EXPECT(fetch_all(trace, 8, next).size() == 4);
 }
 
 TEST(modbus_trace_exceptions_always_and_all) {

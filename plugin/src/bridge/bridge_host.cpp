@@ -465,6 +465,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   mailboxes_.reset();
   mailbox_backend_.reset();
   mb_written_ = 0;
+  modbus_trace_.set_ignored({}, {});
   image_.watch_reads(0, 0);
   if (cfg_.has_mailboxes) {
     MailboxLayout ml;
@@ -477,6 +478,13 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     ml.out_base = cfg_.mb_output.index;
     mailbox_backend_.reset(new EngineMailboxBackend(static_cast<unsigned>(s.networks.size())));
     mailboxes_.reset(new Mailboxes(ml, *mailbox_backend_));
+    // The words the mailboxes change on their own stay out of the Modbus
+    // trace's change filter: the keepalives and the two clock words.
+    std::vector<uint16_t> keepalives, clocks;
+    for (unsigned j = 0; j < ml.cyclic_jobs; ++j) keepalives.push_back(static_cast<uint16_t>(ml.keepalive(j) / 2));
+    if (ml.receive) clocks.push_back(static_cast<uint16_t>((ml.receive_block() + 8) / 2));
+    if (ml.cyclic_jobs) clocks.push_back(static_cast<uint16_t>(ml.cyclic_table() / 2));
+    modbus_trace_.set_ignored(std::move(keepalives), std::move(clocks));
     // The network info blocks and the cyclic job table, one after the other
     // at the end of the input area: a program that only reads them (the
     // info blocks) uses the mailboxes too.

@@ -10,6 +10,7 @@ These words say "the client is alive" and "the bridge is alive", not that someth
 ## What Changes
 
 - **The change filter leaves the self-changing mailbox words out.** When the bridge compares a request with the previous one of its kind, it leaves out the keepalive holding registers and the two clock words in the input area. A request whose only difference is in those words is counted and not recorded, like an unchanged one. Any other change is still recorded in full, with the current keepalive and clock values in it.
+- **A single-register write back to an earlier value is a change.** Found while writing the tests: for functions 5 and 6 the filter took the value as part of the kind, so writing 7, 8, 7 to one register skipped the second 7. The kind of those functions is now their address only.
 - **Nothing else changes.** Without **Only changes** every request is recorded as today. Exceptions, refused writes and functions 8 and 43 are still always recorded. The record format, the operations and the PC tools stay the same.
 - **Docs.** `docs/modbus-bridge.md` "Seeing the Modbus traffic" and `docs/trace.md` say which words the comparison leaves out, and that turning **Only changes** off records every request.
 
