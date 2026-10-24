@@ -32,6 +32,16 @@ Capture filters (ID and mask, up to 16) are applied on the bridge and limit what
 
 When the CAN interface goes away (the adapter is unplugged) the trace keeps going and gets a gap mark where the capture restarted. A trace ends 10 seconds after the PC stops fetching. In the configurator, a recording that loses its connection (the runtime does not answer for 10 seconds, or the PC's adapter is unplugged or goes bus-off) ends with "connection ended" and its reason; **Continue this trace** on the next Start adds the new frames after a gap marker.
 
+## Modbus requests
+
+On a [Modbus bridge](modbus-bridge.md#seeing-the-modbus-traffic) the recording can hold the bridge's Modbus requests on the same timeline as the frames. In the configurator, **Capture…** has **Modbus requests** (on by default), **Only changes** (on by default: unchanged requests are counted, not recorded) and a client, all clients or one of the config's connections. Through a USB adapter or an adapter server there are no Modbus requests, and the option is greyed out with the reason; a runtime that is not a bridge records the frames and says so in the header.
+
+- **Chronological** shows each request as a row marked **Modbus** between the frames: read (Rd) or write (Wr), table and range, the client's name and the values by name. **Filters** has a source filter: **CAN and Modbus**, **CAN only** or **Modbus only**; the line under the buttons says how many rows show and how many Modbus requests the trace holds.
+- A Modbus row opens in the inspector with the client, function, range, unit, transaction, result, the requests skipped before it, the request and answer PDUs, each value by name, and the hints. Per changed value it gives the delay to the bus (a write: the first frame with the new value) or from the bus (a read: the first frame that carried the value), with **Select the frame**, which selects that frame in the list.
+- **By identifier** has a **By request** table: one row per client, function and range, with the request count (skipped ones included), the average cycle, the minimum, average and maximum delay to or from the bus, the last values by name and the last exception. A row with a hint is marked and shows the hint on hover.
+
+A trace saved as pcapng keeps the requests as a second interface (IPv4, `canworks-modbus`) carrying Modbus/TCP, with a JSON comment per request (client, skipped count); Wireshark and tshark decode them as Modbus/TCP. The other formats keep the CAN frames only, and **Save** and **Download** say so. When the config on the PC is not the one the bridge runs (its map hash differs), the requests show undecoded with a warning.
+
 ## Sending frames while recording
 
 With `allow_changes` on, the configurator's transmit list ([configurator.md](configurator.md#transmit-list)) and `canworks-diag send` put frames on the bus by hand ([diagnostics.md](diagnostics.md#raw-frames)). They show in the trace marked Tx, followed by whatever the devices answer, so a hand-made SDO request and its response can be read side by side.

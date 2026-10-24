@@ -42,6 +42,7 @@ class Session:
         if trace is None and bitrate:
             self.trace.meta["bitrate"] = bitrate
         self.analysis = Analysis(decoder, bitrate or self.trace.meta.get("bitrate"))
+        self.mapdec = None  # bustrace.modbus.MapDecoder of the Modbus records, when there is a config
         if trace is not None and len(trace):
             for f in trace:
                 self.analysis.feed(f)
@@ -61,6 +62,18 @@ class Session:
 
     def feed(self, frames, on_decoded=None):
         return self.feed_packed(b"".join(f.pack() for f in frames), on_decoded)
+
+    def modbus_decode(self, rec):
+        from .modbus import MapDecoder
+        if self.mapdec is None:
+            self.mapdec = MapDecoder(None)
+        return self.mapdec.decode(rec)
+
+    def modbus_text(self, place):
+        """A Modbus place's row text, for the text filter."""
+        rec = self.trace.modbus[place.can_id]
+        d = self.modbus_decode(rec)
+        return "%s %s %s" % (d["client"], d["text"], " ".join(d["hints"]))
 
     def feed_modbus(self, records):
         """Appends Modbus records (time order) after the frames: a record

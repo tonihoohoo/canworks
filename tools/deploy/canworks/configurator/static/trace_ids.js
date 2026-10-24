@@ -122,8 +122,10 @@ function renderIds(box) {
       el("span", { class: "muted", id: "ids-status", role: "status", dataset: { ids: "status" } })),
     grid, listSizeBar(),
     el("p", { class: "ids-change muted", id: "ids-change", "aria-live": "polite", dataset: { ids: "change" } }),
-    el("div", { class: "toolbar", id: "ids-actions", dataset: { ids: "actions" } }));
+    el("div", { class: "toolbar", id: "ids-actions", dataset: { ids: "actions" } }),
+    traceModbusTableBox());
   idsActions();
+  traceModbusRefresh(true);
   idsPoll(++TI.seq, true);
 }
 

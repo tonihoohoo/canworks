@@ -48,7 +48,7 @@ from .. import __version__, bridgecheck, contract, dbcexport, dcfexport, diag, d
 from .. import bundle, connections, mailboxlayout, mailboxuse, nodered, openplcmodbus, targets
 from .. import notes as notes_mod, slaveeds
 from .. import eds as eds_mod
-from ..bustrace import explain as explain_mod, framebuild
+from ..bustrace import explain as explain_mod, framebuild, modbus as bustrace_modbus
 from ..bustrace import formats as formats_mod, recorder as recorder_mod, sequences as sequences_mod, triggers as triggers_mod
 from ..eds import Eds, EdsError
 from ..iec import CO_TYPES, element_str, parse_location
@@ -4644,6 +4644,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 dec.attach_dbc(files)
             return dec
 
+        def mapdec():
+            # The register map naming the Modbus records (canopen-configurator
+            # "Modbus requests in the Trace view"); none while commissioning.
+            if s.commission:
+                return None
+            cfg = body.get("config")
+            if not isinstance(cfg, dict):
+                with s.lock:
+                    cfg = s.read_config()[0]
+            return bustrace_modbus.MapDecoder(cfg, network)
+
         def time_range():
             return tracing._opt_time(body.get("start_us"), "start_us"), tracing._opt_time(body.get("end_us"), "end_us")
 
@@ -4712,6 +4723,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             hostname, port, token = self._online_target(proj, s.config_path, network, body)
             connect = tracing.connector(hostname, port, token, network=network)
             adapter = hasattr(hostname, "client")
+            modbus = tracing.modbus_option(body.get("modbus"))
+            if modbus and adapter:
+                raise ApiError(422, "Modbus requests are recorded by canworks-bridge: connect to the runtime, not a "
+                                    "USB adapter or adapter server, to record them")
             try:  # a wrong host, token or an old bridge is said at once instead of retried
                 c = connect()
                 try:
@@ -4733,7 +4748,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ws.start(connect, dec, filters, bool(body.get("error_frames")), spec, traces_dir, base_name, network,
                      continue_=bool(body.get("continue")), ended=self._trace_ended(adapter),
                      connection="adapter" if adapter else "runtime",
-                     adapter_host=proj.get("remote_host") if adapter and proj.get("remote_adapter") else None)
+                     adapter_host=proj.get("remote_host") if adapter and proj.get("remote_adapter") else None,
+                     modbus=modbus, mapdec=mapdec())
             return state()
         if route == ("POST", "/api/trace/open"):
             path, name = body.get("path"), body.get("name") or "trace"
@@ -4755,8 +4771,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(422, str(e))
             except OSError as e:
                 raise ApiError(422, "%s cannot be read: %s" % (path, e.strerror or e))
-            ws.open(trace, name, decoder(), network)
+            ws.open(trace, name, decoder(), network, mapdec=mapdec())
             return state()
+        if route == ("POST", "/api/trace/modbus"):
+            return ws.modbus_table()
+        if route == ("POST", "/api/trace/modbus/record"):
+            return ws.modbus_record(tracing._int(body.get("seq"), "seq", 0))
         if route == ("POST", "/api/trace/explain"):
             seq = tracing._int(body.get("seq"), "seq", 0)
             with s.lock:
@@ -4781,7 +4801,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == ("POST", "/api/trace/export"):
             start, end = time_range()
             fmt = body.get("format") or "pcapng"
-            return tracing.encode_export(ws, fmt, start, end, body.get("keys"), base_name + "-trace")
+            out = tracing.encode_export(ws, fmt, start, end, body.get("keys"), base_name + "-trace")
+            out["left_out"] = formats_mod.left_out(ws.session.trace, fmt) if fmt != "signals" else None
+            return out
         if route == ("POST", "/api/trace/save"):
             start, end = time_range()
             fmt = body.get("format") or "pcapng"
@@ -4796,7 +4818,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 formats_mod.write_file(part, path, fid, dec if fid == "csv" else None)
             except OSError as e:
                 raise ApiError(422, "cannot save to %s: %s" % (target, e.strerror or e))
-            return {"path": path, "frames": len(part)}
+            return {"path": path, "frames": len(part), "left_out": formats_mod.left_out(part, fid)}
         raise ApiError(404, "no such API: %s %s" % route)
 
     def _trace_ended(self, adapter):

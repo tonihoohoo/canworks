@@ -454,6 +454,21 @@ print(struct.unpack(">4h", r[2:]))                             # four INTEGER16 
 request(s, struct.pack(">BHHB2H", 16, 1, 2, 4, 1000, 2000))    # holding registers 1-2
 ```
 
+## Seeing the Modbus traffic
+
+The bridge counts per client connection, from its connect: requests per function, exceptions per code, refused writes, its last write (time, table and range) and its request rate over the last 5 s. It keeps the last 8 closed connections for 10 minutes with how long they were connected and why they closed: `closed by the client`, `keepalive`, `idle 60 s`, `incomplete request`, `replies not read`, `slot taken by a writer`, `not in readers`, `per-address limit`, `max_clients reached` or `not a Modbus TCP frame`. Both are in the diagnostics `status` ([diagnostics.md](diagnostics.md#protocol)), in `canworks-diag status`, and on the configurator's Modbus bridge page as **Clients** ([configurator.md](configurator.md#modbus-clients)): each connection of the config with its state and counters, every other connected client marked **Not in connections**, refused writes with a link to the connection's **Settings** or to **Add connection**, and the closed ones under **Recently closed**.
+
+While a diagnostics client traces Modbus, the bridge records each answered request with its request and answer in a 4 MB ring: the client's address and port, the MBAP transaction and unit, the time of the answer, and the PDUs. Nothing is recorded while no client traces, and recording never delays an answer. With **Only changes** (the default) a request whose function, range, values and result equal the client's previous one of its kind is counted, not recorded; the next record of that kind says how many it skipped. Exceptions, refused writes and functions 8 and 43 are always recorded. A trace ends 10 s after its client stops fetching.
+
+The PC tools name each request with the config's register map (word order and bits included) and the client with its connection's name, and point out the usual mistakes:
+
+- a holding register at 40000 or more, or an input register at 30000 or more: "Holding registers start at 0 here: 40001 looks like 4xxxx notation";
+- a range past the image, with the image's size;
+- a range that cuts a 32-bit or longer value in part;
+- a write from an address that is not in `writers`.
+
+With the CAN frames of the same recording, each changed value gets its delay: for a write, to the first frame on the traced network that carries the new value (the RPDO, the SDO or the J1939 message); for a read, from the first frame that carried the value read. A value on another network says so, and one not seen within 1 s says "not seen on the bus". In the configurator, **Capture…** in the Trace view has **Modbus requests** on by default for a bridge ([trace.md](trace.md#modbus-requests)); from the command line, `canworks-diag modbus-trace` prints them ([diagnostics.md](diagnostics.md#canworks-diag)). A pcapng file keeps them as Modbus/TCP that Wireshark decodes.
+
 ## CiA 309-3 gateway
 
 With a top-level `cia309` object the bridge also serves the CiA 309-3 ASCII gateway ([cia309-gateway.md](cia309-gateway.md)), as described there: a plain port on its loopback address (default `127.0.0.1:7533`) and sessions through its diagnostics channel (`canworks-diag --runtime HOST gateway`). A CiA 309-3 client reads and, with `cia309.allow_changes`, writes the same nodes the Modbus clients see. Its requests neither feed the output watchdog nor end outputs off: with only a gateway client connected the watchdog runs out as with no client, and the gateway client keeps being served. NMT commands from the gateway follow the gateway's guards and the same hold rules as those of the control block. The bridge's status part lists the gateway sessions (`cia309_sessions`: address, plain or tunnelled, commands served).

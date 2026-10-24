@@ -254,6 +254,10 @@ In an editor project, a bridge config is not checked against the project's addre
 
 **Install on device…** under the target opens the [Devices workspace](devices.md), which installs the bridge on a Linux device over SSH and starts it with this project's saved config.
 
+### Modbus clients
+
+While connected to the runtime that runs the bridge, **Clients** under Connections shows who uses the bridge, live ([modbus-bridge.md](modbus-bridge.md#seeing-the-modbus-traffic)): each connection with its name, address, **Connected** (with how many sockets when more than one) or **Not connected**, requests per second, exceptions by code, refused writes and its last write's range with the names in it, and every other connected client marked **Not in connections**. A client with refused writes is marked, with **Settings** (opens its connection's Settings, where **Writes** is) or, for a client in no connection, **Add connection** (the dialog with its address filled in). **Recently closed** lists the connections closed in the last 10 minutes with how long ago, the reason, how long they were connected and their requests. Not connected, or through a USB adapter, the panel says what to connect to.
+
 ## Add a node
 
 **+ Add node…** in the tree (or **Add node…** on an empty network's Bus page) opens the **Add node** dialog:
@@ -553,6 +557,7 @@ One toolbar holds every trace action:
 - **Open…** opens a pcapng, candump log or Vector ASC file. **Save** ▾ holds **Save to traces folder**, which writes the trace in the chosen format to the `traces` folder in the configurator's settings folder and shows where, and **Download** (pcapng, candump log, ASC, BLF, TRC, CSV, or the chosen graph series as a signals CSV). Both take the whole trace, the graph's zoom, or the time between cursors A and B.
 - The header names where the frames come from (the runtime, the adapter or the file). When the connection ends while recording (the adapter is unplugged or goes bus-off, or the runtime does not answer for 10 seconds), the recording stops with "connection ended" and its reason, and the frames stay.
 - **⧉ Open in new window** opens the trace in a window of its own, so it can be watched while this window sends from the online view, the PDO test or SDO reads and writes. The window shows only the Trace view and its transmit list, under a line naming the folder, network and connection, and uses this window's connection (**Connect…** stays here). This window's Trace tab then says the trace is open in its own window, with **Show trace window** and **Bring trace back here**. **Explain in Frame lab** in the trace window opens the Frame lab here. Recording goes on when either window closes, and only the last window showing an unsaved recording asks about it on closing. The window keeps its last size.
+- **Capture…** also has **Modbus requests** on a bridge: the bridge's Modbus requests on the same timeline, as rows in Chronological with their own inspector and a **By request** table under By identifier ([trace.md](trace.md#modbus-requests)).
 - The line under the buttons counts the frames, the duration, the frame rate and estimated bus load while recording, error frames, frames lost on the way or dropped by the PLC's kernel (by the adapter machine's kernel, named, on an adapter on another machine), and how many the display filters show.
 
 The tabs:
