@@ -380,13 +380,17 @@ function bridgeMailboxCost() {
   const c = r && r.mailbox_cost;
   if (!c) return "";
   const regs = `+${c.input_registers} input / +${c.output_registers} holding registers`;
-  const req = c.requests_with !== undefined && c.requests_without !== undefined
-    ? `, ${c.requests_with} instead of ${c.requests_without} Modbus requests per poll` +
-      (c.requests_with > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with` : ` (budget ${r.request_budget})`)
+  // OpenPLC polls the mailbox blocks in groups of their own every mailbox
+  // poll (mailbox-poll), so they add requests there, not every poll.
+  const more = c.requests_with - c.requests_without;
+  const req = c.mailbox_requests !== undefined && c.requests_without !== undefined
+    ? `, ${c.mailbox_requests} more Modbus request${c.mailbox_requests === 1 ? "" : "s"} every ${c.mailbox_poll_ms} ms` +
+      (more > 0 ? ` and ${more} more every poll` : "") +
+      (c.requests_with + c.mailbox_requests > r.request_budget ? `, more than the ${r.request_budget} OpenPLC keeps up with` : ` (budget ${r.request_budget})`)
     : "";
   const mb = c.on && r.mailboxes;
   const rx = !mb || !mb.can_per_batch ? ""
-    : mb.can_per_second ? ` Receiving: about ${mb.can_per_second} CAN frames/s at this poll (${mb.can_per_batch} per batch, one batch every two polls).`
+    : mb.can_per_second ? ` Receiving: about ${mb.can_per_second} CAN frames/s at the ${mb.poll_ms} ms mailbox poll (${mb.can_per_batch} per batch, one batch every two mailbox polls).`
     : ` Receiving: ${mb.can_per_batch} CAN frames per batch, one batch per two of your client's polls.`;
   return (c.on ? "The mailboxes take " : "Turned on with the default parts, the mailboxes would take ") + regs + req + "." + rx;
 }
@@ -671,6 +675,32 @@ function inputsOnLossField(c, path) {
   } });
 }
 
+// The mailbox poll of the OpenPLC connection (mailbox-poll): how often
+// OpenPLC's Modbus master polls the mailbox blocks, in groups of their own.
+// A multiple of the poll, at most 250 ms; each choice says what it gives.
+const MAILBOX_POLLS = [10, 20, 50, 100, 200];
+function mailboxPollDefault(poll) { return Math.max(poll, Math.ceil(50 / poll) * poll); }
+function mailboxPollHelp(ms) {
+  const mb = getPath("bridge.mailboxes") || {};
+  const perBatch = Number(mb.receive_blocks) === 2 ? 21 : 9;
+  const rx = mb.receive === false ? ""
+    : ` The receive mailbox keeps up with about ${Math.round(perBatch * 1000 / (2 * ms))} CAN frames per second.`;
+  return `Mailbox blocks answer in about ${2 * ms}-${3 * ms} ms plus the bus.` + rx + " A faster mailbox poll costs more PLC CPU. Values and status stay at the poll above.";
+}
+function mailboxPollField(c, path) {
+  const poll = Number.isInteger(c.poll_ms) && c.poll_ms >= 5 ? c.poll_ms : 10;
+  const def = mailboxPollDefault(poll);
+  const list = [{ value: undefined, label: `${def} ms (default)`, help: mailboxPollHelp(def) }];
+  for (const ms of MAILBOX_POLLS) {
+    if (ms !== def && ms >= poll && ms % poll === 0) list.push({ value: ms, label: `${ms} ms`, help: mailboxPollHelp(ms) });
+  }
+  list.sort((a, b) => (a.value || def) - (b.value || def));
+  return choice("Mailbox poll", path + ".mailbox_poll_ms", list, { dataset: { mailboxPoll: "1" }, onChange: (v) => {
+    setPath(path + ".mailbox_poll_ms", v);
+    render();
+  } });
+}
+
 // The kind's own settings, folded under the row.
 function connectionSettings(c, i) {
   const path = `bridge.connections[${i}]`;
@@ -689,6 +719,7 @@ function connectionSettings(c, i) {
     fields.push(
       field("Poll (ms)", path + ".poll_ms", "int", { placeholder: "10",
         hint: "How often OpenPLC reads and writes the registers, 5 to 1000 ms. Each poll takes one Modbus request per register group." }),
+      ...(getPath("bridge.mailboxes") ? [mailboxPollField(c, path)] : []),
       field("Remote device name", path + ".remote_device", "text", { placeholder: "canworks",
         hint: "The remote device in the editor project: devices/remote/<name>.json." }),
       field("First editor location", path + ".iec_base", "int", { placeholder: "first free from 100",

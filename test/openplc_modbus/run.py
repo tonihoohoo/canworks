@@ -35,7 +35,9 @@ that image (the header canworks_out writes, the values) and checks:
 7. the receive rate (faster-mailboxes): with the nodes' TPDOs on a 2 ms
    SYNC and a receiver for every frame, a PLC that drains and acknowledges
    each batch at once gets full batches (9 CAN records with one receive
-   block, 21 with two) and at least 400 and 900 frames/s at the 10 ms poll.
+   block, 21 with two) and at least 400 and 900 frames/s at the 10 ms poll
+   and 10 ms mailbox poll, and at least 70 with one block at the default
+   50 ms mailbox poll (mailbox-poll).
 """
 
 import argparse
@@ -201,25 +203,29 @@ def with_j1939(work):
     return cfg, path
 
 
-def receive_rate(bridge_bin, cfg, work, mm, model_cls, logger, blocks, seconds=3.0):
+def receive_rate(bridge_bin, cfg, work, mm, model_cls, logger, blocks, seconds=3.0, mailbox_poll=None):
     """Step 7 for 1 or 2 receive blocks: (frames/s, batches, full batches,
     what went wrong or "")."""
     cfg = copy.deepcopy(cfg)
     cfg["networks"][0]["master"]["sync_period_us"] = 2000
     cfg["bridge"]["mailboxes"]["receive_blocks"] = blocks
+    cfg["bridge"]["connections"][0].pop("mailbox_poll_ms", None)
+    if mailbox_poll:
+        cfg["bridge"]["connections"][0]["mailbox_poll_ms"] = mailbox_poll
     cfg["bridge"]["listen"] = "127.0.0.1:%d" % free_port()
     cfg = modbusmap.pack(cfg)
-    path = os.path.join(work, "rate-%d.json" % blocks)
+    tag = "%d-%s" % (blocks, mailbox_poll or "default")
+    path = os.path.join(work, "rate-%s.json" % tag)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     remote = openplcmodbus.remote_device(cfg, editorproject.declarations(cfg, path), IEC_BASE)
-    conf = os.path.join(work, "modbus_master_rate_%d.json" % blocks)
+    conf = os.path.join(work, "modbus_master_rate_%s.json" % tag)
     with open(conf, "w", encoding="utf-8") as f:
         json.dump(master_config(remote), f, indent=2)
     model = model_cls()
     model.import_config_from_file(conf)
     model.validate()
-    log = open(os.path.join(work, "bridge-rate-%d.log" % blocks), "w")
+    log = open(os.path.join(work, "bridge-rate-%s.log" % tag), "w")
     proc = subprocess.Popen([bridge_bin, "--config", path], stdout=log, stderr=subprocess.STDOUT)
     image = Image(conf)
     plc = Plc(image, remote)
@@ -298,6 +304,8 @@ def main():
         port = free_port()
         cfg["bridge"].update({"listen": "127.0.0.1:%d" % port, "on_client_loss": "hold"})
         cfg["bridge"]["connections"][0]["poll_ms"] = 10
+        # The mailbox steps run at the data poll; step 7 also tries the default.
+        cfg["bridge"]["connections"][0]["mailbox_poll_ms"] = 10
         # The digital node copies its first output byte to its first input byte.
         sim_path = os.path.join(work, "simulation.json")
         with open(sim_path, encoding="utf-8") as f:
@@ -318,7 +326,8 @@ def main():
         with open(conf_path, "w", encoding="utf-8") as f:
             json.dump(master_config(remote), f, indent=2)
         groups = remote["modbusTcpConfig"]["ioGroups"]
-        print("    %d groups, %d requests per poll" % (len(groups), len(groups)), flush=True)
+        print("    %d groups, %s" % (len(groups), openplcmodbus.requests_text(
+            openplcmodbus.layout(cfg, decls, IEC_BASE)[0], openplcmodbus.settings(cfg))), flush=True)
         model = ModbusMasterConfig()
         model.import_config_from_file(conf_path)
         model.validate()
@@ -473,12 +482,14 @@ def main():
         check(len(model5.devices) == 1, "the runtime reads its modbus_master.json")
 
         print("7. the receive rate", flush=True)
-        for blocks, least in ((1, 400), (2, 900)):
-            fps, batches, fulls, why = receive_rate(args.bridge, cfg, work, mm, ModbusMasterConfig, logger, blocks)
+        for blocks, mpoll, least in ((1, 10, 400), (2, 10, 900), (1, None, 70)):
+            fps, batches, fulls, why = receive_rate(args.bridge, cfg, work, mm, ModbusMasterConfig, logger, blocks,
+                                                    mailbox_poll=mpoll)
             check(batches > 0 and fulls >= batches - 1 and fps >= least,
-                  "%d receive block(s): %.0f frames/s at the 10 ms poll, %d of %d batches full (%d records), "
-                  "at least %d expected%s" % (blocks, fps, fulls, batches, mailboxlayout.records_per_batch("can", blocks),
-                                             least, ": " + why if why else ""))
+                  "%d receive block(s): %.0f frames/s at the 10 ms poll and %s mailbox poll, %d of %d batches full "
+                  "(%d records), at least %d expected%s"
+                  % (blocks, fps, "%d ms" % mpoll if mpoll else "the default", fulls, batches,
+                     mailboxlayout.records_per_batch("can", blocks), least, ": " + why if why else ""))
     finally:
         for t in threads:
             t.stop()

@@ -30,6 +30,7 @@ class FakeBridge {
     this.down = false;
     this.writes = []; // [start, words] of every write
     this.reads = 0;
+    this.readLog = []; // the start register of every input read
     this.t0 = Date.now();
     this.ops = {}; // op -> (req) => {error, r, data} | Promise of it
     this.calls = []; // every mailbox request the model ran: {op, net, args, data}
@@ -329,6 +330,7 @@ class FakeBridge {
       c.readInput = async (s, n) => {
         await live();
         model.reads++;
+        model.readLog.push(s);
         model._cyclicTable();
         // The receive block's tick is the bridge's time now, every cycle.
         const rcv = model.lay.mailboxes && model.lay.mailboxes.receive;

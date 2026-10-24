@@ -249,7 +249,7 @@ A PLC writes its whole output image every poll, so after a bridge restart the PL
 | --- | --- | --- |
 | `requests` | 1 | Request mailboxes, 0 to 4: operations that run at the same time. Opening a receiver or a cyclic job takes one, so 0 is refused while `receive` is on or `cyclic_jobs` is above 0. |
 | `receive` | true | The receive mailbox for CAN, J1939 and EMCY receivers. |
-| `receive_blocks` | 1 | Receive mailbox blocks of 120 registers, 1 or 2. Two carry more than twice the records per batch, for one more Modbus request per poll ([throughput](#receive-throughput)). |
+| `receive_blocks` | 1 | Receive mailbox blocks of 120 registers, 1 or 2. Two carry more than twice the records per batch, for one more Modbus request per mailbox poll ([throughput](#receive-throughput)). |
 | `cyclic_jobs` | 4 | Cyclic frame jobs, 0 to 16. |
 | `network_info` | true | A network info block for each of the first 8 networks. |
 | `input_location`, `output_location` | required | Where the input and output areas start, at an even byte. Pack for Modbus and the configurator's Suggest set them. |
@@ -278,7 +278,7 @@ The ERROR_IDs are those of the matching block family ([plc-library.md](plc-libra
 
     frames/s = records per batch × polls per second / 2
 
-At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive block and 1050 with two (measured with the runtime's own master: 444 and 1036; on a Raspberry Pi 5 bench one block took about 458 frames/s and two took 1000 frames/s without loss); a 5 ms poll doubles it. The bridge's own part is under 1 ms. The configurator's Function blocks section shows the rate for the config's poll.
+At OpenPLC's default 10 ms poll that is about 450 CAN frames/s with one receive block and 1050 with two (measured with the runtime's own master: 444 and 1036; on a Raspberry Pi 5 bench one block took about 458 frames/s and two took 1000 frames/s without loss); a 5 ms poll doubles it. The bridge's own part is under 1 ms. OpenPLC polls the mailboxes every mailbox poll of its connection, 50 ms by default, which gives about 90 and 210 ([plc-library.md](plc-library.md#the-mailboxes)). The configurator's Function blocks section shows the rate for the config's mailbox poll.
 
 **Network info** (18 registers per network, every 100 ms): CAN state and bus load, error counters, bus-offs, frames received and sent, error frames, and for a J1939 network its claim state, address, NAME and ECU count.
 
@@ -304,7 +304,7 @@ Every connection has `kind`, a unique `name` (1-64 characters), `address` (the c
 
 | Kind | Fields | What it gets |
 | --- | --- | --- |
-| `openplc` | `poll_ms` (5-1000, default 10), `remote_device` (default `canworks`), `iec_base` | The editor files, kept in sync by Save in an editor project ([OpenPLC](#openplc)). At most one; its address is `127.0.0.1`. |
+| `openplc` | `poll_ms` (5-1000, default 10), `mailbox_poll_ms`, `remote_device` (default `canworks`), `iec_base` | The editor files, kept in sync by Save in an editor project ([OpenPLC](#openplc)). At most one; its address is `127.0.0.1`. |
 | `trust` | `format` (`plcopen`), `library`, `bridge_host`, `blocks` (`none` or `sdo_send`) | The PLCopen XML folder for truST, as a zip ([plcopen.md](plcopen.md)). |
 | `plc` | `format` (`plcopen` or `st`), `library`, `bridge_host`, `blocks` | The PLCopen XML folder, or the PLC link as ST ([plc-library.md](plc-library.md#on-another-modbus-plc)). |
 | `nodered` | `period_ms` (10-60000), `bridge_host`, `blocks` | The Node-RED flow ([node-red.md](node-red.md)). |
@@ -337,6 +337,7 @@ A bridge config with an OpenPLC connection runs the networks next to an unmodifi
 | Connection field | Default | Meaning |
 | --- | --- | --- |
 | `poll_ms` | 10 | How often OpenPLC reads and writes every register group, 5 to 1000 ms. |
+| `mailbox_poll_ms` | the first multiple of `poll_ms` from 50 | How often OpenPLC reads and writes the mailboxes, which get register groups of their own: a multiple of `poll_ms`, at most 250 ms. Slower costs the PLC less CPU, and mailbox blocks answer and receive more slowly ([plc-library.md](plc-library.md#the-mailboxes)). |
 | `remote_device` | `canworks` | The remote device's name in the editor project (`devices/remote/<name>.json`). |
 | `iec_base` | the first free from 100 | The first `%IW` and `%QW` word the groups get in the editor project. |
 
@@ -452,4 +453,4 @@ Modbus TCP has no authentication or encryption. Put the bridge on a machine netw
 - A thread that makes no progress for 10 s aborts the bridge (it restarts).
 - No Modbus RTU (serial); no Modbus TLS.
 - One bridge per CAN interface.
-- Function block mailboxes: at most 4 request mailboxes, 2 receive blocks, 32 receivers, 16 cyclic jobs and network info for 8 networks. A program receives about 450 CAN frames/s with one receive block or 1050 with two at a 10 ms poll ([throughput](#receive-throughput)), and sends about 50 frames/s per request mailbox with `CAN_SEND`.
+- Function block mailboxes: at most 4 request mailboxes, 2 receive blocks, 32 receivers, 16 cyclic jobs and network info for 8 networks. A program receives about 450 CAN frames/s with one receive block or 1050 with two at a 10 ms mailbox poll, 90 or 210 at OpenPLC's default 50 ms ([throughput](#receive-throughput)), and sends about 50 frames/s per request mailbox with `CAN_SEND` at a 10 ms mailbox poll (10 at 50 ms).

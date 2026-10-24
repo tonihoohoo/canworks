@@ -4039,11 +4039,21 @@ Saving a Modbus bridge config with an OpenPLC connection inside an editor projec
 - **THEN** the project lists the library as enabled and `canworks_in` builds without adding it by hand
 
 ### Requirement: OpenPLC project page
-A bridge config's OpenPLC connection SHALL have **Settings** on its row, opening the poll period (`poll_ms`, placeholder 10), the remote device name and the first editor location, with facts from the saved config: the remote device and port, the poll with requests per poll and the warning above 40, the writer-loss time, the map hash and the first editor `%IW`/`%QW`.
+A bridge config's OpenPLC connection SHALL have **Settings** on its row, opening the poll period (`poll_ms`, placeholder 10), the mailbox poll (with mailboxes only), the remote device name and the first editor location, with facts from the saved config: the remote device and port, the poll with requests per poll ("6 Modbus requests every 10 ms, 2 more every 50 ms" with mailboxes) and the warning above 40, the writer-loss time, the map hash and the first editor `%IW`/`%QW`.
+
+The mailbox poll SHALL offer the multiples of `poll_ms` among 10, 20, 50, 100 and 200 ms, show the default as its placeholder and save nothing when left at it. Its hint SHALL give the round trip of a mailbox block (2 to 3 mailbox polls plus the bus) and the frames per second the receive mailbox keeps up with (frames per batch × 1000 / (2 × mailbox poll)), and say that a faster mailbox poll costs more PLC CPU. A change SHALL be one undo step, and the next Save SHALL write the editor's remote device with it.
 
 #### Scenario: Requests per poll
 - **WHEN** a config with an OpenPLC connection has 30 nodes with two TPDOs and two RPDOs each, none contiguous
 - **THEN** the OpenPLC connection's settings show the request count above 40 with the warning, and Problems lists it
+
+#### Scenario: Mailbox poll hint
+- **WHEN** a config with the default mailboxes (one receive block) and an OpenPLC connection with `poll_ms` 10 opens the connection's Settings
+- **THEN** the mailbox poll shows placeholder 50 and the hint says mailbox blocks answer in about 100-150 ms plus the bus and the receive mailbox keeps up with about 90 frames per second
+
+#### Scenario: No mailboxes
+- **WHEN** the config has no `bridge.mailboxes`
+- **THEN** the Settings show no mailbox poll and the requests line names only the requests every poll
 
 ### Requirement: Master settings on the Bus page
 The configurator SHALL edit the master's node ID, SYNC period, master heartbeat period, EDS lint setting and boot SDO timeout. The SYNC period field SHALL be optional: left empty it SHALL show "off" as its placeholder and SHALL save no `sync_period_us`, and its hint SHALL say that synchronous PDOs then need an event-driven transmission type. New configs SHALL still start with a SYNC period of 10 ms. The boot SDO timeout field SHALL show 1000 as its placeholder and SHALL save nothing when left empty. The EDS lint setting SHALL offer "communication objects" (`"communication"`, the default, saved as no field), "every object" (`"all"`) and "off" (`"off"`). A loaded config with `strict_eds` SHALL be shown as the matching setting and saved as `eds_lint`, with the page saying so.

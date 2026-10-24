@@ -112,11 +112,14 @@ class Group:
 
 def _class(it):
     """Registers of one class may share a group: the PLC link header writes
-    alone; the bridge's input blocks read with set-to-zero (a lost bridge
-    reads as hash 0, so `canworks.ok` drops at once); data reads keep their
-    last value."""
+    alone; the mailbox blocks have groups of their own, polled every
+    mailbox_poll_ms (mailbox-poll); the bridge's input blocks read with
+    set-to-zero (a lost bridge reads as hash 0, so `canworks.ok` drops at
+    once); data reads keep their last value."""
     if it.name == "bridge.plc_link":
         return "header"
+    if "mailbox_area" in it.extra:
+        return "mailbox"
     if it.kind == "bridge" and it.loc.area == "I":
         return "bridge"
     return "data"
@@ -203,15 +206,34 @@ def _register_names(cfg, items, decls):
 
 
 def request_count(groups):
-    """Modbus requests per poll: one per group."""
-    return len(groups)
+    """Modbus requests every poll: one per group but the mailbox groups."""
+    return sum(1 for g in groups if g.key != "mailbox")
 
 
-def budget_warning(groups):
-    n = request_count(groups)
+def mailbox_request_count(groups):
+    """Modbus requests every mailbox poll: one per mailbox group."""
+    return sum(1 for g in groups if g.key == "mailbox")
+
+
+def request_load(groups, s):
+    """Requests per poll on average: the mailbox groups count poll_ms /
+    mailbox_poll_ms each."""
+    return request_count(groups) + mailbox_request_count(groups) * s["poll_ms"] / s["mailbox_poll_ms"]
+
+
+def requests_text(groups, s):
+    """"6 Modbus requests every 10 ms, 2 more every 50 ms"."""
+    n, m = request_count(groups), mailbox_request_count(groups)
+    text = "%d Modbus request%s every %d ms" % (n, "" if n == 1 else "s", s["poll_ms"])
+    return text + (", %d more every %d ms" % (m, s["mailbox_poll_ms"]) if m else "")
+
+
+def budget_warning(groups, s=None):
+    s = s or {"poll_ms": 1, "mailbox_poll_ms": 1}
+    n = request_load(groups, s)
     if n > REQUEST_BUDGET:
-        return ("%d Modbus requests per poll (more than %d): the runtime's Modbus master may not keep up; "
-                "pack the config (Pack for Modbus) or raise poll_ms" % (n, REQUEST_BUDGET))
+        return ("%s Modbus requests per poll (more than %d): the runtime's Modbus master may not keep up; "
+                "pack the config (Pack for Modbus) or raise poll_ms" % (("%.1f" % n).rstrip("0").rstrip("."), REQUEST_BUDGET))
     return None
 
 
@@ -228,10 +250,10 @@ def remote_device(cfg, decls, iec_base=None):
             "id": str(uuid.uuid5(_NS, "%s/%s" % (s["remote_device"], name))),
             "name": name,
             "functionCode": g.fc,
-            "cycleTime": s["poll_ms"],
+            "cycleTime": s["mailbox_poll_ms"] if g.key == "mailbox" else s["poll_ms"],
             "offset": str(g.first),
             "length": g.count,
-            "errorHandling": "set-to-zero" if g.key in ("header", "bridge") and g.area == "I" else "keep-last-value",
+            "errorHandling": "set-to-zero" if g.key in ("header", "bridge", "mailbox") and g.area == "I" else "keep-last-value",
             "ioPoints": [{
                 "id": "%s_%d" % (name, k),
                 "name": "%s_%d" % (name, k),
@@ -785,8 +807,10 @@ def sync_project(project_dir, cfg, decls, uses=(), force=False):
     os.makedirs(os.path.dirname(stamp), exist_ok=True)
     _write(stamp, json.dumps(stamps, indent=2, sort_keys=True) + "\n")
     groups, _ = layout(cfg, decls, base)
+    s = settings(cfg)
     return {"written": written, "iec_base": base, "requests": request_count(groups),
-            "warning": budget_warning(groups)}
+            "mailbox_requests": mailbox_request_count(groups), "requests_text": requests_text(groups, s),
+            "warning": budget_warning(groups, s)}
 
 
 def instances(resource):

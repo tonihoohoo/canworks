@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import tarfile
 
 from . import __version__, contract, mailboxlayout, modbusmap
@@ -204,7 +205,7 @@ def layout(cfg, rows, readonly=None):
         "inputs": [dict(_spec_row(r), **({"z": True} if r["name"] in status else {}))
                    for r in data if r["direction"] == "input"],
         "outputs": [] if ro else [_spec_row(r) for r in data if r["direction"] == "output"],
-        "read": [[s, c] for f, s, c, d in channels if d == "input"],
+        "read": _read_channels(channels, rows),
         "write": [] if ro else [[s, c] for f, s, c, d in channels if d == "output"],
         "status": block("bridge.status"),
         "control": block("bridge.control"),
@@ -216,6 +217,50 @@ def layout(cfg, rows, readonly=None):
         "watchdogMs": b.get("watchdog_ms", 1000),
         "mailboxes": mailboxes,
     }
+
+
+def _mailbox_part(name):
+    """The mailbox part an input block belongs to, which the config node
+    reads only while it is in use (nodered-blocks "Mailbox reads only while
+    in use"), or None: read every poll. Network info stays None, since
+    canworks in emits it."""
+    if re.match(r"bridge\.mailbox\.\d+\.response$", name):
+        return "requests"
+    if name.startswith("bridge.mailbox.receive."):
+        return "receive"
+    if name == "bridge.mailbox.cyclic_jobs":
+        return "cyclic"
+    return None
+
+
+def _read_channels(channels, rows):
+    """The input channels as [start, count], cut where a mailbox part
+    starts or ends; a channel of one part is [start, count, part]."""
+    parts = sorted((r["address"], r["address"] + r["count"], _mailbox_part(r["name"])) for r in rows
+                   if r["direction"] == "input" and r["table"] == "input register" and _mailbox_part(r["name"]))
+    out = []
+    for f, start, count, d in channels:
+        if d != "input":
+            continue
+        at, end = start, start + count
+        for a, b, part in parts:
+            if b <= at or a >= end:
+                continue
+            if a > at:
+                out.append([at, a - at])
+            out.append([a, min(b, end) - a, part])
+            at = min(b, end)
+        if at < end:
+            out.append([at, end - at])
+    # Neighbouring blocks of one part share a request.
+    merged = []
+    for ch in out:
+        if merged and len(ch) == 3 and len(merged[-1]) == 3 and merged[-1][2] == ch[2] \
+                and merged[-1][0] + merged[-1][1] == ch[0] and merged[-1][1] + ch[1] <= modbusmap.MAX_READ_REGISTERS:
+            merged[-1][1] += ch[1]
+        else:
+            merged.append(ch)
+    return merged
 
 
 # -- the flow ----------------------------------------------------------------

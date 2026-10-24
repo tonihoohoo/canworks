@@ -3,7 +3,7 @@
 ### Requirement: OpenPLC project page
 A bridge config's OpenPLC connection SHALL have **Settings** on its row, opening the poll period (`poll_ms`, placeholder 10), the mailbox poll (with mailboxes only), the remote device name and the first editor location, with facts from the saved config: the remote device and port, the poll with requests per poll ("6 Modbus requests every 10 ms, 2 more every 50 ms" with mailboxes) and the warning above 40, the writer-loss time, the map hash and the first editor `%IW`/`%QW`.
 
-The mailbox poll SHALL offer the multiples of `poll_ms` among 10, 20, 50, 100 and 200 ms, show the default as its placeholder and save nothing when left at it. Its hint SHALL give the round trip of a mailbox block (2 to 3 mailbox polls plus the bus) and the frames per second the receive mailbox keeps up with (frames per batch × 1000 / (2 × mailbox poll)), and say that a faster mailbox poll costs more PLC CPU. A change SHALL mark the connection Out of date and be one undo step.
+The mailbox poll SHALL offer the multiples of `poll_ms` among 10, 20, 50, 100 and 200 ms, show the default as its placeholder and save nothing when left at it. Its hint SHALL give the round trip of a mailbox block (2 to 3 mailbox polls plus the bus) and the frames per second the receive mailbox keeps up with (frames per batch × 1000 / (2 × mailbox poll)), and say that a faster mailbox poll costs more PLC CPU. A change SHALL be one undo step, and the next Save SHALL write the editor's remote device with it.
 
 #### Scenario: Requests per poll
 - **WHEN** a config with an OpenPLC connection has 30 nodes with two TPDOs and two RPDOs each, none contiguous

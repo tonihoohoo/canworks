@@ -113,6 +113,12 @@ class Bridge extends EventEmitter {
     this.sweepWaiters = [];
     this.closing = new Set(); // rx_close and cyclic_stop on their way
     this.readWaiters = [];
+    // The mailbox parts read in the last poll, and whether the receivers
+    // of an earlier connection were swept (nodered-blocks "Mailbox reads
+    // only while in use").
+    this.partRead = {};
+    this.requestGrace = 0;
+    this.rxSwept = false;
     this.ack = null; // {seq} to write
     this.cyclics = new Set();
     this.jobBySlot = new Map();
@@ -219,6 +225,8 @@ class Bridge extends EventEmitter {
     this.rxBusy = false;
     this.rxClosing.clear();
     this.sweepWaiters = [];
+    this.rxSwept = false;
+    this.partRead = {};
     for (const w of this.readWaiters.splice(0)) w.reject(err);
     this.ack = null;
     this.jobBySlot.clear();
@@ -324,11 +332,30 @@ class Bridge extends EventEmitter {
     }
   }
 
+  // The mailbox parts in use, which this poll reads: a request mailbox
+  // while a job holds or waits for one and for one poll after, the receive
+  // mailbox while a receiver is open or closing or an earlier connection's
+  // are not swept yet, the cyclic table while a job runs or is taken over.
+  _partsInUse() {
+    if (this.mbBusy.some((l) => l) || this.mbWait.length) this.requestGrace = 2;
+    else if (this.requestGrace) this.requestGrace--;
+    return {
+      requests: this.requestGrace > 0,
+      receive: this.receivers.size > 0 || this.rxClosing.size > 0 || this.sweepWaiters.length > 0 || (!this.rxSwept && !this.readOnly),
+      cyclic: [...this.cyclics].some((j) => j.slot !== null || j.old),
+    };
+  }
+
   async _cycle(c) {
-    for (const [s, n] of this.lay.read) {
+    const use = this._partsInUse();
+    const read = {};
+    for (const [s, n, part] of this.lay.read) {
+      if (part && !use[part]) continue;
       const words = await c.readInput(s, n);
       for (let i = 0; i < n; i++) put16(this.inImg, (s + i) * 2, words[i]);
+      if (part) read[part] = true;
     }
+    this.partRead = read;
     this.haveInput = true;
     for (const w of this.readWaiters.splice(0)) w.resolve();
     this._afterRead();
@@ -423,10 +450,11 @@ class Bridge extends EventEmitter {
     if (lay.sdoResp !== null && lay.sdoResp !== undefined) this._sdoAnswer();
     const mbl = lay.mailboxes;
     if (!mbl) return;
-    for (let m = 0; m < this.mb.length; m++) this._mbAnswer(m);
+    // A part not read this poll holds an old image: nothing to look at.
+    if (this.partRead.requests) for (let m = 0; m < this.mb.length; m++) this._mbAnswer(m);
     for (const info of mbl.info || []) this._info(info);
-    if (mbl.cyclic) this._cyclicTable();
-    if (mbl.receive) this._receive();
+    if (mbl.cyclic && this.partRead.cyclic) this._cyclicTable();
+    if (mbl.receive && this.partRead.receive) this._receive();
   }
 
   _info(info) {
@@ -493,6 +521,13 @@ class Bridge extends EventEmitter {
     if (!this.connected || !this.seeded) throw new CwError(20);
     if (this.writesRefused) throw new CwError(21, REFUSED);
     if (what === "mailbox" && !this.mb.length) throw new CwError(22, "the config has no request mailbox");
+  }
+
+  // Resolves once the last poll has read `part`.
+  _partFresh(part) {
+    if (this.partRead[part]) return Promise.resolve();
+    // A job that came in after this poll chose its parts waits one more.
+    return new Promise((resolve, reject) => this.readWaiters.push({ resolve, reject })).then(() => this._partFresh(part));
   }
 
   // Resolves after the first read of this connection.
@@ -663,7 +698,10 @@ class Bridge extends EventEmitter {
       const w = this.mbWait.shift();
       const lease = { m, expect: null, call: (op, net, args, data, guardMs) => this._call(lease, op, net, args, data, guardMs) };
       this.mbBusy[m] = lease;
+      // A mailbox not read last poll is read once before the job writes,
+      // so its counter follows what the bridge holds.
       Promise.resolve()
+        .then(() => this._partFresh("requests"))
         .then(() => w.fn(lease))
         .then(w.resolve, w.reject)
         .finally(() => {
@@ -767,6 +805,7 @@ class Bridge extends EventEmitter {
       const g = gen(slot);
       if (g && !this.rxBySlot.has(slot) && this.rxClosing.get(slot) !== g) this._closeReceiver(slot, g);
     }
+    this.rxSwept = true;
     if (!this.sweepWaiters.length) return;
     const waiting = this.sweepWaiters.splice(0);
     Promise.allSettled([...this.closing]).then(() => waiting.forEach((f) => f()));
