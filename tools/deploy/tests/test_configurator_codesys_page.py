@@ -80,10 +80,10 @@ class CodesysPage(OnlineBase):
     def test_switch_hides_and_back(self):
         pg = self.page
         self.open()
-        self.assertEqual(pg.inner_text("[data-target-mark]"), " · Modbus bridge")
+        self.assertEqual(pg.text_content("[data-target-mark]"), " · Modbus bridge")
         self.assertTrue(pg.is_visible('select[data-path="master.eds_lint"]'))
         self.to_codesys()
-        self.assertEqual(pg.inner_text("[data-target-mark]"), " · CODESYS")
+        self.assertEqual(pg.text_content("[data-target-mark]"), " · CODESYS")
         self.assertEqual(pg.text_content("#problem-list").strip(), "No problems.")
         # The Bus page: no EDS lint, bus diagnostics or simulation; the CODESYS settings.
         for path in ("master.eds_lint", "master.bus_state_location", "adapter.type",
