@@ -96,6 +96,10 @@ class BridgeStatusLine(unittest.TestCase):
         self.assertEqual(diag.mailbox_status_line({"mailboxes": {"operations": 0, "receivers_opened": 0}}),
                          "mailboxes: 0 operations, 0 receivers opened since start: nothing has used the mailboxes; "
                          "turning them off saves Modbus requests")
+        # A program that only reads the network info (CAN_BUS_INFO) uses them.
+        line = diag.mailbox_status_line({"mailboxes": {"operations": 0, "receivers_opened": 0, "info_reads": 42}})
+        self.assertEqual(line, "mailboxes: 0 operations, 0 receivers opened, 42 network info or job table reads "
+                               "since start")
 
 
 if __name__ == "__main__":

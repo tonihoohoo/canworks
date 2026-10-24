@@ -1365,9 +1365,14 @@ def mailbox_status_line(b):
     if not isinstance(mb, dict):
         return "mailboxes: no mailboxes"
     ops, rx = mb.get("operations", 0), mb.get("receivers_opened", 0)
-    line = "mailboxes: %s operation%s, %s receiver%s opened since start" % (
-        ops, "" if ops == 1 else "s", rx, "" if rx == 1 else "s")
-    if not ops and not rx:
+    # Reads of the network info blocks and the cyclic job table: CAN_BUS_INFO
+    # and J1939_ECU_INFO use the mailboxes without a request.
+    reads = mb.get("info_reads", 0)
+    line = "mailboxes: %s operation%s, %s receiver%s opened" % (ops, "" if ops == 1 else "s", rx, "" if rx == 1 else "s")
+    if reads:
+        line += ", %s network info or job table read%s" % (reads, "" if reads == 1 else "s")
+    line += " since start"
+    if not ops and not rx and not reads:
         line += ": nothing has used the mailboxes; turning them off saves Modbus requests"
     return line
 

@@ -940,6 +940,29 @@ TEST(mailboxes_on_the_simulated_bus) {
   EXPECT(info.size() == 18 && (info[0] >> 8) == 0 && (uint32_t(info[5]) << 16 | info[6]) > 0);
 }
 
+// CAN_BUS_INFO only reads the network info block: those reads count as
+// mailbox use in the status (modbus-bridge-mailboxes "Info reads count as
+// mailbox use"), so diag does not advise turning the mailboxes off.
+TEST(info_reads_count_as_mailbox_use) {
+  Host h(add_mailboxes);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  Client c(h.port());
+  auto info_reads = [&] {
+    cJSON* st = h.host.status_json();
+    cJSON* n = cJSON_GetObjectItem(cJSON_GetObjectItem(st, "mailboxes"), "info_reads");
+    double v = cJSON_IsNumber(n) ? n->valuedouble : -1;
+    cJSON_Delete(st);
+    return v;
+  };
+  EXPECT(info_reads() == 0);
+  regs(c, kReadInputRegisters, 0, 8);  // the data registers: not mailbox use
+  EXPECT(info_reads() == 0);
+  for (int i = 0; i < 3; ++i) regs(c, kReadInputRegisters, kInfoReg, 18);
+  regs(c, kReadInputRegisters, kInfoReg + 18, 4);  // the cyclic job table
+  EXPECT(info_reads() == 4);
+}
+
 // Idle (control command 2) turns the outputs off, and a mailbox frame is an
 // output: the program's receivers, cyclic jobs and operations end with the
 // log reason "idle", never as a block that stopped calling while the client

@@ -113,6 +113,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       if (count < 1 || count > kMaxReadBits) return fail(kIllegalDataValue);
       const std::vector<uint8_t>& img = f == kReadCoils ? a.out() : a.in();
       if (addr + count > img.size() * 8) return fail(kIllegalDataAddress);
+      if (f == kReadDiscreteInputs) a.note_read(addr / 8, (addr + count - 1) / 8 - addr / 8 + 1);
       resp.push_back(f);
       read_bits(img, addr, count, resp);
       return false;
@@ -124,6 +125,7 @@ bool handle_pdu(ByteImage& image, const uint8_t* pdu, size_t n, bool may_write, 
       if (count < 1 || count > kMaxReadRegisters) return fail(kIllegalDataValue);
       bool holding = f == kReadHoldingRegisters;
       if (addr + count > (holding ? out_regs : in_regs)) return fail(kIllegalDataAddress);
+      if (!holding) a.note_read(addr * 2, count * 2);
       resp.push_back(f);
       read_registers(holding ? a.out() : a.in(), addr, count, resp);
       return false;

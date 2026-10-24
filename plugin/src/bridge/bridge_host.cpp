@@ -388,6 +388,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   mailboxes_.reset();
   mailbox_backend_.reset();
   mb_written_ = 0;
+  image_.watch_reads(0, 0);
   if (cfg_.has_mailboxes) {
     MailboxLayout ml;
     ml.requests = cfg_.mb_requests;
@@ -399,6 +400,10 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     ml.out_base = cfg_.mb_output.index;
     mailbox_backend_.reset(new EngineMailboxBackend(static_cast<unsigned>(s.networks.size())));
     mailboxes_.reset(new Mailboxes(ml, *mailbox_backend_));
+    // The network info blocks and the cyclic job table, one after the other
+    // at the end of the input area: a program that only reads them (the
+    // info blocks) uses the mailboxes too.
+    image_.watch_reads(ml.info(0), ml.in_base + ml.input_bytes() - ml.info(0));
     log_info("bridge mailboxes: %u request mailbox(es) at input byte %u and output byte %u, receive mailbox %s "
              "(%u block(s)), network info for %u network(s), %u cyclic job(s); %u input and %u output bytes",
              ml.requests, ml.in_base, ml.out_base, ml.receive ? "on" : "off", ml.receive ? ml.receive_blocks : 0,
@@ -748,6 +753,7 @@ cJSON* BridgeHost::status_json() const {
     cJSON* mb = cJSON_AddObjectToObject(b, "mailboxes");
     cJSON_AddNumberToObject(mb, "operations", static_cast<double>(mailboxes_->operations()));
     cJSON_AddNumberToObject(mb, "receivers_opened", static_cast<double>(mailboxes_->receivers_opened()));
+    cJSON_AddNumberToObject(mb, "info_reads", static_cast<double>(image_.watched_reads()));
   }
   if (supervisor_ && cfg_.watchdog_ms && st == OutputState::kRunning)
     cJSON_AddNumberToObject(b, "watchdog_left_ms", static_cast<double>(supervisor_->left_ms(Clock::now())));
