@@ -2001,7 +2001,7 @@ class Session:
         out["connection_blocks"] = [{"index": i, "name": c.get("name") or connections.TITLES[c["kind"]],
                                      "blocks": c["blocks"], "text": connections.blocks_text(c["blocks"])}
                                     for i, c in enumerate(cfg["bridge"].get("connections") or [])
-                                    if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered")
+                                    if isinstance(c, dict) and c.get("kind") in ("plc", "nodered")
                                     and c.get("blocks") in ("sdo_send", "receive", "all")]
         return out
 
@@ -2285,7 +2285,7 @@ class Session:
         add = mailboxuse.mailboxes_for(need, mb)
         used = dict(need)
         for c in (cfg.get("bridge") or {}).get("connections") or []:
-            if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered") and isinstance(c.get("blocks"), str):
+            if isinstance(c, dict) and c.get("kind") in ("plc", "nodered") and isinstance(c.get("blocks"), str):
                 used.update(mailboxuse.choice_parts(c.get("blocks")))
         for block in sorted(found):
             gone = mailboxuse.missing(mb, mailboxuse.parts_needed({block: found[block]}))

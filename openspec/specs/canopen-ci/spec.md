@@ -333,11 +333,11 @@ CI SHALL build the mailbox blocks with STruC++ and run them against a scripted m
 - **THEN** an SDO read through the request mailbox returns the node's object, a CAN receiver for a node's TPDO gets its frames in the receive mailbox, and the next batch comes after the acknowledgement
 
 ### Requirement: PLCopen export tests
-The PLCopen export SHALL be tested in the existing tools test shard, selected by the path rules in `.github/ci/plcopen-paths.txt` (the PLCopen writer and targets, the copy programs, the library, the PLCopen tests and their data): golden files for the two targets (`trust`, `generic`), a check of each written file against the PLCopen TC6 schema, the refusal of `--for codesys`, and an import-and-compile check of the truST output with a pinned truST release binary (version and SHA-256 in one file). Where the binary can't be fetched, the truST check SHALL skip with a message. No new pull request job SHALL be added.
+The PLCopen export SHALL be tested in the existing tools test shard, selected by the path rules in `.github/ci/plcopen-paths.txt` (the PLCopen writer and targets, the copy programs, the library, the PLCopen tests and their data): golden files for the `generic` target, a check of each written file against the PLCopen TC6 schema, the refusal of `--for codesys`, and an import-and-compile check of the generic output, with the whole library and all mailboxes, by a pinned truST release binary (version and SHA-256 in one file). Where the binary can't be fetched, the compile check SHALL skip with a message. No new pull request job SHALL be added.
 
 #### Scenario: Export code change
 - **WHEN** a pull request changes only `tools/deploy/canworks/plcopen.py`
-- **THEN** the tools shard runs the PLCopen tests including the truST import, and the job list is the same as before
+- **THEN** the tools shard runs the PLCopen tests including the compile check, and the job list is the same as before
 
 #### Scenario: Unrelated change
 - **WHEN** a pull request changes only `plugin/src/canopen/network.cpp`

@@ -1,16 +1,20 @@
 # plcopen-export Specification
 
 ## Purpose
-Export a Modbus bridge config as PLCopen XML for a PLC that imports it and reads the bridge as a Modbus client (truST, others): the variables, the copy programs and the canworks function blocks in one file, with the target's files that connect it to the bridge.
+Export a Modbus bridge config as PLCopen XML for a PLC that imports it and reads the bridge as a Modbus client: the variables, the copy programs and the canworks function blocks in one file, with the target's files that connect it to the bridge.
 
 ## Requirements
 
 ### Requirement: PLCopen XML export
-`canworks-deploy --config FILE --export-plcopen OUT --for trust|generic` SHALL write, for a bridge config with `plc_link`, a folder with `canworks.xml` (TC6 2.01: the canworks ST library unless `--no-library`, the `canworks` globals with one typed variable per located value, `ok`, `link`, `in_w` and `out_w`, and the programs `canworks_in` and `canworks_out`) and the target's files. A config without `bridge`, without `plc_link` or with errors SHALL be refused, naming the fix; so SHALL `--for codesys`.
+`canworks-deploy --config FILE --export-plcopen OUT --for generic` SHALL write, for a bridge config with `plc_link`, a folder with `canworks.xml` (TC6 2.01: the canworks ST library unless `--no-library`, the `canworks` globals with one typed variable per located value, `ok`, `link`, `in_w` and `out_w`, and the programs `canworks_in` and `canworks_out`) and the target's files. A config without `bridge`, without `plc_link` or with errors SHALL be refused, naming the fix; so SHALL `--for codesys`. `--for trust` SHALL be refused by the argument parser as an unknown choice: truST is a PLC that imports PLCopen XML and uses `--for generic`.
 
 #### Scenario: Export for truST
-- **WHEN** the user runs `canworks-deploy --config cell.json --export-plcopen out --for trust` on a bridge config with `plc_link` and trimmed mailboxes
-- **THEN** `out/canworks.xml` holds the library blocks, the `canworks` variables and the two programs, and the command names the files written
+- **WHEN** the user runs `canworks-deploy --config cell.json --export-plcopen out --for generic` for a truST PLC on a bridge config with `plc_link`
+- **THEN** `out/canworks.xml` holds the library blocks, the `canworks` variables and the two programs, `out` has `README.txt` and `canworks-modbus-map.csv` and no truST files, and the command names the files written
+
+#### Scenario: truST is no longer a target
+- **WHEN** the user runs the export with `--for trust`
+- **THEN** nothing is written and the usage error lists `generic` and `codesys` as the choices
 
 #### Scenario: Export for CODESYS
 - **WHEN** the user runs the export with `--for codesys`
@@ -39,38 +43,11 @@ The `canworks` variables SHALL be written as standard TC6: a structure type `can
 - **THEN** the file has no `addData` elements, declares `canworks` under the resource's `globalVars`, and validates against the TC6 2.01 schema
 
 ### Requirement: Tasks in the export
-For `--for trust` and `--for generic` the resource SHALL hold one cyclic task `canworks_task` whose program instances run `canworks_in`, then `main` when `--with-main` is given, then `canworks_out`, every fifth of the bridge's watchdog time in steps of 5 ms, at least 10 ms. `--with-main` SHALL add an empty `main` program.
+For `--for generic` the resource SHALL hold one cyclic task `canworks_task` whose program instances run `canworks_in`, then `main` when `--with-main` is given, then `canworks_out`, every fifth of the bridge's watchdog time in steps of 5 ms, at least 10 ms. `--with-main` SHALL add an empty `main` program.
 
 #### Scenario: Task order
-- **WHEN** a config with `watchdog_ms` 100 is exported with `--for trust --with-main`
+- **WHEN** a config with `watchdog_ms` 100 is exported with `--for generic --with-main`
 - **THEN** the task runs every 20 ms with `canworks_in`, `main` and `canworks_out` in that order
-
-### Requirement: truST transport
-`--for trust` SHALL also write `canworks_io.st` (the byte arrays `cw_in AT %IB0` and `cw_out AT %QB0`, because truST's PLCopen import drops AT addresses), `io.toml.part` (the `modbus-tcp` driver with the bridge's address and unit ID, reading the input registers from 0 and writing the holding registers from 0 every cycle, `on_error = "warn"`) and `README.txt` with the import command, the VS Code command, the copy and merge steps and the resource name `canworks_res`. `canworks_in` SHALL first copy `cw_in` into `canworks.in_w` and `canworks_out` SHALL last copy `canworks.out_w` into `cw_out`, high byte first. Because truST's driver moves one request each way, a map with more than 125 input or 123 holding registers SHALL be refused; for a config with mailboxes the refusal SHALL name the trimmed mailboxes that fit (one request mailbox, no receive mailbox, network info or cyclic jobs) and the blocks that then need the receive mailbox (`CAN_RECEIVE`, `J1939_RECEIVE`, `CO_RECV_EMCY`). Because a truST scan with the library takes about 100–125 ms, a bridge watchdog (the effective `watchdog_ms`, including OpenPLC's default of five polls) of more than 0 and less than 500 ms SHALL be refused, and the refusal SHALL name `"watchdog_ms": 500` or more as the fix. The truST documentation SHALL say which blocks work on truST and which do not, the scan time and the watchdog floor. The bridge host defaults to 127.0.0.1 when `listen` is a wildcard.
-
-#### Scenario: Run on truST
-- **WHEN** the folder is imported into a new truST project, `canworks_io.st` is copied, the driver is set and the runtime runs against a bridge with that config
-- **THEN** `canworks.ok` is TRUE, input values follow the bridge, outputs written by `main` reach the bridge, and `CO_SDO_READ` reads 0x1018:1 of a node
-
-#### Scenario: Default mailboxes on truST
-- **WHEN** a config with the default mailboxes is exported with `--for trust`
-- **THEN** nothing is written and the message says truST's driver moves one request each way and how to trim the mailboxes
-
-#### Scenario: Trimmed mailboxes on truST
-- **WHEN** a config with `"mailboxes": {"requests": 1, "receive": false, "network_info": false, "cyclic_jobs": 0}` is exported with `--for trust` and run against the bridge
-- **THEN** the export is written, and `CO_SDO_READ_STRING` reads 0x1008 of a node through the request mailbox
-
-#### Scenario: Watchdog too short for truST
-- **WHEN** a config with `bridge.openplc` and no `watchdog_ms` (50 ms with the default 10 ms poll), or with `"watchdog_ms": 499`, is exported with `--for trust`
-- **THEN** nothing is written and the message says a truST scan takes about 100–125 ms and to set `"watchdog_ms": 500` or more
-
-#### Scenario: Watchdog long enough or off
-- **WHEN** a config with `"watchdog_ms": 500`, with the PLC link's default of 1000 ms, or with `"watchdog_ms": 0` is exported with `--for trust`
-- **THEN** the export is written
-
-#### Scenario: Steady outputs on truST
-- **WHEN** truST runs the export for 60 s against a bridge with `"watchdog_ms": 500`
-- **THEN** the bridge log has no watchdog off and on lines while truST runs, and one outputs-off line when truST stops
 
 ### Requirement: Generic export
 `--for generic` SHALL also write the register map as `canworks-modbus-map.csv` and a `README.txt` that lists the client channels (function, registers, target array range) and says that the PLC's Modbus client must fill `canworks.in_w` from input registers and send `canworks.out_w` as holding registers at the task's cycle or faster.
@@ -78,13 +55,6 @@ For `--for trust` and `--for generic` the resource SHALL hold one cyclic task `c
 #### Scenario: Other tool
 - **WHEN** a config is exported with `--for generic`
 - **THEN** the folder has the XML, the CSV map and the README, and no vendor script
-
-### Requirement: truST trim offered only when it fits
-The truST refusal for a map over 125 registers SHALL offer "Trim the mailboxes for truST" only when the trimmed map fits. Otherwise it SHALL say how many registers the map with a request mailbox needs and offer canworks blocks None or locating fewer values.
-
-#### Scenario: Medium map
-- **WHEN** a truST connection with canworks blocks SDO and send is exported for a map that needs 144 input registers with one request mailbox
-- **THEN** the refusal says 144 is more than 125 and offers canworks blocks None, not the trim
 
 ### Requirement: Standard globals in the generic dialect
 The generic PLCopen XML SHALL use the TC6 2.01 namespace and SHALL declare `canworks` as a VAR_EXTERNAL in every program that reads or writes it.

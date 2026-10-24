@@ -1,6 +1,6 @@
 # Node-RED dashboard example
 
-A [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on the canworks Node-RED nodes ([docs/node-red.md](../../docs/node-red.md)), running against the simulated plant of the [Modbus bridge example](../modbus-bridge/canworks.json): a temperature module (node 5) whose first two channels follow a sine (20.0-26.0 °C) and a ramp, and a 16-bit digital I/O module (node 6) whose outputs loop back to its inputs. Both nodes are simulated inside canworks-bridge, so no CAN interface is needed. The CODESYS and truST examples use the same plant, tags and logic.
+A [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on the canworks Node-RED nodes ([docs/node-red.md](../../docs/node-red.md)), running against the simulated plant of the [Modbus bridge example](../modbus-bridge/canworks.json): a temperature module (node 5) whose first two channels follow a sine (20.0-26.0 °C) and a ramp, and a 16-bit digital I/O module (node 6) whose outputs loop back to its inputs. Both nodes are simulated inside canworks-bridge, so no CAN interface is needed. The CODESYS example uses the same plant, tags and logic.
 
 ![Plant page](../../docs/images/node-red-dashboard-plant.png)
 

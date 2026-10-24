@@ -328,16 +328,9 @@ class Connections(Base):
         # The config check's item, so the Problems row opens the field.
         self.assertEqual(r["items"][0]["paths"], ["networks[0].nodes[0].tx_pdos[0].entries[0].iec_location"])
         # A PLCopen download without the PLC link says how to turn it on.
-        cfg = self.add(self.cfg, kind="trust", name="truST", address="127.0.0.1")
+        cfg = self.add(self.cfg, kind="plc", name="Cell", address="127.0.0.1")
         r = self.download(cfg, 0)
         self.assertIn("turn it on", r["items"][0]["message"])
-        # truST refuses a watchdog under 500 ms, and the item opens the field.
-        linked = copy.deepcopy(cfg)
-        linked["bridge"].update(plc_link=True, listen="127.0.0.1:502", watchdog_ms=100)
-        linked = self.ok("/api/bridge/pack", {"config": linked})["config"]
-        r = self.download(linked, 0)
-        self.assertIn((["bridge.watchdog_ms"], True),
-                      [(i["paths"], '"watchdog_ms": 500 or more' in i["message"]) for i in r["items"]])
         self.assertNotIn("data", r)
         status, _ = self.request("/api/connections/download", {"config": cfg, "index": 5})
         self.assertEqual(status, 400)
@@ -367,10 +360,9 @@ class Connections(Base):
         self.assertEqual((conn["kind"], conn["poll_ms"]), ("openplc", 20))
         self.assertFalse(any("was removed" in m for m in self.errors(cfg)))
 
-    def test_trust_next_to_openplc_cannot_download(self):
-        # OpenPLC's mailboxes (its program's blocks turned them on) and
-        # watchdog make truST's Download refuse: the check says so before the
-        # Download, at the fields to change.
+    def test_other_plc_next_to_openplc_downloads(self):
+        # truST's own limits are gone with its kind (drop-trust-connection): an
+        # Other PLC next to OpenPLC's mailboxes and 50 ms watchdog downloads.
         self.open()
         del self.cfg["bridge"]["watchdog_ms"]  # OpenPLC's add sets 50 ms
         cfg = self.add(self.cfg, kind="openplc")
@@ -378,35 +370,21 @@ class Connections(Base):
         for key in ("input", "output"):
             cfg["bridge"]["mailboxes"][key + "_location"] = self.ok(
                 "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
-        cfg = self.add(cfg, kind="trust", name="truST", address="192.168.10.7", bridge_host="192.168.10.5")
-        refused = lambda c: [(i["level"], i["paths"], i["message"]) for i in self.ok("/api/check", {"config": c})["items"]
-                             if "Download refused" in i["message"]]
-        got = refused(cfg)
-        self.assertEqual([(lv, p) for lv, p, _ in got],
-                         [("warning", ["bridge.mailboxes", "bridge.connections[1]"]),
-                          ("warning", ["bridge.watchdog_ms", "bridge.connections[1]"])], got)
-        self.assertTrue(got[0][2].startswith("truST: Download refused: "), got)
-        self.assertIn("the OpenPLC program shares these mailboxes, so its CAN_RECEIVE", got[0][2])
-        self.assertNotIn("data", self.download(cfg, 1))
-        # The two fixes: requests only, repacked, and a 500 ms watchdog.
-        mb = cfg["bridge"]["mailboxes"]
-        mb.update(requests=1, receive=False, network_info=False, cyclic_jobs=0)
-        mb.pop("receive_blocks", None)
-        cfg["bridge"]["watchdog_ms"] = 500
-        cfg = self.ok("/api/bridge/pack", {"config": cfg})["config"]
-        self.assertEqual(refused(cfg), [])
-        # truST at 192.168.10.7 needs the bridge on the network: with loopback the Download is refused (UI-3).
+        cfg = self.add(cfg, kind="plc", name="Cell", address="192.168.10.7", bridge_host="192.168.10.5")
+        self.assertEqual([i for i in self.ok("/api/check", {"config": cfg})["items"]
+                          if "Download refused" in i["message"]], [])
+        # A PLC at 192.168.10.7 needs the bridge on the network: with loopback the Download is refused (UI-3).
         self.assertTrue(self.download(cfg, 1)["fix_first"])
         cfg["bridge"]["listen"] = "0.0.0.0:1502"
         self.assertIn("data", self.download(cfg, 1))
-        # canworks-deploy --check prints the same texts.
-        cfg["bridge"].update(watchdog_ms=100, listen="0.0.0.0:1502")
-        path = os.path.join(self.folder, "canworks.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f)
-        errs = []
-        cli.run(cli.parser().parse_args(["--config", path, "--check"]), out=lambda *a: None, err=errs.append)
-        self.assertTrue(any(e.startswith("warning: truST: Download refused: ") and '"watchdog_ms": 500' in e for e in errs), errs)
+
+    def test_trust_kind_removed(self):
+        # modbus-connections "Connection kinds": truST connects as an Other PLC.
+        self.open()
+        cfg = copy.deepcopy(self.cfg)
+        cfg["bridge"]["connections"] = [{"kind": "trust", "name": "truST", "address": "127.0.0.1"}]
+        self.assertTrue(any("field 'kind' must be one of \"openplc\", \"plc\", \"nodered\", \"hmi\"" in e
+                            for e in self.errors(cfg)), self.errors(cfg))
 
     def test_file_names(self):
         # Both parts of a Download's name are safe file name characters.
@@ -420,8 +398,8 @@ class Connections(Base):
         items = self.ok("/api/check", {"config": cfg})["items"]
         [err] = [i for i in items if "listen on all addresses" in i["message"]]
         self.assertEqual((err["level"], err["paths"]), ("error", ["bridge.listen", "bridge.connections[0].address"]))
-        # A truST connection without the bridge's address
-        cfg = self.add(self.cfg, kind="trust", name="truST", address="192.168.10.7")
+        # An Other PLC connection without the bridge's address
+        cfg = self.add(self.cfg, kind="plc", name="Cell", address="192.168.10.7")
         cfg["bridge"]["listen"] = "0.0.0.0:502"
         items = self.ok("/api/check", {"config": cfg})["items"]
         self.assertIn(["bridge.connections[0].bridge_host"],
@@ -438,11 +416,11 @@ class Connections(Base):
 
 
     def test_any_second_writer_next_to_the_plc_link(self):
-        # UI-2: truST and Other PLC next to OpenPLC are writers too; the OpenPLC connection is not warned.
+        # UI-2: Other PLCs next to OpenPLC are writers too; the OpenPLC connection is not warned.
         self.open()
         cfg = self.add(self.cfg, kind="openplc")
         cfg["bridge"]["listen"] = "0.0.0.0:1502"
-        cfg = self.add(cfg, kind="trust", name="Line", address="192.168.1.50")
+        cfg = self.add(cfg, kind="plc", name="Line", address="192.168.1.50")
         cfg = self.add(cfg, kind="plc", name="Cell", address="192.168.1.51")
         conns = cfg["bridge"]["connections"]
         self.assertEqual([c.get("writes") for c in conns], [True, False, False])
@@ -760,11 +738,11 @@ class MailboxUse(Base):
         self.assertIn("the mailboxes take 4 Modbus requests every 50 ms", items[0]["message"])
 
     def test_connection_blocks_need_them(self):
-        # modbus-connections "Mailbox warning counts the connections": a truST
-        # connection's SDO and send keeps the warning (and its Turn off) away.
+        # modbus-connections "Mailbox warning counts the connections": an Other
+        # PLC connection's SDO and send keeps the warning (and its Turn off) away.
         self.main("    rd : CO_SDO_READ;")
         cfg = copy.deepcopy(self.cfg)
-        cfg["bridge"]["connections"].append({"kind": "trust", "name": "truST", "bridge_host": "10.0.0.2",
+        cfg["bridge"]["connections"].append({"kind": "plc", "name": "Cell", "bridge_host": "10.0.0.2",
                                              "blocks": "sdo_send"})
         cfg["bridge"]["mailboxes"] = {"receive": False, "network_info": False, "cyclic_jobs": 0}
         for key in ("input", "output"):
@@ -821,8 +799,8 @@ class ConnectionBlocks(Base):
                 "/api/bridge/suggest", {"config": cfg, "block": "mailbox_" + key})["location"]
         return cfg
 
-    def test_trust_with_sdo_blocks(self):
-        cfg = self.linked({"kind": "trust", "name": "Line", "address": "192.168.10.40"})
+    def test_other_plc_with_sdo_blocks(self):
+        cfg = self.linked({"kind": "plc", "name": "Line", "address": "192.168.10.40"})
         cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"
         [item] = self.mailbox_items(cfg)
         self.assertEqual(item["level"], "error")
@@ -834,9 +812,10 @@ class ConnectionBlocks(Base):
         r = self.ok("/api/bridge/map", {"config": cfg})
         self.assertEqual(r["connection_blocks"], [{"index": 0, "name": "Line", "blocks": "sdo_send",
                                                    "text": "SDO and send (1 request mailbox)"}])
-        # truST moves one request each way: no receiving blocks.
+        # Every choice fits an Other PLC (truST's one-request limit went with its kind).
         cfg["bridge"]["connections"][0]["blocks"] = "receive"
-        self.assertTrue(any("only canworks blocks None or SDO and send fit" in e for e in self.errors(cfg)))
+        errs = self.errors(cfg)
+        self.assertFalse(any("field 'blocks'" in e or "one request each way" in e for e in errs), errs)
         cfg["bridge"]["connections"][0]["blocks"] = "most"
         self.assertTrue(any("field 'blocks' must be" in e for e in self.errors(cfg)))
 
@@ -852,7 +831,7 @@ class ConnectionBlocks(Base):
                       "holding registers: Turn off the mailboxes", item["message"])
 
     def test_one_program_owns_the_mailboxes(self):
-        cfg = self.linked({"kind": "trust", "name": "Line", "address": "192.168.10.40"},
+        cfg = self.linked({"kind": "plc", "name": "Line", "address": "192.168.10.40"},
                           {"kind": "plc", "name": "Cell", "address": "192.168.10.41", "format": "st"})
         cfg = self.placed(cfg, {})
         cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"

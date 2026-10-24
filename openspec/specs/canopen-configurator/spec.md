@@ -3411,7 +3411,7 @@ Download SHALL offer the `codesys-export` folder as `<config folder name>_codesy
 - **THEN** the page says CODESYS was not found and offers Download for CODESYS
 
 ### Requirement: Target of a new config
-New config… SHALL ask "What runs the CAN networks?" with two cards: **Modbus bridge** (canworks-bridge runs the networks and serves Modbus TCP registers; the card lists OpenPLC, truST, other PLCs, Node-RED and HMI, SCADA or scripts as what it works with) and **CODESYS** (a CODESYS PLC runs the CANopen master). Modbus bridge SHALL be preselected. Then it SHALL ask for the name and location, and Create SHALL write the empty config before the page opens it.
+New config… SHALL ask "What runs the CAN networks?" with two cards: **Modbus bridge** (canworks-bridge runs the networks and serves Modbus TCP registers; the card lists OpenPLC, other PLCs, Node-RED and HMI, SCADA or scripts as what it works with) and **CODESYS** (a CODESYS PLC runs the CANopen master). Modbus bridge SHALL be preselected. Then it SHALL ask for the name and location, and Create SHALL write the empty config before the page opens it.
 
 #### Scenario: New Modbus bridge config
 - **WHEN** the user creates a new Modbus bridge config and reloads the page
@@ -4228,7 +4228,7 @@ With an OpenPLC connection, a count change SHALL move both areas to free ranges 
 - **THEN** the areas move to free ranges, the register and request counts grow by 120 registers and one request, and the expected rate reads about 1050 CAN frames/s
 
 #### Scenario: Who needs them
-- **WHEN** the OpenPLC program declares a `CAN_RECEIVE` in `main`, or in a config without OpenPLC a truST connection "Line" has canworks blocks SDO and send
+- **WHEN** the OpenPLC program declares a `CAN_RECEIVE` in `main`, or in a config without OpenPLC an Other PLC connection "Line" has canworks blocks SDO and send
 - **THEN** the section says "The OpenPLC program declares CAN_RECEIVE (main)", or "Line: canworks blocks SDO and send (1 request mailbox)"
 
 ### Requirement: ST calls for the blocks over the bridge
@@ -4342,11 +4342,15 @@ For an OpenPLC project (a config with an OpenPLC connection, inside an editor pr
 - **THEN** the file is not listed as out of date and Save stays disabled; a later save asks before writing it, as today
 
 ### Requirement: Export for another PLC
-The truST and Other PLC (`format` `plcopen`) connections SHALL download the `--export-plcopen` folder as a zip for `trust` or `generic`. Their settings SHALL hold the bridge address the PLC uses (default: `listen` when it is neither a wildcard nor a loopback address) and whether to include the library (on).
+The Other PLC connection with `format` `plcopen` SHALL download the `--export-plcopen --for generic` folder as a zip. Add connection SHALL NOT offer a truST kind: truST is an Other PLC. Its settings SHALL hold the bridge address the PLC uses (default: `listen` when it is neither a wildcard nor a loopback address) and whether to include the library (on).
+
+#### Scenario: Other PLC connection
+- **WHEN** the user downloads an Other PLC connection with format PLCopen XML and bridge address 192.168.10.5 on a config with `plc_link`
+- **THEN** the zip equals `canworks-deploy --export-plcopen --for generic --bridge-host 192.168.10.5` for the config
 
 #### Scenario: truST connection
-- **WHEN** the user downloads a truST connection with bridge address 192.168.10.5 on a config with `plc_link`
-- **THEN** the zip equals `canworks-deploy --export-plcopen --for trust --bridge-host 192.168.10.5` for the config
+- **WHEN** the user opens Add connection… on the Modbus bridge page
+- **THEN** it lists OpenPLC, Other PLC, Node-RED and HMI, SCADA or script, and no truST
 
 #### Scenario: Only on Modbus bridge configs
 - **WHEN** a CODESYS config is open
@@ -4367,12 +4371,12 @@ The zip SHALL be named `<config name>-<connection name>.zip`. On a config withou
 A PLCopen or ST connection whose bridge address is empty SHALL show a warning on its row and in Problems. Connection addresses that cannot reach `listen` SHALL be the error of `modbus-connections` "Connections reach the bridge".
 
 #### Scenario: No bridge address
-- **WHEN** a truST connection has no bridge address and `listen` is `0.0.0.0:502`
+- **WHEN** an Other PLC connection has no bridge address and `listen` is `0.0.0.0:502`
 - **THEN** its row and Problems warn that the PLC needs the bridge's address
 
 #### Scenario: Loopback listen
-- **WHEN** a config with `plc_link` listens on `127.0.0.1:1502` and has a truST connection at 192.168.10.7
-- **THEN** Problems shows the error naming the truST connection with Listen on all addresses
+- **WHEN** a config with `plc_link` listens on `127.0.0.1:1502` and has an Other PLC connection at 192.168.10.7
+- **THEN** Problems shows the error naming the Other PLC connection with Listen on all addresses
 
 ### Requirement: Plugin configs
 A config with neither `bridge` nor `codesys` (the removed plugin's) SHALL open read-only with one message and **Use with canworks-bridge**. As one undo step it SHALL repack for the bridge, add `bridge`, add an OpenPLC connection when the folder is inside an OpenPLC Editor project, and remove `axis`, `sync_source`, `sync_cycles` and `scan_watchdog_ms`. Until then the page SHALL NOT save.

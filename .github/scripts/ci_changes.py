@@ -23,7 +23,7 @@ unknown.
 
 PLCopen: plcopen=true when a changed path matches a rule in
 .github/ci/plcopen-paths.txt (the tools shard fetches truST and runs the
-PLCopen import check), on a push to main and when the base is unknown.
+PLCopen compile check), on a push to main and when the base is unknown.
 
 Adapter server file: adapterfile=true when a changed path matches a rule in
 .github/ci/adapter-file-paths.txt (the tools shard builds the file and runs
@@ -99,7 +99,7 @@ def load_plcopen_rules(path=PLCOPEN_RULES_FILE):
 
 
 def is_plcopen(paths, rules):
-    """Whether the truST import check runs: same matching as is_ui."""
+    """Whether the truST compile check runs: same matching as is_ui."""
     return is_ui(paths, rules)
 
 

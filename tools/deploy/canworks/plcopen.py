@@ -2,20 +2,20 @@
 
 `writer(...)` turns ST sources (the canworks library, the generated
 canworks_in and canworks_out) and global variable lists into one TC6 XML
-file. Three dialects (plcopen-export spec):
+file. Two dialects (plcopen-export spec):
 
     codesys   named global variable lists as CODESYS `globalvars` addData
               objects, the declarations also as InterfaceAsPlainText (so
               pragmas such as qualified_only survive); no configuration,
               CODESYS keeps its tasks in its own task configuration
-    trust     standard TC6 as generic (truST 0.24 cannot assign to an array
-              element in a NAMESPACE, which a CODESYS-style list becomes)
     generic   standard TC6 only: a list becomes a STRUCT type and one
               resource global variable of it, so `canworks.ok` reads the
-              same in every dialect; one configuration with the task. The
-              programs declare it VAR_EXTERNAL (plcopen_targets)
+              same in every dialect (some importers cannot assign to an
+              array element in a NAMESPACE, which a CODESYS-style list
+              becomes); one configuration with the task. The programs
+              declare it VAR_EXTERNAL (plcopen_targets)
 
-CODESYS gets the tc6_0200 namespace it reads, trust and generic tc6_0201.
+CODESYS gets the tc6_0200 namespace it reads, generic tc6_0201.
 
 Bodies stay plain ST text. The declarations are parsed from the sources
 (one declaration per line, as canworks writes them) into TC6 interfaces.
@@ -28,11 +28,11 @@ NS = "http://www.plcopen.org/xml/tc6_0200"
 # TC6 2.01, the standard dialects' namespace (plcopen-export "Standard globals
 # in the generic dialect"); CODESYS reads tc6_0200.
 NS_201 = "http://www.plcopen.org/xml/tc6_0201"
-NAMESPACES = {"codesys": NS, "trust": NS_201, "generic": NS_201}
+NAMESPACES = {"codesys": NS, "generic": NS_201}
 XHTML = "http://www.w3.org/1999/xhtml"
 PLAINTEXT = "http://www.3s-software.com/plcopenxml/interfaceasplaintext"
 GLOBALVARS = "http://www.3s-software.com/plcopenxml/globalvars"
-DIALECTS = ("codesys", "trust", "generic")
+DIALECTS = ("codesys", "generic")
 
 ELEMENTARY = ("BOOL", "BYTE", "WORD", "DWORD", "LWORD", "SINT", "INT", "DINT", "LINT", "USINT", "UINT",
               "UDINT", "ULINT", "REAL", "LREAL", "TIME", "DATE", "DT", "TOD")
@@ -82,7 +82,7 @@ class Pou:
 
 class GlobalList:
     """A named global variable list, read as `<list>.<variable>`. CODESYS
-    gets it as a list with the qualified_only pragma; trust and generic get
+    gets it as a list with the qualified_only pragma; generic gets
     a STRUCT type and one global of it (truST 0.24 cannot assign to an
     element of an array in a NAMESPACE)."""
 
@@ -329,7 +329,7 @@ def _interval(ms):
 def writer(pous, lists, dialect, tasks=(), name="canworks", product_version="0", created="1970-01-01T00:00:00",
            doc=""):
     """The TC6 XML text of `pous` ([Pou]), `lists` ([GlobalList]) and, for
-    trust and generic, one configuration with `tasks` ([Task])."""
+    generic, one configuration with `tasks` ([Task])."""
     if dialect not in DIALECTS:
         raise PlcopenError("unknown dialect %r" % dialect)
     vendor = dialect == "codesys"

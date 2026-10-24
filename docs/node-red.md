@@ -16,7 +16,7 @@
 
 ## Dashboard example
 
-[`examples/node-red-dashboard`](../examples/node-red-dashboard/README.md) is a ready [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on these nodes, against the simulated plant of the Modbus bridge example (a temperature module and a digital I/O module, no CAN interface). `docker compose up` in that folder starts the bridge and Node-RED with the package, Dashboard 2.0 and the flow installed; the dashboard is at `http://localhost:1880/dashboard`. Its pages show the temperatures with a trend, an alarm with Ack, the digital inputs and outputs, NMT commands, an SDO read and received EMCY messages. The CODESYS and truST examples run the same plant and logic.
+[`examples/node-red-dashboard`](../examples/node-red-dashboard/README.md) is a ready [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on these nodes, against the simulated plant of the Modbus bridge example (a temperature module and a digital I/O module, no CAN interface). `docker compose up` in that folder starts the bridge and Node-RED with the package, Dashboard 2.0 and the flow installed; the dashboard is at `http://localhost:1880/dashboard`. Its pages show the temperatures with a trend, an alarm with Ack, the digital inputs and outputs, NMT commands, an SDO read and received EMCY messages. The CODESYS example runs the same plant and logic.
 
 ## What you need
 

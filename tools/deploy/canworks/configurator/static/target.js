@@ -11,7 +11,7 @@
 
 const TARGET_CHOICES = [
   { value: "bridge", label: "Modbus bridge",
-    help: "canworks-bridge runs the networks and serves the values as Modbus TCP registers to its connections: OpenPLC, truST, other PLCs, Node-RED, HMIs. Locations are byte addresses: %IW0 is bytes 0 and 1, input register 0." },
+    help: "canworks-bridge runs the networks and serves the values as Modbus TCP registers to its connections: OpenPLC, other PLCs, Node-RED, HMIs. Locations are byte addresses: %IW0 is bytes 0 and 1, input register 0." },
   { value: "codesys", label: "CODESYS",
     help: "A CODESYS PLC runs the CANopen master networks: canworks builds the bus, the nodes and their named I/O channels into a CODESYS project. No PLC locations: each PDO entry's variable name names its channel." },
 ];
