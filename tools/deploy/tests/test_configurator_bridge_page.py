@@ -312,6 +312,45 @@ class BridgePage(OnlineBase):
         pg.wait_for_function("() => S.model.top.bridge.mailboxes.receive !== false")
         self.assertEqual(pg.evaluate("() => S.model.top.bridge.watchdog_ms"), 500)
 
+    def test_trust_too_big_even_trimmed(self):
+        """EXPORTS-2 (page side): when even the trimmed map does not fit
+        truST, Problems offers Set canworks blocks to None, one undo step."""
+        pg = self.page
+        ses = srv.Session()
+        cfg = ses.add_connection(self.cfg, {"kind": "trust", "name": "Cell PLC", "address": "192.168.10.7",
+                                            "bridge_host": "192.168.10.5"})["config"]
+        cfg["bridge"]["connections"][0]["blocks"] = "sdo_send"
+        cfg["bridge"].update(plc_link=True, watchdog_ms=500,
+                             mailboxes={"requests": 1, "receive": False, "network_info": False, "cyclic_jobs": 0,
+                                        "input_location": "%IB0", "output_location": "%QB0"})
+        self.cfg = ses.bridge_pack(cfg)["config"]
+        self.write_config()
+        message = ("Cell PLC: Download refused: truST's Modbus driver moves one request each way (at most 125 input "
+                   "and 123 holding registers); this map uses 144 and 80: with a request mailbox this map needs 144 "
+                   "input registers, more than 125: leave the mailboxes out (canworks blocks None on the connection) "
+                   "or locate fewer values, then run Pack for Modbus")
+
+        def check(route):
+            r = route.fetch()
+            body = r.json()
+            if "Cell PLC" in json.dumps(route.request.post_data_json.get("config", {}).get("bridge", {}).get("connections", [])) \
+                    and (route.request.post_data_json["config"]["bridge"]["connections"][0].get("blocks")):
+                body["items"].append({"level": "warning", "message": message,
+                                      "paths": ["bridge.mailboxes", "bridge.connections[0]"]})
+            route.fulfill(response=r, body=json.dumps(body))
+
+        pg.route("**/api/check", check)
+        self.to_bridge()
+        pg.wait_for_selector('#problem-list [data-problem-fix="trust-blocks-none"]')
+        self.assertEqual(pg.locator('#problem-list [data-problem-fix="trim-trust"]').count(), 0)
+        pg.click('#problem-list [data-problem-fix="trust-blocks-none"]')
+        pg.wait_for_function("() => !S.model.top.bridge.mailboxes && !S.model.top.bridge.connections[0].blocks")
+        self.checked()
+        pg.wait_for_selector('#problem-list [data-problem-fix="trust-blocks-none"]', state="detached")
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Control+z")
+        pg.wait_for_function("() => !!S.model.top.bridge.mailboxes && S.model.top.bridge.connections[0].blocks === 'sdo_send'")
+
     def test_other_plc_formats(self):
         """An Other PLC connection: PLCopen XML or ST, no CODESYS choice, and
         the line pointing CODESYS to its own target."""

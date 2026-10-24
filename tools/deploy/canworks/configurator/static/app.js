@@ -7964,6 +7964,13 @@ function bridgeProblemFixes(it) {
     button.title = "One request mailbox and nothing else, then Pack for Modbus." + lost;
     return [button];
   }
+  // Even trimmed the map is too big for truST (EXPORTS-2): its canworks blocks to None, without the mailboxes.
+  const ci = (it.paths || []).map((p) => /^bridge\.connections\[(\d+)\]$/.exec(p)).find(Boolean);
+  if (ci && /Download refused: .*leave the mailboxes out \(canworks blocks None/.test(it.message)) {
+    const button = fix("Set canworks blocks to None", "trust-blocks-none", (e) => busy(e.currentTarget, "Packing…", () => noMailboxesForTrust(Number(ci[1]))));
+    button.title = "The connection's canworks blocks to None and, when nothing else needs them, the mailboxes off, then Pack for Modbus.";
+    return [button];
+  }
   const m = /^bridge\.connections\[(\d+)\]$/.exec(((it.paths || [])[0]) || "");
   if (m && /Download again$/.test(it.message)) {
     const i = Number(m[1]);

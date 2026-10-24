@@ -37,19 +37,19 @@ Finding IDs refer to the table in design.md. Each fix starts with a test that fa
 
 ## 4. Configurator and Devices
 
-- [ ] 4.1 UI-1: `device_networks` leaves out simulated networks; test of the adapter row with a simulated can0 network.
-- [ ] 4.2 UI-2: writer warning for any second connection with `writes` next to a PLC link; Add dialog leaves Writes off then; tests.
-- [ ] 4.3 UI-3: connection Download refused while the check has an error on that connection or on `bridge.listen` for it; README names the listen address for non-loopback clients; page test.
-- [ ] 4.4 UI-4: Start and Update confirmations name an active other instance, Stop A and start B as main action, port and interface clash warnings; page test with the fake SSH device.
-- [ ] 4.5 UI-5: finished job text from the job's own instance; page test switching projects.
-- [ ] 4.6 UI-6, UI-7: Check now keeps the menu open, shows the result there and in the banner, disabled while the check is off; page test.
-- [ ] 4.7 UI-8, UI-12, UI-15 (Devices): sudo field layout, device list above the details below 1000 px, plural, user name case, Actions menu names, Remote link row reason, refreshed checked time; page tests at 800 px.
-- [ ] 4.8 UI-9: New editor project disabled without openplc-cli; page test.
-- [ ] 4.9 UI-10: address required in Add connection, 127.0.0.1 prefilled for Node-RED and HMI; check message "Give the address of NAME"; page test.
-- [ ] 4.10 UI-11: CODESYS import clash reason and role names; test.
-- [ ] 4.11 UI-13: header chip shortens the target before the project name; layout test.
-- [ ] 4.12 UI-14: a 403 session answer shows the restarted notice and stops polling; page test.
-- [ ] 4.13 UI-15 (rest): mailboxes "Off by default" sentence, "in Commission" Problems line.
+- [x] 4.1 UI-1: `device_networks` leaves out simulated networks; test of the adapter row with a simulated can0 network.
+- [x] 4.2 UI-2: writer warning for any second connection with `writes` next to a PLC link; Add dialog leaves Writes off then; tests.
+- [x] 4.3 UI-3: connection Download refused while the check has an error on that connection or on `bridge.listen` for it; README names the listen address for non-loopback clients; page test.
+- [x] 4.4 UI-4: Start and Update confirmations name an active other instance, Stop A and start B as main action, port and interface clash warnings; page test with the fake SSH device.
+- [x] 4.5 UI-5: finished job text from the job's own instance; page test switching projects.
+- [x] 4.6 UI-6, UI-7: Check now keeps the menu open, shows the result there and in the banner, disabled while the check is off; page test.
+- [x] 4.7 UI-8, UI-12, UI-15 (Devices): sudo field layout, device list above the details below 1000 px, plural, user name case, Actions menu names, Remote link row reason, refreshed checked time; page tests at 800 px.
+- [x] 4.8 UI-9: New editor project disabled without openplc-cli; page test.
+- [x] 4.9 UI-10: address required in Add connection, 127.0.0.1 prefilled for Node-RED and HMI; check message "Give the address of NAME"; page test.
+- [x] 4.10 UI-11: CODESYS import clash reason and role names; test.
+- [x] 4.11 UI-13: header chip shortens the target before the project name; layout test.
+- [x] 4.12 UI-14: a 403 session answer shows the restarted notice and stops polling; page test.
+- [x] 4.13 UI-15 (rest): mailboxes "Off by default" sentence, "in Commission" Problems line.
 - [ ] 4.14 DOCS-1: Add OpenPLC dialog and banner texts; DOCS-2: "Update declarations" replaced by Save in the bridge page notice and the generated file headers.
 
 ## 5. Installers and updates

@@ -743,6 +743,26 @@ async function trimMailboxesForTrust() {
   }
 }
 
+// Problems' Set canworks blocks to None for a truST connection whose map is
+// too big even with one request mailbox: its blocks go, and the mailboxes too
+// when neither OpenPLC nor another connection uses them; packed, one undo step.
+async function noMailboxesForTrust(i) {
+  const cfg = fileConfig();
+  const list = cfg.bridge.connections || [];
+  if (list[i]) delete list[i].blocks;
+  const others = list.some((c, k) => k !== i && c && c.blocks && c.blocks !== "none") || list.some((c) => c && c.kind === "openplc");
+  if (!others) delete cfg.bridge.mailboxes;
+  try {
+    const r = await api("POST", "/api/bridge/pack", { config: cfg });
+    bridgeReplaceDraft(r.config);
+    changed(true);
+    banner((others ? "The connection's canworks blocks are None" : "The connection's canworks blocks are None and the mailboxes are off") +
+      ", and every location is packed. Undo takes it back.");
+  } catch (e) {
+    banner(`Pack for Modbus failed: ${e.message}`, true);
+  }
+}
+
 async function plcLinkOn() {
   const cfg = fileConfig();
   cfg.bridge.plc_link = true;
