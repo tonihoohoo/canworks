@@ -21,3 +21,8 @@ tools/deploy/tests/data/explain/* text eol=lf
 # A source copy made with git archive (no .git) still knows its version:
 # install-bridge.sh reads it when git describe cannot run.
 scripts/SOURCE_VERSION export-subst
+
+# Shell scripts run in Linux containers (the examples' start.sh is mounted
+# into Docker): LF on every checkout, or sh fails on a Windows clone with
+# autocrlf.
+*.sh text eol=lf
