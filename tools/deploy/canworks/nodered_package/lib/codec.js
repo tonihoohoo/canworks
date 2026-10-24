@@ -66,6 +66,7 @@ function encode(img, r, value) {
   const bytes = new Array(r.size).fill(0);
   if (r.k === "real") {
     if (typeof v === "bigint") v = Number(v);
+    if (!isFinite(v)) return "needs a finite number";
     const dv = new DataView(new ArrayBuffer(r.size));
     if (r.size === 8) dv.setFloat64(0, v);
     else dv.setFloat32(0, v);

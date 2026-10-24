@@ -15,6 +15,12 @@ const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5000;
 const QUEUE_LIMIT = 64;
 const NMT_COMMANDS = { run: 1, idle: 2, start: 3, stop: 4, preop: 5, reset: 6, reset_comm: 7 };
+const STOP_WAIT_MS = 500; // how long stop() waits for the closes the nodes queued
+const REFUSED = "writes refused: add Node-RED's address to the bridge's writers";
+const MISMATCH = "map mismatch: export the flow again";
+// Read Device Identification (function 43, MEI type 14): one object, the bridge's map hash.
+const ID_INDIVIDUAL = 4;
+const ID_MAP_HASH = 0x80;
 
 // A job's end with an ERROR_ID (the block family's numbers).
 class CwError extends Error {
@@ -103,10 +109,17 @@ class Bridge extends EventEmitter {
     this.rxBySlot = new Map();
     this.rxSeq = null;
     this.rxBusy = false;
-    this.rxOrphans = new Set();
+    this.rxClosing = new Map(); // slot -> the generation an rx_close went out for
+    this.sweepWaiters = [];
+    this.closing = new Set(); // rx_close and cyclic_stop on their way
+    this.readWaiters = [];
     this.ack = null; // {seq} to write
     this.cyclics = new Set();
     this.jobBySlot = new Map();
+    this.mapMismatch = false;
+    this.identity = null; // the bridge's map hash text, when it answers device identification
+    this.warnedIdentity = false;
+    this.stopping = null;
   }
 
   // ---- connection ----
@@ -117,12 +130,27 @@ class Bridge extends EventEmitter {
     this._connect();
   }
 
+  // Resolves once stopped. A Deploy closes the receiver and cyclic nodes
+  // next to this one: their rx_close and cyclic_stop go out first, for up to
+  // STOP_WAIT_MS, so the bridge does not keep them.
   stop() {
-    this.running = false;
-    clearTimeout(this.timer);
-    if (this.client) this.client.close();
-    this._down(new CwError(20, "the bridge node was stopped"));
-    this._state("stopped", { fill: "grey", shape: "ring", text: "stopped" });
+    if (this.stopping) return this.stopping;
+    this.stopping = new Promise((r) => setImmediate(r))
+      .then(() => {
+        if (!this.closing.size || !this.connected) return null;
+        let timer;
+        return Promise.race([Promise.allSettled([...this.closing]), new Promise((r) => (timer = setTimeout(r, STOP_WAIT_MS)))])
+          .then(() => clearTimeout(timer));
+      })
+      .then(() => {
+        this.stopping = null;
+        this.running = false;
+        clearTimeout(this.timer);
+        if (this.client) this.client.close();
+        this._down(new CwError(20, "the bridge node was stopped"));
+        this._state("stopped", { fill: "grey", shape: "ring", text: "stopped" });
+      });
+    return this.stopping;
   }
 
   _state(name, status) {
@@ -133,7 +161,7 @@ class Bridge extends EventEmitter {
 
   async _connect() {
     if (!this.running) return;
-    this._state("connecting", { fill: "yellow", shape: "ring", text: "connecting to " + this.host + ":" + this.port });
+    if (!this.mapMismatch) this._state("connecting", { fill: "yellow", shape: "ring", text: "connecting to " + this.host + ":" + this.port });
     const c = this.clientFactory({ host: this.host, port: this.port, unit: this.unit, timeoutMs: 1000 });
     this.client = c;
     try {
@@ -146,6 +174,7 @@ class Bridge extends EventEmitter {
       if (this.client === c) this._retry(e);
     });
     try {
+      await this._identify(c);
       await this._seed();
     } catch (e) {
       c.close();
@@ -153,7 +182,8 @@ class Bridge extends EventEmitter {
     }
     this.connected = true;
     this.delay = RECONNECT_MIN_MS;
-    if (this.writesRefused) this._refused();
+    if (this.mapMismatch) this._state("mismatch", { fill: "red", shape: "dot", text: MISMATCH });
+    else if (this.writesRefused) this._refused();
     else this._state("running", { fill: "green", shape: "dot", text: "connected" });
     this.emit("up");
     for (const rx of this.receivers) rx._open();
@@ -183,6 +213,20 @@ class Bridge extends EventEmitter {
 
   // Every job and call running or waiting ends with `err`.
   _down(err) {
+    this._endJobs(err);
+    this.rxBySlot.clear();
+    this.rxSeq = null;
+    this.rxBusy = false;
+    this.rxClosing.clear();
+    this.sweepWaiters = [];
+    for (const w of this.readWaiters.splice(0)) w.reject(err);
+    this.ack = null;
+    this.jobBySlot.clear();
+    for (const rx of this.receivers) rx._lost();
+    for (const j of this.cyclics) j._lost();
+  }
+
+  _endJobs(err) {
     for (const w of this.mbWait.splice(0)) w.reject(err);
     for (let m = 0; m < this.mb.length; m++) {
       const lease = this.mbBusy[m];
@@ -195,14 +239,30 @@ class Bridge extends EventEmitter {
     for (const q of [this.sdoQueue, this.nmtQueue]) for (const j of q.splice(0)) j.reject(err);
     for (const j of [this.sdoBusy, this.nmtBusy]) if (j) j.reject(err);
     this.sdoBusy = this.nmtBusy = null;
-    this.rxBySlot.clear();
-    this.rxSeq = null;
-    this.rxBusy = false;
-    this.rxOrphans.clear();
-    this.ack = null;
-    this.jobBySlot.clear();
-    for (const rx of this.receivers) rx._lost();
-    for (const j of this.cyclics) j._lost();
+  }
+
+  // At connect: the bridge's map hash by device identification. A hash
+  // other than the flow's refuses every write and job; a bridge that does
+  // not answer it (older) gives a warning only.
+  async _identify(c) {
+    this.mapMismatch = false;
+    if (typeof this.lay.mapHash !== "number" || !c.readDeviceId) return;
+    let text = "";
+    try {
+      const id = await c.readDeviceId(ID_INDIVIDUAL, ID_MAP_HASH);
+      const v = id.objects[ID_MAP_HASH];
+      text = v ? Buffer.from(v).toString("latin1").trim() : "";
+    } catch (e) {
+      if (!/^exception/.test(e.code || "")) throw e;
+    }
+    if (!/^[0-9A-Fa-f]{8}$/.test(text)) {
+      this.identity = null;
+      if (!this.warnedIdentity) this.emit("warning", "the bridge does not give its map hash by device identification (an older canworks-bridge): the flow's map is not checked");
+      this.warnedIdentity = true;
+      return;
+    }
+    this.identity = { mapHash: text.toUpperCase() };
+    this.mapMismatch = parseInt(text, 16) !== this.lay.mapHash >>> 0;
   }
 
   // After a connect: read the outputs and requests back and write them
@@ -211,7 +271,7 @@ class Bridge extends EventEmitter {
   // runs again.
   async _seed() {
     const c = this.client;
-    if (this.readOnly) {
+    if (this.readOnly || this.mapMismatch) {
       this.seeded = false;
       return;
     }
@@ -228,12 +288,17 @@ class Bridge extends EventEmitter {
       this.writesRefused = true;
     }
     this.lastWrite = Date.now();
+    this._baseline();
+    this.seeded = true;
+  }
+
+  // The counters as the bridge holds them, and the outputs set since the
+  // last confirmed write on top (they stay pending until written).
+  _baseline() {
     this.mbCounter = this.mb.map((m) => be16(this.outImg, m.req));
     if (this.lay.sdoReq !== null && this.lay.sdoReq !== undefined) this.sdoCounter = be16(this.outImg, this.lay.sdoReq);
     if (this.lay.control !== null && this.lay.control !== undefined) this.ctlCounter = be16(this.outImg, this.lay.control);
     for (const [name, value] of this.pendingOut) codec.encode(this.outImg, this.outputs.get(name), value);
-    this.pendingOut.clear();
-    this.seeded = true;
   }
 
   _words(start, n) {
@@ -265,11 +330,13 @@ class Bridge extends EventEmitter {
       for (let i = 0; i < n; i++) put16(this.inImg, (s + i) * 2, words[i]);
     }
     this.haveInput = true;
+    for (const w of this.readWaiters.splice(0)) w.resolve();
     this._afterRead();
     if (this.readOnly || !this.seeded) return;
     if (this.writesRefused && Date.now() - this.lastWrite < 5000) return;
     const now = Date.now();
-    const all = this.rewriteMs && now - this.lastWrite >= this.rewriteMs;
+    // While refused, every write is a try: an unchanged image must not pass for accepted.
+    const all = this.writesRefused || (this.rewriteMs && now - this.lastWrite >= this.rewriteMs);
     for (const j of this.cyclics) j._keepalive();
     if (this.ack) {
       const a = this.lay.mailboxes.receive.ack;
@@ -279,6 +346,7 @@ class Bridge extends EventEmitter {
       this.ack = null;
     }
     let wrote = false;
+    const sent = new Map(this.pendingOut);
     try {
       for (const [s, n] of this.lay.write) {
         const from = s * 2, to = (s + n) * 2;
@@ -287,22 +355,32 @@ class Bridge extends EventEmitter {
         this.outImg.copy(this.written, from, from, to);
         wrote = true;
       }
+      for (const [name, value] of sent) if (Object.is(this.pendingOut.get(name), value)) this.pendingOut.delete(name);
       if (this.writesRefused) {
         this.writesRefused = false;
         this._state("running", { fill: "green", shape: "dot", text: "connected" });
+        for (const rx of this.receivers) rx._open();
       }
     } catch (e) {
       if (!/^exception/.test(e.code || "")) throw e;
+      const was = this.writesRefused;
       this.writesRefused = true;
       this.lastWrite = now;
       this._refused();
+      if (!was) {
+        // The jobs' requests never reach the bridge: end them now, and take
+        // back what they put in the image so nothing old runs later.
+        this._endJobs(new CwError(21, REFUSED));
+        this.written.copy(this.outImg);
+        this._baseline();
+      }
       return;
     }
     if (wrote || all) this.lastWrite = now;
   }
 
   _refused() {
-    this._state("refused", { fill: "red", shape: "dot", text: "writes refused: add Node-RED's address to the bridge's writers" });
+    this._state("refused", { fill: "red", shape: "dot", text: REFUSED });
   }
 
   // ---- inputs ----
@@ -378,13 +456,15 @@ class Bridge extends EventEmitter {
   // Sets output `name`; returns an error text or null.
   set(name, value) {
     if (this.readOnly) return "read-only: this flow does not write to the bridge";
+    if (this.mapMismatch) return MISMATCH;
     const r = this.outputs.get(name);
     if (!r) return "no output named " + JSON.stringify(name);
     const probe = Buffer.alloc(this.lay.outBytes);
     const err = codec.encode(probe, r, value);
     if (err) return name + " " + err;
-    if (!this.seeded) this.pendingOut.set(name, value);
-    else codec.encode(this.outImg, r, value);
+    // Pending until a write of it is confirmed: a reconnect's read-back does not lose it.
+    this.pendingOut.set(name, value);
+    if (this.seeded) codec.encode(this.outImg, r, value);
     return null;
   }
 
@@ -395,6 +475,8 @@ class Bridge extends EventEmitter {
     if (n === undefined || n === null || n === "") {
       const of = nets.filter((x) => !kind || x.kinds.includes(kind));
       if (of.length === 1) return of[0].index;
+      if (!of.length && kind === "j1939") throw new CwError(10, "the config has no J1939 network");
+      if (!of.length && kind === "canopen") throw new CwError(4, "the config has no CANopen master network");
       throw new CwError(kind === "j1939" ? 2 : kind === "canopen" ? 6 : 2, "name the network: the config has " + of.length + " " + (kind || "") + " networks");
     }
     const index = typeof n === "number" ? n : typeof n === "string" && /^\d+$/.test(n) ? Number(n) : null;
@@ -407,8 +489,29 @@ class Bridge extends EventEmitter {
 
   _guard(what) {
     if (this.readOnly) throw new CwError(22, "read-only: the bridge's writes belong to another program");
+    if (this.mapMismatch) throw new CwError(22, MISMATCH);
     if (!this.connected || !this.seeded) throw new CwError(20);
+    if (this.writesRefused) throw new CwError(21, REFUSED);
     if (what === "mailbox" && !this.mb.length) throw new CwError(22, "the config has no request mailbox");
+  }
+
+  // Resolves after the first read of this connection.
+  _firstRead() {
+    if (this.haveInput) return Promise.resolve();
+    return new Promise((resolve, reject) => this.readWaiters.push({ resolve, reject }));
+  }
+
+  // An rx_close or cyclic_stop for a slot no node owns any more; stop() waits for it.
+  _closeSlot(op, slot) {
+    const p = this.withMailbox((lease) => lease.call(op, 0, [slot])).catch(() => {});
+    this.closing.add(p);
+    p.then(() => this.closing.delete(p));
+    return p;
+  }
+
+  _closeReceiver(slot, gen) {
+    this.rxClosing.set(slot, gen);
+    return this._closeSlot(L.ops.rx_close, slot);
   }
 
   // ---- NMT through the control block ----
@@ -534,8 +637,8 @@ class Bridge extends EventEmitter {
   // ---- request mailboxes ----
 
   // Runs fn(lease) on the first free request mailbox, in the order the
-  // jobs asked; the job keeps the mailbox until fn ends.
-  withMailbox(fn) {
+  // jobs asked (`first`: ahead of them); the job keeps the mailbox until fn ends.
+  withMailbox(fn, first) {
     return new Promise((resolve, reject) => {
       try {
         this._guard("mailbox");
@@ -547,7 +650,8 @@ class Bridge extends EventEmitter {
         reject(new CwError(5, undefined, { queueFull: true }));
         return;
       }
-      this.mbWait.push({ fn, resolve, reject });
+      if (first) this.mbWait.unshift({ fn, resolve, reject });
+      else this.mbWait.push({ fn, resolve, reject });
       this._mbNext();
     });
   }
@@ -629,6 +733,8 @@ class Bridge extends EventEmitter {
     const tick = w(4);
     const gen = (slot) => img[rb + 10 + slot];
     for (const rx of this.receivers) if (rx.slot !== null) rx._check(tick, gen(rx.slot));
+    const opening = [...this.receivers].some((rx) => rx.opening);
+    if (!opening) this._sweep(gen);
     const seq = w(0);
     if (this.rxBusy || seq === this.rxSeq) return;
     const present = w(1) * 65536 + w(2);
@@ -643,16 +749,32 @@ class Bridge extends EventEmitter {
     let us = 0n;
     for (let k = 0; k < 4; k++) us = (us << 16n) | BigInt(w(L.batchTimeWord + k));
     const records = parseRecords(words, us);
-    const opening = [...this.receivers].some((rx) => rx.opening);
     // Records of a receiver whose open answer came in this same read: take
     // the batch next poll, once the receiver knows its slot.
     if (opening && records.some((r) => !this.rxBySlot.has(r.slot))) return;
-    for (let slot = 0; slot < L.maxReceivers; slot++)
-      if (gen(slot) && !this.rxBySlot.has(slot) && !opening) this.rxOrphans.add(slot);
     this.rxBusy = true;
     this._deliver(seq, records, tick).finally(() => {
       this.rxBusy = false;
     });
+  }
+
+  // Closes every open receiver no node owns: one of an earlier connection
+  // or Deploy of this flow, also when it gets no records. Once no receiver
+  // waits for its open answer, so each open slot has its owner.
+  _sweep(gen) {
+    if (!this.seeded || this.writesRefused) return;
+    for (let slot = 0; slot < L.maxReceivers; slot++) {
+      const g = gen(slot);
+      if (g && !this.rxBySlot.has(slot) && this.rxClosing.get(slot) !== g) this._closeReceiver(slot, g);
+    }
+    if (!this.sweepWaiters.length) return;
+    const waiting = this.sweepWaiters.splice(0);
+    Promise.allSettled([...this.closing]).then(() => waiting.forEach((f) => f()));
+  }
+
+  // Resolves after the next sweep's closes.
+  _afterSweep() {
+    return new Promise((resolve) => this.sweepWaiters.push(resolve));
   }
 
   async _deliver(seq, records, tick) {
@@ -661,7 +783,8 @@ class Bridge extends EventEmitter {
       if (!rx || !rx.fresh(tick)) continue;
       if (rec.long) {
         try {
-          rec.data = await this.withMailbox((lease) => fetchAll(lease, L.ops.rx_fetch, rx.net, [rec.slot, 0], 1785, 0));
+          // Ahead of waiting jobs: the bridge closes the batch's receivers when its fetch stalls.
+          rec.data = await this.withMailbox((lease) => fetchAll(lease, L.ops.rx_fetch, rx.net, [rec.slot, 0], 1785, 0), true);
         } catch (e) {
           rx._error(e.errorId || 8);
           continue;
@@ -673,11 +796,6 @@ class Bridge extends EventEmitter {
     if (!this.connected) return;
     this.rxSeq = seq;
     this.ack = { seq };
-    for (const slot of this.rxOrphans) {
-      this.rxOrphans.delete(slot);
-      // A receiver of an earlier run of this flow: close it, so its records stop.
-      this.withMailbox((lease) => lease.call(L.ops.rx_close, 0, [slot])).catch(() => {});
-    }
   }
 
   // ---- cyclic jobs ----
@@ -686,6 +804,14 @@ class Bridge extends EventEmitter {
     const j = new Cyclic(this, handlers);
     this.cyclics.add(j);
     return j;
+  }
+
+  // The generation of the cyclic job running in `slot`, 0 when none runs.
+  _jobGen(slot) {
+    const c = this.lay.mailboxes && this.lay.mailboxes.cyclic;
+    if (!c || slot >= c.jobs) return 0;
+    const at = c.table + 2 + slot * 2 * L.jobWords;
+    return this.inImg[at] ? be16(this.inImg, at + 2) : 0;
   }
 
   _cyclicTable() {
@@ -803,6 +929,7 @@ class Receiver {
     this.opening = false;
     this.closed = false;
     this.retryTimer = null;
+    this.retriedFull = false;
     this.net = spec.net;
   }
 
@@ -820,9 +947,10 @@ class Receiver {
       this.opening = false;
       if (a.error) throw new CwError(a.error);
       if (this.closed) {
-        this.b.withMailbox((lease) => lease.call(L.ops.rx_close, 0, [a.r[0]])).catch(() => {});
+        this.b._closeReceiver(a.r[0], a.r[1]);
         return;
       }
+      this.retriedFull = false;
       this.slot = a.r[0];
       this.gen = a.r[1];
       this.tick0 = a.r[2];
@@ -870,7 +998,13 @@ class Receiver {
     const id = e.errorId || 20;
     this.h.error(id, e);
     if (this.closed) return;
-    if ((this.spec.retry || []).includes(id)) {
+    if (id === this.spec.full && !this.retriedFull) {
+      // The bridge's receivers are all open: once more, after the bridge node closed the ones no node owns.
+      this.retriedFull = true;
+      this.b._afterSweep().then(() => {
+        if (this.b.connected) this._open();
+      });
+    } else if ((this.spec.retry || []).includes(id)) {
       clearTimeout(this.retryTimer);
       this.retryTimer = setTimeout(() => {
         if (this.b.connected) this._open();
@@ -893,7 +1027,7 @@ class Receiver {
     this.b.receivers.delete(this);
     const slot = this.slot;
     this._drop();
-    if (slot !== null && this.b.connected) this.b.withMailbox((lease) => lease.call(L.ops.rx_close, 0, [slot])).catch(() => {});
+    if (slot !== null && this.b.connected) this.b._closeReceiver(slot, this.gen);
   }
 }
 
@@ -908,6 +1042,8 @@ class Cyclic {
     this.synced = false;
     this.frame = null;
     this.keep = 0;
+    this.old = null; // {slot, gen} of the job before a reconnect, which may still run
+    this.closed = false;
     this.chain = Promise.resolve();
   }
 
@@ -930,9 +1066,31 @@ class Cyclic {
   async _set(frame) {
     const c = this.b.lay.mailboxes && this.b.lay.mailboxes.cyclic;
     if (!c) throw new CwError(22, "the config has no cyclic jobs");
-    const args = [this.slot === null ? 0xffff : this.slot, Math.floor(frame.id / 65536) & 0xffff, frame.id & 0xffff,
-      ((frame.extended ? 1 : 0) << 8) | frame.dlc, frame.period, 0];
-    const a = await this.b.withMailbox((lease) => lease.call(L.ops.cyclic_set, frame.net, args, frame.data));
+    let slot = this.slot;
+    if (slot === null && this.old) {
+      // After a reconnect the old job may still run: take it over instead of starting a second one.
+      const old = this.old;
+      this.old = null;
+      await this.b._firstRead();
+      if (this.b._jobGen(old.slot) === old.gen) slot = old.slot;
+    }
+    const send = (at) => {
+      const args = [at === null ? 0xffff : at, Math.floor(frame.id / 65536) & 0xffff, frame.id & 0xffff,
+        ((frame.extended ? 1 : 0) << 8) | frame.dlc, frame.period, 0];
+      return this.b.withMailbox((lease) => lease.call(L.ops.cyclic_set, frame.net, args, frame.data));
+    };
+    let a = await send(slot);
+    if (a.error === 8 && slot !== null && this.slot === null) {
+      slot = null; // the old job ended meanwhile
+      a = await send(null);
+    }
+    if (a.error === 5 && slot === null) {
+      // No free job: once more after the stops on their way, or after the
+      // bridge's keepalive timeout ended a job of an earlier Deploy.
+      if (this.b.closing.size) await Promise.allSettled([...this.b.closing]);
+      else await new Promise((r) => setTimeout(r, 1100));
+      a = await send(null);
+    }
     if (a.error) {
       if (a.error === 8 && this.slot !== null) this._forget();
       throw new CwError(a.error);
@@ -945,6 +1103,7 @@ class Cyclic {
       this.synced = false;
       this.b.jobBySlot.set(this.slot, this);
     }
+    if (this.closed) this._end();
     return true;
   }
 
@@ -982,14 +1141,24 @@ class Cyclic {
 
   _lost() {
     if (this.slot === null) return;
+    this.old = { slot: this.slot, gen: this.gen };
     this._forget();
     this.h.ended(20);
   }
 
-  close() {
-    this.b.cyclics.delete(this);
-    if (this.slot !== null && this.b.connected) this.stop().catch(() => {});
+  // Stops the job on the bridge now, for the slot it has at this moment.
+  _end() {
+    const slot = this.slot;
+    this.frame = null;
     this._forget();
+    if (slot !== null && this.b.connected) this.b._closeSlot(L.ops.cyclic_stop, slot);
+  }
+
+  close() {
+    this.closed = true;
+    this.old = null;
+    this.b.cyclics.delete(this);
+    this._end();
   }
 }
 

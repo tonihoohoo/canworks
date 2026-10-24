@@ -119,7 +119,64 @@ async function main() {
   await sleep(300);
   check(rxErrors() === errs, "no ERROR_ID 8 after the restart's first jobs");
 
+  console.log("5. receivers across reconnects and Deploys");
+  // Open receivers as the bridge shows them (their generations in the receive block).
+  const openSlots = (br) => {
+    const at = br.lay.mailboxes.receive.block + 10;
+    const out = [];
+    for (let s = 0; s < 32; s++) if (br.inImg[at + s]) out.push(s);
+    return out;
+  };
+  const quiet = [add("canworks-can-receive", { can_id: "0x7ff" }), add("canworks-emcy", { node: "99" })];
+  const owned = () => [rx, ...quiet].every((x) => x.cwOwn && /receiving/.test(x.cwOwn.text));
+  check(await until(() => owned() && openSlots(b).length === 3), "three receivers open (" + openSlots(b) + ")");
+  let ok = true;
+  for (let i = 0; i < 16 && ok; i++) {
+    const before = b.client;
+    b.client.close(); // what a Modbus timeout does: the bridge keeps its receivers
+    ok = await until(() => b.client !== before && b.connected && b.haveInput && owned() && openSlots(b).length === 3, 10000);
+  }
+  check(ok, "16 reconnects leave the bridge with the flow's three receivers (" + openSlots(b) + ")");
+  const hb0 = rx.sent.length;
+  check(await until(() => rx.sent.length > hb0 + 2, 5000), "and they still receive");
   await rt.close();
+  let deployed = null, open = [];
+  for (let i = 0; i < 4; i++) {
+    deployed = makeRuntime();
+    deployed.load(flow);
+    const d = deployed.nodes.get(B).bridge;
+    const r = [["canworks-can-receive", { can_id: "0x7ff" }], ["canworks-emcy", {}]].map(([type, f], k) =>
+      deployed.add(Object.assign({ id: "d" + k, type, z: "t", bridge: B }, f)));
+    await until(() => d.haveInput && r.every((x) => x.cwOwn && /receiving/.test(x.cwOwn.text)), 10000);
+    await sleep(100);
+    open.push(openSlots(d).length);
+    if (i < 3) await deployed.close();
+  }
+  check(open.every((n) => n === 2), "four full Deploys of two receivers: " + open.join(", ") + " open");
+
+  console.log("6. map hash by device identification");
+  const d = deployed.nodes.get(B).bridge;
+  const want = (d.lay.mapHash >>> 0).toString(16).toUpperCase().padStart(8, "0");
+  if (!d.identity) {
+    console.log("    skip the bridge does not answer device identification (exception 1): an older canworks-bridge");
+  } else {
+    check(d.identity.mapHash === want && !d.mapMismatch, "the bridge's map hash is the flow's (" + d.identity.mapHash + ")");
+    const stale = JSON.parse(JSON.stringify(flow));
+    const cfgNode = stale.find((x) => x.type === "canworks-bridge");
+    const lay = JSON.parse(cfgNode.layout);
+    lay.mapHash = (lay.mapHash + 1) >>> 0;
+    cfgNode.layout = JSON.stringify(lay);
+    const old = makeRuntime();
+    const oldMade = old.load(stale);
+    const ob = old.nodes.get(B).bridge;
+    check(await until(() => ob.state === "mismatch", 5000), "a flow from another map shows " + JSON.stringify(ob.status && ob.status.text));
+    const oldOut = oldMade.find((x) => x.type === "canworks-out");
+    await old.input(oldOut, { topic: "dio.0x6200:1", payload: 1 });
+    check(/map mismatch/.test(oldOut.warnings[0] || ""), "and its canworks out writes nothing");
+    await old.close();
+  }
+
+  await deployed.close();
   await stopBridge();
   console.log(fails.length ? fails.length + " FAILED" : "all passed");
   process.exit(fails.length ? 1 : 0);

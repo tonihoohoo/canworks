@@ -495,6 +495,278 @@ test("read-only: values come in, nothing is written, jobs end with 22", async ()
   await finish(t);
 });
 
+// ---- bug hunt 2026-10-24 (nodered-blocks) ----
+
+// Open receive slots as the bridge shows them.
+const openSlots = (model) => [...model.rxSlots.keys()].sort((a, b) => a - b);
+
+test("receivers: 16 reconnects leave the bridge with the flow's two receivers, and both still receive", async () => {
+  const t = setup();
+  const a = t.add("canworks-can-receive", { network: "field", can_id: "0x7ff" });
+  const e = t.add("canworks-emcy", { network: "field" });
+  await ready(t);
+  await t.rt.until(() => t.model.rxSlots.size === 2, 2000, "both open");
+  for (let i = 0; i < 16; i++) {
+    const n = t.model.connects;
+    t.bridge.client.close(); // what a Modbus timeout does: the bridge keeps its receivers
+    await t.rt.until(() => t.bridge.state === "reconnecting", 1000);
+    clearTimeout(t.bridge.timer); // no reconnect delay in the test
+    t.bridge._connect();
+    await t.rt.until(() => t.model.connects === n + 1 && t.bridge.seeded, 5000, "reconnect " + (i + 1));
+    await t.rt.until(() => t.model.rxSlots.size === 2 && [...t.bridge.receivers].every((rx) => rx.slot !== null), 3000,
+      "two receivers after reconnect " + (i + 1) + ": " + openSlots(t.model));
+  }
+  const ca = t.model.slotOf("can"), ce = t.model.slotOf("emcy");
+  const n0 = a.sent.length, n1 = e.sent.length;
+  t.model.push([canRecord(ca, 0x7ff, [1], 0), { slot: ce, kind: "emcy", body: [(6 << 8) | 1, 0x8130, 0, 0, 0] }]);
+  await t.rt.until(() => a.sent.length > n0 && e.sent.length > n1, 2000, "both receive");
+  assert.strictEqual(a.sent[a.sent.length - 1].canworks.status, "done");
+  assert.strictEqual(e.sent[e.sent.length - 1].canworks.status, "done");
+  await finish(t);
+});
+
+test("receivers: four full Deploys leave two receivers open; a Deploy closes them before it disconnects", async () => {
+  const t = setup();
+  const flow = JSON.parse(JSON.stringify(FLOW));
+  flow.find((n) => n.type === "canworks-bridge").layout = JSON.stringify(t.lay);
+  const deploy = () => {
+    const rt = makeRuntime();
+    rt.load(flow);
+    const B = flow.find((n) => n.type === "canworks-bridge").id;
+    rt.add({ id: "e", type: "canworks-emcy", z: "t", bridge: B, network: "field" });
+    rt.add({ id: "r", type: "canworks-can-receive", z: "t", bridge: B, network: "field", can_id: "0x7ff" });
+    return rt;
+  };
+  await finish(t);
+  Bridge.clientFactory = t.model.factory();
+  for (let i = 0; i < 4; i++) {
+    const rt = deploy();
+    await rt.until(() => t.model.rxSlots.size === 2, 3000, "deploy " + (i + 1) + ": two open, not " + openSlots(t.model));
+    await sleep(50);
+    assert.deepStrictEqual(openSlots(t.model), [0, 1], "deploy " + (i + 1));
+    await rt.close();
+    assert.strictEqual(t.model.rxSlots.size, 0, "deploy " + (i + 1) + ": closed on the way out");
+  }
+  Bridge.clientFactory = null;
+});
+
+test("receivers: slots an earlier run left open are closed with no records; ERROR_ID 5 is tried again after that", async () => {
+  const t = setup(null, {
+    before: (m) => {
+      // Every receiver of the bridge taken by an earlier run of the flow.
+      for (let s = 0; s < L.maxReceivers; s++) {
+        m.rxGen[s] = s + 1;
+        m.rxSlots.set(s, { gen: s + 1, kind: 1, args: [], net: 0 });
+      }
+      m._writeGens();
+    },
+  });
+  const rx = t.add("canworks-can-receive", { network: "field", can_id: "0x181" });
+  await ready(t);
+  await t.rt.until(() => rx.sent.length >= 1, 2000, "the ERROR_ID 5 message");
+  assert.strictEqual(rx.sent[0].canworks.errorId, 5);
+  await t.rt.until(() => t.model.slotOf("can") >= 0 && t.model.rxSlots.size === 1, 3000, "only the flow's receiver: " + openSlots(t.model));
+  await t.rt.until(() => /receiving/.test(last(rx).text || ""), 1000, "receiving: " + JSON.stringify(rx.statuses));
+  await finish(t);
+});
+
+test("form value wins over an inject's timestamp in msg.payload (SDO write of 2, 4 and 8 bytes)", async () => {
+  const t = setup();
+  t.model.od.set("5:8192:0", 0);
+  t.model.ops[L.ops.sdo_write] = () => ({});
+  await ready(t);
+  for (const [datatype, size] of [["unsigned", "2"], ["real", "4"], ["unsigned", "8"]]) {
+    const w = t.add("canworks-sdo", { node: "5", index: "0x2000", action: "write", datatype, size, value: "10" });
+    const m = await run(t, w, { payload: Date.now() });
+    assert.strictEqual(m.canworks.status, "done", datatype + size + ": " + m.canworks.text);
+    assert.strictEqual(m.canworks.request.value, "10");
+  }
+  const sdo = t.model.sdos;
+  assert.strictEqual(sdo[0].value, 10);
+  const f = Buffer.alloc(4);
+  f.writeFloatLE(10);
+  assert.strictEqual(sdo[1].value, f.readUInt32LE(0));
+  const big = t.model.calls.find((c) => c.op === L.ops.sdo_write);
+  assert.deepStrictEqual([...big.data.subarray(0, 8)], [10, 0, 0, 0, 0, 0, 0, 0]);
+  // An empty form value still takes msg.payload; so do the other nodes' main fields.
+  const send = t.add("canworks-can-send", { network: "field", can_id: "0x123", data: "01" });
+  await run(t, send, { payload: "0203" });
+  assert.deepStrictEqual([...t.model.calls[t.model.calls.length - 1].data.subarray(0, 2)], [1, 0]);
+  const nmt = t.add("canworks-nmt", { command: "", node: "6" });
+  await run(t, nmt, { payload: "stop" });
+  assert.strictEqual(t.model.controls[0].cmd, 4);
+  await finish(t);
+});
+
+test("can cyclic with cyclic_jobs 1: a changed node stops the old job, a reconnect takes it over", async () => {
+  const t = setup((lay) => (lay.mailboxes.cyclic.jobs = 1));
+  const fields = { network: "field", can_id: "0x321", data: "aa", period: "100" };
+  const a = t.add("canworks-can-cyclic", fields);
+  await ready(t);
+  let m = await run(t, a);
+  assert.strictEqual(m.canworks.status, "done");
+  // A Deploy of the changed node: Node-RED closes the old one and makes a new one.
+  for (const fn of a.handlers.close) fn();
+  const b = t.add("canworks-can-cyclic", Object.assign({}, fields, { period: "200" }));
+  m = await run(t, b);
+  assert.strictEqual(m.canworks.status, "done", m.canworks.text);
+  const ops = t.model.calls.map((c) => c.op).filter((op) => op === L.ops.cyclic_set || op === L.ops.cyclic_stop);
+  assert.deepStrictEqual(ops, [L.ops.cyclic_set, L.ops.cyclic_stop, L.ops.cyclic_set]);
+  assert.strictEqual(t.model.jobs.size, 1);
+  assert.strictEqual(t.model.jobs.get(0).frame.args[4], 200, "only the new frame");
+  // The connection drops; the job still runs on the bridge and is taken over.
+  const n = t.model.connects;
+  t.bridge.client.close();
+  await t.rt.until(() => t.model.connects === n + 1 && t.bridge.seeded, 5000, "reconnected");
+  await t.rt.until(() => t.model.calls.filter((c) => c.op === L.ops.cyclic_set).length === 3, 3000, "set again");
+  await sleep(50);
+  const again = t.model.calls.filter((c) => c.op === L.ops.cyclic_set)[2];
+  assert.strictEqual(again.args[0], 0, "the old slot");
+  assert.ok(b.sent.every((x) => x.canworks.errorId !== 5), "no ERROR_ID 5: " + b.sent.map((x) => x.canworks.errorId));
+  assert.match(last(b).text, /sending every 200 ms/);
+  await finish(t);
+});
+
+test("an output set while the bridge stalls is written after the reconnect", async () => {
+  const t = setup();
+  await ready(t);
+  await t.rt.input(t.outNode, { topic: "dio.0x6200:1", payload: 0x11 });
+  await t.rt.until(() => t.model.hold[0] >> 8 === 0x11, 1000, "0x11 written");
+  t.model.stalled = true;
+  await sleep(30);
+  await t.rt.input(t.outNode, { topic: "dio.0x6200:1", payload: 0x22 });
+  assert.match(last(t.outNode).text, /= 34/);
+  await sleep(30);
+  t.model.stalled = false;
+  const n = t.model.connects;
+  t.bridge.client.close(); // the Modbus timeout
+  await t.rt.until(() => t.model.connects === n + 1 && t.bridge.seeded, 5000, "reconnected");
+  await t.rt.until(() => t.model.hold[0] >> 8 === 0x22, 1000, "34 written after the reconnect, not " + (t.model.hold[0] >> 8));
+  await finish(t);
+});
+
+test("writes refused: jobs end at once with ERROR_ID 21", async () => {
+  const t = setup(null, { before: (m) => (m.refuseWrites = true) });
+  const sdo = t.add("canworks-sdo", { node: "5", index: "0x1000" });
+  const send = t.add("canworks-can-send", { network: "field", can_id: "0x123", data: "01" });
+  await t.rt.until(() => t.bridge.connected && t.bridge.writesRefused, 2000, "refused");
+  const t0 = Date.now();
+  const within = (p) => Promise.race([p, sleep(1000).then(() => ({ canworks: { errorId: "none within 1 s" } }))]);
+  for (const node of [sdo, send]) {
+    const m = await within(run(t, node));
+    assert.strictEqual(m.canworks.errorId, 21);
+    assert.strictEqual(m.canworks.text, "writes refused: add Node-RED's address to the bridge's writers");
+  }
+  assert.ok(Date.now() - t0 < 500);
+  await finish(t);
+});
+
+test("a long receive record's fetch goes ahead of waiting jobs on a busy mailbox", async () => {
+  const t = setup((lay) => (lay.mailboxes.requests = lay.mailboxes.requests.slice(0, 1)));
+  const long = Buffer.alloc(200).map((_, i) => i & 255);
+  t.model.ops[L.ops.rx_fetch] = () => ({ r: [long.length], data: long.subarray(0, L.chunk) });
+  t.model.ops[L.ops.fetch] = (req) => ({ r: [long.length], data: long.subarray(req.args[0], req.args[0] + L.chunk) });
+  const read = sdoReadOp({ "6:8192:1": Buffer.from("one"), "6:8192:2": Buffer.from("two") });
+  t.model.ops[L.ops.sdo_read] = (req) => sleep(150).then(() => read(req));
+  const rx = t.add("canworks-j1939-receive", { network: "truck", pgn: "0xfeca" });
+  const sdo = t.add("canworks-sdo", { node: "6", index: "0x2000", datatype: "string" });
+  await ready(t);
+  await t.rt.until(() => t.model.slotOf("j1939") >= 0, 2000);
+  const jobs = Promise.all([1, 2].map((s) => t.rt.input(sdo, { payload: { subindex: s } })));
+  await sleep(40);
+  t.model.push([{ slot: t.model.slotOf("j1939"), kind: "j1939", flags: L.recordFlags.long, body: [0, 0xfeca, (0x21 << 8) | 0xff, 6, 200] }]);
+  await jobs;
+  await t.rt.until(() => rx.sent.length === 1, 2000);
+  assert.deepStrictEqual(rx.sent[0].payload.data, long);
+  const order = t.model.calls.map((c) => c.op).filter((op) => op === L.ops.sdo_read || op === L.ops.rx_fetch);
+  assert.deepStrictEqual(order, [L.ops.sdo_read, L.ops.rx_fetch, L.ops.sdo_read]);
+  await finish(t);
+});
+
+test("map hash by device identification: a mismatch refuses writes and jobs, an older bridge gives a warning", async () => {
+  let t = setup(null, { before: (m) => (m.deviceId[0x80] = "DEADBEEF") });
+  const sdo = t.add("canworks-sdo", { node: "5", index: "0x1000" });
+  await t.rt.until(() => t.bridge.connected, 2000, "connected");
+  assert.deepStrictEqual(t.model.idReads[0], [4, 0x80]);
+  await t.rt.until(() => /map mismatch: export the flow again/.test(last(t.inNode).text || ""), 1000, "the status");
+  await t.rt.input(t.outNode, { topic: "dio.0x6200:1", payload: 3 });
+  assert.match(t.outNode.warnings[0], /map mismatch/);
+  const m = await run(t, sdo);
+  assert.strictEqual(m.canworks.errorId, 22);
+  assert.match(m.canworks.text, /map mismatch/);
+  await sleep(50);
+  assert.strictEqual(t.model.writes.length, 0, "nothing written");
+  await finish(t);
+
+  t = setup(null, { before: (m) => (m.deviceIdException = 1) });
+  await ready(t);
+  const cfg = t.rt.nodes.get(t.B);
+  assert.strictEqual(cfg.warnings.length, 1);
+  assert.match(cfg.warnings[0], /older canworks-bridge/);
+  await t.rt.input(t.outNode, { topic: "dio.0x6200:1", payload: 3 });
+  await t.rt.until(() => t.model.hold[0] >> 8 === 3, 1000, "written");
+  await finish(t);
+
+  t = setup();
+  await ready(t);
+  assert.strictEqual(t.bridge.identity.mapHash, t.model.deviceId[0x80]);
+  assert.strictEqual(t.rt.nodes.get(t.B).warnings.length, 0);
+  await finish(t);
+});
+
+test("the Modbus client reads device identification (43/14) and its exception", async () => {
+  const net = require("net");
+  const { ModbusClient } = require(path.join(PACKAGE, "lib", "modbus"));
+  let answer = null;
+  const server = net.createServer((s) => s.on("data", (d) => {
+    const pdu = answer(d.subarray(7));
+    const head = Buffer.from([d[0], d[1], 0, 0, 0, 0, d[6]]);
+    head.writeUInt16BE(pdu.length + 1, 4);
+    s.write(Buffer.concat([head, pdu]));
+  }));
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const c = new ModbusClient({ host: "127.0.0.1", port: server.address().port });
+  await c.connect();
+  let got = null;
+  answer = (req) => {
+    got = [...req];
+    return Buffer.concat([Buffer.from([0x2b, 0x0e, 4, 0x83, 0, 0, 1, 0x80, 8]), Buffer.from("00C0FFEE")]);
+  };
+  const id = await c.readDeviceId(4, 0x80);
+  assert.deepStrictEqual(got, [0x2b, 0x0e, 4, 0x80]);
+  assert.strictEqual(id.objects[0x80].toString(), "00C0FFEE");
+  assert.strictEqual(id.more, false);
+  answer = () => Buffer.concat([Buffer.from([0x2b, 0x0e, 1, 0x81, 0, 0, 2, 0, 8]), Buffer.from("canworks"), Buffer.from([1, 2]), Buffer.from("cw")]);
+  assert.deepStrictEqual(Object.keys((await c.readDeviceId(1, 0)).objects), ["0", "1"]);
+  answer = () => Buffer.from([0xab, 0x01]);
+  await assert.rejects(c.readDeviceId(4, 0x80), (e) => e.code === "exception1");
+  c.close();
+  server.close();
+});
+
+test("node checks: no J1939 network is ERROR_ID 10, source 254 refused, REAL refuses NaN, SDO timeout from the layout", async () => {
+  const t = setup((lay) => {
+    lay.networks = lay.networks.filter((n) => n.name !== "truck");
+    lay.sdoTimeoutMs = 1234;
+  });
+  const send = t.add("canworks-j1939-send", { pgn: "0xfeca", data: "01" });
+  const sdo = t.add("canworks-sdo", { node: "6", index: "0x1008", datatype: "string" });
+  withFetch(t.model, { "6:4104:0": Buffer.from("x") });
+  await ready(t);
+  const m = await run(t, send);
+  assert.strictEqual(m.canworks.errorId, 10);
+  assert.strictEqual(m.canworks.text, "the config has no J1939 network");
+  await run(t, sdo);
+  assert.strictEqual(t.model.calls.find((c) => c.op === L.ops.sdo_read).args[3], 1234);
+  const codec = require(path.join(PACKAGE, "lib", "codec"));
+  for (const v of [NaN, Infinity, "-Infinity"]) assert.match(codec.encode(Buffer.alloc(4), { k: "real", size: 4, b: 0 }, v) || "", /finite/);
+  await finish(t);
+  const u = setup();
+  const rx = u.add("canworks-j1939-receive", { network: "truck", pgn: "0xfeca", source: "254" });
+  assert.match(rx.cwOwn.text, /ERROR_ID 3: source must be 0-253/);
+  await finish(u);
+});
+
 test("a bridge node without a layout refuses to start", async () => {
   const rt = makeRuntime();
   const b = rt.add({ id: "b", type: "canworks-bridge", host: "127.0.0.1", port: 1502, layout: "" });
